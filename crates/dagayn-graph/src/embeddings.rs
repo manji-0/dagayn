@@ -1,5 +1,5 @@
 use crate::{GraphError, Result};
-use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -301,44 +301,46 @@ fn dot(left: &[f32], right: &[f32]) -> f32 {
 
 #[cfg(target_arch = "aarch64")]
 unsafe fn dot_neon(left: &[f32], right: &[f32]) -> f32 {
-    use std::arch::aarch64::{vaddvq_f32, vdupq_n_f32, vfmaq_f32, vld1q_f32};
+    unsafe {
+        use std::arch::aarch64::{vaddvq_f32, vdupq_n_f32, vfmaq_f32, vld1q_f32};
 
-    let len = left.len().min(right.len());
-    let mut i = 0;
-    let mut acc0 = vdupq_n_f32(0.0);
-    let mut acc1 = vdupq_n_f32(0.0);
-    let mut acc2 = vdupq_n_f32(0.0);
-    let mut acc3 = vdupq_n_f32(0.0);
+        let len = left.len().min(right.len());
+        let mut i = 0;
+        let mut acc0 = vdupq_n_f32(0.0);
+        let mut acc1 = vdupq_n_f32(0.0);
+        let mut acc2 = vdupq_n_f32(0.0);
+        let mut acc3 = vdupq_n_f32(0.0);
 
-    while i + 16 <= len {
-        let a0 = vld1q_f32(left.as_ptr().add(i));
-        let b0 = vld1q_f32(right.as_ptr().add(i));
-        let a1 = vld1q_f32(left.as_ptr().add(i + 4));
-        let b1 = vld1q_f32(right.as_ptr().add(i + 4));
-        let a2 = vld1q_f32(left.as_ptr().add(i + 8));
-        let b2 = vld1q_f32(right.as_ptr().add(i + 8));
-        let a3 = vld1q_f32(left.as_ptr().add(i + 12));
-        let b3 = vld1q_f32(right.as_ptr().add(i + 12));
-        acc0 = vfmaq_f32(acc0, a0, b0);
-        acc1 = vfmaq_f32(acc1, a1, b1);
-        acc2 = vfmaq_f32(acc2, a2, b2);
-        acc3 = vfmaq_f32(acc3, a3, b3);
-        i += 16;
+        while i + 16 <= len {
+            let a0 = vld1q_f32(left.as_ptr().add(i));
+            let b0 = vld1q_f32(right.as_ptr().add(i));
+            let a1 = vld1q_f32(left.as_ptr().add(i + 4));
+            let b1 = vld1q_f32(right.as_ptr().add(i + 4));
+            let a2 = vld1q_f32(left.as_ptr().add(i + 8));
+            let b2 = vld1q_f32(right.as_ptr().add(i + 8));
+            let a3 = vld1q_f32(left.as_ptr().add(i + 12));
+            let b3 = vld1q_f32(right.as_ptr().add(i + 12));
+            acc0 = vfmaq_f32(acc0, a0, b0);
+            acc1 = vfmaq_f32(acc1, a1, b1);
+            acc2 = vfmaq_f32(acc2, a2, b2);
+            acc3 = vfmaq_f32(acc3, a3, b3);
+            i += 16;
+        }
+
+        while i + 4 <= len {
+            let a = vld1q_f32(left.as_ptr().add(i));
+            let b = vld1q_f32(right.as_ptr().add(i));
+            acc0 = vfmaq_f32(acc0, a, b);
+            i += 4;
+        }
+
+        let mut sum = vaddvq_f32(acc0) + vaddvq_f32(acc1) + vaddvq_f32(acc2) + vaddvq_f32(acc3);
+        while i < len {
+            sum += *left.get_unchecked(i) * *right.get_unchecked(i);
+            i += 1;
+        }
+        sum
     }
-
-    while i + 4 <= len {
-        let a = vld1q_f32(left.as_ptr().add(i));
-        let b = vld1q_f32(right.as_ptr().add(i));
-        acc0 = vfmaq_f32(acc0, a, b);
-        i += 4;
-    }
-
-    let mut sum = vaddvq_f32(acc0) + vaddvq_f32(acc1) + vaddvq_f32(acc2) + vaddvq_f32(acc3);
-    while i < len {
-        sum += *left.get_unchecked(i) * *right.get_unchecked(i);
-        i += 1;
-    }
-    sum
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -358,95 +360,101 @@ fn dot(left: &[f32], right: &[f32]) -> f32 {
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx")]
 unsafe fn dot_avx(left: &[f32], right: &[f32]) -> f32 {
-    use std::arch::x86_64::{
-        _mm256_add_ps, _mm256_loadu_ps, _mm256_mul_ps, _mm256_setzero_ps, _mm256_storeu_ps,
-    };
+    unsafe {
+        use std::arch::x86_64::{
+            _mm256_add_ps, _mm256_loadu_ps, _mm256_mul_ps, _mm256_setzero_ps, _mm256_storeu_ps,
+        };
 
-    let len = left.len().min(right.len());
-    let mut i = 0;
-    let mut acc0 = _mm256_setzero_ps();
-    let mut acc1 = _mm256_setzero_ps();
-    let mut acc2 = _mm256_setzero_ps();
-    let mut acc3 = _mm256_setzero_ps();
+        let len = left.len().min(right.len());
+        let mut i = 0;
+        let mut acc0 = _mm256_setzero_ps();
+        let mut acc1 = _mm256_setzero_ps();
+        let mut acc2 = _mm256_setzero_ps();
+        let mut acc3 = _mm256_setzero_ps();
 
-    while i + 32 <= len {
-        let a0 = _mm256_loadu_ps(left.as_ptr().add(i));
-        let b0 = _mm256_loadu_ps(right.as_ptr().add(i));
-        let a1 = _mm256_loadu_ps(left.as_ptr().add(i + 8));
-        let b1 = _mm256_loadu_ps(right.as_ptr().add(i + 8));
-        let a2 = _mm256_loadu_ps(left.as_ptr().add(i + 16));
-        let b2 = _mm256_loadu_ps(right.as_ptr().add(i + 16));
-        let a3 = _mm256_loadu_ps(left.as_ptr().add(i + 24));
-        let b3 = _mm256_loadu_ps(right.as_ptr().add(i + 24));
-        acc0 = _mm256_add_ps(acc0, _mm256_mul_ps(a0, b0));
-        acc1 = _mm256_add_ps(acc1, _mm256_mul_ps(a1, b1));
-        acc2 = _mm256_add_ps(acc2, _mm256_mul_ps(a2, b2));
-        acc3 = _mm256_add_ps(acc3, _mm256_mul_ps(a3, b3));
-        i += 32;
+        while i + 32 <= len {
+            let a0 = _mm256_loadu_ps(left.as_ptr().add(i));
+            let b0 = _mm256_loadu_ps(right.as_ptr().add(i));
+            let a1 = _mm256_loadu_ps(left.as_ptr().add(i + 8));
+            let b1 = _mm256_loadu_ps(right.as_ptr().add(i + 8));
+            let a2 = _mm256_loadu_ps(left.as_ptr().add(i + 16));
+            let b2 = _mm256_loadu_ps(right.as_ptr().add(i + 16));
+            let a3 = _mm256_loadu_ps(left.as_ptr().add(i + 24));
+            let b3 = _mm256_loadu_ps(right.as_ptr().add(i + 24));
+            acc0 = _mm256_add_ps(acc0, _mm256_mul_ps(a0, b0));
+            acc1 = _mm256_add_ps(acc1, _mm256_mul_ps(a1, b1));
+            acc2 = _mm256_add_ps(acc2, _mm256_mul_ps(a2, b2));
+            acc3 = _mm256_add_ps(acc3, _mm256_mul_ps(a3, b3));
+            i += 32;
+        }
+
+        while i + 8 <= len {
+            let a = _mm256_loadu_ps(left.as_ptr().add(i));
+            let b = _mm256_loadu_ps(right.as_ptr().add(i));
+            acc0 = _mm256_add_ps(acc0, _mm256_mul_ps(a, b));
+            i += 8;
+        }
+
+        let acc = _mm256_add_ps(_mm256_add_ps(acc0, acc1), _mm256_add_ps(acc2, acc3));
+        let mut lanes = [0.0_f32; 8];
+        _mm256_storeu_ps(lanes.as_mut_ptr(), acc);
+        let mut sum = lanes.iter().sum::<f32>();
+        while i < len {
+            sum += *left.get_unchecked(i) * *right.get_unchecked(i);
+            i += 1;
+        }
+        sum
     }
-
-    while i + 8 <= len {
-        let a = _mm256_loadu_ps(left.as_ptr().add(i));
-        let b = _mm256_loadu_ps(right.as_ptr().add(i));
-        acc0 = _mm256_add_ps(acc0, _mm256_mul_ps(a, b));
-        i += 8;
-    }
-
-    let acc = _mm256_add_ps(_mm256_add_ps(acc0, acc1), _mm256_add_ps(acc2, acc3));
-    let mut lanes = [0.0_f32; 8];
-    _mm256_storeu_ps(lanes.as_mut_ptr(), acc);
-    let mut sum = lanes.iter().sum::<f32>();
-    while i < len {
-        sum += *left.get_unchecked(i) * *right.get_unchecked(i);
-        i += 1;
-    }
-    sum
 }
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "sse")]
 unsafe fn dot_sse(left: &[f32], right: &[f32]) -> f32 {
-    use std::arch::x86_64::{_mm_add_ps, _mm_loadu_ps, _mm_mul_ps, _mm_setzero_ps, _mm_storeu_ps};
+    unsafe {
+        use std::arch::x86_64::{
+            _mm_add_ps, _mm_loadu_ps, _mm_mul_ps, _mm_setzero_ps, _mm_storeu_ps,
+        };
 
-    let len = left.len().min(right.len());
-    let mut i = 0;
-    let mut acc0 = _mm_setzero_ps();
-    let mut acc1 = _mm_setzero_ps();
-    let mut acc2 = _mm_setzero_ps();
-    let mut acc3 = _mm_setzero_ps();
+        let len = left.len().min(right.len());
+        let mut i = 0;
+        let mut acc0 = _mm_setzero_ps();
+        let mut acc1 = _mm_setzero_ps();
+        let mut acc2 = _mm_setzero_ps();
+        let mut acc3 = _mm_setzero_ps();
 
-    while i + 16 <= len {
-        let a0 = _mm_loadu_ps(left.as_ptr().add(i));
-        let b0 = _mm_loadu_ps(right.as_ptr().add(i));
-        let a1 = _mm_loadu_ps(left.as_ptr().add(i + 4));
-        let b1 = _mm_loadu_ps(right.as_ptr().add(i + 4));
-        let a2 = _mm_loadu_ps(left.as_ptr().add(i + 8));
-        let b2 = _mm_loadu_ps(right.as_ptr().add(i + 8));
-        let a3 = _mm_loadu_ps(left.as_ptr().add(i + 12));
-        let b3 = _mm_loadu_ps(right.as_ptr().add(i + 12));
-        acc0 = _mm_add_ps(acc0, _mm_mul_ps(a0, b0));
-        acc1 = _mm_add_ps(acc1, _mm_mul_ps(a1, b1));
-        acc2 = _mm_add_ps(acc2, _mm_mul_ps(a2, b2));
-        acc3 = _mm_add_ps(acc3, _mm_mul_ps(a3, b3));
-        i += 16;
+        while i + 16 <= len {
+            let a0 = _mm_loadu_ps(left.as_ptr().add(i));
+            let b0 = _mm_loadu_ps(right.as_ptr().add(i));
+            let a1 = _mm_loadu_ps(left.as_ptr().add(i + 4));
+            let b1 = _mm_loadu_ps(right.as_ptr().add(i + 4));
+            let a2 = _mm_loadu_ps(left.as_ptr().add(i + 8));
+            let b2 = _mm_loadu_ps(right.as_ptr().add(i + 8));
+            let a3 = _mm_loadu_ps(left.as_ptr().add(i + 12));
+            let b3 = _mm_loadu_ps(right.as_ptr().add(i + 12));
+            acc0 = _mm_add_ps(acc0, _mm_mul_ps(a0, b0));
+            acc1 = _mm_add_ps(acc1, _mm_mul_ps(a1, b1));
+            acc2 = _mm_add_ps(acc2, _mm_mul_ps(a2, b2));
+            acc3 = _mm_add_ps(acc3, _mm_mul_ps(a3, b3));
+            i += 16;
+        }
+
+        while i + 4 <= len {
+            let a = _mm_loadu_ps(left.as_ptr().add(i));
+            let b = _mm_loadu_ps(right.as_ptr().add(i));
+            acc0 = _mm_add_ps(acc0, _mm_mul_ps(a, b));
+            i += 4;
+        }
+
+        let acc = _mm_add_ps(_mm_add_ps(acc0, acc1), _mm_add_ps(acc2, acc3));
+        let mut lanes = [0.0_f32; 4];
+        _mm_storeu_ps(lanes.as_mut_ptr(), acc);
+        let mut sum = lanes.iter().sum::<f32>();
+        while i < len {
+            sum += *left.get_unchecked(i) * *right.get_unchecked(i);
+            i += 1;
+        }
+        sum
     }
-
-    while i + 4 <= len {
-        let a = _mm_loadu_ps(left.as_ptr().add(i));
-        let b = _mm_loadu_ps(right.as_ptr().add(i));
-        acc0 = _mm_add_ps(acc0, _mm_mul_ps(a, b));
-        i += 4;
-    }
-
-    let acc = _mm_add_ps(_mm_add_ps(acc0, acc1), _mm_add_ps(acc2, acc3));
-    let mut lanes = [0.0_f32; 4];
-    _mm_storeu_ps(lanes.as_mut_ptr(), acc);
-    let mut sum = lanes.iter().sum::<f32>();
-    while i < len {
-        sum += *left.get_unchecked(i) * *right.get_unchecked(i);
-        i += 1;
-    }
-    sum
 }
 
 #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
@@ -632,15 +640,21 @@ mod tests {
         let db_path = temp_db_path("empty-inputs");
         seed_embeddings(&db_path, &[("best", &[1.0, 0.0], "fake")]);
 
-        assert!(embedding_search(&db_path, "fake", &[1.0, 0.0], 0)
-            .unwrap()
-            .is_empty());
-        assert!(embedding_search(&db_path, "fake", &[0.0, 0.0], 5)
-            .unwrap()
-            .is_empty());
-        assert!(embedding_search(&db_path, "missing", &[1.0, 0.0], 5)
-            .unwrap()
-            .is_empty());
+        assert!(
+            embedding_search(&db_path, "fake", &[1.0, 0.0], 0)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            embedding_search(&db_path, "fake", &[0.0, 0.0], 5)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            embedding_search(&db_path, "missing", &[1.0, 0.0], 5)
+                .unwrap()
+                .is_empty()
+        );
         assert_eq!(embedding_search_prewarm(&db_path, "fake").unwrap(), 1);
 
         let _ = std::fs::remove_file(db_path);

@@ -30,30 +30,30 @@ pub(super) fn parse_kotlin_with_parser(
     }];
     let mut edges = Vec::new();
 
-    if let Some(parser) = parser {
-        if let Some(tree) = parser.parse(source, None) {
-            kotlin_walk_children(
+    if let Some(parser) = parser
+        && let Some(tree) = parser.parse(source, None)
+    {
+        kotlin_walk_children(
+            tree.root_node(),
+            source,
+            &file_path,
+            None,
+            None,
+            &mut nodes,
+            &mut edges,
+        );
+        set_declared_namespaces(
+            &mut nodes,
+            collect_namespace_paths(
                 tree.root_node(),
                 source,
-                &file_path,
+                &["package_header"],
                 None,
-                None,
-                &mut nodes,
-                &mut edges,
-            );
-            set_declared_namespaces(
-                &mut nodes,
-                collect_namespace_paths(
-                    tree.root_node(),
-                    source,
-                    &["package_header"],
-                    None,
-                    &["identifier"],
-                ),
-            );
-            let edges = resolve_rust_call_targets(&nodes, edges, &file_path);
-            return (nodes, edges);
-        }
+                &["identifier"],
+            ),
+        );
+        let edges = resolve_rust_call_targets(&nodes, edges, &file_path);
+        return (nodes, edges);
     }
 
     (nodes, edges)
@@ -211,21 +211,20 @@ fn kotlin_type_extra(node: tree_sitter::Node<'_>, source: &[u8]) -> serde_json::
         "class"
     };
     let mut extra = json!({"type_role": type_role});
-    if let Some(map) = extra.as_object_mut() {
-        if type_role == "record" {
-            map.insert("container_role".to_string(), json!("data_container"));
-            map.insert("value_semantics".to_string(), json!(true));
-        }
+    if let Some(map) = extra.as_object_mut()
+        && type_role == "record"
+    {
+        map.insert("container_role".to_string(), json!("data_container"));
+        map.insert("value_semantics".to_string(), json!(true));
     }
     extra
 }
 
 fn kotlin_is_data_class(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
     let mut cursor = node.walk();
-    let is_data = node
-        .children(&mut cursor)
-        .any(|child| node_text(child, source).trim() == "data");
-    is_data
+
+    node.children(&mut cursor)
+        .any(|child| node_text(child, source).trim() == "data")
 }
 
 fn kotlin_emit_function(
@@ -284,10 +283,10 @@ fn kotlin_emit_call(
             extra: json!({}),
         });
     }
-    if let Some(signature) = kotlin_call_signature(node, source) {
-        if let Some(edge) = kotlin_bridge_edge(node, source, file_path, &caller, &signature) {
-            edges.push(edge);
-        }
+    if let Some(signature) = kotlin_call_signature(node, source)
+        && let Some(edge) = kotlin_bridge_edge(node, source, file_path, &caller, &signature)
+    {
+        edges.push(edge);
     }
 }
 
@@ -307,10 +306,9 @@ fn kotlin_call_signature(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<S
 
 fn kotlin_call_callee<'a>(node: tree_sitter::Node<'a>) -> Option<tree_sitter::Node<'a>> {
     let mut cursor = node.walk();
-    let found = node
-        .children(&mut cursor)
-        .find(|child| child.kind() != "call_suffix");
-    found
+
+    node.children(&mut cursor)
+        .find(|child| child.kind() != "call_suffix")
 }
 
 fn kotlin_bridge_edge(
@@ -391,10 +389,9 @@ fn kotlin_first_non_punctuation_child<'a>(
     node: tree_sitter::Node<'a>,
 ) -> Option<tree_sitter::Node<'a>> {
     let mut cursor = node.walk();
-    let found = node
-        .children(&mut cursor)
-        .find(|child| !matches!(child.kind(), "," | "(" | ")"));
-    found
+
+    node.children(&mut cursor)
+        .find(|child| !matches!(child.kind(), "," | "(" | ")"))
 }
 
 fn kotlin_direct_child<'a>(
@@ -402,10 +399,9 @@ fn kotlin_direct_child<'a>(
     kinds: &[&str],
 ) -> Option<tree_sitter::Node<'a>> {
     let mut cursor = node.walk();
-    let found = node
-        .children(&mut cursor)
-        .find(|child| kinds.contains(&child.kind()));
-    found
+
+    node.children(&mut cursor)
+        .find(|child| kinds.contains(&child.kind()))
 }
 
 fn kotlin_direct_child_text(

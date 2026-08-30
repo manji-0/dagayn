@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::documentation_directives::{
     extract_line_comment_dagayn_directives, nearest_documentation_source,
@@ -8,8 +8,9 @@ use super::documentation_directives::{
 };
 use super::terraform_bridges::extract_terraform_code_bridges;
 use super::terraform_collect::{
-    collect_terraform_blocks, collect_terraform_reference_targets, strip_tf_string,
-    terraform_attrs, terraform_provider_sources, TerraformAttr, TerraformBlock, TERRAFORM_CALL_RE,
+    TERRAFORM_CALL_RE, TerraformAttr, TerraformBlock, collect_terraform_blocks,
+    collect_terraform_reference_targets, strip_tf_string, terraform_attrs,
+    terraform_provider_sources,
 };
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{dedupe_edges, is_test_file, line_count};
@@ -302,20 +303,19 @@ fn parse_terraform_hcl(
             &mut edges,
         );
 
-        if block.kind == "module" {
-            if let Some(source_attr) = terraform_attrs(block)
+        if block.kind == "module"
+            && let Some(source_attr) = terraform_attrs(block)
                 .iter()
                 .find(|attr| attr.name == "source")
-            {
-                edges.push(ParsedEdge {
-                    kind: crate::core::types::EdgeKind::ImportsFrom,
-                    source: terraform_qualified(&file_path, &node_name),
-                    target: strip_tf_string(&source_attr.value),
-                    file_path: file_path.clone(),
-                    line: source_attr.line_start,
-                    extra: json!({}),
-                });
-            }
+        {
+            edges.push(ParsedEdge {
+                kind: crate::core::types::EdgeKind::ImportsFrom,
+                source: terraform_qualified(&file_path, &node_name),
+                target: strip_tf_string(&source_attr.value),
+                file_path: file_path.clone(),
+                line: source_attr.line_start,
+                extra: json!({}),
+            });
         }
 
         if block.kind == "terraform" {

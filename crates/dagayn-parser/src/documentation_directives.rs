@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::LazyLock;
 
 use regex::Regex;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::qualify;
 use super::types::{EdgeKind, FilePath, ParsedEdge, ParsedNode};

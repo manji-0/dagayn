@@ -27,23 +27,23 @@ pub(super) fn parse_swift_with_parser(
     }];
     let mut edges = Vec::new();
 
-    if let Some(parser) = parser {
-        if let Some(tree) = parser.parse(source, None) {
-            let context = SwiftParseContext {
-                source,
-                file_path: file_path.clone(),
-            };
-            swift_walk_children(
-                tree.root_node(),
-                &context,
-                None,
-                None,
-                &mut nodes,
-                &mut edges,
-            );
-            let edges = resolve_rust_call_targets(&nodes, edges, &file_path);
-            return (nodes, edges);
-        }
+    if let Some(parser) = parser
+        && let Some(tree) = parser.parse(source, None)
+    {
+        let context = SwiftParseContext {
+            source,
+            file_path: file_path.clone(),
+        };
+        swift_walk_children(
+            tree.root_node(),
+            &context,
+            None,
+            None,
+            &mut nodes,
+            &mut edges,
+        );
+        let edges = resolve_rust_call_targets(&nodes, edges, &file_path);
+        return (nodes, edges);
     }
     (nodes, edges)
 }
@@ -232,10 +232,10 @@ fn swift_emit_call(
             extra: json!({}),
         });
     }
-    if let Some(signature) = swift_call_signature(node, context.source) {
-        if let Some(edge) = swift_bridge_edge(node, context, &caller, &signature) {
-            edges.push(edge);
-        }
+    if let Some(signature) = swift_call_signature(node, context.source)
+        && let Some(edge) = swift_bridge_edge(node, context, &caller, &signature)
+    {
+        edges.push(edge);
     }
 }
 
@@ -308,10 +308,9 @@ fn swift_call_signature(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<St
 
 fn swift_call_callee<'a>(node: tree_sitter::Node<'a>) -> Option<tree_sitter::Node<'a>> {
     let mut cursor = node.walk();
-    let found = node
-        .children(&mut cursor)
-        .find(|child| child.kind() != "call_suffix");
-    found
+
+    node.children(&mut cursor)
+        .find(|child| child.kind() != "call_suffix")
 }
 
 fn swift_bridge_edge(
@@ -387,10 +386,9 @@ fn swift_direct_child<'a>(
     kinds: &[&str],
 ) -> Option<tree_sitter::Node<'a>> {
     let mut cursor = node.walk();
-    let found = node
-        .children(&mut cursor)
-        .find(|child| kinds.contains(&child.kind()));
-    found
+
+    node.children(&mut cursor)
+        .find(|child| kinds.contains(&child.kind()))
 }
 
 fn swift_first_descendant<'a>(

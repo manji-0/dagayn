@@ -102,10 +102,10 @@ impl GraphStore {
         if let Ok(rel) = path.strip_prefix(repo_root) {
             return Ok(rel.to_string_lossy().to_string());
         }
-        if let (Ok(path), Ok(repo_root)) = (path.canonicalize(), repo_root.canonicalize()) {
-            if let Ok(rel) = path.strip_prefix(repo_root) {
-                return Ok(rel.to_string_lossy().to_string());
-            }
+        if let (Ok(path), Ok(repo_root)) = (path.canonicalize(), repo_root.canonicalize())
+            && let Ok(rel) = path.strip_prefix(repo_root)
+        {
+            return Ok(rel.to_string_lossy().to_string());
         }
         Ok(file_path.to_string())
     }

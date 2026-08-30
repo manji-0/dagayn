@@ -31,24 +31,24 @@ pub(super) fn parse_rust_with_parser(
     }];
     let mut edges = Vec::new();
 
-    if let Some(parser) = parser {
-        if let Some(tree) = parser.parse(source, None) {
-            let root = tree.root_node();
-            let mut defined_names = HashSet::new();
-            collect_rust_defined_names(root, source, &mut defined_names);
-            let mut type_names = HashSet::new();
-            collect_rust_type_names(root, source, &mut type_names);
-            let context = RustParseContext {
-                source,
-                file_path: file_path.clone(),
-                defined_names: &defined_names,
-                bindings: RefCell::new(MemberCallBindings::with_types(type_names)),
-            };
-            rust_walk_children(root, &context, None, None, &mut nodes, &mut edges);
-            let mut edges = resolve_rust_call_targets(&nodes, edges, &file_path);
-            add_tested_by_edges(&nodes, &mut edges);
-            return (nodes, edges);
-        }
+    if let Some(parser) = parser
+        && let Some(tree) = parser.parse(source, None)
+    {
+        let root = tree.root_node();
+        let mut defined_names = HashSet::new();
+        collect_rust_defined_names(root, source, &mut defined_names);
+        let mut type_names = HashSet::new();
+        collect_rust_type_names(root, source, &mut type_names);
+        let context = RustParseContext {
+            source,
+            file_path: file_path.clone(),
+            defined_names: &defined_names,
+            bindings: RefCell::new(MemberCallBindings::with_types(type_names)),
+        };
+        rust_walk_children(root, &context, None, None, &mut nodes, &mut edges);
+        let mut edges = resolve_rust_call_targets(&nodes, edges, &file_path);
+        add_tested_by_edges(&nodes, &mut edges);
+        return (nodes, edges);
     }
 
     (nodes, edges)
@@ -581,19 +581,18 @@ fn rust_bind_let(node: tree_sitter::Node<'_>, context: &RustParseContext<'_>) {
     let Some(ident) = ident else {
         return;
     };
-    if let Some(value) = value {
-        if let Some(call_name) =
+    if let Some(value) = value
+        && let Some(call_name) =
             rust_call_name(value, context.source).or_else(|| rust_type_ident(value, context.source))
-        {
-            let type_name = context
-                .bindings
-                .borrow()
-                .constructor_type(&call_name)
-                .map(str::to_string);
-            if let Some(type_name) = type_name {
-                context.bindings.borrow_mut().bind(ident, type_name);
-                return;
-            }
+    {
+        let type_name = context
+            .bindings
+            .borrow()
+            .constructor_type(&call_name)
+            .map(str::to_string);
+        if let Some(type_name) = type_name {
+            context.bindings.borrow_mut().bind(ident, type_name);
+            return;
         }
     }
     if let Some(type_name) = annotated {
@@ -766,12 +765,11 @@ fn rust_bridge_edge(
 
 fn rust_call_signature(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     let mut cursor = node.walk();
-    let signature = node
-        .children(&mut cursor)
+
+    node.children(&mut cursor)
         .find(|child| child.kind() != "arguments")
         .map(|child| node_text(child, source).trim().to_string())
-        .filter(|value| !value.is_empty());
-    signature
+        .filter(|value| !value.is_empty())
 }
 
 fn rust_bridge_pattern(signature: &str) -> Option<(&'static str, &'static str)> {
@@ -840,9 +838,11 @@ fn test_production() {
         let mut parser = new_rust_parser().expect("rust grammar should load");
         let (nodes, edges) = parse_rust_with_parser("src/lib.rs", source, Some(&mut parser));
 
-        assert!(nodes
-            .iter()
-            .any(|node| node.kind == "Test" && node.name == "test_production" && node.is_test));
+        assert!(
+            nodes
+                .iter()
+                .any(|node| node.kind == "Test" && node.name == "test_production" && node.is_test)
+        );
         assert!(edges.iter().any(|edge| {
             edge.kind == "TESTED_BY"
                 && edge.source == "src/lib.rs::production"
@@ -932,9 +932,11 @@ fn boot() {
         assert!(nodes.iter().any(|node| {
             node.kind == "Class" && node.name == "Repo" && node.extra["type_role"] == "struct"
         }));
-        assert!(!nodes
-            .iter()
-            .any(|node| { node.kind == "Class" && node.extra["type_role"] == "implementation" }));
+        assert!(
+            !nodes.iter().any(|node| {
+                node.kind == "Class" && node.extra["type_role"] == "implementation"
+            })
+        );
         assert!(nodes.iter().any(|node| {
             node.kind == "Function"
                 && node.name == "new"

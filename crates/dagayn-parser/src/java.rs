@@ -39,34 +39,34 @@ pub(super) fn parse_java_with_parser(
     }];
     let mut edges = Vec::new();
 
-    if let Some(parser) = parser {
-        if let Some(tree) = parser.parse(source, None) {
-            let context = JavaParseContext {
-                source,
-                file_path: file_path.clone(),
-                repo_root,
-            };
-            java_walk_children(
+    if let Some(parser) = parser
+        && let Some(tree) = parser.parse(source, None)
+    {
+        let context = JavaParseContext {
+            source,
+            file_path: file_path.clone(),
+            repo_root,
+        };
+        java_walk_children(
+            tree.root_node(),
+            &context,
+            None,
+            None,
+            &mut nodes,
+            &mut edges,
+        );
+        set_declared_namespaces(
+            &mut nodes,
+            collect_namespace_paths(
                 tree.root_node(),
-                &context,
+                source,
+                &["package_declaration"],
                 None,
-                None,
-                &mut nodes,
-                &mut edges,
-            );
-            set_declared_namespaces(
-                &mut nodes,
-                collect_namespace_paths(
-                    tree.root_node(),
-                    source,
-                    &["package_declaration"],
-                    None,
-                    &["scoped_identifier", "identifier"],
-                ),
-            );
-            let edges = resolve_rust_call_targets(&nodes, edges, &file_path);
-            return (nodes, edges);
-        }
+                &["scoped_identifier", "identifier"],
+            ),
+        );
+        let edges = resolve_rust_call_targets(&nodes, edges, &file_path);
+        return (nodes, edges);
     }
 
     (nodes, edges)
@@ -434,10 +434,10 @@ fn java_emit_call(
         });
     }
 
-    if let Some(signature) = java_call_signature(node, source) {
-        if let Some(edge) = java_bridge_edge(node, source, file_path, &caller, &signature) {
-            edges.push(edge);
-        }
+    if let Some(signature) = java_call_signature(node, source)
+        && let Some(edge) = java_bridge_edge(node, source, file_path, &caller, &signature)
+    {
+        edges.push(edge);
     }
 }
 

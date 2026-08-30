@@ -144,11 +144,11 @@ pub fn filter_incremental_candidates(
         // still answers `is_file()` under the *old* spelling, so without this
         // the old path is re-parsed instead of removed and the graph ends up
         // holding two node sets for one file.
-        if let Some(on_disk) = on_disk_spelling(repo_root, rel_path) {
-            if on_disk != rel_path {
-                removed_files.push(candidate.clone());
-                continue;
-            }
+        if let Some(on_disk) = on_disk_spelling(repo_root, rel_path)
+            && on_disk != rel_path
+        {
+            removed_files.push(candidate.clone());
+            continue;
         }
         parseable_files.push(candidate.clone());
     }
@@ -228,10 +228,10 @@ pub fn detect_language(path: &Path) -> Option<&'static str> {
         .extension()
         .and_then(|ext| ext.to_str())
         .map(|ext| format!(".{}", ext.to_ascii_lowercase()));
-    if let Some(suffix) = suffix.as_deref() {
-        if let Some(language) = EXTENSION_TO_LANGUAGE.get(suffix) {
-            return Some(language);
-        }
+    if let Some(suffix) = suffix.as_deref()
+        && let Some(language) = EXTENSION_TO_LANGUAGE.get(suffix)
+    {
+        return Some(language);
     }
     if path.extension().is_none() {
         return detect_language_from_shebang(path);

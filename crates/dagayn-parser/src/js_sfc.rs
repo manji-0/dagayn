@@ -118,45 +118,45 @@ fn parse_sfc_with_parsers(
     }];
     let mut edges = Vec::new();
 
-    if let Some(parser) = inputs.sfc_parser {
-        if let Some(tree) = parser.parse(source, None) {
-            let root = tree.root_node();
-            let mut cursor = root.walk();
-            for child in root.children(&mut cursor) {
-                if child.kind() != "script_element" {
-                    continue;
-                }
-                let Some(raw_text_node) = sfc_direct_child(child, "raw_text") else {
-                    continue;
-                };
-                let script_language = sfc_script_language(child, source);
-                let script_parser = if script_language == "typescript" {
-                    inputs.typescript_parser.as_deref_mut()
-                } else {
-                    inputs.javascript_parser.as_deref_mut()
-                };
-                let script_source = &source[raw_text_node.start_byte()..raw_text_node.end_byte()];
-                let line_offset = raw_text_node.start_position().row as i64;
-                let (script_nodes, script_edges) = parse_javascript_like_interned(
-                    &file_path,
-                    script_source,
-                    script_language,
-                    script_parser,
-                    inputs.repo_root,
-                    inputs.caches,
-                );
-
-                nodes.extend(script_nodes.into_iter().skip(1).map(|mut node| {
-                    node.line_start += line_offset;
-                    node.line_end += line_offset;
-                    node.language = inputs.language.to_string();
-                    node
-                }));
-                edges.extend(script_edges.into_iter().map(|mut edge| {
-                    edge.line += line_offset;
-                    edge
-                }));
+    if let Some(parser) = inputs.sfc_parser
+        && let Some(tree) = parser.parse(source, None)
+    {
+        let root = tree.root_node();
+        let mut cursor = root.walk();
+        for child in root.children(&mut cursor) {
+            if child.kind() != "script_element" {
+                continue;
             }
+            let Some(raw_text_node) = sfc_direct_child(child, "raw_text") else {
+                continue;
+            };
+            let script_language = sfc_script_language(child, source);
+            let script_parser = if script_language == "typescript" {
+                inputs.typescript_parser.as_deref_mut()
+            } else {
+                inputs.javascript_parser.as_deref_mut()
+            };
+            let script_source = &source[raw_text_node.start_byte()..raw_text_node.end_byte()];
+            let line_offset = raw_text_node.start_position().row as i64;
+            let (script_nodes, script_edges) = parse_javascript_like_interned(
+                &file_path,
+                script_source,
+                script_language,
+                script_parser,
+                inputs.repo_root,
+                inputs.caches,
+            );
+
+            nodes.extend(script_nodes.into_iter().skip(1).map(|mut node| {
+                node.line_start += line_offset;
+                node.line_end += line_offset;
+                node.language = inputs.language.to_string();
+                node
+            }));
+            edges.extend(script_edges.into_iter().map(|mut edge| {
+                edge.line += line_offset;
+                edge
+            }));
         }
     }
 
@@ -165,10 +165,9 @@ fn parse_sfc_with_parsers(
 
 fn sfc_direct_child<'a>(node: tree_sitter::Node<'a>, kind: &str) -> Option<tree_sitter::Node<'a>> {
     let mut cursor = node.walk();
-    let found = node
-        .children(&mut cursor)
-        .find(|child| child.kind() == kind);
-    found
+
+    node.children(&mut cursor)
+        .find(|child| child.kind() == kind)
 }
 
 fn sfc_script_language(node: tree_sitter::Node<'_>, source: &[u8]) -> &'static str {
@@ -198,11 +197,10 @@ fn sfc_script_language(node: tree_sitter::Node<'_>, source: &[u8]) -> &'static s
 
 fn sfc_child_text(node: tree_sitter::Node<'_>, source: &[u8], kind: &str) -> Option<String> {
     let mut cursor = node.walk();
-    let found = node
-        .children(&mut cursor)
+
+    node.children(&mut cursor)
         .find(|child| child.kind() == kind)
-        .map(|child| node_text(child, source));
-    found
+        .map(|child| node_text(child, source))
 }
 
 fn sfc_first_descendant_text(

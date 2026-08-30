@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use std::path::Path;
@@ -40,21 +40,21 @@ pub(super) fn parse_julia_with_parser(
         repo_root,
     };
 
-    if let Some(parser) = parser {
-        if let Some(tree) = parser.parse(source, None) {
-            julia_walk_children(
-                tree.root_node(),
-                &context,
-                None,
-                None,
-                &mut nodes,
-                &mut edges,
-            );
-            set_namespaces_from_type_names(&mut nodes);
-            let mut edges = resolve_julia_targets(&nodes, edges, &file_path);
-            add_tested_by_edges(&nodes, &mut edges);
-            return (nodes, edges);
-        }
+    if let Some(parser) = parser
+        && let Some(tree) = parser.parse(source, None)
+    {
+        julia_walk_children(
+            tree.root_node(),
+            &context,
+            None,
+            None,
+            &mut nodes,
+            &mut edges,
+        );
+        set_namespaces_from_type_names(&mut nodes);
+        let mut edges = resolve_julia_targets(&nodes, edges, &file_path);
+        add_tested_by_edges(&nodes, &mut edges);
+        return (nodes, edges);
     }
 
     (nodes, edges)
@@ -187,26 +187,26 @@ fn julia_walk_children(
                     continue;
                 }
                 if let Some(call_name) = julia_call_name(child, context.source) {
-                    if call_name == "include" {
-                        if let Some(target) = julia_first_string_arg(child, context.source) {
-                            // `include` is relative to the including file.
-                            let target = resolve_import_path(
-                                &target,
-                                &context.file_path,
-                                context.repo_root,
-                                &[],
-                                false,
-                            )
-                            .unwrap_or(target);
-                            edges.push(ParsedEdge {
-                                kind: crate::core::types::EdgeKind::ImportsFrom,
-                                source: context.file_path.to_string(),
-                                target,
-                                file_path: context.file_path.clone(),
-                                line: child.start_position().row as i64 + 1,
-                                extra: json!({}),
-                            });
-                        }
+                    if call_name == "include"
+                        && let Some(target) = julia_first_string_arg(child, context.source)
+                    {
+                        // `include` is relative to the including file.
+                        let target = resolve_import_path(
+                            &target,
+                            &context.file_path,
+                            context.repo_root,
+                            &[],
+                            false,
+                        )
+                        .unwrap_or(target);
+                        edges.push(ParsedEdge {
+                            kind: crate::core::types::EdgeKind::ImportsFrom,
+                            source: context.file_path.to_string(),
+                            target,
+                            file_path: context.file_path.clone(),
+                            line: child.start_position().row as i64 + 1,
+                            extra: json!({}),
+                        });
                     }
                     julia_emit_call(
                         child,
@@ -773,10 +773,9 @@ fn julia_direct_child<'a>(
     kinds: &[&str],
 ) -> Option<tree_sitter::Node<'a>> {
     let mut cursor = node.walk();
-    let found = node
-        .children(&mut cursor)
-        .find(|child| kinds.contains(&child.kind()));
-    found
+
+    node.children(&mut cursor)
+        .find(|child| kinds.contains(&child.kind()))
 }
 
 fn julia_direct_child_text(
@@ -804,8 +803,8 @@ fn julia_direct_child_texts(
 
 fn julia_first_named_child<'a>(node: tree_sitter::Node<'a>) -> Option<tree_sitter::Node<'a>> {
     let mut cursor = node.walk();
-    let found = node.children(&mut cursor).find(|child| child.is_named());
-    found
+
+    node.children(&mut cursor).find(|child| child.is_named())
 }
 
 fn julia_first_descendant<'a>(
@@ -874,10 +873,11 @@ fn resolve_julia_targets(
     edges
         .into_iter()
         .map(|mut edge| {
-            if matches!(edge.kind.as_str(), "CALLS" | "REFERENCES") && !edge.target.contains("::") {
-                if let Some(target) = symbols.get(&edge.target) {
-                    edge.target = target.clone();
-                }
+            if matches!(edge.kind.as_str(), "CALLS" | "REFERENCES")
+                && !edge.target.contains("::")
+                && let Some(target) = symbols.get(&edge.target)
+            {
+                edge.target = target.clone();
             }
             edge
         })

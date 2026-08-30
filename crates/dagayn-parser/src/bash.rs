@@ -32,15 +32,15 @@ pub(super) fn parse_bash_with_parser(
     }];
     let mut edges = Vec::new();
 
-    if let Some(parser) = parser {
-        if let Some(tree) = parser.parse(source, None) {
-            let root = tree.root_node();
-            bash_walk_children(
-                root, source, &file_path, repo_root, None, &mut nodes, &mut edges,
-            );
-            let edges = resolve_rust_call_targets(&nodes, edges, &file_path);
-            return (nodes, edges);
-        }
+    if let Some(parser) = parser
+        && let Some(tree) = parser.parse(source, None)
+    {
+        let root = tree.root_node();
+        bash_walk_children(
+            root, source, &file_path, repo_root, None, &mut nodes, &mut edges,
+        );
+        let edges = resolve_rust_call_targets(&nodes, edges, &file_path);
+        return (nodes, edges);
     }
 
     (nodes, edges)
@@ -114,11 +114,10 @@ fn bash_walk_children(
 
 fn bash_function_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     let mut cursor = node.walk();
-    let name = node
-        .children(&mut cursor)
+
+    node.children(&mut cursor)
         .find(|child| child.kind() == "word")
-        .map(|child| node_text(child, source));
-    name
+        .map(|child| node_text(child, source))
 }
 
 fn bash_emit_command(

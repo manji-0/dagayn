@@ -33,20 +33,20 @@ pub(super) fn parse_r_with_parser(
         file_path: file_path.clone(),
     };
 
-    if let Some(parser) = parser {
-        if let Some(tree) = parser.parse(source, None) {
-            r_walk_children(
-                tree.root_node(),
-                &context,
-                None,
-                None,
-                &mut nodes,
-                &mut edges,
-            );
-            let mut edges = resolve_r_call_targets(&nodes, edges, &file_path);
-            add_tested_by_edges(&nodes, &mut edges);
-            return (nodes, edges);
-        }
+    if let Some(parser) = parser
+        && let Some(tree) = parser.parse(source, None)
+    {
+        r_walk_children(
+            tree.root_node(),
+            &context,
+            None,
+            None,
+            &mut nodes,
+            &mut edges,
+        );
+        let mut edges = resolve_r_call_targets(&nodes, edges, &file_path);
+        add_tested_by_edges(&nodes, &mut edges);
+        return (nodes, edges);
     }
 
     (nodes, edges)
@@ -117,16 +117,15 @@ fn r_handle_binary_operator(
         r_walk_children(right, context, enclosing_class, Some(&name), nodes, edges);
         return true;
     }
-    if right.kind() == "call" {
-        if let Some(call_name) = r_call_name(right, context.source) {
-            if matches!(
-                call_name.as_str(),
-                "setRefClass" | "setClass" | "setGeneric"
-            ) {
-                r_emit_class_call(right, context, Some(&name), enclosing_class, nodes, edges);
-                return true;
-            }
-        }
+    if right.kind() == "call"
+        && let Some(call_name) = r_call_name(right, context.source)
+        && matches!(
+            call_name.as_str(),
+            "setRefClass" | "setClass" | "setGeneric"
+        )
+    {
+        r_emit_class_call(right, context, Some(&name), enclosing_class, nodes, edges);
+        return true;
     }
     false
 }
@@ -461,10 +460,9 @@ fn r_direct_child<'a>(
     kinds: &[&str],
 ) -> Option<tree_sitter::Node<'a>> {
     let mut cursor = node.walk();
-    let found = node
-        .children(&mut cursor)
-        .find(|child| kinds.contains(&child.kind()));
-    found
+
+    node.children(&mut cursor)
+        .find(|child| kinds.contains(&child.kind()))
 }
 
 fn r_direct_child_text(
@@ -477,8 +475,8 @@ fn r_direct_child_text(
 
 fn r_first_named_child<'a>(node: tree_sitter::Node<'a>) -> Option<tree_sitter::Node<'a>> {
     let mut cursor = node.walk();
-    let found = node.children(&mut cursor).find(|child| child.is_named());
-    found
+
+    node.children(&mut cursor).find(|child| child.is_named())
 }
 
 fn r_first_descendant_text(
@@ -515,10 +513,11 @@ fn resolve_r_call_targets(
     edges
         .into_iter()
         .map(|mut edge| {
-            if edge.kind == "CALLS" && !edge.target.contains("::") {
-                if let Some(target) = symbols.get(&edge.target) {
-                    edge.target = target.clone();
-                }
+            if edge.kind == "CALLS"
+                && !edge.target.contains("::")
+                && let Some(target) = symbols.get(&edge.target)
+            {
+                edge.target = target.clone();
             }
             edge
         })

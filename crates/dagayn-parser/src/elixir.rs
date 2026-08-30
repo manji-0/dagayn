@@ -33,21 +33,21 @@ pub(super) fn parse_elixir_with_parser(
         file_path: file_path.clone(),
     };
 
-    if let Some(parser) = parser {
-        if let Some(tree) = parser.parse(source, None) {
-            elixir_walk_children(
-                tree.root_node(),
-                &context,
-                None,
-                None,
-                &mut nodes,
-                &mut edges,
-            );
-            set_namespaces_from_type_names(&mut nodes);
-            let mut edges = resolve_elixir_call_targets(&nodes, edges, &file_path);
-            add_tested_by_edges(&nodes, &mut edges);
-            return (nodes, edges);
-        }
+    if let Some(parser) = parser
+        && let Some(tree) = parser.parse(source, None)
+    {
+        elixir_walk_children(
+            tree.root_node(),
+            &context,
+            None,
+            None,
+            &mut nodes,
+            &mut edges,
+        );
+        set_namespaces_from_type_names(&mut nodes);
+        let mut edges = resolve_elixir_call_targets(&nodes, edges, &file_path);
+        add_tested_by_edges(&nodes, &mut edges);
+        return (nodes, edges);
     }
 
     (nodes, edges)
@@ -147,17 +147,17 @@ fn elixir_handle_call(
             true
         }
         "alias" | "import" | "require" | "use" => {
-            if let Some(arguments) = elixir_direct_child(node, &["arguments"]) {
-                if let Some(module_name) = elixir_module_name(arguments, context.source) {
-                    edges.push(ParsedEdge {
-                        kind: crate::core::types::EdgeKind::ImportsFrom,
-                        source: context.file_path.to_string(),
-                        target: module_name,
-                        file_path: context.file_path.clone(),
-                        line: node.start_position().row as i64 + 1,
-                        extra: json!({}),
-                    });
-                }
+            if let Some(arguments) = elixir_direct_child(node, &["arguments"])
+                && let Some(module_name) = elixir_module_name(arguments, context.source)
+            {
+                edges.push(ParsedEdge {
+                    kind: crate::core::types::EdgeKind::ImportsFrom,
+                    source: context.file_path.to_string(),
+                    target: module_name,
+                    file_path: context.file_path.clone(),
+                    line: node.start_position().row as i64 + 1,
+                    extra: json!({}),
+                });
             }
             true
         }
@@ -331,10 +331,9 @@ fn elixir_direct_child<'a>(
     kinds: &[&str],
 ) -> Option<tree_sitter::Node<'a>> {
     let mut cursor = node.walk();
-    let found = node
-        .children(&mut cursor)
-        .find(|child| kinds.contains(&child.kind()));
-    found
+
+    node.children(&mut cursor)
+        .find(|child| kinds.contains(&child.kind()))
 }
 
 fn elixir_direct_child_text(
@@ -347,8 +346,8 @@ fn elixir_direct_child_text(
 
 fn elixir_first_named_child<'a>(node: tree_sitter::Node<'a>) -> Option<tree_sitter::Node<'a>> {
     let mut cursor = node.walk();
-    let found = node.children(&mut cursor).find(|child| child.is_named());
-    found
+
+    node.children(&mut cursor).find(|child| child.is_named())
 }
 
 fn elixir_last_direct_child_text(

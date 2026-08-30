@@ -1163,11 +1163,11 @@ pub(crate) fn read_node_source_excerpt(
         let level = markdown_heading_level(lines[start]);
         end = lines.len();
         for (idx, line) in lines.iter().enumerate().skip(start + 1) {
-            if let Some(candidate_level) = markdown_heading_level(line) {
-                if level.is_none_or(|current_level| candidate_level <= current_level) {
-                    end = idx;
-                    break;
-                }
+            if let Some(candidate_level) = markdown_heading_level(line)
+                && level.is_none_or(|current_level| candidate_level <= current_level)
+            {
+                end = idx;
+                break;
             }
         }
     }

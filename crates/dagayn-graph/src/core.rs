@@ -10,13 +10,12 @@ const WAL_SIZE_LIMIT_BYTES: i64 = 256 * 1024 * 1024;
 impl GraphStore {
     pub fn open(db_path: impl AsRef<Path>) -> Result<Self> {
         let db_path = db_path.as_ref();
-        if db_path != Path::new(":memory:") {
-            if let Some(parent) = db_path.parent() {
-                if !parent.as_os_str().is_empty() {
-                    std::fs::create_dir_all(parent)
-                        .map_err(|_| rusqlite::Error::InvalidPath(parent.to_path_buf()))?;
-                }
-            }
+        if db_path != Path::new(":memory:")
+            && let Some(parent) = db_path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent)
+                .map_err(|_| rusqlite::Error::InvalidPath(parent.to_path_buf()))?;
         }
         let conn = Connection::open(db_path)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;

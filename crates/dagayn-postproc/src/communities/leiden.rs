@@ -1,14 +1,14 @@
 use std::collections::{HashMap, HashSet};
 
 use dagayn_graph::{GraphEdge, GraphNode};
-use leiden_rs::{from_petgraph, Leiden, LeidenConfig, QualityType};
-use petgraph::graph::Graph;
+use leiden_rs::{Leiden, LeidenConfig, QualityType, from_petgraph};
 use petgraph::Undirected;
+use petgraph::graph::Graph;
 
+use super::DetectedCommunity;
 use super::cohesion::compute_cohesion_batch;
 use super::file_based::detect_file_based;
 use super::naming::generate_community_name;
-use super::DetectedCommunity;
 
 const LEIDEN_RANDOM_SEED: u64 = 20260813;
 

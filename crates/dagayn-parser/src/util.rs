@@ -164,10 +164,10 @@ pub(super) fn set_declared_namespaces(nodes: &mut [ParsedNode], namespaces: Vec<
     if unique.is_empty() {
         return;
     }
-    if let Some(file) = nodes.first_mut() {
-        if let Some(map) = file.extra.as_object_mut() {
-            map.insert("namespaces".to_string(), serde_json::json!(unique));
-        }
+    if let Some(file) = nodes.first_mut()
+        && let Some(map) = file.extra.as_object_mut()
+    {
+        map.insert("namespaces".to_string(), serde_json::json!(unique));
     }
 }
 
@@ -257,10 +257,10 @@ fn collect_namespace_paths_into(
                 .and_then(|field| child.child_by_field_name(field))
                 .or_else(|| {
                     let mut inner = child.walk();
-                    let candidate = child
+
+                    child
                         .children(&mut inner)
-                        .find(|candidate| name_kinds.contains(&candidate.kind()));
-                    candidate
+                        .find(|candidate| name_kinds.contains(&candidate.kind()))
                 });
             if let Some(name) = name {
                 found.push(node_text(name, source).trim().to_string());

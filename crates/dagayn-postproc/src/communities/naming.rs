@@ -27,13 +27,13 @@ pub(crate) fn generate_community_name(members: &[GraphNode]) -> String {
         for name in class_names {
             *counts.entry(name).or_default() += 1;
         }
-        if let Some((top_class, top_count)) = counts.into_iter().max_by_key(|(_, count)| *count) {
-            if top_count > members.len() * 40 / 100 {
-                if prefix.is_empty() {
-                    return to_slug(top_class);
-                }
-                return format!("{}-{}", prefix, to_slug(top_class));
+        if let Some((top_class, top_count)) = counts.into_iter().max_by_key(|(_, count)| *count)
+            && top_count > members.len() * 40 / 100
+        {
+            if prefix.is_empty() {
+                return to_slug(top_class);
             }
+            return format!("{}-{}", prefix, to_slug(top_class));
         }
     }
 

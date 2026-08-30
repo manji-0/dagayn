@@ -50,13 +50,13 @@ pub(super) fn collect_terraform_blocks(
     text: &str,
     parser: Option<&mut tree_sitter::Parser>,
 ) -> Vec<TerraformBlock> {
-    if let Some(parser) = parser {
-        if let Some(tree) = parser.parse(source, None) {
-            let mut blocks = Vec::new();
-            collect_terraform_block_nodes(tree.root_node(), source, &mut blocks);
-            if !blocks.is_empty() {
-                return blocks;
-            }
+    if let Some(parser) = parser
+        && let Some(tree) = parser.parse(source, None)
+    {
+        let mut blocks = Vec::new();
+        collect_terraform_block_nodes(tree.root_node(), source, &mut blocks);
+        if !blocks.is_empty() {
+            return blocks;
         }
     }
     collect_terraform_blocks_from_text(text)
@@ -157,10 +157,9 @@ fn terraform_block_body_node(node: tree_sitter::Node<'_>) -> Option<tree_sitter:
         return Some(body);
     }
     let mut cursor = node.walk();
-    let body = node
-        .children(&mut cursor)
-        .find(|child| child.kind() == "block_body");
-    body
+
+    node.children(&mut cursor)
+        .find(|child| child.kind() == "block_body")
 }
 
 fn collect_terraform_blocks_from_text(text: &str) -> Vec<TerraformBlock> {
@@ -423,20 +422,18 @@ fn collect_terraform_provider_source_nodes(
         if let (Some(name), Some(value)) = (
             node.child_by_field_name("name"),
             node.child_by_field_name("value"),
-        ) {
-            if node_text_is(name, source, "source") {
-                sources.push(strip_tf_string(&node_text(value, source)));
-            }
+        ) && node_text_is(name, source, "source")
+        {
+            sources.push(strip_tf_string(&node_text(value, source)));
         }
-    } else if node.kind() == "object_elem" {
-        if let (Some(key), Some(value)) = (
+    } else if node.kind() == "object_elem"
+        && let (Some(key), Some(value)) = (
             node.child_by_field_name("key"),
             node.child_by_field_name("value"),
-        ) {
-            if node_text_tf_string_is(key, source, "source") {
-                sources.push(strip_tf_string(&node_text(value, source)));
-            }
-        }
+        )
+        && node_text_tf_string_is(key, source, "source")
+    {
+        sources.push(strip_tf_string(&node_text(value, source)));
     }
 
     let mut cursor = node.walk();
@@ -456,12 +453,12 @@ fn collect_terraform_call_nodes(
     source: &[u8],
     calls: &mut Vec<String>,
 ) {
-    if node.kind() == "function_call" {
-        if let Some(name) = node.child_by_field_name("name") {
-            let name = node_text(name, source);
-            if !matches!(name.as_str(), "for" | "if") {
-                calls.push(name);
-            }
+    if node.kind() == "function_call"
+        && let Some(name) = node.child_by_field_name("name")
+    {
+        let name = node_text(name, source);
+        if !matches!(name.as_str(), "for" | "if") {
+            calls.push(name);
         }
     }
     let mut cursor = node.walk();
@@ -489,12 +486,11 @@ fn collect_terraform_reference_nodes(
             node, source,
         )));
     }
-    if node.kind() == "expression" {
-        if let Some(segments) = terraform_traversal_segments(node, source) {
-            if let Some(target) = terraform_reference_from_segments(&segments) {
-                references.push(target);
-            }
-        }
+    if node.kind() == "expression"
+        && let Some(segments) = terraform_traversal_segments(node, source)
+        && let Some(target) = terraform_reference_from_segments(&segments)
+    {
+        references.push(target);
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {

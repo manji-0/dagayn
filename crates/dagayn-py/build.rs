@@ -3,13 +3,13 @@ fn main() {
     use std::path::PathBuf;
     use std::process::Command;
 
-    if let Ok(output) = Command::new("xcrun").arg("--show-sdk-path").output() {
-        if output.status.success() {
-            let sdk_root = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !sdk_root.is_empty() {
-                println!("cargo:rustc-link-search=native={}/usr/lib", sdk_root);
-                return;
-            }
+    if let Ok(output) = Command::new("xcrun").arg("--show-sdk-path").output()
+        && output.status.success()
+    {
+        let sdk_root = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !sdk_root.is_empty() {
+            println!("cargo:rustc-link-search=native={}/usr/lib", sdk_root);
+            return;
         }
     }
 

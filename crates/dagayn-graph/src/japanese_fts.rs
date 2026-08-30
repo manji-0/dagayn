@@ -96,10 +96,10 @@ pub(crate) fn segment_japanese_fts_query(text: &str) -> String {
     if text.is_empty() || !contains_japanese(text) {
         return text.to_string();
     }
-    if let Some(morphemes) = morph_tokens(text, true) {
-        if !morphemes.is_empty() {
-            return morphemes.join(" ");
-        }
+    if let Some(morphemes) = morph_tokens(text, true)
+        && !morphemes.is_empty()
+    {
+        return morphemes.join(" ");
     }
     covering_query_tokens(text).join(" ")
 }

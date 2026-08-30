@@ -33,13 +33,13 @@ pub(super) fn parse_perl_with_parser(
         file_path: file_path.clone(),
     };
 
-    if let Some(parser) = parser {
-        if let Some(tree) = parser.parse(source, None) {
-            perl_walk_children(tree.root_node(), &context, None, &mut nodes, &mut edges);
-            let mut edges = resolve_perl_call_targets(&nodes, edges, &file_path);
-            add_tested_by_edges(&nodes, &mut edges);
-            return (nodes, edges);
-        }
+    if let Some(parser) = parser
+        && let Some(tree) = parser.parse(source, None)
+    {
+        perl_walk_children(tree.root_node(), &context, None, &mut nodes, &mut edges);
+        let mut edges = resolve_perl_call_targets(&nodes, edges, &file_path);
+        add_tested_by_edges(&nodes, &mut edges);
+        return (nodes, edges);
     }
 
     (nodes, edges)
@@ -234,11 +234,10 @@ fn perl_bridge_edge(
 
 fn perl_package_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     let mut cursor = node.walk();
-    let package_name = node
-        .children(&mut cursor)
+
+    node.children(&mut cursor)
         .find(|child| child.is_named() && child.kind() == "package")
-        .map(|child| node_text(child, source));
-    package_name
+        .map(|child| node_text(child, source))
 }
 
 fn perl_subroutine_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
@@ -287,10 +286,9 @@ fn perl_direct_child<'a>(
     kinds: &[&str],
 ) -> Option<tree_sitter::Node<'a>> {
     let mut cursor = node.walk();
-    let found = node
-        .children(&mut cursor)
-        .find(|child| kinds.contains(&child.kind()));
-    found
+
+    node.children(&mut cursor)
+        .find(|child| kinds.contains(&child.kind()))
 }
 
 fn perl_direct_child_text(
@@ -335,10 +333,11 @@ fn resolve_perl_call_targets(
     edges
         .into_iter()
         .map(|mut edge| {
-            if edge.kind == "CALLS" && !edge.target.contains("::") {
-                if let Some(target) = symbols.get(&edge.target) {
-                    edge.target = target.clone();
-                }
+            if edge.kind == "CALLS"
+                && !edge.target.contains("::")
+                && let Some(target) = symbols.get(&edge.target)
+            {
+                edge.target = target.clone();
             }
             edge
         })

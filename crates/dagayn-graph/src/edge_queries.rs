@@ -66,46 +66,44 @@ impl GraphStore {
                 if let Some(source_originals) = normalized_to_originals.get(&edge.source_qualified)
                 {
                     for original in source_originals {
-                        if let Some(seen) = seen_out.get_mut(original) {
-                            if seen.insert(edge.id) {
-                                outgoing
-                                    .entry(original.clone())
-                                    .or_default()
-                                    .push(edge.clone());
-                            }
-                        }
-                    }
-                } else if outgoing.contains_key(&edge.source_qualified) {
-                    if let Some(seen) = seen_out.get_mut(&edge.source_qualified) {
-                        if seen.insert(edge.id) {
+                        if let Some(seen) = seen_out.get_mut(original)
+                            && seen.insert(edge.id)
+                        {
                             outgoing
-                                .entry(edge.source_qualified.clone())
+                                .entry(original.clone())
                                 .or_default()
                                 .push(edge.clone());
                         }
                     }
+                } else if outgoing.contains_key(&edge.source_qualified)
+                    && let Some(seen) = seen_out.get_mut(&edge.source_qualified)
+                    && seen.insert(edge.id)
+                {
+                    outgoing
+                        .entry(edge.source_qualified.clone())
+                        .or_default()
+                        .push(edge.clone());
                 }
                 if let Some(target_originals) = normalized_to_originals.get(&edge.target_qualified)
                 {
                     for original in target_originals {
-                        if let Some(seen) = seen_in.get_mut(original) {
-                            if seen.insert(edge.id) {
-                                incoming
-                                    .entry(original.clone())
-                                    .or_default()
-                                    .push(edge.clone());
-                            }
-                        }
-                    }
-                } else if incoming.contains_key(&edge.target_qualified) {
-                    if let Some(seen) = seen_in.get_mut(&edge.target_qualified) {
-                        if seen.insert(edge.id) {
+                        if let Some(seen) = seen_in.get_mut(original)
+                            && seen.insert(edge.id)
+                        {
                             incoming
-                                .entry(edge.target_qualified.clone())
+                                .entry(original.clone())
                                 .or_default()
                                 .push(edge.clone());
                         }
                     }
+                } else if incoming.contains_key(&edge.target_qualified)
+                    && let Some(seen) = seen_in.get_mut(&edge.target_qualified)
+                    && seen.insert(edge.id)
+                {
+                    incoming
+                        .entry(edge.target_qualified.clone())
+                        .or_default()
+                        .push(edge.clone());
                 }
             }
         }

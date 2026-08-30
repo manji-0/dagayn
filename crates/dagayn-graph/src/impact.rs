@@ -456,10 +456,12 @@ mod tests {
         )
         .expect("analysis json");
 
-        assert!(analysis["summary"]
-            .as_str()
-            .expect("summary string")
-            .contains("Analyzed 0 changed file(s):"));
+        assert!(
+            analysis["summary"]
+                .as_str()
+                .expect("summary string")
+                .contains("Analyzed 0 changed file(s):")
+        );
         assert_eq!(analysis["risk_score"], json!(0.0));
         assert_eq!(
             analysis["changed_functions"]

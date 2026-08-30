@@ -30,30 +30,30 @@ pub(super) fn parse_php_with_parser(
     }];
     let mut edges = Vec::new();
 
-    if let Some(parser) = parser {
-        if let Some(tree) = parser.parse(source, None) {
-            php_walk_children(
+    if let Some(parser) = parser
+        && let Some(tree) = parser.parse(source, None)
+    {
+        php_walk_children(
+            tree.root_node(),
+            source,
+            &file_path,
+            None,
+            None,
+            &mut nodes,
+            &mut edges,
+        );
+        set_declared_namespaces(
+            &mut nodes,
+            collect_namespace_paths(
                 tree.root_node(),
                 source,
-                &file_path,
-                None,
-                None,
-                &mut nodes,
-                &mut edges,
-            );
-            set_declared_namespaces(
-                &mut nodes,
-                collect_namespace_paths(
-                    tree.root_node(),
-                    source,
-                    &["namespace_definition"],
-                    Some("name"),
-                    &["namespace_name"],
-                ),
-            );
-            let edges = resolve_rust_call_targets(&nodes, edges, &file_path);
-            return (nodes, edges);
-        }
+                &["namespace_definition"],
+                Some("name"),
+                &["namespace_name"],
+            ),
+        );
+        let edges = resolve_rust_call_targets(&nodes, edges, &file_path);
+        return (nodes, edges);
     }
 
     (nodes, edges)
@@ -337,10 +337,10 @@ fn php_call_signature(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<Stri
             if names.len() >= 2 {
                 return Some(format!("{}::{}", names[0], names[1]));
             }
-            if let Some(scope) = php_direct_child_text(node, source, &["relative_scope"]) {
-                if matches!(scope.as_str(), "parent" | "self") {
-                    return names.last().cloned();
-                }
+            if let Some(scope) = php_direct_child_text(node, source, &["relative_scope"])
+                && matches!(scope.as_str(), "parent" | "self")
+            {
+                return names.last().cloned();
             }
             names.last().cloned()
         }
@@ -418,10 +418,9 @@ fn php_first_string_arg(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<St
 
 fn php_first_non_punctuation_child(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
     let mut cursor = node.walk();
-    let child = node
-        .children(&mut cursor)
-        .find(|child| !matches!(child.kind(), "," | "(" | ")"));
-    child
+
+    node.children(&mut cursor)
+        .find(|child| !matches!(child.kind(), "," | "(" | ")"))
 }
 
 fn php_string_text(node: tree_sitter::Node<'_>, source: &[u8]) -> String {

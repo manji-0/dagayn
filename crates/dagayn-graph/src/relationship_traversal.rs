@@ -29,10 +29,10 @@ impl GraphStore {
         for qn in &input_qns {
             for test_target in self.get_test_targets_for_source(qn)? {
                 found_qualified_direct = true;
-                if seen.insert(test_target.clone()) {
-                    if let Some(test_node) = self.test_node_json(&test_target, false)? {
-                        results.push(test_node);
-                    }
+                if seen.insert(test_target.clone())
+                    && let Some(test_node) = self.test_node_json(&test_target, false)?
+                {
+                    results.push(test_node);
                 }
             }
         }
@@ -43,10 +43,10 @@ impl GraphStore {
                 .map(|(_, name)| name)
                 .unwrap_or(qualified_name);
             for test_target in self.get_test_targets_for_source(bare)? {
-                if seen.insert(test_target.clone()) {
-                    if let Some(test_node) = self.test_node_json(&test_target, false)? {
-                        results.push(test_node);
-                    }
+                if seen.insert(test_target.clone())
+                    && let Some(test_node) = self.test_node_json(&test_target, false)?
+                {
+                    results.push(test_node);
                 }
             }
         }
@@ -66,10 +66,10 @@ impl GraphStore {
             }
             for callee in &next_frontier {
                 for test_target in self.get_test_targets_for_source(callee)? {
-                    if seen.insert(test_target.clone()) {
-                        if let Some(test_node) = self.test_node_json(&test_target, true)? {
-                            results.push(test_node);
-                        }
+                    if seen.insert(test_target.clone())
+                        && let Some(test_node) = self.test_node_json(&test_target, true)?
+                    {
+                        results.push(test_node);
                     }
                 }
             }

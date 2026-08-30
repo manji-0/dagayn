@@ -10,7 +10,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-edition = "2021"
+edition = "2024"
 license = "MIT"
 repository = "https://github.com/tirth8205/code-review-graph"
 

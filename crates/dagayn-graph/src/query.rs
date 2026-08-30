@@ -61,10 +61,10 @@ impl GraphStore {
                 out.insert(original.clone(), node.clone());
                 continue;
             }
-            if let Some(normalized) = normalized_for.get(original) {
-                if let Some(node) = rows_by_qn.get(normalized) {
-                    out.insert(original.clone(), node.clone());
-                }
+            if let Some(normalized) = normalized_for.get(original)
+                && let Some(node) = rows_by_qn.get(normalized)
+            {
+                out.insert(original.clone(), node.clone());
             }
         }
         Ok(out)
@@ -155,10 +155,10 @@ impl GraphStore {
                 let node = row?;
                 if let Some(originals) = key_to_originals.get(&node.file_path) {
                     for original in originals {
-                        if let Some(seen) = seen_by_original.get_mut(original) {
-                            if seen.insert(node.id) {
-                                out.entry(original.clone()).or_default().push(node.clone());
-                            }
+                        if let Some(seen) = seen_by_original.get_mut(original)
+                            && seen.insert(node.id)
+                        {
+                            out.entry(original.clone()).or_default().push(node.clone());
                         }
                     }
                 }

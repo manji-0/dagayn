@@ -789,7 +789,7 @@ fn unique_pair(matches: Vec<(String, String)>) -> Option<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
     use std::path::PathBuf;
 
     fn temp_db(name: &str) -> PathBuf {

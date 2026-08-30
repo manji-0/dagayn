@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, OnceLock};
 
 use regex::Regex;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::helpers::*;
 use crate::*;
@@ -253,10 +253,10 @@ impl GraphStore {
             if visited.len() > cap {
                 return Ok(None);
             }
-            if let Some(limit) = max_hops {
-                if hops >= limit {
-                    break;
-                }
+            if let Some(limit) = max_hops
+                && hops >= limit
+            {
+                break;
             }
             let next = self.flow_neighbor_qualified_names(&frontier, incoming)?;
             frontier = next

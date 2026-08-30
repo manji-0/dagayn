@@ -27,20 +27,20 @@ pub(super) fn parse_ruby_with_parser(
     }];
     let mut edges = Vec::new();
 
-    if let Some(parser) = parser {
-        if let Some(tree) = parser.parse(source, None) {
-            ruby_walk_children(
-                tree.root_node(),
-                source,
-                &file_path,
-                None,
-                None,
-                &mut nodes,
-                &mut edges,
-            );
-            let edges = resolve_rust_call_targets(&nodes, edges, &file_path);
-            return (nodes, edges);
-        }
+    if let Some(parser) = parser
+        && let Some(tree) = parser.parse(source, None)
+    {
+        ruby_walk_children(
+            tree.root_node(),
+            source,
+            &file_path,
+            None,
+            None,
+            &mut nodes,
+            &mut edges,
+        );
+        let edges = resolve_rust_call_targets(&nodes, edges, &file_path);
+        return (nodes, edges);
     }
 
     (nodes, edges)
@@ -184,17 +184,17 @@ fn ruby_emit_call(
         .map(|func| qualify(file_path, func, enclosing_class))
         .unwrap_or_else(|| file_path.to_string());
     if let Some(call_name) = call_name {
-        if call_name == "require" || call_name == "require_relative" {
-            if let Some(target) = ruby_first_string_arg(node, source) {
-                edges.push(ParsedEdge {
-                    kind: crate::core::types::EdgeKind::ImportsFrom,
-                    source: file_path.to_string(),
-                    target,
-                    file_path: file_path.clone(),
-                    line: node.start_position().row as i64 + 1,
-                    extra: json!({}),
-                });
-            }
+        if (call_name == "require" || call_name == "require_relative")
+            && let Some(target) = ruby_first_string_arg(node, source)
+        {
+            edges.push(ParsedEdge {
+                kind: crate::core::types::EdgeKind::ImportsFrom,
+                source: file_path.to_string(),
+                target,
+                file_path: file_path.clone(),
+                line: node.start_position().row as i64 + 1,
+                extra: json!({}),
+            });
         }
         edges.push(ParsedEdge {
             kind: crate::core::types::EdgeKind::Calls,
@@ -205,10 +205,10 @@ fn ruby_emit_call(
             extra: json!({}),
         });
     }
-    if let Some(signature) = ruby_call_signature(node, source) {
-        if let Some(edge) = ruby_bridge_edge(node, source, file_path, &caller, &signature) {
-            edges.push(edge);
-        }
+    if let Some(signature) = ruby_call_signature(node, source)
+        && let Some(edge) = ruby_bridge_edge(node, source, file_path, &caller, &signature)
+    {
+        edges.push(edge);
     }
 }
 

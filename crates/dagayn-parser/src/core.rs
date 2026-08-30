@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 #[path = "bash.rs"]
 mod bash;
@@ -88,7 +88,7 @@ pub use discovery::{
 pub use js_sfc::{parse_svelte, parse_vue};
 pub use types::{EdgeKind, FilePath, NodeKind, ParsedEdge, ParsedNode};
 
-use ownership::{rust_owned_path_kind, rust_owned_path_kind_for_source, RustOwnedPathKind};
+use ownership::{RustOwnedPathKind, rust_owned_path_kind, rust_owned_path_kind_for_source};
 use parsers::*;
 use util::{contains_ascii_ignore_case, node_text, sha256_hex, starts_with_ascii_ignore_case};
 
@@ -733,12 +733,11 @@ pub(super) fn resolve_rust_call_targets(
     edges
         .into_iter()
         .map(|mut edge| {
-            if matches!(edge.kind, EdgeKind::Calls | EdgeKind::References) {
-                if let Some(target) =
+            if matches!(edge.kind, EdgeKind::Calls | EdgeKind::References)
+                && let Some(target) =
                     resolve_same_file_call_target(file_path, &edge.source, &edge.target, &symbols)
-                {
-                    edge.target = target;
-                }
+            {
+                edge.target = target;
             }
             edge
         })
@@ -804,13 +803,12 @@ fn pick_method_for_caller(
     caller: &str,
     methods: &[&(Option<String>, String)],
 ) -> Option<String> {
-    if let Some(parent) = caller_type_name(file_path, caller) {
-        if let Some((_, qualified)) = methods
+    if let Some(parent) = caller_type_name(file_path, caller)
+        && let Some((_, qualified)) = methods
             .iter()
             .find(|(candidate_parent, _)| candidate_parent.as_deref() == Some(parent))
-        {
-            return Some(qualified.clone());
-        }
+    {
+        return Some(qualified.clone());
     }
     methods.first().map(|(_, qualified)| qualified.clone())
 }
@@ -985,8 +983,8 @@ pub fn rust_parser_owns_source(file_path: &str, source: &[u8]) -> bool {
 #[cfg(test)]
 mod parser_core_tests {
     use super::{
-        has_rust_test_attribute, new_rust_parser, rust_node_with_leading_attributes, FilePath,
-        RustOwnedParser,
+        FilePath, RustOwnedParser, has_rust_test_attribute, new_rust_parser,
+        rust_node_with_leading_attributes,
     };
     use std::path::Path;
 
@@ -999,9 +997,11 @@ mod parser_core_tests {
             b"# Design\n\nBody\n",
         );
 
-        assert!(nodes
-            .iter()
-            .any(|node| node.kind == "DocSection" && node.name == "design"));
+        assert!(
+            nodes
+                .iter()
+                .any(|node| node.kind == "DocSection" && node.name == "design")
+        );
         assert!(edges.iter().any(|edge| edge.kind == "CONTAINS"));
     }
 
@@ -1029,12 +1029,16 @@ mod parser_core_tests {
             .expect("parse should emit a file node")
             .file_path
             .clone();
-        assert!(nodes
-            .iter()
-            .all(|node| FilePath::ptr_eq(&node.file_path, &first)));
-        assert!(edges
-            .iter()
-            .all(|edge| FilePath::ptr_eq(&edge.file_path, &first)));
+        assert!(
+            nodes
+                .iter()
+                .all(|node| FilePath::ptr_eq(&node.file_path, &first))
+        );
+        assert!(
+            edges
+                .iter()
+                .all(|edge| FilePath::ptr_eq(&edge.file_path, &first))
+        );
     }
 
     #[test]

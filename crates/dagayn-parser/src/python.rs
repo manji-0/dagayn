@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 use regex::Regex;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::documentation_directives::{
     extract_line_comment_dagayn_directives, nearest_documentation_source,
@@ -55,27 +55,27 @@ pub(super) fn parse_python_with_parser(
     }];
     let mut edges = Vec::new();
 
-    if let Some(parser) = parser {
-        if let Some(tree) = parser.parse(source, None) {
-            let root = tree.root_node();
-            let (import_map, top_level_defined_names, protocol_names) =
-                collect_python_file_scope(root, source);
-            let class_names = collect_python_class_names(root, source);
-            let context = PythonParseContext {
-                source,
-                file_path: file_path.clone(),
-                repo_root,
-                import_map: &import_map,
-                top_level_defined_names: &top_level_defined_names,
-                protocol_names: &protocol_names,
-                bindings: RefCell::new(MemberCallBindings::with_types(class_names)),
-            };
-            python_walk_children(root, &context, None, None, &mut nodes, &mut edges);
-            extract_python_documentation_directives(&file_path, source, &nodes, &mut edges);
-            let edges = resolve_python_call_targets(&nodes, edges, &file_path);
-            let edges = add_python_tested_by_edges(&nodes, edges, &file_path);
-            return (nodes, edges);
-        }
+    if let Some(parser) = parser
+        && let Some(tree) = parser.parse(source, None)
+    {
+        let root = tree.root_node();
+        let (import_map, top_level_defined_names, protocol_names) =
+            collect_python_file_scope(root, source);
+        let class_names = collect_python_class_names(root, source);
+        let context = PythonParseContext {
+            source,
+            file_path: file_path.clone(),
+            repo_root,
+            import_map: &import_map,
+            top_level_defined_names: &top_level_defined_names,
+            protocol_names: &protocol_names,
+            bindings: RefCell::new(MemberCallBindings::with_types(class_names)),
+        };
+        python_walk_children(root, &context, None, None, &mut nodes, &mut edges);
+        extract_python_documentation_directives(&file_path, source, &nodes, &mut edges);
+        let edges = resolve_python_call_targets(&nodes, edges, &file_path);
+        let edges = add_python_tested_by_edges(&nodes, edges, &file_path);
+        return (nodes, edges);
     }
 
     (nodes, edges)
@@ -855,10 +855,10 @@ fn python_emit_value_references(
 ) {
     match node.kind() {
         "pair" => {
-            if let Some(value_node) = python_last_value_child(node) {
-                if value_node.kind() == "identifier" {
-                    python_emit_reference_if_known(value_node, context, caller, edges);
-                }
+            if let Some(value_node) = python_last_value_child(node)
+                && value_node.kind() == "identifier"
+            {
+                python_emit_reference_if_known(value_node, context, caller, edges);
             }
         }
         "assignment" => {
@@ -868,10 +868,10 @@ fn python_emit_value_references(
             if !matches!(lhs.kind(), "attribute" | "subscript") {
                 return;
             }
-            if let Some(rhs) = python_last_value_child(node) {
-                if rhs.kind() == "identifier" {
-                    python_emit_reference_if_known(rhs, context, caller, edges);
-                }
+            if let Some(rhs) = python_last_value_child(node)
+                && rhs.kind() == "identifier"
+            {
+                python_emit_reference_if_known(rhs, context, caller, edges);
             }
         }
         "list" => {
@@ -902,8 +902,8 @@ fn python_last_value_child(node: tree_sitter::Node<'_>) -> Option<tree_sitter::N
 
 fn python_first_child(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
     let mut cursor = node.walk();
-    let first = node.children(&mut cursor).next();
-    first
+
+    node.children(&mut cursor).next()
 }
 
 fn python_emit_reference_if_known(
@@ -1047,10 +1047,10 @@ fn collect_python_import_names(
                 }
             }
             "aliased_import" if seen_import => {
-                if let Some(module) = &module {
-                    if let Some(name) = python_aliased_import_name(child, source) {
-                        import_map.insert(name, module.clone());
-                    }
+                if let Some(module) = &module
+                    && let Some(name) = python_aliased_import_name(child, source)
+                {
+                    import_map.insert(name, module.clone());
                 }
             }
             _ => {}
@@ -1134,7 +1134,8 @@ fn python_has_test_annotation(node: tree_sitter::Node<'_>, source: &[u8]) -> boo
         return false;
     }
     let mut cursor = parent.walk();
-    let has_decorator = parent.children(&mut cursor).any(|child| {
+
+    parent.children(&mut cursor).any(|child| {
         if child.kind() != "decorator" {
             return false;
         }
@@ -1148,8 +1149,7 @@ fn python_has_test_annotation(node: tree_sitter::Node<'_>, source: &[u8]) -> boo
                 | "org.junit.Test"
                 | "org.junit.jupiter.api.Test"
         )
-    });
-    has_decorator
+    })
 }
 
 fn python_emit_bases(
@@ -1285,10 +1285,10 @@ fn python_decorator_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<S
         match child.kind() {
             "identifier" | "attribute" => return Some(node_text(child, source)),
             "call" => {
-                if let Some(callee) = python_first_child(child) {
-                    if matches!(callee.kind(), "identifier" | "attribute") {
-                        return Some(node_text(callee, source));
-                    }
+                if let Some(callee) = python_first_child(child)
+                    && matches!(callee.kind(), "identifier" | "attribute")
+                {
+                    return Some(node_text(callee, source));
                 }
             }
             _ => {}
@@ -1396,19 +1396,18 @@ fn python_bind_assignment(node: tree_sitter::Node<'_>, context: &PythonParseCont
         return;
     }
     let var = node_text(lhs, context.source);
-    if let Some(rhs) = python_last_value_child(node) {
-        if rhs.kind() == "call" {
-            if let Some(call_name) = python_call_name(rhs, context.source) {
-                let type_name = context
-                    .bindings
-                    .borrow()
-                    .constructor_type(&call_name)
-                    .map(str::to_string);
-                if let Some(type_name) = type_name {
-                    context.bindings.borrow_mut().bind(var.clone(), type_name);
-                    return;
-                }
-            }
+    if let Some(rhs) = python_last_value_child(node)
+        && rhs.kind() == "call"
+        && let Some(call_name) = python_call_name(rhs, context.source)
+    {
+        let type_name = context
+            .bindings
+            .borrow()
+            .constructor_type(&call_name)
+            .map(str::to_string);
+        if let Some(type_name) = type_name {
+            context.bindings.borrow_mut().bind(var.clone(), type_name);
+            return;
         }
     }
     let mut cursor = node.walk();
@@ -1441,12 +1440,11 @@ fn collect_python_class_names_into(
     } else {
         Some(node)
     };
-    if let Some(target) = target {
-        if target.kind() == "class_definition" {
-            if let Some(name) = python_identifier_child(target, source) {
-                names.insert(name);
-            }
-        }
+    if let Some(target) = target
+        && target.kind() == "class_definition"
+        && let Some(name) = python_identifier_child(target, source)
+    {
+        names.insert(name);
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
@@ -1631,12 +1629,11 @@ fn python_bridge_edge(
 
 fn python_call_signature(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     let mut cursor = node.walk();
-    let signature = node
-        .children(&mut cursor)
+
+    node.children(&mut cursor)
         .find(|child| child.kind() != "argument_list")
         .map(|child| node_text(child, source).trim().to_string())
-        .filter(|value| !value.is_empty());
-    signature
+        .filter(|value| !value.is_empty())
 }
 
 fn python_bridge_pattern(signature: &str) -> Option<(&'static str, &'static str)> {

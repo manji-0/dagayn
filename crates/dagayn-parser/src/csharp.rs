@@ -32,36 +32,36 @@ pub(super) fn parse_csharp_with_parser(
     }];
     let mut edges = Vec::new();
 
-    if let Some(parser) = parser {
-        if let Some(tree) = parser.parse(source, None) {
-            let mut interface_names = HashSet::new();
-            csharp_collect_interface_names(tree.root_node(), source, &mut interface_names);
-            let context = CSharpParseContext {
-                source,
-                file_path: &file_path,
-                interface_names: &interface_names,
-            };
-            csharp_walk_children(
+    if let Some(parser) = parser
+        && let Some(tree) = parser.parse(source, None)
+    {
+        let mut interface_names = HashSet::new();
+        csharp_collect_interface_names(tree.root_node(), source, &mut interface_names);
+        let context = CSharpParseContext {
+            source,
+            file_path: &file_path,
+            interface_names: &interface_names,
+        };
+        csharp_walk_children(
+            tree.root_node(),
+            &context,
+            None,
+            None,
+            &mut nodes,
+            &mut edges,
+        );
+        set_declared_namespaces(
+            &mut nodes,
+            collect_namespace_paths(
                 tree.root_node(),
-                &context,
-                None,
-                None,
-                &mut nodes,
-                &mut edges,
-            );
-            set_declared_namespaces(
-                &mut nodes,
-                collect_namespace_paths(
-                    tree.root_node(),
-                    source,
-                    &["namespace_declaration", "file_scoped_namespace_declaration"],
-                    Some("name"),
-                    &[],
-                ),
-            );
-            let edges = resolve_rust_call_targets(&nodes, edges, &file_path);
-            return (nodes, edges);
-        }
+                source,
+                &["namespace_declaration", "file_scoped_namespace_declaration"],
+                Some("name"),
+                &[],
+            ),
+        );
+        let edges = resolve_rust_call_targets(&nodes, edges, &file_path);
+        return (nodes, edges);
     }
 
     (nodes, edges)
@@ -233,11 +233,10 @@ fn csharp_generic_base(node: tree_sitter::Node<'_>) -> tree_sitter::Node<'_> {
         return node;
     }
     let mut cursor = node.walk();
-    let base = node
-        .children(&mut cursor)
+
+    node.children(&mut cursor)
         .find(|child| child.kind() == "identifier")
-        .unwrap_or(node);
-    base
+        .unwrap_or(node)
 }
 
 fn csharp_type_role(node: tree_sitter::Node<'_>, source: &[u8]) -> (&'static str, bool, bool) {
@@ -266,10 +265,10 @@ fn csharp_collect_interface_names(
     source: &[u8],
     names: &mut HashSet<String>,
 ) {
-    if node.kind() == "interface_declaration" {
-        if let Some(name) = csharp_type_name(node, source) {
-            names.insert(name);
-        }
+    if node.kind() == "interface_declaration"
+        && let Some(name) = csharp_type_name(node, source)
+    {
+        names.insert(name);
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
@@ -411,12 +410,11 @@ fn csharp_emit_call(
             extra: json!({}),
         });
     }
-    if let Some(signature) = csharp_call_signature(node, context.source) {
-        if let Some(edge) =
+    if let Some(signature) = csharp_call_signature(node, context.source)
+        && let Some(edge) =
             csharp_bridge_edge(node, context.source, context.file_path, &caller, &signature)
-        {
-            edges.push(edge);
-        }
+    {
+        edges.push(edge);
     }
 }
 
@@ -518,10 +516,9 @@ fn csharp_first_non_punctuation_child(
     node: tree_sitter::Node<'_>,
 ) -> Option<tree_sitter::Node<'_>> {
     let mut cursor = node.walk();
-    let child = node
-        .children(&mut cursor)
-        .find(|child| !matches!(child.kind(), "," | "(" | ")"));
-    child
+
+    node.children(&mut cursor)
+        .find(|child| !matches!(child.kind(), "," | "(" | ")"))
 }
 
 fn csharp_string_text(node: tree_sitter::Node<'_>, source: &[u8]) -> String {
@@ -543,9 +540,8 @@ fn csharp_field_text(node: tree_sitter::Node<'_>, source: &[u8], field: &str) ->
 /// Scans every `modifier` child, since declarations carry several of them.
 fn csharp_has_modifier(node: tree_sitter::Node<'_>, source: &[u8], modifier: &str) -> bool {
     let mut cursor = node.walk();
-    let found = node
-        .children(&mut cursor)
+
+    node.children(&mut cursor)
         .filter(|child| child.kind() == "modifier")
-        .any(|child| node_text(child, source).trim() == modifier);
-    found
+        .any(|child| node_text(child, source).trim() == modifier)
 }

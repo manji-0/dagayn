@@ -27,13 +27,13 @@ pub(super) fn parse_go_with_parser(
     }];
     let mut edges = Vec::new();
 
-    if let Some(parser) = parser {
-        if let Some(tree) = parser.parse(source, None) {
-            let root = tree.root_node();
-            go_walk_children(root, source, &file_path, None, &mut nodes, &mut edges);
-            let edges = resolve_rust_call_targets(&nodes, edges, &file_path);
-            return (nodes, edges);
-        }
+    if let Some(parser) = parser
+        && let Some(tree) = parser.parse(source, None)
+    {
+        let root = tree.root_node();
+        go_walk_children(root, source, &file_path, None, &mut nodes, &mut edges);
+        let edges = resolve_rust_call_targets(&nodes, edges, &file_path);
+        return (nodes, edges);
     }
 
     (nodes, edges)
@@ -234,11 +234,10 @@ fn go_receiver_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String
 
 fn go_first_parameter_list(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     let mut cursor = node.walk();
-    let params = node
-        .children(&mut cursor)
+
+    node.children(&mut cursor)
         .find(|child| child.kind() == "parameter_list")
-        .map(|child| node_text(child, source));
-    params
+        .map(|child| node_text(child, source))
 }
 
 fn go_emit_call(

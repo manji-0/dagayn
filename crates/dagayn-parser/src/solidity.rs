@@ -27,20 +27,20 @@ pub(super) fn parse_solidity_with_parser(
     }];
     let mut edges = Vec::new();
 
-    if let Some(parser) = parser {
-        if let Some(tree) = parser.parse(source, None) {
-            solidity_walk_children(
-                tree.root_node(),
-                source,
-                &file_path,
-                None,
-                None,
-                &mut nodes,
-                &mut edges,
-            );
-            let edges = resolve_rust_call_targets(&nodes, edges, &file_path);
-            return (nodes, edges);
-        }
+    if let Some(parser) = parser
+        && let Some(tree) = parser.parse(source, None)
+    {
+        solidity_walk_children(
+            tree.root_node(),
+            source,
+            &file_path,
+            None,
+            None,
+            &mut nodes,
+            &mut edges,
+        );
+        let edges = resolve_rust_call_targets(&nodes, edges, &file_path);
+        return (nodes, edges);
     }
 
     (nodes, edges)
@@ -416,17 +416,17 @@ fn solidity_emit_modifier_invocation_calls(
 ) {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        if child.kind() == "modifier_invocation" {
-            if let Some(name) = solidity_first_descendant_text(child, source, &["identifier"]) {
-                edges.push(ParsedEdge {
-                    kind: crate::core::types::EdgeKind::Calls,
-                    source: caller.to_string(),
-                    target: name,
-                    file_path: file_path.clone(),
-                    line: child.start_position().row as i64 + 1,
-                    extra: json!({}),
-                });
-            }
+        if child.kind() == "modifier_invocation"
+            && let Some(name) = solidity_first_descendant_text(child, source, &["identifier"])
+        {
+            edges.push(ParsedEdge {
+                kind: crate::core::types::EdgeKind::Calls,
+                source: caller.to_string(),
+                target: name,
+                file_path: file_path.clone(),
+                line: child.start_position().row as i64 + 1,
+                extra: json!({}),
+            });
         }
     }
 }
@@ -509,20 +509,19 @@ fn solidity_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<Stri
 
 fn solidity_call_callee<'a>(node: tree_sitter::Node<'a>) -> Option<tree_sitter::Node<'a>> {
     let mut cursor = node.walk();
-    let found = node
-        .children(&mut cursor)
-        .find(|child| !matches!(child.kind(), "call_arguments" | "arguments"));
-    found
+
+    node.children(&mut cursor)
+        .find(|child| !matches!(child.kind(), "call_arguments" | "arguments"))
 }
 
 fn solidity_inheritance_targets(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
     let mut out = Vec::new();
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        if child.kind() == "inheritance_specifier" {
-            if let Some(target) = solidity_first_descendant_text(child, source, &["identifier"]) {
-                out.push(target);
-            }
+        if child.kind() == "inheritance_specifier"
+            && let Some(target) = solidity_first_descendant_text(child, source, &["identifier"])
+        {
+            out.push(target);
         }
     }
     out
@@ -532,10 +531,9 @@ fn solidity_first_non_punctuation_child(
     node: tree_sitter::Node<'_>,
 ) -> Option<tree_sitter::Node<'_>> {
     let mut cursor = node.walk();
-    let found = node
-        .children(&mut cursor)
-        .find(|child| !matches!(child.kind(), "," | "(" | ")" | "{" | "}" | "[" | "]"));
-    found
+
+    node.children(&mut cursor)
+        .find(|child| !matches!(child.kind(), "," | "(" | ")" | "{" | "}" | "[" | "]"))
 }
 
 fn solidity_direct_child<'a>(
@@ -543,10 +541,9 @@ fn solidity_direct_child<'a>(
     kinds: &[&str],
 ) -> Option<tree_sitter::Node<'a>> {
     let mut cursor = node.walk();
-    let found = node
-        .children(&mut cursor)
-        .find(|child| kinds.contains(&child.kind()));
-    found
+
+    node.children(&mut cursor)
+        .find(|child| kinds.contains(&child.kind()))
 }
 
 fn solidity_direct_child_text(

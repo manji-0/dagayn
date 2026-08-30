@@ -11,7 +11,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde_json::json;
 
-use super::terraform_collect::{strip_tf_string, terraform_attrs, TerraformBlock};
+use super::terraform_collect::{TerraformBlock, strip_tf_string, terraform_attrs};
 use super::types::{EdgeKind, FilePath, ParsedEdge};
 use super::util::normalize_relative_path;
 

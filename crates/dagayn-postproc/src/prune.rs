@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use dagayn_graph::{GraphError, GraphStore, ORPHAN_PRUNE_STEPS};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::communities::refresh_community_stats_json;
 

@@ -30,30 +30,30 @@ pub(super) fn parse_scala_with_parser(
     }];
     let mut edges = Vec::new();
 
-    if let Some(parser) = parser {
-        if let Some(tree) = parser.parse(source, None) {
-            scala_walk_children(
+    if let Some(parser) = parser
+        && let Some(tree) = parser.parse(source, None)
+    {
+        scala_walk_children(
+            tree.root_node(),
+            source,
+            &file_path,
+            None,
+            None,
+            &mut nodes,
+            &mut edges,
+        );
+        set_declared_namespaces(
+            &mut nodes,
+            collect_namespace_paths(
                 tree.root_node(),
                 source,
-                &file_path,
-                None,
-                None,
-                &mut nodes,
-                &mut edges,
-            );
-            set_declared_namespaces(
-                &mut nodes,
-                collect_namespace_paths(
-                    tree.root_node(),
-                    source,
-                    &["package_clause"],
-                    Some("name"),
-                    &["package_identifier"],
-                ),
-            );
-            let edges = resolve_rust_call_targets(&nodes, edges, &file_path);
-            return (nodes, edges);
-        }
+                &["package_clause"],
+                Some("name"),
+                &["package_identifier"],
+            ),
+        );
+        let edges = resolve_rust_call_targets(&nodes, edges, &file_path);
+        return (nodes, edges);
     }
 
     (nodes, edges)
@@ -267,10 +267,9 @@ fn scala_is_value_container(type_role: &str) -> bool {
 
 fn scala_is_case_class(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
     let mut cursor = node.walk();
-    let is_case = node
-        .children(&mut cursor)
-        .any(|child| node_text(child, source).trim() == "case");
-    is_case
+
+    node.children(&mut cursor)
+        .any(|child| node_text(child, source).trim() == "case")
 }
 
 fn scala_emit_function(
@@ -330,10 +329,10 @@ fn scala_emit_call(
             extra: json!({}),
         });
     }
-    if let Some(signature) = scala_call_signature(node, source) {
-        if let Some(edge) = scala_bridge_edge(node, source, file_path, &caller, &signature) {
-            edges.push(edge);
-        }
+    if let Some(signature) = scala_call_signature(node, source)
+        && let Some(edge) = scala_bridge_edge(node, source, file_path, &caller, &signature)
+    {
+        edges.push(edge);
     }
 }
 
@@ -366,15 +365,11 @@ fn scala_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String>
     if callee.kind() == "identifier" {
         return Some(node_text(callee, source));
     }
-    if callee.kind() == "generic_function" {
-        if let Some(function) = scala_direct_child(callee, &["field_expression", "identifier"]) {
-            return scala_last_descendant_text(
-                function,
-                source,
-                &["identifier", "type_identifier"],
-            )
+    if callee.kind() == "generic_function"
+        && let Some(function) = scala_direct_child(callee, &["field_expression", "identifier"])
+    {
+        return scala_last_descendant_text(function, source, &["identifier", "type_identifier"])
             .or_else(|| Some(node_text(function, source)));
-        }
     }
     scala_last_descendant_text(callee, source, &["identifier", "type_identifier"])
 }
@@ -387,10 +382,9 @@ fn scala_call_signature(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<St
 
 fn scala_call_callee<'a>(node: tree_sitter::Node<'a>) -> Option<tree_sitter::Node<'a>> {
     let mut cursor = node.walk();
-    let found = node
-        .children(&mut cursor)
-        .find(|child| child.kind() != "arguments");
-    found
+
+    node.children(&mut cursor)
+        .find(|child| child.kind() != "arguments")
 }
 
 fn scala_bridge_edge(
@@ -481,10 +475,9 @@ fn scala_direct_child<'a>(
     kinds: &[&str],
 ) -> Option<tree_sitter::Node<'a>> {
     let mut cursor = node.walk();
-    let found = node
-        .children(&mut cursor)
-        .find(|child| kinds.contains(&child.kind()));
-    found
+
+    node.children(&mut cursor)
+        .find(|child| kinds.contains(&child.kind()))
 }
 
 fn scala_direct_child_text(

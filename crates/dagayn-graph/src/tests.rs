@@ -1039,9 +1039,11 @@ fn analysis_question_rows_read_nodes_edges_communities_and_persisted_scores() {
     assert!(question_node_names.contains("app.py::middle"));
     assert!(question_node_names.contains("app.py::leaf"));
     assert!(question_node_names.contains("test_app.py::test_leaf"));
-    assert!(question_nodes
-        .iter()
-        .any(|node| { node.qualified_name == "test_app.py::test_leaf" && node.is_test }));
+    assert!(
+        question_nodes
+            .iter()
+            .any(|node| { node.qualified_name == "test_app.py::test_leaf" && node.is_test })
+    );
     assert!(!question_node_names.contains("app.py"));
 
     let question_edges = store.get_question_edges().unwrap();
@@ -1079,16 +1081,20 @@ fn analysis_question_rows_read_nodes_edges_communities_and_persisted_scores() {
             &HashSet::from(["app.py::leaf".to_string()]),
         )
         .unwrap();
-    assert!(question_gaps
-        .thin_communities
-        .iter()
-        .any(|community| { community.id == leaf_community_id && community.size == 1 }));
+    assert!(
+        question_gaps
+            .thin_communities
+            .iter()
+            .any(|community| { community.id == leaf_community_id && community.size == 1 })
+    );
     assert!(question_gaps.untested_hotspots.is_empty());
 
     let bridge_rows = store.get_persisted_bridge_rows(5).unwrap();
-    assert!(bridge_rows
-        .iter()
-        .any(|row| { row.name == "middle" && row.qualified_name == "app.py::middle" }));
+    assert!(
+        bridge_rows
+            .iter()
+            .any(|row| { row.name == "middle" && row.qualified_name == "app.py::middle" })
+    );
     let hub_rows = store.get_persisted_hub_rows(5).unwrap();
     assert!(hub_rows.iter().any(|row| {
         row.name == "middle" && row.qualified_name == "app.py::middle" && row.total_degree == 2
@@ -2204,10 +2210,12 @@ fn stores_flows_and_reads_flow_inputs() {
             .unwrap(),
         1
     );
-    assert!(store
-        .delete_affected_flows(&["missing.py".to_string()])
-        .unwrap()
-        .is_empty());
+    assert!(
+        store
+            .delete_affected_flows(&["missing.py".to_string()])
+            .unwrap()
+            .is_empty()
+    );
     assert_eq!(
         store.get_node_kind_by_id(entry_id).unwrap().as_deref(),
         Some("Function")
@@ -2339,10 +2347,12 @@ fn analyze_changes_json_scores_range_limited_untested_security_changes() {
         analysis["review_priorities"][0]["qualified_name"],
         json!("app.py::auth_token")
     );
-    assert!(analysis["summary"]
-        .as_str()
-        .unwrap()
-        .contains("1 test gap(s)"));
+    assert!(
+        analysis["summary"]
+            .as_str()
+            .unwrap()
+            .contains("1 test gap(s)")
+    );
     let _ = std::fs::remove_file(path);
 }
 
@@ -2935,9 +2945,11 @@ fn community_edge_queries_are_region_local() {
     assert!(within.iter().any(|edge| {
         edge.source_qualified == "a.py::a_caller" && edge.target_qualified == "a.py::a_callee"
     }));
-    assert!(!within
-        .iter()
-        .any(|edge| edge.target_qualified == "b.py::b_callee"));
+    assert!(
+        !within
+            .iter()
+            .any(|edge| edge.target_qualified == "b.py::b_callee")
+    );
 
     let incident = store.get_edges_incident_to_community_ids(&[id_a]).unwrap();
     assert!(incident.iter().any(|edge| {

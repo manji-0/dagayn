@@ -2,14 +2,14 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::js_modules::{
-    collect_javascript_defined_names, collect_javascript_import_map, collect_javascript_type_names,
-    decode_javascript_string_literal, javascript_child_text, javascript_function_name,
-    javascript_import_targets, javascript_named_child, resolve_javascript_call_target,
-    resolve_javascript_imported_symbol, resolve_javascript_module, JavaScriptCaches,
-    JavaScriptParseContext,
+    JavaScriptCaches, JavaScriptParseContext, collect_javascript_defined_names,
+    collect_javascript_import_map, collect_javascript_type_names, decode_javascript_string_literal,
+    javascript_child_text, javascript_function_name, javascript_import_targets,
+    javascript_named_child, resolve_javascript_call_target, resolve_javascript_imported_symbol,
+    resolve_javascript_module,
 };
 use super::member_calls::MemberCallBindings;
 use super::parsers::*;
@@ -84,33 +84,33 @@ pub(super) fn parse_javascript_like_interned(
     }];
     let mut edges = Vec::new();
 
-    if let Some(parser) = parser {
-        if let Some(tree) = parser.parse(source, None) {
-            let root = tree.root_node();
-            let mut defined_names = HashSet::new();
-            collect_javascript_defined_names(root, source, &mut defined_names);
-            let mut type_names = HashSet::new();
-            collect_javascript_type_names(root, source, &mut type_names);
-            let mut import_map = HashMap::new();
-            collect_javascript_import_map(root, source, &mut import_map);
-            let context = JavaScriptParseContext {
-                source,
-                file_path: file_path.clone(),
-                language,
-                test_file,
-                defined_names: &defined_names,
-                import_map: &import_map,
-                repo_root,
-                caches,
-                bindings: RefCell::new(MemberCallBindings::with_types(type_names)),
-            };
-            javascript_walk_children(root, &context, None, None, &mut nodes, &mut edges);
-            let mut edges = resolve_rust_call_targets(&nodes, edges, file_path);
-            if test_file {
-                add_tested_by_edges(&nodes, &mut edges);
-            }
-            return (nodes, edges);
+    if let Some(parser) = parser
+        && let Some(tree) = parser.parse(source, None)
+    {
+        let root = tree.root_node();
+        let mut defined_names = HashSet::new();
+        collect_javascript_defined_names(root, source, &mut defined_names);
+        let mut type_names = HashSet::new();
+        collect_javascript_type_names(root, source, &mut type_names);
+        let mut import_map = HashMap::new();
+        collect_javascript_import_map(root, source, &mut import_map);
+        let context = JavaScriptParseContext {
+            source,
+            file_path: file_path.clone(),
+            language,
+            test_file,
+            defined_names: &defined_names,
+            import_map: &import_map,
+            repo_root,
+            caches,
+            bindings: RefCell::new(MemberCallBindings::with_types(type_names)),
+        };
+        javascript_walk_children(root, &context, None, None, &mut nodes, &mut edges);
+        let mut edges = resolve_rust_call_targets(&nodes, edges, file_path);
+        if test_file {
+            add_tested_by_edges(&nodes, &mut edges);
         }
+        return (nodes, edges);
     }
 
     (nodes, edges)
@@ -904,11 +904,11 @@ fn javascript_bind_declarator(node: tree_sitter::Node<'_>, context: &JavaScriptP
     let Some(ident) = ident else {
         return;
     };
-    if let Some(value) = value {
-        if let Some(type_name) = javascript_inferred_constructor(value, context) {
-            context.bindings.borrow_mut().bind(ident, type_name);
-            return;
-        }
+    if let Some(value) = value
+        && let Some(type_name) = javascript_inferred_constructor(value, context)
+    {
+        context.bindings.borrow_mut().bind(ident, type_name);
+        return;
     }
     if let Some(type_name) = annotated {
         context.bindings.borrow_mut().bind(ident, type_name);

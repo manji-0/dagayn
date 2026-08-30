@@ -338,20 +338,20 @@ fn collect_markdown_tree_facts(
     text: &str,
     parser: Option<&mut tree_sitter::Parser>,
 ) -> MarkdownTreeFacts {
-    if let Some(parser) = parser {
-        if let Some(tree) = parser.parse(source, None) {
-            let root = tree.root_node();
-            let mut facts = MarkdownTreeFacts {
-                parsed: true,
-                headings: collect_markdown_headings_from_tree(root, source),
-                ..MarkdownTreeFacts::default()
-            };
-            collect_markdown_link_and_directive_nodes(root, source, &mut facts);
-            if facts.headings.is_empty() {
-                facts.headings = collect_markdown_headings_from_text(text);
-            }
-            return facts;
+    if let Some(parser) = parser
+        && let Some(tree) = parser.parse(source, None)
+    {
+        let root = tree.root_node();
+        let mut facts = MarkdownTreeFacts {
+            parsed: true,
+            headings: collect_markdown_headings_from_tree(root, source),
+            ..MarkdownTreeFacts::default()
+        };
+        collect_markdown_link_and_directive_nodes(root, source, &mut facts);
+        if facts.headings.is_empty() {
+            facts.headings = collect_markdown_headings_from_text(text);
         }
+        return facts;
     }
     MarkdownTreeFacts {
         parsed: false,

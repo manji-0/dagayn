@@ -197,10 +197,10 @@ fn javascript_export_index(
     repo_root: Option<&Path>,
     caches: JavaScriptCaches<'_>,
 ) -> Option<JavaScriptExportIndex> {
-    if let Some(cache) = caches.export {
-        if let Some(cached) = cache.borrow().get(module_file).cloned() {
-            return cached;
-        }
+    if let Some(cache) = caches.export
+        && let Some(cached) = cache.borrow().get(module_file).cloned()
+    {
+        return cached;
     }
     let result = javascript_export_index_uncached(module_file, repo_root, caches);
     if let Some(cache) = caches.export {
@@ -331,13 +331,13 @@ pub(super) fn collect_javascript_import_map(
     source: &[u8],
     import_map: &mut HashMap<String, String>,
 ) {
-    if node.kind() == "import_statement" {
-        if let Some(module) = javascript_import_targets(node, source).into_iter().next() {
-            let mut cursor = node.walk();
-            for child in node.children(&mut cursor) {
-                if child.kind() == "import_clause" {
-                    collect_javascript_import_clause_names(child, source, &module, import_map);
-                }
+    if node.kind() == "import_statement"
+        && let Some(module) = javascript_import_targets(node, source).into_iter().next()
+    {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() == "import_clause" {
+                collect_javascript_import_clause_names(child, source, &module, import_map);
             }
         }
     }
@@ -517,10 +517,10 @@ pub(super) fn resolve_javascript_module(
     caches: JavaScriptCaches<'_>,
 ) -> Option<String> {
     let key = (file_path.to_string(), module.to_string());
-    if let Some(cache) = caches.module {
-        if let Some(cached) = cache.borrow().get(&key).cloned() {
-            return cached;
-        }
+    if let Some(cache) = caches.module
+        && let Some(cached) = cache.borrow().get(&key).cloned()
+    {
+        return cached;
     }
     let result = resolve_javascript_module_uncached(module, file_path, repo_root, caches);
     if let Some(cache) = caches.module {
@@ -645,10 +645,10 @@ fn find_javascript_tsconfig(
         PathBuf::from(file_path)
     };
     current = current.parent()?.to_path_buf();
-    if let Some(cache) = tsconfig_cache {
-        if let Some(cached) = cache.borrow().get(&current).cloned() {
-            return cached;
-        }
+    if let Some(cache) = tsconfig_cache
+        && let Some(cached) = cache.borrow().get(&current).cloned()
+    {
+        return cached;
     }
     let start_dir = current.clone();
     let result = find_javascript_tsconfig_uncached(current);

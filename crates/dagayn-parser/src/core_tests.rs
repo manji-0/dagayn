@@ -295,9 +295,11 @@ output "vpc_id" {
             && edge.source == "main.tf::module.network"
             && edge.target == "./modules/network"
     }));
-    assert!(edges
-        .iter()
-        .any(|edge| edge.kind == "CALLS" && edge.target == "merge"));
+    assert!(
+        edges
+            .iter()
+            .any(|edge| edge.kind == "CALLS" && edge.target == "merge")
+    );
     assert!(edges.iter().any(|edge| {
         edge.kind == "REFERENCES"
             && edge.source == "resource.aws_vpc.main"
@@ -1029,9 +1031,11 @@ class BridgeSamples : IRepository
             && node.params.as_deref() == Some("(int id)")
             && node.return_type.as_deref() == Some("User")
     }));
-    assert!(!nodes
-        .iter()
-        .any(|node| node.kind == "Function" && node.name == "User"));
+    assert!(
+        !nodes
+            .iter()
+            .any(|node| node.kind == "Function" && node.name == "User")
+    );
     assert!(nodes.iter().any(|node| {
         node.kind == "Function"
             && node.name == "Save"
@@ -1510,9 +1514,11 @@ Dog createDog(String name) {
             && node.parent_name.as_deref() == Some("Dog")
             && node.params.as_deref() == Some("(String item)")
     }));
-    assert!(edges
-        .iter()
-        .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "dart:async" }));
+    assert!(
+        edges
+            .iter()
+            .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "dart:async" })
+    );
     assert!(edges.iter().any(|edge| {
         edge.kind == "INHERITS" && edge.source == "sample.dart::Dog" && edge.target == "Animal"
     }));
@@ -1538,9 +1544,11 @@ Dog createDog(String name) {
             && edge.source == "sample.dart::SwimmingMixin.swim"
             && edge.target == "print"
     }));
-    assert!(edges
-        .iter()
-        .all(|edge| edge.kind != "CALLS" || edge.source != "sample.dart"));
+    assert!(
+        edges
+            .iter()
+            .all(|edge| edge.kind != "CALLS" || edge.source != "sample.dart")
+    );
     // The function node spans its body, not just the signature line.
     assert!(nodes.iter().any(|node| {
         node.kind == "Function" && node.name == "fetch" && node.line_end > node.line_start
@@ -1592,12 +1600,16 @@ end
             && node.name == "fetch"
             && node.parent_name.as_deref() == Some("Dog")
     }));
-    assert!(nodes
-        .iter()
-        .any(|node| { node.kind == "Test" && node.name == "test_greet" && node.is_test }));
-    assert!(edges
-        .iter()
-        .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "cjson" }));
+    assert!(
+        nodes
+            .iter()
+            .any(|node| { node.kind == "Test" && node.name == "test_greet" && node.is_test })
+    );
+    assert!(
+        edges
+            .iter()
+            .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "cjson" })
+    );
     assert!(edges.iter().any(|edge| {
         edge.kind == "CALLS"
             && edge.source == "sample.lua::Dog.fetch"
@@ -1649,9 +1661,11 @@ local function test_greet()
 end
 "#;
     let (nodes, edges) = parse_luau("sample.luau", source);
-    assert!(nodes
-        .iter()
-        .any(|node| { node.kind == "Class" && node.name == "Vector3" && node.language == "luau" }));
+    assert!(
+        nodes.iter().any(|node| {
+            node.kind == "Class" && node.name == "Vector3" && node.language == "luau"
+        })
+    );
     assert!(nodes.iter().any(|node| {
         node.kind == "Class" && node.name == "Callback" && node.language == "luau"
     }));
@@ -1667,12 +1681,16 @@ end
             && node.parent_name.as_deref() == Some("Animal")
             && node.language == "luau"
     }));
-    assert!(nodes
-        .iter()
-        .any(|node| { node.kind == "Test" && node.name == "test_greet" && node.is_test }));
-    assert!(edges
-        .iter()
-        .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "lib.utils" }));
+    assert!(
+        nodes
+            .iter()
+            .any(|node| { node.kind == "Test" && node.name == "test_greet" && node.is_test })
+    );
+    assert!(
+        edges
+            .iter()
+            .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "lib.utils" })
+    );
     assert!(edges.iter().any(|edge| {
         edge.kind == "CALLS"
             && edge.source == "sample.luau::test_greet"
@@ -1909,20 +1927,26 @@ process_data <- function(data) {
     assert!(nodes.iter().any(|node| {
         node.kind == "Function" && node.name == "add" && node.params.as_deref() == Some("(x, y)")
     }));
-    assert!(nodes
-        .iter()
-        .any(|node| { node.kind == "Class" && node.name == "MyClass" && node.language == "r" }));
+    assert!(
+        nodes
+            .iter()
+            .any(|node| { node.kind == "Class" && node.name == "MyClass" && node.language == "r" })
+    );
     assert!(nodes.iter().any(|node| {
         node.kind == "Function"
             && node.name == "greet"
             && node.parent_name.as_deref() == Some("MyClass")
     }));
-    assert!(edges
-        .iter()
-        .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "dplyr" }));
-    assert!(edges
-        .iter()
-        .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "utils.R" }));
+    assert!(
+        edges
+            .iter()
+            .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "dplyr" })
+    );
+    assert!(
+        edges
+            .iter()
+            .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "utils.R" })
+    );
     assert!(edges.iter().any(|edge| {
         edge.kind == "CALLS"
             && edge.source == "sample.R::process_data"
@@ -2065,12 +2089,16 @@ end # module
             && node.name.starts_with("testset:Arithmetic@L")
             && node.parent_name.as_deref() == Some("SampleModule")
     }));
-    assert!(edges
-        .iter()
-        .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "Statistics.mean" }));
-    assert!(edges
-        .iter()
-        .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "utils.jl" }));
+    assert!(
+        edges
+            .iter()
+            .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "Statistics.mean" })
+    );
+    assert!(
+        edges
+            .iter()
+            .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "utils.jl" })
+    );
     assert!(edges.iter().any(|edge| {
         edge.kind == "INHERITS"
             && edge.source == "sample.jl::SampleModule.Dog"
@@ -2166,15 +2194,21 @@ sub bark {
             && node.language == "perl"
             && node.extra["type_role"] == "class"
     }));
-    assert!(nodes
-        .iter()
-        .any(|node| { node.kind == "Class" && node.name == "Dog" }));
-    assert!(nodes
-        .iter()
-        .any(|node| { node.kind == "Function" && node.name == "bark" }));
-    assert!(edges
-        .iter()
-        .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "use strict;" }));
+    assert!(
+        nodes
+            .iter()
+            .any(|node| { node.kind == "Class" && node.name == "Dog" })
+    );
+    assert!(
+        nodes
+            .iter()
+            .any(|node| { node.kind == "Function" && node.name == "bark" })
+    );
+    assert!(
+        edges
+            .iter()
+            .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "use strict;" })
+    );
     assert!(edges.iter().any(|edge| {
         edge.kind == "CALLS" && edge.source == "sample.pl::new" && edge.target == "bless"
     }));
@@ -2259,9 +2293,11 @@ const doubled = computed(() => count.value * 2)
             && node.language == "vue"
             && node.line_start == 18
     }));
-    assert!(edges
-        .iter()
-        .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "vue" && edge.line == 8 }));
+    assert!(
+        edges
+            .iter()
+            .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "vue" && edge.line == 8 })
+    );
     assert!(edges.iter().any(|edge| {
         edge.kind == "CALLS" && edge.source == "sample.vue" && edge.target == "ref"
     }));
@@ -2399,21 +2435,31 @@ add(a, b)
 "#;
     let (nodes, edges) = parse_rust_owned_file("MyModule.xs", source);
 
-    assert!(nodes
-        .iter()
-        .any(|node| node.kind == "Class" && node.name == "Point"));
-    assert!(nodes
-        .iter()
-        .any(|node| node.kind == "Function" && node.name == "_add"));
-    assert!(nodes
-        .iter()
-        .any(|node| node.kind == "Function" && node.name == "compute_distance"));
-    assert!(edges
-        .iter()
-        .any(|edge| edge.kind == "IMPORTS_FROM" && edge.target == "XSUB.h"));
-    assert!(edges
-        .iter()
-        .any(|edge| edge.kind == "CALLS" && edge.target.ends_with("::_add")));
+    assert!(
+        nodes
+            .iter()
+            .any(|node| node.kind == "Class" && node.name == "Point")
+    );
+    assert!(
+        nodes
+            .iter()
+            .any(|node| node.kind == "Function" && node.name == "_add")
+    );
+    assert!(
+        nodes
+            .iter()
+            .any(|node| node.kind == "Function" && node.name == "compute_distance")
+    );
+    assert!(
+        edges
+            .iter()
+            .any(|edge| edge.kind == "IMPORTS_FROM" && edge.target == "XSUB.h")
+    );
+    assert!(
+        edges
+            .iter()
+            .any(|edge| edge.kind == "CALLS" && edge.target.ends_with("::_add"))
+    );
 }
 
 #[test]
@@ -2434,18 +2480,26 @@ static inline int user_id(User *user) {
 "#;
     let (nodes, edges) = parse_rust_owned_file("include/user.h", source);
 
-    assert!(nodes
-        .iter()
-        .any(|node| node.kind == "File" && node.language == "c"));
-    assert!(nodes
-        .iter()
-        .any(|node| node.kind == "Class" && node.name == "User"));
-    assert!(nodes
-        .iter()
-        .any(|node| node.kind == "Function" && node.name == "user_id"));
-    assert!(edges
-        .iter()
-        .any(|edge| edge.kind == "IMPORTS_FROM" && edge.target == "stdint.h"));
+    assert!(
+        nodes
+            .iter()
+            .any(|node| node.kind == "File" && node.language == "c")
+    );
+    assert!(
+        nodes
+            .iter()
+            .any(|node| node.kind == "Class" && node.name == "User")
+    );
+    assert!(
+        nodes
+            .iter()
+            .any(|node| node.kind == "Function" && node.name == "user_id")
+    );
+    assert!(
+        edges
+            .iter()
+            .any(|edge| edge.kind == "IMPORTS_FROM" && edge.target == "stdint.h")
+    );
 }
 
 #[test]
@@ -2480,15 +2534,21 @@ func loadLib() {
             && node.extra["container_role"] == "data_container"
             && node.extra["value_semantics"] == true
     }));
-    assert!(nodes
-        .iter()
-        .any(|node| node.kind == "Function" && node.name == "save"));
-    assert!(edges
-        .iter()
-        .any(|edge| edge.kind == "IMPORTS_FROM" && edge.target == "Foundation"));
-    assert!(edges
-        .iter()
-        .any(|edge| edge.kind == "CALLS" && edge.target == "print"));
+    assert!(
+        nodes
+            .iter()
+            .any(|node| node.kind == "Function" && node.name == "save")
+    );
+    assert!(
+        edges
+            .iter()
+            .any(|edge| edge.kind == "IMPORTS_FROM" && edge.target == "Foundation")
+    );
+    assert!(
+        edges
+            .iter()
+            .any(|edge| edge.kind == "CALLS" && edge.target == "print")
+    );
     assert!(edges.iter().any(|edge| {
         edge.kind == "CROSS_ARTIFACT"
             && edge.extra["evidence_source"] == "Process.run"
@@ -2538,12 +2598,16 @@ int main() {
             && node.language == "c"
             && node.extra["type_role"] == "class"
     }));
-    assert!(nodes
-        .iter()
-        .any(|node| { node.kind == "Function" && node.name == "create_user" }));
-    assert!(edges
-        .iter()
-        .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "stdio.h" }));
+    assert!(
+        nodes
+            .iter()
+            .any(|node| { node.kind == "Function" && node.name == "create_user" })
+    );
+    assert!(
+        edges
+            .iter()
+            .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "stdio.h" })
+    );
     assert!(edges.iter().any(|edge| {
         edge.kind == "CALLS"
             && edge.source == "sample.c::main"
@@ -2615,9 +2679,11 @@ void Dog::extra() { make_animal(1); }
     assert!(nodes.iter().any(|node| {
         node.kind == "Function" && node.name == "Dog" && node.parent_name.as_deref() == Some("Dog")
     }));
-    assert!(edges
-        .iter()
-        .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "iostream" }));
+    assert!(
+        edges
+            .iter()
+            .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "iostream" })
+    );
     assert!(edges.iter().any(|edge| {
         edge.kind == "INHERITS" && edge.source == "sample.cpp::Dog" && edge.target == "Animal"
     }));
@@ -2707,9 +2773,11 @@ int main(int argc, const char * argv[]) {
     assert!(nodes.iter().any(|node| {
         node.kind == "Function" && node.name == "main" && node.parent_name.is_none()
     }));
-    assert!(edges
-        .iter()
-        .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "Foundation/Foundation.h" }));
+    assert!(
+        edges.iter().any(|edge| {
+            edge.kind == "IMPORTS_FROM" && edge.target == "Foundation/Foundation.h"
+        })
+    );
     assert!(edges.iter().any(|edge| {
         edge.kind == "CALLS"
             && edge.source == "sample.m::Calculator.add"
@@ -3064,18 +3132,26 @@ describe('Service', () => {
             && node.extra["type_role"] == "class"
             && node.extra.get("container_role").is_none()
     }));
-    assert!(node_names
-        .iter()
-        .any(|(_, name, parent)| *name == "run" && *parent == Some("Service")));
-    assert!(node_names
-        .iter()
-        .any(|(_, name, parent)| *name == "helper" && parent.is_none()));
-    assert!(node_names
-        .iter()
-        .any(|(kind, name, _)| *kind == "Test" && name.starts_with("it:runs@L")));
-    assert!(edges
-        .iter()
-        .any(|edge| edge.kind == "IMPORTS_FROM" && edge.target == "./thing"));
+    assert!(
+        node_names
+            .iter()
+            .any(|(_, name, parent)| *name == "run" && *parent == Some("Service"))
+    );
+    assert!(
+        node_names
+            .iter()
+            .any(|(_, name, parent)| *name == "helper" && parent.is_none())
+    );
+    assert!(
+        node_names
+            .iter()
+            .any(|(kind, name, _)| *kind == "Test" && name.starts_with("it:runs@L"))
+    );
+    assert!(
+        edges
+            .iter()
+            .any(|edge| edge.kind == "IMPORTS_FROM" && edge.target == "./thing")
+    );
     assert!(edges.iter().any(|edge| {
         edge.kind == "INHERITS"
             && edge.source == "service.test.ts::Service"
@@ -3433,9 +3509,11 @@ function runDynamic(cmd) {
 }
 "#;
     let (nodes, edges) = parse_javascript_like("bridge.js", source, "javascript");
-    assert!(nodes
-        .iter()
-        .any(|node| node.kind == "Function" && node.name == "runDynamic"));
+    assert!(
+        nodes
+            .iter()
+            .any(|node| node.kind == "Function" && node.name == "runDynamic")
+    );
     assert!(edges.iter().any(|edge| {
         edge.kind == "CROSS_ARTIFACT"
             && edge.source == "bridge.js"
@@ -3488,9 +3566,11 @@ fn parses_rust_owned_files_as_one_compact_batch() {
     let results = parsed["results"].as_array().unwrap();
     assert_eq!(results.len(), 2);
     assert!(results.iter().all(|item| item["status"] == "ok"));
-    assert!(results
-        .iter()
-        .any(|item| item["file_path"] == "docs/README.md"));
+    assert!(
+        results
+            .iter()
+            .any(|item| item["file_path"] == "docs/README.md")
+    );
 
     let _ = std::fs::remove_dir_all(&repo_root);
 }

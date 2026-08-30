@@ -67,20 +67,20 @@ fn parse_c_like_with_parser(
         repo_root,
     };
 
-    if let Some(parser) = parser {
-        if let Some(tree) = parser.parse(source, None) {
-            c_walk_children(
-                tree.root_node(),
-                &context,
-                None,
-                None,
-                &mut nodes,
-                &mut edges,
-            );
-            let mut edges = resolve_c_call_targets(&nodes, edges, &file_path);
-            add_tested_by_edges(&nodes, &mut edges);
-            return (nodes, edges);
-        }
+    if let Some(parser) = parser
+        && let Some(tree) = parser.parse(source, None)
+    {
+        c_walk_children(
+            tree.root_node(),
+            &context,
+            None,
+            None,
+            &mut nodes,
+            &mut edges,
+        );
+        let mut edges = resolve_c_call_targets(&nodes, edges, &file_path);
+        add_tested_by_edges(&nodes, &mut edges);
+        return (nodes, edges);
     }
 
     (nodes, edges)
@@ -271,10 +271,10 @@ fn c_emit_call(
             extra: json!({}),
         });
     }
-    if let Some(signature) = c_call_signature(node, context.source) {
-        if let Some(edge) = c_bridge_edge(node, context, &caller, &signature) {
-            edges.push(edge);
-        }
+    if let Some(signature) = c_call_signature(node, context.source)
+        && let Some(edge) = c_bridge_edge(node, context, &caller, &signature)
+    {
+        edges.push(edge);
     }
 }
 
@@ -324,10 +324,9 @@ fn c_call_signature(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String
 
 fn c_call_callee<'a>(node: tree_sitter::Node<'a>) -> Option<tree_sitter::Node<'a>> {
     let mut cursor = node.walk();
-    let found = node
-        .children(&mut cursor)
-        .find(|child| child.kind() != "argument_list");
-    found
+
+    node.children(&mut cursor)
+        .find(|child| child.kind() != "argument_list")
 }
 
 /// The included header, as a repo-relative file path when one exists.
@@ -542,10 +541,9 @@ fn c_direct_child<'a>(
     kinds: &[&str],
 ) -> Option<tree_sitter::Node<'a>> {
     let mut cursor = node.walk();
-    let found = node
-        .children(&mut cursor)
-        .find(|child| kinds.contains(&child.kind()));
-    found
+
+    node.children(&mut cursor)
+        .find(|child| kinds.contains(&child.kind()))
 }
 
 fn c_direct_child_text(
@@ -614,10 +612,11 @@ fn resolve_c_call_targets(
     edges
         .into_iter()
         .map(|mut edge| {
-            if edge.kind == "CALLS" && !edge.target.contains("::") {
-                if let Some(target) = symbols.get(&edge.target) {
-                    edge.target = target.clone();
-                }
+            if edge.kind == "CALLS"
+                && !edge.target.contains("::")
+                && let Some(target) = symbols.get(&edge.target)
+            {
+                edge.target = target.clone();
             }
             edge
         })

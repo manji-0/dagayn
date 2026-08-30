@@ -7,8 +7,7 @@ pub(crate) const FTS_SEGMENTER_KEY: &str = "fts_segmenter";
 pub(crate) const FTS_SEGMENTER_LINDERA: &str = "lindera";
 
 const FTS_DELETE_SQL: &str = "DELETE FROM nodes_fts WHERE rowid = ?";
-const FTS_INSERT_SQL: &str =
-    "INSERT INTO nodes_fts(rowid, name, qualified_name, file_path, signature, \
+const FTS_INSERT_SQL: &str = "INSERT INTO nodes_fts(rowid, name, qualified_name, file_path, signature, \
     identifier_tokens, doc_text) VALUES (?, ?, ?, ?, ?, ?, ?)";
 
 pub(crate) fn set_fts_watermark_tx(tx: &Transaction<'_>, node_count: Option<i64>) -> Result<()> {

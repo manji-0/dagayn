@@ -33,21 +33,21 @@ pub(super) fn parse_dart_with_parser(
     }];
     let mut edges = Vec::new();
 
-    if let Some(parser) = parser {
-        if let Some(tree) = parser.parse(source, None) {
-            dart_walk_children(
-                tree.root_node(),
-                source,
-                &file_path,
-                None,
-                None,
-                &mut nodes,
-                &mut edges,
-            );
-            dart_resolve_import_targets(&mut edges, &file_path, repo_root);
-            let edges = resolve_rust_call_targets(&nodes, edges, &file_path);
-            return (nodes, edges);
-        }
+    if let Some(parser) = parser
+        && let Some(tree) = parser.parse(source, None)
+    {
+        dart_walk_children(
+            tree.root_node(),
+            source,
+            &file_path,
+            None,
+            None,
+            &mut nodes,
+            &mut edges,
+        );
+        dart_resolve_import_targets(&mut edges, &file_path, repo_root);
+        let edges = resolve_rust_call_targets(&nodes, edges, &file_path);
+        return (nodes, edges);
     }
 
     (nodes, edges)
@@ -104,15 +104,15 @@ fn dart_package_root(
         let full = repo_root
             .map(|root| root.join(&pubspec))
             .unwrap_or_else(|| pubspec.clone());
-        if let Ok(text) = std::fs::read_to_string(&full) {
-            if dart_pubspec_name(&text).as_deref() == Some(package) {
-                let prefix = current.to_string_lossy().replace('\\', "/");
-                return Some(if prefix.is_empty() {
-                    String::new()
-                } else {
-                    format!("{prefix}/")
-                });
-            }
+        if let Ok(text) = std::fs::read_to_string(&full)
+            && dart_pubspec_name(&text).as_deref() == Some(package)
+        {
+            let prefix = current.to_string_lossy().replace('\\', "/");
+            return Some(if prefix.is_empty() {
+                String::new()
+            } else {
+                format!("{prefix}/")
+            });
         }
         if !current.pop() {
             return None;
@@ -385,17 +385,17 @@ fn dart_emit_calls_from_children(
                 if let Some(method_name) = dart_selector_method_name(child, source) {
                     call_name = Some(method_name);
                 }
-                if dart_selector_has_arguments(child) {
-                    if let Some(target) = call_name.take() {
-                        edges.push(ParsedEdge {
-                            kind: crate::core::types::EdgeKind::Calls,
-                            source: caller.clone(),
-                            target,
-                            file_path: file_path.clone(),
-                            line: node.start_position().row as i64 + 1,
-                            extra: json!({}),
-                        });
-                    }
+                if dart_selector_has_arguments(child)
+                    && let Some(target) = call_name.take()
+                {
+                    edges.push(ParsedEdge {
+                        kind: crate::core::types::EdgeKind::Calls,
+                        source: caller.clone(),
+                        target,
+                        file_path: file_path.clone(),
+                        line: node.start_position().row as i64 + 1,
+                        extra: json!({}),
+                    });
                 }
             }
             "return" | "await" | "yield" | "this" | "const" | "new" => {}
@@ -418,10 +418,9 @@ fn dart_selector_method_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Opti
 
 fn dart_selector_has_arguments(node: tree_sitter::Node<'_>) -> bool {
     let mut cursor = node.walk();
-    let found = node
-        .children(&mut cursor)
-        .any(|child| child.kind() == "argument_part");
-    found
+
+    node.children(&mut cursor)
+        .any(|child| child.kind() == "argument_part")
 }
 
 fn dart_inheritance_targets(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
@@ -452,8 +451,8 @@ fn dart_collect_type_identifiers(
 
 fn dart_has_direct_child_kind(node: tree_sitter::Node<'_>, kind: &str) -> bool {
     let mut cursor = node.walk();
-    let found = node.children(&mut cursor).any(|child| child.kind() == kind);
-    found
+
+    node.children(&mut cursor).any(|child| child.kind() == kind)
 }
 
 fn dart_direct_child<'a>(
@@ -461,10 +460,9 @@ fn dart_direct_child<'a>(
     kinds: &[&str],
 ) -> Option<tree_sitter::Node<'a>> {
     let mut cursor = node.walk();
-    let found = node
-        .children(&mut cursor)
-        .find(|child| kinds.contains(&child.kind()));
-    found
+
+    node.children(&mut cursor)
+        .find(|child| kinds.contains(&child.kind()))
 }
 
 fn dart_direct_child_text(

@@ -89,16 +89,15 @@ impl GraphStore {
                    AND (extra LIKE '%original_symbol_name%' \
                         OR extra LIKE '%unresolved_target_name%')",
             )?;
-            let rows = stmt
-                .query_map([], |row| {
-                    Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                    ))
-                })?
-                .collect::<std::result::Result<Vec<_>, _>>()?;
-            rows
+
+            stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?
         };
 
         let mut resolved = 0_i64;

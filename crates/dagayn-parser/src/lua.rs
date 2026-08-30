@@ -51,20 +51,20 @@ fn parse_lua_like_with_parser(
         language,
     };
 
-    if let Some(parser) = parser {
-        if let Some(tree) = parser.parse(source, None) {
-            lua_walk_children(
-                tree.root_node(),
-                &context,
-                None,
-                None,
-                &mut nodes,
-                &mut edges,
-            );
-            let mut edges = resolve_lua_call_targets(&nodes, edges, &file_path);
-            add_tested_by_edges(&nodes, &mut edges);
-            return (nodes, edges);
-        }
+    if let Some(parser) = parser
+        && let Some(tree) = parser.parse(source, None)
+    {
+        lua_walk_children(
+            tree.root_node(),
+            &context,
+            None,
+            None,
+            &mut nodes,
+            &mut edges,
+        );
+        let mut edges = resolve_lua_call_targets(&nodes, edges, &file_path);
+        add_tested_by_edges(&nodes, &mut edges);
+        return (nodes, edges);
     }
 
     (nodes, edges)
@@ -112,18 +112,18 @@ fn lua_walk_children(
                 }
             }
             "function_call" => {
-                if enclosing_func.is_none() {
-                    if let Some(target) = lua_require_target(child, context.source) {
-                        edges.push(ParsedEdge {
-                            kind: crate::core::types::EdgeKind::ImportsFrom,
-                            source: context.file_path.to_string(),
-                            target,
-                            file_path: context.file_path.clone(),
-                            line: child.start_position().row as i64 + 1,
-                            extra: json!({}),
-                        });
-                        continue;
-                    }
+                if enclosing_func.is_none()
+                    && let Some(target) = lua_require_target(child, context.source)
+                {
+                    edges.push(ParsedEdge {
+                        kind: crate::core::types::EdgeKind::ImportsFrom,
+                        source: context.file_path.to_string(),
+                        target,
+                        file_path: context.file_path.clone(),
+                        line: child.start_position().row as i64 + 1,
+                        extra: json!({}),
+                    });
+                    continue;
                 }
                 lua_emit_call(child, context, enclosing_class, enclosing_func, edges);
             }
@@ -166,18 +166,18 @@ fn lua_handle_variable_declaration(
 
     let mut cursor = expr_list.walk();
     for expr in expr_list.children(&mut cursor) {
-        if expr.kind() == "function_call" {
-            if let Some(target) = lua_require_target(expr, context.source) {
-                edges.push(ParsedEdge {
-                    kind: crate::core::types::EdgeKind::ImportsFrom,
-                    source: context.file_path.to_string(),
-                    target,
-                    file_path: context.file_path.clone(),
-                    line: node.start_position().row as i64 + 1,
-                    extra: json!({}),
-                });
-                return true;
-            }
+        if expr.kind() == "function_call"
+            && let Some(target) = lua_require_target(expr, context.source)
+        {
+            edges.push(ParsedEdge {
+                kind: crate::core::types::EdgeKind::ImportsFrom,
+                source: context.file_path.to_string(),
+                target,
+                file_path: context.file_path.clone(),
+                line: node.start_position().row as i64 + 1,
+                extra: json!({}),
+            });
+            return true;
         }
     }
 
@@ -294,10 +294,10 @@ fn lua_emit_call(
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
-    if let Some(signature) = lua_call_signature(node, context.source) {
-        if let Some(edge) = lua_bridge_edge(node, context, &caller, &signature) {
-            edges.push(edge);
-        }
+    if let Some(signature) = lua_call_signature(node, context.source)
+        && let Some(edge) = lua_bridge_edge(node, context, &caller, &signature)
+    {
+        edges.push(edge);
     }
 }
 
@@ -327,10 +327,9 @@ fn lua_call_signature(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<Stri
 
 fn lua_call_callee<'a>(node: tree_sitter::Node<'a>) -> Option<tree_sitter::Node<'a>> {
     let mut cursor = node.walk();
-    let found = node
-        .children(&mut cursor)
-        .find(|child| child.kind() != "arguments");
-    found
+
+    node.children(&mut cursor)
+        .find(|child| child.kind() != "arguments")
 }
 
 fn lua_bridge_edge(
@@ -431,10 +430,9 @@ fn lua_direct_child<'a>(
     kinds: &[&str],
 ) -> Option<tree_sitter::Node<'a>> {
     let mut cursor = node.walk();
-    let found = node
-        .children(&mut cursor)
-        .find(|child| kinds.contains(&child.kind()));
-    found
+
+    node.children(&mut cursor)
+        .find(|child| kinds.contains(&child.kind()))
 }
 
 fn lua_direct_child_text(

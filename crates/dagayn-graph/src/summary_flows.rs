@@ -85,13 +85,11 @@ impl GraphStore {
                         }
                     }
                 }
-                if path_ids.len() > 1 {
-                    if let Some(last) = path_ids.last().and_then(|node_id| id_to_name.get(node_id))
-                    {
-                        if !critical_path.contains(last) {
-                            critical_path.push(last.clone());
-                        }
-                    }
+                if path_ids.len() > 1
+                    && let Some(last) = path_ids.last().and_then(|node_id| id_to_name.get(node_id))
+                    && !critical_path.contains(last)
+                {
+                    critical_path.push(last.clone());
                 }
             }
             insert.execute(params![
