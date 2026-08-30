@@ -4,6 +4,8 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+## 4.13.0 — 2026-08-30
+
 ### Features
 
 - Native FTS indexes Japanese with Lindera IPADIC morphemes (plus base forms)
@@ -12,13 +14,15 @@ All notable changes to `dagayn` are documented here.
   through to OR. CJK symbol names also land in `identifier_tokens`. Quality
   gates run on the mixed fixture `tests/fixtures/japanese_search/` (Markdown +
   Python + Terraform), not a 7-node inline corpus.
-- C# member CALLS bind to the constructor, local, field, or parameter type
-  (`var repo = new Repo(); repo.Find()` → `Repo.Find`) instead of the first
-  same-named interface method, matching TypeScript, Python, and Rust. Interface
-  and `abstract` methods record `is_abstract`; `[Fact]` / `[Test]` /
-  `[TestMethod]` become Test nodes with `TESTED_BY`; `using Alias = Type` is a
-  type alias; nested types `CONTAIN` from the outer class; indexers and
-  `// dagayn:` directives are extracted.
+- Tree-sitter TypeScript, Python, Rust, and C# extractors bind constructor and
+  local types (`const store = new Store()`, `var repo = new Repo()`) plus
+  `self` / `this` / `base`, so member CALLS such as `store.find()` attach to
+  the implementation type instead of the first same-named trait, interface, or
+  Protocol method.
+- C# graphs also record interface/`abstract` methods as `is_abstract`,
+  `[Fact]` / `[Test]` / `[TestMethod]` as Test nodes with `TESTED_BY`,
+  `using Alias = Type` as a type alias, nested-type `CONTAINS` from the outer
+  class, indexers, and `// dagayn:` directives.
 
 ### Changed
 
@@ -39,6 +43,7 @@ All notable changes to `dagayn` are documented here.
   twice.
 - Parser `file_path` is a shared `FilePath` (`Arc<str>`). Every node and edge
   from one file clones the same handle; SQLite and Python still see a string.
+- The Rust workspace targets 1.95.0 and edition 2024.
 
 ## 4.12.0 — 2026-08-29
 
