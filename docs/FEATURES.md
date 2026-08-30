@@ -23,7 +23,7 @@
 <!-- derived-from ./ARCHITECTURE.md#parsing-model -->
 
 - application languages such as Python, TypeScript, JavaScript, Go, Rust, Java, C, C++, C#, Ruby, PHP, Kotlin, Swift, Scala, Dart, Perl, R, and more
-- repo-adjacent assets such as Markdown, Jupyter notebooks, and Databricks notebook sources/exports
+- repo-adjacent assets such as Markdown, Jupyter notebooks, Databricks notebook sources/exports, and marimo `.py` notebooks
 - Terraform as a first-class graph source
 
 ## Notable fork-specific additions

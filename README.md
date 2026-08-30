@@ -30,7 +30,7 @@ See [NOTICE](NOTICE) for upstream attribution and original author information.
 
 - first-class Terraform parsing for `.tf` and `.tfvars`
 - Markdown structure and dependency extraction, including directive comments and `dagayn:` documentation links
-- notebook parsing for `.ipynb`
+- notebook parsing for `.ipynb` and marimo `.py` notebooks
 - native Japanese FTS (Lindera IPADIC morphemes plus CJK bigrams), so inflected queries still AND-match
 - incremental graph updates, watch mode, worktree sync, and session prepare
 - MCP server for AI coding tools
@@ -47,7 +47,7 @@ Highlights include:
 
 - Python, JavaScript, TypeScript, TSX, Go, Rust, Java, C, C++, C#, Ruby, PHP, Kotlin, Swift, Scala, Solidity, Dart, Lua, Luau, Objective-C, Bash, Elixir, Zig, PowerShell, Julia, Perl, R, GDScript, Vue, Svelte, Astro
 - Markdown
-- Jupyter notebooks and Databricks notebook sources/exports as graph inputs
+- Jupyter notebooks, Databricks notebook sources/exports, and marimo `.py` notebooks as graph inputs
 - Terraform
 
 See `docs/FEATURES.md` and `docs/LLM-OPTIMIZED-REFERENCE.md` for the current coverage summary.
@@ -287,7 +287,7 @@ with a verified contract.
 - `--format` is required and supports `graphml`, `mermaid-c4`, `svg`, `cypher`, and `obsidian`
 - `mermaid-c4` emits Mermaid `C4Component` code with files collapsed into components and cross-file relations
 - `svg` export uses matplotlib, so install the eval extra when you need it: `pip install "dagayn[eval]"`
-- Jupyter / Databricks notebooks are parsed as graph inputs, not emitted as report formats
+- Jupyter / Databricks / marimo notebooks are parsed as graph inputs, not emitted as report formats
 
 ## AI platform integration
 

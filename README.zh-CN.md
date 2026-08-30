@@ -30,7 +30,7 @@
 
 - 针对 `.tf` 和 `.tfvars` 的一等 Terraform 解析
 - Markdown 结构与依赖提取，包括指令注释和 `dagayn:` 文档链接
-- `.ipynb` 笔记本解析
+- `.ipynb` 笔记本与 marimo `.py` 笔记本解析
 - 原生日文 FTS（Lindera IPADIC 词素 + CJK bigram），屈折查询仍能 AND 匹配
 - 增量图谱更新、监听模式、worktree sync 与 session prepare
 - 面向 AI 编码工具的 MCP 服务器
@@ -47,7 +47,7 @@
 
 - Python, JavaScript, TypeScript, TSX, Go, Rust, Java, C, C++, C#, Ruby, PHP, Kotlin, Swift, Scala, Solidity, Dart, Lua, Luau, Objective-C, Bash, Elixir, Zig, PowerShell, Julia, Perl, R, GDScript, Vue, Svelte, Astro
 - Markdown
-- Jupyter 笔记本和 Databricks 笔记本源码/导出会作为图谱输入解析
+- Jupyter 笔记本、Databricks 笔记本源码/导出、以及 marimo `.py` 笔记本作为图谱输入解析
 - Terraform
 
 当前覆盖范围摘要请参见 `docs/FEATURES.md` 和 `docs/LLM-OPTIMIZED-REFERENCE.md`。
@@ -260,7 +260,7 @@ dagayn serve --tools query_graph_tool,semantic_search_nodes_tool
 - `--format` 是必需的，支持 `graphml`、`mermaid-c4`、`svg`、`cypher`、`obsidian`
 - `mermaid-c4` 输出 Mermaid `C4Component` 代码，将文件折叠为组件、跨文件关系作为关系
 - `svg` 使用 matplotlib，需要时安装 eval extra：`pip install "dagayn[eval]"`
-- Jupyter / Databricks 笔记本是图谱输入，不是报告输出格式
+- Jupyter / Databricks / marimo 笔记本是图谱输入，不是报告输出格式
 
 ## AI 平台集成
 

@@ -1,4 +1,4 @@
-"""Tests for Jupyter notebook (.ipynb) parsing."""
+"""Tests for Jupyter, Databricks, and marimo notebook parsing."""
 
 import json
 from pathlib import Path
@@ -318,6 +318,121 @@ class TestDatabricksPyNotebook:
             "'# Databricks notebook source' must not trigger Databricks "
             "parsing"
         )
+
+
+class TestMarimoNotebook:
+    def setup_method(self):
+        self.parser = CodeParser()
+        self.nodes, self.edges = self.parser.parse_file(
+            FIXTURES / "sample_marimo_notebook.py",
+        )
+
+    def test_detects_marimo_notebook(self):
+        file_node = [n for n in self.nodes if n.kind == "File"][0]
+        assert file_node.extra.get("notebook_format") == "marimo"
+        assert file_node.language == "python"
+
+    def test_unwraps_cell_functions(self):
+        funcs = [n for n in self.nodes if n.kind == "Function"]
+        names = {f.name for f in funcs}
+        assert "add" in names
+        assert "multiply" in names
+        assert "helper" in names
+        assert "_" not in names
+
+    def test_parses_class_definition_cell(self):
+        classes = [n for n in self.nodes if n.kind == "Class"]
+        names = {c.name for c in classes}
+        assert "DataProcessor" in names
+        methods = {
+            n.name for n in self.nodes if n.kind == "Function" and n.parent_name == "DataProcessor"
+        }
+        assert "__init__" in methods
+        assert "process" in methods
+
+    def test_skips_markdown_cells(self):
+        funcs = {n.name: n for n in self.nodes if n.kind == "Function"}
+        assert funcs["add"].extra.get("cell_index") == 3
+        assert funcs["multiply"].extra.get("cell_index") == 4
+        assert funcs["helper"].extra.get("cell_index") == 6
+
+    def test_setup_cell_imports(self):
+        imports = [e for e in self.edges if e.kind == "IMPORTS_FROM"]
+        targets = {e.target for e in imports}
+        assert "os" in targets
+        assert "pathlib" in targets
+        assert "marimo" in targets
+
+    def test_extracts_sql_tables(self):
+        imports = [e for e in self.edges if e.kind == "IMPORTS_FROM"]
+        targets = {e.target for e in imports}
+        assert "bronze.events" in targets
+        assert "silver.users" in targets
+
+    def test_cross_cell_calls(self):
+        calls = [e for e in self.edges if e.kind == "CALLS"]
+        targets = {e.target.split("::")[-1] for e in calls}
+        assert "add" in targets
+        assert "multiply" in targets
+
+    def test_regular_py_with_marimo_import_not_affected(self):
+        source = b"import marimo as mo\n\ndef hello():\n    return mo.md('hi')\n"
+        nodes, _edges = self.parser.parse_bytes(Path("lib.py"), source)
+        file_node = [n for n in nodes if n.kind == "File"][0]
+        assert "notebook_format" not in file_node.extra
+        funcs = [n for n in nodes if n.kind == "Function"]
+        assert [f.name for f in funcs] == ["hello"]
+
+    def test_flask_app_route_not_detected(self):
+        source = (
+            b"from flask import Flask\n"
+            b"app = Flask(__name__)\n\n"
+            b"@app.route('/')\n"
+            b"def index():\n"
+            b"    return 'ok'\n"
+        )
+        nodes, _edges = self.parser.parse_bytes(Path("web.py"), source)
+        file_node = [n for n in nodes if n.kind == "File"][0]
+        assert "notebook_format" not in file_node.extra
+        funcs = [n for n in nodes if n.kind == "Function"]
+        assert [f.name for f in funcs] == ["index"]
+
+    def test_marimo_example_in_string_not_detected(self):
+        source = (
+            b'doc = """\n'
+            b"import marimo\n"
+            b"app = marimo.App()\n\n"
+            b"@app.cell\n"
+            b"def _():\n"
+            b"    return\n"
+            b'"""\n\n'
+            b"def describe():\n"
+            b"    return doc\n"
+        )
+        nodes, _edges = self.parser.parse_bytes(Path("tutorial.py"), source)
+        file_node = [n for n in nodes if n.kind == "File"][0]
+        assert "notebook_format" not in file_node.extra
+        funcs = [n for n in nodes if n.kind == "Function"]
+        assert [f.name for f in funcs] == ["describe"]
+
+    def test_empty_marimo_cells(self):
+        source = (
+            b"import marimo\n"
+            b"app = marimo.App()\n\n"
+            b"@app.cell\n"
+            b"def _():\n"
+            b"    return\n\n"
+            b"@app.cell\n"
+            b"def _():\n"
+            b"    def real():\n"
+            b"        return 1\n"
+            b"    return (real,)\n"
+        )
+        nodes, _edges = self.parser.parse_bytes(Path("empty_cells.py"), source)
+        file_node = [n for n in nodes if n.kind == "File"][0]
+        assert file_node.extra.get("notebook_format") == "marimo"
+        funcs = [n for n in nodes if n.kind == "Function"]
+        assert [f.name for f in funcs] == ["real"]
 
 
 class TestRKernelNotebook:

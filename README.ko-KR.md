@@ -30,7 +30,7 @@
 
 - `.tf` 및 `.tfvars`의 일급 Terraform 파싱
 - Markdown 구조와 의존 주석, 그리고 `dagayn:` 문서 링크 추출
-- `.ipynb` 노트북 파싱
+- `.ipynb` 및 marimo `.py` 노트북 파싱
 - 네이티브 일본어 FTS(Lindera IPADIC 형태소 + CJK bigram). 활용형 쿼리도 AND 매치
 - 증분 그래프 갱신, 워치 모드, worktree sync, session prepare
 - AI 코딩 도구용 MCP 서버
@@ -47,7 +47,7 @@
 
 - Python, JavaScript, TypeScript, TSX, Go, Rust, Java, C, C++, C#, Ruby, PHP, Kotlin, Swift, Scala, Solidity, Dart, Lua, Luau, Objective-C, Bash, Elixir, Zig, PowerShell, Julia, Perl, R, GDScript, Vue, Svelte, Astro
 - Markdown
-- Jupyter 노트북과 Databricks 노트북 소스/내보내기를 그래프 입력으로 파싱
+- Jupyter 노트북, Databricks 노트북 소스/내보내기, marimo `.py` 노트북을 그래프 입력으로 파싱
 - Terraform
 
 현재 커버리지 요약은 `docs/FEATURES.md`와 `docs/LLM-OPTIMIZED-REFERENCE.md`를 참조하세요.
@@ -260,7 +260,7 @@ dagayn serve --tools query_graph_tool,semantic_search_nodes_tool
 - `--format`은 필수이며 `graphml`, `mermaid-c4`, `svg`, `cypher`, `obsidian`을 지원합니다
 - `mermaid-c4`는 파일을 컴포넌트, 크로스파일 의존성을 관계로 집약한 Mermaid `C4Component` 코드를 출력합니다
 - `svg`는 matplotlib를 사용하므로 필요하면 eval extra를 설치하세요: `pip install "dagayn[eval]"`
-- Jupyter / Databricks 노트북은 리포트 출력 형식이 아니라 그래프 입력입니다
+- Jupyter / Databricks / marimo 노트북은 리포트 출력 형식이 아니라 그래프 입력입니다
 
 ## AI 플랫폼 통합
 

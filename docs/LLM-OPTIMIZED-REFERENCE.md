@@ -115,7 +115,7 @@ callers default to `none` unless `--local-embedding` is passed.
 <section name="languages">
 The fork supports mainstream app languages plus Markdown, notebooks, and Terraform.
 
-Jupyter and Databricks notebooks are parsed as graph inputs rather than report output formats.
+Jupyter, Databricks, and marimo notebooks are parsed as graph inputs rather than report output formats.
 
 Terraform and Markdown are notable differentiators for this fork's review workflows. Native FTS indexes Japanese with Lindera IPADIC morphemes and overlapping CJK bigrams.
 </section>

@@ -105,6 +105,11 @@ select = ["E", "F", "I", "N", "W"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/fixtures/sample_databricks_export.py" = ["F841", "W292"]  # intentional fixture patterns
+"tests/fixtures/sample_marimo_notebook.py" = [
+    "F401",
+    "F541",
+    "N803",
+]  # marimo cell wrappers: unused setup imports, SQL f-strings, class refs as args
 "tests/fixtures/sample_notebook.ipynb" = ["F401", "I001"]  # fixture imports: intentionally unused, split across cells
 "tests/fixtures/japanese_search/app/auth.py" = ["N802"]  # CJK identifier is the FTS quality-gate target
 "tests/test_multilang.py" = ["E501"]  # long assertions with explanatory comments

@@ -30,7 +30,7 @@
 
 - `.tf` および `.tfvars` の第一級 Terraform パーシング
 - Markdown 構造と依存コメント、および `dagayn:` ドキュメントリンクの抽出
-- `.ipynb` ノートブックパーシング
+- `.ipynb` および marimo `.py` ノートブックパーシング
 - ネイティブ日本語 FTS（Lindera IPADIC 形態素 + CJK bigram）。活用形クエリでも AND マッチする
 - インクリメンタルグラフ更新、ウォッチモード、worktree sync、session prepare
 - AI コーディングツール向け MCP サーバー
@@ -47,7 +47,7 @@
 
 - Python, JavaScript, TypeScript, TSX, Go, Rust, Java, C, C++, C#, Ruby, PHP, Kotlin, Swift, Scala, Solidity, Dart, Lua, Luau, Objective-C, Bash, Elixir, Zig, PowerShell, Julia, Perl, R, GDScript, Vue, Svelte, Astro
 - Markdown
-- Jupyter ノートブックと Databricks ノートブックソース/エクスポートをグラフ入力として解析
+- Jupyter ノートブック、Databricks ノートブックソース/エクスポート、および marimo `.py` ノートブックをグラフ入力として解析
 - Terraform
 
 現在のカバレッジ一覧は `docs/FEATURES.md` と `docs/LLM-OPTIMIZED-REFERENCE.md` を参照してください。
@@ -260,7 +260,7 @@ dagayn serve --tools query_graph_tool,semantic_search_nodes_tool
 - `--format` は必須で、`graphml`, `mermaid-c4`, `svg`, `cypher`, `obsidian` をサポート
 - `mermaid-c4` は Mermaid の `C4Component` コードを出力し、ファイルをコンポーネント、クロスファイル依存を関係として集約します
 - `svg` は matplotlib を使うため、必要なら eval extra を入れます: `pip install "dagayn[eval]"`
-- Jupyter / Databricks ノートブックはレポート出力形式ではなく、グラフ入力として扱います
+- Jupyter / Databricks / marimo ノートブックはレポート出力形式ではなく、グラフ入力として扱います
 
 ## AI プラットフォーム連携
 

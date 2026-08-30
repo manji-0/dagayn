@@ -255,7 +255,7 @@ and generates:
 
 - GraphML, Mermaid C4, SVG, Neo4j Cypher, or Obsidian exports via `--format`
 
-Jupyter / Databricks notebooks are supported as graph inputs rather than report
+Jupyter / Databricks / marimo notebooks are supported as graph inputs rather than report
 output formats.
 
 `dagayn wiki` writes Markdown pages under `.dagayn/wiki/` from detected graph
