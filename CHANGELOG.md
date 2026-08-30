@@ -12,6 +12,13 @@ All notable changes to `dagayn` are documented here.
   through to OR. CJK symbol names also land in `identifier_tokens`. Quality
   gates run on the mixed fixture `tests/fixtures/japanese_search/` (Markdown +
   Python + Terraform), not a 7-node inline corpus.
+- C# member CALLS bind to the constructor, local, field, or parameter type
+  (`var repo = new Repo(); repo.Find()` → `Repo.Find`) instead of the first
+  same-named interface method, matching TypeScript, Python, and Rust. Interface
+  and `abstract` methods record `is_abstract`; `[Fact]` / `[Test]` /
+  `[TestMethod]` become Test nodes with `TESTED_BY`; `using Alias = Type` is a
+  type alias; nested types `CONTAIN` from the outer class; indexers and
+  `// dagayn:` directives are extracted.
 
 ### Changed
 

@@ -1,13 +1,35 @@
+use std::cell::RefCell;
 use std::collections::HashSet;
 
 use serde_json::json;
 
+use super::documentation_directives::{
+    extract_line_comment_dagayn_directives, nearest_documentation_source,
+    push_documentation_directive_edge,
+};
+use super::member_calls::MemberCallBindings;
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{
     collect_namespace_paths, is_test_file, line_count, node_text, set_declared_namespaces,
-    strip_matching_quotes,
+    starts_with_ascii_ignore_case, strip_matching_quotes,
 };
-use super::{qualify, resolve_rust_call_targets};
+use super::{add_tested_by_edges, qualify, resolve_rust_call_targets};
+
+const CSHARP_TYPE_KINDS: &[&str] = &[
+    "class_declaration",
+    "interface_declaration",
+    "enum_declaration",
+    "struct_declaration",
+    "record_declaration",
+];
+
+const CSHARP_FUNCTION_KINDS: &[&str] = &[
+    "method_declaration",
+    "constructor_declaration",
+    "property_declaration",
+    "indexer_declaration",
+    "local_function_statement",
+];
 
 pub(super) fn parse_csharp_with_parser(
     file_path: &str,
@@ -35,32 +57,30 @@ pub(super) fn parse_csharp_with_parser(
     if let Some(parser) = parser
         && let Some(tree) = parser.parse(source, None)
     {
+        let root = tree.root_node();
         let mut interface_names = HashSet::new();
-        csharp_collect_interface_names(tree.root_node(), source, &mut interface_names);
+        csharp_collect_interface_names(root, source, &mut interface_names);
+        let type_names = csharp_collect_type_names(root, source);
         let context = CSharpParseContext {
             source,
-            file_path: &file_path,
+            file_path: file_path.clone(),
             interface_names: &interface_names,
+            bindings: RefCell::new(MemberCallBindings::with_types(type_names)),
         };
-        csharp_walk_children(
-            tree.root_node(),
-            &context,
-            None,
-            None,
-            &mut nodes,
-            &mut edges,
-        );
+        csharp_walk_children(root, &context, None, None, &mut nodes, &mut edges);
         set_declared_namespaces(
             &mut nodes,
             collect_namespace_paths(
-                tree.root_node(),
+                root,
                 source,
                 &["namespace_declaration", "file_scoped_namespace_declaration"],
                 Some("name"),
                 &[],
             ),
         );
-        let edges = resolve_rust_call_targets(&nodes, edges, &file_path);
+        csharp_extract_documentation_directives(&file_path, source, &nodes, &mut edges);
+        let mut edges = resolve_rust_call_targets(&nodes, edges, &file_path);
+        add_tested_by_edges(&nodes, &mut edges);
         return (nodes, edges);
     }
 
@@ -69,8 +89,9 @@ pub(super) fn parse_csharp_with_parser(
 
 struct CSharpParseContext<'a> {
     source: &'a [u8],
-    file_path: &'a FilePath,
+    file_path: FilePath,
     interface_names: &'a HashSet<String>,
+    bindings: RefCell<MemberCallBindings>,
 }
 
 fn csharp_walk_children(
@@ -85,27 +106,37 @@ fn csharp_walk_children(
     for child in node.children(&mut cursor) {
         match child.kind() {
             "using_directive" => {
-                csharp_emit_import(child, context, edges);
+                csharp_emit_import(child, context, nodes, edges);
+                continue;
             }
-            "class_declaration"
-            | "interface_declaration"
-            | "enum_declaration"
-            | "struct_declaration"
-            | "record_declaration"
-                if let Some(name) = csharp_type_name(child, context.source) =>
+            kind if CSHARP_TYPE_KINDS.contains(&kind)
+                && let Some(name) = csharp_type_name(child, context.source) =>
             {
                 csharp_emit_type(child, context, &name, enclosing_class, nodes, edges);
+                let snapshot = context.bindings.borrow().snapshot();
+                csharp_bind_type_scope(child, context);
                 csharp_walk_children(child, context, Some(&name), None, nodes, edges);
+                context.bindings.borrow_mut().restore(snapshot);
                 continue;
             }
-            "method_declaration" | "constructor_declaration" | "property_declaration"
-                if let Some(name) = csharp_function_name(child, context.source) =>
+            kind if CSHARP_FUNCTION_KINDS.contains(&kind)
+                && let Some(name) = csharp_function_name(child, context.source) =>
             {
                 csharp_emit_function(child, context, &name, enclosing_class, nodes, edges);
+                let snapshot = context.bindings.borrow().snapshot();
+                if let Some(class_name) = enclosing_class {
+                    context
+                        .bindings
+                        .borrow_mut()
+                        .bind_implicit_receivers(class_name);
+                }
                 csharp_walk_children(child, context, enclosing_class, Some(&name), nodes, edges);
+                context.bindings.borrow_mut().restore(snapshot);
                 continue;
             }
-            "invocation_expression" | "object_creation_expression" => {
+            "invocation_expression"
+            | "object_creation_expression"
+            | "implicit_object_creation_expression" => {
                 csharp_emit_call(child, context, enclosing_class, enclosing_func, edges);
             }
             _ => {}
@@ -118,32 +149,102 @@ fn csharp_walk_children(
             nodes,
             edges,
         );
+        csharp_bind_declarator(child, context);
+        csharp_bind_parameter(child, context);
     }
 }
 
 fn csharp_emit_import(
     node: tree_sitter::Node<'_>,
     context: &CSharpParseContext<'_>,
+    nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let text = node_text(node, context.source);
-    let target = text
-        .trim()
-        .trim_start_matches("using")
-        .trim()
-        .trim_end_matches(';')
-        .trim();
-    if target.is_empty() {
+    let alias = csharp_using_alias_name(node, context.source);
+    let Some(target) = csharp_using_target(node, context.source) else {
         return;
+    };
+    if let Some(alias) = alias.as_ref() {
+        let qualified = qualify(&context.file_path, alias, None);
+        nodes.push(ParsedNode {
+            kind: crate::core::types::NodeKind::Type,
+            name: alias.clone(),
+            file_path: context.file_path.clone(),
+            line_start: node.start_position().row as i64 + 1,
+            line_end: node.end_position().row as i64 + 1,
+            language: "csharp".to_string(),
+            parent_name: None,
+            params: None,
+            return_type: None,
+            modifiers: None,
+            is_test: false,
+            extra: json!({"type_role": "alias"}),
+        });
+        edges.push(ParsedEdge {
+            kind: crate::core::types::EdgeKind::Contains,
+            source: context.file_path.to_string(),
+            target: qualified,
+            file_path: context.file_path.clone(),
+            line: node.start_position().row as i64 + 1,
+            extra: json!({}),
+        });
     }
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::ImportsFrom,
         source: context.file_path.to_string(),
-        target: target.to_string(),
+        target,
         file_path: context.file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
+}
+
+fn csharp_using_alias_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let has_eq = {
+        let mut cursor = node.walk();
+        node.children(&mut cursor).any(|child| child.kind() == "=")
+    };
+    if !has_eq {
+        return None;
+    }
+    csharp_named_text(node, source, "name")
+}
+
+fn csharp_using_target(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let alias = node.child_by_field_name("name");
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if matches!(
+            child.kind(),
+            "using" | "static" | "global" | "unsafe" | "=" | ";"
+        ) {
+            continue;
+        }
+        if alias.is_some_and(|alias| alias.id() == child.id()) {
+            continue;
+        }
+        if matches!(
+            child.kind(),
+            "identifier" | "qualified_name" | "generic_name"
+        ) {
+            let text = node_text(child, source).trim().to_string();
+            if !text.is_empty() {
+                return Some(text);
+            }
+        }
+    }
+    let text = node_text(node, source);
+    let target = text
+        .trim()
+        .trim_start_matches("global")
+        .trim()
+        .trim_start_matches("using")
+        .trim()
+        .trim_start_matches("static")
+        .trim()
+        .trim_end_matches(';')
+        .trim();
+    (!target.is_empty()).then(|| target.to_string())
 }
 
 fn csharp_emit_type(
@@ -167,8 +268,12 @@ fn csharp_emit_type(
             map.insert("container_role".to_string(), json!("data_container"));
             map.insert("value_semantics".to_string(), json!(true));
         }
+        let attributes = csharp_attribute_names(node, context.source);
+        if !attributes.is_empty() {
+            map.insert("attributes".to_string(), json!(attributes));
+        }
     }
-    let qualified = qualify(context.file_path, name, enclosing_class);
+    let qualified = qualify(&context.file_path, name, enclosing_class);
     nodes.push(ParsedNode {
         kind: crate::core::types::NodeKind::Class,
         name: name.to_string(),
@@ -185,7 +290,9 @@ fn csharp_emit_type(
     });
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Contains,
-        source: context.file_path.to_string(),
+        source: enclosing_class
+            .map(|parent| qualify(&context.file_path, parent, None))
+            .unwrap_or_else(|| context.file_path.to_string()),
         target: qualified.clone(),
         file_path: context.file_path.clone(),
         line: node.start_position().row as i64 + 1,
@@ -220,7 +327,11 @@ fn csharp_type_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String
 /// itself an `identifier` for user-defined types, so the first direct
 /// `identifier` child is the return type rather than the declared name.
 fn csharp_declared_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let name = node.child_by_field_name("name")?;
+    csharp_named_text(node, source, "name")
+}
+
+fn csharp_named_text(node: tree_sitter::Node<'_>, source: &[u8], field: &str) -> Option<String> {
+    let name = node.child_by_field_name(field)?;
     let text = node_text(csharp_generic_base(name), source)
         .trim()
         .to_string();
@@ -273,6 +384,33 @@ fn csharp_collect_interface_names(
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         csharp_collect_interface_names(child, source, names);
+    }
+}
+
+fn csharp_collect_type_names(node: tree_sitter::Node<'_>, source: &[u8]) -> HashSet<String> {
+    let mut names = HashSet::new();
+    csharp_collect_type_names_into(node, source, &mut names);
+    names
+}
+
+fn csharp_collect_type_names_into(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    names: &mut HashSet<String>,
+) {
+    if CSHARP_TYPE_KINDS.contains(&node.kind())
+        && let Some(name) = csharp_type_name(node, source)
+    {
+        names.insert(name);
+    }
+    if node.kind() == "using_directive"
+        && let Some(alias) = csharp_using_alias_name(node, source)
+    {
+        names.insert(alias);
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        csharp_collect_type_names_into(child, source, names);
     }
 }
 
@@ -354,14 +492,34 @@ fn csharp_emit_function(
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let qualified = qualify(context.file_path, name, enclosing_class);
-    let extra = if node.kind() == "property_declaration" {
-        json!({"member_role": "property"})
-    } else {
-        json!({})
-    };
+    let qualified = qualify(&context.file_path, name, enclosing_class);
+    let is_test = csharp_is_test_function(name, node, context.source);
+    let is_abstract = csharp_function_is_abstract(node, enclosing_class, context);
+    let attributes = csharp_attribute_names(node, context.source);
+    let mut extra = json!({});
+    if let Some(map) = extra.as_object_mut() {
+        match node.kind() {
+            "property_declaration" => {
+                map.insert("member_role".to_string(), json!("property"));
+            }
+            "indexer_declaration" => {
+                map.insert("member_role".to_string(), json!("indexer"));
+            }
+            _ => {}
+        }
+        if is_abstract {
+            map.insert("is_abstract".to_string(), json!(true));
+        }
+        if !attributes.is_empty() {
+            map.insert("attributes".to_string(), json!(attributes));
+        }
+    }
     nodes.push(ParsedNode {
-        kind: crate::core::types::NodeKind::Function,
+        kind: if is_test {
+            crate::core::types::NodeKind::Test
+        } else {
+            crate::core::types::NodeKind::Function
+        },
         name: name.to_string(),
         file_path: context.file_path.clone(),
         line_start: node.start_position().row as i64 + 1,
@@ -369,15 +527,16 @@ fn csharp_emit_function(
         language: "csharp".to_string(),
         parent_name: enclosing_class.map(str::to_string),
         params: csharp_field_text(node, context.source, "parameters"),
-        return_type: csharp_field_text(node, context.source, "returns"),
+        return_type: csharp_field_text(node, context.source, "returns")
+            .or_else(|| csharp_field_text(node, context.source, "type")),
         modifiers: None,
-        is_test: false,
+        is_test,
         extra,
     });
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Contains,
         source: enclosing_class
-            .map(|class| qualify(context.file_path, class, None))
+            .map(|class| qualify(&context.file_path, class, None))
             .unwrap_or_else(|| context.file_path.to_string()),
         target: qualified,
         file_path: context.file_path.clone(),
@@ -387,7 +546,71 @@ fn csharp_emit_function(
 }
 
 fn csharp_function_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    if node.kind() == "indexer_declaration" {
+        return Some("this".to_string());
+    }
     csharp_declared_name(node, source)
+}
+
+fn csharp_function_is_abstract(
+    node: tree_sitter::Node<'_>,
+    enclosing_class: Option<&str>,
+    context: &CSharpParseContext<'_>,
+) -> bool {
+    if csharp_has_modifier(node, context.source, "abstract") {
+        return true;
+    }
+    let Some(class_name) = enclosing_class else {
+        return false;
+    };
+    context.interface_names.contains(class_name)
+        && node.kind() == "method_declaration"
+        && node.child_by_field_name("body").is_none()
+}
+
+fn csharp_is_test_function(name: &str, node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    starts_with_ascii_ignore_case(name, "test")
+        || csharp_attribute_names(node, source)
+            .iter()
+            .any(|attribute| csharp_is_test_attribute(attribute))
+}
+
+fn csharp_is_test_attribute(name: &str) -> bool {
+    let simple = name.rsplit('.').next().unwrap_or(name);
+    let bare = simple.strip_suffix("Attribute").unwrap_or(simple);
+    matches!(
+        bare,
+        "Fact"
+            | "Theory"
+            | "Test"
+            | "TestMethod"
+            | "DataTestMethod"
+            | "TestCase"
+            | "TestCaseSource"
+            | "SkippableFact"
+    )
+}
+
+fn csharp_attribute_names(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() != "attribute_list" {
+            continue;
+        }
+        let mut list_cursor = child.walk();
+        for attribute in child.children(&mut list_cursor) {
+            if attribute.kind() != "attribute" {
+                continue;
+            }
+            if let Some(name) = csharp_named_text(attribute, source, "name")
+                .or_else(|| csharp_rightmost_identifier(attribute, source))
+            {
+                names.push(name);
+            }
+        }
+    }
+    names
 }
 
 fn csharp_emit_call(
@@ -398,9 +621,11 @@ fn csharp_emit_call(
     edges: &mut Vec<ParsedEdge>,
 ) {
     let caller = enclosing_func
-        .map(|func| qualify(context.file_path, func, enclosing_class))
+        .map(|func| qualify(&context.file_path, func, enclosing_class))
         .unwrap_or_else(|| context.file_path.to_string());
-    if let Some(call_name) = csharp_call_name(node, context.source) {
+    if let Some(call_name) =
+        csharp_bound_member_target(node, context).or_else(|| csharp_call_name(node, context.source))
+    {
         edges.push(ParsedEdge {
             kind: crate::core::types::EdgeKind::Calls,
             source: caller.clone(),
@@ -411,14 +636,22 @@ fn csharp_emit_call(
         });
     }
     if let Some(signature) = csharp_call_signature(node, context.source)
-        && let Some(edge) =
-            csharp_bridge_edge(node, context.source, context.file_path, &caller, &signature)
+        && let Some(edge) = csharp_bridge_edge(
+            node,
+            context.source,
+            &context.file_path,
+            &caller,
+            &signature,
+        )
     {
         edges.push(edge);
     }
 }
 
 fn csharp_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    if node.kind() == "implicit_object_creation_expression" {
+        return csharp_enclosing_variable_type(node, source);
+    }
     let callee = csharp_callee(node)?;
     // `Factory.Create(...)` must resolve to `Create`, not to the receiver.
     let invoked = match callee.kind() {
@@ -427,6 +660,44 @@ fn csharp_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String
     };
     let invoked = csharp_generic_base(invoked);
     matches!(invoked.kind(), "identifier").then(|| node_text(invoked, source))
+}
+
+fn csharp_bound_member_target(
+    node: tree_sitter::Node<'_>,
+    context: &CSharpParseContext<'_>,
+) -> Option<String> {
+    let callee = csharp_callee(node)?;
+    if callee.kind() != "member_access_expression" {
+        return None;
+    }
+    let method = csharp_named_text(callee, context.source, "name")?;
+    let receiver = callee.child_by_field_name("expression")?;
+    if matches!(receiver.kind(), "identifier" | "this" | "base") {
+        let receiver_name = node_text(receiver, context.source);
+        return context
+            .bindings
+            .borrow()
+            .resolve_member(&receiver_name, &method)
+            .or_else(|| {
+                context
+                    .bindings
+                    .borrow()
+                    .constructor_type(&receiver_name)
+                    .map(|type_name| format!("{type_name}::{method}"))
+            });
+    }
+    if matches!(
+        receiver.kind(),
+        "object_creation_expression" | "implicit_object_creation_expression"
+    ) && let Some(call_name) = csharp_call_name(receiver, context.source)
+    {
+        return context
+            .bindings
+            .borrow()
+            .constructor_type(&call_name)
+            .map(|type_name| format!("{type_name}::{method}"));
+    }
+    None
 }
 
 fn csharp_call_signature(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
@@ -438,6 +709,7 @@ fn csharp_call_signature(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<S
 fn csharp_callee(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
     let field = match node.kind() {
         "object_creation_expression" => "type",
+        "implicit_object_creation_expression" => return None,
         _ => "function",
     };
     node.child_by_field_name(field)
@@ -544,4 +816,154 @@ fn csharp_has_modifier(node: tree_sitter::Node<'_>, source: &[u8], modifier: &st
     node.children(&mut cursor)
         .filter(|child| child.kind() == "modifier")
         .any(|child| node_text(child, source).trim() == modifier)
+}
+
+fn csharp_bind_type_scope(node: tree_sitter::Node<'_>, context: &CSharpParseContext<'_>) {
+    if let Some(body) = node.child_by_field_name("body") {
+        let mut cursor = body.walk();
+        for child in body.children(&mut cursor) {
+            if child.kind() == "field_declaration" {
+                csharp_bind_field_declaration(child, context);
+            }
+        }
+    }
+    if let Some((base, _)) = csharp_bases(node, context.source, context.interface_names)
+        .into_iter()
+        .find(|(_, role)| *role == "extends")
+    {
+        context.bindings.borrow_mut().bind("base", base);
+    }
+}
+
+fn csharp_bind_field_declaration(node: tree_sitter::Node<'_>, context: &CSharpParseContext<'_>) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "variable_declaration" {
+            csharp_bind_variable_declaration(child, context);
+        }
+    }
+}
+
+fn csharp_bind_declarator(node: tree_sitter::Node<'_>, context: &CSharpParseContext<'_>) {
+    if node.kind() != "variable_declarator" {
+        return;
+    }
+    let Some(parent) = node.parent() else {
+        return;
+    };
+    if parent.kind() != "variable_declaration" {
+        return;
+    }
+    csharp_bind_one_declarator(node, parent, context);
+}
+
+fn csharp_bind_variable_declaration(node: tree_sitter::Node<'_>, context: &CSharpParseContext<'_>) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "variable_declarator" {
+            csharp_bind_one_declarator(child, node, context);
+        }
+    }
+}
+
+fn csharp_bind_one_declarator(
+    declarator: tree_sitter::Node<'_>,
+    declaration: tree_sitter::Node<'_>,
+    context: &CSharpParseContext<'_>,
+) {
+    let Some(var) = csharp_declared_name(declarator, context.source) else {
+        return;
+    };
+    let annotated = declaration
+        .child_by_field_name("type")
+        .and_then(|ty| csharp_type_ident(ty, context.source));
+    let mut cursor = declarator.walk();
+    for child in declarator.children(&mut cursor) {
+        if !matches!(
+            child.kind(),
+            "object_creation_expression" | "implicit_object_creation_expression"
+        ) {
+            continue;
+        }
+        if let Some(call_name) = csharp_call_name(child, context.source) {
+            let type_name = context
+                .bindings
+                .borrow()
+                .constructor_type(&call_name)
+                .map(str::to_string);
+            if let Some(type_name) = type_name {
+                context.bindings.borrow_mut().bind(var, type_name);
+                return;
+            }
+        }
+    }
+    if let Some(type_name) = annotated {
+        context.bindings.borrow_mut().bind(var, type_name);
+    }
+}
+
+fn csharp_bind_parameter(node: tree_sitter::Node<'_>, context: &CSharpParseContext<'_>) {
+    if node.kind() != "parameter" {
+        return;
+    }
+    let Some(var) = csharp_named_text(node, context.source, "name") else {
+        return;
+    };
+    let Some(type_name) = node
+        .child_by_field_name("type")
+        .and_then(|ty| csharp_type_ident(ty, context.source))
+    else {
+        return;
+    };
+    context.bindings.borrow_mut().bind(var, type_name);
+}
+
+fn csharp_type_ident(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    match node.kind() {
+        "identifier" => Some(node_text(node, source)),
+        "generic_name" => Some(node_text(csharp_generic_base(node), source)),
+        "qualified_name" => csharp_rightmost_identifier(node, source),
+        "nullable_type" | "array_type" | "pointer_type" | "ref_type" => {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if let Some(name) = csharp_type_ident(child, source) {
+                    return Some(name);
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+fn csharp_enclosing_variable_type(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut current = node.parent()?;
+    loop {
+        if current.kind() == "variable_declaration" {
+            return current
+                .child_by_field_name("type")
+                .and_then(|ty| csharp_type_ident(ty, source));
+        }
+        current = current.parent()?;
+    }
+}
+
+fn csharp_extract_documentation_directives(
+    file_path: &FilePath,
+    source: &[u8],
+    nodes: &[ParsedNode],
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let text = String::from_utf8_lossy(source);
+    for directive in extract_line_comment_dagayn_directives(&text, &["///", "//"]) {
+        let source = nearest_documentation_source(file_path, nodes, directive.line);
+        push_documentation_directive_edge(
+            edges,
+            source,
+            file_path,
+            "csharp",
+            &directive,
+            "comment_directive",
+        );
+    }
 }

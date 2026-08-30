@@ -491,11 +491,12 @@ Parser migration progress:
   tsconfig path aliases, JS/TS/TSX barrel re-exports
   (`export { ... } from` and `export * from`), value-reference REFERENCES,
   TESTED_BY, and subprocess/file bridge CROSS_ARTIFACT edges.
-- Tree-sitter TypeScript, Python, and Rust extractors now track constructor and
-  local type bindings (`const store = new Store()`, `repo = Repo()`,
-  `let repo = Repo::new()`) plus `self`/`this` receivers, so member CALLS such
-  as `store.find()` attach to the implementation type (`Store.find`) instead of
-  the first same-named trait, interface, or Protocol method. See
+- Tree-sitter TypeScript, Python, Rust, and C# extractors now track constructor
+  and local type bindings (`const store = new Store()`, `repo = Repo()`,
+  `let repo = Repo::new()`, `var repo = new Repo()`) plus `self`/`this`/`base`
+  receivers, so member CALLS such as `store.find()` / `repo.Find()` attach to
+  the implementation type (`Store.find` / `Repo.Find`) instead of the first
+  same-named trait, interface, or Protocol method. See
   `crates/dagayn-parser/src/member_calls.rs`.
 - Bash grammar sources are now pinned through the same provisioning path. The
   Rust-owned parser routes `.sh`, `.bash`, `.zsh`, and `.ksh` files through
@@ -518,9 +519,12 @@ Parser migration progress:
   CROSS_ARTIFACT bridge edges for the existing Ruby bridge patterns.
 - C# grammar sources are now pinned through the same provisioning path. The
   Rust-owned parser routes `.cs` files through tree-sitter-c-sharp and covers
-  using imports, classes/interfaces/enums/structs with type-role metadata,
-  methods/constructors, and subprocess/file/FFI CROSS_ARTIFACT bridge edges
-  for the existing C# bridge patterns.
+  using imports (including `using Alias = Type` aliases),
+  classes/interfaces/enums/structs/records with type-role metadata,
+  methods/constructors/properties/indexers, nested-type CONTAINS,
+  constructor/local member CALLS, `[Fact]`/`[Test]` TESTED_BY, `// dagayn:`
+  documentation directives, and subprocess/file/FFI CROSS_ARTIFACT bridge
+  edges for the existing C# bridge patterns.
 - PHP grammar sources are now pinned through the same provisioning path. The
   Rust-owned parser routes `.php` files through tree-sitter-php and covers
   namespace use imports, classes/interfaces with type-role metadata, functions

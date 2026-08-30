@@ -72,11 +72,13 @@ Normalized `type_role` values:
 - `enum`
 - `struct`
 - `record`
+- `alias`
 
 Language mapping:
 
 - Java/C#/PHP interfaces → `interface`
-- C# `record` types → `record`
+- C# `record` and `record struct` types → `record`
+- C# `using Alias = Type` and Python type aliases → `alias`
 - Swift `protocol_declaration` → `protocol`
 - Rust `trait` items → `trait`; `impl Trait for Type` emits `IMPLEMENTS`
 - Scala traits → `trait`

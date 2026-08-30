@@ -349,6 +349,13 @@ class TestCSharpParsing:
         ]
         assert {p.name for p in props} >= {"Id", "Name"}
 
+    def test_member_calls_use_field_type(self):
+        calls = [
+            e for e in self.edges if e.kind == "CALLS" and e.source.endswith("UserService.GetUser")
+        ]
+        assert any(e.target.endswith("IRepository.FindById") for e in calls)
+        assert not any(e.target.endswith("InMemoryRepo.FindById") for e in calls)
+
 
 class TestRubyParsing:
     def setup_method(self):

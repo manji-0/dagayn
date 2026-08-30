@@ -3,10 +3,11 @@ use std::collections::{HashMap, HashSet};
 /// Same-file local type bindings for member CALLS.
 ///
 /// Tree-sitter extractors record constructor / annotation bindings such as
-/// `const store = new Store()` or `let repo = Repo::new()`, then rewrite
-/// `store.find()` to `Store::find` so [`super::resolve_rust_call_targets`]
-/// attaches the implementation method instead of the first same-named
-/// trait or protocol method.
+/// `const store = new Store()`, `let repo = Repo::new()`, or
+/// `var repo = new Repo()`, then rewrite `store.find()` / `repo.Find()` to
+/// `Store::find` so [`super::resolve_rust_call_targets`] attaches the
+/// implementation method instead of the first same-named trait, interface,
+/// or protocol method.
 #[derive(Debug, Default)]
 pub(super) struct MemberCallBindings {
     type_names: HashSet<String>,

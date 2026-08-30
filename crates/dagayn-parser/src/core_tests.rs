@@ -1112,6 +1112,12 @@ public class Service : Repo
     assert!(edges.iter().any(|edge| {
         edge.kind == "INHERITS" && edge.source == "sample.cs::Service" && edge.target == "Repo"
     }));
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Function"
+            && node.name == "Find"
+            && node.parent_name.as_deref() == Some("IRepo")
+            && node.extra["is_abstract"] == true
+    }));
     assert!(edges.iter().any(|edge| {
         edge.kind == "CALLS"
             && edge.source == "sample.cs::Service.Get"
@@ -1121,6 +1127,155 @@ public class Service : Repo
         edge.kind == "CALLS"
             && edge.source == "sample.cs::Service.Get"
             && edge.target == "sample.cs::Find"
+    }));
+}
+
+#[test]
+fn csharp_member_calls_bind_constructor_local_and_test_metadata() {
+    let source = br#"
+using RepoAlias = Repo;
+using System.IO;
+
+public interface IRepo
+{
+    User Find(int id);
+}
+
+public abstract class Base
+{
+    public abstract User Load();
+}
+
+public record struct Point(int X);
+
+public class Outer
+{
+    public class Inner {}
+}
+
+public class Repo : IRepo
+{
+    public User this[int id] { get { return null; } }
+
+    public User Find(int id) { return this.Ping(id); }
+
+    public User Ping(int id) { return null; }
+}
+
+public class Service : Repo
+{
+    private Repo _repo = new Repo();
+
+    public User FromBase(int id)
+    {
+        return base.Find(id);
+    }
+
+    public User Run(Repo repo)
+    {
+        var local = new Repo();
+        Repo typed = new();
+        local.Find(1);
+        typed.Find(2);
+        repo.Find(3);
+        _repo.Find(4);
+        new Repo().Find(5);
+        return local.Find(6);
+    }
+
+    [Fact]
+    public void FindsUser()
+    {
+        var repo = new Repo();
+        repo.Find(1);
+    }
+}
+
+// dagayn: implements docs/spec.md#Repo
+"#;
+    let (nodes, edges) = parse_csharp("sample.cs", source);
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Type" && node.name == "RepoAlias" && node.extra["type_role"] == "alias"
+    }));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "IMPORTS_FROM" && edge.source == "sample.cs" && edge.target == "Repo"
+    }));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "IMPORTS_FROM" && edge.source == "sample.cs" && edge.target == "System.IO"
+    }));
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Class"
+            && node.name == "Point"
+            && node.extra["type_role"] == "record"
+            && node.extra["value_semantics"] == true
+    }));
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Function"
+            && node.name == "Load"
+            && node.parent_name.as_deref() == Some("Base")
+            && node.extra["is_abstract"] == true
+    }));
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Function"
+            && node.name == "this"
+            && node.parent_name.as_deref() == Some("Repo")
+            && node.extra["member_role"] == "indexer"
+    }));
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Class" && node.name == "Inner" && node.parent_name.as_deref() == Some("Outer")
+    }));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "CONTAINS"
+            && edge.source == "sample.cs::Outer"
+            && edge.target == "sample.cs::Outer.Inner"
+    }));
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Test"
+            && node.name == "FindsUser"
+            && node.parent_name.as_deref() == Some("Service")
+            && node.is_test
+            && node.extra["attributes"]
+                .as_array()
+                .is_some_and(|values| values.iter().any(|value| value == "Fact"))
+    }));
+    assert!(
+        edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == "sample.cs::Service.Run"
+                && edge.target == "sample.cs::Repo.Find"
+        }),
+        "{edges:?}"
+    );
+    assert!(!edges.iter().any(|edge| {
+        edge.kind == "CALLS"
+            && edge.source == "sample.cs::Service.Run"
+            && edge.target == "sample.cs::IRepo.Find"
+    }));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "CALLS"
+            && edge.source == "sample.cs::Repo.Find"
+            && edge.target == "sample.cs::Repo.Ping"
+    }));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "CALLS"
+            && edge.source == "sample.cs::Service.FromBase"
+            && edge.target == "sample.cs::Repo.Find"
+    }));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "CALLS"
+            && edge.source == "sample.cs::Service.FindsUser"
+            && edge.target == "sample.cs::Repo.Find"
+    }));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "TESTED_BY"
+            && edge.source == "sample.cs::Repo.Find"
+            && edge.target == "sample.cs::Service.FindsUser"
+    }));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "CROSS_ARTIFACT"
+            && edge.extra["evidence_kind"] == "comment_directive"
+            && edge.extra["relationship_role"] == "implements_contract"
+            && edge.target.contains("docs/spec.md")
     }));
 }
 
