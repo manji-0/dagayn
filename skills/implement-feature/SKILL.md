@@ -25,15 +25,16 @@ retrieval setup.
 
 2. **Find extension points** (pick one path, do not run all):
    - Fuzzy / product language → `semantic_search_nodes_tool(query="<concept>", detail_level="minimal")`
-   - Known symbol / file → `query_graph_tool` with `children_of`, `callers_of`,
-     `callees_of`, or `file_summary`
+   - Known symbol / file → `query_graph_tool` with `source_of`, `children_of`,
+     `callers_of`, `callees_of`, or `file_summary`
    - Existing user journey → `flow_tool(mode="list")`, then `flow_tool(mode="get")`
      for one concrete flow
    - Spec-driven work → `query_graph_tool(pattern="implementations_of", target="<doc.md>::<section>")`
      or `pattern="docs_for"` from a nearby code symbol
 
 3. **Read only the chosen extension surface** — prefer
-   `review_tool(mode="context")` / targeted file reads over broad tree walks.
+   `query_graph_tool(pattern="source_of")` for one symbol, or
+   `review_tool(mode="context")` for a change set, over whole-file reads.
 
 4. **Implement the smallest change** that hooks into the existing pattern
    (same module, same flow entry, same interface style). Preserve any nearby
@@ -76,6 +77,7 @@ allow-list omitted them:
 dagayn tool get_minimal_context_tool --arg 'task="add billing webhook"'
 dagayn tool ensure_graph_tool
 dagayn tool semantic_search_nodes_tool --arg query='"webhook handler"' --arg detail_level='"minimal"'
+dagayn tool query_graph_tool --arg pattern='"source_of"' --arg target='"src/billing.py::handle_webhook"'
 dagayn tool review_tool --arg mode='"changes"' --arg detail_level='"minimal"'
 dagayn tool query_graph_tool --arg pattern='"docs_for"' --arg target='"src/billing.py::handle_webhook"'
 ```

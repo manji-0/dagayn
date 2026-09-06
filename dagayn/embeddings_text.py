@@ -6,6 +6,7 @@ import functools
 import logging
 import os
 import re
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -132,6 +133,30 @@ def _node_line_span(node: GraphNode, line_count: int) -> tuple[int, int]:
     return start, end
 
 
+def node_source_line_span(node: GraphNode, lines: Sequence[str]) -> tuple[int, int]:
+    """Return a 0-based ``[start, end)`` span for *node* against *lines*.
+
+    ``DocSection`` nodes walk to the next heading of the same or higher level
+    so the live slice matches the section, not just the heading line stored
+    on the graph node.
+    """
+    start, end = _node_line_span(node, len(lines))
+    if node.kind != "DocSection":
+        return start, end
+    level = None
+    if start < len(lines):
+        match = _MARKDOWN_HEADING_RE.match(lines[start])
+        if match:
+            level = len(match.group(1))
+    end = len(lines)
+    for idx in range(start + 1, len(lines)):
+        match = _MARKDOWN_HEADING_RE.match(lines[idx])
+        if match and (level is None or len(match.group(1)) <= level):
+            end = idx
+            break
+    return start, end
+
+
 def _read_node_source_excerpt(
     node: GraphNode,
     *,
@@ -153,21 +178,7 @@ def _read_node_source_excerpt(
     except OSError:
         return ""
 
-    start, end = _node_line_span(node, len(lines))
-
-    if node.kind == "DocSection":
-        level = None
-        if start < len(lines):
-            match = _MARKDOWN_HEADING_RE.match(lines[start])
-            if match:
-                level = len(match.group(1))
-        end = len(lines)
-        for idx in range(start + 1, len(lines)):
-            match = _MARKDOWN_HEADING_RE.match(lines[idx])
-            if match and (level is None or len(match.group(1)) <= level):
-                end = idx
-                break
-
+    start, end = node_source_line_span(node, lines)
     return "\n".join(lines[start:end])[:limit]
 
 

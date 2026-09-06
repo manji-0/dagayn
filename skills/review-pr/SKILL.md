@@ -42,8 +42,9 @@ retrieval setup.
      architecture risks in changed scopes
 
 5. **Fetch focused source context** by calling `review_tool(mode="context", base="main")`
-   for the files or functions that need exact snippets. Prefer snippets over
-   full-file reads.
+   for the files or functions that need change-set snippets. For one concrete
+   `qualified_name`, prefer `query_graph_tool(pattern="source_of")` over a
+   full-file read.
 
 6. **Analyze impact** by using `analysis_summary` first, then calling
    `review_tool(mode="impact", base="main")` only when a wider view is needed:
@@ -56,8 +57,10 @@ retrieval setup.
      for changed Markdown contract sections
 
 7. **Deep-dive highest-risk changes only** (from `analysis_summary`):
-   - Start with `review_tool(mode="context")` snippets; read a full file only
-     when behavior cannot be judged from the snippet
+   - Start with `review_tool(mode="context")` snippets or
+     `query_graph_tool(pattern="source_of")` for a concrete `qualified_name`;
+     read a full file only when that span is truncated, stale, or neighbors
+     are required
    - Use `query_graph_tool(pattern="callers_of", target=<func>)` for high-risk functions
    - Start with `analysis_summary.recommended_tests`; use
      `query_graph_tool(pattern="tests_for", target=<func>)` to verify uncertain coverage
@@ -107,7 +110,7 @@ retrieval setup.
 - Prefer `review_tool(mode="changes").analysis_summary` before calling drill-down
   review tools.
 - Use graph risk labels as prioritization, not proof. Confirm behavioral issues
-  in source or tests before reporting them as findings.
+  with `source_of` or tests before reporting them as findings.
 - Include `truncated`, `total`, approximation, or threshold metadata in the
   review when a tool's output is bounded.
 - Cite `CROSS_ARTIFACT` documentation roles and query patterns when they drive a
@@ -121,8 +124,9 @@ retrieval setup.
 
 - Review highest-risk files first from `analysis_summary`; do not read every
   changed file before triage on large PRs.
-- Use `review_tool(mode="context")` for focused snippets, then full file reads
-  only when behavior cannot be judged from the snippet.
+- Use `review_tool(mode="context")` for change-set snippets and
+  `query_graph_tool(pattern="source_of")` for one symbol. Full file reads only
+  when those spans are truncated, stale, or neighbors are required.
 - For broad PRs, cap graph drill-down to the top few impacted functions per
   risk area before reporting residual uncertainty.
 - Do not call `ensure_graph_tool(force=True)` on every PR when `graph_health`
@@ -139,6 +143,7 @@ Use `dagayn tool` when the server allow-list omitted them:
 ```bash
 dagayn tool review_tool --arg mode='"changes"' --arg base='"main"' --arg detail_level='"minimal"'
 dagayn tool review_tool --arg mode='"context"' --arg base='"main"' --arg detail_level='"minimal"'
+dagayn tool query_graph_tool --arg pattern='"source_of"' --arg target='"src/app.py::handler"'
 dagayn tool review_tool --arg mode='"impact"' --arg base='"main"' --arg detail_level='"minimal"'
 dagayn tool query_graph_tool --arg pattern='"docs_for"' --arg target='"src/app.py::handler"'
 dagayn tool query_graph_tool --arg pattern='"implementations_of"' --arg target='"docs/spec.md::contract-section"'

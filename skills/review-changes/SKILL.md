@@ -17,7 +17,9 @@ Perform a thorough, risk-aware code review using the knowledge graph.
    `analysis_summary` first; it includes reason codes, recommended tests,
    affected-flow rankings, documentation update candidates, hotspot proximity,
    and architecture risks in changed scopes.
-3. Call `review_tool(mode="context")` when exact source snippets are needed.
+3. Call `review_tool(mode="context")` when change-set snippets are needed.
+   For one named symbol, use `query_graph_tool(pattern="source_of")` instead of
+   opening the file.
 4. Call `review_tool(mode="affected_flows")`, `review_tool(mode="impact")`, or
    `query_graph_tool(pattern="tests_for")` only when `analysis_summary` points to a
    concrete flow, blast-radius, or coverage question.
@@ -31,7 +33,9 @@ Perform a thorough, risk-aware code review using the knowledge graph.
    1. Rank candidates: `implemented_by` / `implements_contract` first, then
       `explained_by` / `has_runbook` / `problem_described_by`, then weaker
       `extracted` / `heuristic_reachable` hits.
-   2. Open only the docs that affect the merge decision.
+   2. Fetch only the docs that affect the merge decision. Prefer
+      `query_graph_tool(pattern="source_of")` on a DocSection; open the file
+      only if the span is truncated, stale, or neighbors are required.
    3. Edit them with the `writing-markdown-document` skill (keep `dagayn:`
       directives and heading slugs accurate).
    4. `ensure_graph_tool(force=True)`, then re-check
@@ -60,8 +64,9 @@ Provide findings grouped by risk level (high/medium/low) with:
   before deciding whether to mention it. Boundary/coordinator functions may
   legitimately have side effects.
 - Do not report a function concern profile as a bug by itself. For a review
-  finding, confirm exact source behavior, contract impact, missing tests, or a
-  concrete maintainability risk. Otherwise frame it as a follow-up refactor lead.
+  finding, confirm source behavior with `source_of`, contract impact, missing
+  tests, or a concrete maintainability risk. Otherwise frame it as a follow-up
+  refactor lead.
 - Treat `CROSS_ARTIFACT` documentation roles as typed evidence, not duplicate
   inverse facts. Check each result's `evidence_type`: `implemented_by` and
   `implements_contract` are authored contract evidence; explanatory roles such
@@ -72,8 +77,9 @@ Provide findings grouped by risk level (high/medium/low) with:
   `next_action`, `answerability`, and `missingness` before claiming absence.
 - Report `truncated`, `total`, or approximation metadata when a tool response is
   incomplete.
-- Read exact source before reporting a behavioral bug; graph structure alone is
-  not enough for a correctness finding.
+- Confirm behavior with `query_graph_tool(pattern="source_of")` before reporting
+  a behavioral bug; graph structure alone is not enough. Read the file only when
+  that span is truncated, stale, unreadable, or neighbors are required.
 
 ## CLI Fallback
 
@@ -83,6 +89,7 @@ Default MCP already exposes `review_tool` and `query_graph_tool`. Use
 ```bash
 dagayn tool review_tool --arg mode='"changes"' --arg detail_level='"minimal"'
 dagayn tool review_tool --arg mode='"context"' --arg detail_level='"minimal"'
+dagayn tool query_graph_tool --arg pattern='"source_of"' --arg target='"src/app.py::handler"'
 dagayn tool review_tool --arg mode='"affected_flows"' --arg 'changed_files=["src/app.py"]'
 dagayn tool review_tool --arg mode='"impact"' --arg 'changed_files=["src/app.py"]' --arg detail_level='"minimal"'
 dagayn tool query_graph_tool --arg pattern='"docs_for"' --arg target='"src/app.py::handler"'

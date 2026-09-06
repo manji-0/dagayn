@@ -20,8 +20,10 @@ This repository ships `dagayn`, a fork of `code-review-graph` with extra emphasi
 - treat `query_graph_tool` zero-result and not-found responses as graph-limited:
   read `zero_result_reason`, `next_action`, and missingness before concluding
   absence
+- after a concrete `qualified_name`, fetch the body with
+  `query_graph_tool(pattern="source_of")` before opening the file
 - fall back to `rg`/file reads when graph output is stale, ambiguous, truncated,
-  or lacks exact source text
+  or `source_of` cannot read the span
 - keep docs aligned with fork behavior, not upstream prose
 
 ## Useful commands
@@ -55,6 +57,7 @@ dagayn serve
 - `ensure_graph_tool` when `graph_health` is empty (safe bootstrap; no embeddings)
 - `review_tool(mode="changes")` or `review_tool(mode="context")` for review work
 - `query_graph_tool`, `semantic_search_nodes_tool`, and `flow_tool(mode="list")` for exploration
+- `query_graph_tool(pattern="source_of")` after a search hit to fetch a live span
 - `architecture_analysis_tool(mode="overview")` and its drill-down modes for
   evidence-backed architecture analysis
 - `refactor_tool` for rename previews, dead-code analysis, and refactor suggestions
@@ -135,13 +138,15 @@ scanning cannot.
 - **Understanding impact**: `review_tool(mode="impact")` instead of manually tracing imports
 - **Code review**: `review_tool(mode="changes")` first; use its `analysis_summary` before
   calling drill-down tools
-- **Finding relationships**: `query_graph_tool` with callers_of/callees_of/imports_of/tests_for
+- **Finding relationships**: `query_graph_tool` with
+  callers_of/callees_of/imports_of/tests_for/source_of
 - **Architecture questions**: `architecture_analysis_tool(mode="overview")`
   first; use `architecture_health` and the Architecture Analysis skill before
   choosing a drill-down mode
 
 Fall back to Grep/Glob/Read **only** when the graph result is missing, stale,
-ambiguous, or lacks the exact source text needed for the task.
+ambiguous, truncated, or `source_of` cannot supply the span. Do not re-read a
+whole file just to inspect a function the graph already located.
 
 ### Tool surface
 
@@ -160,7 +165,7 @@ advanced/maintenance tools.
 | `flow_tool` | Reachable-set flow lists and BFS membership (not call sequences) |
 | `architecture_analysis_tool` | Primary architecture review and drill-down dispatcher |
 | `refactor_tool` | Planning renames, finding dead code, and evidence-ranked refactor suggestions |
-| `query_graph_tool` | Tracing callers, callees, imports, tests, dependencies |
+| `query_graph_tool` | Tracing callers, callees, imports, tests, live source spans |
 | `semantic_search_nodes_tool` | Finding functions/classes by name or keyword |
 
 ### Drill-down tools

@@ -14,6 +14,9 @@ Feature work: find extension points with search/query/flow, implement, then `rev
 
 `dagayn serve` exposes the compact workflow MCP surface by default (`get_minimal_context_tool`, `ensure_graph_tool`, `review_tool`, `flow_tool`, `architecture_analysis_tool`, `refactor_tool`, `query_graph_tool`, `semantic_search_nodes_tool`, `get_docs_section_tool`). Use an exact `--tools` or `CRG_TOOLS` allow-list for a different surface; `all`, `full`, or `*` exposes every advanced/maintenance tool.
 
+After a search hit, `query_graph_tool(pattern="source_of")` returns the live
+worktree span for one node (capped). Prefer it over opening the whole file.
+
 Use `dagayn` in all user-facing guidance.
 </section>
 
@@ -23,7 +26,9 @@ Recommended sequence for reviewing a delta:
 1. `get_minimal_context_tool(task=...)` — enqueues background prepare when empty or out of sync (`sync.status`) and returns immediately; call `ensure_graph_tool()` if you must wait for the graph to be ready
 2. `review_tool(mode="changes")` and read `analysis_summary` first
 3. Call `review_tool(mode="context")` / `mode="impact"` / `query_graph_tool` only for concrete source, blast-radius, or coverage questions
-4. Read only the files that remain ambiguous after graph queries
+4. Read only the files that remain ambiguous after graph queries. After a
+   concrete `qualified_name`, prefer `query_graph_tool(pattern="source_of")`
+   over a whole-file read.
 
 `review_tool(mode="changes")` returns an `analysis_summary` with risk reasons, recommended
 tests, affected-flow rankings, documentation update candidates, hotspot
@@ -38,7 +43,7 @@ Recommended sequence for reviewing a PR or branch:
 1. `get_minimal_context_tool(task="PR review")`
 2. Refresh only when empty/stale: `ensure_graph_tool()` or `ensure_graph_tool(force=True)`; use `build_or_update_graph_tool(base="main")` only on the advanced surface when an explicit base ref is required
 3. `review_tool(mode="changes", base="main")` and read `analysis_summary` first
-4. Prefer `review_tool(mode="context")` snippets over full-file reads; use `mode="impact"` and `query_graph_tool` only for high-risk follow-ups
+4. Prefer `review_tool(mode="context")` snippets, or `query_graph_tool(pattern="source_of")` for one `qualified_name`, over full-file reads; use `mode="impact"` and relationship `query_graph_tool` only for high-risk follow-ups
 
 If the PR touches infrastructure, assume Terraform nodes and references are part of the review surface.
 </section>

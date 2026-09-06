@@ -41,7 +41,8 @@ retrieval setup.
    ```
 5. After cross-repo candidates are identified, switch back to the relevant repo
    and use local graph tools such as `query_graph_tool`, `review_tool`, or
-   `semantic_search_nodes_tool` for source-level verification.
+   `semantic_search_nodes_tool`. After a concrete `qualified_name`, fetch the
+   span with `query_graph_tool(pattern="source_of")` before opening the file.
 
 ## Safety Rules
 
@@ -57,4 +58,6 @@ retrieval setup.
 
 - Use cross-repo search to narrow the candidate set before any broad `rg` across
   multiple checkout roots.
-- Keep source reads repo-local and targeted after cross-repo discovery.
+- After a concrete `qualified_name` in the owning repo, confirm with
+  `query_graph_tool(pattern="source_of")`. Keep any leftover file reads
+  repo-local and targeted.

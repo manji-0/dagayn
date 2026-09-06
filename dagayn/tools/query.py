@@ -122,11 +122,14 @@ def _semantic_search_guidance(
                         "reason_code": "ranking_is_evidence_not_verdict",
                         "severity": "low",
                         "claim_effect": (
-                            "scores rank leads; verify with callers_of or source reads"
+                            "scores rank leads; fetch source_of for the chosen "
+                            "qualified_name, then callers_of if needed"
                         ),
                     }
                 ],
-                action="query_graph_tool callers_of -- confirm the best candidate relationship",
+                action=(
+                    'query_graph_tool pattern="source_of" -- fetch the chosen node\'s live span'
+                ),
                 reason_codes=["hybrid_search"],
                 counts={"result_count": result_count},
             )
@@ -433,7 +436,7 @@ def query_graph(
     Args:
         pattern: Query pattern. One of: callers_of, callees_of, imports_of,
                  importers_of, docs_for, implementations_of, bridges_from, children_of,
-                 tests_for, inheritors_of, file_summary.
+                 tests_for, inheritors_of, file_summary, source_of.
         target: The node name, qualified name, or file path to query about.
         repo_root: Repository root path. Auto-detected if omitted.
         detail_level: "standard" (full output) or "minimal" (summary only).
@@ -620,7 +623,19 @@ def semantic_search_nodes(
         if detail_level == "minimal":
             minimal_results = [
                 {
-                    **{k: r[k] for k in ("name", "kind", "file_path", "score") if k in r},
+                    **{
+                        k: r[k]
+                        for k in (
+                            "name",
+                            "kind",
+                            "file_path",
+                            "qualified_name",
+                            "line_start",
+                            "line_end",
+                            "score",
+                        )
+                        if k in r
+                    },
                     "evidence_type": result_evidence_type(r),
                 }
                 for r in results[:5]

@@ -193,7 +193,33 @@ class TestGenerateSkills:
         assert "Neighborhood exploration: use `traverse_graph_tool` only after" in explore
         assert "Treat semantic search as start-node discovery, not final proof" in semantic
         assert "Hand off the best hit to graph tools" in semantic
+        assert 'query_graph_tool(pattern="source_of")' in semantic
         assert "Prefer relationship queries over raw traversal" in debug
+        assert 'query_graph_tool(pattern="source_of")' in debug
+
+    def test_skills_prefer_source_of_after_node_hits(self, tmp_path):
+        """Located nodes should be fetched with source_of before a whole-file read."""
+        skills_dir = generate_skills(tmp_path)
+        names = (
+            "explore-codebase.md",
+            "debug-issue.md",
+            "implement-feature.md",
+            "semantic-search.md",
+            "review-changes.md",
+            "review-delta.md",
+            "review-pr.md",
+            "architecture-analysis.md",
+            "refactor-safely.md",
+            "reading-markdown-document.md",
+            "writing-markdown-document.md",
+            "cross-repo-workflows.md",
+        )
+        combined = "\n".join((skills_dir / name).read_text() for name in names)
+        for name in names:
+            assert "source_of" in (skills_dir / name).read_text()
+        assert "or source reads" not in combined
+        assert "source read third" not in combined
+        assert "trigger a source read" not in combined
 
     def test_generate_skills_renders_local_embedding_context(self, tmp_path):
         skills_dir = generate_skills(

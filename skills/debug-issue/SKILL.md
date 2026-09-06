@@ -21,7 +21,8 @@ the selected embedding mode so bug searches balance semantic recall with speed.
    `ensure_graph_tool` is the first next-tool hint), call `ensure_graph_tool()`
    and re-orient before search or traversal.
 2. Use `semantic_search_nodes_tool` to find code related to the issue.
-3. Use `query_graph_tool` with `callers_of` and `callees_of` to trace call chains.
+3. Fetch the suspected function with `query_graph_tool(pattern="source_of")`.
+   Then use `callers_of` and `callees_of` to trace call chains.
 4. Use `traverse_graph_tool` only after selecting a concrete suspected node,
    only when a bounded neighborhood is more useful than a specific caller,
    callee, import, test, or documentation relationship, and only when the
@@ -42,7 +43,9 @@ the selected embedding mode so bug searches balance semantic recall with speed.
    proximity, and recommended tests.
 8. Use `review_tool(mode="impact")` on suspected files only when `analysis_summary` or
    the call trace leaves the blast radius unclear.
-9. Read source directly once graph evidence identifies the likely failing path.
+9. Fetch the likely failing span with
+   `query_graph_tool(pattern="source_of")`. Read the file only when that span
+   is truncated, stale, unreadable, or you need neighboring code.
 
 ### Tips
 
@@ -60,7 +63,7 @@ the selected embedding mode so bug searches balance semantic recall with speed.
   caller hop.
 - For documentation bridge query results, check `evidence_type`: `authored`
   contract links are stronger than `extracted` explanatory links, while
-  `heuristic_reachable` links require source confirmation.
+  `heuristic_reachable` links require `source_of` confirmation.
 - If `query_graph_tool` returns no result or `status="not_found"`, read
   `zero_result_reason`, `next_action`, `answerability`, and `missingness`
   before ruling out a path.
@@ -78,6 +81,7 @@ dagayn tool get_minimal_context_tool --arg 'task="debug login timeout"'
 dagayn tool flow_tool --arg mode='"list"' --arg detail_level='"minimal"'
 dagayn tool flow_tool --arg mode='"get"' --arg 'flow_name="handle_request"'
 dagayn tool review_tool --arg mode='"impact"' --arg 'changed_files=["src/auth.py"]'
+dagayn tool query_graph_tool --arg pattern='"source_of"' --arg target='"src/auth.py::handler"'
 dagayn tool query_graph_tool --arg pattern='"docs_for"' --arg target='"src/auth.py::handler"'
 dagayn tool query_graph_tool --arg pattern='"implementations_of"' --arg target='"docs/auth.md::login-contract"'
 ```

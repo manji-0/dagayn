@@ -28,8 +28,9 @@ question points to a signal.
    - `adp_violations`: dependency cycles
    - `sdp_metrics` / `sdp_violations`: dependency stability direction
    - `sap_metrics` / `sap_violations`: abstraction/stability balance
-4. Use `query_graph_tool` or source reads only after the metric output identifies a
-   concrete node, edge, community, package, or file to verify.
+4. Use `query_graph_tool` only after the metric output identifies a concrete
+   node, edge, community, package, or file to verify. For one node's body, use
+   `pattern="source_of"` before opening the file.
 5. Use `traverse_graph_tool` only as a bounded neighborhood drill-down after a
    concrete hub, bridge, surprising edge, or violating scope is chosen, and only
    when the advanced MCP surface (or `dagayn tool`) exposes it. Prefer
@@ -51,9 +52,10 @@ question points to a signal.
 - Prefer `detail_level="minimal"` and small `top_n` values first. Increase only
   when the result is too narrow to answer the question.
 - Keep the path from broad to narrow: overview first, metric mode second,
-  relationship query or source read third.
-- Verify source behavior before turning graph structure into a correctness or
-  refactor recommendation.
+  relationship query or `source_of` third.
+- Verify behavior with `query_graph_tool(pattern="source_of")` before turning
+  graph structure into a correctness or refactor recommendation. Read the file
+  only when that span is truncated, stale, or neighbors are required.
 - When citing Markdown ↔ code relationships, name the stored role
   (`implemented_by`, `implements_contract`, `explained_by`, `has_runbook`,
   `problem_described_by`, `discusses_artifact`, or `raises_issue_for`) and
@@ -72,6 +74,7 @@ helpers such as `traverse_graph_tool`:
 dagayn tool architecture_analysis_tool --arg mode='"overview"' --arg detail_level='"minimal"'
 dagayn tool architecture_analysis_tool --arg mode='"sdp_violations"' --arg top_n=10
 dagayn tool architecture_analysis_tool --arg mode='"community"' --arg community_name='"auth"'
+dagayn tool query_graph_tool --arg pattern='"source_of"' --arg target='"src/app.py::handler"'
 dagayn tool query_graph_tool --arg pattern='"docs_for"' --arg target='"src/app.py::handler"'
 dagayn tool query_graph_tool --arg pattern='"implementations_of"' --arg target='"docs/spec.md::contract-section"'
 ```

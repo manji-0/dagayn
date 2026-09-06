@@ -19,7 +19,7 @@ Use the knowledge graph to plan and execute refactoring with confidence.
    candidates need a deeper dead-code drill-down.
 4. For renames, use `refactor_tool` with mode="rename" to preview all affected locations.
 5. Use `query_graph_tool` for specific callers, callees, tests, docs, imports,
-   or children before considering a raw neighborhood traversal. Use
+   children, or `source_of` before considering a raw neighborhood traversal. Use
    `traverse_graph_tool` only when the refactor candidate has a known start node,
    the question is broader than one relationship pattern, and the advanced MCP
    surface (or `dagayn tool`) exposes it.
@@ -68,14 +68,15 @@ role-aware refactoring profile, not a verdict that the function is bad.
 - Use `evidence.purity_likelihood` only as side-effect evidence. It is not a
   proof of functional purity.
 - Check `missingness` before acting. Low source, call, community, or unresolved
-  call evidence lowers confidence and should trigger a source read or graph
-  follow-up before recommending an edit.
+  call evidence lowers confidence and should trigger
+  `query_graph_tool(pattern="source_of")` or a graph follow-up before
+  recommending an edit.
 - Use `action` as the first investigation step. Prefer extracting one cohesive
   decision, transformation, or context object before moving IO or changing public
   signatures.
-- Do not turn this profile into a standalone review finding. Cite exact source
-  behavior or a failing test when claiming a bug; cite the profile only as
-  refactoring prioritization evidence.
+- Do not turn this profile into a standalone review finding. Cite `source_of`
+  (or a file read if that span is truncated/stale) or a failing test when
+  claiming a bug; cite the profile only as refactoring prioritization evidence.
 
 ## CLI Fallback
 
@@ -89,6 +90,7 @@ dagayn tool refactor_tool --arg mode='"suggest"' --arg limit=10
 dagayn tool refactor_tool --arg mode='"rename"' --arg old_name='"old_symbol"' --arg new_name='"new_symbol"'
 dagayn tool apply_refactor_tool --arg refactor_id='"refactor_123"' --arg dry_run=true
 dagayn tool find_large_functions_tool --arg min_lines=80
+dagayn tool query_graph_tool --arg pattern='"source_of"' --arg target='"src/app.py::handler"'
 dagayn tool query_graph_tool --arg pattern='"docs_for"' --arg target='"src/app.py::handler"'
 dagayn tool query_graph_tool --arg pattern='"implementations_of"' --arg target='"docs/spec.md::contract-section"'
 ```

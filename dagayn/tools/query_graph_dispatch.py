@@ -10,6 +10,7 @@ from typing import Any
 from ..coverage import infer_tests_for_node
 from ..graph import edge_to_dict, node_to_dict
 from ._common import apply_output_budget, guidance_actions_to_hints
+from .node_source import SOURCE_OF_MAX_CHARS, read_live_node_source
 from .query_graph_support import (
     _ARTIFACT_TO_DOC_ROLES,
     _DOC_TO_ARTIFACT_ROLES,
@@ -85,7 +86,7 @@ def resolve_query_target(
                 "result_count": 0,
                 "results": [],
                 "zero_result_reason": "target_not_found_in_graph",
-                "next_action": exactness_action(state.target, 0, 0),
+                "next_action": exactness_action(state.target, 0, 0, pattern=state.pattern),
                 "answerability": answerability,
                 "missingness": [
                     *missingness,
@@ -143,7 +144,7 @@ def resolve_query_target(
             "result_count": 0,
             "results": [],
             "zero_result_reason": "target_not_found_in_graph",
-            "next_action": exactness_action(state.target, 0, 0),
+            "next_action": exactness_action(state.target, 0, 0, pattern=state.pattern),
             "answerability": answerability,
             "missingness": [
                 *missingness,
@@ -376,6 +377,18 @@ def _pattern_file_summary(state: QueryGraphState) -> None:
         state.results.append(node_to_dict(node))
 
 
+def _pattern_source_of(state: QueryGraphState) -> None:
+    if state.node is None:
+        return
+    state.results.append(
+        read_live_node_source(
+            state.node,
+            repo_root=state.root,
+            max_chars=SOURCE_OF_MAX_CHARS,
+        )
+    )
+
+
 _PATTERN_HANDLERS = {
     "callers_of": _pattern_callers_of,
     "callees_of": _pattern_callees_of,
@@ -388,12 +401,100 @@ _PATTERN_HANDLERS = {
     "tests_for": _pattern_tests_for,
     "inheritors_of": _pattern_inheritors_of,
     "file_summary": _pattern_file_summary,
+    "source_of": _pattern_source_of,
 }
 
 
 def execute_query_pattern(state: QueryGraphState) -> None:
     handler = _PATTERN_HANDLERS[state.pattern]
     handler(state)
+
+
+_QUERY_MINIMAL_FIELDS = (
+    "name",
+    "kind",
+    "file_path",
+    "qualified_name",
+    "line_start",
+    "line_end",
+    "confidence",
+    "coverage_source",
+    "source",
+    "target",
+    "matched_endpoint",
+    "relationship_role",
+    "inverse_label",
+    "evidence_type",
+    "file",
+    "truncated",
+    "source_stale",
+    "read_error",
+    "omitted_chars",
+    "omitted_lines",
+    "signature",
+    "span_line_start",
+    "span_line_end",
+)
+
+
+def _source_of_missingness(item: Mapping[str, Any]) -> list[dict[str, Any]]:
+    extra: list[dict[str, Any]] = []
+    read_error = item.get("read_error")
+    if read_error:
+        extra.append(
+            {
+                "reason_code": "source_unreadable",
+                "severity": "medium",
+                "claim_effect": f"live source was not read ({read_error})",
+            }
+        )
+    if item.get("source_stale"):
+        extra.append(
+            {
+                "reason_code": "source_stale",
+                "severity": "medium",
+                "claim_effect": (
+                    "worktree file_hash differs from the graph; "
+                    "the stored span may not match the live body"
+                ),
+            }
+        )
+    if item.get("truncated"):
+        extra.append(
+            {
+                "reason_code": "live_source_truncated",
+                "severity": "low",
+                "claim_effect": (
+                    f"{item.get('omitted_chars', 0)} character(s) omitted; "
+                    "Read the file for the rest"
+                ),
+            }
+        )
+    return extra
+
+
+def _attach_source_of_coverage(
+    payload: dict[str, Any],
+    state: QueryGraphState,
+    missingness: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    if state.pattern != "source_of" or not state.results:
+        payload["missingness"] = list(missingness)
+        return payload
+    item = state.results[0]
+    extra = _source_of_missingness(item)
+    payload["source_coverage"] = {
+        "max_chars": item.get("max_chars"),
+        "truncated": bool(item.get("truncated")),
+        "source_stale": bool(item.get("source_stale")),
+        "read_error": item.get("read_error"),
+        "omitted_chars": item.get("omitted_chars", 0),
+        "omitted_lines": item.get("omitted_lines", 0),
+    }
+    payload["missingness"] = [*missingness, *extra]
+    if item.get("read_error") or item.get("source_stale"):
+        payload["status"] = "degraded"
+    return payload
 
 
 def build_query_graph_response(
@@ -423,28 +524,21 @@ def build_query_graph_response(
         result_count=len(state.results),
         exact_count=exact_count,
     )
+    next_action = exactness_action(
+        state.target,
+        exact_count,
+        len(state.results),
+        pattern=state.pattern,
+    )
 
     if detail_level == "minimal":
         minimal_results = [
-            {
-                k: result[k]
-                for k in ("name", "kind", "file_path", "confidence", "coverage_source")
-                + (
-                    "source",
-                    "target",
-                    "matched_endpoint",
-                    "relationship_role",
-                    "inverse_label",
-                    "evidence_type",
-                    "file",
-                )
-                if k in result
-            }
+            {k: result[k] for k in _QUERY_MINIMAL_FIELDS if k in result}
             for result in state.results[:5]
         ]
         for item in minimal_results:
             item["evidence_type"] = result_evidence_type(item)
-        return {
+        payload = {
             "status": "ok",
             "pattern": state.pattern,
             "target": state.target,
@@ -454,14 +548,14 @@ def build_query_graph_response(
             "unresolved_count": len(state.unresolved_targets),
             "unresolved_targets": state.unresolved_targets,
             **zero_result_fields,
-            "next_action": exactness_action(state.target, exact_count, len(state.results)),
+            "next_action": next_action,
             **resolution_payload,
             "answerability": answerability,
-            "missingness": missingness,
             "results": minimal_results,
             "guidance": guidance,
             "_hints": guidance_actions_to_hints(guidance),
         }
+        return _attach_source_of_coverage(payload, state, missingness)
 
     payload = {
         "status": "ok",
@@ -473,14 +567,13 @@ def build_query_graph_response(
         "unresolved_count": len(state.unresolved_targets),
         "unresolved_targets": state.unresolved_targets,
         **zero_result_fields,
-        "next_action": exactness_action(state.target, exact_count, len(state.results)),
+        "next_action": next_action,
         **resolution_payload,
         "answerability": answerability,
-        "missingness": missingness,
         "results": state.results,
         "edges": state.edges_out,
         "guidance": guidance,
         "_hints": guidance_actions_to_hints(guidance),
     }
     apply_output_budget(payload, budget_tokens=8000, list_priorities=["results", "edges"])
-    return payload
+    return _attach_source_of_coverage(payload, state, missingness)

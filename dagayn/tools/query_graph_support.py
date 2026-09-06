@@ -30,6 +30,9 @@ QUERY_PATTERNS = {
     "tests_for": "Find all tests for a given function or class",
     "inheritors_of": "Find all classes that inherit from a given class",
     "file_summary": "Get a summary of all nodes in a file",
+    "source_of": (
+        "Fetch the live worktree source span for one node (function, class, section, or file)"
+    ),
 }
 
 _DOC_TO_ARTIFACT_ROLES = {
@@ -170,11 +173,27 @@ def result_evidence_type(result: dict[str, Any]) -> str:
     return "extracted"
 
 
-def exactness_action(query: str, exact_count: int, result_count: int) -> dict[str, Any]:
+def exactness_action(
+    query: str,
+    exact_count: int,
+    result_count: int,
+    *,
+    pattern: str | None = None,
+) -> dict[str, Any]:
     if exact_count == 1:
+        if pattern == "source_of":
+            return {
+                "tool": "query_graph_tool",
+                "suggestion": (
+                    "inspect callers_of/callees_of after reading the live span; "
+                    "Read the file only for surrounding context or edits"
+                ),
+            }
         return {
             "tool": "query_graph_tool",
-            "suggestion": "inspect callers_of/callees_of for the exact qualified match",
+            "suggestion": (
+                'fetch live source with pattern="source_of", then callers_of/callees_of'
+            ),
         }
     if exact_count > 1:
         return {
@@ -184,7 +203,9 @@ def exactness_action(query: str, exact_count: int, result_count: int) -> dict[st
     if result_count:
         return {
             "tool": "query_graph_tool",
-            "suggestion": "confirm the best candidate with file_summary or callers_of",
+            "suggestion": (
+                'fetch live source with pattern="source_of" for the chosen qualified_name'
+            ),
         }
     return {
         "tool": "semantic_search_nodes_tool",
@@ -304,6 +325,36 @@ def query_graph_guidance(
     exact_count: int,
 ) -> list[dict[str, Any]]:
     if result_count:
+        if pattern == "source_of":
+            return [
+                make_guidance_item(
+                    claim=f"Live source span for '{target}'.",
+                    evidence={
+                        "type": "computed",
+                        "pattern": pattern,
+                        "target": target,
+                        "result_count": result_count,
+                        "exact_match_count": exact_count,
+                    },
+                    confidence="medium",
+                    missingness=[
+                        {
+                            "reason_code": "live_source_span",
+                            "severity": "low",
+                            "claim_effect": (
+                                "text is a worktree slice of the graph span; "
+                                "surrounding helpers and imports are omitted"
+                            ),
+                        }
+                    ],
+                    action=(
+                        'query_graph_tool pattern="callers_of" -- inspect callers '
+                        "after reading the span"
+                    ),
+                    reason_codes=["live_source_fetch"],
+                    counts={"result_count": result_count},
+                )
+            ]
         return [
             make_guidance_item(
                 claim=(

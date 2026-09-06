@@ -561,7 +561,11 @@ so skills can fetch their optimized workflow without duplicating it in the
 skill file.
 
 `query_graph_tool` includes documentation-aware bridge patterns in addition to
-ordinary code relationships. Use `docs_for` to find specifications, runbooks,
+ordinary code relationships. Use `source_of` to fetch the live worktree span
+for one chosen node (function, class, Markdown section, or file) instead of
+re-reading the whole file; the slice is capped and sets `truncated` /
+`source_stale` when the graph span or file hash is no longer authoritative.
+Use `docs_for` to find specifications, runbooks,
 issue notes, and explanations linked to a code, Terraform, or artifact node.
 Use `implementations_of` to find code or Terraform nodes linked to a Markdown
 contract section through `implemented_by` / `implements_contract`

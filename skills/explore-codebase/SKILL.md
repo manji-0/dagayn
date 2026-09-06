@@ -22,7 +22,10 @@ the selected embedding mode so exploration chooses the right search strategy.
   `semantic_search_nodes_tool` first, then pick a concrete `qualified_name`.
 - Known entity plus a specific relationship: use `query_graph_tool` with the
   narrowest pattern (`callers_of`, `callees_of`, `imports_of`, `tests_for`,
-  `docs_for`, `implementations_of`, `children_of`, or `file_summary`).
+  `docs_for`, `implementations_of`, `children_of`, `file_summary`, or
+  `source_of`).
+- Known entity whose body you need to inspect: use
+  `query_graph_tool(pattern="source_of")` before opening the file.
 - Changed code, review risk, or blast radius: use `review_tool` before raw
   traversal.
 - Architecture health or structural risk: use
@@ -52,11 +55,12 @@ the selected embedding mode so exploration chooses the right search strategy.
      drill-down mode selection.
    - Reachable-set flow → `flow_tool(mode="list", detail_level="minimal")`, then
      `flow_tool(mode="get")` only after choosing a concrete flow name.
-3. After you have a concrete node, use `query_graph_tool` patterns such as
-   `callers_of`, `callees_of`, `imports_of`, `docs_for`, or `implementations_of`
-   to verify relationships. Prefer these over raw traversal.
-4. Fall back to `rg`/file reads when graph output is stale, ambiguous, truncated,
-   or missing exact source text.
+3. After you have a concrete node, use `query_graph_tool(pattern="source_of")`
+   for the live span, then `callers_of`, `callees_of`, `imports_of`, `docs_for`,
+   or `implementations_of` to verify relationships. Prefer these over raw
+   traversal.
+4. Fall back to `rg`/file reads when `source_of` is truncated, stale, or
+   unreadable, or when you need surrounding context or to edit.
 
 ### Tips
 
@@ -64,6 +68,8 @@ the selected embedding mode so exploration chooses the right search strategy.
   open with architecture overview unless the question is about structure or
   health.
 - Use `children_of` on a file to see all its functions and classes.
+- After an exact `qualified_name`, call `source_of` instead of reading the
+  whole file. Read the file only for imports, sibling helpers, or edits.
 - Use `find_large_functions_tool` (advanced surface / `dagayn tool`) to identify
   complex code.
 - For Markdown ↔ code traceability, treat `dagayn:` directives as authored
@@ -96,6 +102,7 @@ server allow-list omitted a tool, or for advanced helpers such as
 ```bash
 dagayn tool find_large_functions_tool --arg min_lines=80
 dagayn tool traverse_graph_tool --arg query='"auth handler"' --arg depth=2
+dagayn tool query_graph_tool --arg pattern='"source_of"' --arg target='"src/app.py::handler"'
 dagayn tool query_graph_tool --arg pattern='"docs_for"' --arg target='"src/app.py::handler"'
 dagayn tool query_graph_tool --arg pattern='"implementations_of"' --arg target='"docs/spec.md::contract-section"'
 ```

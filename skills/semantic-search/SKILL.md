@@ -45,10 +45,11 @@ the selected embedding mode so agents can avoid stale or wasteful search advice.
    - Use per-result `source` to explain why a hit ranked: `fts`, `embedding`,
      `both`, or `keyword`.
 3. Hand off the best hit to graph tools:
-   - If exactly one result matches the intended `name` or `qualified_name`, use
-     that `qualified_name` for `query_graph_tool`.
-   - If several fuzzy hits look plausible, inspect the top 3 with
-     `query_graph_tool(pattern="file_summary")` or a relationship query before
+   - If exactly one result matches the intended `name` or `qualified_name`,
+     fetch it with `query_graph_tool(pattern="source_of")`, then run
+     relationship queries as needed.
+   - If several fuzzy hits look plausible, inspect the top hits with
+     `query_graph_tool(pattern="source_of")` or `file_summary` before
      drawing conclusions.
    - If the user wants callers, callees, tests, docs, imports, or children, use
      `query_graph_tool`; use `traverse_graph_tool` only for a bounded
@@ -99,8 +100,8 @@ the selected embedding mode so agents can avoid stale or wasteful search advice.
   purpose concepts; use narrative embeddings/process-pattern intent for queries
   about behavior such as calls, reads, writes, loops, returns, or merges.
 - Treat semantic search as start-node discovery, not final proof. Confirm
-  behavior, relationships, or coverage with `query_graph_tool`, `flow_tool`,
-  `review_tool`, or source reads.
+  behavior with `query_graph_tool(pattern="source_of")`, then relationships or
+  coverage with `query_graph_tool`, `flow_tool`, or `review_tool`.
 - Do one before/after query to prove search quality changed. Do not rebuild the
   graph repeatedly without a changed file set or a failed verification.
 - Never use an embedding-enabled full rebuild to compensate for untracked files

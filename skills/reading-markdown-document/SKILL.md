@@ -29,6 +29,7 @@ Take a structural snapshot before opening the file:
 
 1. **Section list** — `query_graph_tool(pattern="file_summary", target="<doc.md>", detail_level="minimal")` to get every heading and its slug. This is the table of contents.
    - If this returns empty (the doc isn't yet in the graph), Stage 0 missed an update — re-run `ensure_graph_tool(force=True)` once. If still empty, the file is brand new; treat it as a plain text read and skip to Stage 3.
+   - If the question is about one heading, fetch that section with `query_graph_tool(pattern="source_of", target="<doc.md>::<slug>")` and skip Stage 3's full-file read for that path unless the span is truncated or neighbors are required.
 2. **Inbound edges** — `query_graph_tool(pattern="importers_of", target="<doc.md>", detail_level="minimal")`. **Use the file path only**, not `<doc.md>::<section>` — `importers_of` resolves to file paths; section-form targets silently return zero hits.
 3. **Outbound file-level imports** — `query_graph_tool(pattern="imports_of", target="<doc.md>", detail_level="minimal")` to list cross-doc `IMPORTS_FROM` edges (directives + links targeting other files).
 4. **Documentation bridges** — if the doc is a spec or the user asks about implementations, run `query_graph_tool(pattern="implementations_of", target="<doc.md>::<section-slug>", detail_level="minimal")` for the relevant contract section(s). Check `evidence_type` and `missingness` before treating a bridge as contract evidence.
@@ -51,16 +52,16 @@ Then handle each type with a fixed budget:
 
 | Edge kind | What you found | Action before reading the body |
 |-----------|----------------|--------------------------------|
-| `DEPENDS_ON` — `constrained-by` directive | hard prerequisite | Read the cited section in full. This is the only kind that is *always* worth pre-reading. |
+| `DEPENDS_ON` — `constrained-by` directive | hard prerequisite | Fetch the cited section with `query_graph_tool(pattern="source_of", target="<doc.md>::<slug>")`. This is the only kind that is *always* worth pre-reading. Open the target file only if the span is truncated, stale, or neighboring sections are required. |
 | `DEPENDS_ON` — `derived-from` / `blocked-by` / `supersedes` | softer dependency | One-line mental summary from the directive comment itself; only open the target if the doc body later references it explicitly. |
-| `IMPORTS_FROM` / `REFERENCES` | inline / reference-style links | Read the target section once, depth 1 only. Do not chase its onward links unless the linking sentence in *this* doc contains "see", "refer to", or a clearly imperative pointer. |
-| `CROSS_ARTIFACT` — `dagayn:` directive | explicit doc/code/documentation bridge | Respect the authored direction. For `implemented-by`, `discusses-artifact`, or `raises-issue-for`, inspect the targeted code point when it affects the question. For code-authored inverse links into this doc, prefer the Stage-1 `implementations_of` result. Record `evidence_type` (`authored`, `extracted`, or `heuristic_reachable`) when it affects confidence. |
-| `CROSS_ARTIFACT` | backticked symbols | **Cap: top 3 most-frequent symbols.** For each, run `query_graph_tool(pattern="callers_of", target="<symbol>", detail_level="minimal")` to know how it's used. Skip the rest unless the body specifically asks you to look them up. |
+| `IMPORTS_FROM` / `REFERENCES` | inline / reference-style links | Fetch the target section once with `source_of`, depth 1 only. Do not chase its onward links unless the linking sentence in *this* doc contains "see", "refer to", or a clearly imperative pointer. |
+| `CROSS_ARTIFACT` — `dagayn:` directive | explicit doc/code/documentation bridge | Respect the authored direction. For `implemented-by`, `discusses-artifact`, or `raises-issue-for`, inspect the targeted code point with `source_of` when it affects the question. For code-authored inverse links into this doc, prefer the Stage-1 `implementations_of` result. Record `evidence_type` (`authored`, `extracted`, or `heuristic_reachable`) when it affects confidence. |
+| `CROSS_ARTIFACT` | backticked symbols | **Cap: top 3 most-frequent symbols.** For each, run `query_graph_tool(pattern="source_of", target="<path::symbol>", detail_level="minimal")` to inspect the body; add `callers_of` only when usage/call-site context is needed. Skip the rest unless the body specifically asks you to look them up. |
 | `CONTAINS` | heading hierarchy | No tool calls. Hold the section tree from Stage 1 step 1 in mind as a TOC. |
 
 Code-to-Markdown section directives such as `# dagayn: implements docs/auth-spec.md#Token Refresh` are not visible in the Markdown file body. Use `implementations_of` on the doc section to find them. When you start from a code point instead, use `query_graph_tool(pattern="docs_for", target="<path::symbol>", detail_level="minimal")` to find linked specs, runbooks, explanations, and issue notes before reading prose.
 
-Tool-call budget for Stage 2: ≤ 1 call per `constrained-by` target + ≤ 1 call per linked section actually read + ≤ 1 call per explicit `dagayn:` code target that affects the question + ≤ 3 `callers_of` calls for code symbols. If your triage list exceeds this, prioritize `constrained-by` first, then explicit documentation bridges, then linked sections, then symbols.
+Tool-call budget for Stage 2: ≤ 1 `source_of` per `constrained-by` target + ≤ 1 `source_of` per linked section actually fetched + ≤ 1 `source_of` per explicit `dagayn:` code target that affects the question + ≤ 3 `source_of` / `callers_of` calls for code symbols. If your triage list exceeds this, prioritize `constrained-by` first, then explicit documentation bridges, then linked sections, then symbols.
 
 ## Stage 3 — Read the body
 
@@ -82,6 +83,7 @@ allow-list omitted them; `list_graph_stats_tool` is advanced-only:
 ```bash
 dagayn tool ensure_graph_tool
 dagayn tool query_graph_tool --arg pattern='"file_summary"' --arg target='"docs/adr.md"'
+dagayn tool query_graph_tool --arg pattern='"source_of"' --arg target='"docs/adr.md::context"'
 dagayn tool query_graph_tool --arg pattern='"implementations_of"' --arg target='"docs/adr.md::contract-section"'
 dagayn tool query_graph_tool --arg pattern='"docs_for"' --arg target='"src/app.py::handler"'
 dagayn tool review_tool --arg mode='"impact"' --arg 'changed_files=["docs/adr.md"]' --arg detail_level='"minimal"'

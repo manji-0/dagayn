@@ -93,7 +93,7 @@ Direction rule: the source should be the artifact that owns the assertion.
 Supported directive kinds are `implemented-by`, `implements`, `explained-by`, `has-runbook`, `problem-described-by`, `discussed-by`, `discusses`, `discusses-artifact`, `raises-issue-for`, `describes`, and `describes-symbol`.
 
 Target rules:
-- Markdown → code point: prefer a concrete graph node target in `path::symbol` form, e.g. `services/auth.py::AuthService.refresh_token`. Verify the exact node exists before writing the directive. A bare symbol target is allowed but starts LOW/0.2 as `<unresolved:Symbol>` until postprocessing finds exactly one non-Markdown node with that `name`.
+- Markdown → code point: prefer a concrete graph node target in `path::symbol` form, e.g. `services/auth.py::AuthService.refresh_token`. Verify the exact node exists before writing the directive. When you need to confirm the implementation matches the claim, fetch it with `query_graph_tool(pattern="source_of")`. A bare symbol target is allowed but starts LOW/0.2 as `<unresolved:Symbol>` until postprocessing finds exactly one non-Markdown node with that `name`.
 - Code → Markdown section: always include a Markdown path plus `#Heading`, e.g. `docs/auth-spec.md#Token Refresh` or `../docs/auth-spec.md#Token Refresh`. The parser slugifies the heading and stores the target as `docs/auth-spec.md::token-refresh`.
 - In `dagayn:` directives, `./` and `../` paths are resolved relative to the source file; other file paths are treated as repo-root-relative and normalized.
 - `#Local Heading` is valid for Markdown-authored same-document targets. Do not use a bare `#Heading` in code comments; from code it would target the code file, not a Markdown document.
@@ -171,6 +171,7 @@ server allow-list omitted them, or for maintenance `build_or_update_graph_tool`:
 dagayn tool ensure_graph_tool --arg force=true
 dagayn tool build_or_update_graph_tool --arg local_embedding='"none"'
 dagayn tool query_graph_tool --arg pattern='"file_summary"' --arg target='"docs/design.md"'
+dagayn tool query_graph_tool --arg pattern='"source_of"' --arg target='"src/app.py::handler"'
 dagayn tool query_graph_tool --arg pattern='"implementations_of"' --arg target='"docs/design.md::contract-section"'
 dagayn tool query_graph_tool --arg pattern='"docs_for"' --arg target='"src/app.py::handler"'
 dagayn tool review_tool --arg mode='"impact"' --arg 'changed_files=["docs/design.md"]' --arg detail_level='"minimal"'

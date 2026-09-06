@@ -275,6 +275,19 @@ relationship results and missing targets. Missing targets return
 `answerability` / `missingness`; do not treat that as proof the symbol cannot
 exist outside the current graph.
 
+After a search or relationship hit, fetch one node's live span rather than
+opening the whole file:
+
+```python
+result = query_graph_tool(pattern="source_of", target="src/app.py::handler")
+body = result["results"][0]["source"]
+```
+
+The text is a worktree slice of the graph span, capped at 4,000 characters.
+`source_stale` means the file hash moved; `truncated` means the tail was
+omitted. Read the file only for surrounding context, edits, or the omitted
+tail.
+
 ## Export the graph
 
 <!-- constrained-by ./ARCHITECTURE.md#post-processing -->

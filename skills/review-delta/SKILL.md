@@ -31,9 +31,11 @@ Perform a focused, token-efficient code review of only the changed code and its 
    - Hotspot proximity
    - Architecture risks in changed scopes
 
-4. **Fetch source context only when needed** by calling
-   `review_tool(mode="context")` for files or functions where source snippets
-   are required.
+4. **Fetch source context only when needed**:
+   - Change-set snippets: `review_tool(mode="context")`
+   - One named function or class: `query_graph_tool(pattern="source_of")`
+   Read the file only when that span is truncated, stale, or neighbors are
+   required.
 
 5. **Analyze the blast radius** by reviewing the impact fields in
    `analysis_summary` and, when needed, calling `review_tool(mode="impact")`.
@@ -47,7 +49,8 @@ Perform a focused, token-efficient code review of only the changed code and its 
      (`query_graph_tool(pattern="implementations_of", target=<doc.md>::<section-slug>)`)
 
 6. **Perform the review** using the context. For each changed file:
-   - Review the source snippet for correctness, style, and potential bugs
+   - Review the `context` snippet or `source_of` span for correctness, style,
+     and potential bugs
    - Check if impacted callers/dependents need updates
    - Prefer `analysis_summary.recommended_tests` first, then verify uncertain
      coverage using `query_graph_tool(pattern="tests_for", target=<function_name>)`
@@ -79,7 +82,8 @@ Perform a focused, token-efficient code review of only the changed code and its 
 - Stay on `review_tool(mode="changes")` and `analysis_summary` until there is a
   concrete source, flow, impact, or coverage question.
 - Fetch snippets with `review_tool(mode="context")` only for files that can
-  change the review outcome.
+  change the review outcome. For one `qualified_name`, use `source_of` instead
+  of opening the file.
 - Prefer recommended tests first; use `query_graph_tool(pattern="tests_for")`
   only for uncertain coverage.
 - Do not call `ensure_graph_tool(force=True)` on every review when
@@ -93,8 +97,8 @@ Perform a focused, token-efficient code review of only the changed code and its 
 - Cite the concrete metric behind each risk label:
   `analysis_summary.reason_codes`, blast-radius count, affected flow,
   dependency direction, test gap, or changed public surface.
-- Treat missing tests as a lead until `tests_for` and source-level behavior are
-  checked.
+- Treat missing tests as a lead until `tests_for` and `source_of` (or a file
+  read if that span is truncated/stale) are checked.
 - Treat zero-result graph queries as graph-limited leads. Read
   `zero_result_reason`, `next_action`, `answerability`, and `missingness` before
   claiming absence.
@@ -108,6 +112,7 @@ Default MCP already exposes `review_tool` and `query_graph_tool`. Use
 ```bash
 dagayn tool review_tool --arg mode='"changes"' --arg detail_level='"minimal"'
 dagayn tool review_tool --arg mode='"context"' --arg detail_level='"minimal"'
+dagayn tool query_graph_tool --arg pattern='"source_of"' --arg target='"src/app.py::handler"'
 dagayn tool review_tool --arg mode='"impact"' --arg detail_level='"minimal"'
 dagayn tool query_graph_tool --arg pattern='"tests_for"' --arg target='"src/app.py::handler"'
 dagayn tool query_graph_tool --arg pattern='"docs_for"' --arg target='"src/app.py::handler"'

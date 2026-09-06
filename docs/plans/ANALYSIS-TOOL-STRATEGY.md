@@ -163,7 +163,8 @@ They serve different questions:
 - `semantic_search_nodes_tool`: find the entity when the user does not know the
   exact name.
 - `query_graph_tool`: inspect a known relationship such as callers, callees,
-  imports, tests, or file contents.
+  imports, tests, or file contents, or fetch a live source span with
+  `pattern="source_of"` after choosing a `qualified_name`.
 
 `traverse_graph_tool` should be an advanced follow-up when the user wants a
 neighborhood rather than a specific relationship.

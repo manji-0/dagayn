@@ -6,6 +6,14 @@ All notable changes to `dagayn` are documented here.
 
 ### Features
 
+- `query_graph_tool(pattern="source_of")` returns the live worktree span for one
+  chosen node so agents do not re-read the whole file after a search hit. The
+  slice is capped at 4,000 characters and reports `truncated` / `source_stale`
+  when the graph span or file hash is no longer authoritative. Minimal search
+  and query results keep `qualified_name` plus line spans so a follow-up Read
+  can stay tight when `source_of` is not enough. Packaged agent skills now
+  fetch a located node with `source_of` before opening the file.
+
 - Marimo notebooks are graph inputs. Python `.py` notebooks are detected from
   `import marimo` plus `@app.cell` / `@app.function` / `@app.class_definition` /
   `with app.setup`. Markdown `.md` notebooks are detected from `marimo-version`
