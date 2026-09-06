@@ -4,6 +4,8 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+## 4.14.0 — 2026-09-07
+
 ### Features
 
 - `query_graph_tool(pattern="source_of")` returns the live worktree span for one
