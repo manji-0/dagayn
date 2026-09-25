@@ -83,7 +83,8 @@ mod types;
 mod util;
 
 pub use discovery::{
-    collect_parseable_files, detect_language, filter_incremental_candidates, filter_parseable_files,
+    collect_parseable_files, detect_language, filter_ignored_paths, filter_incremental_candidates,
+    filter_parseable_files,
 };
 pub use js_sfc::{parse_svelte, parse_vue};
 pub use types::{EdgeKind, FilePath, NodeKind, ParsedEdge, ParsedNode};

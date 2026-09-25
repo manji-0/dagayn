@@ -110,6 +110,16 @@ pub fn filter_parseable_files(
         .collect()
 }
 
+/// Drop candidates matching `ignore_patterns` without touching the filesystem.
+pub fn filter_ignored_paths(candidates: &[String], ignore_patterns: &[String]) -> Vec<String> {
+    let globset = build_globset(ignore_patterns);
+    candidates
+        .iter()
+        .filter(|candidate| !should_ignore(candidate, ignore_patterns, globset.as_ref()))
+        .cloned()
+        .collect()
+}
+
 pub fn filter_incremental_candidates(
     repo_root: &Path,
     candidates: &[String],

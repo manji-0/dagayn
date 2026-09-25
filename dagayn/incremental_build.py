@@ -25,6 +25,7 @@ from .incremental_files import (
     _should_ignore,
     _store_vcs_metadata,
     collect_all_files,
+    get_vcs_indexable_files,
     resolve_commit_sha,
 )
 from .parser import CodeParser
@@ -266,13 +267,38 @@ def _is_ignore_scope_file(rel_path: str) -> bool:
     return Path(rel_path).name in _IGNORE_SCOPE_NAMES
 
 
+def _vcs_scope(repo_root: Path, recurse_submodules: bool | None) -> set[str] | None:
+    """VCS-indexable paths minus ignore patterns, or ``None`` without a VCS listing.
+
+    Unlike :func:`collect_all_files` this opens no file: parseability is left
+    to the per-changed-file filter, so an update costs one listing instead of
+    a stat and an 8 KiB read for every file in the repository.
+    """
+    candidates = get_vcs_indexable_files(repo_root, recurse_submodules)
+    if not candidates:
+        return None
+    patterns = _load_ignore_patterns(repo_root)
+    if _rust_backend_enabled():
+        from dagayn._core import filter_ignored_paths
+
+        return set(filter_ignored_paths(candidates, patterns))
+    return {path for path in candidates if not _should_ignore(path, patterns)}
+
+
 def _indexable_scope(
     repo_root: Path,
     store: GraphStore,
     recurse_submodules: bool | None = None,
 ) -> tuple[set[str], list[str]]:
-    """Return ``(parseable_indexable, graph_files_outside_that_set)``."""
-    indexable = set(collect_all_files(repo_root, recurse_submodules))
+    """Return ``(indexable_scope, graph_files_outside_that_set)``.
+
+    The scope is the VCS listing minus ignore patterns; callers still run
+    changed paths through :func:`_filter_incremental_candidates`. Without a
+    VCS listing it falls back to the full parseable walk.
+    """
+    indexable = _vcs_scope(repo_root, recurse_submodules)
+    if indexable is None:
+        indexable = set(collect_all_files(repo_root, recurse_submodules))
     try:
         graph_files = set(store.get_all_files() or [])
     except Exception:  # noqa: BLE001 — never block an update on a listing failure

@@ -631,3 +631,31 @@ def test_incremental_update_removes_newly_ignored_indexed_file(git_repo: Path) -
         store.close()
     finally:
         Path(db_path).unlink(missing_ok=True)
+
+
+def test_incremental_update_scope_does_not_walk_every_file(git_repo: Path) -> None:
+    from unittest.mock import patch
+
+    (git_repo / "keep.py").write_text("def keep():\n    return 1\n", encoding="utf-8")
+    (git_repo / "drop.py").write_text("def drop():\n    return 1\n", encoding="utf-8")
+
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as handle:
+        db_path = handle.name
+    try:
+        store = GraphStore(db_path)
+        full_build(git_repo, store)
+        assert {"keep.py", "drop.py"} <= _indexed_files(store)
+
+        (git_repo / ".dagaynignore").write_text("drop.py\n", encoding="utf-8")
+        (git_repo / "keep.py").write_text("def keep():\n    return 2\n", encoding="utf-8")
+        with patch(
+            "dagayn.incremental_build.collect_all_files",
+            side_effect=AssertionError("incremental scope must not walk every file"),
+        ):
+            incremental_update(git_repo, store, base="HEAD")
+        indexed = _indexed_files(store)
+        assert "drop.py" not in indexed
+        assert "keep.py" in indexed
+        store.close()
+    finally:
+        Path(db_path).unlink(missing_ok=True)

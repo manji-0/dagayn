@@ -4,6 +4,15 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Performance
+
+- An incremental update no longer opens every file in the repository to decide
+  its scope. The scope was the full parseable walk — two `stat` calls and an
+  8 KiB read per file — paid on every edit hook even for a one-file change. It
+  is now the VCS listing minus ignore patterns (matched in Rust, no file I/O);
+  parseability is still checked for the changed paths, and repositories without
+  a VCS listing keep the full walk.
+
 ## 4.15.0 — 2026-09-25
 
 ### Fixes

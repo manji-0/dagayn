@@ -1813,6 +1813,7 @@ fn closed_store_error() -> PyErr {
 fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyGraphStore>()?;
     module.add_function(wrap_pyfunction!(filter_parseable_files, module)?)?;
+    module.add_function(wrap_pyfunction!(filter_ignored_paths, module)?)?;
     module.add_function(wrap_pyfunction!(filter_incremental_candidates, module)?)?;
     module.add_function(wrap_pyfunction!(collect_parseable_files, module)?)?;
     module.add_function(wrap_pyfunction!(
@@ -1872,6 +1873,15 @@ fn filter_incremental_candidates(
         &candidates,
         &ignore_patterns,
     ))
+}
+
+#[pyfunction]
+fn filter_ignored_paths(
+    py: Python<'_>,
+    candidates: Vec<String>,
+    ignore_patterns: Vec<String>,
+) -> Vec<String> {
+    py.detach(|| dagayn_core::parser::filter_ignored_paths(&candidates, &ignore_patterns))
 }
 
 #[pyfunction]

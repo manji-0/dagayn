@@ -30,6 +30,7 @@ def filter_parseable_files(
     candidates: list[str],
     ignore_patterns: list[str],
 ) -> list[str]: ...
+def filter_ignored_paths(candidates: list[str], ignore_patterns: list[str]) -> list[str]: ...
 def collect_parseable_files(
     repo_root: str | PathLike[str],
     recurse_submodules: bool | None = None,
