@@ -13,7 +13,10 @@ All notable changes to `dagayn` are documented here.
   workspace, takes `@-` as HEAD, `@-..@` as the working-tree change, and the
   tree of `@` as the file set, and seeds the workspace graph from the main
   checkout like a linked git worktree. Hook scripts narrow the git toplevel to
-  a nested `jj workspace root`.
+  a nested `jj workspace root`. A workspace jj cannot read — stale after
+  another workspace rewrote its commit — stops `build` / `update` with jj's
+  reason and a `jj workspace update-stale` hint, and its graph reports
+  `commit_drift`, instead of being indexed as zero files.
 
 ## 4.14.0 — 2026-09-07
 

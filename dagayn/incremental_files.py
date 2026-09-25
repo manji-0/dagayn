@@ -790,25 +790,14 @@ def _jj_diff_files(repo_root: Path, old: str, new: str) -> list[str]:
     return _parse_name_status(out) if out else []
 
 
-def _empty_change_sources() -> dict[str, list[str]]:
-    return {
-        "files": [],
-        "base_diff": [],
-        "worktree": [],
-        "staged": [],
-        "unstaged": [],
-        "untracked": [],
-    }
-
-
 def _get_jj_changed_file_sources(repo_root: Path, base: str) -> dict[str, list[str]]:
     """Change sources for a jj workspace: ``base..@-`` plus ``@-..@``.
 
     jj has no index, so the working-copy change is reported as unstaged.
+    Raises :class:`~dagayn.jj_workspace.JjWorkspaceError` when jj cannot read
+    the working copy, rather than reporting "nothing changed".
     """
-    wc = jj_workspace.working_copy(repo_root)
-    if wc is None:
-        return _empty_change_sources()
+    wc = jj_workspace.require_working_copy(repo_root)
     resolved_base = jj_workspace.resolve_commit(repo_root, base, wc)
     if resolved_base is None:
         logger.warning("Could not resolve %s in jj workspace %s", base, repo_root)
@@ -958,8 +947,8 @@ def get_staged_and_unstaged(repo_root: Path) -> list[str]:
 
 
 def _jj_working_copy_files(repo_root: Path) -> list[str]:
-    wc = jj_workspace.working_copy(repo_root)
-    return jj_workspace.tree_files(repo_root, wc.commit) if wc else []
+    wc = jj_workspace.require_working_copy(repo_root)
+    return jj_workspace.tree_files(repo_root, wc.commit)
 
 
 def _git_ls_files(repo_root: Path, extra_args: list[str]) -> list[str]:
@@ -1112,15 +1101,18 @@ def collect_all_files(
 
     vcs = detect_vcs(repo_root)
     if _rust_backend_enabled() and vcs != "svn":
+        # Rust discovery runs `git ls-files` from the directory, which lists the
+        # enclosing main checkout of a jj workspace; hand it the jj file set.
+        # Resolved outside the try so a jj failure is not reported as a
+        # missing native extension.
+        jj_candidates = get_vcs_indexable_files(repo_root) if vcs == "jj" else None
         try:
-            if vcs == "jj":
-                # Rust discovery runs `git ls-files` from the directory, which
-                # lists the enclosing main checkout; hand it the jj file set.
+            if jj_candidates is not None:
                 from dagayn._core import filter_parseable_files
 
                 return filter_parseable_files(
                     repo_root,
-                    get_vcs_indexable_files(repo_root),
+                    jj_candidates,
                     _load_ignore_patterns(repo_root),
                 )
             from dagayn._core import collect_parseable_files

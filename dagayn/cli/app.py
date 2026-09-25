@@ -144,6 +144,7 @@ def main() -> None:
     import sqlite3
 
     from ..graph.sqlite_errors import is_sqlite_corrupt_error
+    from ..jj_workspace import JjWorkspaceError
 
     try:
         if args.command in ("install", "init"):
@@ -180,4 +181,7 @@ def main() -> None:
         if not is_sqlite_corrupt_error(exc):
             raise
         _report_corrupt_database(args, exc)
+        sys.exit(1)
+    except JjWorkspaceError as exc:
+        print(f"dagayn: {exc}", file=sys.stderr)
         sys.exit(1)

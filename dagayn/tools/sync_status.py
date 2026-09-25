@@ -312,6 +312,11 @@ def assess_graph_sync(
 
     graph_empty = _graph_is_empty(stats)
     commit_drift = bool(vcs in GIT_BACKED_VCS and current_sha and stored_sha != current_sha)
+    if vcs == "jj" and not current_sha:
+        # jj could not read the working copy (a stale workspace, typically), so
+        # there is no evidence the graph matches it. Prescribe the update, which
+        # reports jj's reason instead of this state claiming the graph is fresh.
+        commit_drift = True
     undated = not last_updated and not graph_empty
 
     if _seed_needs_verification(store):
