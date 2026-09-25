@@ -2959,6 +2959,89 @@ fn community_edge_queries_are_region_local() {
 }
 
 #[test]
+fn deleting_emptied_communities_drops_their_summaries() {
+    let path = temp_db("community-delete-summaries");
+    let mut store = GraphStore::open(&path).expect("open graph store");
+    store
+        .conn
+        .pragma_update(None, "foreign_keys", "ON")
+        .unwrap();
+    for file in ["a.py", "b.py"] {
+        let stem = &file[..1];
+        store
+            .store_file_nodes_edges(
+                file,
+                &[
+                    flow_test_node("Function", &format!("{stem}_caller"), file),
+                    flow_test_node("Function", &format!("{stem}_callee"), file),
+                ],
+                &[flow_test_call(
+                    &format!("{file}::{stem}_caller"),
+                    &format!("{file}::{stem}_callee"),
+                    file,
+                )],
+                &format!("hash-{stem}"),
+                0,
+            )
+            .unwrap();
+    }
+    let payload = serde_json::to_string(
+        &["a", "b"]
+            .iter()
+            .map(|stem| CommunityInput {
+                name: format!("cluster-{stem}"),
+                level: 0,
+                cohesion: 1.0,
+                size: 2,
+                dominant_language: "python".to_string(),
+                description: (*stem).to_string(),
+                members: vec![
+                    format!("{stem}.py::{stem}_caller"),
+                    format!("{stem}.py::{stem}_callee"),
+                ]
+                .into(),
+            })
+            .collect::<Vec<_>>(),
+    )
+    .unwrap();
+    store.store_communities_json(&payload).unwrap();
+    store.compute_community_summaries().unwrap();
+    let count = |store: &GraphStore, table: &str| -> i64 {
+        store
+            .conn
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .unwrap()
+    };
+    assert_eq!(count(&store, "community_summaries"), 2);
+    let id_b: i64 = store
+        .conn
+        .query_row(
+            "SELECT id FROM communities WHERE name = 'cluster-b'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+
+    // A re-parse that drops every member leaves the community (and its
+    // summary) behind; both deletion paths must take the summary with it.
+    store
+        .conn
+        .execute(
+            "UPDATE nodes SET community_id = NULL WHERE file_path = 'a.py'",
+            [],
+        )
+        .unwrap();
+    assert_eq!(store.delete_orphan_communities().unwrap(), 1);
+    store.delete_community(id_b).unwrap();
+
+    assert_eq!(count(&store, "communities"), 0);
+    assert_eq!(count(&store, "community_summaries"), 0);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn persist_centrality_scores_filtered_keeps_other_community_hubs() {
     let path = temp_db("centrality-region-sql");
     let mut store = GraphStore::open(&path).expect("open graph store");

@@ -167,18 +167,35 @@ impl GraphStore {
         Ok(())
     }
 
+    /// Delete one community and the summary row that references it.
+    ///
+    /// `community_summaries.community_id` is a foreign key, so deleting the
+    /// community first fails with a constraint error once it has a summary.
     pub fn delete_community(&mut self, community_id: i64) -> Result<()> {
-        self.conn
-            .execute("DELETE FROM communities WHERE id = ?", [community_id])?;
+        let tx = write_tx(&mut self.conn)?;
+        tx.execute(
+            "DELETE FROM community_summaries WHERE community_id = ?",
+            [community_id],
+        )?;
+        tx.execute("DELETE FROM communities WHERE id = ?", [community_id])?;
+        tx.commit()?;
         Ok(())
     }
 
+    /// Delete communities no node belongs to, with their summaries.
     pub fn delete_orphan_communities(&mut self) -> Result<i64> {
-        let deleted = self.conn.execute(
-            "DELETE FROM communities WHERE NOT EXISTS \
-             (SELECT 1 FROM nodes n WHERE n.community_id = communities.id)",
+        const ORPHAN: &str = "NOT EXISTS \
+             (SELECT 1 FROM nodes n WHERE n.community_id = communities.id)";
+        let tx = write_tx(&mut self.conn)?;
+        tx.execute(
+            &format!(
+                "DELETE FROM community_summaries WHERE community_id IN \
+                 (SELECT id FROM communities WHERE {ORPHAN})"
+            ),
             [],
         )?;
+        let deleted = tx.execute(&format!("DELETE FROM communities WHERE {ORPHAN}"), [])?;
+        tx.commit()?;
         Ok(deleted as i64)
     }
 
