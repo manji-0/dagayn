@@ -4,6 +4,15 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Fixes
+
+- Pruning after an update no longer fails with `FOREIGN KEY constraint failed`
+  once a community that has a summary loses all its members. Deleting the
+  emptied community left its `community_summaries` row pointing at it, so every
+  `postprocess=minimal` update (edit hooks, `--skip-flows`, worktree catch-up)
+  aborted the orphan sweep: emptied communities stayed listed and stale
+  `risk_index` rows were never removed.
+
 ### Features
 
 - Git-backed jj workspaces (`jj workspace add`, `track` in `vcs-mode=jj`) are
