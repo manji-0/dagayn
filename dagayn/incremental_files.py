@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Optional
 if TYPE_CHECKING:
     from .graph import GraphStore
 
+from . import jj_workspace
 from .parser import CodeParser
 from .parser._base.types import EdgeInfo, NodeInfo
 
@@ -111,7 +112,12 @@ def find_repo_root(
     start: Path | None = None,
     stop_at: Path | None = None,
 ) -> Optional[Path]:
-    """Walk up from ``start`` to find the nearest ``.git`` directory or SVN working copy root.
+    """Walk up from ``start`` to find the nearest checkout root.
+
+    A checkout root holds ``.git``, is a git-backed jj workspace (``.jj``
+    without ``.git``; see :mod:`dagayn.jj_workspace`), or is an SVN working
+    copy root. The jj case has to stop the walk: a workspace nested under the
+    main checkout (``.worktrees/<slug>``) would otherwise resolve to it.
 
     Args:
         start: Starting directory.  Defaults to ``Path.cwd()``.
@@ -125,27 +131,39 @@ def find_repo_root(
             bind-mounted volumes, embedded sandboxes.  See #241.
 
     Returns:
-        The first ancestor containing ``.git`` or an SVN working copy,
-        or ``None`` if no ancestor up to and including ``stop_at`` (when
-        set) or the filesystem root (when ``stop_at is None``) contains one.
+        The first ancestor that is a git checkout or jj workspace, else the
+        SVN working copy root, or ``None`` if no ancestor up to and including
+        ``stop_at`` (when set) or the filesystem root (when ``stop_at is
+        None``) is one.
     """
     current = start or Path.cwd()
     while current != current.parent:
-        if (current / ".git").exists():
+        if (current / ".git").exists() or jj_workspace.is_jj_workspace(current):
             return current
         if stop_at is not None and current == stop_at:
             return None
         current = current.parent
-    if (current / ".git").exists():
+    if (current / ".git").exists() or jj_workspace.is_jj_workspace(current):
         return current
     # No Git root found — try SVN
     return find_svn_root(start)
 
 
+#: VCS kinds whose revisions are git commits, so ``git_head_sha`` metadata and
+#: commit-drift checks apply.
+GIT_BACKED_VCS = frozenset({"git", "jj"})
+
+
 def detect_vcs(root: Path) -> str:
-    """Return ``'git'``, ``'svn'``, or ``'none'`` based on VCS markers at *root*."""
+    """Return ``'git'``, ``'jj'``, ``'svn'``, or ``'none'`` based on VCS markers at *root*.
+
+    ``'jj'`` is a git-backed jj workspace without its own ``.git``; a
+    colocated jj checkout is reported as ``'git'``.
+    """
     if (root / ".git").exists():
         return "git"
+    if jj_workspace.is_jj_workspace(root):
+        return "jj"
     if (root / ".svn").exists():
         return "svn"
     return "none"
@@ -545,7 +563,13 @@ _RECURSE_SUBMODULES = os.environ.get("CRG_RECURSE_SUBMODULES", "").lower() in ("
 
 
 def _git_branch_info(repo_root: Path) -> tuple[str, str]:
-    """Return (branch_name, head_sha) for the current repo state."""
+    """Return (branch_name, head_sha) for the current repo state.
+
+    In a jj workspace the branch is the nearest bookmark and the head is ``@-``.
+    """
+    if jj_workspace.is_jj_workspace(repo_root):
+        wc = jj_workspace.working_copy(repo_root)
+        return (wc.bookmark, wc.parent) if wc else ("", "")
     branch = ""
     sha = ""
     try:
@@ -615,7 +639,7 @@ _SAFE_SVN_REV = re.compile(r"^r?\d+(:r?\d+|:HEAD|:BASE|:COMMITTED)?$", re.IGNORE
 def _store_vcs_metadata(repo_root: Path, store: "GraphStore") -> None:
     """Persist VCS branch/revision info into the graph metadata table."""
     vcs = detect_vcs(repo_root)
-    if vcs == "git":
+    if vcs in GIT_BACKED_VCS:
         branch, sha = _git_branch_info(repo_root)
         if branch:
             store.set_metadata("git_branch", branch)
@@ -635,10 +659,13 @@ def resolve_commit_sha(repo_root: Path, ref: str) -> str | None:
     Non-git working copies return None: only git has the metadata contract
     (``git_head_sha``) the callers of this guard.
     """
-    if detect_vcs(repo_root) != "git":
+    vcs = detect_vcs(repo_root)
+    if vcs not in GIT_BACKED_VCS:
         return None
     if not _SAFE_GIT_REF.match(ref):
         return None
+    if vcs == "jj":
+        return jj_workspace.resolve_commit(repo_root, ref)
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
@@ -696,6 +723,9 @@ def get_changed_file_sources(repo_root: Path, base: str = "HEAD~1") -> dict[str,
             "untracked": [],
         }
 
+    if jj_workspace.is_jj_workspace(repo_root):
+        return _get_jj_changed_file_sources(repo_root, base)
+
     base_diff = _get_git_diff_files(repo_root, base)
     worktree_sources = _get_git_worktree_change_sources(repo_root)
     worktree = worktree_sources["worktree"]
@@ -735,7 +765,12 @@ def _get_git_diff_files(repo_root: Path, base: str) -> list[str]:
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return []
 
-    fields = _nul_fields(result.stdout)
+    return _parse_name_status(result.stdout)
+
+
+def _parse_name_status(payload: str) -> list[str]:
+    """Return the paths of a ``git diff --name-status -z`` payload, both sides of renames."""
+    fields = _nul_fields(payload)
     files: list[str] = []
     index = 0
     while index < len(fields):
@@ -748,6 +783,47 @@ def _get_git_diff_files(repo_root: Path, base: str) -> list[str]:
                 files.append(fields[index + offset])
         index += paths_wanted + 1
     return _dedupe_preserve_order(files)
+
+
+def _jj_diff_files(repo_root: Path, old: str, new: str) -> list[str]:
+    out = jj_workspace.run_git(repo_root, "diff", "--name-status", "-M", "-z", old, new, "--")
+    return _parse_name_status(out) if out else []
+
+
+def _empty_change_sources() -> dict[str, list[str]]:
+    return {
+        "files": [],
+        "base_diff": [],
+        "worktree": [],
+        "staged": [],
+        "unstaged": [],
+        "untracked": [],
+    }
+
+
+def _get_jj_changed_file_sources(repo_root: Path, base: str) -> dict[str, list[str]]:
+    """Change sources for a jj workspace: ``base..@-`` plus ``@-..@``.
+
+    jj has no index, so the working-copy change is reported as unstaged.
+    """
+    wc = jj_workspace.working_copy(repo_root)
+    if wc is None:
+        return _empty_change_sources()
+    resolved_base = jj_workspace.resolve_commit(repo_root, base, wc)
+    if resolved_base is None:
+        logger.warning("Could not resolve %s in jj workspace %s", base, repo_root)
+        base_diff: list[str] = []
+    else:
+        base_diff = _jj_diff_files(repo_root, resolved_base, wc.parent)
+    worktree = _jj_diff_files(repo_root, wc.parent, wc.commit)
+    return {
+        "files": _dedupe_preserve_order(base_diff + worktree),
+        "base_diff": base_diff,
+        "worktree": worktree,
+        "staged": [],
+        "unstaged": worktree,
+        "untracked": [],
+    }
 
 
 def _get_git_worktree_change_sources(repo_root: Path) -> dict[str, list[str]]:
@@ -873,9 +949,17 @@ def _get_svn_changed_files(repo_root: Path, rev_range: str | None = None) -> lis
 
 def get_staged_and_unstaged(repo_root: Path) -> list[str]:
     """Get all modified files (staged + unstaged + untracked)."""
-    if detect_vcs(repo_root) == "svn":
+    vcs = detect_vcs(repo_root)
+    if vcs == "svn":
         return _get_svn_changed_files(repo_root)
+    if vcs == "jj":
+        return _get_jj_changed_file_sources(repo_root, "HEAD")["worktree"]
     return _get_git_worktree_change_sources(repo_root)["worktree"]
+
+
+def _jj_working_copy_files(repo_root: Path) -> list[str]:
+    wc = jj_workspace.working_copy(repo_root)
+    return jj_workspace.tree_files(repo_root, wc.commit) if wc else []
 
 
 def _git_ls_files(repo_root: Path, extra_args: list[str]) -> list[str]:
@@ -906,10 +990,13 @@ def get_all_tracked_files(
             ``git ls-files`` so that files inside git submodules are
             included.  When *None* (default), falls back to the
             ``CRG_RECURSE_SUBMODULES`` environment variable.
-            (Ignored for SVN working copies.)
+            (Ignored for SVN working copies and jj workspaces.)
     """
-    if detect_vcs(repo_root) == "svn":
+    vcs = detect_vcs(repo_root)
+    if vcs == "svn":
         return _get_svn_all_tracked_files(repo_root)
+    if vcs == "jj":
+        return _jj_working_copy_files(repo_root)
 
     if recurse_submodules is None:
         from . import incremental as inc
@@ -934,9 +1021,15 @@ def get_vcs_indexable_files(
 
     ``git ls-files --recurse-submodules`` only supports ``--cached``, so
     untracked files are collected from the superproject only.
+
+    A jj workspace has no untracked set: the snapshot of ``@`` already holds
+    every non-ignored file on disk.
     """
-    if detect_vcs(repo_root) == "svn":
+    vcs = detect_vcs(repo_root)
+    if vcs == "svn":
         return _get_svn_all_tracked_files(repo_root)
+    if vcs == "jj":
+        return _jj_working_copy_files(repo_root)
 
     if recurse_submodules is None:
         from . import incremental as inc
@@ -1017,8 +1110,19 @@ def collect_all_files(
 
         recurse_submodules = inc._RECURSE_SUBMODULES
 
-    if _rust_backend_enabled() and detect_vcs(repo_root) != "svn":
+    vcs = detect_vcs(repo_root)
+    if _rust_backend_enabled() and vcs != "svn":
         try:
+            if vcs == "jj":
+                # Rust discovery runs `git ls-files` from the directory, which
+                # lists the enclosing main checkout; hand it the jj file set.
+                from dagayn._core import filter_parseable_files
+
+                return filter_parseable_files(
+                    repo_root,
+                    get_vcs_indexable_files(repo_root),
+                    _load_ignore_patterns(repo_root),
+                )
             from dagayn._core import collect_parseable_files
 
             return collect_parseable_files(repo_root, recurse_submodules)

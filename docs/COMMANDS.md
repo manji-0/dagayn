@@ -411,7 +411,9 @@ Agent hosts run parallel sessions in linked git worktrees: `claude --worktree`,
 the `EnterWorktree` tool, subagents with `isolation: worktree`, Claude Code
 desktop sessions, and Cursor's parallel agents. A worktree is a fresh checkout,
 so gitignored files — `.mcp.json`, `.cursor/mcp.json`, and the whole `.dagayn/`
-graph directory — are not there.
+graph directory — are not there. Git-backed jj workspaces (`jj workspace add`,
+`track` in `vcs-mode=jj`) are treated as linked worktrees of the colocated main
+checkout; see [USAGE.md](./USAGE.md#jj-workspaces).
 
 `dagayn session prepare` is the session-lifecycle entry point: seed a linked
 worktree when needed, build an empty graph (`postprocess=minimal`), or

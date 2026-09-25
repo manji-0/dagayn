@@ -4,6 +4,17 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Features
+
+- Git-backed jj workspaces (`jj workspace add`, `track` in `vcs-mode=jj`) are
+  graph roots. A workspace nested under the main checkout has no `.git`, so it
+  used to resolve to the main checkout and report that graph as fresh while
+  its own edits were never indexed. dagayn now stops the root walk at the
+  workspace, takes `@-` as HEAD, `@-..@` as the working-tree change, and the
+  tree of `@` as the file set, and seeds the workspace graph from the main
+  checkout like a linked git worktree. Hook scripts narrow the git toplevel to
+  a nested `jj workspace root`.
+
 ## 4.14.0 — 2026-09-07
 
 ### Features

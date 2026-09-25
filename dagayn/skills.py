@@ -975,11 +975,20 @@ def install_hermes_skills(
     )
 
 
+#: Narrow ``$repo`` to a jj workspace nested inside it. Such a workspace
+#: (``track`` / ``jj workspace add``) has no ``.git``, so ``git rev-parse``
+#: answers with the enclosing main checkout.
+_SHELL_JJ_WORKSPACE_NARROWING = (
+    'jj_ws="$(jj workspace root 2>/dev/null || true)"; '
+    'case "$jj_ws" in "$repo"/?*) repo="$jj_ws" ;; esac'
+)
+
+
 def _dagayn_hook_scripts(extra_update_args: list[str] | None = None) -> dict[str, str]:
     """Return shell scripts shared by hook integrations that expect JSON stdout."""
     prepare_args = _embedding_hook_args(extra_update_args)
     return {
-        "dagayn-update.sh": """#!/usr/bin/env bash
+        "dagayn-update.sh": f"""#!/usr/bin/env bash
 # dagayn: auto-update graph after agent file/tool activity
 # Enqueues a structure-only update; a single detached worker drains the
 # queue so edit bursts coalesce (see dagayn.task_queue). Embeddings are
@@ -987,16 +996,18 @@ def _dagayn_hook_scripts(extra_update_args: list[str] | None = None) -> dict[str
 set -u
 cat >/dev/null || true
 repo="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+{_SHELL_JJ_WORKSPACE_NARROWING}
 if [ -n "$repo" ]; then
   dagayn queue add update --repo "$repo" >/dev/null 2>&1 || true
 fi
-printf '{}\\n'
+printf '{{}}\\n'
 """,
         "dagayn-status.sh": f"""#!/usr/bin/env bash
 # dagayn: prepare a usable+synced graph at session start
 set -u
 cat >/dev/null || true
 repo="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+{_SHELL_JJ_WORKSPACE_NARROWING}
 if [ -n "$repo" ]; then
   DAGAYN_HOOK_UPDATE=1 dagayn session prepare \\
     --budget-seconds {_SESSION_PREPARE_BUDGET_SECONDS}{prepare_args} \\
@@ -1144,7 +1155,8 @@ def generate_hooks_config(
     # checkout. ``CLAUDE_PROJECT_DIR`` covers a cwd outside the repository.
     repo_expr = (
         'repo="$(git rev-parse --show-toplevel 2>/dev/null)"'
-        ' || repo="${CLAUDE_PROJECT_DIR:-}"; [ -n "$repo" ]'
+        ' || repo="${CLAUDE_PROJECT_DIR:-}"; '
+        f'{_SHELL_JJ_WORKSPACE_NARROWING}; [ -n "$repo" ]'
     )
     post_tool_use: list[SkillPayload] = [
         {
@@ -2379,12 +2391,24 @@ import type { Plugin } from "@opencode-ai/plugin"
 
 // Resolve the git repository root for the active project directory.
 async function resolveRepo($: any): Promise<string> {
+  let repo = ""
   try {
     const result = await $`git rev-parse --show-toplevel`.quiet()
-    return result.stdout?.toString().trim() ?? ""
+    repo = result.stdout?.toString().trim() ?? ""
   } catch {
-    return ""
+    repo = ""
   }
+  // A jj workspace nested in the checkout has no .git of its own.
+  try {
+    const result = await $`jj workspace root`.quiet()
+    const workspace = result.stdout?.toString().trim() ?? ""
+    if (workspace && workspace.startsWith(repo + "/")) {
+      return workspace
+    }
+  } catch {
+    // jj missing or not a jj workspace
+  }
+  return repo
 }
 
 function shellCommand(ctx: any): string {

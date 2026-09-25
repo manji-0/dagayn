@@ -77,7 +77,7 @@ def _print_embedding_status(db_path: Path) -> None:
 
 def _print_vcs_status(repo_root: Path, store: object) -> None:
     """Print stored VCS metadata and warn when the working copy has drifted."""
-    from ...incremental import _git_branch_info, _svn_revision_info, detect_vcs
+    from ...incremental import GIT_BACKED_VCS, _git_branch_info, _svn_revision_info, detect_vcs
 
     get_metadata = getattr(store, "get_metadata")
     stored_branch = get_metadata("git_branch")
@@ -85,7 +85,7 @@ def _print_vcs_status(repo_root: Path, store: object) -> None:
 
     vcs = detect_vcs(repo_root)
     label: str | None = None
-    if vcs == "git":
+    if vcs in GIT_BACKED_VCS:
         from ...worktree import main_worktree_root, worktree_label
 
         label = worktree_label(repo_root)
@@ -97,7 +97,7 @@ def _print_vcs_status(repo_root: Path, store: object) -> None:
     if stored_sha:
         print(f"Built at commit: {stored_sha[:12]}")
 
-    if vcs == "git":
+    if vcs in GIT_BACKED_VCS:
         current_branch, current_sha = _git_branch_info(repo_root)
         # Same commit means the parsed tree matches HEAD, so a different branch
         # name is not staleness — that is the normal state in a worktree that

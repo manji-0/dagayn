@@ -380,7 +380,7 @@ class _GraphSyncBase(BaseModel):
     #: VCS kind at the resolved root: ``"none"`` when it is not inside a
     #: repository (a misdetected root such as ``$HOME``), so auto-bootstrap
     #: callers can refuse to build a non-repo tree.
-    vcs: Literal["git", "svn", "none"] = "none"
+    vcs: Literal["git", "jj", "svn", "none"] = "none"
     git_head_sha: str | None = None
     current_head_sha: str | None = None
     current_branch: str | None = None

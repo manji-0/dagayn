@@ -27,6 +27,7 @@ from .incremental_build import (
 from .incremental_files import (
     _RECURSE_SUBMODULES,
     DEFAULT_IGNORE_PATTERNS,
+    GIT_BACKED_VCS,
     AmbiguousWorkspaceRootError,
     _backend_selection,
     _git_branch_info,
@@ -64,6 +65,7 @@ __all__ = [
     "AmbiguousWorkspaceRootError",
     "DEFAULT_IGNORE_PATTERNS",
     "DependentList",
+    "GIT_BACKED_VCS",
     "StoreBatch",
     "_backend_selection",
     "_git_branch_info",
