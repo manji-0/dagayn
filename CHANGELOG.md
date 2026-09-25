@@ -4,6 +4,8 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+## 4.15.0 — 2026-09-25
+
 ### Fixes
 
 - Pruning after an update no longer fails with `FOREIGN KEY constraint failed`
