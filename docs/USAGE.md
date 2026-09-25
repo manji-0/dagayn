@@ -138,6 +138,9 @@ the repository-root walk at the workspace instead and reads its state from jj:
   git worktrees, seeding from the main checkout's graph.
 - Hooks narrow `git rev-parse --show-toplevel` to a nested `jj workspace root`,
   and `dagayn hook-repo` resolves edited files to the workspace.
+- A stale workspace (another workspace rewrote its commit) is reported as
+  `commit_drift`; `build` and `update` stop with jj's reason until you run
+  `jj workspace update-stale` there.
 
 The main checkout must be colocated (`jj git init --colocate`), and `jj` must
 be on `PATH`.

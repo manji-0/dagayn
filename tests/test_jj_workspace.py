@@ -31,7 +31,9 @@ from dagayn.incremental import (
     is_project_root,
 )
 from dagayn.incremental_files import resolve_commit_sha
+from dagayn.jj_workspace import JjWorkspaceError
 from dagayn.skills import _SHELL_JJ_WORKSPACE_NARROWING
+from dagayn.tools.sync_status import assess_graph_sync
 from dagayn.worktree import (
     is_gitignored,
     is_linked_worktree,
@@ -200,6 +202,38 @@ class TestRealJjWorkspace:
         finally:
             store.close()
         assert "feature" in names
+
+
+def _make_stale(main_repo: Path) -> None:
+    """Rewrite the workspace's commit from the main workspace, as a rebase would."""
+    (main_repo / "moved.py").write_text("MOVED = 1\n", encoding="utf-8")
+    _jj(main_repo, "commit", "-m", "main moves")
+    _jj(main_repo, "rebase", "-s", "task@", "-d", "@-")
+
+
+@real_jj
+class TestStaleJjWorkspace:
+    def test_file_set_refuses_instead_of_reporting_empty(
+        self, main_repo: Path, jj_workspace_dir: Path
+    ):
+        _make_stale(main_repo)
+
+        with pytest.raises(JjWorkspaceError, match="update-stale"):
+            collect_all_files(jj_workspace_dir)
+        with pytest.raises(JjWorkspaceError, match="update-stale"):
+            get_changed_file_sources(jj_workspace_dir, "HEAD")
+
+    def test_existing_graph_is_not_reported_fresh(self, main_repo: Path, jj_workspace_dir: Path):
+        store = GraphStore(get_db_path(jj_workspace_dir))
+        try:
+            full_build(jj_workspace_dir, store)
+            _make_stale(main_repo)
+
+            sync = assess_graph_sync(store, jj_workspace_dir)
+        finally:
+            store.close()
+
+        assert sync["state"] == "commit_drift"
 
 
 @real_jj

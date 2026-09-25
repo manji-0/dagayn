@@ -94,7 +94,12 @@ def main_workspace_root(root: Path) -> Path | None:
     return git_dir.parent
 
 
-def _run(argv: list[str], cwd: Path) -> str | None:
+class JjWorkspaceError(RuntimeError):
+    """jj could not report the working copy of a workspace (stale, locked, jj missing)."""
+
+
+def _run_capture(argv: list[str], cwd: Path) -> tuple[str | None, str]:
+    """Return ``(stdout, stderr)``; stdout is ``None`` when the command failed."""
     try:
         result = subprocess.run(  # nosec B603 B607 — fixed argv, no shell
             argv,
@@ -106,16 +111,24 @@ def _run(argv: list[str], cwd: Path) -> str | None:
             timeout=_JJ_TIMEOUT,
             check=False,
         )
-    except (OSError, subprocess.SubprocessError):
-        return None
+    except (OSError, subprocess.SubprocessError) as exc:
+        return None, str(exc)
     if result.returncode != 0:
         logger.debug("%s failed (rc=%d): %s", argv[:3], result.returncode, result.stderr[:200])
-        return None
-    return result.stdout
+        return None, result.stderr
+    return result.stdout, result.stderr
+
+
+def _run(argv: list[str], cwd: Path) -> str | None:
+    return _run_capture(argv, cwd)[0]
+
+
+def _jj_argv(root: Path, *args: str) -> list[str]:
+    return ["jj", "--no-pager", "--color=never", "-R", str(root), *args]
 
 
 def _jj(root: Path, *args: str) -> str | None:
-    return _run(["jj", "--no-pager", "--color=never", "-R", str(root), *args], root)
+    return _run(_jj_argv(root, *args), root)
 
 
 def git_argv(root: Path, *args: str) -> list[str] | None:
@@ -151,16 +164,45 @@ _WC_TEMPLATE = (
 )
 
 
-def working_copy(root: Path) -> WorkingCopy | None:
+def require_working_copy(root: Path) -> WorkingCopy:
     """Snapshot the workspace and return its ``@`` / ``@-`` commit ids.
 
     Running ``jj log`` snapshots the working copy first, so ``@`` already
     contains the files on disk. The bookmark is the first local bookmark on
     ``@``, else on ``@-``; ``track`` names its PR head that way.
+
+    Raises :class:`JjWorkspaceError` with jj's reason when the working copy
+    cannot be read. A workspace goes stale whenever another workspace rewrites
+    its commit (rebase, abandon on fetch), and callers that derive a file set
+    from the answer must not read that as "no files": a build would then store
+    an empty graph.
     """
-    out = _jj(root, "log", "--no-graph", "-r", "@", "-T", _WC_TEMPLATE)
-    if not out:
+    out, stderr = _run_capture(
+        _jj_argv(root, "log", "--no-graph", "-r", "@", "-T", _WC_TEMPLATE), root
+    )
+    wc = _parse_working_copy(out) if out else None
+    if wc is not None:
+        return wc
+    lines = [line.strip() for line in stderr.splitlines() if line.strip()]
+    reason = lines[0].removeprefix("Error: ").rstrip(".") if lines else "jj printed no working copy"
+    hint = (
+        " Run `jj workspace update-stale` in the workspace, then retry."
+        if "stale" in stderr.lower()
+        else ""
+    )
+    raise JjWorkspaceError(f"jj could not read the working copy of {root}: {reason}.{hint}")
+
+
+def working_copy(root: Path) -> WorkingCopy | None:
+    """Like :func:`require_working_copy`, but ``None`` when it cannot be read."""
+    try:
+        return require_working_copy(root)
+    except JjWorkspaceError as exc:
+        logger.debug("%s", exc)
         return None
+
+
+def _parse_working_copy(out: str) -> WorkingCopy | None:
     fields = out.strip("\n").split(" ")
     if len(fields) < 2 or not fields[0]:
         return None
