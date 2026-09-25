@@ -22,7 +22,12 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal, TypedDict, cast
 
-from ..incremental import _git_branch_info, detect_vcs, get_changed_file_sources
+from ..incremental import (
+    GIT_BACKED_VCS,
+    _git_branch_info,
+    detect_vcs,
+    get_changed_file_sources,
+)
 from ..state_types import GraphSyncStateName, seal_graph_sync_state
 
 logger = logging.getLogger(__name__)
@@ -233,7 +238,7 @@ def commit_tier_freshness(store: Any, repo_root: str | Path) -> SyncPayload:
     worth paying where a re-index may follow.
     """
     root = Path(repo_root)
-    if detect_vcs(root) != "git":
+    if detect_vcs(root) not in GIT_BACKED_VCS:
         return {"state": None}
     stored_sha = store.get_metadata("git_head_sha") or None
     _branch, current_sha = _git_branch_info(root)
@@ -298,7 +303,7 @@ def assess_graph_sync(
     current_sha = ""
     dirty_files: list[str] = []
     vcs = detect_vcs(root)
-    if vcs == "git":
+    if vcs in GIT_BACKED_VCS:
         current_branch, current_sha = _git_branch_info(root)
         try:
             dirty_files = list(get_changed_file_sources(root, "HEAD").get("worktree") or [])
@@ -306,7 +311,7 @@ def assess_graph_sync(
             dirty_files = []
 
     graph_empty = _graph_is_empty(stats)
-    commit_drift = bool(vcs == "git" and current_sha and stored_sha != current_sha)
+    commit_drift = bool(vcs in GIT_BACKED_VCS and current_sha and stored_sha != current_sha)
     undated = not last_updated and not graph_empty
 
     if _seed_needs_verification(store):

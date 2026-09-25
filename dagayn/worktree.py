@@ -19,6 +19,10 @@ This module provides the primitives used to fix that:
   on from the hook's JSON payload, for hosts that run hook scripts from a
   directory unrelated to the project (Cursor user hooks run from
   ``~/.cursor``).
+
+A git-backed jj workspace (``jj workspace add``, as created by ``track``) is
+treated as a linked worktree of the colocated main checkout; see
+:mod:`dagayn.jj_workspace`.
 """
 
 from __future__ import annotations
@@ -32,6 +36,8 @@ import subprocess  # nosec B404 — git metadata queries with fixed argv
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from . import jj_workspace
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +159,8 @@ def is_gitignored(repo_root: Path, relative: str) -> bool:
     ``git check-ignore -q`` prints nothing and signals the answer through its
     exit code, so this cannot go through :func:`_git`.
     """
+    if jj_workspace.is_jj_workspace(repo_root):
+        return jj_workspace.is_ignored(repo_root, relative)
     try:
         result = subprocess.run(  # nosec B603 B607 — fixed argv, no shell
             ["git", "-C", str(repo_root), "check-ignore", "-q", "--", relative],
@@ -169,8 +177,11 @@ def main_worktree_root(repo_root: Path) -> Path | None:
     """Return the main checkout root for the repository containing *repo_root*.
 
     Returns ``None`` for non-git directories and for bare repositories (which
-    have no main working tree).
+    have no main working tree). For a jj workspace this is the colocated
+    checkout owning its git directory.
     """
+    if jj_workspace.is_jj_workspace(repo_root):
+        return jj_workspace.main_workspace_root(repo_root)
     common = git_common_dir(repo_root)
     if common is None:
         return None
@@ -526,13 +537,31 @@ def _candidate_dirs(payload: Any) -> list[str]:
     return candidates
 
 
+def _jj_workspace_below(directory: Path, toplevel: Path | None) -> Path | None:
+    """Return the nearest jj workspace root at or above *directory*, below *toplevel*."""
+    current = directory
+    while True:
+        if toplevel is not None and _same_path(current, toplevel):
+            return None
+        if jj_workspace.is_jj_workspace(current):
+            return current
+        if current == current.parent:
+            return None
+        current = current.parent
+
+
 def _repo_root_of(path: Path) -> Path | None:
-    """Return the git toplevel for *path*, or ``None`` when it has none."""
+    """Return the checkout root for *path*, or ``None`` when it has none.
+
+    A jj workspace nested inside the main checkout has no ``.git``, so
+    ``git rev-parse`` alone answers with the main checkout.
+    """
     directory = path if path.is_dir() else path.parent
     if not directory.exists():
         return None
     out = _git(directory, "rev-parse", "--show-toplevel")
-    return Path(out) if out else None
+    toplevel = Path(out) if out else None
+    return _jj_workspace_below(directory, toplevel) or toplevel
 
 
 def resolve_hook_repo(payload: Any, *, fallback_cwd: bool = True) -> Path | None:

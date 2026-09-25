@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Callable, Literal, cast
 
+from . import jj_workspace
 from .constants import SECURITY_KEYWORDS as _SECURITY_KEYWORDS
 from .coverage import build_scan_state, has_coverage_evidence
 from .flows import get_affected_flows
@@ -75,6 +76,22 @@ class ChangeMappingResult:
     unmapped_files: list[str] = field(default_factory=list)
 
 
+def _working_tree_diff_argv(repo_root: str, base: str, *args: str) -> list[str] | None:
+    """Return the argv diffing *base* against the working tree of *repo_root*.
+
+    A jj workspace has no git working tree of its own, so the snapshot commit
+    ``@`` stands in for it. ``None`` when the jj side cannot be resolved.
+    """
+    root = Path(repo_root)
+    if not jj_workspace.is_jj_workspace(root):
+        return ["git", "diff", *args, base, "--"]
+    wc = jj_workspace.working_copy(root)
+    resolved = jj_workspace.resolve_commit(root, base, wc) if wc else None
+    if wc is None or resolved is None:
+        return None
+    return jj_workspace.git_argv(root, "diff", *args, resolved, wc.commit, "--")
+
+
 def parse_git_diff(
     repo_root: str,
     base: str = "HEAD~1",
@@ -92,9 +109,12 @@ def parse_git_diff(
     if not _SAFE_GIT_REF.match(base):
         logger.warning("Invalid git ref rejected: %s", base)
         return DiffParseResult({}, "base_unresolved")
+    argv = _working_tree_diff_argv(repo_root, base, "--unified=0")
+    if argv is None:
+        return DiffParseResult({}, "base_unresolved")
     try:
         result = subprocess.run(
-            ["git", "diff", "--unified=0", base, "--"],
+            argv,
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -124,9 +144,12 @@ def resolve_git_renames(repo_root: str, base: str = "HEAD~1") -> dict[str, str]:
     """Return ``{new_path: old_path}`` rename pairs from ``git diff --name-status -M``."""
     if not _SAFE_GIT_REF.match(base):
         return {}
+    argv = _working_tree_diff_argv(repo_root, base, "--name-status", "-M")
+    if argv is None:
+        return {}
     try:
         result = subprocess.run(
-            ["git", "diff", "--name-status", "-M", base, "--"],
+            argv,
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -244,6 +267,10 @@ def _worktree_mtime_fingerprint(root: Path, paths: list[str]) -> str:
 
 
 def _git_diff_cache_stamp(root: Path) -> str:
+    if jj_workspace.is_jj_workspace(root):
+        # The snapshot commit id changes with any content change on disk.
+        wc = jj_workspace.working_copy(root)
+        return wc.commit if wc else "0"
     head = ""
     porcelain = ""
     try:
@@ -696,9 +723,17 @@ def _get_nodes_for_files_boundary_aware(
 def _git_show_file(repo_root: str, base: str, rel_path: str) -> bytes | None:
     if not _SAFE_GIT_REF.match(base):
         return None
+    root = Path(repo_root)
+    if jj_workspace.is_jj_workspace(root):
+        resolved = jj_workspace.resolve_commit(root, base)
+        argv = jj_workspace.git_argv(root, "show", f"{resolved}:{rel_path}") if resolved else None
+        if argv is None:
+            return None
+    else:
+        argv = ["git", "show", f"{base}:{rel_path}"]
     try:
         result = subprocess.run(
-            ["git", "show", f"{base}:{rel_path}"],
+            argv,
             capture_output=True,
             cwd=repo_root,
             timeout=_GIT_TIMEOUT,

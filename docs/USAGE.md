@@ -122,6 +122,26 @@ creating a worktree for a parallel agent). Installing from inside a worktree
 also configures the main checkout, and git hooks go into the repository's shared
 hooks directory so one install covers every worktree.
 
+### jj workspaces
+
+<!-- derived-from #work-in-git-worktrees -->
+
+A git-backed jj workspace created with `jj workspace add` — for example the
+`.worktrees/<slug>` workspaces `track` creates in `vcs-mode=jj` — is handled
+like a linked worktree of the colocated main checkout. It has `.jj/` but no
+`.git`, so plain git commands there answer for the main checkout; dagayn stops
+the repository-root walk at the workspace instead and reads its state from jj:
+
+- `@-` is the commit the graph is built at (`git_head_sha`), `@-..@` is the
+  uncommitted change, and the tree of `@` is the indexable file set.
+- `dagayn worktree sync`, `session prepare`, and graph inheritance work as for
+  git worktrees, seeding from the main checkout's graph.
+- Hooks narrow `git rev-parse --show-toplevel` to a nested `jj workspace root`,
+  and `dagayn hook-repo` resolves edited files to the workspace.
+
+The main checkout must be colocated (`jj git init --colocate`), and `jj` must
+be on `PATH`.
+
 Session start/resume, worktree create/switch/delete, Subagent launch, and MCP
 first-tool readiness are defined in
 [SESSION-GRAPH-FRESHNESS.md](./SESSION-GRAPH-FRESHNESS.md).

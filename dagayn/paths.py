@@ -16,6 +16,8 @@ import sqlite3
 import sys
 from pathlib import Path
 
+from .jj_workspace import is_jj_workspace
+
 logger = logging.getLogger(__name__)
 
 _SLUG_NAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
@@ -108,6 +110,8 @@ def is_project_root(path: Path) -> bool:
     """
     resolved = Path(path)
     if (resolved / ".git").exists() or (resolved / ".svn").exists():
+        return True
+    if is_jj_workspace(resolved):
         return True
     return (resolved / ".dagayn" / "graph.db").is_file()
 
