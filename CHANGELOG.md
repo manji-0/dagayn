@@ -13,6 +13,12 @@ All notable changes to `dagayn` are documented here.
   aborted the orphan sweep: emptied communities stayed listed and stale
   `risk_index` rows were never removed.
 
+### Dependencies
+
+- `fastmcp` is capped at `<5`, and the lock moves to fastmcp 4.0.9 (mcp
+  2.2.0). `uv tool install dagayn` already resolved fastmcp 4 while CI tested
+  3.2.4; the test suite now runs against the version installs get.
+
 ### Features
 
 - Git-backed jj workspaces (`jj workspace add`, `track` in `vcs-mode=jj`) are
