@@ -11,6 +11,16 @@ All notable changes to `dagayn` are documented here.
   named/doc/anonymous tests with `TESTED_BY` edges, `@import` file
   dependencies, and scope-aware call resolution. Previously `.zig` files
   produced only a File node.
+- Anonymous default exports are nodes named `default`:
+  `export default function () {}`, `export default () => ...`, and
+  `export default class { ... }` (whose methods become `default.m`) carry
+  `export_default: true` and `anonymous: true`; their calls are no longer
+  attributed to the file. Named default exports keep their name and gain
+  `export_default: true`. A class expression bound at `const X = class
+  [Inner] {}` is `Class X` (`class_expression: true`, `expression_name`)
+  with members under `X`, and `new X()` / `x.m()` bind to it. Members of
+  unbound class expressions (for example a mixin's `return class extends
+  Base { ... }`) are no longer flattened into top-level functions.
 
 ### Removed
 

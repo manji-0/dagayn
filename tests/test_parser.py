@@ -1422,6 +1422,25 @@ class TestTypeRoleAndImplements:
         assert card.kind == "Function"
         assert card.is_test is False
 
+    def test_typescript_anonymous_default_export_is_named_default(self, tmp_path):
+        src = "export default function () { helper(); }\nfunction helper() {}\n"
+        nodes, edges = self._parse(src, "ts", tmp_path)
+        default = next(n for n in nodes if n.name == "default")
+        assert default.kind == "Function"
+        assert default.extra.get("export_default") is True
+        assert default.extra.get("anonymous") is True
+        assert any(
+            e.kind == "CALLS" and e.source.endswith("::default") and e.target.endswith("::helper")
+            for e in edges
+        )
+
+    def test_javascript_class_expression_takes_binding_name(self, tmp_path):
+        nodes, _ = self._parse("export const Anon = class { run() {} };\n", "js", tmp_path)
+        anon = next(n for n in nodes if n.name == "Anon")
+        assert anon.kind == "Class"
+        assert anon.extra.get("class_expression") is True
+        assert any(n.name == "run" and n.parent_name == "Anon" for n in nodes)
+
     def test_typescript_constructor_and_method_call_resolution(self, tmp_path):
         src = """
 interface Repo { find(): void; }

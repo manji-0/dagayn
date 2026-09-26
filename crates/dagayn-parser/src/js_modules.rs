@@ -55,9 +55,7 @@ pub(super) fn collect_javascript_defined_names(
 ) {
     match node.kind() {
         "class_declaration" | "abstract_class_declaration" | "class" | "interface_declaration" => {
-            if let Some(name) =
-                javascript_named_child(node, source, &["identifier", "type_identifier"])
-            {
+            if let Some(name) = javascript_class_like_name(node, source) {
                 names.insert(name);
             }
         }
@@ -98,9 +96,7 @@ pub(super) fn collect_javascript_type_names(
         | "interface_declaration"
         | "type_alias_declaration"
         | "enum_declaration" => {
-            if let Some(name) =
-                javascript_named_child(node, source, &["identifier", "type_identifier"])
-            {
+            if let Some(name) = javascript_class_like_name(node, source) {
                 names.insert(name);
             }
         }
@@ -110,6 +106,19 @@ pub(super) fn collect_javascript_type_names(
     for child in node.children(&mut cursor) {
         collect_javascript_type_names(child, source, names);
     }
+}
+
+/// Name under which a class-like declaration is reachable: the declared
+/// name, or the binding for `const X = class [Inner] {}`.
+fn javascript_class_like_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    if node.kind() == "class"
+        && let Some(parent) = node.parent()
+        && parent.kind() == "variable_declarator"
+    {
+        let binding = parent.child_by_field_name("name")?;
+        return (binding.kind() == "identifier").then(|| node_text(binding, source));
+    }
+    javascript_named_child(node, source, &["identifier", "type_identifier"])
 }
 
 pub(super) fn resolve_javascript_call_target(

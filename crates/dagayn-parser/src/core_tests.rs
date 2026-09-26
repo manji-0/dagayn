@@ -3673,6 +3673,144 @@ function helper() {}
 }
 
 #[test]
+fn parses_typescript_default_exports_and_class_expressions() {
+    fn find<'a>(
+        nodes: &'a [ParsedNode],
+        kind: &str,
+        name: &str,
+        parent: Option<&str>,
+    ) -> Option<&'a ParsedNode> {
+        nodes.iter().find(|node| {
+            node.kind == kind && node.name == name && node.parent_name.as_deref() == parent
+        })
+    }
+    for (file, language) in [("anon.ts", "typescript"), ("anon.js", "javascript")] {
+        let (nodes, edges) = parse_javascript_like(
+            file,
+            b"export default class extends Base {\n  hello() { helper(); }\n}\nfunction helper() {}\n",
+            language,
+        );
+        let class = find(&nodes, "Class", "default", None).expect("anonymous default class");
+        assert_eq!(class.extra["export_default"], true);
+        assert_eq!(class.extra["anonymous"], true);
+        assert!(find(&nodes, "Function", "hello", Some("default")).is_some());
+        assert!(
+            !nodes
+                .iter()
+                .any(|node| node.name == "hello" && node.parent_name.is_none())
+        );
+        let qn = |name: &str| format!("{file}::{name}");
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CONTAINS" && edge.source == file && edge.target == qn("default")
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "INHERITS" && edge.source == qn("default") && edge.target == "Base"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == qn("default.hello")
+                && edge.target == qn("helper")
+        }));
+
+        let (nodes, edges) = parse_javascript_like(
+            file,
+            b"export default function () {\n  helper();\n}\nfunction helper() {}\n",
+            language,
+        );
+        let function = find(&nodes, "Function", "default", None).expect("anonymous default fn");
+        assert_eq!(function.extra["export_default"], true);
+        assert_eq!(function.extra["anonymous"], true);
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS" && edge.source == qn("default") && edge.target == qn("helper")
+        }));
+        assert!(
+            !edges
+                .iter()
+                .any(|edge| edge.kind == "CALLS" && edge.source == file)
+        );
+
+        let (nodes, _edges) =
+            parse_javascript_like(file, b"export default (x) => x * 2;\n", language);
+        assert!(find(&nodes, "Function", "default", None).is_some());
+
+        let (nodes, _edges) =
+            parse_javascript_like(file, b"export default async function* () {}\n", language);
+        assert!(find(&nodes, "Function", "default", None).is_some());
+
+        let (nodes, _edges) = parse_javascript_like(
+            file,
+            b"export default function Page() {}\nexport function other() {}\n",
+            language,
+        );
+        let page = find(&nodes, "Function", "Page", None).expect("named default");
+        assert_eq!(page.extra["export_default"], true);
+        assert!(page.extra.get("anonymous").is_none());
+        let other = find(&nodes, "Function", "other", None).unwrap();
+        assert!(other.extra.get("export_default").is_none());
+
+        let (nodes, edges) = parse_javascript_like(
+            file,
+            br#"export const Anon = class {
+  run() { this.stop(); }
+  stop() {}
+};
+export const Named = class InnerName extends Base {
+  go() {}
+};
+function make() {
+  const anon = new Anon();
+  anon.stop();
+  return anon;
+}
+"#,
+            language,
+        );
+        let anon = find(&nodes, "Class", "Anon", None).expect("bound class expression");
+        assert_eq!(anon.extra["class_expression"], true);
+        assert!(find(&nodes, "Function", "run", Some("Anon")).is_some());
+        let named = find(&nodes, "Class", "Named", None).expect("named class expression");
+        assert_eq!(named.extra["expression_name"], "InnerName");
+        assert!(find(&nodes, "Function", "go", Some("Named")).is_some());
+        assert!(!nodes.iter().any(|node| node.name == "InnerName"));
+        assert!(
+            !nodes
+                .iter()
+                .any(|node| node.name == "run" && node.parent_name.is_none())
+        );
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "INHERITS" && edge.source == qn("Named") && edge.target == "Base"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS" && edge.source == qn("Anon.run") && edge.target == qn("Anon.stop")
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS" && edge.source == qn("make") && edge.target == qn("Anon")
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS" && edge.source == qn("make") && edge.target == qn("Anon.stop")
+        }));
+    }
+}
+
+#[test]
+fn does_not_flatten_members_of_unbound_class_expressions() {
+    let source = br#"export function Mixin(Base) {
+  return class extends Base {
+    mixed() { helper(); }
+  };
+}
+function helper() {}
+"#;
+    let (nodes, edges) = parse_javascript_like("mixin.ts", source, "typescript");
+    assert!(!nodes.iter().any(|node| node.name == "mixed"), "{nodes:?}");
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "CALLS"
+            && edge.source == "mixin.ts::Mixin"
+            && edge.target == "mixin.ts::helper"
+    }));
+}
+
+#[test]
 fn parses_typescript_constructors_reexports_and_interface_methods() {
     let source = br#"
 export { Repo } from "./other";
