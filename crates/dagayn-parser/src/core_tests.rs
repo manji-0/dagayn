@@ -6681,3 +6681,189 @@ test("renders", () => {
 
     let _ = std::fs::remove_dir_all(&repo_root);
 }
+
+#[test]
+fn parses_react_hoc_wrapped_components() {
+    let mut repo_root = std::env::temp_dir();
+    repo_root.push(format!(
+        "dagayn-parser-ts-hoc-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    let _ = std::fs::remove_dir_all(&repo_root);
+    std::fs::create_dir_all(repo_root.join("src")).unwrap();
+    let component = br#"import React, { memo, forwardRef } from "react";
+import { observer } from "mobx-react";
+import type { Props } from "./types";
+export const Memo = memo(function Inner({ x }: Props) { return helper(x); });
+export const Arrow = memo(() => <div>{helper()}</div>);
+export const Fwd = React.forwardRef<HTMLInputElement, Props>((props, ref) => <input ref={ref} />);
+export const Obs = observer(() => { helper(); return <Fwd />; });
+export const Nested = memo(forwardRef(function N(p, r) { return helper(); }), areEqual);
+const items = [1, 2];
+export const doubled = items.map((x) => x * 2);
+export const composed = compose(helper, areEqual);
+export default memo(function Page() { return <Memo />; });
+function helper(_x?: unknown) { return null; }
+function areEqual() { return true; }
+"#;
+    for (path, body) in [
+        (
+            "src/types.ts",
+            &b"export interface Props { x: number }\n"[..],
+        ),
+        ("src/Comp.tsx", &component[..]),
+    ] {
+        std::fs::write(repo_root.join(path), body).unwrap();
+    }
+    let mut parser = RustOwnedParser::new();
+    let (nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "src/Comp.tsx", component);
+    let node = |name: &str| {
+        nodes
+            .iter()
+            .find(|node| node.name == name && node.parent_name.is_none())
+    };
+    for name in ["Memo", "Arrow", "Fwd", "Obs", "Nested", "default"] {
+        let found = node(name).unwrap_or_else(|| panic!("{name}: {nodes:?}"));
+        assert_eq!(found.kind, "Function", "{name}");
+    }
+    for name in ["doubled", "composed", "Inner", "N", "Page", "items"] {
+        assert!(node(name).is_none(), "{name} must not be a node");
+    }
+    assert_eq!(
+        node("Memo").unwrap().extra["wrapped_by"],
+        serde_json::json!(["memo"])
+    );
+    assert_eq!(node("Memo").unwrap().extra["expression_name"], "Inner");
+    assert_eq!(
+        node("Memo").unwrap().params.as_deref(),
+        Some("({ x }: Props)")
+    );
+    assert_eq!(
+        node("Fwd").unwrap().extra["wrapped_by"],
+        serde_json::json!(["React.forwardRef"])
+    );
+    assert!(
+        node("Arrow")
+            .unwrap()
+            .extra
+            .get("expression_name")
+            .is_none()
+    );
+    assert_eq!(
+        node("Nested").unwrap().extra["wrapped_by"],
+        serde_json::json!(["memo", "forwardRef"])
+    );
+    let default = node("default").unwrap();
+    assert_eq!(default.extra["export_default"], true);
+    assert_eq!(default.extra["wrapped_by"], serde_json::json!(["memo"]));
+    assert_eq!(default.extra["expression_name"], "Page");
+
+    let qn = |name: &str| format!("src/Comp.tsx::{name}");
+    let has = |kind: &str, source: &str, target: &str| {
+        edges
+            .iter()
+            .any(|edge| edge.kind == kind && edge.source == source && edge.target == target)
+    };
+    for caller in ["Memo", "Arrow", "Obs", "Nested"] {
+        assert!(
+            has("CALLS", &qn(caller), &qn("helper")),
+            "{caller}: {edges:?}"
+        );
+    }
+    assert!(has("CALLS", &qn("Obs"), &qn("Fwd")));
+    assert!(has("CALLS", &qn("default"), &qn("Memo")));
+    // The wrapper runs at module scope: the File calls it.
+    assert!(has("CALLS", "src/Comp.tsx", "react::memo"));
+    assert!(has("CALLS", "src/Comp.tsx", "react::forwardRef"));
+    assert!(has("CALLS", "src/Comp.tsx", "mobx-react::observer"));
+    assert!(has("REFERENCES", "src/Comp.tsx", &qn("areEqual")));
+    assert!(!has("CALLS", "src/Comp.tsx", &qn("helper")));
+    assert!(has("CALLS", "src/Comp.tsx", "compose"));
+    // Types of the wrapped function and of the wrapper's type arguments.
+    assert!(has("REFERENCES", &qn("Memo"), "src/types.ts::Props"));
+    assert!(has("REFERENCES", &qn("Fwd"), "src/types.ts::Props"));
+    assert!(
+        edges
+            .iter()
+            .any(|edge| edge.kind == "CONTAINS" && edge.target == qn("Fwd"))
+    );
+
+    let usage = br#"import Page, { Fwd, Nested } from "./Comp";
+export function App() { return <><Fwd /><Nested /><Page /></>; }
+"#;
+    std::fs::write(repo_root.join("src/App.tsx"), usage).unwrap();
+    let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "src/App.tsx", usage);
+    for target in ["Fwd", "Nested", "default"] {
+        assert!(
+            edges.iter().any(|edge| edge.kind == "CALLS"
+                && edge.source == "src/App.tsx::App"
+                && edge.target == qn(target)),
+            "{target}: {edges:?}"
+        );
+    }
+
+    // The same rule in JavaScript, including a CommonJS-less `React` global.
+    let (nodes, edges) = parse_javascript_like(
+        "hoc.jsx",
+        b"export const Card = React.memo(function () { return run(); });\nfunction run() {}\n",
+        "javascript",
+    );
+    let card = nodes.iter().find(|node| node.name == "Card").expect("Card");
+    assert_eq!(card.extra["wrapped_by"], serde_json::json!(["React.memo"]));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "CALLS" && edge.source == "hoc.jsx::Card" && edge.target == "hoc.jsx::run"
+    }));
+
+    let _ = std::fs::remove_dir_all(&repo_root);
+}
+
+#[test]
+fn parses_javascript_class_field_functions() {
+    let source = br#"class Legacy {
+  handle = () => { helper(); };
+  other = function () { this.handle(); };
+  static make = () => new Legacy();
+  #secret = () => 1;
+  plain = compute();
+}
+function helper() {}
+function compute() {}
+"#;
+    for (file, language) in [("legacy.js", "javascript"), ("legacy.ts", "typescript")] {
+        let (nodes, edges) = parse_javascript_like(file, source, language);
+        for member in ["handle", "other", "make", "#secret"] {
+            let found = nodes
+                .iter()
+                .find(|node| node.name == member && node.parent_name.as_deref() == Some("Legacy"))
+                .unwrap_or_else(|| panic!("{file}: Legacy.{member}: {nodes:?}"));
+            assert_eq!(found.kind, "Function");
+        }
+        assert!(!nodes.iter().any(|node| node.name == "plain"));
+        let class = nodes.iter().find(|node| node.name == "Legacy").unwrap();
+        // Function-valued fields are methods: not a property-only class.
+        assert!(
+            class.extra.get("container_role").is_none(),
+            "{file}: {class:?}"
+        );
+        let qn = |name: &str| format!("{file}::{name}");
+        let calls = |source: &str, target: &str| {
+            edges
+                .iter()
+                .any(|edge| edge.kind == "CALLS" && edge.source == source && edge.target == target)
+        };
+        assert!(
+            calls(&qn("Legacy.handle"), &qn("helper")),
+            "{file}: {edges:?}"
+        );
+        assert!(calls(&qn("Legacy.other"), &qn("Legacy.handle")));
+        assert!(calls(&qn("Legacy.make"), &qn("Legacy")));
+        assert!(calls(&qn("Legacy"), &qn("compute")));
+        assert!(!calls(&qn("Legacy"), &qn("helper")));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CONTAINS"
+                && edge.source == qn("Legacy")
+                && edge.target == qn("Legacy.handle")
+        }));
+    }
+}

@@ -170,6 +170,7 @@ pub(super) struct JavaScriptParseContext<'a> {
 pub(super) fn collect_javascript_defined_names(
     node: tree_sitter::Node<'_>,
     source: &[u8],
+    import_map: &JavaScriptImportMap,
     names: &mut HashSet<String>,
 ) {
     match node.kind() {
@@ -211,7 +212,8 @@ pub(super) fn collect_javascript_defined_names(
                 if declarator.kind() != "variable_declarator" {
                     continue;
                 }
-                if let Some(name) = javascript_variable_declarator_function_name(declarator, source)
+                if let Some(name) =
+                    javascript_variable_declarator_function_name(declarator, source, import_map)
                 {
                     names.insert(name);
                 }
@@ -225,7 +227,7 @@ pub(super) fn collect_javascript_defined_names(
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        collect_javascript_defined_names(child, source, names);
+        collect_javascript_defined_names(child, source, import_map, names);
     }
 }
 
@@ -805,10 +807,10 @@ fn javascript_export_index_uncached(
     let tree = parser.parse(&source, None)?;
     let root = tree.root_node();
 
-    let mut defined_names = HashSet::new();
-    collect_javascript_defined_names(root, &source, &mut defined_names);
     let mut import_map = JavaScriptImportMap::new();
     collect_javascript_import_map(root, &source, &mut import_map);
+    let mut defined_names = HashSet::new();
+    collect_javascript_defined_names(root, &source, &import_map, &mut defined_names);
     let mut named_exports = HashMap::new();
     let mut star_exports = Vec::new();
     let mut exported_declarations = HashSet::new();
@@ -964,6 +966,10 @@ fn javascript_default_export_target(
                 .unwrap_or(JavaScriptDefaultExport::Anonymous),
         ),
         "arrow_function" | "object" | "as_expression" | "satisfies_expression" => {
+            Some(JavaScriptDefaultExport::Anonymous)
+        }
+        // `export default memo(function Page() {})`: the node is `default`.
+        "call_expression" if javascript_wrapped_function(value, source, import_map).is_some() => {
             Some(JavaScriptDefaultExport::Anonymous)
         }
         _ => None,
@@ -1531,6 +1537,7 @@ fn javascript_last_named_descendant(
 fn javascript_variable_declarator_function_name(
     node: tree_sitter::Node<'_>,
     source: &[u8],
+    import_map: &JavaScriptImportMap,
 ) -> Option<String> {
     let mut name = None;
     let mut has_function = false;
@@ -1538,11 +1545,100 @@ fn javascript_variable_declarator_function_name(
     for child in node.children(&mut cursor) {
         if child.kind() == "identifier" && name.is_none() {
             name = Some(node_text(child, source));
-        } else if is_javascript_function_value(child.kind()) {
+        } else if is_javascript_function_value(child.kind())
+            || javascript_wrapped_function(child, source, import_map).is_some()
+        {
             has_function = true;
         }
     }
     has_function.then_some(name).flatten()
+}
+
+/// A function literal wrapped in higher-order calls
+/// (`memo(function Inner() {})`, `React.forwardRef((props, ref) => ...)`,
+/// `memo(forwardRef(fn), areEqual)`, `observer(() => ...)`).
+pub(super) struct JavaScriptWrappedFunction<'tree> {
+    /// The inline function literal.
+    pub(super) function: tree_sitter::Node<'tree>,
+    /// The wrapper calls, outermost first.
+    pub(super) calls: Vec<tree_sitter::Node<'tree>>,
+}
+
+impl JavaScriptWrappedFunction<'_> {
+    /// Callee text of each wrapper, outermost first (`["memo", "forwardRef"]`).
+    pub(super) fn wrapper_names(&self, source: &[u8]) -> Vec<String> {
+        self.calls
+            .iter()
+            .filter_map(|call| call.child_by_field_name("function"))
+            .map(|callee| node_text(callee, source))
+            .collect()
+    }
+}
+
+const JAVASCRIPT_MAX_WRAPPER_DEPTH: usize = 4;
+
+/// Whether `value` is a wrapper call whose first argument is an inline
+/// function literal, or another such wrapper call. A wrapper's callee is a
+/// plain identifier (`memo`, `observer`, `debounce`) or a member of an
+/// imported / required binding or of the `React` global (`React.memo`,
+/// `mobx.observer`); a method of a local value (`items.map(x => ...)`) is
+/// not a wrapper. Arguments after the first are ordinary module-scope code.
+pub(super) fn javascript_wrapped_function<'tree>(
+    value: tree_sitter::Node<'tree>,
+    source: &[u8],
+    import_map: &JavaScriptImportMap,
+) -> Option<JavaScriptWrappedFunction<'tree>> {
+    let mut calls = Vec::new();
+    let mut current = value;
+    while calls.len() < JAVASCRIPT_MAX_WRAPPER_DEPTH {
+        if current.kind() != "call_expression"
+            || !javascript_is_wrapper_callee(current, source, import_map)
+        {
+            return None;
+        }
+        let arguments = current.child_by_field_name("arguments")?;
+        if arguments.kind() != "arguments" {
+            return None;
+        }
+        let first = arguments
+            .named_children(&mut arguments.walk())
+            .find(|argument| argument.kind() != "comment")?;
+        calls.push(current);
+        if is_javascript_function_value(first.kind()) {
+            return Some(JavaScriptWrappedFunction {
+                function: first,
+                calls,
+            });
+        }
+        current = first;
+    }
+    None
+}
+
+fn javascript_is_wrapper_callee(
+    call: tree_sitter::Node<'_>,
+    source: &[u8],
+    import_map: &JavaScriptImportMap,
+) -> bool {
+    let Some(callee) = call.child_by_field_name("function") else {
+        return false;
+    };
+    match callee.kind() {
+        "identifier" => node_text(callee, source) != "require",
+        "member_expression" => {
+            callee
+                .child_by_field_name("property")
+                .is_some_and(|property| property.kind() == "property_identifier")
+                && callee
+                    .child_by_field_name("object")
+                    .filter(|object| object.kind() == "identifier")
+                    .is_some_and(|object| {
+                        let object = node_text(object, source);
+                        object == "React" || import_map.contains_key(&object)
+                    })
+        }
+        _ => false,
+    }
 }
 
 fn is_javascript_function_value(kind: &str) -> bool {

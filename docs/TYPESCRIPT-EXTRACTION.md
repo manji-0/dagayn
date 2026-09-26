@@ -75,9 +75,11 @@ separate extractors.
 | `function f`, `function* f`, `async function* f` | `Function` | `f` | owner path | |
 | `declare function f(): T;`, a bodiless method of a `declare class` | `Function` | `f` | owner path | `declaration_only: true` (never `is_abstract`) |
 | module-scope `const f = () => {}` / `function () {}` / `function* () {}` | `Function` | `f` (the binding) | owner path | |
+| module-scope `const C = memo(function Inner() {})`, `forwardRef((p, r) => ...)`, `React.memo(...)`, `observer(...)` (§7.8) | `Function` | `C` (the binding) | owner path | `wrapped_by: ["memo"]` (wrapper callees, outermost first); `expression_name: "Inner"` when the wrapped function is named |
+| `export default memo(function Page() {})` | `Function` | `default` | owner path | `export_default: true`, `anonymous: true`, `wrapped_by`, `expression_name: "Page"` |
 | `export default function () {}`, `export default () => ...` (anonymous) | `Function` | `default` | owner path | `export_default: true`, `anonymous: true` |
 | named default export `export default function Page() {}` | `Function` | `Page` | owner path | `export_default: true` |
-| method, getter/setter, `#private` method, function-valued class field | `Function` | member name (`#x`, string / number literal and literal computed keys included) | class owner path | getter/setter: `member_role: "accessor"`, `accessors`; overloads: `overloads: n` |
+| method, getter/setter, `#private` method, function-valued class field (TypeScript `public_field_definition`, JavaScript `field_definition`) | `Function` | member name (`#x`, string / number literal and literal computed keys included) | class owner path | getter/setter: `member_role: "accessor"`, `accessors`; overloads: `overloads: n` |
 | `abstract m()`, `abstract get x()` | `Function` | `m` / `x` | class owner path | `is_abstract: true` |
 | interface method signature | `Function` | `m` | interface owner path | `is_abstract: true` |
 | any declaration inside `declare ...`, `declare module` / `declare global`, or a `.d.ts` / `.d.mts` / `.d.cts` file | (as above) | | | `ambient: true`; the `.d.ts` File node has `declaration_file: true`, and `export as namespace X` records `umd_global: "X"` on it |
@@ -623,12 +625,51 @@ both `dagayn/entry_point_heuristics.py` and
 `crates/dagayn-graph/src/flow_trace.rs`; `tests/test_flows.py` checks that
 the two lists are identical. Implemented (#16).
 
+### 7.8 Wrapped functions and function-valued fields are functions
+
+A module-scope binding whose value is a wrapper call around an inline
+function literal becomes the `Function` node of that binding, with the
+wrapped function's parameters, return type, and body:
+`const Comp = memo(function Inner() {...})`, `memo(() => ...)`,
+`forwardRef((props, ref) => ...)`, `React.memo(...)`, `observer(...)`,
+`memo(forwardRef(fn), areEqual)`. Importers and JSX name the binding, so
+`<Comp />` and `import { Comp }` resolve to it; before, the binding was not a
+node and the body's calls belonged to the File.
+
+The rule is syntactic, not a list of known HOCs:
+
+- the call's first argument is a function literal (`function`, arrow,
+  generator), or another call that satisfies the rule (up to four levels);
+- the callee is a plain identifier (`memo`, `observer`, `debounce`,
+  `asyncHandler`), or a member of an imported / required binding or of the
+  `React` global (`React.memo`, `mobx.observer`). A method of a local value
+  (`items.map(x => ...)`, `promise.then(...)`) is not a wrapper, and
+  neither is a call without an inline function (`compose(a, b)`,
+  `withRouter(Page)`), `new`, or a tagged template.
+
+The wrappers are recorded as `wrapped_by` (callee text, outermost first).
+The wrapper calls run where the binding is declared, so their `CALLS`
+(`react::memo`) and their other arguments (`areEqual`) belong to the
+container (the File, or the namespace), while the wrapper's type arguments
+(`forwardRef<HTMLInputElement, Props>`) are `REFERENCES` from the new node.
+The inner function name is only `expression_name`, as for class
+expressions. `export default memo(function Page() {})` is `Function default`
+(there is no binding), and the export index maps `default` to it. Inside a
+function body such bindings stay locals (§7.2).
+
+A class field holding a function literal is a method in both languages:
+`handle = () => {...}` and `handle = function () {...}` give
+`Function Class.handle`, and `this.handle()` resolves to it. JavaScript's
+`field_definition` is read like TypeScript's `public_field_definition`. A
+function-valued field no longer counts as a data field, so a class with one
+is not a property-only `data_container`. Implemented (#26).
+
 ## 8. JavaScript parity
 
 | Topic | Behavior |
 |---|---|
 | class heritage | JavaScript `class_heritage` holds `extends <expression>` directly; it is read with the same expression rules as TypeScript |
-| class fields | JavaScript `field_definition` is treated like `public_field_definition` (planned, part 2/3, #26) |
+| class fields | JavaScript `field_definition` is treated like `public_field_definition`: function-valued fields are methods (§7.8, #26) |
 | generators | `function*` / `async function*` declarations and generator methods are nodes in both languages |
 | JSX | `.js`, `.jsx`, and `.mjs` parse with JSX; component calls behave as in TSX |
 | test naming | `Test*` / `test_*` / `*_test` / `*_spec` names mark `Test` nodes only inside test files |
@@ -685,7 +726,7 @@ QNs omit the `file::` prefix.
 | `constructor(private repo: Repo)` | `Function Box.constructor`; `this.repo` bound to `Repo` | node implemented (existing); binding implemented (#17) |
 | `super(repo)` | `CALLS Box.constructor -> Base` (`call_kind: "super"`) | implemented (#17) |
 | field initializer `svc = new UserService()`, `static {}` block, `[Symbol.iterator]() {}` body | `CALLS Class -> UserService` (the class is the caller) | implemented (#15) |
-| function-valued field `handler = () => this.helper()` | `Function Box.handler`, `CALLS -> Box.helper` | implemented (existing) for TS; JS planned (part 2/3, #26) |
+| function-valued field `handler = () => this.helper()`, `h = function () {}` | `Function Box.handler`, `CALLS -> Box.helper`; the class is not a property-only `data_container` | implemented (existing) for TS; JS and the `data_container` fix (#26) |
 | `static create()`, `async load()` | `Function Box.create` / `Box.load` | implemented (existing) |
 | generator method `*items()` | `Function Box.items` | implemented (existing; covered by #3 tests) |
 | `get value()` + `set value(v)` | one `Function Box.value` (`member_role: "accessor"`, `accessors: ["get", "set"]`), spanning both | implemented (#14) |
@@ -756,7 +797,9 @@ QNs omit the `file::` prefix.
 | `api = { nested: { deep() {} } }` | `Class api.nested`, `Function api.nested.deep` | implemented (#8) |
 | `api = { a: { b: { c() {} } } }` | `Class api.a`, `Class api.a.b`, `Function api.a.b.c`; `api.a.b.c()` resolves | implemented (#11, up to six levels) |
 | object literal inside a function body or passed as an argument | no node; its methods are not flattened to the top level, and their calls belong to the enclosing node | implemented (#8) |
-| `export const Memo = React.memo(function X() {})` | `Function Memo` (`wrapped_by`) | planned (part 2/3, #26) |
+| `export const Memo = React.memo(function X() {})`, `memo(() => ...)`, `forwardRef((p, r) => ...)`, `observer(...)`, nested wrappers | `Function Memo` (`wrapped_by: ["React.memo"]`, `expression_name: "X"`); body calls from `Memo`; `CALLS File -> react::memo`; `<Memo />` and imports resolve | implemented (#26) |
+| `export default memo(function Page() {})` | `Function default` (`wrapped_by`, `expression_name: "Page"`) | implemented (#26) |
+| `const doubled = items.map(x => ...)`, `compose(a, b)` at module scope | no node (not a wrapper, §7.8) | implemented (#26) |
 | inline callbacks `items.map(x => f(x))` | no node; `CALLS outer -> f` | implemented (existing) |
 
 ### 10.5 Calls and JSX

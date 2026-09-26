@@ -12,11 +12,12 @@ use super::js_members::{
 };
 use super::js_modules::{
     JavaScriptCaches, JavaScriptExportResolution, JavaScriptParseContext,
-    collect_javascript_defined_names, collect_javascript_external_packages,
-    collect_javascript_import_map, collect_javascript_type_names, decode_javascript_string_literal,
-    javascript_child_text, javascript_dynamic_import_specifier, javascript_external_symbol,
-    javascript_function_name, javascript_import_equals, javascript_import_targets,
-    javascript_module_index, javascript_named_child, javascript_require_specifier,
+    JavaScriptWrappedFunction, collect_javascript_defined_names,
+    collect_javascript_external_packages, collect_javascript_import_map,
+    collect_javascript_type_names, decode_javascript_string_literal, javascript_child_text,
+    javascript_dynamic_import_specifier, javascript_external_symbol, javascript_function_name,
+    javascript_import_equals, javascript_import_targets, javascript_module_index,
+    javascript_named_child, javascript_require_specifier, javascript_wrapped_function,
     resolve_javascript_call_target, resolve_javascript_import_path_in, resolve_javascript_module,
     resolve_javascript_namespace_member,
 };
@@ -111,12 +112,12 @@ pub(super) fn parse_javascript_like_interned(
         && let Some(tree) = parser.parse(source, None)
     {
         let root = tree.root_node();
-        let mut defined_names = HashSet::new();
-        collect_javascript_defined_names(root, source, &mut defined_names);
-        let mut type_names = HashSet::new();
-        collect_javascript_type_names(root, source, &mut type_names);
         let mut import_map = HashMap::new();
         collect_javascript_import_map(root, source, &mut import_map);
+        let mut defined_names = HashSet::new();
+        collect_javascript_defined_names(root, source, &import_map, &mut defined_names);
+        let mut type_names = HashSet::new();
+        collect_javascript_type_names(root, source, &mut type_names);
         let external_packages =
             collect_javascript_external_packages(&import_map, file_path, repo_root, caches);
         let scopes = collect_javascript_member_paths(root, source);
@@ -633,7 +634,7 @@ fn javascript_walk_syntax_node(
         {
             return;
         }
-        "public_field_definition"
+        "public_field_definition" | "field_definition"
             if javascript_emit_field_function(child, context, owner_path, nodes, edges) =>
         {
             return;
@@ -2054,6 +2055,32 @@ fn javascript_emit_default_export(
             );
             true
         }
+        // `export default memo(function Page() {})`: `default`, like any
+        // default without a binding.
+        "call_expression" => {
+            let Some(wrapped) =
+                javascript_wrapped_function(value, context.source, context.import_map)
+            else {
+                return false;
+            };
+            let extra = javascript_wrapped_extra(
+                &wrapped,
+                json!({"export_default": true, "anonymous": true}),
+                context.source,
+            );
+            javascript_emit_wrapper_calls(&wrapped, context, owner_path, "default", nodes, edges);
+            javascript_emit_bound_function(
+                node,
+                wrapped.function,
+                "default",
+                extra,
+                context,
+                owner_path,
+                nodes,
+                edges,
+            );
+            true
+        }
         _ => false,
     }
 }
@@ -2397,11 +2424,25 @@ fn javascript_emit_variable_functions(
             handled = true;
             continue;
         }
+        // `const Comp = memo(function Inner() {})`: the binding is the
+        // function importers and JSX name.
+        let wrapped = function_node
+            .is_none()
+            .then(|| declarator.child_by_field_name("value"))
+            .flatten()
+            .and_then(|value| {
+                javascript_wrapped_function(value, context.source, context.import_map)
+            });
+        let function_node = function_node.or(wrapped.as_ref().map(|wrapped| wrapped.function));
         let (Some(name), Some(function_node)) = (name, function_node) else {
             continue;
         };
         let is_test = is_javascript_test_function(&name, &context.file_path);
         let qualified = qualify(&context.file_path, &name, owner_path);
+        let extra = wrapped
+            .as_ref()
+            .map(|wrapped| javascript_wrapped_extra(wrapped, json!({}), context.source))
+            .unwrap_or_else(|| json!({}));
         javascript_push_node(
             context,
             nodes,
@@ -2426,7 +2467,7 @@ fn javascript_emit_variable_functions(
                 ),
                 modifiers: javascript_modifiers(&[function_node]),
                 is_test,
-                extra: json!({}),
+                extra,
             },
         );
         let container = owner_path
@@ -2441,10 +2482,78 @@ fn javascript_emit_variable_functions(
             extra: json!({}),
         });
         annotate(&name, edges);
+        if let Some(wrapped) = &wrapped {
+            javascript_emit_wrapper_calls(wrapped, context, owner_path, &name, nodes, edges);
+        }
         javascript_walk_function_body(function_node, context, owner_path, &name, nodes, edges);
         handled = true;
     }
     handled
+}
+
+/// `extra` plus `wrapped_by` (wrapper callees, outermost first) and the
+/// wrapped function's own name as `expression_name`.
+fn javascript_wrapped_extra(
+    wrapped: &JavaScriptWrappedFunction<'_>,
+    mut extra: Value,
+    source: &[u8],
+) -> Value {
+    if let Some(map) = extra.as_object_mut() {
+        map.insert(
+            "wrapped_by".to_string(),
+            json!(wrapped.wrapper_names(source)),
+        );
+        if let Some(inner) = wrapped.function.child_by_field_name("name") {
+            map.insert(
+                "expression_name".to_string(),
+                json!(node_text(inner, source)),
+            );
+        }
+    }
+    extra
+}
+
+/// The wrapper calls of a wrapped function run where the binding is
+/// declared: their `CALLS` and their other arguments (`areEqual` in
+/// `memo(C, areEqual)`) belong to the container, not to the function. Type
+/// arguments (`forwardRef<Ref, Props>`) describe the function, so their
+/// references come from its node.
+fn javascript_emit_wrapper_calls(
+    wrapped: &JavaScriptWrappedFunction<'_>,
+    context: &JavaScriptParseContext<'_>,
+    owner_path: Option<&str>,
+    name: &str,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    for (index, call) in wrapped.calls.iter().enumerate() {
+        javascript_emit_call(*call, context, owner_path, None, nodes, edges);
+        if let Some(type_arguments) = call.child_by_field_name("type_arguments") {
+            javascript_walk_node(
+                type_arguments,
+                context,
+                owner_path,
+                Some(name),
+                nodes,
+                edges,
+            );
+        }
+        let Some(arguments) = call.child_by_field_name("arguments") else {
+            continue;
+        };
+        javascript_emit_value_references(arguments, context, owner_path, None, edges);
+        let inner = wrapped
+            .calls
+            .get(index + 1)
+            .copied()
+            .unwrap_or(wrapped.function);
+        let mut cursor = arguments.walk();
+        for argument in arguments.named_children(&mut cursor) {
+            if argument.id() != inner.id() {
+                javascript_walk_node(argument, context, owner_path, None, nodes, edges);
+            }
+        }
+    }
 }
 
 fn javascript_emit_field_function(
@@ -2910,6 +3019,11 @@ fn javascript_is_property_only_class(node: tree_sitter::Node<'_>) -> bool {
     for child in node.children(&mut cursor) {
         match child.kind() {
             "method_definition" => return false,
+            "public_field_definition" | "field_definition"
+                if javascript_is_function_field(child) =>
+            {
+                return false;
+            }
             "public_field_definition" | "field_definition" | "property_signature" => {
                 has_data_field = true;
             }
@@ -2923,12 +3037,21 @@ fn javascript_is_property_only_class(node: tree_sitter::Node<'_>) -> bool {
     has_data_field
 }
 
+/// A class field holding a function literal (`handle = () => {}`): a method.
+fn javascript_is_function_field(node: tree_sitter::Node<'_>) -> bool {
+    node.child_by_field_name("value")
+        .is_some_and(|value| is_javascript_function_value(value.kind()))
+}
+
 fn javascript_class_child_is_property_only(
     node: tree_sitter::Node<'_>,
     has_data_field: &mut bool,
 ) -> bool {
     match node.kind() {
         "method_definition" => return false,
+        "public_field_definition" | "field_definition" if javascript_is_function_field(node) => {
+            return false;
+        }
         "public_field_definition" | "field_definition" | "property_signature" => {
             *has_data_field = true;
         }

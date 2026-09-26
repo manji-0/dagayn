@@ -143,6 +143,24 @@ All notable changes to `dagayn` are documented here.
   produce no `REFERENCES` edge. The TypeScript parity fixture keeps 400
   edges (14 change target); `dagayn-vscode/` turns 835 edges external and
   loses 120 dangling `TESTED_BY` edges (4,942 to 4,824).
+- JavaScript / TypeScript bindings of wrapped functions are `Function`
+  nodes: `const Comp = memo(function Inner() {})`, `memo(() => ...)`,
+  `forwardRef((props, ref) => ...)`, `React.memo(...)`, `observer(...)`, and
+  nested wrappers give `Function Comp` with the wrapped function's
+  parameters and body and `extra.wrapped_by` (`["memo", "forwardRef"]`), so
+  `<Comp />` and `import { Comp }` resolve and the body's calls belong to
+  `Comp` instead of the File. A wrapper is any call whose first argument is
+  an inline function literal and whose callee is a plain identifier or a
+  member of an imported binding or `React`; `items.map(x => ...)` and
+  `compose(a, b)` are not. The wrapper call itself stays `CALLS File ->
+  react::memo`. `export default memo(function Page() {})` is
+  `Function default`. JavaScript class fields holding a function
+  (`handle = () => {}`, `handle = function () {}`) are methods
+  (`Class.handle`), as they already were in TypeScript, and a class with a
+  function-valued field is no longer marked as a property-only
+  `data_container`. The TypeScript parity fixture gains 3 nodes and 3 edges
+  (`Memo`, `Fwd`, a `memoize`-wrapped `wrapped`), the JavaScript one 2 nodes
+  and 2 edges.
 - Graphs record the extractor versions they were parsed with (metadata
   `extractor_versions`, for example `javascript=1`). When the running parser's
   extractor is newer, `dagayn update` re-parses every indexed file that
