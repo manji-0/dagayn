@@ -535,6 +535,10 @@ impl PyGraphStore {
         self.with_store_mut(|store| store.resolve_bare_inheritance_targets())
     }
 
+    fn resolve_terraform_module_references(&self) -> PyResult<i64> {
+        self.with_store_mut(|store| store.resolve_terraform_module_references())
+    }
+
     fn import_targets_by_file(&self) -> PyResult<std::collections::HashMap<String, Vec<String>>> {
         self.with_store(|store| store.import_targets_by_file())
     }

@@ -178,6 +178,14 @@ All notable changes to `dagayn` are documented here.
   values such as `"t3.micro"` or `"handler.zip"` became references to
   `resource.t3.micro` and `resource.handler.zip`. Only `${ ... }`
   interpolations are scanned now.
+- Terraform references to blocks declared in another file of the same module
+  resolve to that block. `var.region` in `main.tf` used to stay a bare target
+  when `variable "region"` lived in `variables.tf`, because the parser only
+  qualifies names defined in the file it parses. A new post-processing step
+  binds bare Terraform `REFERENCES` targets to the unique Terraform node of
+  that name in the same directory (`HIGH` confidence); ambiguous names and
+  names declared only in other directories stay bare. The step reports
+  `terraform_module_references_resolved`.
 
 ## 4.15.0 — 2026-09-25
 
