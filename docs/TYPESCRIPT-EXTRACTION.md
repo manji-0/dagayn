@@ -128,7 +128,7 @@ Nodes that are **not** created:
 | `REFERENCES` (decorator) | decorated node | decorator function | `relationship_role: "decorator"` (§7.7) |
 | `INHERITS` | class or interface | base QN or bare name | `relationship_role: "extends"`, `syntax_source` |
 | `IMPLEMENTS` | class | interface QN or bare name | `relationship_role: "implements"`, `syntax_source` |
-| `TESTED_BY` | production symbol | `Test` node | derived from calls made by tests |
+| `TESTED_BY` | production symbol | `Test` node | derived from calls made by tests; follows the call when post-processing resolves a bare target (§5.4) |
 | `CROSS_ARTIFACT` | owning node | path or command | `child_process.*` and `fs.*` bridges |
 
 ### 5.1 Call attribution
@@ -204,6 +204,13 @@ Nodes that are **not** created:
   `Cypress` keep their `CALLS` edge with `test_api: true`, and never produce
   `TESTED_BY`. `TESTED_BY` is derived from every other `CALLS` edge whose
   source is a `Test` node.
+- **Resolved in post-processing.** A bare call target (`box.helper()` on an
+  untyped local) gives a bare `TESTED_BY helper -> test`. When
+  `resolve_bare_call_targets` binds the call (`src/classes.ts::Box.helper`,
+  `MEDIUM`), the `TESTED_BY` edge from the same test, file, and line with
+  the same name takes the resolved QN and confidence. This runs for every
+  language, is idempotent, and also repairs graphs whose calls were resolved
+  by an earlier run.
 
 ### 5.3 Inheritance
 
@@ -656,7 +663,7 @@ QNs omit the `file::` prefix.
 | `function TestHelper()` in a test file | `Test` | implemented (existing; kept by #6) |
 | `test.each(...)("name", fn)`, tagged-template `.each` | `Test test:name@L9` covering the outer call | implemented (#21) |
 | `*.test.tsx`, `*.spec.jsx`, `*.test.mjs`, `__tests__/`, `e2e/`, `*.cy.ts` | File `is_test` | implemented (#21) |
-| `TESTED_BY` for calls resolved in post-processing | follows the resolved `CALLS` target | planned (part 2/3, #22) |
+| `TESTED_BY` for calls resolved in post-processing | follows the resolved `CALLS` target | implemented (#22) |
 | `TESTED_BY` to runner / assertion APIs (`expect`, `beforeEach`) | not emitted | implemented (#21) |
 
 ### 10.9 Frameworks and entry points

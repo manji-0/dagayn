@@ -293,6 +293,82 @@ class TestResolveBareInheritanceTargets:
         assert row["confidence_tier"] == "LOW"
 
 
+class TestTestedBySync:
+    """TESTED_BY edges follow the CALLS edges that bare-name resolution binds."""
+
+    def test_python_tested_by_moves_with_resolved_call(self, tmp_path):
+        store = GraphStore(tmp_path / "tested_by_py.db")
+        store.upsert_node(_node("File", "a.py", "a.py"))
+        store.upsert_node(_node("Function", "helper", "a.py"))
+        store.upsert_node(_node("File", "tests/test_b.py", "tests/test_b.py"))
+        store.upsert_node(
+            NodeInfo(
+                kind="Test",
+                name="test_run",
+                file_path="tests/test_b.py",
+                line_start=1,
+                line_end=3,
+                language="python",
+                is_test=True,
+            )
+        )
+        store.upsert_edge(_edge("IMPORTS_FROM", "tests/test_b.py", "a.py", "tests/test_b.py"))
+        store.upsert_edge(_edge("CALLS", "tests/test_b.py::test_run", "helper", "tests/test_b.py"))
+        store.upsert_edge(
+            _edge("TESTED_BY", "helper", "tests/test_b.py::test_run", "tests/test_b.py")
+        )
+        store.commit()
+
+        assert resolve_bare_call_targets(store) == 1
+        row = (
+            store_conn(store)
+            .execute("SELECT source_qualified, confidence_tier FROM edges WHERE kind='TESTED_BY'")
+            .fetchone()
+        )
+        assert row["source_qualified"] == "a.py::helper"
+        assert row["confidence_tier"] == "MEDIUM"
+
+    def test_typescript_member_call_resolved_in_postprocessing(self, tmp_path):
+        """`box.helper()` on an untyped local binds in post-processing only."""
+        from dagayn.incremental import full_build
+        from dagayn.postprocessing import run_post_processing
+
+        repo = tmp_path / "repo"
+        (repo / "src").mkdir(parents=True)
+        (repo / ".git").mkdir()
+        (repo / "src" / "classes.ts").write_text(
+            "export class Box { helper() {} }\nexport function makeBox() { return new Box(); }\n",
+            encoding="utf-8",
+        )
+        (repo / "src" / "box.test.ts").write_text(
+            'import { makeBox } from "./classes";\n'
+            'it("uses a box", () => {\n'
+            "  const box = makeBox();\n"
+            "  box.helper();\n"
+            "});\n",
+            encoding="utf-8",
+        )
+        store = GraphStore(repo / ".dagayn" / "graph.db")
+        full_build(repo, store)
+        run_post_processing(store)
+        conn = store_conn(store)
+        test_qn = "src/box.test.ts::it:uses a box@L2"
+        calls = conn.execute(
+            "SELECT target_qualified FROM edges WHERE kind='CALLS' AND source_qualified=?",
+            (test_qn,),
+        ).fetchall()
+        assert "src/classes.ts::Box.helper" in {row["target_qualified"] for row in calls}
+        tested_by = conn.execute(
+            "SELECT source_qualified, confidence_tier FROM edges "
+            "WHERE kind='TESTED_BY' AND target_qualified=?",
+            (test_qn,),
+        ).fetchall()
+        sources = {row["source_qualified"]: row["confidence_tier"] for row in tested_by}
+        assert sources.get("src/classes.ts::Box.helper") == "MEDIUM", sources
+        assert "helper" not in sources
+        store.close()
+
+
 class TestQueryGraphBareNameBinding:
     @pytest.fixture(autouse=True)
     def _setup_store(self, tmp_path):

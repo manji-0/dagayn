@@ -127,6 +127,18 @@ All notable changes to `dagayn` are documented here.
   slugs follow GitHub rules for closing hashes and inline links.
 - Markdown link extraction skips inline code spans and fenced code blocks, so
   documented link examples no longer create dangling `IMPORTS_FROM` edges.
+- `TESTED_BY` edges now follow the `CALLS` edges that post-processing's
+  bare-name resolution binds. Parsers derive `TESTED_BY target -> test`
+  from each call a test makes, so a bare call target (for example a
+  TypeScript `box.helper()` on an untyped local, or any other call that
+  only post-processing resolves) kept a bare `TESTED_BY helper` source that was
+  demoted to `LOW`, while the call itself pointed at `Box.helper`: the
+  symbol looked untested. `resolve_bare_call_targets` now rewrites such a
+  `TESTED_BY` edge (same test, file, line, and name) to the resolved
+  qualified name with the call's confidence, drops it when that would
+  duplicate an existing edge, and leaves it bare while its own call is
+  unresolved. The pass applies to every language and also repairs graphs
+  whose calls were resolved by an earlier run.
 - JavaScript / TypeScript test detection covers more files and runner
   forms. Test files now include `*.test.*` / `*.spec.*` / Cypress `*.cy.*`
   with any JS / TS extension (`.tsx`, `.jsx`, `.mjs`, `.cjs`, `.mts`,
