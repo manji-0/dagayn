@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import * as path from "node:path";
-import { getNodeDocumentation } from "../features/nodeDocs";
+import { getNodeDocumentation } from "../backend/nodeDocumentation";
 
 // ---------------------------------------------------------------------------
 // WorkspaceFolderTreeItem – groups files when multiple folders have a graph
