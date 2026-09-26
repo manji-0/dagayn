@@ -1341,6 +1341,70 @@ class TestMultiHopDependents:
         finally:
             store.close()
 
+    def test_truncation_keeps_closest_dependents_in_path_order(self, tmp_path, monkeypatch):
+        """Capped results keep hop-1 files first, then sorted hop-2 files."""
+        from dagayn import incremental_build
+        from dagayn.parser import EdgeInfo, NodeInfo
+
+        monkeypatch.setattr(incremental_build, "_MAX_DEPENDENT_FILES", 5)
+        store = GraphStore(tmp_path / "order.db")
+
+        def add_file(path: str, imports: str | None = None) -> None:
+            store.upsert_node(
+                NodeInfo(
+                    kind="File",
+                    name=path,
+                    file_path=path,
+                    line_start=1,
+                    line_end=10,
+                    language="python",
+                )
+            )
+            store.upsert_node(
+                NodeInfo(
+                    kind="Function",
+                    name="f",
+                    file_path=path,
+                    line_start=2,
+                    line_end=8,
+                    language="python",
+                )
+            )
+            if imports is not None:
+                store.upsert_edge(
+                    EdgeInfo(
+                        kind="IMPORTS_FROM",
+                        source=f"{path}::f",
+                        target=f"{imports}::f",
+                        file_path=path,
+                        line=1,
+                    )
+                )
+
+        try:
+            add_file("/hub.py")
+            # Hop-1 names sort *after* hop-2 names, so a path-only sort would
+            # drop the direct dependents.
+            near = [f"/z_near{i}.py" for i in (3, 1, 2)]
+            for path in near:
+                add_file(path, imports="/hub.py")
+            for i in range(6):
+                add_file(f"/a_far{i}.py", imports=near[i % len(near)])
+            store.commit()
+
+            deps = find_dependents(store, "/hub.py", max_hops=2)
+            assert deps.truncated is True
+            assert list(deps) == [
+                "/z_near1.py",
+                "/z_near2.py",
+                "/z_near3.py",
+                "/a_far0.py",
+                "/a_far1.py",
+            ]
+            assert list(find_dependents(store, "/hub.py", max_hops=2)) == list(deps)
+        finally:
+            store.close()
+
     def test_truncated_flag_false_when_not_capped(self, tmp_path):
         """Regression test for #261: find_dependents must set
         DependentList.truncated = False when the result is complete."""

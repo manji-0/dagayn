@@ -157,31 +157,34 @@ def find_dependents_for_files(
 
     Performs multi-source expansion so incremental updates with many changed
     files pay one batched traversal per hop instead of one traversal per file.
+    The result is ordered by hop distance and then path; when the
+    ``_MAX_DEPENDENT_FILES`` cap truncates it, the files closest to the roots
+    are kept.
     """
     roots = set(file_paths)
     if not roots:
         return DependentList([])
-    all_dependents: set[str] = set()
+    # Ordered by hop distance, then path, so the cap below keeps the closest
+    # dependents and the same graph always yields the same list.
+    ordered: list[str] = []
     visited: set[str] = set(roots)
     frontier: set[str] = set(roots)
     for _hop in range(max_hops):
         new_deps = _batch_hop_dependents(store, frontier) - visited
-        all_dependents.update(new_deps)
+        ordered.extend(sorted(new_deps))
         visited.update(new_deps)
         frontier = new_deps
         if not frontier:
             break
-        if len(all_dependents) > _MAX_DEPENDENT_FILES:
+        if len(ordered) > _MAX_DEPENDENT_FILES:
             logger.warning(
-                "Dependent expansion capped at %d files for %d roots",
-                len(all_dependents),
+                "Dependent expansion capped at %d of %d files for %d roots",
+                _MAX_DEPENDENT_FILES,
+                len(ordered),
                 len(roots),
             )
-            return DependentList(
-                list(all_dependents)[:_MAX_DEPENDENT_FILES],
-                truncated=True,
-            )
-    return DependentList(list(all_dependents))
+            return DependentList(ordered[:_MAX_DEPENDENT_FILES], truncated=True)
+    return DependentList(ordered)
 
 
 def _parse_single_file(

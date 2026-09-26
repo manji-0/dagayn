@@ -140,6 +140,11 @@ All notable changes to `dagayn` are documented here.
   `hashmap` / `HashMap`, `signal`, and `author` are excluded explicitly.
   Keywords glued behind other letters (`oauth`, `mysql`, `unauthorized`) are a
   known miss unless another keyword token is present.
+- When dependent-file expansion for an incremental update hits the
+  500-file cap, the kept files are now deterministic: files fewer import hops
+  from the changed files come first, then paths in sorted order. The cut was
+  previously taken from an unordered set, so which dependents were re-parsed
+  could change from run to run.
 
 ## 4.15.0 — 2026-09-25
 
