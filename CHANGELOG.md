@@ -152,6 +152,12 @@ All notable changes to `dagayn` are documented here.
   Markdown file was re-parsed. It now also rewrites an edge whose stored
   confidence, tier, or metadata differ from the computed ones; those rewrites
   count as `markdown_artifact_refs_re_resolved`.
+- Impact and review output now account for every `CROSS_ARTIFACT` bridge next
+  to the changed nodes. A bridge outside the reportable tiers (`MEDIUM`,
+  `UNKNOWN`) without Markdown code-span evidence was neither expanded as a
+  claim nor listed in `low_confidence_bridges`, so it silently disappeared.
+  Any bridge that is not a reportable claim is now a caveat; `MEDIUM` bridges
+  still do not expand impact or flows.
 
 ## 4.15.0 — 2026-09-25
 

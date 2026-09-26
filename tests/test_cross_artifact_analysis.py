@@ -166,6 +166,38 @@ class TestCrossArtifactImpact:
             for item in result["low_confidence_bridges"]
         )
 
+    def test_medium_non_code_span_bridge_is_a_caveat_not_a_claim(self, tmp_path):
+        """MEDIUM bridges without code-span evidence must not vanish from both lists."""
+        store = GraphStore(str(tmp_path / "medium.db"))
+        try:
+            wrapper = str(tmp_path / "wrapper.py")
+            cli = str(tmp_path / "cli.py")
+            wrapper_qn = _add_func(store, "launch", wrapper)
+            cli_qn = _add_func(store, "cli_main", cli)
+            store.upsert_edge(
+                _bridge(
+                    source=wrapper_qn,
+                    target=cli_qn,
+                    file_path=wrapper,
+                    tier="MEDIUM",
+                    confidence=0.4,
+                )
+            )
+            store.commit()
+
+            result = store.get_impact_radius([wrapper], max_depth=2)
+            assert cli_qn not in {n.qualified_name for n in result["impacted_nodes"]}
+            assert not result["bridge_transitions"]
+            assert [
+                (item["bridge"]["target"], item["bridge"]["confidence_tier"])
+                for item in result["low_confidence_bridges"]
+            ] == [(cli_qn, "MEDIUM")]
+
+            proximity = _cross_artifact_proximity(store, result, [{"qualified_name": wrapper_qn}])
+            assert proximity["counts"] == {"reportable": 0, "low_confidence": 1}
+        finally:
+            store.close()
+
     def test_impact_tool_surfaces_explainable_bridge_path(self, bridge_store, monkeypatch):
         store, paths = bridge_store
         monkeypatch.setattr(
@@ -464,6 +496,13 @@ class TestCrossArtifactHelpers:
         }
         assert not is_reportable_bridge(edge)
         assert is_low_confidence_bridge(edge)
+
+    @pytest.mark.parametrize("tier", ["EXACT", "EXTRACTED", "HIGH", "MEDIUM", "LOW", "UNKNOWN", ""])
+    @pytest.mark.parametrize("target", ["b::y", "<unresolved:y>"])
+    def test_claim_and_caveat_partition_is_total(self, tier, target):
+        edge = _EdgeView(_bridge(source="a::x", target=target, file_path="a.py", tier=tier))
+        edge.confidence_tier = tier
+        assert is_reportable_bridge(edge) != is_low_confidence_bridge(edge)
 
     def test_column_tier_preferred_over_extra(self):
         """Parity with Rust: non-reportable column tier must not be overridden by extra."""
