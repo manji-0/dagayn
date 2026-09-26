@@ -17,16 +17,16 @@ use super::js_decorators::{javascript_decorator_is_owned, javascript_emit_decora
 use super::js_members::{collect_javascript_class_table, collect_javascript_type_paths};
 use super::js_modules::{
     JavaScriptCaches, JavaScriptParseContext, collect_javascript_defined_names,
-    collect_javascript_external_packages, collect_javascript_import_map,
-    collect_javascript_type_names, javascript_dynamic_import_specifier, javascript_import_equals,
-    javascript_import_targets, javascript_named_child, javascript_require_specifier,
-    resolve_javascript_module,
+    collect_javascript_import_map, collect_javascript_type_names,
+    javascript_dynamic_import_specifier, javascript_import_equals, javascript_import_targets,
+    javascript_named_child, javascript_require_specifier,
 };
 use super::js_namespaces::{
     javascript_emit_namespace, javascript_emit_namespace_body, javascript_named_child_node,
     javascript_namespace_segments, javascript_umd_global_name,
 };
 use super::js_objects::{collect_javascript_local_exports, collect_javascript_member_paths};
+use super::js_resolve::{collect_javascript_external_packages, resolve_javascript_module};
 use super::js_tests::{is_javascript_test_file, is_test_runner_name};
 use super::js_types::{
     javascript_emit_type_references, javascript_emit_type_roots, javascript_merge_type_references,

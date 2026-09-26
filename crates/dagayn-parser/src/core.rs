@@ -53,6 +53,8 @@ mod js_modules;
 mod js_namespaces;
 #[path = "js_objects.rs"]
 mod js_objects;
+#[path = "js_resolve.rs"]
+mod js_resolve;
 #[path = "js_sfc.rs"]
 mod js_sfc;
 #[path = "js_tests.rs"]
