@@ -809,11 +809,7 @@ fn resolve_type_scoped_call(
         return None;
     }
     let (type_name, method) = target.rsplit_once("::")?;
-    if type_name.is_empty()
-        || method.is_empty()
-        || type_name.contains("::")
-        || type_name.contains('.')
-    {
+    if type_name.is_empty() || method.is_empty() || type_name.contains("::") {
         return None;
     }
     symbols.get(method).and_then(|candidates| {
@@ -829,14 +825,35 @@ fn pick_method_for_caller(
     caller: &str,
     methods: &[&(Option<String>, String)],
 ) -> Option<String> {
-    if let Some(parent) = caller_type_name(file_path, caller)
-        && let Some((_, qualified)) = methods
+    for parent in caller_scopes(file_path, caller) {
+        if let Some((_, qualified)) = methods
             .iter()
             .find(|(candidate_parent, _)| candidate_parent.as_deref() == Some(parent))
-    {
-        return Some(qualified.clone());
+        {
+            return Some(qualified.clone());
+        }
     }
     methods.first().map(|(_, qualified)| qualified.clone())
+}
+
+/// Enclosing scopes of `caller`, innermost first: `Outer.Inner.m` yields
+/// `Outer.Inner` then `Outer`.
+fn caller_scopes<'a>(file_path: &str, caller: &'a str) -> Vec<&'a str> {
+    let Some(rest) = caller
+        .strip_prefix(file_path)
+        .and_then(|rest| rest.strip_prefix("::"))
+    else {
+        return Vec::new();
+    };
+    let mut scopes = Vec::new();
+    let mut end = rest.len();
+    while let Some(dot) = rest[..end].rfind('.') {
+        if dot > 0 {
+            scopes.push(&rest[..dot]);
+        }
+        end = dot;
+    }
+    scopes
 }
 
 fn same_file_unqualified_name<'a>(file_path: &str, target: &'a str) -> Option<&'a str> {
@@ -848,12 +865,6 @@ fn same_file_unqualified_name<'a>(file_path: &str, target: &'a str) -> Option<&'
         return None;
     }
     Some(rest)
-}
-
-fn caller_type_name<'a>(file_path: &str, caller: &'a str) -> Option<&'a str> {
-    let rest = caller.strip_prefix(file_path)?.strip_prefix("::")?;
-    let (parent, _) = rest.split_once('.')?;
-    (!parent.is_empty()).then_some(parent)
 }
 
 pub(super) fn qualify(file_path: &str, name: &str, parent_name: Option<&str>) -> String {

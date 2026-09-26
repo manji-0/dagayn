@@ -1703,7 +1703,11 @@ fn python_walk_children(
         match child.kind() {
             "class_definition" => {
                 if let Some(name) = python_identifier_child(child, context.source) {
-                    let qualified = qualify(&context.file_path, &name, enclosing_class);
+                    let scope = python_scope_path(&context.file_path, enclosing_qualified);
+                    let qualified = qualify(&context.file_path, &name, scope);
+                    let class_path = scope
+                        .map(|scope| format!("{scope}.{name}"))
+                        .unwrap_or_else(|| name.clone());
                     let bases = python_class_base_names(child, context.source);
                     let decorators = python_parent_decorators(child, context.source);
                     nodes.push(ParsedNode {
@@ -1713,7 +1717,7 @@ fn python_walk_children(
                         line_start: child.start_position().row as i64 + 1,
                         line_end: child.end_position().row as i64 + 1,
                         language: "python".to_string(),
-                        parent_name: enclosing_class.map(str::to_string),
+                        parent_name: scope.map(str::to_string),
                         params: None,
                         return_type: None,
                         modifiers: None,
@@ -1722,20 +1726,30 @@ fn python_walk_children(
                     });
                     edges.push(ParsedEdge {
                         kind: crate::core::types::EdgeKind::Contains,
-                        source: context.file_path.to_string(),
+                        source: enclosing_qualified
+                            .unwrap_or(&context.file_path)
+                            .to_string(),
                         target: qualified.clone(),
                         file_path: context.file_path.clone(),
                         line: child.start_position().row as i64 + 1,
                         extra: json!({}),
                     });
                     python_emit_bases(child, context, &qualified, &bases, edges);
-                    python_walk_children(child, context, Some(&name), None, nodes, edges);
+                    python_walk_children(
+                        child,
+                        context,
+                        Some(&class_path),
+                        Some(&qualified),
+                        nodes,
+                        edges,
+                    );
                     continue;
                 }
             }
             "function_definition" => {
                 if let Some(name) = python_identifier_child(child, context.source) {
-                    let qualified = qualify(&context.file_path, &name, enclosing_class);
+                    let scope = python_scope_path(&context.file_path, enclosing_qualified);
+                    let qualified = qualify(&context.file_path, &name, scope);
                     let params = python_child_text(child, context.source, "parameters");
                     let return_type = python_return_type(child, context.source);
                     let is_test =
@@ -1762,19 +1776,18 @@ fn python_walk_children(
                         line_start: child.start_position().row as i64 + 1,
                         line_end: child.end_position().row as i64 + 1,
                         language: "python".to_string(),
-                        parent_name: enclosing_class.map(str::to_string),
+                        parent_name: scope.map(str::to_string),
                         params,
                         return_type,
                         modifiers: None,
                         is_test,
                         extra,
                     });
-                    let container = enclosing_class
-                        .map(|name| qualify(&context.file_path, name, None))
-                        .unwrap_or_else(|| context.file_path.to_string());
                     edges.push(ParsedEdge {
                         kind: crate::core::types::EdgeKind::Contains,
-                        source: container,
+                        source: enclosing_qualified
+                            .unwrap_or(&context.file_path)
+                            .to_string(),
                         target: qualified.clone(),
                         file_path: context.file_path.clone(),
                         line: child.start_position().row as i64 + 1,
@@ -1801,7 +1814,8 @@ fn python_walk_children(
             }
             "type_alias_statement" => {
                 if let Some(name) = python_type_alias_name(child, context.source) {
-                    let qualified = qualify(&context.file_path, &name, enclosing_class);
+                    let scope = python_scope_path(&context.file_path, enclosing_qualified);
+                    let qualified = qualify(&context.file_path, &name, scope);
                     nodes.push(ParsedNode {
                         kind: crate::core::types::NodeKind::Type,
                         name: name.clone(),
@@ -1809,7 +1823,7 @@ fn python_walk_children(
                         line_start: child.start_position().row as i64 + 1,
                         line_end: child.end_position().row as i64 + 1,
                         language: "python".to_string(),
-                        parent_name: enclosing_class.map(str::to_string),
+                        parent_name: scope.map(str::to_string),
                         params: None,
                         return_type: None,
                         modifiers: None,
@@ -1818,7 +1832,9 @@ fn python_walk_children(
                     });
                     edges.push(ParsedEdge {
                         kind: crate::core::types::EdgeKind::Contains,
-                        source: context.file_path.to_string(),
+                        source: enclosing_qualified
+                            .unwrap_or(&context.file_path)
+                            .to_string(),
                         target: qualified,
                         file_path: context.file_path.clone(),
                         line: child.start_position().row as i64 + 1,
@@ -1865,6 +1881,19 @@ fn python_walk_children(
                     }
                 }
             }
+            "assignment"
+                if python_emit_lambda_assignment(
+                    child,
+                    context,
+                    enclosing_class,
+                    enclosing_qualified,
+                    nodes,
+                    edges,
+                ) =>
+            {
+                python_bind_assignment(child, context);
+                continue;
+            }
             "pair" | "assignment" | "list" => {
                 python_emit_value_references(
                     child,
@@ -1885,6 +1914,72 @@ fn python_walk_children(
         );
         python_bind_assignment(child, context);
     }
+}
+
+/// Parent path (relative to the file) of the innermost enclosing class or
+/// function, so nested definitions qualify under it.
+fn python_scope_path<'a>(file_path: &str, enclosing_qualified: Option<&'a str>) -> Option<&'a str> {
+    enclosing_qualified?
+        .strip_prefix(file_path)?
+        .strip_prefix("::")
+        .filter(|scope| !scope.is_empty())
+}
+
+/// Emits `name = lambda ...` as a function so calls in the lambda body have a
+/// caller. Returns false when the assignment is not a plain lambda binding.
+fn python_emit_lambda_assignment(
+    node: tree_sitter::Node<'_>,
+    context: &PythonParseContext<'_>,
+    enclosing_class: Option<&str>,
+    enclosing_qualified: Option<&str>,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) -> bool {
+    let (Some(left), Some(right)) = (
+        node.child_by_field_name("left"),
+        node.child_by_field_name("right"),
+    ) else {
+        return false;
+    };
+    if left.kind() != "identifier" || right.kind() != "lambda" {
+        return false;
+    }
+    let name = node_text(left, context.source);
+    let scope = python_scope_path(&context.file_path, enclosing_qualified);
+    let qualified = qualify(&context.file_path, &name, scope);
+    nodes.push(ParsedNode {
+        kind: crate::core::types::NodeKind::Function,
+        name,
+        file_path: context.file_path.clone(),
+        line_start: node.start_position().row as i64 + 1,
+        line_end: node.end_position().row as i64 + 1,
+        language: "python".to_string(),
+        parent_name: scope.map(str::to_string),
+        params: python_child_text(right, context.source, "parameters"),
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: json!({"python_kind": "lambda"}),
+    });
+    edges.push(ParsedEdge {
+        kind: crate::core::types::EdgeKind::Contains,
+        source: enclosing_qualified
+            .unwrap_or(&context.file_path)
+            .to_string(),
+        target: qualified.clone(),
+        file_path: context.file_path.clone(),
+        line: node.start_position().row as i64 + 1,
+        extra: json!({}),
+    });
+    python_walk_children(
+        right,
+        context,
+        enclosing_class,
+        Some(&qualified),
+        nodes,
+        edges,
+    );
+    true
 }
 
 fn python_emit_value_references(
