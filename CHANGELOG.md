@@ -95,6 +95,14 @@ All notable changes to `dagayn` are documented here.
   requeued with a `not_before` time, other tasks are claimed in the meantime,
   and the worker still stays alive until the retry is due.
 
+### Documentation
+
+- The `rrf_merge` docstring no longer claims that result order is invariant
+  under any positive `k`. That holds only for a single list. When FTS and
+  embedding results are fused, a smaller `k` favours items at the top of one
+  arm and a larger `k` favours items that both arms return, so `k=10` can
+  order results differently from the textbook 60.
+
 ## 4.15.0 — 2026-09-25
 
 ### Fixes

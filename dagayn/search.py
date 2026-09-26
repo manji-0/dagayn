@@ -517,7 +517,10 @@ def rrf_merge(*result_lists: list[tuple[int, float]], k: int = 10) -> list[tuple
     Each input list contains ``(id, score)`` tuples, ordered by score
     descending. The RRF score for each item is the sum of
     ``1 / (k + rank + 1)`` across all lists it appears in, where rank is
-    the 0-based position.
+    the 0-based position.  The input scores are ignored; only positions
+    count.  An id that appears more than once in the same list (for
+    example from the extra per-identifier FTS arms in
+    :func:`hybrid_search`) contributes once per occurrence.
 
     Args:
         *result_lists: Variable number of ranked result lists.
@@ -525,8 +528,21 @@ def rrf_merge(*result_lists: list[tuple[int, float]], k: int = 10) -> list[tuple
            lower constant so the resulting scores spread across ~0.05–0.2
            instead of being compressed into a 0.015–0.016 band, which
            makes the ``score`` field meaningful for comparing results
-           within a single query.  Item order is invariant under positive
-           ``k`` so this is purely a calibration knob.
+           within a single query.
+
+           ``k`` is not only a calibration knob.  With a single input
+           list, any positive ``k`` keeps the input order.  With two or
+           more lists, ``k`` also sets the balance between a strong rank
+           in one list and agreement across lists, so it can reorder the
+           merged result.  A smaller ``k`` favours items ranked near the
+           top of a single list; a larger ``k`` favours items that appear
+           in several lists.  Example: ``p`` is rank 0 in one list only,
+           and ``q`` is rank 20 in two lists.  With ``k=10``, ``p`` scores
+           1/11 ≈ 0.091 and ``q`` scores 2/31 ≈ 0.065, so ``p`` wins.
+           With ``k=60``, ``p`` scores 1/61 ≈ 0.016 and ``q`` scores
+           2/81 ≈ 0.025, so ``q`` wins.  The default of 10 therefore lets
+           a top FTS or embedding hit outrank an item that both arms
+           return only at deep ranks.
 
     Returns:
         Merged list of ``(id, rrf_score)`` tuples sorted by score descending.
