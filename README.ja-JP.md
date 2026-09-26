@@ -68,7 +68,7 @@
 | `module "name"` | `module.name` | Class |
 | `provider "name"` | `provider.name` | Class |
 | `terraform {}` | `terraform` | Class |
-| `check "name"` | `check.name` | Test |
+| `check "name"` | `check.name` | Class |
 | `ephemeral "type" "name"` | `ephemeral.type.name` | Class |
 | `import {}` | エッジのみ | — |
 | `moved {}` | エッジのみ | — |

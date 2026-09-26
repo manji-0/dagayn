@@ -68,7 +68,7 @@ See `docs/FEATURES.md` and `docs/LLM-OPTIMIZED-REFERENCE.md` for the current cov
 | `module "name"` | `module.name` | Class |
 | `provider "name"` | `provider.name` | Class |
 | `terraform {}` | `terraform` | Class |
-| `check "name"` | `check.name` | Test |
+| `check "name"` | `check.name` | Class |
 | `ephemeral "type" "name"` | `ephemeral.type.name` | Class |
 | `import {}` | edges only | — |
 | `moved {}` | edges only | — |

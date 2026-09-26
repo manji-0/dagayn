@@ -186,6 +186,9 @@ All notable changes to `dagayn` are documented here.
   that name in the same directory (`HIGH` confidence); ambiguous names and
   names declared only in other directories stay bare. The step reports
   `terraform_module_references_resolved`.
+- The README Terraform block table (and its translations) lists `check`
+  blocks as `Class` nodes, matching the parser since production `check`
+  blocks stopped being classified as tests; it still said `Test`.
 
 ## 4.15.0 — 2026-09-25
 
