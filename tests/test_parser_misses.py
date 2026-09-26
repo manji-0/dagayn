@@ -249,3 +249,41 @@ object Singleton : Iface { fun s() { scall() } }
         assert ("CALLS", "<f>::Foo.constructor", "secCall") in edges
         assert ("Function", "im", "Foo.In") in names
         assert ("CONTAINS", "<f>::Foo", "<f>::Foo.In") in edges
+
+
+class TestScala:
+    SOURCE = """\
+import x.y.{Z, W => V, H => _}
+trait T
+object O extends App with T {
+  val f = (x: Int) => proc(x)
+}
+case class C(a: Int) extends Base(a) with T {
+  object Nested { def n() = ncall() }
+}
+class K { def this(x: Int) = { this(); aux() } }
+given intOrd: Ordering[Int] with { def compare(a: Int, b: Int) = cmp(a, b) }
+"""
+
+    def test_renamed_and_hidden_imports(self, parse):
+        _, edges, _ = parse("m.scala", self.SOURCE)
+        imports = {t for k, _, t in edges if k == "IMPORTS_FROM"}
+        assert imports == {"x.y.Z", "x.y.W"}
+
+    def test_object_supertypes_and_field_calls(self, parse):
+        _, edges, _ = parse("m.scala", self.SOURCE)
+        assert ("INHERITS", "<f>::O", "App") in edges
+        assert ("IMPLEMENTS", "<f>::O", "T") in edges
+        assert ("CALLS", "<f>::O", "proc") in edges
+
+    def test_nested_objects_and_givens(self, parse):
+        names, edges, _ = parse("m.scala", self.SOURCE)
+        assert ("Function", "n", "C.Nested") in names
+        assert ("CONTAINS", "<f>::C", "<f>::C.Nested") in edges
+        assert ("Function", "compare", "intOrd") in names
+        assert ("IMPLEMENTS", "<f>::intOrd", "Ordering") in edges
+
+    def test_auxiliary_constructor_has_no_self_call(self, parse):
+        _, edges, _ = parse("m.scala", self.SOURCE)
+        assert ("CALLS", "<f>::K.this", "<f>::K.this") not in edges
+        assert ("CALLS", "<f>::K.this", "aux") in edges

@@ -74,7 +74,8 @@ fn scala_walk_children(
             "import_declaration" => {
                 scala_emit_imports(child, source, file_path, edges);
             }
-            "trait_definition" | "class_definition" | "object_definition" | "enum_definition" => {
+            "trait_definition" | "class_definition" | "object_definition" | "enum_definition"
+            | "given_definition" => {
                 if let Some(name) = scala_direct_child_text(child, source, &["identifier"]) {
                     scala_emit_type(
                         child,
@@ -85,7 +86,11 @@ fn scala_walk_children(
                         nodes,
                         edges,
                     );
-                    scala_walk_children(child, source, file_path, Some(&name), None, nodes, edges);
+                    let path = match enclosing_class {
+                        Some(parent) => format!("{parent}.{name}"),
+                        None => name.clone(),
+                    };
+                    scala_walk_children(child, source, file_path, Some(&path), None, nodes, edges);
                     continue;
                 }
             }
@@ -173,6 +178,12 @@ fn scala_import_targets(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<Strin
             .split(',')
             .map(str::trim)
             .filter(|item| !item.is_empty())
+            .filter_map(|item| match item.split_once("=>") {
+                // `W => _` hides a name; `W => V` renames it but imports W.
+                Some((_, alias)) if alias.trim() == "_" => None,
+                Some((original, _)) => Some(original.trim()),
+                None => Some(item),
+            })
             .map(|item| format!("{prefix}.{}", scala_normalize_import_selector(item)))
             .collect();
     }
@@ -198,6 +209,8 @@ fn scala_emit_type(
     let (type_role, is_abstract, is_contract) = match node.kind() {
         "trait_definition" => ("trait", true, true),
         "enum_definition" => ("enum", false, false),
+        "object_definition" => ("object", false, false),
+        "given_definition" => ("given", false, false),
         _ if scala_is_case_class(node, source) => ("record", false, false),
         _ => ("class", false, false),
     };
@@ -231,19 +244,25 @@ fn scala_emit_type(
     });
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Contains,
-        source: file_path.to_string(),
+        source: enclosing_class
+            .map(|parent| qualify(file_path, parent, None))
+            .unwrap_or_else(|| file_path.to_string()),
         target: qualified.clone(),
         file_path: file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
-    if node.kind() == "class_definition" {
+    // A trait's supertypes are all contracts; for classes and objects the
+    // first `extends` target is the superclass and `with` targets are mixins.
+    let first_is_superclass = matches!(node.kind(), "class_definition" | "object_definition");
+    {
         for (idx, target) in scala_inheritance_targets(node, source)
             .into_iter()
             .enumerate()
         {
+            let is_superclass = idx == 0 && first_is_superclass;
             edges.push(ParsedEdge {
-                kind: if idx == 0 {
+                kind: if is_superclass {
                     crate::core::types::EdgeKind::Inherits
                 } else {
                     crate::core::types::EdgeKind::Implements
@@ -253,8 +272,8 @@ fn scala_emit_type(
                 file_path: file_path.clone(),
                 line: node.start_position().row as i64 + 1,
                 extra: json!({
-                    "relationship_role": if idx == 0 { "extends" } else { "implements" },
-                    "syntax_source": "class_definition",
+                    "relationship_role": if is_superclass { "extends" } else { "implements" },
+                    "syntax_source": node.kind(),
                 }),
             });
         }
@@ -316,10 +335,10 @@ fn scala_emit_call(
     enclosing_func: Option<&str>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let caller = enclosing_func
-        .map(|func| qualify(file_path, func, enclosing_class))
-        .unwrap_or_else(|| file_path.to_string());
-    if let Some(call_name) = scala_call_name(node, source) {
+    let caller = scala_caller(file_path, enclosing_class, enclosing_func);
+    // `this(...)` in an auxiliary constructor delegates to the primary
+    // constructor, not to the enclosing `this` definition.
+    if let Some(call_name) = scala_call_name(node, source).filter(|name| name != "this") {
         edges.push(ParsedEdge {
             kind: crate::core::types::EdgeKind::Calls,
             source: caller.clone(),
@@ -336,6 +355,18 @@ fn scala_emit_call(
     }
 }
 
+fn scala_caller(
+    file_path: &FilePath,
+    enclosing_class: Option<&str>,
+    enclosing_func: Option<&str>,
+) -> String {
+    match (enclosing_func, enclosing_class) {
+        (Some(func), _) => qualify(file_path, func, enclosing_class),
+        (None, Some(class)) => qualify(file_path, class, None),
+        (None, None) => file_path.to_string(),
+    }
+}
+
 fn scala_emit_instance_call(
     node: tree_sitter::Node<'_>,
     source: &[u8],
@@ -347,9 +378,7 @@ fn scala_emit_instance_call(
     let Some(target) = scala_first_descendant_text(node, source, &["type_identifier"]) else {
         return;
     };
-    let caller = enclosing_func
-        .map(|func| qualify(file_path, func, enclosing_class))
-        .unwrap_or_else(|| file_path.to_string());
+    let caller = scala_caller(file_path, enclosing_class, enclosing_func);
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Calls,
         source: caller,
@@ -449,7 +478,12 @@ fn scala_first_string_arg(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<
 }
 
 fn scala_inheritance_targets(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
-    let Some(extends) = scala_direct_child(node, &["extends_clause"]) else {
+    let extends = if node.kind() == "given_definition" {
+        Some(node)
+    } else {
+        scala_direct_child(node, &["extends_clause"])
+    };
+    let Some(extends) = extends else {
         return Vec::new();
     };
     let mut out = Vec::new();

@@ -1614,7 +1614,9 @@ object BridgeSamples:
             && edge.target == "Serializable"
     }));
     assert!(edges.iter().any(|edge| {
-        edge.kind == "CALLS" && edge.source == "sample.scala" && edge.target == "HashMap"
+        edge.kind == "CALLS"
+            && edge.source == "sample.scala::InMemoryRepo"
+            && edge.target == "HashMap"
     }));
     assert!(edges.iter().any(|edge| {
         edge.kind == "CROSS_ARTIFACT"
