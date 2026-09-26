@@ -79,13 +79,43 @@ fn swift_walk_children(
             }
             "class_declaration" | "protocol_declaration" => {
                 if let Some(name) = swift_type_name(child, context.source) {
-                    swift_emit_class(child, context, &name, nodes, edges);
-                    swift_walk_children(child, context, Some(&name), None, nodes, edges);
+                    // Extensions reopen an existing type, so they stay unscoped.
+                    let is_extension = swift_type_kind(child, context.source) == "extension";
+                    let parent = if is_extension { None } else { enclosing_class };
+                    swift_emit_class(child, context, &name, parent, nodes, edges);
+                    let path = match parent {
+                        Some(parent) => format!("{parent}.{name}"),
+                        None => name.clone(),
+                    };
+                    swift_walk_children(child, context, Some(&path), None, nodes, edges);
                     continue;
                 }
             }
-            "function_declaration" => {
+            "function_declaration" | "protocol_function_declaration" => {
                 if let Some(name) = swift_function_name(child, context.source) {
+                    swift_emit_function(child, context, &name, enclosing_class, nodes, edges);
+                    swift_walk_children(child, context, enclosing_class, Some(&name), nodes, edges);
+                    continue;
+                }
+            }
+            "init_declaration" | "deinit_declaration" if enclosing_class.is_some() => {
+                let name = if child.kind() == "init_declaration" {
+                    "init"
+                } else {
+                    "deinit"
+                };
+                swift_emit_function(child, context, name, enclosing_class, nodes, edges);
+                swift_walk_children(child, context, enclosing_class, Some(name), nodes, edges);
+                continue;
+            }
+            "property_declaration"
+                if enclosing_func.is_none()
+                    && swift_direct_child(child, &["computed_property"]).is_some() =>
+            {
+                if let Some(name) = swift_direct_child(child, &["pattern"])
+                    .and_then(|pattern| swift_direct_child(pattern, &["simple_identifier"]))
+                    .map(|ident| node_text(ident, context.source))
+                {
                     swift_emit_function(child, context, &name, enclosing_class, nodes, edges);
                     swift_walk_children(child, context, enclosing_class, Some(&name), nodes, edges);
                     continue;
@@ -111,10 +141,12 @@ fn swift_emit_class(
     node: tree_sitter::Node<'_>,
     context: &SwiftParseContext<'_>,
     name: &str,
+    parent: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
     let swift_kind = swift_type_kind(node, context.source);
+    let qualified = qualify(&context.file_path, name, parent);
     let (type_role, extra_flags) = match swift_kind.as_str() {
         "protocol" => (
             "protocol",
@@ -143,7 +175,7 @@ fn swift_emit_class(
         line_start: node.start_position().row as i64 + 1,
         line_end: node.end_position().row as i64 + 1,
         language: "swift".to_string(),
-        parent_name: None,
+        parent_name: parent.map(str::to_string),
         params: None,
         return_type: None,
         modifiers: None,
@@ -152,8 +184,10 @@ fn swift_emit_class(
     });
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Contains,
-        source: context.file_path.to_string(),
-        target: qualify(&context.file_path, name, None),
+        source: parent
+            .map(|parent| qualify(&context.file_path, parent, None))
+            .unwrap_or_else(|| context.file_path.to_string()),
+        target: qualified.clone(),
         file_path: context.file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
@@ -161,7 +195,7 @@ fn swift_emit_class(
     for base in swift_inheritance_targets(node, context.source) {
         edges.push(ParsedEdge {
             kind: crate::core::types::EdgeKind::Inherits,
-            source: qualify(&context.file_path, name, None),
+            source: qualified.clone(),
             target: base,
             file_path: context.file_path.clone(),
             line: node.start_position().row as i64 + 1,
@@ -219,9 +253,11 @@ fn swift_emit_call(
     enclosing_func: Option<&str>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let caller = enclosing_func
-        .map(|func| qualify(&context.file_path, func, enclosing_class))
-        .unwrap_or_else(|| context.file_path.to_string());
+    let caller = match (enclosing_func, enclosing_class) {
+        (Some(func), _) => qualify(&context.file_path, func, enclosing_class),
+        (None, Some(class)) => qualify(&context.file_path, class, None),
+        (None, None) => context.file_path.to_string(),
+    };
     if let Some(call_name) = swift_call_name(node, context.source) {
         edges.push(ParsedEdge {
             kind: crate::core::types::EdgeKind::Calls,
@@ -277,10 +313,11 @@ fn swift_function_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<Str
 }
 
 fn swift_inheritance_targets(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
-    let Some(specifier) = swift_direct_child(node, &["inheritance_specifier"]) else {
-        return Vec::new();
-    };
-    swift_descendant_texts(specifier, source, &["type_identifier"])
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .filter(|child| child.kind() == "inheritance_specifier")
+        .flat_map(|specifier| swift_descendant_texts(specifier, source, &["type_identifier"]))
+        .collect()
 }
 
 fn swift_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {

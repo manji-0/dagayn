@@ -287,3 +287,34 @@ given intOrd: Ordering[Int] with { def compare(a: Int, b: Int) = cmp(a, b) }
         _, edges, _ = parse("m.scala", self.SOURCE)
         assert ("CALLS", "<f>::K.this", "<f>::K.this") not in edges
         assert ("CALLS", "<f>::K.this", "aux") in edges
+
+
+class TestSwift:
+    SOURCE = """\
+protocol Greeter { func greet() -> String }
+struct Point: Equatable, Hashable {
+    var x: Int
+    var length: Int { return compute(x) }
+    init(x: Int) { self.x = setup(x) }
+    deinit { cleanup() }
+    enum Dir { case up; func flip() -> Dir { return reverse() } }
+}
+class Foo: Bar, Greeter { func greet() -> String { "" } }
+"""
+
+    def test_every_inheritance_specifier(self, parse):
+        _, edges, _ = parse("m.swift", self.SOURCE)
+        assert ("INHERITS", "<f>::Foo", "Greeter") in edges
+        assert ("INHERITS", "<f>::Point", "Hashable") in edges
+
+    def test_initializers_and_computed_properties(self, parse):
+        _, edges, _ = parse("m.swift", self.SOURCE)
+        assert ("CALLS", "<f>::Point.init", "setup") in edges
+        assert ("CALLS", "<f>::Point.deinit", "cleanup") in edges
+        assert ("CALLS", "<f>::Point.length", "compute") in edges
+
+    def test_nested_types_and_protocol_requirements(self, parse):
+        names, _, _ = parse("m.swift", self.SOURCE)
+        assert ("Function", "flip", "Point.Dir") in names
+        assert ("Class", "Dir", "Point") in names
+        assert ("Function", "greet", "Greeter") in names
