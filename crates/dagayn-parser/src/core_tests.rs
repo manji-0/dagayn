@@ -4389,6 +4389,202 @@ export function render() {
 }
 
 #[test]
+fn resolves_typescript_reexports_and_namespace_reexports() {
+    let mut repo_root = std::env::temp_dir();
+    repo_root.push(format!(
+        "dagayn-parser-ts-reexports-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    let _ = std::fs::remove_dir_all(&repo_root);
+    std::fs::create_dir_all(repo_root.join("src/barrel")).unwrap();
+    for (path, body) in [
+        (
+            "src/barrel/a.ts",
+            "export function fromA() {}\nexport class ClassA {}\nexport function shared() {}\nexport function winner() {}\nfunction hidden() {}\n",
+        ),
+        (
+            "src/barrel/b.ts",
+            "export function fromB() {}\nexport default function defaultB() {}\nexport function shared() {}\nexport function winner() {}\nexport function hidden() {}\nexport class Klass { m() {} }\n",
+        ),
+        (
+            "src/barrel/c.ts",
+            "export * from \"./index\";\nexport function fromC() {}\n",
+        ),
+        (
+            "src/barrel/index.ts",
+            r#"export * from "./a";
+export * from "./b";
+export * from "./c";
+export * as bns from "./b";
+export { fromB as renamedB, default as defB } from "./b";
+import { fromA } from "./a";
+export { fromA as localRenamed };
+import * as nsA from "./a";
+export { nsA };
+import defaultOfB from "./b";
+export default defaultOfB;
+export function winner() {}
+"#,
+        ),
+        (
+            "src/export-assign.ts",
+            "function main() {}\nexport = main;\n",
+        ),
+    ] {
+        std::fs::write(repo_root.join(path), body).unwrap();
+    }
+
+    let source = br#"import { fromA, renamedB, localRenamed, bns, ClassA, defB } from "./barrel";
+import { shared, winner, hidden, fromC, nsA } from "./barrel";
+import barrelDefault from "./barrel";
+import * as all from "./barrel";
+import assigned from "./export-assign";
+
+export function useBarrel() {
+  fromA();
+  renamedB();
+  localRenamed();
+  bns.fromB();
+  new ClassA();
+  defB();
+  shared();
+  winner();
+  hidden();
+  fromC();
+  nsA.fromA();
+  all.bns.fromB();
+  barrelDefault();
+  assigned();
+}
+
+export function typed(k: bns.Klass) {
+  k.m();
+}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "src/app.ts", source);
+    let call_at = |line: i64| {
+        edges
+            .iter()
+            .find(|edge| {
+                edge.kind == "CALLS" && edge.source == "src/app.ts::useBarrel" && edge.line == line
+            })
+            .map(|edge| edge.target.as_str())
+    };
+    for (line, target) in [
+        (8, "src/barrel/a.ts::fromA"),
+        (9, "src/barrel/b.ts::fromB"),
+        (10, "src/barrel/a.ts::fromA"),
+        (11, "src/barrel/b.ts::fromB"),
+        (12, "src/barrel/a.ts::ClassA"),
+        (13, "src/barrel/b.ts::defaultB"),
+        (15, "src/barrel/index.ts::winner"),
+        (16, "src/barrel/b.ts::hidden"),
+        (17, "src/barrel/c.ts::fromC"),
+        (18, "src/barrel/a.ts::fromA"),
+        (19, "src/barrel/b.ts::fromB"),
+        (20, "src/barrel/b.ts::defaultB"),
+        (21, "src/export-assign.ts::main"),
+    ] {
+        assert_eq!(call_at(line), Some(target), "line {line}: {edges:?}");
+    }
+    // `shared` is exported by both `export *` sources: ambiguous, so it
+    // binds to neither origin.
+    let shared = call_at(14);
+    assert!(
+        !matches!(
+            shared,
+            Some("src/barrel/a.ts::shared" | "src/barrel/b.ts::shared")
+        ),
+        "ambiguous star export resolved: {shared:?}"
+    );
+    // `bns.Klass` as a type enters the re-exported namespace.
+    assert!(
+        edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == "src/app.ts::typed"
+                && edge.target == "src/barrel/b.ts::Klass.m"
+        }),
+        "missing CALLS typed -> b.ts::Klass.m: {edges:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&repo_root);
+}
+
+#[test]
+fn resolves_javascript_commonjs_exports() {
+    let mut repo_root = std::env::temp_dir();
+    repo_root.push(format!(
+        "dagayn-parser-js-commonjs-exports-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    let _ = std::fs::remove_dir_all(&repo_root);
+    std::fs::create_dir_all(repo_root.join("src")).unwrap();
+    for (path, body) in [
+        (
+            "src/helpers.js",
+            "function helper() {}\nfunction other() {}\nmodule.exports = { helper, renamed: other };\n",
+        ),
+        (
+            "src/single.js",
+            "function config() {}\nmodule.exports = config;\n",
+        ),
+        (
+            "src/props.cjs",
+            "function one() {}\nfunction two() {}\nexports.one = one;\nmodule.exports.two = two;\n",
+        ),
+        ("src/barrel.js", "export * from \"./props.cjs\";\n"),
+    ] {
+        std::fs::write(repo_root.join(path), body).unwrap();
+    }
+
+    let source = br#"import helpers from "./helpers";
+import { helper, renamed } from "./helpers";
+import cfg from "./single";
+import { one, two } from "./props.cjs";
+import * as props from "./props.cjs";
+import { two as viaBarrel } from "./barrel";
+
+export function main() {
+  helper();
+  renamed();
+  cfg();
+  one();
+  two();
+  helpers.renamed();
+  props.one();
+  viaBarrel();
+}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "src/app.js", source);
+    let call_at = |line: i64| {
+        edges
+            .iter()
+            .find(|edge| {
+                edge.kind == "CALLS" && edge.source == "src/app.js::main" && edge.line == line
+            })
+            .map(|edge| edge.target.as_str())
+    };
+    for (line, target) in [
+        (9, "src/helpers.js::helper"),
+        (10, "src/helpers.js::other"),
+        (11, "src/single.js::config"),
+        (12, "src/props.cjs::one"),
+        (13, "src/props.cjs::two"),
+        (14, "src/helpers.js::other"),
+        (15, "src/props.cjs::one"),
+        (16, "src/props.cjs::two"),
+    ] {
+        assert_eq!(call_at(line), Some(target), "line {line}: {edges:?}");
+    }
+
+    let _ = std::fs::remove_dir_all(&repo_root);
+}
+
+#[test]
 fn parses_tsx_jsx_component_calls() {
     let mut repo_root = std::env::temp_dir();
     repo_root.push(format!(

@@ -7,8 +7,8 @@ use std::collections::{HashMap, HashSet};
 
 use super::js_like::{javascript_member_name, javascript_member_path};
 use super::js_modules::{
-    JavaScriptImported, JavaScriptParseContext, javascript_module_index,
-    resolve_javascript_import_binding_in, resolve_javascript_module_member_in,
+    JavaScriptExportResolution, JavaScriptParseContext, javascript_module_index,
+    resolve_javascript_import_path_in,
 };
 use super::qualify;
 use super::util::node_text;
@@ -420,32 +420,26 @@ pub(super) fn resolve_javascript_type_name(
         None => (name, None),
     };
     let binding = import_map.get(root)?;
-    let qualified = match (&binding.imported, rest) {
-        (JavaScriptImported::Namespace, Some(rest)) => {
-            let (member, tail) = match rest.split_once('.') {
-                Some((member, tail)) => (member, Some(tail)),
-                None => (rest, None),
-            };
-            let target = resolve_javascript_module_member_in(file, binding, member, context)?;
-            match tail {
-                Some(tail) => format!("{target}.{tail}"),
-                None => target,
-            }
-        }
-        (JavaScriptImported::Namespace, None) => return None,
-        (_, rest) => {
-            let target = resolve_javascript_import_binding_in(
-                file,
-                root,
-                binding,
-                context.repo_root,
-                context.caches,
-            )?;
-            match rest {
-                Some(rest) => format!("{target}.{rest}"),
-                None => target,
-            }
-        }
+    let segments = rest
+        .map(|rest| rest.split('.').collect::<Vec<_>>())
+        .unwrap_or_default();
+    // `ns.Type` / `bns.Type` (a re-exported namespace) enter the module
+    // object; a declaration reached first keeps the rest (`Outer.Inner`).
+    let (resolved, consumed) = resolve_javascript_import_path_in(
+        file,
+        root,
+        binding,
+        &segments,
+        context.repo_root,
+        context.caches,
+    )?;
+    let JavaScriptExportResolution::Symbol(target) = resolved else {
+        return None;
+    };
+    let qualified = if consumed == segments.len() {
+        target
+    } else {
+        format!("{target}.{}", segments[consumed..].join("."))
     };
     let ty = JavaScriptTypeRef::from_qualified(&qualified)?;
     lookup_class(context, &ty).map(|_| ty)

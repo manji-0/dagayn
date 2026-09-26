@@ -231,9 +231,36 @@ Imports are bound by `(module, exported name)`:
 The export index of the target module maps exported names to declarations:
 local declarations, `export { a as b }`, `export { a } from`, `export * from`,
 and `default` (`export default <declaration>`, an anonymous default named
-`default`, `export default ident`, `export { x as default }`). If a module has
-no default export at all, a default import falls back to the importer's local
-name, which keeps code that relies on bundler interop resolvable.
+`default`, `export default ident`, `export { x as default }`, TypeScript
+`export = ident`). If a module has no default export at all, a default import
+falls back to the importer's local name, which keeps code that relies on
+bundler interop resolvable.
+
+Re-exports are followed to the origin:
+
+- A local re-export of an import (`import { a } from "./x"; export { a as b }`,
+  `import X from "./x"; export default X`) follows that import.
+- `export * as ns from "./m"` (and `import * as ns from "./m"; export { ns }`)
+  exports the module object of `m`: `import { ns } from "./barrel"; ns.f()`
+  and `import * as b from "./barrel"; b.ns.f()` resolve to `m::f`, and
+  `ns.Type` to `m::Type`.
+- `export * from` follows ES semantics: sources are searched transitively
+  (cycles stop), explicit exports of the module win, `default` is never
+  re-exported, a source contributes only names it exports (declared with
+  `export` or listed in an export clause; every declaration of a `.d.ts`),
+  and a name that two sources export as different bindings is ambiguous and
+  binds to neither.
+
+CommonJS exports in `.js`, `.jsx`, and `.cjs` files feed the same index, for
+ES imports of CommonJS modules and for `require` bindings (#19): top-level
+`module.exports = { a, b: fn, c() {} }` exports `a`, `b` (-> `fn`), and `c`;
+`module.exports.x = V` and `exports.x = V` export `x` (-> `V` when it is an
+identifier); a `require("./m")` value is `m`'s module object. The exports
+object is the module's `default` (so `import m from "./cjs"; m.a()` resolves
+to `a`), unless `module.exports = X` names `X`. Dynamic patterns
+(`module.exports[k] =`, `Object.assign(module.exports, ...)`, assignments
+inside functions or blocks, `module.exports = require("./m")` re-exporting all
+of `m`'s names) are not read.
 
 ### 6.3 Module paths
 
@@ -366,7 +393,7 @@ the two lists are identical. Implemented (#16).
 | generators | `function*` / `async function*` declarations and generator methods are nodes in both languages |
 | JSX | `.js`, `.jsx`, and `.mjs` parse with JSX; component calls behave as in TSX |
 | test naming | `Test*` / `test_*` / `*_test` / `*_spec` names mark `Test` nodes only inside test files |
-| CommonJS | `require`, `module.exports`, and `exports.x` are planned (part 2/3, #18 and #19) |
+| CommonJS | `module.exports` and `exports.x` feed the export index (§6.2, #18); `require` bindings are planned (part 2/3, #19) |
 | types | JavaScript has no type syntax; JSDoc types are out of scope |
 
 ## 9. Out of scope
@@ -531,8 +558,12 @@ QNs omit the `file::` prefix.
 | `export { a as b }`, `export * from` | export index | implemented (existing) |
 | `export { x as default }`, `export default <decl>` | export index `default` | implemented (#9) |
 | `export { default as x } from "./b"` | followed to `b`'s default export | implemented (#9) |
-| local re-export of an import, `export * as ns from` | followed to the origin | planned (part 2/3, #18) |
-| `import fs = require("fs")`, `export =` | `IMPORTS_FROM`, export index default | planned (part 2/3, #18, #19) |
+| local re-export of an import, `export * as ns from` | followed to the origin | implemented (#18) |
+| `import { ns } from "./barrel"; ns.f()` for `export * as ns from "./m"` | `CALLS -> m::f` | implemented (#18) |
+| a name exported by two `export *` sources | ambiguous, bound to neither; an explicit export wins | implemented (#18) |
+| `module.exports = { a, b: fn }`, `module.exports.x =`, `exports.x =` | export index (named exports, exports object as `default`) | implemented (#18) |
+| `export =` | export index default | implemented (#18) |
+| `import fs = require("fs")` | `IMPORTS_FROM` | planned (part 2/3, #19) |
 
 ### 10.7 Type references
 

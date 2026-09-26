@@ -127,6 +127,21 @@ All notable changes to `dagayn` are documented here.
   slugs follow GitHub rules for closing hashes and inline links.
 - Markdown link extraction skips inline code spans and fenced code blocks, so
   documented link examples no longer create dangling `IMPORTS_FROM` edges.
+- JavaScript / TypeScript imports through barrels resolve to the origin in
+  more cases. A local re-export of an import (`import { a } from "./a";
+  export { a as b }`, `export default importedName`) follows the import
+  instead of pointing at the barrel (`barrel::a`). `export * as ns from
+  "./m"` exports `m`'s module object, so `import { ns } from "./barrel";
+  ns.f()` and `b.ns.f()` resolve to `m::f` (before, the statement was
+  ignored). `export * from` follows ES semantics: explicit exports win,
+  `default` is not re-exported, star sources contribute only what they
+  export, and a name exported by two star sources is ambiguous and binds to
+  neither (before, the first source's declaration won, exported or not).
+  CommonJS exports in `.js` / `.jsx` / `.cjs` files (`module.exports = {
+  a, b: fn }`, `module.exports.x =`, `exports.x =`) and TypeScript
+  `export = main` feed the export index, so ES imports of such modules
+  (`import { b } from "./cjs"`, `import m from "./cjs"; m.a()`) resolve to
+  the declarations.
 - JavaScript / TypeScript member calls bind only with evidence about the
   receiver. `this.repo.find()` resolves through the field's declared type
   (parameter properties such as `constructor(private repo: Repo)`, field

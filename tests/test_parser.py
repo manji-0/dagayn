@@ -1569,6 +1569,41 @@ class TestTypeRoleAndImplements:
         assert any(t.endswith("Button.tsx::DefaultCard") for t in targets), targets
         assert not any(t.endswith("::renamed") or t.endswith("::Card") for t in targets)
 
+    def test_reexports_namespace_reexports_and_commonjs_exports_bind_origins(self, tmp_path):
+        barrel = tmp_path / "barrel"
+        barrel.mkdir()
+        (barrel / "a.ts").write_text(
+            "export function fromA() {}\nexport function shared() {}\n", encoding="utf-8"
+        )
+        (barrel / "b.ts").write_text(
+            "export function fromB() {}\nexport function shared() {}\n", encoding="utf-8"
+        )
+        (barrel / "index.ts").write_text(
+            'export * from "./a";\nexport * from "./b";\nexport * as bns from "./b";\n'
+            'import { fromA } from "./a";\nexport { fromA as localRenamed };\n',
+            encoding="utf-8",
+        )
+        (tmp_path / "helpers.js").write_text(
+            "function other() {}\nmodule.exports = { renamed: other };\n", encoding="utf-8"
+        )
+        consumer = tmp_path / "app.ts"
+        consumer.write_text(
+            'import { localRenamed, bns, shared } from "./barrel";\n'
+            'import helpers from "./helpers.js";\n'
+            'import { renamed } from "./helpers.js";\n'
+            "export function run() {\n"
+            "  localRenamed();\n  bns.fromB();\n  shared();\n  helpers.renamed();\n  renamed();\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        _, edges = self.parser.parse_file(consumer)
+        by_line = {e.line: e.target for e in edges if e.kind == "CALLS"}
+        assert by_line[5].endswith("barrel/a.ts::fromA"), by_line
+        assert by_line[6].endswith("barrel/b.ts::fromB"), by_line
+        assert not by_line[7].endswith(("a.ts::shared", "b.ts::shared")), by_line
+        assert by_line[8].endswith("helpers.js::other"), by_line
+        assert by_line[9].endswith("helpers.js::other"), by_line
+
     def test_typescript_constructor_and_method_call_resolution(self, tmp_path):
         src = """
 interface Repo { find(): void; }

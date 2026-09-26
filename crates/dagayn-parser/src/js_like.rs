@@ -11,11 +11,11 @@ use super::js_members::{
     resolve_javascript_type_name,
 };
 use super::js_modules::{
-    JavaScriptCaches, JavaScriptImported, JavaScriptParseContext, collect_javascript_defined_names,
-    collect_javascript_import_map, collect_javascript_type_names, decode_javascript_string_literal,
-    javascript_child_text, javascript_function_name, javascript_import_targets,
-    javascript_module_index, javascript_named_child, resolve_javascript_call_target,
-    resolve_javascript_import_binding, resolve_javascript_module,
+    JavaScriptCaches, JavaScriptExportResolution, JavaScriptParseContext,
+    collect_javascript_defined_names, collect_javascript_import_map, collect_javascript_type_names,
+    decode_javascript_string_literal, javascript_child_text, javascript_function_name,
+    javascript_import_targets, javascript_module_index, javascript_named_child,
+    resolve_javascript_call_target, resolve_javascript_import_path_in, resolve_javascript_module,
     resolve_javascript_namespace_member,
 };
 use super::member_calls::MemberCallBindings;
@@ -2985,29 +2985,33 @@ fn javascript_imported_member_target(
         return None;
     }
     let binding = context.import_map.get(root)?;
-    let (container, rest) = match (&binding.imported, rest) {
-        (JavaScriptImported::Namespace, None) => {
-            return resolve_javascript_namespace_member(root, method, context);
-        }
-        (JavaScriptImported::Namespace, Some(rest)) => {
-            let (first, tail) = match rest.split_once('.') {
-                Some((first, tail)) => (first, Some(tail)),
-                None => (rest, None),
-            };
-            (
-                resolve_javascript_namespace_member(root, first, context)?,
-                tail,
-            )
-        }
-        (_, rest) => (
-            resolve_javascript_import_binding(root, binding, context)?,
-            rest,
-        ),
+    let mut segments = rest
+        .map(|rest| rest.split('.').collect::<Vec<_>>())
+        .unwrap_or_default();
+    segments.push(method);
+    // Module objects (`import * as ns`, `export * as ns from`, CommonJS
+    // exports) are entered segment by segment; the first declaration
+    // reached is the container of the rest of the path.
+    let (resolved, consumed) = resolve_javascript_import_path_in(
+        &context.file_path,
+        root,
+        binding,
+        &segments,
+        context.repo_root,
+        context.caches,
+    )?;
+    let JavaScriptExportResolution::Symbol(container) = resolved else {
+        return None;
     };
+    if consumed == segments.len() {
+        return Some(container);
+    }
     let container = JavaScriptTypeRef::from_qualified(&container)?;
-    let owner = match rest {
-        Some(rest) => format!("{}.{rest}", container.path),
-        None => container.path,
+    let rest = &segments[consumed..segments.len() - 1];
+    let owner = if rest.is_empty() {
+        container.path
+    } else {
+        format!("{}.{}", container.path, rest.join("."))
     };
     let member_path = format!("{owner}.{method}");
     let known = if container.file == context.file_path.as_str() {

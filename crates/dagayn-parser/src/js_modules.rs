@@ -25,6 +25,12 @@ pub(super) struct JavaScriptCaches<'a> {
 #[derive(Clone)]
 pub(super) struct JavaScriptExportIndex {
     defined_names: HashSet<String>,
+    /// Names declared with `export` (`export function f`, `export const x`,
+    /// `export declare ...`): what an `export *` of this module provides
+    /// besides `named_exports`.
+    exported_declarations: HashSet<String>,
+    /// `.d.ts`: every top-level declaration counts as exported.
+    declaration_file: bool,
     named_exports: HashMap<String, JavaScriptExportTarget>,
     star_exports: Vec<String>,
     /// Class / interface shapes declared in the module, for member calls on
@@ -42,15 +48,47 @@ impl JavaScriptExportIndex {
     fn has_default_export(&self) -> bool {
         self.defined_names.contains("default") || self.named_exports.contains_key("default")
     }
+
+    /// Whether `export * from` this module provides `name` directly
+    /// (declared or listed as an export here, not through its own stars).
+    fn exports_directly(&self, name: &str) -> bool {
+        self.named_exports.contains_key(name)
+            || self.exported_declarations.contains(name)
+            || (self.declaration_file && self.defined_names.contains(name))
+    }
 }
 
 #[derive(Clone)]
 pub(super) enum JavaScriptExportTarget {
+    /// A name of the module itself: a declaration, or an import it
+    /// re-exports (`import { a } from "./x"; export { a as b }`).
     Local(String),
     External {
         module_file: String,
         symbol_name: String,
     },
+    /// A module object: `export * as ns from "./m"`, CommonJS
+    /// `exports.x = require("./m")`, or the exports object of a CommonJS
+    /// module itself (its ES `default`).
+    Namespace(String),
+}
+
+/// What an exported name (or an import binding) resolves to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum JavaScriptExportResolution {
+    /// The declaration's QN, or the best-effort `module::name`.
+    Symbol(String),
+    /// A module object (by module file) whose members are its exports.
+    Namespace(String),
+}
+
+impl JavaScriptExportResolution {
+    fn into_symbol(self) -> Option<String> {
+        match self {
+            Self::Symbol(symbol) => Some(symbol),
+            Self::Namespace(_) => None,
+        }
+    }
 }
 
 /// What an import binds a local name to: the exporting module and the
@@ -273,49 +311,130 @@ pub(super) fn resolve_javascript_import_binding_in(
     repo_root: Option<&Path>,
     caches: JavaScriptCaches<'_>,
 ) -> Option<String> {
+    resolve_javascript_import_binding_target_in(
+        importer,
+        local_name,
+        binding,
+        repo_root,
+        caches,
+        &mut HashSet::new(),
+    )?
+    .into_symbol()
+}
+
+/// What an import binding written in `importer` names: a declaration, or a
+/// module object (`import * as ns`, a re-exported namespace, the exports
+/// object of a CommonJS module).
+fn resolve_javascript_import_binding_target_in(
+    importer: &str,
+    local_name: &str,
+    binding: &JavaScriptImportBinding,
+    repo_root: Option<&Path>,
+    caches: JavaScriptCaches<'_>,
+    seen: &mut HashSet<(String, String)>,
+) -> Option<JavaScriptExportResolution> {
+    let module_file = resolve_javascript_module(&binding.module, importer, repo_root, caches)?;
     let symbol = match &binding.imported {
         JavaScriptImported::Named(exported) => exported.as_str(),
         JavaScriptImported::Default => "default",
-        JavaScriptImported::Namespace => return None,
+        JavaScriptImported::Namespace => {
+            return Some(JavaScriptExportResolution::Namespace(module_file));
+        }
     };
-    let module_file = resolve_javascript_module(&binding.module, importer, repo_root, caches)?;
-    let mut seen = HashSet::new();
-    if let Some(target) =
-        resolve_javascript_exported_symbol(&module_file, symbol, repo_root, caches, &mut seen)
-    {
+    if let Some(target) = resolve_javascript_export(&module_file, symbol, repo_root, caches, seen) {
         return Some(target);
     }
-    if binding.imported == JavaScriptImported::Default {
+    let fallback = if binding.imported == JavaScriptImported::Default {
         if javascript_export_index(&module_file, repo_root, caches)
             .is_some_and(|index| !index.has_default_export())
         {
-            return resolve_javascript_exported_symbol(
-                &module_file,
-                local_name,
-                repo_root,
-                caches,
-                &mut HashSet::new(),
-            )
-            .or_else(|| Some(qualify(&module_file, local_name, None)));
+            if let Some(target) =
+                resolve_javascript_export(&module_file, local_name, repo_root, caches, seen)
+            {
+                return Some(target);
+            }
+            local_name
+        } else {
+            "default"
         }
-        return Some(qualify(&module_file, "default", None));
-    }
-    Some(qualify(&module_file, symbol, None))
+    } else {
+        symbol
+    };
+    Some(JavaScriptExportResolution::Symbol(qualify(
+        &module_file,
+        fallback,
+        None,
+    )))
 }
 
-/// `ns.member` where `ns` is a namespace (or default) import binding:
-/// the member exported by that module.
+/// Walks `root.a.b` written in `importer`, where `root` is an import
+/// binding: while the value is a module object (`import * as ns`,
+/// `export * as ns from`, a CommonJS exports object), the next segment is
+/// looked up among that module's exports. A declaration stops the walk.
+/// Returns the final value and the number of `segments` consumed; the
+/// caller reads the rest as a member path of the declaration.
+pub(super) fn resolve_javascript_import_path_in(
+    importer: &str,
+    root: &str,
+    binding: &JavaScriptImportBinding,
+    segments: &[&str],
+    repo_root: Option<&Path>,
+    caches: JavaScriptCaches<'_>,
+) -> Option<(JavaScriptExportResolution, usize)> {
+    let mut current = resolve_javascript_import_binding_target_in(
+        importer,
+        root,
+        binding,
+        repo_root,
+        caches,
+        &mut HashSet::new(),
+    )?;
+    let mut consumed = 0;
+    while let JavaScriptExportResolution::Namespace(module_file) = &current {
+        let Some(segment) = segments.get(consumed) else {
+            break;
+        };
+        current =
+            resolve_javascript_export(module_file, segment, repo_root, caches, &mut HashSet::new())
+                .unwrap_or_else(|| {
+                    JavaScriptExportResolution::Symbol(qualify(module_file, segment, None))
+                });
+        consumed += 1;
+    }
+    Some((current, consumed))
+}
+
+/// `ns.member` where `ns` is a namespace (or default) import binding, or a
+/// named import of a re-exported namespace: the member exported by that
+/// module.
 pub(super) fn resolve_javascript_namespace_member(
     root: &str,
     member: &str,
     context: &JavaScriptParseContext<'_>,
 ) -> Option<String> {
     let binding = context.import_map.get(root)?;
-    match binding.imported {
-        JavaScriptImported::Namespace | JavaScriptImported::Default => {
+    let target = resolve_javascript_import_binding_target_in(
+        &context.file_path,
+        root,
+        binding,
+        context.repo_root,
+        context.caches,
+        &mut HashSet::new(),
+    );
+    match target {
+        Some(JavaScriptExportResolution::Namespace(module_file)) => {
+            resolve_javascript_module_symbol(
+                &module_file,
+                member,
+                context.repo_root,
+                context.caches,
+            )
+        }
+        // `<X.C />` / `extends X.C` on a default import: CommonJS interop.
+        _ if binding.imported == JavaScriptImported::Default => {
             resolve_javascript_imported_symbol(member, &binding.module, context)
         }
-        JavaScriptImported::Named(_) => None,
+        _ => None,
     }
 }
 
@@ -330,61 +449,156 @@ pub(super) fn resolve_javascript_imported_symbol(
         context.repo_root,
         context.caches,
     )?;
-    resolve_javascript_exported_symbol(
-        &module_file,
-        symbol_name,
-        context.repo_root,
-        context.caches,
-        &mut HashSet::new(),
-    )
-    .or_else(|| Some(qualify(&module_file, symbol_name, None)))
+    resolve_javascript_module_symbol(&module_file, symbol_name, context.repo_root, context.caches)
 }
 
-fn resolve_javascript_exported_symbol(
+/// `symbol_name` exported by `module_file` as a declaration QN: the origin
+/// it resolves to, `module::name` when unresolved, `None` when it names a
+/// module object.
+fn resolve_javascript_module_symbol(
+    module_file: &str,
+    symbol_name: &str,
+    repo_root: Option<&Path>,
+    caches: JavaScriptCaches<'_>,
+) -> Option<String> {
+    match resolve_javascript_export(
+        module_file,
+        symbol_name,
+        repo_root,
+        caches,
+        &mut HashSet::new(),
+    ) {
+        Some(resolution) => resolution.into_symbol(),
+        None => Some(qualify(module_file, symbol_name, None)),
+    }
+}
+
+/// `symbol_name` as `module_file` exports it, following re-exports to the
+/// origin. The module's own declarations resolve even when they are not
+/// exported (a lenient lookup that keeps bundler-style code resolvable);
+/// what `export *` sources contribute follows ES semantics
+/// ([`resolve_javascript_declared_export`]). `seen` breaks cycles.
+fn resolve_javascript_export(
     module_file: &str,
     symbol_name: &str,
     repo_root: Option<&Path>,
     caches: JavaScriptCaches<'_>,
     seen: &mut HashSet<(String, String)>,
-) -> Option<String> {
-    let key = (module_file.to_string(), symbol_name.to_string());
-    if !seen.insert(key) {
+) -> Option<JavaScriptExportResolution> {
+    if !seen.insert((module_file.to_string(), symbol_name.to_string())) {
         return None;
     }
     let index = javascript_export_index(module_file, repo_root, caches)?;
     if index.defined_names.contains(symbol_name) {
-        return Some(qualify(module_file, symbol_name, None));
-    }
-    if let Some(target) = index.named_exports.get(symbol_name) {
-        return match target {
-            JavaScriptExportTarget::Local(original_name) => {
-                Some(qualify(module_file, original_name, None))
-            }
-            JavaScriptExportTarget::External {
-                module_file,
-                symbol_name,
-            } => resolve_javascript_exported_symbol(
-                module_file,
-                symbol_name,
-                repo_root,
-                caches,
-                seen,
-            )
-            .or_else(|| Some(qualify(module_file, symbol_name, None))),
-        };
-    }
-    for exported_module in &index.star_exports {
-        if let Some(result) = resolve_javascript_exported_symbol(
-            exported_module,
+        return Some(JavaScriptExportResolution::Symbol(qualify(
+            module_file,
             symbol_name,
+            None,
+        )));
+    }
+    resolve_javascript_declared_export(module_file, &index, symbol_name, repo_root, caches, seen)
+}
+
+/// `symbol_name` among what `module_file` actually exports: explicit
+/// exports first (they shadow star exports), then `export *` sources.
+/// `export *` never re-exports `default`, and a name that several star
+/// sources export as different bindings is ambiguous and not exported.
+fn resolve_javascript_declared_export(
+    module_file: &str,
+    index: &JavaScriptExportIndex,
+    symbol_name: &str,
+    repo_root: Option<&Path>,
+    caches: JavaScriptCaches<'_>,
+    seen: &mut HashSet<(String, String)>,
+) -> Option<JavaScriptExportResolution> {
+    if let Some(target) = index.named_exports.get(symbol_name) {
+        return Some(resolve_javascript_export_target(
+            module_file,
+            index,
+            target,
             repo_root,
             caches,
             seen,
-        ) {
-            return Some(result);
+        ));
+    }
+    if index.exports_directly(symbol_name) {
+        return Some(JavaScriptExportResolution::Symbol(qualify(
+            module_file,
+            symbol_name,
+            None,
+        )));
+    }
+    if symbol_name == "default" {
+        return None;
+    }
+    let mut found = None;
+    for star_module in &index.star_exports {
+        // Each source walks with its own copy of the visited set, so two
+        // sources re-exporting one origin agree instead of the second one
+        // stopping early at a shared intermediate module.
+        let mut seen = seen.clone();
+        if !seen.insert((star_module.clone(), symbol_name.to_string())) {
+            continue;
+        }
+        let Some(star_index) = javascript_export_index(star_module, repo_root, caches) else {
+            continue;
+        };
+        let Some(result) = resolve_javascript_declared_export(
+            star_module,
+            &star_index,
+            symbol_name,
+            repo_root,
+            caches,
+            &mut seen,
+        ) else {
+            continue;
+        };
+        match &found {
+            None => found = Some(result),
+            Some(existing) if *existing == result => {}
+            Some(_) => return None,
         }
     }
-    None
+    found
+}
+
+fn resolve_javascript_export_target(
+    module_file: &str,
+    index: &JavaScriptExportIndex,
+    target: &JavaScriptExportTarget,
+    repo_root: Option<&Path>,
+    caches: JavaScriptCaches<'_>,
+    seen: &mut HashSet<(String, String)>,
+) -> JavaScriptExportResolution {
+    match target {
+        JavaScriptExportTarget::Local(original_name) => {
+            // `import { a } from "./x"; export { a as b }` follows the import.
+            if !index.defined_names.contains(original_name)
+                && let Some(binding) = index.import_map.get(original_name)
+                && let Some(resolved) = resolve_javascript_import_binding_target_in(
+                    module_file,
+                    original_name,
+                    binding,
+                    repo_root,
+                    caches,
+                    seen,
+                )
+            {
+                return resolved;
+            }
+            JavaScriptExportResolution::Symbol(qualify(module_file, original_name, None))
+        }
+        JavaScriptExportTarget::External {
+            module_file,
+            symbol_name,
+        } => resolve_javascript_export(module_file, symbol_name, repo_root, caches, seen)
+            .unwrap_or_else(|| {
+                JavaScriptExportResolution::Symbol(qualify(module_file, symbol_name, None))
+            }),
+        JavaScriptExportTarget::Namespace(module_file) => {
+            JavaScriptExportResolution::Namespace(module_file.clone())
+        }
+    }
 }
 
 /// The export index of a resolved module file (cached).
@@ -393,26 +607,6 @@ pub(super) fn javascript_module_index(
     context: &JavaScriptParseContext<'_>,
 ) -> Option<JavaScriptExportIndex> {
     javascript_export_index(module_file, context.repo_root, context.caches)
-}
-
-/// `member` of the module that a namespace or default import in `importer`
-/// names (`ns.Base` -> `lib/base.ts::Base`).
-pub(super) fn resolve_javascript_module_member_in(
-    importer: &str,
-    binding: &JavaScriptImportBinding,
-    member: &str,
-    context: &JavaScriptParseContext<'_>,
-) -> Option<String> {
-    let module_file =
-        resolve_javascript_module(&binding.module, importer, context.repo_root, context.caches)?;
-    resolve_javascript_exported_symbol(
-        &module_file,
-        member,
-        context.repo_root,
-        context.caches,
-        &mut HashSet::new(),
-    )
-    .or_else(|| Some(qualify(&module_file, member, None)))
 }
 
 fn javascript_export_index(
@@ -453,13 +647,29 @@ fn javascript_export_index_uncached(
     collect_javascript_import_map(root, &source, &mut import_map);
     let mut named_exports = HashMap::new();
     let mut star_exports = Vec::new();
+    let mut exported_declarations = HashSet::new();
+    let resolve =
+        |specifier: &str| resolve_javascript_module(specifier, module_file, repo_root, caches);
 
     let mut cursor = root.walk();
     for child in root.children(&mut cursor) {
+        if javascript_is_commonjs_module_file(module_file) && child.kind() == "expression_statement"
+        {
+            collect_javascript_commonjs_export(
+                child,
+                &source,
+                module_file,
+                &resolve,
+                &mut named_exports,
+            );
+            continue;
+        }
         if child.kind() != "export_statement" {
             continue;
         }
-        if let Some(target) = javascript_default_export_target(child, &source, &defined_names) {
+        if let Some(target) =
+            javascript_default_export_target(child, &source, &defined_names, &import_map)
+        {
             match target {
                 JavaScriptDefaultExport::Anonymous => {
                     defined_names.insert("default".to_string());
@@ -471,9 +681,13 @@ fn javascript_export_index_uncached(
             }
             continue;
         }
-        let (export_clause, target_module, has_star_export) =
-            javascript_export_statement_parts(child, &source);
-        if let Some(export_clause) = export_clause {
+        if let Some(declaration) = child.child_by_field_name("declaration") {
+            collect_javascript_declaration_names(declaration, &source, &mut exported_declarations);
+            continue;
+        }
+        let parts = javascript_export_statement_parts(child, &source);
+        let resolved_module = parts.target_module.as_deref().and_then(&resolve);
+        if let Some(export_clause) = parts.export_clause {
             let mut clause_cursor = export_clause.walk();
             for spec in export_clause.children(&mut clause_cursor) {
                 if spec.kind() != "export_specifier" {
@@ -485,46 +699,38 @@ fn javascript_export_index_uncached(
                 else {
                     continue;
                 };
-                let exported_name = &spec
+                let exported_name = spec
                     .child_by_field_name("alias")
                     .map(|alias| javascript_module_export_name(alias, &source))
                     .unwrap_or_else(|| original_name.clone());
-                let original_name = &original_name;
-                if let Some(target_module) = target_module.as_deref() {
-                    if let Some(resolved_module) =
-                        resolve_javascript_module(target_module, module_file, repo_root, caches)
-                    {
-                        named_exports.insert(
-                            exported_name.clone(),
-                            JavaScriptExportTarget::External {
-                                module_file: resolved_module,
-                                symbol_name: original_name.clone(),
-                            },
-                        );
-                    }
-                } else {
-                    named_exports.insert(
-                        exported_name.clone(),
-                        JavaScriptExportTarget::Local(original_name.clone()),
-                    );
-                }
+                let target = match (&parts.target_module, &resolved_module) {
+                    (None, _) => JavaScriptExportTarget::Local(original_name),
+                    (Some(_), Some(resolved_module)) => JavaScriptExportTarget::External {
+                        module_file: resolved_module.clone(),
+                        symbol_name: original_name,
+                    },
+                    (Some(_), None) => continue,
+                };
+                named_exports.insert(exported_name, target);
             }
         }
-
-        if has_star_export {
-            let Some(target_module) = target_module.as_deref() else {
-                continue;
-            };
-            let Some(resolved_module) =
-                resolve_javascript_module(target_module, module_file, repo_root, caches)
-            else {
-                continue;
-            };
+        let Some(resolved_module) = resolved_module else {
+            continue;
+        };
+        if let Some(namespace) = parts.namespace_export {
+            // `export * as ns from "./m"`: `ns` is the module object of `m`.
+            named_exports.insert(
+                namespace,
+                JavaScriptExportTarget::Namespace(resolved_module),
+            );
+        } else if parts.has_star_export {
             star_exports.push(resolved_module);
         }
     }
     Some(JavaScriptExportIndex {
         defined_names,
+        exported_declarations,
+        declaration_file: javascript_is_declaration_file(module_file),
         named_exports,
         star_exports,
         class_table: Arc::new(collect_javascript_class_table(root, &source)),
@@ -548,12 +754,21 @@ fn javascript_default_export_target(
     node: tree_sitter::Node<'_>,
     source: &[u8],
     defined_names: &HashSet<String>,
+    import_map: &JavaScriptImportMap,
 ) -> Option<JavaScriptDefaultExport> {
+    let known = |name: &String| defined_names.contains(name) || import_map.contains_key(name);
     let mut cursor = node.walk();
-    if !node
-        .children(&mut cursor)
-        .any(|child| child.kind() == "default")
-    {
+    let children = node.children(&mut cursor).collect::<Vec<_>>();
+    // TypeScript `export = main;` is the module's default for ES imports.
+    if let Some(position) = children.iter().position(|child| child.kind() == "=") {
+        let value = children[position + 1..]
+            .iter()
+            .find(|child| child.is_named())?;
+        let name = node_text(*value, source);
+        return (value.kind() == "identifier" && known(&name))
+            .then_some(JavaScriptDefaultExport::Named(name));
+    }
+    if !children.iter().any(|child| child.kind() == "default") {
         return None;
     }
     if let Some(declaration) = node.child_by_field_name("declaration") {
@@ -563,11 +778,11 @@ fn javascript_default_export_target(
     }
     let value = node.child_by_field_name("value")?;
     match value.kind() {
+        // `export default impl;`, including an imported `impl` (followed
+        // to its origin like any other local re-export).
         "identifier" => {
             let name = node_text(value, source);
-            defined_names
-                .contains(&name)
-                .then_some(JavaScriptDefaultExport::Named(name))
+            known(&name).then_some(JavaScriptDefaultExport::Named(name))
         }
         "class" | "function_expression" | "function" | "generator_function" => Some(
             value
@@ -578,6 +793,219 @@ fn javascript_default_export_target(
         "arrow_function" | "object" | "as_expression" | "satisfies_expression" => {
             Some(JavaScriptDefaultExport::Anonymous)
         }
+        _ => None,
+    }
+}
+
+fn javascript_is_declaration_file(module_file: &str) -> bool {
+    [".d.ts", ".d.mts", ".d.cts"]
+        .iter()
+        .any(|suffix| ends_with_ascii_ignore_case(module_file, suffix))
+}
+
+/// Files whose top-level `module.exports` / `exports.x` assignments are
+/// read as CommonJS exports.
+fn javascript_is_commonjs_module_file(module_file: &str) -> bool {
+    [".js", ".jsx", ".cjs"]
+        .iter()
+        .any(|suffix| ends_with_ascii_ignore_case(module_file, suffix))
+}
+
+/// Names bound by the declaration of an `export <declaration>` statement.
+fn collect_javascript_declaration_names(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    names: &mut HashSet<String>,
+) {
+    match node.kind() {
+        "lexical_declaration" | "variable_declaration" => {
+            let mut cursor = node.walk();
+            for declarator in node.children(&mut cursor) {
+                if declarator.kind() == "variable_declarator"
+                    && let Some(name) = declarator.child_by_field_name("name")
+                    && name.kind() == "identifier"
+                {
+                    names.insert(node_text(name, source));
+                }
+            }
+        }
+        "internal_module" | "module" => {
+            if let Some(name) = node.child_by_field_name("name") {
+                let root = match name.kind() {
+                    "nested_identifier" => javascript_leftmost_segment(name, source),
+                    "identifier" => Some(node_text(name, source)),
+                    _ => None,
+                };
+                names.extend(root);
+            }
+        }
+        // `export declare function f(): void;` / `export declare const x`.
+        "ambient_declaration" => {
+            let mut cursor = node.walk();
+            for child in node.named_children(&mut cursor) {
+                collect_javascript_declaration_names(child, source, names);
+            }
+        }
+        _ => {
+            if let Some(name) = node.child_by_field_name("name")
+                && matches!(name.kind(), "identifier" | "type_identifier")
+            {
+                names.insert(node_text(name, source));
+            }
+        }
+    }
+}
+
+/// Reads one top-level CommonJS export statement:
+///
+/// - `module.exports = { a, b: fn, c() {} }` exports `a`, `b` (-> `fn`),
+///   and `c`; the object itself is the module's ES `default`
+/// - `module.exports = X` makes `X` the `default`
+/// - `module.exports.x = V` / `exports.x = V` export `x` (-> `V` when it is
+///   an identifier); the exports object is the `default`
+///
+/// A `require("./m")` value is `m`'s module object. Other values (function
+/// expressions, calls) keep the exported name itself as the target.
+fn collect_javascript_commonjs_export(
+    statement: tree_sitter::Node<'_>,
+    source: &[u8],
+    module_file: &str,
+    resolve: &dyn Fn(&str) -> Option<String>,
+    named_exports: &mut HashMap<String, JavaScriptExportTarget>,
+) {
+    let Some(assignment) = statement
+        .named_child(0)
+        .filter(|node| node.kind() == "assignment_expression")
+    else {
+        return;
+    };
+    let (Some(left), Some(right)) = (
+        assignment.child_by_field_name("left"),
+        assignment.child_by_field_name("right"),
+    ) else {
+        return;
+    };
+    let self_namespace = || JavaScriptExportTarget::Namespace(module_file.to_string());
+    if javascript_is_module_exports(left, source) {
+        if right.kind() == "object" {
+            collect_javascript_commonjs_object_exports(right, source, resolve, named_exports);
+            named_exports.insert("default".to_string(), self_namespace());
+        } else if let Some(target) = javascript_commonjs_value_target(right, source, resolve) {
+            named_exports.insert("default".to_string(), target);
+        }
+        return;
+    }
+    let Some(name) = javascript_commonjs_export_property(left, source) else {
+        return;
+    };
+    let target = javascript_commonjs_value_target(right, source, resolve)
+        .unwrap_or_else(|| JavaScriptExportTarget::Local(name.clone()));
+    named_exports.insert(name, target);
+    named_exports
+        .entry("default".to_string())
+        .or_insert_with(self_namespace);
+}
+
+fn collect_javascript_commonjs_object_exports(
+    object: tree_sitter::Node<'_>,
+    source: &[u8],
+    resolve: &dyn Fn(&str) -> Option<String>,
+    named_exports: &mut HashMap<String, JavaScriptExportTarget>,
+) {
+    let mut cursor = object.walk();
+    for member in object.named_children(&mut cursor) {
+        let (name, target) = match member.kind() {
+            "shorthand_property_identifier" => {
+                let name = node_text(member, source);
+                (name.clone(), JavaScriptExportTarget::Local(name))
+            }
+            "pair" => {
+                let Some(name) = member
+                    .child_by_field_name("key")
+                    .and_then(|key| javascript_property_key_name(key, source))
+                else {
+                    continue;
+                };
+                let target = member
+                    .child_by_field_name("value")
+                    .and_then(|value| javascript_commonjs_value_target(value, source, resolve))
+                    .unwrap_or_else(|| JavaScriptExportTarget::Local(name.clone()));
+                (name, target)
+            }
+            "method_definition" => {
+                let Some(name) = member
+                    .child_by_field_name("name")
+                    .and_then(|key| javascript_property_key_name(key, source))
+                else {
+                    continue;
+                };
+                (name.clone(), JavaScriptExportTarget::Local(name))
+            }
+            _ => continue,
+        };
+        named_exports.insert(name, target);
+    }
+}
+
+/// `module.exports`.
+fn javascript_is_module_exports(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    node.kind() == "member_expression"
+        && node.child_by_field_name("object").is_some_and(|object| {
+            object.kind() == "identifier" && node_text(object, source) == "module"
+        })
+        && node
+            .child_by_field_name("property")
+            .is_some_and(|property| node_text(property, source) == "exports")
+}
+
+/// `x` of `module.exports.x` / `exports.x`.
+fn javascript_commonjs_export_property(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> Option<String> {
+    if node.kind() != "member_expression" {
+        return None;
+    }
+    let object = node.child_by_field_name("object")?;
+    let property = node.child_by_field_name("property")?;
+    let exports_object = (object.kind() == "identifier" && node_text(object, source) == "exports")
+        || javascript_is_module_exports(object, source);
+    (exports_object && property.kind() == "property_identifier")
+        .then(|| node_text(property, source))
+}
+
+/// The export target of a CommonJS export value: an identifier, or the
+/// module object of `require("./m")`.
+fn javascript_commonjs_value_target(
+    value: tree_sitter::Node<'_>,
+    source: &[u8],
+    resolve: &dyn Fn(&str) -> Option<String>,
+) -> Option<JavaScriptExportTarget> {
+    match value.kind() {
+        "identifier" => Some(JavaScriptExportTarget::Local(node_text(value, source))),
+        "call_expression" => {
+            let function = value.child_by_field_name("function")?;
+            if function.kind() != "identifier" || node_text(function, source) != "require" {
+                return None;
+            }
+            let arguments = value.child_by_field_name("arguments")?;
+            let mut cursor = arguments.walk();
+            let specifier = arguments
+                .named_children(&mut cursor)
+                .next()
+                .filter(|argument| argument.kind() == "string")?;
+            let module = resolve(&decode_javascript_string_literal(specifier, source))?;
+            Some(JavaScriptExportTarget::Namespace(module))
+        }
+        _ => None,
+    }
+}
+
+/// A static object key: `a`, `"a"`, `'a'`.
+fn javascript_property_key_name(key: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    match key.kind() {
+        "property_identifier" | "identifier" => Some(node_text(key, source)),
+        "string" => Some(decode_javascript_string_literal(key, source)),
         _ => None,
     }
 }
@@ -614,23 +1042,45 @@ fn new_javascript_module_parser(module_file: &str) -> Option<tree_sitter::Parser
     None
 }
 
+/// The pieces of a (non-default) `export` statement.
+struct JavaScriptExportStatementParts<'a> {
+    /// `{ a, b as c }`.
+    export_clause: Option<tree_sitter::Node<'a>>,
+    /// The `from "..."` specifier.
+    target_module: Option<String>,
+    /// `export * from`.
+    has_star_export: bool,
+    /// `ns` of `export * as ns from`.
+    namespace_export: Option<String>,
+}
+
 fn javascript_export_statement_parts<'a>(
     node: tree_sitter::Node<'a>,
     source: &[u8],
-) -> (Option<tree_sitter::Node<'a>>, Option<String>, bool) {
-    let mut export_clause = None;
-    let mut target_module = None;
-    let mut has_star_export = false;
+) -> JavaScriptExportStatementParts<'a> {
+    let mut parts = JavaScriptExportStatementParts {
+        export_clause: None,
+        target_module: None,
+        has_star_export: false,
+        namespace_export: None,
+    };
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         match child.kind() {
-            "export_clause" => export_clause = Some(child),
-            "string" => target_module = Some(decode_javascript_string_literal(child, source)),
-            "*" => has_star_export = true,
+            "export_clause" => parts.export_clause = Some(child),
+            "string" => parts.target_module = Some(decode_javascript_string_literal(child, source)),
+            "*" => parts.has_star_export = true,
+            "namespace_export" => {
+                let mut inner = child.walk();
+                parts.namespace_export = child
+                    .named_children(&mut inner)
+                    .last()
+                    .map(|name| javascript_module_export_name(name, source));
+            }
             _ => {}
         }
     }
-    (export_clause, target_module, has_star_export)
+    parts
 }
 
 pub(super) fn collect_javascript_import_map(
