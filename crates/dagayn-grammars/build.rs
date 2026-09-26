@@ -219,19 +219,6 @@ const SCALA: GrammarSpec = GrammarSpec {
     parser_subdirectory: None,
 };
 
-const SOLIDITY: GrammarSpec = GrammarSpec {
-    language: "solidity",
-    symbol: "solidity",
-    required_paths: &[
-        "src/parser.c",
-        "src/tree_sitter/alloc.h",
-        "src/tree_sitter/array.h",
-        "src/tree_sitter/parser.h",
-        "bindings/python/tree_sitter_solidity/binding.c",
-    ],
-    parser_subdirectory: None,
-};
-
 const DART: GrammarSpec = GrammarSpec {
     language: "dart",
     symbol: "dart",
@@ -256,20 +243,6 @@ const LUA: GrammarSpec = GrammarSpec {
         "src/tree_sitter/array.h",
         "src/tree_sitter/parser.h",
         "bindings/python/tree_sitter_lua/binding.c",
-    ],
-    parser_subdirectory: None,
-};
-
-const LUAU: GrammarSpec = GrammarSpec {
-    language: "luau",
-    symbol: "luau",
-    required_paths: &[
-        "src/parser.c",
-        "src/scanner.c",
-        "src/tree_sitter/alloc.h",
-        "src/tree_sitter/array.h",
-        "src/tree_sitter/parser.h",
-        "bindings/python/binding.c",
     ],
     parser_subdirectory: None,
 };
@@ -482,10 +455,8 @@ fn main() {
     compile_grammar(&repo_root, &PHP);
     compile_grammar(&repo_root, &KOTLIN);
     compile_grammar(&repo_root, &SCALA);
-    compile_grammar(&repo_root, &SOLIDITY);
     compile_grammar(&repo_root, &DART);
     compile_grammar(&repo_root, &LUA);
-    compile_grammar(&repo_root, &LUAU);
     compile_grammar(&repo_root, &C);
     compile_grammar(&repo_root, &CPP);
     compile_grammar(&repo_root, &OBJC);

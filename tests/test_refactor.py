@@ -770,15 +770,6 @@ class TestFindDeadCode:
             ),
             NodeInfo(
                 kind="Class",
-                name="IPool",
-                file_path="/repo/contracts/IPool.sol",
-                line_start=5,
-                line_end=20,
-                language="solidity",
-                extra={"is_contract": True, "is_abstract": True, "type_role": "interface"},
-            ),
-            NodeInfo(
-                kind="Class",
                 name="BaseEvent",
                 file_path="/repo/src/events.jl",
                 line_start=5,
@@ -805,7 +796,6 @@ class TestFindDeadCode:
         assert "/repo/services/_protocol.py::UserStoreProtocol" not in dead_qnames
         assert "/repo/src/backend/cli.ts::ExecError" not in dead_qnames
         assert "/repo/src/lib.rs::Repository" not in dead_qnames
-        assert "/repo/contracts/IPool.sol::IPool" not in dead_qnames
         assert "/repo/src/events.jl::BaseEvent" not in dead_qnames
         assert "/repo/src/worker.py::ConcreteWorker" in dead_qnames
 

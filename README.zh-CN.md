@@ -45,7 +45,7 @@
 
 主要包括：
 
-- Python, JavaScript, TypeScript, TSX, Go, Rust, Java, C, C++, C#, Ruby, PHP, Kotlin, Swift, Scala, Solidity, Dart, Lua, Luau, Objective-C, Bash, Elixir, Zig, PowerShell, Julia, Perl, R, GDScript, Vue, Svelte, Astro
+- Python, JavaScript, TypeScript, TSX, Go, Rust, Java, C, C++, C#, Ruby, PHP, Kotlin, Swift, Scala, Dart, Lua, Objective-C, Bash, Elixir, Zig, PowerShell, Julia, Perl, R, GDScript, Vue, Svelte, Astro
 - Markdown
 - Jupyter 笔记本、Databricks 笔记本源码/导出、以及 marimo `.py` / `.md` 笔记本作为图谱输入解析
 - Terraform
@@ -217,7 +217,7 @@ dagayn install --mode remote-embedding --provider minimax
 
 图谱存储、解析器、FTS、流程和后处理运行在原生 Rust 扩展（`dagayn._core`）中。没有可回退的 Python 图谱引擎：`DAGAYN_BACKEND=python` 会被拒绝。混合搜索排序和 manifest-bridge 提取仍留在 Python。
 
-解析器覆盖 Markdown、Terraform、Rust、Python/笔记本、Bash、Go、Java、Ruby、C#、PHP、Kotlin、Swift、Scala、Solidity、Dart、Lua、Luau、C / C 头文件 / Perl XS、C++、Objective-C、Elixir、GDScript、R、Julia、Perl、Vue、Svelte、Zig、PowerShell、受支持脚本语言的无扩展名 shebang 脚本，以及核心 JavaScript / JSX / TypeScript / TSX / Astro 文件：
+解析器覆盖 Markdown、Terraform、Rust、Python/笔记本、Bash、Go、Java、Ruby、C#、PHP、Kotlin、Swift、Scala、Dart、Lua、C / C 头文件 / Perl XS、C++、Objective-C、Elixir、GDScript、R、Julia、Perl、Vue、Svelte、Zig、PowerShell、受支持脚本语言的无扩展名 shebang 脚本，以及核心 JavaScript / JSX / TypeScript / TSX / Astro 文件：
 
 ```bash
 dagayn build

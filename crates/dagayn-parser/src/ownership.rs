@@ -21,10 +21,8 @@ pub(super) enum RustOwnedPathKind {
     Php,
     Kotlin,
     Scala,
-    Solidity,
     Dart,
     Lua,
-    Luau,
     C,
     Cpp,
     ObjC,
@@ -95,14 +93,10 @@ pub(super) fn rust_owned_path_kind(file_path: &str) -> RustOwnedPathKind {
         RustOwnedPathKind::Kotlin
     } else if ends_with_ascii_ignore_case(file_path, ".scala") {
         RustOwnedPathKind::Scala
-    } else if ends_with_ascii_ignore_case(file_path, ".sol") {
-        RustOwnedPathKind::Solidity
     } else if ends_with_ascii_ignore_case(file_path, ".dart") {
         RustOwnedPathKind::Dart
     } else if ends_with_ascii_ignore_case(file_path, ".lua") {
         RustOwnedPathKind::Lua
-    } else if ends_with_ascii_ignore_case(file_path, ".luau") {
-        RustOwnedPathKind::Luau
     } else if ends_with_ascii_ignore_case(file_path, ".c")
         || ends_with_ascii_ignore_case(file_path, ".h")
         || ends_with_ascii_ignore_case(file_path, ".xs")

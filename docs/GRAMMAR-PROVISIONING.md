@@ -25,10 +25,8 @@ The current provisioned grammars are:
 - PHP
 - Kotlin
 - Scala
-- Solidity
 - Dart
 - Lua
-- Luau
 - C
 - C++
 - Objective-C
@@ -98,7 +96,7 @@ The provisioner injects a small Python binding shim where the pinned source
 tree does not provide the exact binding layout dagayn expects.
 
 The Rust backend currently routes Markdown, Terraform, Rust, Python/notebooks,
-JavaScript/JSX, TypeScript/TSX, Astro, Bash, Go, Java, Ruby, C#, PHP, Kotlin, Swift, Scala, Solidity, Dart, Lua, Luau, C, C++, Objective-C, Elixir, GDScript, R, Julia, Perl, Vue, Svelte, Zig, and PowerShell through these pinned grammar sources.
+JavaScript/JSX, TypeScript/TSX, Astro, Bash, Go, Java, Ruby, C#, PHP, Kotlin, Swift, Scala, Dart, Lua, C, C++, Objective-C, Elixir, GDScript, R, Julia, Perl, Vue, Svelte, Zig, and PowerShell through these pinned grammar sources.
 
 ## Operational expectations
 

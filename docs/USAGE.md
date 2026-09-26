@@ -159,7 +159,7 @@ to: `DAGAYN_BACKEND=python` is rejected. Hybrid search ranking and
 manifest-bridge extraction stay in Python.
 
 Parsers cover Markdown, Terraform, Rust, Python/notebooks, Bash, Go, Java,
-Ruby, C#, PHP, Kotlin, Swift, Scala, Solidity, Dart, Lua, Luau, C / C headers /
+Ruby, C#, PHP, Kotlin, Swift, Scala, Dart, Lua, C / C headers /
 Perl XS, C++, Objective-C, Elixir, GDScript, R, Julia, Perl, Vue, Svelte, Zig,
 PowerShell, extensionless shebang scripts for supported scripting languages,
 and core JavaScript / JSX / TypeScript / TSX / Astro files:

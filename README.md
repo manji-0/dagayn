@@ -45,7 +45,7 @@ See [NOTICE](NOTICE) for upstream attribution and original author information.
 
 Highlights include:
 
-- Python, JavaScript, TypeScript, TSX, Go, Rust, Java, C, C++, C#, Ruby, PHP, Kotlin, Swift, Scala, Solidity, Dart, Lua, Luau, Objective-C, Bash, Elixir, Zig, PowerShell, Julia, Perl, R, GDScript, Vue, Svelte, Astro
+- Python, JavaScript, TypeScript, TSX, Go, Rust, Java, C, C++, C#, Ruby, PHP, Kotlin, Swift, Scala, Dart, Lua, Objective-C, Bash, Elixir, Zig, PowerShell, Julia, Perl, R, GDScript, Vue, Svelte, Astro
 - Markdown
 - Jupyter notebooks, Databricks notebook sources/exports, and marimo `.py` / `.md` notebooks as graph inputs
 - Terraform
@@ -223,7 +223,7 @@ to: `DAGAYN_BACKEND=python` is rejected. Hybrid search ranking and
 manifest-bridge extraction stay in Python.
 
 Parsers cover Markdown, Terraform, Rust, Python/notebooks, Bash, Go, Java,
-Ruby, C#, PHP, Kotlin, Swift, Scala, Solidity, Dart, Lua, Luau, C / C headers /
+Ruby, C#, PHP, Kotlin, Swift, Scala, Dart, Lua, C / C headers /
 Perl XS, C++, Objective-C, Elixir, GDScript, R, Julia, Perl, Vue, Svelte, Zig,
 PowerShell, extensionless shebang scripts for supported scripting languages,
 and core JavaScript / JSX / TypeScript / TSX / Astro files:

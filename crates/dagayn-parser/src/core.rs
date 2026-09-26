@@ -67,8 +67,6 @@ mod ruby;
 mod rust_lang;
 #[path = "scala.rs"]
 mod scala;
-#[path = "solidity.rs"]
-mod solidity;
 #[path = "swift.rs"]
 mod swift;
 #[path = "terraform.rs"]
@@ -117,10 +115,8 @@ pub struct RustOwnedParser {
     php_parser: Option<tree_sitter::Parser>,
     kotlin_parser: Option<tree_sitter::Parser>,
     scala_parser: Option<tree_sitter::Parser>,
-    solidity_parser: Option<tree_sitter::Parser>,
     dart_parser: Option<tree_sitter::Parser>,
     lua_parser: Option<tree_sitter::Parser>,
-    luau_parser: Option<tree_sitter::Parser>,
     c_parser: Option<tree_sitter::Parser>,
     cpp_parser: Option<tree_sitter::Parser>,
     objc_parser: Option<tree_sitter::Parser>,
@@ -157,10 +153,8 @@ impl RustOwnedParser {
             php_parser: None,
             kotlin_parser: None,
             scala_parser: None,
-            solidity_parser: None,
             dart_parser: None,
             lua_parser: None,
-            luau_parser: None,
             c_parser: None,
             cpp_parser: None,
             objc_parser: None,
@@ -314,11 +308,6 @@ impl RustOwnedParser {
                 source,
                 parser_slot(&mut self.scala_parser, new_scala_parser),
             ),
-            RustOwnedPathKind::Solidity => solidity::parse_solidity_with_parser(
-                file_path,
-                source,
-                parser_slot(&mut self.solidity_parser, new_solidity_parser),
-            ),
             RustOwnedPathKind::Dart => dart::parse_dart_with_parser(
                 file_path,
                 source,
@@ -329,11 +318,6 @@ impl RustOwnedParser {
                 file_path,
                 source,
                 parser_slot(&mut self.lua_parser, new_lua_parser),
-            ),
-            RustOwnedPathKind::Luau => lua::parse_luau_with_parser(
-                file_path,
-                source,
-                parser_slot(&mut self.luau_parser, new_luau_parser),
             ),
             RustOwnedPathKind::C => c_like::parse_c_with_parser(
                 file_path,
@@ -674,11 +658,6 @@ pub fn parse_scala(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<Pars
     scala::parse_scala_with_parser(file_path, source, parser.as_mut())
 }
 
-pub fn parse_solidity(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    let mut parser = new_solidity_parser();
-    solidity::parse_solidity_with_parser(file_path, source, parser.as_mut())
-}
-
 pub fn parse_dart(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let mut parser = new_dart_parser();
     dart::parse_dart_with_parser(file_path, source, parser.as_mut(), None)
@@ -687,11 +666,6 @@ pub fn parse_dart(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<Parse
 pub fn parse_lua(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let mut parser = new_lua_parser();
     lua::parse_lua_with_parser(file_path, source, parser.as_mut())
-}
-
-pub fn parse_luau(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    let mut parser = new_luau_parser();
-    lua::parse_luau_with_parser(file_path, source, parser.as_mut())
 }
 
 pub fn parse_elixir(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
@@ -977,10 +951,8 @@ pub fn parse_rust_owned_file(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>
         RustOwnedPathKind::Php => parse_php(file_path, source),
         RustOwnedPathKind::Kotlin => parse_kotlin(file_path, source),
         RustOwnedPathKind::Scala => parse_scala(file_path, source),
-        RustOwnedPathKind::Solidity => parse_solidity(file_path, source),
         RustOwnedPathKind::Dart => parse_dart(file_path, source),
         RustOwnedPathKind::Lua => parse_lua(file_path, source),
-        RustOwnedPathKind::Luau => parse_luau(file_path, source),
         RustOwnedPathKind::C => parse_c(file_path, source),
         RustOwnedPathKind::Cpp => parse_cpp(file_path, source),
         RustOwnedPathKind::ObjC => parse_objc(file_path, source),
