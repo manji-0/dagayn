@@ -825,6 +825,27 @@ class TestMarkdownParsing:
             for source, target in pairs
         )
 
+    def test_ignores_links_inside_code(self, tmp_path):
+        doc = tmp_path / "doc.md"
+        doc.write_text(
+            "# Doc\n\n"
+            "Use `[text](./span.md)` or ``[a](./double.md)``.\n\n"
+            "```markdown\n[text](./fenced.md)\n```\n\n"
+            "~~~\n[text](./tilde.md)\n~~~\n\n"
+            "See [real](./real.md).\n",
+            encoding="utf-8",
+        )
+        _, edges = CodeParser().parse_file(doc)
+        imports = {e.target for e in edges if e.kind == "IMPORTS_FROM"}
+        assert any(t.endswith("real.md") for t in imports)
+        assert not any(
+            t.endswith(name)
+            for t in imports
+            for name in ("span.md", "double.md", "fenced.md", "tilde.md")
+        )
+        real = next(e for e in edges if e.kind == "IMPORTS_FROM" and e.target.endswith("real.md"))
+        assert real.line == 13
+
     def test_finds_directive_dependency_edges(self):
         depends = [e for e in self.edges if e.kind == "DEPENDS_ON"]
         by_kind = {e.extra.get("markdown_directive_kind"): e for e in depends}

@@ -210,10 +210,11 @@ pub(crate) fn parse_markdown_with_parser(
         extract_markdown_directives(&line_context, &tree_facts.directives, &mut edges);
         extract_markdown_reference_links(&line_context, &tree_facts.reference_links, &mut edges);
     } else {
-        extract_markdown_directives_from_text(&line_context, &text, &mut edges);
-        extract_markdown_reference_links_from_text(&line_context, &text, &mut edges);
+        let masked = mask_markdown_code(&text);
+        extract_markdown_directives_from_text(&line_context, &masked, &mut edges);
+        extract_markdown_reference_links_from_text(&line_context, &masked, &mut edges);
     }
-    extract_markdown_inline_links(&line_context, &text, &mut edges);
+    extract_markdown_inline_links(&line_context, &mask_markdown_code(&text), &mut edges);
     extract_markdown_dagayn_directives(&line_context, &text, &mut edges);
     extract_markdown_code_spans(&line_context, &text, &mut edges);
     (nodes, dedupe_edges(edges))
@@ -677,6 +678,84 @@ fn extract_markdown_reference_links_from_text(
         }
         let target = normalize_link_target(line[label_end + 2..].trim());
         emit_markdown_link_edges(line_context, &target, idx as i64 + 1, edges);
+    }
+}
+
+/// Blanks fenced code blocks and inline code spans with spaces, keeping byte
+/// offsets and newlines intact so line numbers computed on the result still
+/// match the original text.
+fn mask_markdown_code(text: &str) -> String {
+    let mut out = text.as_bytes().to_vec();
+    let mut fence: Option<(u8, usize)> = None;
+    let mut offset = 0;
+    for line in text.split_inclusive('\n') {
+        let start = offset;
+        offset += line.len();
+        let trimmed = line.trim_start_matches(' ');
+        let indent = line.len() - trimmed.len();
+        let marker = trimmed.bytes().next();
+        let run = marker
+            .filter(|byte| *byte == b'`' || *byte == b'~')
+            .map(|byte| trimmed.bytes().take_while(|b| *b == byte).count())
+            .unwrap_or(0);
+        let is_fence_line = indent <= 3 && run >= 3;
+        match fence {
+            Some((byte, len)) => {
+                blank(&mut out[start..offset]);
+                if is_fence_line
+                    && marker == Some(byte)
+                    && run >= len
+                    && trimmed[run..].trim().is_empty()
+                {
+                    fence = None;
+                }
+            }
+            None if is_fence_line => {
+                blank(&mut out[start..offset]);
+                fence = marker.map(|byte| (byte, run));
+            }
+            None => mask_code_spans(&mut out[start..offset]),
+        }
+    }
+    String::from_utf8(out).unwrap_or_default()
+}
+
+fn mask_code_spans(line: &mut [u8]) {
+    let mut idx = 0;
+    while idx < line.len() {
+        if line[idx] != b'`' {
+            idx += 1;
+            continue;
+        }
+        let open = line[idx..].iter().take_while(|b| **b == b'`').count();
+        let body = idx + open;
+        let mut search = body;
+        let mut close = None;
+        while search < line.len() {
+            if line[search] == b'`' {
+                let run = line[search..].iter().take_while(|b| **b == b'`').count();
+                if run == open {
+                    close = Some(search);
+                    break;
+                }
+                search += run;
+            } else {
+                search += 1;
+            }
+        }
+        match close {
+            Some(end) => {
+                blank(&mut line[idx..end + open]);
+                idx = end + open;
+            }
+            None => idx = body,
+        }
+    }
+}
+
+fn blank(bytes: &mut [u8]) {
+    for byte in bytes.iter_mut().filter(|byte| **byte != b'\n') {
+        *byte = b' ';
     }
 }
 

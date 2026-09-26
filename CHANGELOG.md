@@ -4,6 +4,11 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Fixed
+
+- Markdown link extraction skips inline code spans and fenced code blocks, so
+  documented link examples no longer create dangling `IMPORTS_FROM` edges.
+
 ### Performance
 
 - An incremental update no longer opens every file in the repository to decide
