@@ -232,6 +232,42 @@ class TestAssessGraphSyncContract:
         assert is_structure_ready(sync) is True
         assert needs_mcp_auto_prepare(sync) is False
 
+    def test_older_extractor_is_commit_drift_until_update(self, main_repo: Path):
+        """A graph parsed by an older extractor is degraded even at HEAD."""
+        from dagayn.extractor_versions import EXTRACTOR_VERSIONS_KEY
+        from dagayn.incremental import incremental_update
+
+        (main_repo / "app.ts").write_text("export function main() {}\n", encoding="utf-8")
+        git(main_repo, "add", "app.ts")
+        git(main_repo, "commit", "-m", "add ts")
+        db = main_repo / ".dagayn" / "graph.db"
+        db.parent.mkdir(parents=True, exist_ok=True)
+        store = GraphStore(str(db))
+        try:
+            full_build(main_repo, store)
+            assert assess_graph_sync(store, main_repo)["state"] == "commit_synced"
+
+            store.set_metadata(EXTRACTOR_VERSIONS_KEY, "javascript=0")
+            store.commit()
+            sync = assess_graph_sync(store, main_repo)
+            assert sync["state"] == "commit_drift"
+            assert sync["extractor_drift"] == ["javascript"]
+            assert needs_structure_prepare(sync)
+            assert needs_mcp_auto_prepare(sync)
+
+            from dagayn.tools.sync_status import commit_tier_freshness
+
+            fast = commit_tier_freshness(store, main_repo)
+            assert fast["state"] == "commit_drift"
+            assert fast["extractor_drift"] == ["javascript"]
+
+            incremental_update(main_repo, store, base=_head(main_repo))
+            sync = assess_graph_sync(store, main_repo)
+            assert sync["state"] == "commit_synced"
+            assert not sync.get("extractor_drift")
+        finally:
+            store.close()
+
     def test_deleted_file_the_graph_still_holds_is_behind(self, main_repo: Path):
         db = main_repo / ".dagayn" / "graph.db"
         db.parent.mkdir(parents=True, exist_ok=True)

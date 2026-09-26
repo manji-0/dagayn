@@ -170,6 +170,13 @@ def _print_sync_state(repo_root: Path, store: object) -> None:
     state = str(sync.get("state") or "")
     hint = _SYNC_STATE_HINTS.get(state)
     print(f"Graph state: {state}" + (f" — {hint}" if hint else ""))
+    extractor_drift = sync.get("extractor_drift") or []
+    if extractor_drift:
+        print(
+            "  Parsed by an older extractor: "
+            + ", ".join(str(name) for name in extractor_drift)
+            + " — 'dagayn update' re-parses those files"
+        )
     pending = sync.get("pending_files") or []
     if pending:
         shown = ", ".join(pending[:5])

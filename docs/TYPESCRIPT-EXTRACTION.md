@@ -502,5 +502,35 @@ QNs omit the `file::` prefix.
 Several of these changes rename existing QNs (for example `file::describe`
 becomes `file::AbstractShape.describe`, and `file::get` becomes
 `file::api.get`). Incremental updates re-parse changed files and their
-importers, but unchanged files can keep edges that point at the old QNs. Run
-`dagayn build --force-full-build` once after upgrading.
+importers, but unchanged files would keep nodes and edges under the old QNs.
+
+The extractor version stamp covers this. `crates/dagayn-parser/src/extractor_version.rs`
+declares the `javascript` extractor's output version (it parses the
+`javascript`, `typescript`, `tsx`, `vue`, and `svelte` languages), and every
+full build and successful update records it in graph metadata
+(`extractor_versions`, for example `javascript=1`). When the stored version
+is older, or missing because the graph predates stamps:
+
+- the sync assessment reports `commit_drift` with
+  `extractor_drift: ["javascript"]` (reason code
+  `graph_built_by_older_extractor`), so session prepare and MCP auto-prepare
+  run an update;
+- `dagayn update` re-parses every indexed file of that extractor, changed or
+  not, and then records the current version.
+
+Bump the version in the same change whenever an extractor change renames QNs
+or otherwise changes the nodes and edges produced for unchanged source.
+
+### 11.1 Parity snapshots
+
+`tests/fixtures/parity/typescript/` (TS, TSX, `.d.ts`, plus `.mts` / `.cts`
+files that are not parsed yet) and `tests/fixtures/parity/javascript/` (JS,
+JSX, `.mjs`, `.cjs`) are built by `tests/test_parity_export.py` and
+`tests/test_rust_backend_parity.py` and compared with
+`tests/fixtures/parity/__snapshots__/{typescript,javascript}.json`. These
+snapshots hold one node or edge per line, so an extractor change shows up as a
+reviewable diff. Regenerate them after an intentional change:
+
+```bash
+uv run python tools/parity_export.py --regenerate typescript javascript
+```

@@ -74,7 +74,7 @@ tier agrees, and compares the graph's indexed file content (`nodes.file_hash` /
 | `sync.state` | Tier | Meaning | Structure ready? |
 | ------------ | ---- | ------- | ---------------- |
 | `unbuilt` | — | No nodes/files in the graph | No |
-| `commit_drift` | commit | Stored `git_head_sha` ≠ HEAD (or missing metadata / undated graph) — degraded | No |
+| `commit_drift` | commit | Stored `git_head_sha` ≠ HEAD (or missing metadata / undated graph), or an extractor that parsed the graph is older than the running parser (`extractor_drift`; the next update re-parses that extractor's files) — degraded | No |
 | `commit_synced` | commit + diff | HEAD match, clean worktree, every indexed file still matches its stored hash — stable | Yes |
 | `worktree_behind` | diff | HEAD match, but the graph does not have `pending_files` as they are on disk — outdated | Yes |
 | `worktree_ahead` | diff | HEAD match, dirty tree, and every dirty file is already indexed byte for byte | Yes |

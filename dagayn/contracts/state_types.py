@@ -408,13 +408,20 @@ class GraphSyncCommitDrift(_GraphSyncBase):
     """Commit tier disagrees: the graph describes a different commit than HEAD.
 
     Degraded — analysis would answer for the wrong tree. Reached when the
-    stored ``git_head_sha`` differs from HEAD, when it is missing entirely, or
-    when a populated graph has no ``last_updated`` to date it.
+    stored ``git_head_sha`` differs from HEAD, when it is missing entirely,
+    when a populated graph has no ``last_updated`` to date it, or when an
+    extractor that parsed it is older than the running one
+    (``extractor_drift``).
     """
 
     state: Literal["commit_drift"]
     status: GraphSyncLegacyStatus = "git_drift"
     worktree_dirty: bool = False
+    #: Extractors whose stored output version is behind the running parser
+    #: (``dagayn.extractor_versions``). Non-empty even when HEAD matches: the
+    #: graph then describes HEAD as an older extractor parsed it, and the next
+    #: update re-parses those extractors' files.
+    extractor_drift: list[str] = Field(default_factory=list)
 
 
 class GraphSyncCommitSynced(_GraphSyncBase):

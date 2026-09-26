@@ -20,7 +20,12 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 from parity_export import export_db  # noqa: E402
 
-from tests.conftest import PARITY_FIXTURE_DIR, PARITY_FIXTURE_NAMES, build_parity_fixture
+from tests.conftest import (
+    ENTITY_LINE_PARITY_FIXTURES,
+    PARITY_FIXTURE_DIR,
+    PARITY_FIXTURE_NAMES,
+    build_parity_fixture,
+)
 
 SNAPSHOT_DIR = PARITY_FIXTURE_DIR / "__snapshots__"
 
@@ -47,10 +52,20 @@ def test_export_matches_snapshot(name, parity_fixture_dbs):
         )
         pytest.skip(msg)  # ty: ignore[too-many-positional-arguments]
 
-    actual = export_db(parity_fixture_dbs[name])
+    entity_lines = name in ENTITY_LINE_PARITY_FIXTURES
+    actual = export_db(parity_fixture_dbs[name], entity_lines=entity_lines)
     expected = snapshot_path.read_text(encoding="utf-8")
+    flag = " --entity-lines" if entity_lines else ""
     assert actual == expected, (
         f"Snapshot mismatch for '{name}'. Regenerate with:\n"
         f"  uv run python tools/parity_export.py tests/fixtures/parity/{name} "
-        f"--out tests/fixtures/parity/__snapshots__/{name}.json"
+        f"--out tests/fixtures/parity/__snapshots__/{name}.json{flag}"
     )
+
+
+def test_entity_line_export_matches_compact_export(parity_fixture_dbs):
+    """The one-entity-per-line snapshot format carries exactly the compact data."""
+    import json
+
+    db_path = parity_fixture_dbs["typescript"]
+    assert json.loads(export_db(db_path, entity_lines=True)) == json.loads(export_db(db_path))

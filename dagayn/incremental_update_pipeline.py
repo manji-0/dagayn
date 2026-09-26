@@ -12,6 +12,11 @@ from pathlib import Path
 from typing import Any, cast
 
 from .contracts.state_types import BuildResult
+from .extractor_versions import (
+    files_for_extractors,
+    outdated_extractors,
+    record_extractor_versions,
+)
 from .graph import GraphStore
 from .incremental_files import (
     _dedupe_preserve_order,
@@ -45,6 +50,12 @@ class IncrementalUpdateState:
     candidates: list[str] = field(default_factory=list)
     rust_content_changed_files: set[str] = field(default_factory=set)
     to_parse_rust_forced: list[str] = field(default_factory=list)
+    #: Extractors whose stored output version is behind the running parser.
+    outdated_extractors: list[str] = field(default_factory=list)
+    #: Indexed files those extractors own: re-parsed whether or not they changed.
+    extractor_reparse_files: list[str] = field(default_factory=list)
+    #: Rust-owned subset of ``extractor_reparse_files`` (parsed unconditionally).
+    to_parse_rust_full: list[str] = field(default_factory=list)
     to_parse_rust_checked: list[str] = field(default_factory=list)
     to_parse: list[tuple[str, int]] = field(default_factory=list)
     mtime_only_updates: list[tuple[int, str]] = field(default_factory=list)
@@ -72,6 +83,34 @@ def _record_incremental_head_when_verified(
         return
     _store_vcs_metadata(repo_root, store)
     store.commit()
+
+
+def _extractor_reparse_scope(
+    repo_root: Path,
+    store: GraphStore,
+    indexable: set[str],
+) -> tuple[list[str], list[str]]:
+    """Return ``(outdated_extractors, indexed files they own)``.
+
+    A graph parsed by an older extractor keeps that extractor's output for
+    every file that has not changed since, so those files are re-parsed once.
+    """
+    outdated = outdated_extractors(store)
+    if not outdated:
+        return [], []
+    try:
+        graph_files = set(store.get_all_files() or [])
+    except Exception:  # noqa: BLE001 — never block an update on a listing failure
+        logger.debug("Could not list graph files for extractor re-parse", exc_info=True)
+        return outdated, []
+    files = files_for_extractors(repo_root, graph_files & indexable, outdated)
+    if files:
+        logger.info(
+            "Re-parsing %d file(s) produced by an older %s extractor",
+            len(files),
+            "/".join(outdated),
+        )
+    return outdated, files
 
 
 def _noop_incremental_result(state: IncrementalUpdateState) -> BuildResult:
@@ -124,6 +163,13 @@ def prepare_incremental_update(
             change_file_sources["content_drift"] = forced
 
     indexable, stale_scope = _indexable_scope(repo_root, store)
+    outdated, extractor_files = _extractor_reparse_scope(repo_root, store, indexable)
+    if outdated and not extractor_files:
+        # Nothing the outdated extractors own is indexed: the stamp is all
+        # that is stale.
+        record_extractor_versions(store)
+        store.commit()
+        outdated = []
     state = IncrementalUpdateState(
         repo_root=repo_root,
         store=store,
@@ -134,8 +180,10 @@ def prepare_incremental_update(
         diff_covers_graph=diff_covers_graph,
         indexable=indexable,
         stale_scope=stale_scope,
+        outdated_extractors=outdated,
+        extractor_reparse_files=extractor_files,
     )
-    if not state.changed_files and not stale_scope:
+    if not state.changed_files and not stale_scope and not extractor_files:
         _record_incremental_head_when_verified(
             repo_root=repo_root,
             store=store,
@@ -239,6 +287,29 @@ def plan_incremental_reparses(state: IncrementalUpdateState) -> None:
     )
 
     rust_content_changed_files = state.rust_content_changed_files
+    if state.extractor_reparse_files:
+        state.all_files |= set(state.extractor_reparse_files)
+        # Files whose content changed are re-parsed by the normal path below;
+        # the rest have unchanged content and would be skipped there.
+        full = [
+            path
+            for path in state.extractor_reparse_files
+            if path not in state.content_changed_files
+        ]
+        full_set = set(full)
+        state.candidates = [path for path in state.candidates if path not in full_set]
+        rust_forced, python_forced = _split_rust_parser_files(
+            full,
+            state.repo_root,
+            state.store,
+        )
+        state.to_parse_rust_full.extend(rust_forced)
+        for rel_path in python_forced:
+            try:
+                mtime_ns = int((state.repo_root / rel_path).stat().st_mtime_ns)
+            except (OSError, PermissionError):
+                mtime_ns = 0
+            state.to_parse.append((rel_path, mtime_ns))
     file_meta = _get_file_meta_for_candidates(state.store, state.candidates)
     rust_candidates, python_candidates = _split_rust_parser_files(
         state.candidates,
@@ -298,6 +369,7 @@ def apply_incremental_graph_mutations(state: IncrementalUpdateState) -> BuildRes
         not state.removed_files
         and not state.to_parse_rust_forced
         and not state.to_parse_rust_checked
+        and not state.to_parse_rust_full
         and not state.to_parse
     ):
         _record_incremental_head_when_verified(
@@ -323,7 +395,10 @@ def run_incremental_parsing(state: IncrementalUpdateState) -> None:
     from .incremental_build import BULK_LOAD_FILE_THRESHOLD, _StoreBulkLoad
 
     parse_files = (
-        len(state.to_parse) + len(state.to_parse_rust_forced) + len(state.to_parse_rust_checked)
+        len(state.to_parse)
+        + len(state.to_parse_rust_forced)
+        + len(state.to_parse_rust_checked)
+        + len(state.to_parse_rust_full)
     )
     if parse_files >= BULK_LOAD_FILE_THRESHOLD:
         with _StoreBulkLoad(state.store):
@@ -353,6 +428,18 @@ def _run_incremental_parsing_body(state: IncrementalUpdateState) -> None:
         state.store,
         "store_changed_rust_owned_files",
     )
+
+    if state.to_parse_rust_full:
+        # Unchanged content, older extractor: parse without the hash check the
+        # changed-file paths below apply.
+        rust_nodes, rust_edges, rust_errors = _store_rust_parse_batches(
+            state.repo_root,
+            state.store,
+            state.to_parse_rust_full,
+        )
+        state.total_nodes += rust_nodes
+        state.total_edges += rust_edges
+        state.errors.extend(rust_errors)
 
     for rust_batch in (state.to_parse_rust_forced, state.to_parse_rust_checked):
         if not rust_batch:
@@ -447,6 +534,10 @@ def finalize_incremental_update(state: IncrementalUpdateState) -> BuildResult:
     state.store.set_metadata("last_updated", time.strftime("%Y-%m-%dT%H:%M:%S"))
     state.store.set_metadata("last_build_type", "incremental")
     state.store_failures.extend(store_phase_failures(state.errors))
+    if not state.store_failures:
+        # Every file an outdated extractor owns was re-parsed above (and any
+        # extractor that was not outdated already matches the stamp).
+        record_extractor_versions(state.store)
     if state.diff_covers_graph and not state.store_failures:
         _store_vcs_metadata(state.repo_root, state.store)
     elif state.store_failures:

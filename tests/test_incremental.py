@@ -822,6 +822,100 @@ class TestFullBuild:
             store.close()
 
 
+class TestExtractorVersions:
+    """Graphs record the extractor versions they were parsed with."""
+
+    @staticmethod
+    def _repo(tmp_path: Path) -> Path:
+        (tmp_path / ".git").mkdir()
+        (tmp_path / "app.ts").write_text("export function main() { helper(); }\n")
+        (tmp_path / "helper.ts").write_text("export function helper() {}\n")
+        (tmp_path / "tool.py").write_text("def run():\n    return 1\n")
+        return tmp_path
+
+    def test_parse_and_format_round_trip(self):
+        from dagayn.extractor_versions import (
+            format_extractor_versions,
+            parse_extractor_versions,
+        )
+
+        assert format_extractor_versions({"javascript": 2, "a": 1}) == "a=1,javascript=2"
+        assert parse_extractor_versions("a=1,javascript=2") == {"a": 1, "javascript": 2}
+        assert parse_extractor_versions(None) == {}
+        assert parse_extractor_versions("broken,x=,=3,y=z,javascript=1") == {"javascript": 1}
+
+    def test_full_build_records_extractor_versions(self, tmp_path):
+        from dagayn.extractor_versions import (
+            EXTRACTOR_VERSIONS_KEY,
+            current_extractor_versions,
+            outdated_extractors,
+        )
+
+        repo = self._repo(tmp_path)
+        store = GraphStore(tmp_path / "graph.db")
+        try:
+            full_build(repo, store)
+            stamp = store.get_metadata(EXTRACTOR_VERSIONS_KEY)
+            assert stamp
+            assert f"javascript={current_extractor_versions()['javascript'][0]}" in stamp
+            assert outdated_extractors(store) == []
+        finally:
+            store.close()
+
+    def test_incremental_update_reparses_files_of_an_outdated_extractor(
+        self, tmp_path, monkeypatch
+    ):
+        """Unchanged TypeScript files are re-parsed once; other languages are not."""
+        import dagayn.incremental_build as incremental_build
+        from dagayn.extractor_versions import EXTRACTOR_VERSIONS_KEY, outdated_extractors
+
+        repo = self._repo(tmp_path)
+        store = GraphStore(tmp_path / "graph.db")
+        try:
+            full_build(repo, store)
+            store.set_metadata(EXTRACTOR_VERSIONS_KEY, "javascript=0")
+            store.commit()
+            assert outdated_extractors(store) == ["javascript"]
+
+            parsed: list[str] = []
+            original = incremental_build._store_rust_parse_batches
+
+            def recording(repo_root, graph_store, rel_paths):
+                parsed.extend(rel_paths)
+                return original(repo_root, graph_store, rel_paths)
+
+            monkeypatch.setattr(incremental_build, "_store_rust_parse_batches", recording)
+            result = incremental_update(repo, store, changed_files=[])
+
+            assert sorted(parsed) == ["app.ts", "helper.ts"]
+            assert result.files_updated == 2
+            assert outdated_extractors(store) == []
+            assert "javascript=0" not in (store.get_metadata(EXTRACTOR_VERSIONS_KEY) or "")
+            assert any(node.name == "main" for node in store.get_nodes_by_file("app.ts"))
+
+            parsed.clear()
+            again = incremental_update(repo, store, changed_files=[])
+            assert parsed == []
+            assert again.files_updated == 0
+        finally:
+            store.close()
+
+    def test_missing_stamp_without_extractor_output_is_not_drift(self, tmp_path):
+        """A graph with no file of a tracked extractor has nothing to re-parse."""
+        from dagayn.extractor_versions import EXTRACTOR_VERSIONS_KEY, outdated_extractors
+
+        (tmp_path / ".git").mkdir()
+        (tmp_path / "tool.py").write_text("def run():\n    return 1\n")
+        store = GraphStore(tmp_path / "graph.db")
+        try:
+            full_build(tmp_path, store)
+            store.set_metadata(EXTRACTOR_VERSIONS_KEY, "")
+            store.commit()
+            assert outdated_extractors(store) == []
+        finally:
+            store.close()
+
+
 class TestIncrementalUpdate:
     def test_incremental_with_no_changes(self, tmp_path):
         db_path = tmp_path / "test.db"

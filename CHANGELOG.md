@@ -34,6 +34,17 @@ All notable changes to `dagayn` are documented here.
   literals inside functions or arguments are no longer top-level nodes;
   their calls stay with the enclosing node. Dead-code analysis skips
   `object`, `namespace`, and `ambient_module` containers.
+- Graphs record the extractor versions they were parsed with (metadata
+  `extractor_versions`, for example `javascript=1`). When the running parser's
+  extractor is newer, `dagayn update` re-parses every indexed file that
+  extractor owns, including unchanged ones, and the sync assessment reports
+  `commit_drift` with `extractor_drift: ["javascript"]` until it has (reason
+  code `graph_built_by_older_extractor`, and a line in `dagayn status`), so
+  session prepare and MCP auto-prepare catch up. Graphs built before this
+  change count as version 0: the first update after upgrading re-parses
+  their JavaScript / TypeScript / Vue / Svelte files once, which replaces the
+  qualified names the TypeScript changes above renamed without a
+  `--force-full-build`.
 
 ### Removed
 
@@ -68,9 +79,10 @@ All notable changes to `dagayn` are documented here.
   their `abstract` methods and accessors are `Function` nodes marked
   `is_abstract`. Before, the class had no node, its concrete methods became
   top-level functions, `this.m()` inside them resolved to a same-named method
-  of another class, and SAP undercounted abstractness. Rebuild existing
-  graphs with `dagayn build --force-full-build` to drop the old top-level
-  method names.
+  of another class, and SAP undercounted abstractness. The first
+  `dagayn update` after upgrading re-parses existing TypeScript files (see
+  the extractor version stamp below), which drops the old top-level method
+  names.
 - JavaScript / TypeScript generator declarations (`function*`,
   `async function*`) and generator function expressions bound at module
   scope (`const g = function* () {}`) are `Function` nodes. They were
@@ -265,6 +277,11 @@ All notable changes to `dagayn` are documented here.
   between the native Rust `embedding_search`, the numpy matmul path, and the
   pure-Python cosine loop: 300 seeded random 64-dimension vectors must score
   within `1e-5` on a full scan and on a top-k cut.
+- TypeScript / TSX and JavaScript parity fixtures
+  (`tests/fixtures/parity/typescript`, `tests/fixtures/parity/javascript`)
+  with snapshots that hold one node / edge per line
+  (`tools/parity_export.py --entity-lines`), so extractor changes are
+  reviewed as snapshot diffs.
 
 ### Fixes
 

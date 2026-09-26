@@ -1891,7 +1891,28 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(parse_python_compact_json, module)?)?;
     module.add_function(wrap_pyfunction!(embedding_search, module)?)?;
     module.add_function(wrap_pyfunction!(embedding_search_prewarm, module)?)?;
+    module.add_function(wrap_pyfunction!(extractor_versions, module)?)?;
     Ok(())
+}
+
+/// `(extractor, version, languages)` for every extractor with a tracked
+/// output version; see `dagayn.extractor_versions`.
+#[pyfunction]
+fn extractor_versions() -> Vec<(String, u32, Vec<String>)> {
+    dagayn_core::parser::extractor_versions()
+        .iter()
+        .map(|entry| {
+            (
+                entry.extractor.to_string(),
+                entry.version,
+                entry
+                    .languages
+                    .iter()
+                    .map(|language| language.to_string())
+                    .collect(),
+            )
+        })
+        .collect()
 }
 
 #[pyfunction]
