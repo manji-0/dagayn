@@ -664,3 +664,38 @@ output "ids" { value = [for k, v in aws_instance.web : v.id] }
         assert "resource.r.value" not in targets
         assert "resource.v.id" not in targets
         assert ("REFERENCES", "<f>::output.ids", "<f>::resource.aws_instance.web") in edges
+
+
+class TestMarkdown:
+    SOURCE = """\
+Setext Title
+============
+
+## `code` and [link](./x.md) ##
+
+<!-- derived-from #setext-title -->
+
+## Closing hashes ##
+
+```md
+# not a heading
+
+<!-- constrained-by ./fake.md -->
+```
+
+<!-- derived-from #closing-hashes -->
+"""
+
+    def test_closing_hashes_and_inline_markup_in_slugs(self, parse):
+        names, edges, _ = parse("doc.md", self.SOURCE)
+        assert ("DocSection", "code-and-link", None) in names
+        assert ("DocSection", "closing-hashes", None) in names
+        assert ("DEPENDS_ON", "<f>::code-and-link", "<f>::setext-title") in edges
+
+    def test_setext_underline_and_fence_bodies(self, parse):
+        _, _, nodes = parse("doc.md", self.SOURCE)
+        bodies = [n for n in nodes if n.kind == "DocBody"]
+        assert not any(n.name.startswith("setext-title--body") for n in bodies)
+        fence = [n for n in bodies if n.name.startswith("closing-hashes--body")]
+        assert len(fence) == 1
+        assert (fence[0].line_start, fence[0].line_end) == (10, 14)

@@ -11,6 +11,8 @@ use super::util::{dedupe_edges, is_test_file, line_count, node_text, normalize_r
 
 static MARKDOWN_INLINE_LINK_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\[[^\]]+\]\(([^)]+)\)").unwrap());
+static MARKDOWN_HEADING_LINK_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"!?\[([^\]]*)\](?:\([^)]*\)|\[[^\]]*\])").unwrap());
 static MARKDOWN_CODE_SPAN_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"`([^`\n]+)`").unwrap());
 static MARKDOWN_SYMBOL_RE: LazyLock<Regex> =
@@ -231,13 +233,30 @@ fn extract_markdown_doc_bodies(
     let heading_lines: HashMap<i64, ()> =
         headings.iter().map(|heading| (heading.line, ())).collect();
     let mut body_state = MarkdownDocBodyState::default();
+    let mut fence: Option<&str> = None;
 
     for (idx, line) in text.lines().enumerate() {
         let line_no = idx as i64 + 1;
         let trimmed = line.trim();
-        let skip = trimmed.is_empty()
-            || heading_lines.contains_key(&line_no)
-            || is_markdown_non_body_line(trimmed);
+        // A fenced block is one body even when it holds blank or comment lines.
+        let fence_marker = ["```", "~~~"]
+            .into_iter()
+            .find(|marker| trimmed.starts_with(marker));
+        let in_fence = fence.is_some();
+        match (fence, fence_marker) {
+            (None, Some(marker)) => fence = Some(marker),
+            (Some(open), Some(marker)) if open == marker => fence = None,
+            _ => {}
+        }
+        let setext_underline = heading_lines.contains_key(&(line_no - 1))
+            && !trimmed.is_empty()
+            && (trimmed.chars().all(|c| c == '=') || trimmed.chars().all(|c| c == '-'));
+        let skip = !in_fence
+            && fence_marker.is_none()
+            && (trimmed.is_empty()
+                || heading_lines.contains_key(&line_no)
+                || setext_underline
+                || is_markdown_non_body_line(trimmed));
         if skip {
             flush_markdown_doc_body(
                 file_path,
@@ -492,7 +511,20 @@ fn markdown_heading_text(node: tree_sitter::Node<'_>, source: &[u8]) -> String {
             parts.push(text);
         }
     }
-    parts.join(" ").trim().to_string()
+    strip_atx_closing_sequence(parts.join(" ").trim()).to_string()
+}
+
+/// `## Title ##`: a trailing run of `#` preceded by a space closes the heading.
+fn strip_atx_closing_sequence(text: &str) -> &str {
+    let without = text.trim_end_matches('#');
+    if without.len() == text.len() {
+        return text;
+    }
+    if without.is_empty() || without.ends_with(char::is_whitespace) {
+        without.trim_end()
+    } else {
+        text
+    }
 }
 
 fn collect_markdown_headings_from_text(text: &str) -> Vec<Heading> {
@@ -508,7 +540,7 @@ fn collect_markdown_headings_from_text(text: &str) -> Vec<Heading> {
                 && stripped.len() > marker
                 && stripped.as_bytes().get(marker) == Some(&b' ')
             {
-                let title = stripped[marker + 1..].trim().trim_end_matches('#').trim();
+                let title = strip_atx_closing_sequence(stripped[marker + 1..].trim());
                 if !title.is_empty() {
                     raw.push((title.to_string(), marker as i64, idx as i64 + 1));
                 }
@@ -539,7 +571,7 @@ fn assign_heading_slugs(raw: Vec<(String, i64, i64)>) -> Vec<Heading> {
     let mut assigned = std::collections::HashSet::<String>::new();
     raw.into_iter()
         .map(|(text, level, line)| {
-            let base = markdown_slugify(&text);
+            let base = markdown_slugify(&MARKDOWN_HEADING_LINK_RE.replace_all(&text, "$1"));
             let n = counts.get(&base).copied().unwrap_or(0);
             let slug = if n == 0 && !assigned.contains(&base) {
                 base.clone()
