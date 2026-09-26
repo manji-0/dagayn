@@ -10,8 +10,17 @@ use std::time::UNIX_EPOCH;
 struct CacheKey {
     db_path: String,
     provider: String,
-    stamp_ns: u128,
     vector_bytes: usize,
+}
+
+/// `(epoch, generation)` from the `embeddings_generation` table.
+type EmbeddingsVersion = (String, i64);
+
+#[derive(Debug)]
+struct CacheEntry {
+    stamp_ns: u128,
+    version: Option<EmbeddingsVersion>,
+    matrix: Arc<EmbeddingMatrix>,
 }
 
 #[derive(Debug)]
@@ -21,14 +30,15 @@ struct EmbeddingMatrix {
     rows: Vec<f32>,
 }
 
-static EMBEDDING_SEARCH_CACHE: OnceLock<Mutex<HashMap<CacheKey, Arc<EmbeddingMatrix>>>> =
-    OnceLock::new();
+static EMBEDDING_SEARCH_CACHE: OnceLock<Mutex<HashMap<CacheKey, CacheEntry>>> = OnceLock::new();
 
 /// Search provider-partitioned embeddings using a native Rust cosine scan.
 ///
 /// Vectors are stored by Python as native-endian float32 blobs. Rows are loaded
 /// into a process-level normalized row-major matrix keyed by `(db_path,
-/// provider, db/wal mtime)` so repeated searches avoid SQLite and decode work.
+/// provider)`. An unchanged db/wal mtime reuses it without touching SQLite; a
+/// changed mtime reuses it too when the embeddings generation has not moved,
+/// because most writes to the graph file never touch the vectors.
 pub fn embedding_search(
     db_path: impl AsRef<Path>,
     provider: &str,
@@ -90,47 +100,83 @@ fn load_embedding_matrix_cached(
     let key = CacheKey {
         db_path: db_path.to_string_lossy().into_owned(),
         provider: provider.to_owned(),
-        stamp_ns,
         vector_bytes,
     };
     let cache = EMBEDDING_SEARCH_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-
-    if let Some(matrix) = cache
-        .lock()
-        .map_err(|err| {
+    let lock_cache = || {
+        cache.lock().map_err(|err| {
             GraphError::InvalidEmbedding(format!("embedding cache lock poisoned: {err}"))
-        })?
-        .get(&key)
-        .cloned()
-    {
-        return Ok(matrix);
-    }
+        })
+    };
 
-    let matrix = Arc::new(load_embedding_matrix(db_path, provider, vector_bytes)?);
-    let mut guard = cache.lock().map_err(|err| {
-        GraphError::InvalidEmbedding(format!("embedding cache lock poisoned: {err}"))
-    })?;
-    guard.retain(|existing, _| {
-        !(existing.db_path == key.db_path
-            && existing.provider == key.provider
-            && existing.vector_bytes == key.vector_bytes
-            && existing.stamp_ns != key.stamp_ns)
-    });
-    Ok(guard.entry(key).or_insert_with(|| matrix).clone())
-}
+    let cached_version = {
+        let guard = lock_cache()?;
+        match guard.get(&key) {
+            Some(entry) if entry.stamp_ns == stamp_ns => return Ok(entry.matrix.clone()),
+            Some(entry) => entry.version.clone(),
+            None => None,
+        }
+    };
 
-fn load_embedding_matrix(
-    db_path: &Path,
-    provider: &str,
-    vector_bytes: usize,
-) -> Result<EmbeddingMatrix> {
     let conn = Connection::open_with_flags(
         db_path,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )?;
     conn.pragma_update(None, "mmap_size", 0_i64)?;
     conn.pragma_update(None, "temp_store", "MEMORY")?;
+    // One read transaction, so the version read describes the rows loaded.
+    conn.execute_batch("BEGIN")?;
+    let version = embeddings_version(&conn)?;
 
+    if version.is_some() && version == cached_version {
+        let mut guard = lock_cache()?;
+        if let Some(entry) = guard.get_mut(&key)
+            && entry.version == version
+        {
+            entry.stamp_ns = stamp_ns;
+            return Ok(entry.matrix.clone());
+        }
+    }
+
+    // Drop the stale matrix before loading its replacement so the two are not
+    // resident at once (searches already holding it keep their own `Arc`).
+    lock_cache()?.remove(&key);
+    let matrix = Arc::new(load_embedding_matrix(&conn, provider, vector_bytes)?);
+    let mut guard = lock_cache()?;
+    let entry = guard.entry(key).or_insert_with(|| CacheEntry {
+        stamp_ns,
+        version,
+        matrix: matrix.clone(),
+    });
+    Ok(entry.matrix.clone())
+}
+
+fn embeddings_version(conn: &Connection) -> Result<Option<EmbeddingsVersion>> {
+    let has_table = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'embeddings_generation'",
+            [],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if !has_table {
+        return Ok(None);
+    }
+    Ok(conn
+        .query_row(
+            "SELECT epoch, generation FROM embeddings_generation WHERE id = 1",
+            [],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+        )
+        .optional()?)
+}
+
+fn load_embedding_matrix(
+    conn: &Connection,
+    provider: &str,
+    vector_bytes: usize,
+) -> Result<EmbeddingMatrix> {
     let has_embeddings = conn
         .query_row(
             "SELECT 1 FROM sqlite_master WHERE type IN ('table', 'view') AND name = 'embeddings'",
@@ -147,7 +193,7 @@ fn load_embedding_matrix(
         });
     }
 
-    let (row_count, uniform_dim) = embedding_row_shape_hint(&conn, provider)?;
+    let (row_count, uniform_dim) = embedding_row_shape_hint(conn, provider)?;
     let mut stmt = if vector_bytes > 0 {
         conn.prepare(
             "SELECT qualified_name, vector FROM embeddings WHERE provider = ? AND length(vector) = ?",
@@ -631,6 +677,83 @@ mod tests {
         assert_eq!(results[0].0, "best");
         assert!((results[0].1 - 1.0).abs() < 1e-6);
         assert_eq!(results[1].0, "other");
+
+        let _ = std::fs::remove_file(db_path);
+    }
+
+    fn add_generation_table(db_path: &Path) {
+        let conn = Connection::open(db_path).expect("open temp db");
+        conn.execute_batch(
+            "CREATE TABLE embeddings_generation (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                epoch TEXT NOT NULL,
+                generation INTEGER NOT NULL
+            );
+            INSERT INTO embeddings_generation VALUES (1, 'e', 0);",
+        )
+        .expect("create generation table");
+    }
+
+    fn top_name(db_path: &Path) -> String {
+        embedding_search(db_path, "fake", &[1.0, 0.0], 1).unwrap()[0]
+            .0
+            .clone()
+    }
+
+    fn touch_db(db_path: &Path, sql: &str) {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        Connection::open(db_path)
+            .expect("open temp db")
+            .execute_batch(sql)
+            .expect("write temp db");
+    }
+
+    #[test]
+    fn native_embedding_cache_survives_writes_that_leave_the_generation() {
+        let db_path = temp_db_path("generation-reuse");
+        seed_embeddings(
+            &db_path,
+            &[("a", &[1.0, 0.0], "fake"), ("b", &[0.0, 1.0], "fake")],
+        );
+        add_generation_table(&db_path);
+        assert_eq!(top_name(&db_path), "a");
+
+        // Swap the vectors without bumping the generation, then make an
+        // unrelated write: the cached matrix must still answer.
+        touch_db(
+            &db_path,
+            "UPDATE embeddings SET qualified_name = 'tmp' WHERE qualified_name = 'a';
+             UPDATE embeddings SET qualified_name = 'a' WHERE qualified_name = 'b';
+             UPDATE embeddings SET qualified_name = 'b' WHERE qualified_name = 'tmp';
+             CREATE TABLE unrelated (x INTEGER);",
+        );
+        assert_eq!(top_name(&db_path), "a");
+
+        touch_db(
+            &db_path,
+            "UPDATE embeddings_generation SET generation = generation + 1;",
+        );
+        assert_eq!(top_name(&db_path), "b");
+
+        let _ = std::fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn native_embedding_cache_reloads_on_mtime_without_generation_table() {
+        let db_path = temp_db_path("generation-missing");
+        seed_embeddings(
+            &db_path,
+            &[("a", &[1.0, 0.0], "fake"), ("b", &[0.0, 1.0], "fake")],
+        );
+        assert_eq!(top_name(&db_path), "a");
+
+        touch_db(
+            &db_path,
+            "UPDATE embeddings SET qualified_name = 'tmp' WHERE qualified_name = 'a';
+             UPDATE embeddings SET qualified_name = 'a' WHERE qualified_name = 'b';
+             UPDATE embeddings SET qualified_name = 'b' WHERE qualified_name = 'tmp';",
+        );
+        assert_eq!(top_name(&db_path), "b");
 
         let _ = std::fs::remove_file(db_path);
     }

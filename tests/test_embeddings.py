@@ -640,6 +640,40 @@ class TestEmbeddingStore:
             store.remove_node("nonexistent::func")
             store.close()
 
+    def test_embeddings_writes_bump_the_generation(self, tmp_path):
+        db = tmp_path / "embeddings.db"
+        with patch("dagayn.embeddings.get_provider", return_value=None):
+            store = EmbeddingStore(db)
+            conn = store_conn(store)
+
+            def version() -> tuple[str, int]:
+                row = conn.execute(
+                    "SELECT epoch, generation FROM embeddings_generation WHERE id = 1"
+                ).fetchone()
+                return row["epoch"], row["generation"]
+
+            epoch, start = version()
+            conn.execute(
+                "INSERT INTO embeddings (qualified_name, vector, text_hash, provider)"
+                " VALUES ('file.py::f', ?, 'h', 'fake')",
+                (_encode_vector([1.0]),),
+            )
+            conn.execute("UPDATE embeddings SET text_hash = 'h2'")
+            conn.execute("DELETE FROM embeddings")
+            conn.commit()
+            assert version() == (epoch, start + 3)
+            store.close()
+
+            # Reopening keeps the counter instead of resetting it.
+            store = EmbeddingStore(db)
+            assert (
+                store_conn(store)
+                .execute("SELECT generation FROM embeddings_generation")
+                .fetchone()[0]
+                == start + 3
+            )
+            store.close()
+
     def test_remove_orphans_deletes_only_current_provider_rows(self, tmp_path):
         db = tmp_path / "embeddings.db"
 

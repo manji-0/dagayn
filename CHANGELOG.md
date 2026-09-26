@@ -17,6 +17,13 @@ All notable changes to `dagayn` are documented here.
   embedding. Every edit on a graph with a local sidecar partition paid two git
   diffs and two scope resolutions; the follow-up task now goes straight to the
   embedding pass unless it coalesced with an `embed` from another source.
+- Semantic search no longer reloads every vector after an unrelated graph
+  write. The native matrix cache was keyed on the `graph.db`/WAL mtime, so each
+  edit-hook update made the next search re-read and re-normalize the whole
+  provider partition (~49 MB for 12k BGE-M3 vectors). Triggers now maintain an
+  `embeddings_generation` counter; a moved mtime with an unchanged generation
+  reuses the matrix, and a real change drops the old matrix before loading the
+  new one so the two are no longer resident together.
 
 ## 4.15.0 — 2026-09-25
 

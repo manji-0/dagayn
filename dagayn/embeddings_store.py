@@ -428,9 +428,40 @@ CREATE TABLE IF NOT EXISTS embeddings (
 );
 """
 
+#: Bumped by triggers on every embeddings write, so the native search cache can
+#: tell a structural graph write (which also moves the file mtime) from a change
+#: to the vectors. ``epoch`` is random per table so a recreated database cannot
+#: collide with a cached generation of the old one.
+_EMBEDDINGS_GENERATION_SCHEMA = """
+CREATE TABLE IF NOT EXISTS embeddings_generation (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    epoch TEXT NOT NULL,
+    generation INTEGER NOT NULL
+);
+INSERT OR IGNORE INTO embeddings_generation (id, epoch, generation)
+    VALUES (1, lower(hex(randomblob(8))), 0);
+CREATE TRIGGER IF NOT EXISTS embeddings_generation_insert AFTER INSERT ON embeddings
+BEGIN
+    UPDATE embeddings_generation SET generation = generation + 1 WHERE id = 1;
+END;
+CREATE TRIGGER IF NOT EXISTS embeddings_generation_update AFTER UPDATE ON embeddings
+BEGIN
+    UPDATE embeddings_generation SET generation = generation + 1 WHERE id = 1;
+END;
+CREATE TRIGGER IF NOT EXISTS embeddings_generation_delete AFTER DELETE ON embeddings
+BEGIN
+    UPDATE embeddings_generation SET generation = generation + 1 WHERE id = 1;
+END;
+"""
+
 
 def _ensure_embeddings_schema(conn: sqlite3.Connection) -> None:
     """Migrate legacy single-provider embedding tables to provider-partitioned rows."""
+    _migrate_embeddings_table(conn)
+    conn.executescript(_EMBEDDINGS_GENERATION_SCHEMA)
+
+
+def _migrate_embeddings_table(conn: sqlite3.Connection) -> None:
     columns = conn.execute("PRAGMA table_info(embeddings)").fetchall()
     if not columns:
         conn.executescript(_EMBEDDINGS_SCHEMA)

@@ -68,4 +68,9 @@ Post-processing may populate additional tables for:
 - full-text search
 - embeddings
 
+Triggers on `embeddings` bump a single-row `embeddings_generation` counter
+(with a random `epoch` per database) on every insert, update, or delete. Native
+semantic search keys its in-memory vector matrix on that counter, so graph
+writes that leave the vectors alone do not force the matrix to be reloaded.
+
 The exact schema can evolve, but the stable user-facing idea is simple: the graph preserves enough structure to answer review and exploration questions without rescanning the full repository every time.
