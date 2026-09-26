@@ -1175,5 +1175,5 @@ mod parser_core_tests {
 }
 
 #[cfg(test)]
-#[path = "core_tests.rs"]
+#[path = "core_tests/mod.rs"]
 mod tests;
