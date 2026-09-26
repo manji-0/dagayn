@@ -12,6 +12,11 @@ All notable changes to `dagayn` are documented here.
   is now the VCS listing minus ignore patterns (matched in Rust, no file I/O);
   parseability is still checked for the changed paths, and repositories without
   a VCS listing keep the full walk.
+- The file-scoped `embed` task the queue worker enqueues after an edit-triggered
+  update no longer runs that incremental update a second time before
+  embedding. Every edit on a graph with a local sidecar partition paid two git
+  diffs and two scope resolutions; the follow-up task now goes straight to the
+  embedding pass unless it coalesced with an `embed` from another source.
 
 ## 4.15.0 — 2026-09-25
 

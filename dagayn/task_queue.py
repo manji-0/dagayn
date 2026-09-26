@@ -121,7 +121,7 @@ CREATE TABLE IF NOT EXISTS task_log (
 
 
 def _merge_payloads(kind: str, old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
-    """Merge two pending-task payloads. Newer keys win, except ``files``.
+    """Merge two pending-task payloads. Newer keys win, except ``files`` and ``skip_structure``.
 
     An ``embed`` task without a ``files`` key means the whole corpus. Mixing
     that with a scoped list must stay whole-corpus, otherwise a session-start
@@ -131,6 +131,10 @@ def _merge_payloads(kind: str, old: dict[str, Any], new: dict[str, Any]) -> dict
     merged = {**old, **new}
     if kind != "embed":
         return merged
+    # Skipping the structural update is only safe when every coalesced
+    # requester just ran one; otherwise the merged task must still do it.
+    if not (old.get("skip_structure") and new.get("skip_structure")):
+        merged.pop("skip_structure", None)
     old_has = "files" in old
     new_has = "files" in new
     if not old_has or not new_has:
@@ -669,13 +673,9 @@ def _execute_embed(task: dict[str, Any], repo_root: Path) -> str | None:
     payload = task["payload"]
     watchdog = start_budget_watchdog(DEFAULT_EMBED_BUDGET_SECONDS, label="queue embed")
     try:
-        from .tools.build import build_or_update_graph
+        from .tools.build import build_or_update_graph, run_embedding_pass
 
-        result = build_or_update_graph(
-            full_rebuild=False,
-            repo_root=str(repo_root),
-            base=_stored_base(repo_root),
-            postprocess="minimal",
+        embedding_kwargs: dict[str, Any] = dict(
             local_embedding=str(payload.get("local_embedding") or "bge-m3"),
             local_embedding_mode=payload.get("local_embedding_mode"),
             local_embedding_port=payload.get("local_embedding_port"),
@@ -687,6 +687,16 @@ def _execute_embed(task: dict[str, Any], repo_root: Path) -> str | None:
             embed_pass_seconds=EMBED_PASS_SECONDS,
             embed_files=_embed_files_from_payload(payload),
         )
+        if payload.get("skip_structure"):
+            result = run_embedding_pass(repo_root=str(repo_root), **embedding_kwargs)
+        else:
+            result = build_or_update_graph(
+                full_rebuild=False,
+                repo_root=str(repo_root),
+                base=_stored_base(repo_root),
+                postprocess="minimal",
+                **embedding_kwargs,
+            )
         if result.get("skipped"):
             return f"skipped: {result.get('skip_reason')}"
         if result.get("status") == "error":
@@ -720,6 +730,7 @@ def _enqueue_scoped_embed_after_update(repo_root: Path, result: dict[str, Any]) 
     payload = sidecar_embed_payload(get_db_path(repo_root))
     if payload is None:
         return None
+    payload["skip_structure"] = True
     action, task_id = enqueue_embed_refresh(
         repo_root,
         files=files,

@@ -102,6 +102,9 @@ skipped overlapping run. After that structure update, if the graph already
 holds a managed localhost-sidecar partition, the worker enqueues a
 file-scoped `embed` for the changed and dependent files (`text_hash` skip,
 no whole-corpus scan), inferring BGE-M3 vs Qwen from the stored provider.
+That task embeds straight away instead of repeating the structure update it
+was queued by; it runs one again only after coalescing with an `embed` that
+did not come from an update.
 Two scoped `embed` tasks union their file lists when they coalesce; mixing a
 scoped task with a whole-corpus `embed` keeps the whole-corpus pass. The
 worker applies hook-update semantics to the task

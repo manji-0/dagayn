@@ -78,6 +78,19 @@ class TestEnqueue:
         assert task is not None
         assert "files" not in task["payload"]
 
+    def test_coalesce_keeps_skip_structure_only_when_both_skip(self, queue: TaskQueue) -> None:
+        queue.enqueue("embed", payload={"files": ["a.py"], "skip_structure": True})
+        queue.enqueue("embed", payload={"files": ["b.py"], "skip_structure": True})
+        task = queue.claim()
+        assert task is not None
+        assert task["payload"]["skip_structure"] is True
+
+        queue.enqueue("embed", payload={"files": ["a.py"], "skip_structure": True})
+        queue.enqueue("embed", payload={"local_embedding": "bge-m3"})
+        task = queue.claim()
+        assert task is not None
+        assert "skip_structure" not in task["payload"]
+
     def test_coalesce_keeps_higher_priority(self, queue: TaskQueue) -> None:
         queue.enqueue("update", priority=5)
         queue.enqueue("update", priority=1)
@@ -718,3 +731,66 @@ class TestUnfinishedEmbedding:
     def test_missing_embedding_section_is_tolerated(self, tmp_path: Path) -> None:
         assert _requeue_unfinished_embedding(tmp_path, {}, {"status": "ok"}) is None
         assert self._pending_count(tmp_path) == 0
+
+
+class TestEmbedTaskStructure:
+    """An embed queued by an update must not redo that update."""
+
+    @staticmethod
+    def _run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, payload: dict[str, Any]) -> list[str]:
+        import dagayn.tools.build as build_tools
+
+        calls: list[str] = []
+        result = {"status": "ok", "local_embedding": {"newly_embedded": 1}}
+
+        def fake_build(**kwargs: Any) -> dict[str, Any]:
+            calls.append("build_or_update_graph")
+            assert kwargs["embed_files"] == ["a.py"]
+            return result
+
+        def fake_pass(**kwargs: Any) -> dict[str, Any]:
+            calls.append("run_embedding_pass")
+            assert kwargs["embed_files"] == ["a.py"]
+            return result
+
+        monkeypatch.setattr(build_tools, "build_or_update_graph", fake_build)
+        monkeypatch.setattr(build_tools, "run_embedding_pass", fake_pass)
+        monkeypatch.setattr(dagayn.task_queue, "_stored_base", lambda _root: "HEAD")
+        monkeypatch.setattr(
+            "dagayn.hook_guard.start_budget_watchdog", lambda *_args, **_kwargs: None
+        )
+        task = {"id": 1, "kind": "embed", "payload": {"files": ["a.py"], **payload}}
+        dagayn.task_queue._execute_embed(task, tmp_path)
+        return calls
+
+    def test_update_derived_embed_skips_the_structural_update(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls = self._run(tmp_path, monkeypatch, {"skip_structure": True})
+        assert calls == ["run_embedding_pass"]
+
+    def test_plain_embed_still_updates_structure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls = self._run(tmp_path, monkeypatch, {})
+        assert calls == ["build_or_update_graph"]
+
+    def test_scoped_embed_after_update_is_marked_skip_structure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "dagayn.tools.sync_status.sidecar_embed_payload",
+            lambda _db: {"local_embedding": "bge-m3"},
+        )
+        note = dagayn.task_queue._enqueue_scoped_embed_after_update(
+            tmp_path, {"changed_files": ["a.py"], "dependent_files": []}
+        )
+        assert note is not None
+        q = TaskQueue(queue_db_path(tmp_path))
+        try:
+            task = q.claim()
+        finally:
+            q.close()
+        assert task is not None
+        assert task["payload"]["skip_structure"] is True
+        assert task["payload"]["files"] == ["a.py"]

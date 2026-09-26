@@ -1061,6 +1061,50 @@ def build_or_update_graph(
     return build_result_payload(build_result)
 
 
+def run_embedding_pass(
+    repo_root: str | None = None,
+    *,
+    local_embedding: str = "bge-m3",
+    local_embedding_mode: str | None = None,
+    local_embedding_port: int | None = None,
+    local_embedding_bin: str = "auto",
+    keep_local_embedding_server: bool = False,
+    local_embedding_timeout: int = 300,
+    local_embedding_request_timeout: int = 60,
+    local_embedding_batch_size: int = 1,
+    embed_pass_seconds: float | None = None,
+    embed_files: list[str] | None = None,
+) -> BuildPayload:
+    """Embed against the graph as it stands, without a structural update first.
+
+    For callers that have just run that update themselves (the queue's
+    edit-triggered ``update`` task): :func:`build_or_update_graph` would repeat
+    the git diff and the scope resolution only to find nothing changed. The
+    embedding slices take the graph lock on their own.
+    """
+    root = _resolve_write_root(repo_root)
+    local_result = _run_local_embedding(
+        root,
+        local_embedding=local_embedding,
+        local_embedding_mode=local_embedding_mode,
+        local_embedding_port=local_embedding_port,
+        local_embedding_bin=local_embedding_bin,
+        keep_local_embedding_server=keep_local_embedding_server,
+        local_embedding_timeout=local_embedding_timeout,
+        local_embedding_request_timeout=local_embedding_request_timeout,
+        local_embedding_batch_size=local_embedding_batch_size,
+        pass_seconds=embed_pass_seconds,
+        file_paths=embed_files,
+    )
+    return build_result_payload(
+        BuildResult(
+            status="ok",
+            summary=str(local_result.get("summary") or ""),
+            local_embedding=local_result,
+        )
+    )
+
+
 def run_postprocess(
     flows: bool = True,
     communities: bool = True,
