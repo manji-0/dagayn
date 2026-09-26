@@ -79,6 +79,8 @@ mod terraform_collect;
 mod types;
 #[path = "util.rs"]
 mod util;
+#[path = "zig.rs"]
+mod zig;
 
 pub use discovery::{
     collect_parseable_files, detect_language, filter_ignored_paths, filter_incremental_candidates,
@@ -399,10 +401,12 @@ impl RustOwnedParser {
                     },
                 )
             }
-            RustOwnedPathKind::Zig => {
-                ensure_parser(&mut self.zig_parser, new_zig_parser);
-                file_only::parse_zig_with_parser(file_path, source, self.zig_parser.as_mut())
-            }
+            RustOwnedPathKind::Zig => zig::parse_zig_with_parser(
+                file_path,
+                source,
+                parser_slot(&mut self.zig_parser, new_zig_parser),
+                repo_root,
+            ),
             RustOwnedPathKind::PowerShell => {
                 ensure_parser(&mut self.powershell_parser, new_powershell_parser);
                 file_only::parse_powershell_with_parser(
@@ -584,7 +588,7 @@ pub fn parse_rust_compact_json(file_path: &str, source: &[u8]) -> String {
 
 pub fn parse_zig(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let mut parser = new_zig_parser();
-    file_only::parse_zig_with_parser(file_path, source, parser.as_mut())
+    zig::parse_zig_with_parser(file_path, source, parser.as_mut(), None)
 }
 
 pub fn parse_powershell(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
