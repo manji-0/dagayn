@@ -6304,7 +6304,6 @@ export namespace Shapes {
   export interface Circle { r: number }
   export function area(c: Circle): number { return 0; }
 }
-export function body() { const u: User = {} as User; return u; }
 "#;
     let mut parser = RustOwnedParser::new();
     let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "src/app.ts", app);
@@ -6367,8 +6366,8 @@ export function body() { const u: User = {} as User; return u; }
     assert!(!holder.iter().any(|edge| edge.target.ends_with("::Service")));
 
     // Type parameters, builtins, external packages, names the module does
-    // not declare, self references, and body-level types emit nothing.
-    for source in ["Service", "Service.handle", "Tree", "Box", "body"] {
+    // not declare, and self references emit nothing.
+    for source in ["Service", "Service.handle", "Tree", "Box"] {
         let found = type_references(&edges, &format!("src/app.ts::{source}"));
         let unexpected = found
             .iter()
@@ -6407,4 +6406,98 @@ export function body() { const u: User = {} as User; return u; }
     pairs.sort_unstable();
     pairs.dedup();
     assert_eq!(pairs.len(), total, "one edge per (source, target)");
+}
+
+#[test]
+fn emits_typescript_body_type_references() {
+    let repo_root = write_type_reference_repo("body-type-refs");
+    let app = br#"import type { User, UserId } from "./models";
+import { Repo, Role, Api } from "./models";
+import * as m from "./models";
+export function run(input: unknown) {
+  const u: User = input as User;
+  const r = new Repo<User>();
+  const ok = { id: "1" } satisfies m.User;
+  const ids = [] as UserId[];
+  const legacy = <Api.Request>input;
+  if (input instanceof Repo) {}
+  const h: typeof m.helper = m.helper;
+  interface LocalShape { owner: User; role: Role }
+  type LocalAlias = Api.Request | LocalShape;
+  const handle = (req: Api.Request): User => u;
+  class LocalBox implements m.User { id = "x"; value!: UserId; take(x: Repo<User>): void {} }
+  const local: LocalShape = { owner: u, role: Role.Admin };
+  pick<UserId>(ids);
+  return [u, r, ok, legacy, h, handle, local, LocalBox];
+}
+function pick<T>(items: T[]): T { return items[0]; }
+export const api = {
+  get(id: UserId): User { return {} as User; },
+};
+export const handler: (req: Api.Request) => void = (req) => {};
+export const config: Record<string, Role> = {};
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "src/app.ts", app);
+    let script = b"import { Repo } from \"./models\";\nexport function isRepo(x) { return x instanceof Repo; }\n";
+    let (_nodes, js_edges) = parser.parse_file_in_repo(Some(&repo_root), "src/check.js", script);
+    let _ = std::fs::remove_dir_all(&repo_root);
+    let user = "src/models.ts::User";
+    let repo = "src/models.ts::Repo";
+    let user_id = "src/models.ts::UserId";
+    let request = "src/models.ts::Api.Request";
+    let positions = |source: &str, target: &str| {
+        type_reference_positions(&edges, &format!("src/app.ts::{source}"), target)
+    };
+
+    assert_eq!(
+        positions("run", user),
+        [
+            "variable_annotation",
+            "as",
+            "type_argument",
+            "satisfies",
+            "local_declaration",
+            "return",
+            "heritage",
+            "parameter"
+        ]
+    );
+    assert_eq!(positions("run", repo), ["instanceof", "parameter"]);
+    assert_eq!(positions("run", user_id), ["as", "field", "type_argument"]);
+    assert_eq!(
+        positions("run", request),
+        ["as", "local_declaration", "parameter"]
+    );
+    assert_eq!(
+        positions("run", "src/models.ts::Role"),
+        ["local_declaration"]
+    );
+    let run = type_references(&edges, "src/app.ts::run");
+    let query = run
+        .iter()
+        .find(|edge| edge.target == "src/models.ts::helper")
+        .expect("typeof m.helper");
+    assert_eq!(query.extra["relationship_role"], "type_query");
+    assert_eq!(
+        query.extra["type_positions"],
+        json!(["variable_annotation"])
+    );
+    // Local declarations are not nodes and never targets.
+    assert_eq!(run.len(), 6, "{run:#?}");
+    assert!(type_references(&edges, "src/app.ts::pick").is_empty());
+    assert_eq!(positions("api.get", user_id), ["parameter"]);
+    assert_eq!(positions("api.get", user), ["return", "as"]);
+    assert_eq!(positions("handler", request), ["variable_annotation"]);
+    let file_refs = type_references(&edges, "src/app.ts");
+    assert_eq!(file_refs.len(), 1, "{file_refs:#?}");
+    assert_eq!(file_refs[0].target, "src/models.ts::Role");
+    assert_eq!(
+        file_refs[0].extra["type_positions"],
+        json!(["variable_annotation"])
+    );
+    assert_eq!(
+        type_reference_positions(&js_edges, "src/check.js::isRepo", repo),
+        ["instanceof"]
+    );
 }

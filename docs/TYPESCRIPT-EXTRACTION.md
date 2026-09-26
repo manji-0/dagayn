@@ -426,8 +426,7 @@ skipped, and edges are de-duplicated per `(source, target)`. TypeScript code
 often depends on another module only through types, so without these edges
 the blast radius of an interface change is visible only at file granularity.
 Using `REFERENCES` keeps these dependencies out of `CALLS`-based flows.
-Signatures are implemented (#23, `js_types.rs`); bodies are planned
-(part 2/3, #24).
+Implemented for signatures (#23) and bodies (#24) in `js_types.rs`.
 
 **Edge shape.** `REFERENCES source -> type` with
 `extra.relationship_role` (`"type_reference"`, or `"type_query"` when every
@@ -449,11 +448,23 @@ field one. Positions:
 | `type_parameter_constraint`, `type_parameter_default` | `<T extends Repo = Repo>` | the declaration owning the type parameters |
 | `heritage_type_argument` | `implements Service<User>`, `extends Base<Props>` | the class or interface (the base itself stays `INHERITS` / `IMPLEMENTS`) |
 | `type_alias` | `type Pair = [User, Repo]` | the `Type` alias |
+| `variable_annotation` | `const u: User = ...`; a module-scope `const h: Handler = () => ...` / `const api: Api = { ... }` | the enclosing function; the function / object container / class the binding becomes; else the enclosing namespace or the file |
+| `as` | `x as User`, `<User>x` | the enclosing node |
+| `satisfies` | `x satisfies Shape` | the enclosing node |
+| `type_argument` | `pick<UserId>(ids)`, `new Repo<User>()` (the class itself stays `CALLS`) | the enclosing node |
+| `instanceof` | `x instanceof Repo`, `x instanceof ns.Repo` (also JavaScript) | the enclosing node |
+| `local_declaration` | an interface, type alias, or enum declared in a function body | the enclosing function |
+| `heritage` | `extends` type arguments and `implements` types of a local or unbound class expression | the enclosing node |
 
 Overload signatures collapse into one node (§2), so their types merge into
-that node's edges. A signature written in a function body (a local function,
-a callback's parameters, a local class) is body-level code and is handled
-with the body references (#24).
+that node's edges. Code that is not a node follows the attribution of calls
+(§5.1, §7.2): a local function's or callback's parameter and return types,
+a local class's member signatures, and an object-literal method's signature
+in a body belong to the enclosing node with their own positions
+(`parameter`, `return`, `field`); module-scope code belongs to the file. The
+names of local declarations are never targets, and neither are types they
+shadow. `instanceof` is included because its right-hand side can only be a
+class, so the resolver's type-only targets never mistake a value for it.
 
 **Targets.** A name resolves where TypeScript would look it up: first
 through the enclosing namespaces (`Circle` inside `namespace Shapes` is
@@ -481,11 +492,16 @@ file's field or return type is no longer reported. Rename previews gain the
 first reference line of each edge (not every occurrence).
 
 **Graph size.** Measured on the TypeScript parity fixture
-(`tests/fixtures/parity/typescript`, 36 files): 377 to 395 edges (+18, +4.8%).
-On `dagayn-vscode/` (49 TypeScript files): 4,646 to 4,867 edges (+221,
-+4.8%; positions: 102 parameter, 76 return, 26 field, 12 type alias,
-5 parameter property, 2 type predicate, 1 heritage type argument). Nodes do
-not change, and JavaScript output does not change.
+(`tests/fixtures/parity/typescript`, 36 files): 377 edges before, 395 with
+signature references (+18), 400 with body references (+23 in total,
++6.1%; body references add 5 edges and 2 positions on existing ones). On
+`dagayn-vscode/` (49 TypeScript files): 4,646 edges before, 4,867 with
+signatures (+221), 4,966 with bodies (+320 in total, +6.9%). Its 320 type
+edges carry these positions: 102 parameter, 76 return, 57 as, 50 variable
+annotation, 26 field, 12 type alias, 11 type argument, 8 instanceof,
+5 parameter property, 2 type predicate, 1 heritage type argument, and
+1 local declaration. Nodes do not change; the JavaScript parity fixture
+has no `instanceof` of a repository class, so its output does not change.
 
 ### 7.5 Anonymous default exports are named `default`
 
@@ -714,8 +730,14 @@ QNs omit the `file::` prefix.
 | `typeof X` in a signature | `REFERENCES -> X` (`type_query`) | implemented (#23) |
 | a type repeated in several positions of one declaration | one edge, every position in `type_positions` | implemented (#23) |
 | builtin and global types, external packages, undeclared names, type parameters, `infer U`, mapped keys, self references | no edge | implemented (#23) |
-| body annotations, `as`, `satisfies`, call type arguments | `REFERENCES outer -> Type` | planned (part 2/3, #24) |
-| signatures written in a body (local functions, callbacks, local classes) | `REFERENCES outer -> Type` | planned (part 2/3, #24) |
+| body annotations `const u: User`, `x as User`, `<User>x`, `x satisfies Shape` | `REFERENCES outer -> User` (`variable_annotation`, `as`, `satisfies`) | implemented (#24) |
+| call / `new` type arguments `pick<UserId>()`, `new Repo<User>()` | `REFERENCES outer -> UserId` (`type_argument`); `new Repo` stays `CALLS` | implemented (#24) |
+| `x instanceof Repo` (TypeScript and JavaScript) | `REFERENCES outer -> Repo` (`instanceof`) | implemented (#24) |
+| `typeof X` in a body annotation | `REFERENCES outer -> X` (`type_query`) | implemented (#24) |
+| local interface / type alias / enum in a function body | no node; the types it names are `REFERENCES outer -> Type` (`local_declaration`); its own name is never a target | implemented (#24) |
+| signatures written in a body (local functions, callbacks, local classes, object-literal methods) | `REFERENCES outer -> Type` (`parameter`, `return`, `field`, `heritage`) | implemented (#24) |
+| module-scope annotation `const api: Api = { ... }`, `const h: Handler = () => ...`, `const config: Config = {}` | `REFERENCES api -> Api` / `h -> Handler` (`variable_annotation`); a binding without a node gives `File -> Config` | implemented (#24) |
+| enum member references `Role.Admin` | no type reference (a value access) | deferred |
 
 ### 10.8 Tests
 

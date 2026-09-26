@@ -1,5 +1,5 @@
-//! Type references of TypeScript declarations (docs/TYPESCRIPT-EXTRACTION.md
-//! §7.4): every type a declaration names in its signature becomes
+//! Type references (docs/TYPESCRIPT-EXTRACTION.md §7.4): every type a
+//! declaration names in its signature or its body becomes
 //! `REFERENCES owner -> type` (`relationship_role: "type_reference"`, or
 //! `"type_query"` for `typeof X`), with the positions it appears in
 //! (`type_positions`). Only types the repository declares are targets.
@@ -16,8 +16,12 @@ use super::util::node_text;
 
 /// Where a type subtree sits, when `node` is the outermost node of one: the
 /// annotation of a parameter, field, return, or variable, a type parameter
-/// list, an `as` / `satisfies` target, or call type arguments.
+/// list, an `as` / `satisfies` target, call type arguments, or the class of
+/// an `instanceof` test.
 pub(super) fn javascript_type_root_position(node: tree_sitter::Node<'_>) -> Option<&'static str> {
+    if !node.is_named() {
+        return None;
+    }
     let parent = node.parent()?;
     match node.kind() {
         "type_annotation" => Some(match parent.kind() {
@@ -60,53 +64,19 @@ pub(super) fn javascript_type_root_position(node: tree_sitter::Node<'_>) -> Opti
                     "satisfies"
                 })
             }
+            "binary_expression"
+                if parent
+                    .child_by_field_name("right")
+                    .is_some_and(|right| right.id() == node.id())
+                    && parent
+                        .child_by_field_name("operator")
+                        .is_some_and(|operator| operator.kind() == "instanceof") =>
+            {
+                Some("instanceof")
+            }
             _ => None,
         },
     }
-}
-
-/// Positions that belong to a declaration's signature.
-pub(super) fn javascript_is_signature_position(position: &str) -> bool {
-    matches!(
-        position,
-        "parameter"
-            | "parameter_property"
-            | "return"
-            | "field"
-            | "index_signature"
-            | "type_parameter"
-            | "type_predicate"
-            | "annotation"
-    )
-}
-
-/// Whether `node` lies in a function body (or call arguments / a static
-/// block): the code of the enclosing node rather than a declaration's own
-/// signature.
-pub(super) fn javascript_type_root_in_body(node: tree_sitter::Node<'_>) -> bool {
-    let mut current = node;
-    while let Some(parent) = current.parent() {
-        if matches!(parent.kind(), "arguments" | "class_static_block") {
-            return true;
-        }
-        if matches!(
-            parent.kind(),
-            "function_declaration"
-                | "generator_function_declaration"
-                | "function_expression"
-                | "function"
-                | "generator_function"
-                | "arrow_function"
-                | "method_definition"
-        ) && parent
-            .child_by_field_name("body")
-            .is_some_and(|body| body.id() == current.id())
-        {
-            return true;
-        }
-        current = parent;
-    }
-    false
 }
 
 /// `constructor(private repo: Repo)`: the parameter declares a field.
@@ -123,7 +93,8 @@ fn javascript_is_parameter_property(parameter: tree_sitter::Node<'_>) -> bool {
 /// The node a type reference at `position` belongs to: the function being
 /// walked, else the nearest container (class, interface, namespace), else
 /// the file. A parameter property's type belongs to the class it declares a
-/// field of.
+/// field of. Code in a function body, including local declarations,
+/// belongs to that function (§7.2).
 pub(super) fn javascript_type_reference_source(
     context: &JavaScriptParseContext<'_>,
     owner_path: Option<&str>,
@@ -131,7 +102,7 @@ pub(super) fn javascript_type_reference_source(
     position: &str,
 ) -> String {
     match (enclosing_func, owner_path) {
-        (_, Some(owner)) if position == "parameter_property" => {
+        (Some("constructor"), Some(owner)) if position == "parameter_property" => {
             qualify(&context.file_path, owner, None)
         }
         (Some(func), _) => qualify(&context.file_path, func, owner_path),
@@ -196,6 +167,13 @@ fn javascript_collect_type_references(
                 "type_query",
             )
         }
+        // `x instanceof Repo`, `x instanceof ns.Repo`.
+        "identifier" | "member_expression" if position == "instanceof" => (
+            node_text(node, context.source)
+                .split_whitespace()
+                .collect::<String>(),
+            "type_reference",
+        ),
         // `infer U` declares `U`.
         "infer_type" => return,
         _ => {
@@ -204,10 +182,18 @@ fn javascript_collect_type_references(
                 if !child.is_named() {
                     continue;
                 }
-                // Declared names: `T` of `<T extends X>`, `K` of `[K in ...]`.
+                // Declared names: `T` of `<T extends X>`, `K` of `[K in ...]`,
+                // and the name of a local interface / alias / enum.
                 let field = node.field_name_for_child(index as u32);
                 if field == Some("name")
-                    && matches!(node.kind(), "type_parameter" | "mapped_type_clause")
+                    && matches!(
+                        node.kind(),
+                        "type_parameter"
+                            | "mapped_type_clause"
+                            | "interface_declaration"
+                            | "type_alias_declaration"
+                            | "enum_declaration"
+                    )
                 {
                     continue;
                 }
@@ -390,4 +376,37 @@ pub(super) fn javascript_merge_type_references(
         }
     }
     *edges = kept;
+}
+
+/// Emits the type references of the type subtrees below `node` that the
+/// walk does not visit, skipping the `skip` fields (a body the walk covers
+/// itself): the signatures of local-class members and of object-literal
+/// methods in bodies.
+pub(super) fn javascript_emit_type_roots(
+    node: tree_sitter::Node<'_>,
+    skip: &[&str],
+    context: &JavaScriptParseContext<'_>,
+    owner_path: Option<&str>,
+    enclosing_func: Option<&str>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let mut cursor = node.walk();
+    for (index, child) in node.children(&mut cursor).enumerate() {
+        if node
+            .field_name_for_child(index as u32)
+            .is_some_and(|field| skip.contains(&field))
+        {
+            continue;
+        }
+        match javascript_type_root_position(child) {
+            Some(position) => {
+                let source =
+                    javascript_type_reference_source(context, owner_path, enclosing_func, position);
+                javascript_emit_type_references(child, position, &source, context, edges);
+            }
+            None => {
+                javascript_emit_type_roots(child, &[], context, owner_path, enclosing_func, edges)
+            }
+        }
+    }
 }

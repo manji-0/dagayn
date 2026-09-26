@@ -25,8 +25,8 @@ use super::js_tests::{
 };
 use super::js_types::{
     javascript_emit_heritage_type_references, javascript_emit_type_references,
-    javascript_is_signature_position, javascript_merge_type_references,
-    javascript_type_reference_source, javascript_type_root_in_body, javascript_type_root_position,
+    javascript_emit_type_roots, javascript_merge_type_references, javascript_type_reference_source,
+    javascript_type_root_position,
 };
 use super::member_calls::MemberCallBindings;
 use super::parsers::*;
@@ -340,8 +340,9 @@ fn javascript_walk_class_level(
     context.bindings.borrow_mut().restore(snapshot);
 }
 
-/// Names declared inside `node`'s body (nested functions, classes, and
-/// `const f = () => ...` / `const C = class {}` bindings), at any depth.
+/// Names declared inside `node`'s body (nested functions, classes,
+/// interfaces, type aliases, enums, and `const f = () => ...` /
+/// `const C = class {}` bindings), at any depth.
 fn collect_javascript_local_declarations(
     node: tree_sitter::Node<'_>,
     source: &[u8],
@@ -363,7 +364,10 @@ fn collect_javascript_local_declarations_into(
             "function_declaration"
             | "generator_function_declaration"
             | "class_declaration"
-            | "abstract_class_declaration" => {
+            | "abstract_class_declaration"
+            | "interface_declaration"
+            | "type_alias_declaration"
+            | "enum_declaration" => {
                 if let Some(name) = child.child_by_field_name("name") {
                     names.insert(node_text(name, source));
                 }
@@ -427,11 +431,8 @@ fn javascript_walk_node(
         javascript_walk_syntax_node(child, context, owner_path, enclosing_func, nodes, edges);
         return;
     };
-    if javascript_is_signature_position(position) && !javascript_type_root_in_body(child) {
-        let source =
-            javascript_type_reference_source(context, owner_path, enclosing_func, position);
-        javascript_emit_type_references(child, position, &source, context, edges);
-    }
+    let source = javascript_type_reference_source(context, owner_path, enclosing_func, position);
+    javascript_emit_type_references(child, position, &source, context, edges);
     context.type_depth.set(context.type_depth.get() + 1);
     javascript_walk_syntax_node(child, context, owner_path, enclosing_func, nodes, edges);
     context.type_depth.set(context.type_depth.get() - 1);
@@ -450,6 +451,14 @@ fn javascript_walk_syntax_node(
     let in_function = enclosing_func.is_some();
     match child.kind() {
         "type_alias_declaration" | "interface_declaration" | "enum_declaration" if in_function => {
+            // Not a node: the types it names belong to the enclosing function.
+            let source = javascript_type_reference_source(
+                context,
+                owner_path,
+                enclosing_func,
+                "local_declaration",
+            );
+            javascript_emit_type_references(child, "local_declaration", &source, context, edges);
             return;
         }
         "class_declaration" | "abstract_class_declaration" | "class" if in_function => {
@@ -545,7 +554,15 @@ fn javascript_walk_syntax_node(
         {
             // A method of an object literal that is not a module-scope
             // container (function-local, argument, deeper nesting): nothing
-            // can name it, so its calls stay with the enclosing node.
+            // can name it, so its calls and types stay with the enclosing node.
+            javascript_emit_type_roots(
+                child,
+                &["body"],
+                context,
+                owner_path,
+                enclosing_func,
+                edges,
+            );
             if let Some(body) = child.child_by_field_name("body") {
                 javascript_walk_children(body, context, owner_path, enclosing_func, nodes, edges);
             }
@@ -1841,8 +1858,37 @@ fn javascript_walk_unbound_class(
     let Some(body) = node.child_by_field_name("body") else {
         return;
     };
+    // Its heritage, type parameters, and member signatures name types for
+    // the enclosing node; the walk below covers member bodies and values.
+    let source = javascript_type_reference_source(context, owner_path, enclosing_func, "heritage");
+    let mut cursor = node.walk();
+    for part in node.named_children(&mut cursor) {
+        match part.kind() {
+            "class_heritage" => {
+                javascript_emit_type_references(part, "heritage", &source, context, edges);
+            }
+            "type_parameters" => {
+                javascript_emit_type_references(part, "type_parameter", &source, context, edges);
+            }
+            _ => {}
+        }
+    }
     let mut cursor = body.walk();
     for member in body.named_children(&mut cursor) {
+        let walked: &[&str] = match member.kind() {
+            "method_definition" => &["body"],
+            "public_field_definition" | "field_definition" => {
+                match member.child_by_field_name("value") {
+                    Some(value) if is_javascript_function_value(value.kind()) => &["value"],
+                    // The walk visits the whole member, annotation included.
+                    Some(_) => &["name", "type", "value"],
+                    None => &[],
+                }
+            }
+            "class_static_block" => &["body"],
+            _ => &[],
+        };
+        javascript_emit_type_roots(member, walked, context, owner_path, enclosing_func, edges);
         match member.kind() {
             "method_definition" => {
                 if let Some(member_body) = member.child_by_field_name("body") {
@@ -2248,11 +2294,26 @@ fn javascript_emit_variable_functions(
         if declarator.kind() != "variable_declarator" {
             continue;
         }
+        // `const api: Api = { ... }`, `const h: Handler = () => ...`: the
+        // binding's annotation belongs to the node the binding becomes.
+        let annotate = |name: &str, edges: &mut Vec<ParsedEdge>| {
+            if let Some(annotation) = declarator.child_by_field_name("type") {
+                let qualified = qualify(&context.file_path, name, owner_path);
+                javascript_emit_type_references(
+                    annotation,
+                    "variable_annotation",
+                    &qualified,
+                    context,
+                    edges,
+                );
+            }
+        };
         if let Some((name, object)) = containers.iter().find(|(_, object)| {
             object
                 .parent()
                 .is_some_and(|parent| javascript_declarator_owns(declarator, parent))
         }) {
+            annotate(name, edges);
             javascript_emit_object_container(
                 node,
                 *object,
@@ -2295,6 +2356,7 @@ fn javascript_emit_variable_functions(
             javascript_emit_class_node(
                 class_node, name, additions, context, owner_path, nodes, edges,
             );
+            annotate(name, edges);
             handled = true;
             continue;
         }
@@ -2341,6 +2403,7 @@ fn javascript_emit_variable_functions(
             line: node.start_position().row as i64 + 1,
             extra: json!({}),
         });
+        annotate(&name, edges);
         javascript_walk_function_body(function_node, context, owner_path, &name, nodes, edges);
         handled = true;
     }

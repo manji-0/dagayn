@@ -105,6 +105,19 @@ All notable changes to `dagayn` are documented here.
   SDP and `CALLS` flows do not change. The TypeScript parity fixture gains 18
   edges (377 to 395, +4.8%); `dagayn-vscode/` gains 221 (4,646 to 4,867,
   +4.8%).
+- TypeScript body types are `REFERENCES` edges too, in the same form:
+  variable annotations, `as` / `<T>x` assertions, `satisfies`, call and
+  `new` type arguments (`pick<UserId>()`), and `instanceof` right-hand
+  sides (also in JavaScript) yield `type_positions` `variable_annotation`,
+  `as`, `satisfies`, `type_argument`, and `instanceof`. Following the
+  local-declaration rule, the types named by local interfaces, type
+  aliases, and enums (`local_declaration`), local classes, local functions,
+  callbacks, and object-literal methods in a body belong to the enclosing
+  node, and local names are never targets. A module-scope binding's
+  annotation (`const h: Handler = () => ...`, `const api: Api = { ... }`)
+  belongs to the node the binding becomes. The TypeScript parity fixture
+  gains 5 more edges (395 to 400; +6.1% over both changes);
+  `dagayn-vscode/` gains 99 (4,867 to 4,966; +6.9% over both).
 - Graphs record the extractor versions they were parsed with (metadata
   `extractor_versions`, for example `javascript=1`). When the running parser's
   extractor is newer, `dagayn update` re-parses every indexed file that

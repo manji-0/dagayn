@@ -1634,6 +1634,40 @@ class TestTypeRoleAndImplements:
         assert all(e.target.split("::")[0].endswith("models.ts") for e in refs.values()), refs
         assert len(refs) == 5, sorted(refs)
 
+    def test_typescript_body_type_references(self, tmp_path):
+        (tmp_path / "models.ts").write_text(
+            "export interface User { id: string }\n"
+            "export class Repo { find(): User | undefined { return undefined; } }\n",
+            encoding="utf-8",
+        )
+        consumer = tmp_path / "app.ts"
+        consumer.write_text(
+            'import type { User } from "./models";\n'
+            'import { Repo } from "./models";\n'
+            "export function run(input: unknown) {\n"
+            "  const u: User = input as User;\n"
+            "  interface Local { repo: Repo }\n"
+            "  const local: Local = { repo: new Repo() };\n"
+            "  if (input instanceof Repo) { return local; }\n"
+            "  return u;\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        _, edges = self.parser.parse_file(consumer)
+        refs = {
+            (e.source.split("::")[-1], e.target.split("::")[-1]): e
+            for e in edges
+            if e.kind == "REFERENCES"
+            and e.extra.get("relationship_role") in ("type_reference", "type_query")
+        }
+        assert refs[("run", "User")].extra["type_positions"] == ["variable_annotation", "as"]
+        assert refs[("run", "Repo")].extra["type_positions"] == [
+            "local_declaration",
+            "instanceof",
+        ]
+        # The local interface is not a node, so it is never a target.
+        assert set(refs) == {("run", "User"), ("run", "Repo")}, sorted(refs)
+
     def test_reexports_namespace_reexports_and_commonjs_exports_bind_origins(self, tmp_path):
         barrel = tmp_path / "barrel"
         barrel.mkdir()

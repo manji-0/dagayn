@@ -2648,17 +2648,21 @@ class TestFindDeadCodeModuleScope:
         engine = tmp_path / "engine.ts"
         engine.write_bytes(
             b"export class Engine { start() { return 1; } }\n"
+            b"export class Wheel { spin() { return 1; } }\n"
             b"export class Spare { start() { return 1; } }\n"
         )
         car = tmp_path / "car.ts"
         car.write_bytes(
-            b'import type { Engine } from "./engine";\nexport class Car { engine!: Engine; }\n'
+            b'import type { Engine, Wheel } from "./engine";\n'
+            b"export class Car { engine!: Engine; wheel() { return {} as Wheel; } }\n"
         )
         for path in (engine, car):
             self._store_parsed(path, path.read_bytes())
 
         dead_names = {d["name"] for d in find_dead_code(self.store)}
         assert "Engine" not in dead_names
+        # A body-level `as Wheel` counts too.
+        assert "Wheel" not in dead_names
         assert "Spare" in dead_names
 
 
