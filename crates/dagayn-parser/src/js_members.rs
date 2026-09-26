@@ -5,7 +5,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use super::js_like::{javascript_member_name, javascript_member_path};
+use super::js_calls::javascript_member_path;
+use super::js_declarations::javascript_member_name;
 use super::js_modules::{
     JavaScriptExportResolution, JavaScriptParseContext, javascript_module_index,
     resolve_javascript_import_path_in,

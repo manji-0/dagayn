@@ -35,12 +35,24 @@ mod gdscript;
 mod go;
 #[path = "java.rs"]
 mod java;
+#[path = "js_calls.rs"]
+mod js_calls;
+#[path = "js_declarations.rs"]
+mod js_declarations;
+#[path = "js_decorators.rs"]
+mod js_decorators;
+#[path = "js_heritage.rs"]
+mod js_heritage;
 #[path = "js_like.rs"]
 mod js_like;
 #[path = "js_members.rs"]
 mod js_members;
 #[path = "js_modules.rs"]
 mod js_modules;
+#[path = "js_namespaces.rs"]
+mod js_namespaces;
+#[path = "js_objects.rs"]
+mod js_objects;
 #[path = "js_sfc.rs"]
 mod js_sfc;
 #[path = "js_tests.rs"]

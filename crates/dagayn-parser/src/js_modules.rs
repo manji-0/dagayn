@@ -907,7 +907,7 @@ fn javascript_export_index_uncached(
         commonjs_value,
         class_table: Arc::new(collect_javascript_class_table(root, &source)),
         member_paths: Arc::new(
-            super::js_like::collect_javascript_member_paths(root, &source).members,
+            super::js_objects::collect_javascript_member_paths(root, &source).members,
         ),
         import_map: Arc::new(import_map),
         type_paths: Arc::new(super::js_members::collect_javascript_type_paths(

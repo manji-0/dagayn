@@ -6,8 +6,9 @@
 This document specifies which nodes and edges dagayn extracts from TypeScript,
 TSX, JavaScript, and JSX sources, how their qualified names are formed, and how
 references are resolved. It is the contract for `crates/dagayn-parser`
-(`js_like.rs`, `js_modules.rs`, `js_members.rs`, `js_types.rs`,
-`member_calls.rs`, `js_sfc.rs`) and for the
+(`js_like.rs`, `js_objects.rs`, `js_namespaces.rs`, `js_decorators.rs`,
+`js_declarations.rs`, `js_heritage.rs`, `js_calls.rs`, `js_modules.rs`,
+`js_members.rs`, `js_types.rs`, `member_calls.rs`, `js_sfc.rs`) and for the
 analysis code that reads the resulting metadata (`dagayn/sap.py`,
 `dagayn/refactor/dead_code.py`, `dagayn/entry_point_heuristics.py`,
 `crates/dagayn-graph` post-processing).
