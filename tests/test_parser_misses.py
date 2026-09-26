@@ -64,3 +64,40 @@ class Svc:
         assert ("CALLS", "<f>::Svc.handler", "<f>::helper") in edges
         handler = next(n for n in nodes if n.name == "handler")
         assert handler.extra.get("python_kind") == "lambda"
+
+
+class TestRust:
+    SOURCE = """\
+use std::collections::{HashMap, HashSet as HS};
+use crate::a::{run as ra, self};
+fn top() {}
+mod inner {
+    pub fn deep() { super::top(); }
+    pub mod sub { pub fn x() {} }
+}
+enum E { X }
+impl E { fn go(&self) { Self::helper(); } fn helper() {} }
+fn main() { inner::deep(); }
+"""
+
+    def test_grouped_use_is_split(self, parse):
+        _, edges, _ = parse("lib.rs", self.SOURCE)
+        imports = {t for k, _, t in edges if k == "IMPORTS_FROM"}
+        assert imports == {
+            "std::collections::HashMap",
+            "std::collections::HashSet",
+            "crate::a::run",
+            "crate::a",
+        }
+
+    def test_inline_modules_scope_items(self, parse):
+        names, edges, _ = parse("lib.rs", self.SOURCE)
+        assert ("Class", "sub", "inner") in names
+        assert ("Function", "x", "inner.sub") in names
+        assert ("CONTAINS", "<f>::inner.sub", "<f>::inner.sub.x") in edges
+        assert ("CALLS", "<f>::main", "<f>::inner.deep") in edges
+
+    def test_self_and_super_paths_resolve(self, parse):
+        _, edges, _ = parse("lib.rs", self.SOURCE)
+        assert ("CALLS", "<f>::inner.deep", "<f>::top") in edges
+        assert ("CALLS", "<f>::E.go", "<f>::E.helper") in edges

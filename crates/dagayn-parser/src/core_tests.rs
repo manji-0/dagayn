@@ -3130,7 +3130,7 @@ fn helper() {}
     assert!(edges.iter().any(|edge| {
         edge.kind == "IMPORTS_FROM"
             && edge.source == "src/lib.rs"
-            && edge.target == "pub dagayn_graph::{GraphStore}"
+            && edge.target == "dagayn_graph::GraphStore"
     }));
     assert!(edges.iter().any(|edge| {
         edge.kind == "CALLS"
