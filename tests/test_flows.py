@@ -547,6 +547,37 @@ class TestFlows:
         assert main_flow["id"] in affected_ids
         assert orphan_flow_id not in affected_ids
 
+    def test_get_affected_flows_follows_calls_from_stale_flow_entries(self):
+        """A stale flow counts as affected only when its entry still calls into the change."""
+        self._add_func("mid", path="b.py")
+        self._add_func("leaf", path="c.py")
+        self._add_call("b.py::mid", "c.py::leaf", "b.py")
+        store_flows(self.store, trace_flows(self.store))
+
+        # Added after tracing, so these flows are reachable only through the
+        # stale-path check, not through memberships.
+        self._add_func("start", path="e.py")
+        self._add_func("solo", path="d.py")
+        self._add_call("e.py::start", "b.py::mid", "e.py")
+        conn = store_conn(self.store)
+        stale_ids = {}
+        for name, qn in (("reaches", "e.py::start"), ("unrelated", "d.py::solo")):
+            entry = self.store.get_node(qn)
+            assert entry is not None
+            conn.execute(
+                "INSERT INTO flows (name, entry_point_id, path_json, node_count, "
+                "depth, file_count, criticality) VALUES (?, ?, ?, 1, 0, 1, 0.0)",
+                (name, entry.id, "[999997]"),
+            )
+            stale_ids[name] = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        self.store.commit()
+
+        result = get_affected_flows(self.store, ["c.py"])
+        affected_ids = {flow["id"] for flow in result["affected_flows"]}
+
+        assert stale_ids["reaches"] in affected_ids
+        assert stale_ids["unrelated"] not in affected_ids
+
     def test_get_node_ids_by_files_absolute_path(self, tmp_path):
         """get_node_ids_by_files accepts absolute paths when repo_root is set."""
         repo = tmp_path / "repo"

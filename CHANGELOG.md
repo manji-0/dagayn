@@ -44,6 +44,12 @@ All notable changes to `dagayn` are documented here.
   parser per chunk, keeping input order, so the stored graph is identical;
   `RAYON_NUM_THREADS` caps the thread count. The full build above drops
   further to ~1.8 s.
+- Affected-flow detection checks stale flows with one reverse search instead of
+  one forward search per flow. Each stale flow (one whose stored path names a
+  deleted node) ran its own 15-hop breadth-first search over the whole call
+  graph, so the cost grew with the number of stale flows times the graph size.
+  The nodes that can reach the change are now computed once from the changed
+  side, and each stale flow is a set lookup.
 
 ## 4.15.0 — 2026-09-25
 

@@ -147,7 +147,10 @@ impl GraphStore {
             ))
         })?;
 
-        let mut calls_out: Option<HashMap<String, Vec<String>>> = None;
+        let is_changed = |qn: &str| {
+            changed_qnames.contains(qn) || changed_file_set.contains(qualified_name_file(qn))
+        };
+        let mut reaching_changed: Option<HashSet<String>> = None;
         for row in stale_rows {
             let (flow_id, entry_point_id, path_json) = row?;
             if affected.contains(&flow_id) {
@@ -159,16 +162,22 @@ impl GraphStore {
                 affected.insert(flow_id);
                 continue;
             };
-            if calls_out.is_none() {
-                let (edges, _) = self.get_flow_edge_data()?;
-                calls_out = Some(edges);
+            if is_changed(&entry_qn) {
+                affected.insert(flow_id);
+                continue;
             }
-            if entry_reaches_changed_files(
-                calls_out.as_ref().expect("calls_out initialized"),
-                &entry_qn,
-                &changed_file_set,
-                &changed_qnames,
-            ) {
+            if reaching_changed.is_none() {
+                let (calls_out, _) = self.get_flow_edge_data()?;
+                reaching_changed = Some(nodes_reaching_changed(
+                    &calls_out,
+                    &is_changed,
+                    STALE_FLOW_REACH_DEPTH,
+                ));
+            }
+            if reaching_changed
+                .as_ref()
+                .is_some_and(|nodes| nodes.contains(&entry_qn))
+            {
                 affected.insert(flow_id);
             }
         }
@@ -331,33 +340,83 @@ fn qualified_name_file(qualified_name: &str) -> &str {
         .unwrap_or(qualified_name)
 }
 
-fn entry_reaches_changed_files(
-    calls_out: &HashMap<String, Vec<String>>,
-    entry_qn: &str,
-    changed_files: &HashSet<String>,
-    changed_qnames: &HashSet<String>,
-) -> bool {
-    if changed_qnames.contains(entry_qn) || changed_files.contains(qualified_name_file(entry_qn)) {
-        return true;
-    }
+/// How many CALLS hops a stale flow's entry point may be from changed code.
+const STALE_FLOW_REACH_DEPTH: usize = 15;
 
-    let mut visited = HashSet::new();
-    let mut queue = VecDeque::from([(entry_qn.to_string(), 0i64)]);
-    while let Some((qn, depth)) = queue.pop_front() {
-        if !visited.insert(qn.clone()) {
-            continue;
+/// Every node with a CALLS path of at most `max_depth` hops to a changed node.
+///
+/// One reverse breadth-first search from all changed nodes at once, so each
+/// stale flow is then a set lookup instead of its own forward search over the
+/// whole call graph.
+fn nodes_reaching_changed(
+    calls_out: &HashMap<String, Vec<String>>,
+    is_changed: &dyn Fn(&str) -> bool,
+    max_depth: usize,
+) -> HashSet<String> {
+    let mut callers: HashMap<&str, Vec<&str>> = HashMap::new();
+    let mut visited: HashSet<&str> = HashSet::new();
+    let mut queue = VecDeque::new();
+    for (source, targets) in calls_out {
+        if is_changed(source) && visited.insert(source) {
+            queue.push_back((source.as_str(), 0));
         }
-        if changed_qnames.contains(&qn) || changed_files.contains(qualified_name_file(&qn)) {
-            return true;
-        }
-        if depth >= 15 {
-            continue;
-        }
-        if let Some(targets) = calls_out.get(&qn) {
-            for target in targets {
-                queue.push_back((target.clone(), depth + 1));
+        for target in targets {
+            callers.entry(target).or_default().push(source);
+            if is_changed(target) && visited.insert(target) {
+                queue.push_back((target.as_str(), 0));
             }
         }
     }
-    false
+    while let Some((qn, depth)) = queue.pop_front() {
+        if depth >= max_depth {
+            continue;
+        }
+        for caller in callers.get(qn).into_iter().flatten() {
+            if visited.insert(caller) {
+                queue.push_back((caller, depth + 1));
+            }
+        }
+    }
+    visited.into_iter().map(str::to_string).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn calls(edges: &[(&str, &str)]) -> HashMap<String, Vec<String>> {
+        let mut out: HashMap<String, Vec<String>> = HashMap::new();
+        for (source, target) in edges {
+            out.entry(source.to_string())
+                .or_default()
+                .push(target.to_string());
+        }
+        out
+    }
+
+    #[test]
+    fn nodes_reaching_changed_respects_depth_and_direction() {
+        // entry -> a -> b -> changed.py::f ; other -> entry ; changed.py::f -> after
+        let calls_out = calls(&[
+            ("x.py::entry", "x.py::a"),
+            ("x.py::a", "x.py::b"),
+            ("x.py::b", "changed.py::f"),
+            ("x.py::other", "x.py::entry"),
+            ("changed.py::f", "x.py::after"),
+        ]);
+        let is_changed = |qn: &str| qualified_name_file(qn) == "changed.py";
+
+        let within_three = nodes_reaching_changed(&calls_out, &is_changed, 3);
+        for qn in ["changed.py::f", "x.py::b", "x.py::a", "x.py::entry"] {
+            assert!(within_three.contains(qn), "{qn} should reach within 3 hops");
+        }
+        assert!(!within_three.contains("x.py::other"), "4 hops away");
+        assert!(
+            !within_three.contains("x.py::after"),
+            "only called by changed code"
+        );
+
+        let within_four = nodes_reaching_changed(&calls_out, &is_changed, 4);
+        assert!(within_four.contains("x.py::other"));
+    }
 }
