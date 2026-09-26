@@ -197,6 +197,39 @@ class TestResolveBareCallTargets:
         assert row["target_qualified"] == "a.py::helper"
         assert row["confidence_tier"] == "MEDIUM"
 
+    def test_object_literal_members_are_not_bare_call_candidates(self, tmp_path):
+        """`const api = { get() {} }` members are reachable only as `api.get`.
+
+        Express's `app.get(...)` in a file that imports the module must not
+        bind to `api.get` just because the member is named `get`.
+        """
+        store = GraphStore(tmp_path / "object_members.db")
+        store.upsert_node(_node("File", "functions.ts", "functions.ts"))
+        store.upsert_node(_node("Class", "api", "functions.ts", type_role="object"))
+        store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="get",
+                file_path="functions.ts",
+                line_start=1,
+                line_end=2,
+                language="typescript",
+                parent_name="api",
+            )
+        )
+        store.upsert_node(_node("File", "express.ts", "express.ts"))
+        store.upsert_edge(_edge("IMPORTS_FROM", "express.ts", "functions.ts", "express.ts"))
+        store.upsert_edge(_edge("CALLS", "express.ts", "get", "express.ts"))
+        store.commit()
+
+        assert resolve_bare_call_targets(store) == 0
+        row = (
+            store_conn(store)
+            .execute("SELECT target_qualified FROM edges WHERE kind='CALLS'")
+            .fetchone()
+        )
+        assert row["target_qualified"] == "get"
+
 
 class TestResolveBareInheritanceTargets:
     def test_resolves_inherits_via_import(self, tmp_path):
@@ -216,6 +249,26 @@ class TestResolveBareInheritanceTargets:
             .fetchone()
         )
         assert row["target_qualified"] == "base.py::Base"
+        assert row["confidence_tier"] == "MEDIUM"
+
+    def test_resolves_extends_of_an_imported_type_alias(self, tmp_path):
+        """`interface X extends Alias` may name a TypeScript `Type` alias."""
+        store = GraphStore(tmp_path / "inherit_alias.db")
+        store.upsert_node(_node("File", "types.ts", "types.ts"))
+        store.upsert_node(_node("Type", "Props", "types.ts", type_role="alias"))
+        store.upsert_node(_node("File", "view.ts", "view.ts"))
+        store.upsert_node(_node("Class", "ViewProps", "view.ts", type_role="interface"))
+        store.upsert_edge(_edge("IMPORTS_FROM", "view.ts", "types.ts", "view.ts"))
+        store.upsert_edge(_edge("INHERITS", "view.ts::ViewProps", "Props", "view.ts"))
+        store.commit()
+
+        assert resolve_bare_inheritance_targets(store) == 1
+        row = (
+            store_conn(store)
+            .execute("SELECT target_qualified, confidence_tier FROM edges WHERE kind='INHERITS'")
+            .fetchone()
+        )
+        assert row["target_qualified"] == "types.ts::Props"
         assert row["confidence_tier"] == "MEDIUM"
 
     def test_demotes_unresolved_ambiguous_inherits(self, tmp_path):
@@ -238,6 +291,147 @@ class TestResolveBareInheritanceTargets:
         )
         assert row["target_qualified"] == "Base"
         assert row["confidence_tier"] == "LOW"
+
+
+class TestTestedBySync:
+    """TESTED_BY edges follow the CALLS edges that bare-name resolution binds."""
+
+    def test_python_tested_by_moves_with_resolved_call(self, tmp_path):
+        store = GraphStore(tmp_path / "tested_by_py.db")
+        store.upsert_node(_node("File", "a.py", "a.py"))
+        store.upsert_node(_node("Function", "helper", "a.py"))
+        store.upsert_node(_node("File", "tests/test_b.py", "tests/test_b.py"))
+        store.upsert_node(
+            NodeInfo(
+                kind="Test",
+                name="test_run",
+                file_path="tests/test_b.py",
+                line_start=1,
+                line_end=3,
+                language="python",
+                is_test=True,
+            )
+        )
+        store.upsert_edge(_edge("IMPORTS_FROM", "tests/test_b.py", "a.py", "tests/test_b.py"))
+        store.upsert_edge(_edge("CALLS", "tests/test_b.py::test_run", "helper", "tests/test_b.py"))
+        store.upsert_edge(
+            _edge("TESTED_BY", "helper", "tests/test_b.py::test_run", "tests/test_b.py")
+        )
+        store.commit()
+
+        assert resolve_bare_call_targets(store) == 1
+        row = (
+            store_conn(store)
+            .execute("SELECT source_qualified, confidence_tier FROM edges WHERE kind='TESTED_BY'")
+            .fetchone()
+        )
+        assert row["source_qualified"] == "a.py::helper"
+        assert row["confidence_tier"] == "MEDIUM"
+
+    def test_typescript_member_call_resolved_in_postprocessing(self, tmp_path):
+        """`box.helper()` on an untyped local binds in post-processing only."""
+        from dagayn.incremental import full_build
+        from dagayn.postprocessing import run_post_processing
+
+        repo = tmp_path / "repo"
+        (repo / "src").mkdir(parents=True)
+        (repo / ".git").mkdir()
+        (repo / "src" / "classes.ts").write_text(
+            "export class Box { helper() {} }\nexport function makeBox() { return new Box(); }\n",
+            encoding="utf-8",
+        )
+        (repo / "src" / "box.test.ts").write_text(
+            'import { makeBox } from "./classes";\n'
+            'it("uses a box", () => {\n'
+            "  const box = makeBox();\n"
+            "  box.helper();\n"
+            "});\n",
+            encoding="utf-8",
+        )
+        store = GraphStore(repo / ".dagayn" / "graph.db")
+        full_build(repo, store)
+        run_post_processing(store)
+        conn = store_conn(store)
+        test_qn = "src/box.test.ts::it:uses a box@L2"
+        calls = conn.execute(
+            "SELECT target_qualified FROM edges WHERE kind='CALLS' AND source_qualified=?",
+            (test_qn,),
+        ).fetchall()
+        assert "src/classes.ts::Box.helper" in {row["target_qualified"] for row in calls}
+        tested_by = conn.execute(
+            "SELECT source_qualified, confidence_tier FROM edges "
+            "WHERE kind='TESTED_BY' AND target_qualified=?",
+            (test_qn,),
+        ).fetchall()
+        sources = {row["source_qualified"]: row["confidence_tier"] for row in tested_by}
+        assert sources.get("src/classes.ts::Box.helper") == "MEDIUM", sources
+        assert "helper" not in sources
+        store.close()
+
+
+class TestExternalPackageSymbols:
+    def test_external_render_is_not_bound_to_a_project_render(self, tmp_path):
+        """`render` from @testing-library/react never becomes `ClassComp.render`."""
+        from dagayn.incremental import full_build
+        from dagayn.postprocessing import run_post_processing
+
+        repo = tmp_path / "repo"
+        (repo / "src").mkdir(parents=True)
+        (repo / ".git").mkdir()
+        (repo / "src" / "ClassComp.tsx").write_text(
+            "export class ClassComp { render() { return null; } }\n", encoding="utf-8"
+        )
+        (repo / "src" / "App.test.tsx").write_text(
+            'import { render } from "@testing-library/react";\n'
+            'import { ClassComp } from "./ClassComp";\n'
+            'it("renders", () => {\n'
+            "  render(<ClassComp />);\n"
+            "});\n",
+            encoding="utf-8",
+        )
+        store = GraphStore(repo / ".dagayn" / "graph.db")
+        full_build(repo, store)
+        run_post_processing(store)
+        conn = store_conn(store)
+        test_qn = "src/App.test.tsx::it:renders@L3"
+        calls = {
+            row["target_qualified"]: row
+            for row in conn.execute(
+                "SELECT target_qualified, confidence_tier, extra FROM edges "
+                "WHERE kind='CALLS' AND source_qualified=?",
+                (test_qn,),
+            ).fetchall()
+        }
+        assert set(calls) == {"@testing-library/react::render", "src/ClassComp.tsx::ClassComp"}
+        external = calls["@testing-library/react::render"]
+        # External, unresolved in-repo: LOW, identified by `extra.external`.
+        assert external["confidence_tier"] == "LOW"
+        assert '"external_package":"@testing-library/react"' in external["extra"]
+        tested_by = {
+            row["source_qualified"]
+            for row in conn.execute(
+                "SELECT source_qualified FROM edges WHERE kind='TESTED_BY' AND target_qualified=?",
+                (test_qn,),
+            ).fetchall()
+        }
+        assert tested_by == {"src/ClassComp.tsx::ClassComp"}
+        store.close()
+
+        result = query_graph(
+            pattern="callers_of",
+            target="src/ClassComp.tsx::ClassComp.render",
+            repo_root=str(repo),
+        )
+        # The name fallback must not report the external call as a caller.
+        assert result["results"] == [], result
+        external_callers = query_graph(
+            pattern="callers_of",
+            target="@testing-library/react::render",
+            repo_root=str(repo),
+        )
+        assert external_callers["status"] == "ok", external_callers
+        assert external_callers["resolution"] == "external_package"
+        assert [item["qualified_name"] for item in external_callers["results"]] == [test_qn]
 
 
 class TestQueryGraphBareNameBinding:

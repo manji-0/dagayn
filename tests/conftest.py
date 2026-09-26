@@ -17,7 +17,12 @@ PARITY_FIXTURE_NAMES = [
     "markdown_only",
     "notebook",
     "mixed",
+    "typescript",
+    "javascript",
 ]
+#: Fixtures whose snapshots hold one node / edge per line
+#: (``parity_export.py --entity-lines``), so parser changes diff by entity.
+ENTITY_LINE_PARITY_FIXTURES = frozenset({"typescript", "javascript"})
 
 
 def build_parity_fixture(source: Path, dest: Path) -> Path:

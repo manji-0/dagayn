@@ -770,10 +770,14 @@ def _freshness_reason_codes(store: Any) -> tuple[list[str], ToolPayload]:
     if state is None:
         return [], {}
     codes: list[str] = []
-    if state == "commit_drift":
+    extractor_drift = bool(freshness.get("extractor_drift"))
+    commit_moved = freshness.get("git_head_sha") != freshness.get("current_head_sha")
+    if state == "commit_drift" and (commit_moved or not extractor_drift):
         codes.append("graph_describes_another_commit")
     elif freshness.get("worktree_dirty"):
         codes.append("uncommitted_changes_may_be_unindexed")
+    if extractor_drift:
+        codes.append("graph_built_by_older_extractor")
     counts = {
         "graph_head_sha": freshness.get("git_head_sha"),
         "current_head_sha": freshness.get("current_head_sha"),
@@ -893,7 +897,11 @@ def graph_answerability_summary(store: Any, stats: Any | None = None) -> Answera
         freshness_codes, freshness_counts = _freshness_reason_codes(store)
         for code in freshness_codes:
             reason_codes.append(code)
-            score -= 0.25 if code == "graph_describes_another_commit" else 0.1
+            score -= (
+                0.25
+                if code in {"graph_describes_another_commit", "graph_built_by_older_extractor"}
+                else 0.1
+            )
 
         score = max(0.0, round(score, 4))
         status = "ok" if score >= 0.75 else "degraded" if score > 0 else "empty"
@@ -999,12 +1007,17 @@ def missingness_from_answerability(
         "answerability_unavailable": "medium",
         "stale_derived_structures": "medium",
         "graph_describes_another_commit": "high",
+        "graph_built_by_older_extractor": "high",
         "uncommitted_changes_may_be_unindexed": "medium",
     }
     claim_effect_by_code = {
         "graph_describes_another_commit": (
             "the graph answers for a different commit -- absence, line numbers and blast"
             " radius may all be wrong; run dagayn update before concluding anything"
+        ),
+        "graph_built_by_older_extractor": (
+            "an older extractor parsed some files -- qualified names and edges may differ from"
+            " what the current parser produces; run dagayn update to re-parse them"
         ),
         "uncommitted_changes_may_be_unindexed": (
             "working-tree edits may not be indexed -- a symbol reported missing may exist on disk"

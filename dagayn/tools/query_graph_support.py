@@ -7,6 +7,7 @@ from typing import Any, Callable, cast
 
 from ..bare_name_resolution import (
     SymbolVisibility,
+    is_external_package_edge,
     is_plausible_bare_edge,
     looks_like_file_target,
     node_file_from_qualified,
@@ -229,6 +230,9 @@ def filter_bare_name_fallback_edges(
     if not edges or target_node is None:
         return edges
 
+    # A call into an external package (`@testing-library/react::render`)
+    # shares only its name with the target node.
+    edges = [edge for edge in edges if not is_external_package_edge(edge)]
     if _bare_name_is_unique(store, getattr(target_node, "name", "")):
         return edges
 
@@ -405,6 +409,17 @@ def query_graph_guidance(
             counts={"result_count": 0},
         )
     ]
+
+
+def is_external_package_target(store: Any, target: str) -> bool:
+    """Whether *target* is an external package symbol (``react::useState``).
+
+    Such targets are not nodes; they exist only as the target of edges the
+    JavaScript / TypeScript extractor marks with ``extra.external``.
+    """
+    if "::" not in target:
+        return False
+    return any(is_external_package_edge(edge) for edge in store.get_edges_by_target(target))
 
 
 def looks_like_query_file_target(target: str) -> bool:

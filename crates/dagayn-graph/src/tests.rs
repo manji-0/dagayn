@@ -2926,6 +2926,22 @@ fn reads_nodes_and_edges_for_incremental_dependents() {
     let _ = std::fs::remove_file(path);
 }
 
+#[test]
+fn flow_test_file_pattern_covers_javascript_variants() {
+    for path in [
+        "src/App.test.tsx",
+        "src/app.spec.mts",
+        "src/app.test.cjs",
+        "cypress/e2e/login.cy.ts",
+        "src/__tests__/util.ts",
+    ] {
+        assert!(crate::flow_trace::is_test_file(path), "{path}");
+    }
+    for path in ["src/latest.ts", "src/contest.tsx"] {
+        assert!(!crate::flow_trace::is_test_file(path), "{path}");
+    }
+}
+
 fn flow_test_node(kind: &str, name: &str, file: &str) -> NodeInput {
     NodeInput {
         kind: kind.to_string(),

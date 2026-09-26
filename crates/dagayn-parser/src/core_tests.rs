@@ -2409,7 +2409,7 @@ const doubled = computed(() => count.value * 2)
             .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "vue" && edge.line == 8 })
     );
     assert!(edges.iter().any(|edge| {
-        edge.kind == "CALLS" && edge.source == "sample.vue" && edge.target == "ref"
+        edge.kind == "CALLS" && edge.source == "sample.vue" && edge.target == "vue::ref"
     }));
     assert!(edges.iter().any(|edge| {
         edge.kind == "CALLS"
@@ -2461,7 +2461,10 @@ function selectUser(user: User) {
         edge.kind == "IMPORTS_FROM" && edge.target == "svelte/store" && edge.line == 2
     }));
     assert!(edges.iter().any(|edge| {
-        edge.kind == "CALLS" && edge.source == "sample.svelte" && edge.target == "writable"
+        edge.kind == "CALLS"
+            && edge.source == "sample.svelte"
+            && edge.target == "svelte/store::writable"
+            && edge.extra["external_package"] == "svelte"
     }));
     assert!(edges.iter().any(|edge| {
         edge.kind == "CALLS"
@@ -3267,7 +3270,7 @@ describe('Service', () => {
         })
         .collect::<Vec<_>>();
     assert!(node_names.contains(&("Class", "Shape", None)));
-    assert!(node_names.contains(&("Class", "UserPayload", None)));
+    assert!(node_names.contains(&("Type", "UserPayload", None)));
     assert!(node_names.contains(&("Class", "UserStatus", None)));
     assert!(node_names.contains(&("Class", "UserModel", None)));
     assert!(node_names.contains(&("Class", "CardProps", None)));
@@ -3287,16 +3290,17 @@ describe('Service', () => {
         "UpdateUserDto",
     ] {
         assert!(nodes.iter().any(|node| {
-            node.kind == "Class"
+            matches!(node.kind.as_str(), "Class" | "Type")
                 && node.name == name
                 && node.extra["container_role"] == "data_container"
                 && node.extra["value_semantics"] == true
         }));
     }
     assert!(nodes.iter().any(|node| {
-        node.kind == "Class"
+        node.kind == "Type"
             && node.name == "UserPayload"
-            && node.extra["type_role"] == "type_alias"
+            && node.extra["type_role"] == "alias"
+            && node.extra["alias_form"] == "object"
     }));
     assert!(nodes.iter().any(|node| {
         node.kind == "Class" && node.name == "UserStatus" && node.extra["type_role"] == "enum"
@@ -3346,6 +3350,776 @@ describe('Service', () => {
         edge.kind == "TESTED_BY"
             && edge.source == "service.test.ts::helper"
             && edge.target.contains("it:runs")
+    }));
+}
+
+#[test]
+fn parses_typescript_abstract_classes() {
+    let source = br#"export abstract class AbstractShape {
+  abstract area(): number;
+  abstract get label(): string;
+  protected abstract readonly sides: number;
+  describe(): string {
+    return this.label + this.area();
+  }
+}
+
+abstract class B {}
+
+export default class DefaultShape extends AbstractShape {
+  area(): number {
+    return 1;
+  }
+  get label(): string {
+    return "shape";
+  }
+}
+"#;
+    let (nodes, edges) = parse_javascript_like("shapes.ts", source, "typescript");
+    for name in ["AbstractShape", "B"] {
+        assert!(
+            nodes.iter().any(|node| {
+                node.kind == "Class"
+                    && node.name == name
+                    && node.parent_name.is_none()
+                    && node.extra["type_role"] == "abstract_class"
+                    && node.extra["is_abstract"] == true
+            }),
+            "{name}: {nodes:?}"
+        );
+    }
+    for name in ["area", "label"] {
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Function"
+                && node.name == name
+                && node.parent_name.as_deref() == Some("AbstractShape")
+                && node.extra["is_abstract"] == true
+        }));
+    }
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Function"
+            && node.name == "describe"
+            && node.parent_name.as_deref() == Some("AbstractShape")
+            && node.extra.get("is_abstract").is_none()
+    }));
+    assert!(
+        !nodes
+            .iter()
+            .any(|node| node.name == "describe" && node.parent_name.is_none())
+    );
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "CONTAINS"
+            && edge.source == "shapes.ts::AbstractShape"
+            && edge.target == "shapes.ts::AbstractShape.area"
+    }));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "CALLS"
+            && edge.source == "shapes.ts::AbstractShape.describe"
+            && edge.target == "shapes.ts::AbstractShape.area"
+    }));
+    assert!(!edges.iter().any(|edge| {
+        edge.kind == "CALLS"
+            && edge.source == "shapes.ts::AbstractShape.describe"
+            && edge.target == "shapes.ts::DefaultShape.area"
+    }));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "INHERITS"
+            && edge.source == "shapes.ts::DefaultShape"
+            && edge.target == "AbstractShape"
+    }));
+}
+
+#[test]
+fn parses_typescript_declared_abstract_classes() {
+    let source = br#"declare abstract class DeclaredAbstract {
+  abstract m(): void;
+}
+export declare abstract class ExportedAbstract {
+  abstract run(): void;
+}
+"#;
+    let (nodes, edges) = parse_javascript_like("ambient.d.ts", source, "typescript");
+    for (class_name, method) in [("DeclaredAbstract", "m"), ("ExportedAbstract", "run")] {
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Class"
+                && node.name == class_name
+                && node.extra["type_role"] == "abstract_class"
+                && node.extra["is_abstract"] == true
+        }));
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Function"
+                && node.name == method
+                && node.parent_name.as_deref() == Some(class_name)
+                && node.extra["is_abstract"] == true
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CONTAINS"
+                && edge.source == "ambient.d.ts"
+                && edge.target == format!("ambient.d.ts::{class_name}")
+        }));
+    }
+}
+
+#[test]
+fn parses_javascript_and_typescript_generator_declarations() {
+    let source = br#"export function* gen() {
+  yield helper();
+}
+export async function* agen() {
+  yield* gen();
+}
+export const genExpr = function* () {
+  helper();
+};
+class Items {
+  *items() {
+    helper();
+  }
+  async *aitems() {}
+}
+function helper() {}
+"#;
+    for (file, language) in [("gen.js", "javascript"), ("gen.ts", "typescript")] {
+        let (nodes, edges) = parse_javascript_like(file, source, language);
+        for name in ["gen", "agen", "genExpr", "helper"] {
+            assert!(
+                nodes.iter().any(|node| {
+                    node.kind == "Function" && node.name == name && node.parent_name.is_none()
+                }),
+                "{file}: missing {name}: {nodes:?}"
+            );
+        }
+        for name in ["items", "aitems"] {
+            assert!(nodes.iter().any(|node| {
+                node.kind == "Function"
+                    && node.name == name
+                    && node.parent_name.as_deref() == Some("Items")
+            }));
+        }
+        for (caller, callee) in [
+            ("gen", "helper"),
+            ("agen", "gen"),
+            ("genExpr", "helper"),
+            ("Items.items", "helper"),
+        ] {
+            assert!(
+                edges.iter().any(|edge| {
+                    edge.kind == "CALLS"
+                        && edge.source == format!("{file}::{caller}")
+                        && edge.target == format!("{file}::{callee}")
+                }),
+                "{file}: missing CALLS {caller} -> {callee}: {edges:?}"
+            );
+        }
+        assert!(
+            !edges
+                .iter()
+                .any(|edge| edge.kind == "CALLS" && edge.source == file)
+        );
+    }
+}
+
+#[test]
+fn parses_typescript_heritage_forms() {
+    let mut repo_root = std::env::temp_dir();
+    repo_root.push(format!(
+        "dagayn-parser-ts-heritage-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    let _ = std::fs::remove_dir_all(&repo_root);
+    std::fs::create_dir_all(repo_root.join("src/lib")).unwrap();
+    std::fs::write(
+        repo_root.join("src/lib/base.ts"),
+        b"export class Base {}\nexport interface Marker {}\nexport interface X<T> {}\n",
+    )
+    .unwrap();
+
+    let source = br#"import * as ns from "./lib/base";
+
+function Mixin<T>(base: T): T { return base; }
+class Local {}
+
+class A extends ns.Base implements Service<string>, ns.Marker {}
+class M extends Mixin(Local) {}
+class G extends Array<number> {}
+interface I2 extends Repo, Service<number>, ns.X<T> {}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "src/heritage.ts", source);
+    let has = |kind: &str, source: &str, target: &str| {
+        edges
+            .iter()
+            .any(|edge| edge.kind == kind && edge.source == source && edge.target == target)
+    };
+    assert!(
+        has("INHERITS", "src/heritage.ts::A", "src/lib/base.ts::Base"),
+        "{edges:?}"
+    );
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "INHERITS"
+            && edge.source == "src/heritage.ts::A"
+            && edge.extra["heritage_expression"] == "ns.Base"
+            && edge.extra["relationship_role"] == "extends"
+    }));
+    assert!(has("IMPLEMENTS", "src/heritage.ts::A", "Service"));
+    assert!(has(
+        "IMPLEMENTS",
+        "src/heritage.ts::A",
+        "src/lib/base.ts::Marker"
+    ));
+    assert!(!edges.iter().any(|edge| {
+        edge.source == "src/heritage.ts::A" && (edge.target == "string" || edge.target == "ns")
+    }));
+
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "INHERITS"
+            && edge.source == "src/heritage.ts::M"
+            && edge.target == "Local"
+            && edge.extra["heritage_expression"] == "Mixin(Local)"
+    }));
+    assert!(has("CALLS", "src/heritage.ts::M", "src/heritage.ts::Mixin"));
+    assert!(!edges.iter().any(|edge| {
+        edge.source == "src/heritage.ts" && matches!(edge.kind.as_str(), "CALLS" | "REFERENCES")
+    }));
+
+    assert!(has("INHERITS", "src/heritage.ts::G", "Array"));
+    assert!(!has("INHERITS", "src/heritage.ts::G", "number"));
+
+    for target in ["Repo", "Service", "src/lib/base.ts::X"] {
+        assert!(
+            edges.iter().any(|edge| {
+                edge.kind == "INHERITS"
+                    && edge.source == "src/heritage.ts::I2"
+                    && edge.target == target
+                    && edge.extra["relationship_role"] == "extends"
+            }),
+            "I2 -> {target}: {edges:?}"
+        );
+    }
+    assert!(!edges.iter().any(|edge| {
+        edge.source == "src/heritage.ts::I2" && (edge.target == "T" || edge.target == "number")
+    }));
+
+    let _ = std::fs::remove_dir_all(&repo_root);
+}
+
+#[test]
+fn parses_javascript_class_extends() {
+    let source = br#"import * as ns from "./base";
+
+class Legacy extends Base {}
+class Namespaced extends ns.Base {}
+class Mixed extends Mixin(Base) {
+  run() {
+    class Inner extends Other {}
+  }
+}
+"#;
+    let (_nodes, edges) = parse_javascript_like("legacy.js", source, "javascript");
+    let inherits = |source: &str, target: &str| {
+        edges.iter().any(|edge| {
+            edge.kind == "INHERITS"
+                && edge.source == source
+                && edge.target == target
+                && edge.extra["relationship_role"] == "extends"
+        })
+    };
+    assert!(inherits("legacy.js::Legacy", "Base"), "{edges:?}");
+    assert!(inherits("legacy.js::Namespaced", "Base"));
+    assert!(inherits("legacy.js::Mixed", "Base"));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "CALLS" && edge.source == "legacy.js::Mixed" && edge.target == "Mixin"
+    }));
+    assert!(!inherits("legacy.js::Mixed", "Other"));
+}
+
+#[test]
+fn does_not_mark_test_prefixed_components_as_tests() {
+    let source = br#"export function TestimonialCard() {
+  return <div />;
+}
+export const TestBadge = () => <span />;
+function test_helper() {}
+class Tester {
+  TestMode = () => test_helper();
+}
+"#;
+    let (nodes, _edges) = parse_javascript_like("src/components/Testimonial.tsx", source, "tsx");
+    for name in ["TestimonialCard", "TestBadge", "test_helper", "TestMode"] {
+        assert!(
+            nodes
+                .iter()
+                .any(|node| { node.kind == "Function" && node.name == name && !node.is_test }),
+            "{name} should be a plain Function: {nodes:?}"
+        );
+    }
+    assert!(!nodes.iter().any(|node| node.kind == "Test"));
+
+    let test_source = br#"function TestHelper() {}
+function test_setup() {}
+function helper() {}
+"#;
+    let (nodes, _edges) = parse_javascript_like("src/card.test.ts", test_source, "typescript");
+    for name in ["TestHelper", "test_setup"] {
+        assert!(
+            nodes
+                .iter()
+                .any(|node| node.kind == "Test" && node.name == name && node.is_test),
+            "{name} should stay a Test in a test file: {nodes:?}"
+        );
+    }
+    assert!(
+        nodes
+            .iter()
+            .any(|node| node.kind == "Function" && node.name == "helper")
+    );
+}
+
+#[test]
+fn detects_javascript_test_files_by_suffix_and_directory() {
+    let source = b"it('works', () => {});\n";
+    for path in [
+        "src/App.test.tsx",
+        "src/app.spec.jsx",
+        "src/app.test.mjs",
+        "src/app.test.cjs",
+        "src/app.spec.mts",
+        "src/app.test.cts",
+        "src/__tests__/util.ts",
+        "__tests__/util.js",
+        "cypress/e2e/login.cy.ts",
+        "src/components/Button.cy.jsx",
+        "e2e/login.ts",
+        "apps/web/e2e/checkout.ts",
+        "tests/unit/app.ts",
+    ] {
+        let language = if path.ends_with("ts") || path.ends_with("tsx") {
+            "typescript"
+        } else {
+            "javascript"
+        };
+        let (nodes, _edges) = parse_javascript_like(path, source, language);
+        assert!(nodes[0].is_test, "{path} should be a test file");
+        assert!(
+            nodes
+                .iter()
+                .any(|node| node.kind == "Test" && node.name == "it:works@L1"),
+            "{path} should have a Test node: {nodes:?}"
+        );
+    }
+    for path in [
+        "src/latest.ts",
+        "src/contest.tsx",
+        "src/spec.ts",
+        "src/test.ts",
+        "src/e2e-config.ts",
+        "src/protests/index.js",
+    ] {
+        let (nodes, _edges) = parse_javascript_like(path, source, "typescript");
+        assert!(!nodes[0].is_test, "{path} should not be a test file");
+        assert!(!nodes.iter().any(|node| node.kind == "Test"), "{path}");
+    }
+}
+
+#[test]
+fn parses_javascript_test_runner_variants() {
+    let source = br#"import { decl, arrow } from "../functions";
+
+describe("functions", () => {
+  beforeEach(() => { arrow(0); });
+  it("decl works", () => {
+    expect(decl(1)).toBe(2);
+  });
+  test.each([1, 2])("arrow %i", (n) => {
+    arrow(n);
+  });
+  it.each`
+    a    | b
+    ${1} | ${2}
+  `("adds $a", ({ a }) => {
+    decl(a);
+  });
+  it.only("focused", () => { decl(3); });
+  describe.skip("nested", () => {
+    test.todo("later");
+    test.concurrent("parallel", async () => { decl(4); });
+  });
+  suite("suite block", () => {
+    specify("spec", () => { decl(5); });
+  });
+});
+test.describe("group", () => {
+  test.beforeEach(async () => { arrow(6); });
+  test("inner", () => { vi.fn(); });
+});
+"#;
+    let path = "src/__tests__/calls.test.ts";
+    let (nodes, edges) = parse_javascript_like(path, source, "typescript");
+    let tests = nodes
+        .iter()
+        .filter(|node| node.kind == "Test")
+        .map(|node| (node.name.as_str(), node.line_start, node.line_end))
+        .collect::<Vec<_>>();
+    for expected in [
+        ("describe:functions@L3", 3, 25),
+        ("it:decl works@L5", 5, 7),
+        ("test:arrow %i@L8", 8, 10),
+        ("it:adds $a@L11", 11, 16),
+        ("it:focused@L17", 17, 17),
+        ("describe:nested@L18", 18, 21),
+        ("test:later@L19", 19, 19),
+        ("test:parallel@L20", 20, 20),
+        ("suite:suite block@L22", 22, 24),
+        ("specify:spec@L23", 23, 23),
+        ("describe:group@L26", 26, 29),
+        ("test:inner@L28", 28, 28),
+    ] {
+        assert!(tests.contains(&expected), "{expected:?} missing: {tests:?}");
+    }
+    assert_eq!(tests.len(), 12, "unexpected Test nodes: {tests:?}");
+    let modifiers = |name: &str| {
+        nodes
+            .iter()
+            .find(|node| node.name == name)
+            .and_then(|node| node.extra.get("test_modifiers").cloned())
+    };
+    assert_eq!(modifiers("test:arrow %i@L8"), Some(json!(["each"])));
+    assert_eq!(modifiers("describe:nested@L18"), Some(json!(["skip"])));
+    assert_eq!(modifiers("test:later@L19"), Some(json!(["todo"])));
+    assert_eq!(modifiers("it:decl works@L5"), None);
+
+    let qn = |name: &str| format!("{path}::{name}");
+    let has_edge = |kind: &str, source: &str, target_suffix: &str, line: i64| {
+        edges.iter().any(|edge| {
+            edge.kind.as_str() == kind
+                && edge.source == source
+                && edge.target.ends_with(target_suffix)
+                && edge.line == line
+        })
+    };
+    // `.each` bodies belong to the synthetic test, hooks to the describe.
+    assert!(has_edge("CALLS", &qn("test:arrow %i@L8"), "arrow", 9));
+    assert!(has_edge("CALLS", &qn("it:adds $a@L11"), "decl", 15));
+    assert!(has_edge("CALLS", &qn("describe:functions@L3"), "arrow", 4));
+    assert!(has_edge("CALLS", &qn("describe:group@L26"), "arrow", 27));
+    assert!(has_edge(
+        "CONTAINS",
+        &qn("describe:nested@L18"),
+        "test:later@L19",
+        19
+    ));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "TESTED_BY"
+            && edge.source.ends_with("decl")
+            && edge.target == qn("it:decl works@L5")
+    }));
+    // Runner APIs get no edges; assertion / mock APIs keep CALLS but never
+    // become TESTED_BY sources.
+    for api in ["beforeEach", "each", "describe", "it", "test", "todo"] {
+        assert!(
+            !edges
+                .iter()
+                .any(|edge| matches!(edge.kind.as_str(), "CALLS" | "TESTED_BY")
+                    && (edge.target == api || edge.source == api)),
+            "{api} should not get CALLS / TESTED_BY: {edges:?}"
+        );
+    }
+    for api in ["expect", "toBe", "fn"] {
+        assert!(
+            edges.iter().any(|edge| {
+                edge.kind == "CALLS" && edge.target == api && edge.extra["test_api"] == true
+            }),
+            "{api} CALLS should be marked test_api: {edges:?}"
+        );
+        assert!(
+            !edges
+                .iter()
+                .any(|edge| edge.kind == "TESTED_BY" && edge.source == api),
+            "{api} should not be a TESTED_BY source"
+        );
+    }
+}
+
+#[test]
+fn parses_typescript_default_exports_and_class_expressions() {
+    fn find<'a>(
+        nodes: &'a [ParsedNode],
+        kind: &str,
+        name: &str,
+        parent: Option<&str>,
+    ) -> Option<&'a ParsedNode> {
+        nodes.iter().find(|node| {
+            node.kind == kind && node.name == name && node.parent_name.as_deref() == parent
+        })
+    }
+    for (file, language) in [("anon.ts", "typescript"), ("anon.js", "javascript")] {
+        let (nodes, edges) = parse_javascript_like(
+            file,
+            b"export default class extends Base {\n  hello() { helper(); }\n}\nfunction helper() {}\n",
+            language,
+        );
+        let class = find(&nodes, "Class", "default", None).expect("anonymous default class");
+        assert_eq!(class.extra["export_default"], true);
+        assert_eq!(class.extra["anonymous"], true);
+        assert!(find(&nodes, "Function", "hello", Some("default")).is_some());
+        assert!(
+            !nodes
+                .iter()
+                .any(|node| node.name == "hello" && node.parent_name.is_none())
+        );
+        let qn = |name: &str| format!("{file}::{name}");
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CONTAINS" && edge.source == file && edge.target == qn("default")
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "INHERITS" && edge.source == qn("default") && edge.target == "Base"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == qn("default.hello")
+                && edge.target == qn("helper")
+        }));
+
+        let (nodes, edges) = parse_javascript_like(
+            file,
+            b"export default function () {\n  helper();\n}\nfunction helper() {}\n",
+            language,
+        );
+        let function = find(&nodes, "Function", "default", None).expect("anonymous default fn");
+        assert_eq!(function.extra["export_default"], true);
+        assert_eq!(function.extra["anonymous"], true);
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS" && edge.source == qn("default") && edge.target == qn("helper")
+        }));
+        assert!(
+            !edges
+                .iter()
+                .any(|edge| edge.kind == "CALLS" && edge.source == file)
+        );
+
+        let (nodes, _edges) =
+            parse_javascript_like(file, b"export default (x) => x * 2;\n", language);
+        assert!(find(&nodes, "Function", "default", None).is_some());
+
+        let (nodes, _edges) =
+            parse_javascript_like(file, b"export default async function* () {}\n", language);
+        assert!(find(&nodes, "Function", "default", None).is_some());
+
+        let (nodes, _edges) = parse_javascript_like(
+            file,
+            b"export default function Page() {}\nexport function other() {}\n",
+            language,
+        );
+        let page = find(&nodes, "Function", "Page", None).expect("named default");
+        assert_eq!(page.extra["export_default"], true);
+        assert!(page.extra.get("anonymous").is_none());
+        let other = find(&nodes, "Function", "other", None).unwrap();
+        assert!(other.extra.get("export_default").is_none());
+
+        let (nodes, edges) = parse_javascript_like(
+            file,
+            br#"export const Anon = class {
+  run() { this.stop(); }
+  stop() {}
+};
+export const Named = class InnerName extends Base {
+  go() {}
+};
+function make() {
+  const anon = new Anon();
+  anon.stop();
+  return anon;
+}
+"#,
+            language,
+        );
+        let anon = find(&nodes, "Class", "Anon", None).expect("bound class expression");
+        assert_eq!(anon.extra["class_expression"], true);
+        assert!(find(&nodes, "Function", "run", Some("Anon")).is_some());
+        let named = find(&nodes, "Class", "Named", None).expect("named class expression");
+        assert_eq!(named.extra["expression_name"], "InnerName");
+        assert!(find(&nodes, "Function", "go", Some("Named")).is_some());
+        assert!(!nodes.iter().any(|node| node.name == "InnerName"));
+        assert!(
+            !nodes
+                .iter()
+                .any(|node| node.name == "run" && node.parent_name.is_none())
+        );
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "INHERITS" && edge.source == qn("Named") && edge.target == "Base"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS" && edge.source == qn("Anon.run") && edge.target == qn("Anon.stop")
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS" && edge.source == qn("make") && edge.target == qn("Anon")
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS" && edge.source == qn("make") && edge.target == qn("Anon.stop")
+        }));
+    }
+}
+
+#[test]
+fn does_not_flatten_members_of_unbound_class_expressions() {
+    let source = br#"export function Mixin(Base) {
+  return class extends Base {
+    mixed() { helper(); }
+  };
+}
+function helper() {}
+"#;
+    let (nodes, edges) = parse_javascript_like("mixin.ts", source, "typescript");
+    assert!(!nodes.iter().any(|node| node.name == "mixed"), "{nodes:?}");
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "CALLS"
+            && edge.source == "mixin.ts::Mixin"
+            && edge.target == "mixin.ts::helper"
+    }));
+}
+
+#[test]
+fn parses_typescript_object_literal_containers() {
+    let source = br#"export const api = {
+  get(id: string) { return this.put() + fetchIt(id); },
+  post: () => fetchIt("p"),
+  put: function () { return 1; },
+  "quoted": () => 2,
+  nested: { deep() { fetchIt("d"); } },
+  value: 3,
+  fetchIt,
+};
+const cfg = { a: 1 } as const;
+const routes = { list() { return fetchIt("l"); } } satisfies Routes;
+function fetchIt(id: string) { return id; }
+function useLocal() {
+  const local = { m() { fetchIt("m"); } };
+  register({ n() { fetchIt("n"); } });
+  return local;
+}
+"#;
+    for (file, language) in [("api.ts", "typescript"), ("api.js", "javascript")] {
+        let source = if language == "javascript" {
+            String::from_utf8_lossy(source)
+                .replace("(id: string)", "(id)")
+                .replace(" satisfies Routes", "")
+                .replace(" as const", "")
+                .into_bytes()
+        } else {
+            source.to_vec()
+        };
+        let (nodes, edges) = parse_javascript_like(file, &source, language);
+        let has_node = |kind: &str, name: &str, parent: Option<&str>| {
+            nodes.iter().any(|node| {
+                node.kind == kind && node.name == name && node.parent_name.as_deref() == parent
+            })
+        };
+        let qn = |name: &str| format!("{file}::{name}");
+        assert!(
+            nodes.iter().any(|node| {
+                node.kind == "Class" && node.name == "api" && node.extra["type_role"] == "object"
+            }),
+            "{file}: {nodes:?}"
+        );
+        for member in ["get", "post", "put", "quoted"] {
+            assert!(
+                has_node("Function", member, Some("api")),
+                "{file}: api.{member}"
+            );
+        }
+        assert!(has_node("Class", "nested", Some("api")));
+        assert!(has_node("Function", "deep", Some("api.nested")));
+        assert!(has_node("Class", "routes", None));
+        assert!(has_node("Function", "list", Some("routes")));
+        assert!(
+            !nodes
+                .iter()
+                .any(|node| node.name == "cfg" || node.name == "value")
+        );
+        for name in ["get", "deep", "m", "n", "list"] {
+            assert!(
+                !has_node("Function", name, None),
+                "{file}: {name} must not be top-level"
+            );
+        }
+        assert!(
+            !nodes
+                .iter()
+                .any(|node| node.name == "m" || node.name == "n")
+        );
+        for (source, target) in [
+            (file.to_string(), qn("api")),
+            (qn("api"), qn("api.get")),
+            (qn("api"), qn("api.nested")),
+            (qn("api.nested"), qn("api.nested.deep")),
+        ] {
+            assert!(
+                edges.iter().any(|edge| {
+                    edge.kind == "CONTAINS" && edge.source == source && edge.target == target
+                }),
+                "{file}: CONTAINS {source} -> {target}"
+            );
+        }
+        for caller in [
+            "api.get",
+            "api.post",
+            "api.nested.deep",
+            "routes.list",
+            "useLocal",
+        ] {
+            assert!(
+                edges.iter().any(|edge| {
+                    edge.kind == "CALLS"
+                        && edge.source == qn(caller)
+                        && edge.target == qn("fetchIt")
+                }),
+                "{file}: CALLS {caller} -> fetchIt: {edges:?}"
+            );
+        }
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "REFERENCES" && edge.source == file && edge.target == qn("fetchIt")
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS" && edge.source == qn("api.get") && edge.target == qn("api.put")
+        }));
+    }
+}
+
+#[test]
+fn does_not_resolve_unrelated_member_calls_to_object_methods() {
+    let source = br#"import express from "express";
+const app = express();
+export const api = {
+  get() { return 1; },
+  nested: { deep() { return 2; } },
+};
+app.get("/users", (req, res) => res.json([]));
+export function useApi() {
+  api.get();
+  api.nested.deep();
+  api.missing();
+}
+"#;
+    let (_nodes, edges) = parse_javascript_like("server.ts", source, "typescript");
+    assert!(
+        !edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == "server.ts"
+                && (edge.target == "server.ts::get" || edge.target == "server.ts::api.get")
+        }),
+        "{edges:?}"
+    );
+    for target in ["server.ts::api.get", "server.ts::api.nested.deep"] {
+        assert!(
+            edges.iter().any(|edge| {
+                edge.kind == "CALLS" && edge.source == "server.ts::useApi" && edge.target == target
+            }),
+            "missing CALLS useApi -> {target}: {edges:?}"
+        );
+    }
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "CALLS" && edge.source == "server.ts::useApi" && edge.target == "missing"
     }));
 }
 
@@ -3497,6 +4271,216 @@ export function formatUser(name: string): string {
 }
 
 #[test]
+fn resolves_typescript_dotted_basename_imports() {
+    let mut repo_root = std::env::temp_dir();
+    repo_root.push(format!(
+        "dagayn-parser-ts-dotted-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    let _ = std::fs::remove_dir_all(&repo_root);
+    std::fs::create_dir_all(repo_root.join("src/lib")).unwrap();
+    std::fs::create_dir_all(repo_root.join("src/dir")).unwrap();
+    std::fs::write(
+        repo_root.join("tsconfig.json"),
+        br#"{ "compilerOptions": { "baseUrl": ".", "paths": { "@/*": ["src/*"] } } }"#,
+    )
+    .unwrap();
+    for (path, body) in [
+        ("src/user.service.ts", "export class UserService {}\n"),
+        ("src/hero.component.ts", "export class HeroComponent {}\n"),
+        ("src/esm-compat.ts", "export function compat() {}\n"),
+        ("src/lib/index.ts", "export function fromLib() {}\n"),
+        (
+            "src/types.d.ts",
+            "export declare function declared(): void;\n",
+        ),
+        ("src/both.ts", "export function both() {}\n"),
+        ("src/both.d.ts", "export declare function both(): void;\n"),
+        ("src/dir.ts", "export function dirFile() {}\n"),
+        ("src/dir/index.ts", "export function dirIndex() {}\n"),
+        ("src/util.mts", "export function utilFn() {}\n"),
+        ("src/conf.cjs", "module.exports = {};\n"),
+    ] {
+        std::fs::write(repo_root.join(path), body).unwrap();
+    }
+
+    let source = br#"import { UserService } from "./user.service";
+import { HeroComponent } from "@/hero.component";
+import { compat } from "./esm-compat.js";
+import { fromLib } from "./lib";
+import { declared } from "./types";
+import { both } from "./both";
+import { dirFile } from "./dir";
+import { utilFn } from "./util.mjs";
+import conf from "./conf";
+
+export function run() {
+  new UserService();
+  new HeroComponent();
+  compat();
+  fromLib();
+  declared();
+  both();
+  dirFile();
+  utilFn();
+}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "src/consumer.ts", source);
+    for target in [
+        "src/user.service.ts",
+        "src/hero.component.ts",
+        "src/esm-compat.ts",
+        "src/lib/index.ts",
+        "src/types.d.ts",
+        "src/both.ts",
+        "src/dir.ts",
+        "src/util.mts",
+        "src/conf.cjs",
+    ] {
+        assert!(
+            edges.iter().any(|edge| {
+                edge.kind == "IMPORTS_FROM"
+                    && edge.source == "src/consumer.ts"
+                    && edge.target == target
+            }),
+            "missing IMPORTS_FROM {target}: {edges:?}"
+        );
+    }
+    for target in [
+        "src/user.service.ts::UserService",
+        "src/hero.component.ts::HeroComponent",
+        "src/esm-compat.ts::compat",
+        "src/lib/index.ts::fromLib",
+        "src/types.d.ts::declared",
+        "src/both.ts::both",
+        "src/dir.ts::dirFile",
+        "src/util.mts::utilFn",
+    ] {
+        assert!(
+            edges.iter().any(|edge| {
+                edge.kind == "CALLS"
+                    && edge.source == "src/consumer.ts::run"
+                    && edge.target == target
+            }),
+            "missing CALLS {target}: {edges:?}"
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&repo_root);
+}
+
+#[test]
+fn resolves_typescript_aliased_and_default_imports() {
+    let mut repo_root = std::env::temp_dir();
+    repo_root.push(format!(
+        "dagayn-parser-ts-default-import-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    let _ = std::fs::remove_dir_all(&repo_root);
+    std::fs::create_dir_all(repo_root.join("src")).unwrap();
+    for (path, body) in [
+        ("src/functions.ts", "export function decl() {}\n"),
+        (
+            "src/Button.tsx",
+            "export function Button() { return <b />; }\nexport default function DefaultCard() { return <div />; }\n",
+        ),
+        (
+            "src/default-arrow.ts",
+            "export default (x: number) => x * 2;\n",
+        ),
+        (
+            "src/default-anon-class.ts",
+            "export default class { hello() {} }\n",
+        ),
+        (
+            "src/default-ident.ts",
+            "function impl() {}\nexport default impl;\n",
+        ),
+        (
+            "src/default-alias.ts",
+            "function aliased() {}\nexport { aliased as default };\n",
+        ),
+        (
+            "src/default-alias-js.js",
+            "function aliasedJs() {}\nexport { aliasedJs as default };\n",
+        ),
+        (
+            "src/named-only.tsx",
+            "export function MarkdownMsg() { return <div />; }\n",
+        ),
+    ] {
+        std::fs::write(repo_root.join(path), body).unwrap();
+    }
+
+    let source = br#"import { decl as renamed } from "./functions";
+import Card from "./Button";
+import def from "./default-arrow";
+import Anon from "./default-anon-class";
+import impl2 from "./default-ident";
+import Aliased from "./default-alias";
+import AliasedJs from "./default-alias-js";
+import MarkdownMsg from "./named-only";
+import { default as Explicit } from "./default-ident";
+import * as UI from "./Button";
+
+export function App() {
+  renamed();
+  def(1);
+  new Anon();
+  impl2();
+  Aliased();
+  AliasedJs();
+  Explicit();
+  const refs = [renamed];
+  return <><Card /><MarkdownMsg /><UI.Button /></>;
+}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "src/App.tsx", source);
+    let calls = |target: &str| {
+        edges.iter().any(|edge| {
+            edge.kind == "CALLS" && edge.source == "src/App.tsx::App" && edge.target == target
+        })
+    };
+    for target in [
+        "src/functions.ts::decl",
+        "src/Button.tsx::DefaultCard",
+        "src/default-arrow.ts::default",
+        "src/default-anon-class.ts::default",
+        "src/default-ident.ts::impl",
+        "src/default-alias.ts::aliased",
+        "src/default-alias-js.js::aliasedJs",
+        "src/named-only.tsx::MarkdownMsg",
+        "src/Button.tsx::Button",
+    ] {
+        assert!(calls(target), "missing CALLS App -> {target}: {edges:?}");
+    }
+    for wrong in [
+        "src/functions.ts::renamed",
+        "src/Button.tsx::Card",
+        "src/default-arrow.ts::def",
+        "src/default-anon-class.ts::Anon",
+        "src/default-ident.ts::impl2",
+        "src/default-ident.ts::Explicit",
+    ] {
+        assert!(
+            !edges.iter().any(|edge| edge.target == wrong),
+            "unexpected target {wrong}"
+        );
+    }
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "REFERENCES"
+            && edge.source == "src/App.tsx::App"
+            && edge.target == "src/functions.ts::decl"
+    }));
+
+    let _ = std::fs::remove_dir_all(&repo_root);
+}
+
+#[test]
 fn resolves_typescript_barrel_reexports_to_origin() {
     let mut repo_root = std::env::temp_dir();
     repo_root.push(format!(
@@ -3568,6 +4552,365 @@ export function render() {
             && edge.source == "src/app.ts::render"
             && edge.target == "src/components/MarkdownMsg.ts::MarkdownMsg"
     }));
+
+    let _ = std::fs::remove_dir_all(&repo_root);
+}
+
+#[test]
+fn resolves_typescript_reexports_and_namespace_reexports() {
+    let mut repo_root = std::env::temp_dir();
+    repo_root.push(format!(
+        "dagayn-parser-ts-reexports-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    let _ = std::fs::remove_dir_all(&repo_root);
+    std::fs::create_dir_all(repo_root.join("src/barrel")).unwrap();
+    for (path, body) in [
+        (
+            "src/barrel/a.ts",
+            "export function fromA() {}\nexport class ClassA {}\nexport function shared() {}\nexport function winner() {}\nfunction hidden() {}\n",
+        ),
+        (
+            "src/barrel/b.ts",
+            "export function fromB() {}\nexport default function defaultB() {}\nexport function shared() {}\nexport function winner() {}\nexport function hidden() {}\nexport class Klass { m() {} }\n",
+        ),
+        (
+            "src/barrel/c.ts",
+            "export * from \"./index\";\nexport function fromC() {}\n",
+        ),
+        (
+            "src/barrel/index.ts",
+            r#"export * from "./a";
+export * from "./b";
+export * from "./c";
+export * as bns from "./b";
+export { fromB as renamedB, default as defB } from "./b";
+import { fromA } from "./a";
+export { fromA as localRenamed };
+import * as nsA from "./a";
+export { nsA };
+import defaultOfB from "./b";
+export default defaultOfB;
+export function winner() {}
+"#,
+        ),
+        (
+            "src/export-assign.ts",
+            "function main() {}\nexport = main;\n",
+        ),
+    ] {
+        std::fs::write(repo_root.join(path), body).unwrap();
+    }
+
+    let source = br#"import { fromA, renamedB, localRenamed, bns, ClassA, defB } from "./barrel";
+import { shared, winner, hidden, fromC, nsA } from "./barrel";
+import barrelDefault from "./barrel";
+import * as all from "./barrel";
+import assigned from "./export-assign";
+
+export function useBarrel() {
+  fromA();
+  renamedB();
+  localRenamed();
+  bns.fromB();
+  new ClassA();
+  defB();
+  shared();
+  winner();
+  hidden();
+  fromC();
+  nsA.fromA();
+  all.bns.fromB();
+  barrelDefault();
+  assigned();
+}
+
+export function typed(k: bns.Klass) {
+  k.m();
+}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "src/app.ts", source);
+    let call_at = |line: i64| {
+        edges
+            .iter()
+            .find(|edge| {
+                edge.kind == "CALLS" && edge.source == "src/app.ts::useBarrel" && edge.line == line
+            })
+            .map(|edge| edge.target.as_str())
+    };
+    for (line, target) in [
+        (8, "src/barrel/a.ts::fromA"),
+        (9, "src/barrel/b.ts::fromB"),
+        (10, "src/barrel/a.ts::fromA"),
+        (11, "src/barrel/b.ts::fromB"),
+        (12, "src/barrel/a.ts::ClassA"),
+        (13, "src/barrel/b.ts::defaultB"),
+        (15, "src/barrel/index.ts::winner"),
+        (16, "src/barrel/b.ts::hidden"),
+        (17, "src/barrel/c.ts::fromC"),
+        (18, "src/barrel/a.ts::fromA"),
+        (19, "src/barrel/b.ts::fromB"),
+        (20, "src/barrel/b.ts::defaultB"),
+        (21, "src/export-assign.ts::main"),
+    ] {
+        assert_eq!(call_at(line), Some(target), "line {line}: {edges:?}");
+    }
+    // `shared` is exported by both `export *` sources: ambiguous, so it
+    // binds to neither origin.
+    let shared = call_at(14);
+    assert!(
+        !matches!(
+            shared,
+            Some("src/barrel/a.ts::shared" | "src/barrel/b.ts::shared")
+        ),
+        "ambiguous star export resolved: {shared:?}"
+    );
+    // `bns.Klass` as a type enters the re-exported namespace.
+    assert!(
+        edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == "src/app.ts::typed"
+                && edge.target == "src/barrel/b.ts::Klass.m"
+        }),
+        "missing CALLS typed -> b.ts::Klass.m: {edges:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&repo_root);
+}
+
+#[test]
+fn resolves_javascript_commonjs_exports() {
+    let mut repo_root = std::env::temp_dir();
+    repo_root.push(format!(
+        "dagayn-parser-js-commonjs-exports-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    let _ = std::fs::remove_dir_all(&repo_root);
+    std::fs::create_dir_all(repo_root.join("src")).unwrap();
+    for (path, body) in [
+        (
+            "src/helpers.js",
+            "function helper() {}\nfunction other() {}\nmodule.exports = { helper, renamed: other };\n",
+        ),
+        (
+            "src/single.js",
+            "function config() {}\nmodule.exports = config;\n",
+        ),
+        (
+            "src/props.cjs",
+            "function one() {}\nfunction two() {}\nexports.one = one;\nmodule.exports.two = two;\n",
+        ),
+        ("src/barrel.js", "export * from \"./props.cjs\";\n"),
+    ] {
+        std::fs::write(repo_root.join(path), body).unwrap();
+    }
+
+    let source = br#"import helpers from "./helpers";
+import { helper, renamed } from "./helpers";
+import cfg from "./single";
+import { one, two } from "./props.cjs";
+import * as props from "./props.cjs";
+import { two as viaBarrel } from "./barrel";
+
+export function main() {
+  helper();
+  renamed();
+  cfg();
+  one();
+  two();
+  helpers.renamed();
+  props.one();
+  viaBarrel();
+}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "src/app.js", source);
+    let call_at = |line: i64| {
+        edges
+            .iter()
+            .find(|edge| {
+                edge.kind == "CALLS" && edge.source == "src/app.js::main" && edge.line == line
+            })
+            .map(|edge| edge.target.as_str())
+    };
+    for (line, target) in [
+        (9, "src/helpers.js::helper"),
+        (10, "src/helpers.js::other"),
+        (11, "src/single.js::config"),
+        (12, "src/props.cjs::one"),
+        (13, "src/props.cjs::two"),
+        (14, "src/helpers.js::other"),
+        (15, "src/props.cjs::one"),
+        (16, "src/props.cjs::two"),
+    ] {
+        assert_eq!(call_at(line), Some(target), "line {line}: {edges:?}");
+    }
+
+    let _ = std::fs::remove_dir_all(&repo_root);
+}
+
+#[test]
+fn parses_javascript_commonjs_and_dynamic_imports() {
+    let mut repo_root = std::env::temp_dir();
+    repo_root.push(format!(
+        "dagayn-parser-js-require-imports-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    let _ = std::fs::remove_dir_all(&repo_root);
+    std::fs::create_dir_all(repo_root.join("src")).unwrap();
+    for (path, body) in [
+        (
+            "src/helpers.js",
+            "function helper() {}\nfunction other() {}\nmodule.exports = { helper, renamed: other };\n",
+        ),
+        (
+            "src/single.js",
+            "function config() {}\nmodule.exports = config;\n",
+        ),
+        (
+            "src/esm.ts",
+            "export function esmFn() {}\nexport default function main() {}\n",
+        ),
+        ("src/inner.js", "exports.inner = function () {};\n"),
+        ("src/lazy.js", "export function lazy() {}\n"),
+        (
+            "src/typed.ts",
+            "function typedMain() {}\nexport = typedMain;\n",
+        ),
+    ] {
+        std::fs::write(repo_root.join(path), body).unwrap();
+    }
+
+    let source = br#"const helpers = require("./helpers");
+const { helper, renamed: alias } = require("./helpers");
+const cfg = require("./single");
+const esm = require("./esm");
+const picked = require("./helpers").renamed;
+const path = require("path");
+const dynamicName = "./lazy";
+function main() {
+  helpers.renamed();
+  helper();
+  alias();
+  cfg();
+  esm.esmFn();
+  picked();
+  const inner = require("./inner");
+  import("./lazy");
+  require(dynamicName);
+  import(dynamicName);
+  require.resolve("./lazy");
+}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "src/app.js", source);
+    let import_at = |line: i64| {
+        edges
+            .iter()
+            .filter(|edge| edge.kind == "IMPORTS_FROM" && edge.line == line)
+            .map(|edge| {
+                assert_eq!(edge.source, "src/app.js");
+                (
+                    edge.target.as_str(),
+                    edge.extra
+                        .get("import_kind")
+                        .and_then(|kind| kind.as_str())
+                        .unwrap_or(""),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    for (line, target, kind) in [
+        (1, "src/helpers.js", "require"),
+        (2, "src/helpers.js", "require"),
+        (3, "src/single.js", "require"),
+        (4, "src/esm.ts", "require"),
+        (5, "src/helpers.js", "require"),
+        (6, "path", "require"),
+        (15, "src/inner.js", "require"),
+        (16, "src/lazy.js", "dynamic"),
+    ] {
+        assert_eq!(
+            import_at(line),
+            vec![(target, kind)],
+            "line {line}: {edges:?}"
+        );
+    }
+    for line in [17, 18, 19] {
+        assert!(import_at(line).is_empty(), "line {line}: {edges:?}");
+    }
+    assert!(
+        !edges.iter().any(
+            |edge| edge.kind == "CALLS" && matches!(edge.target.as_str(), "require" | "import")
+        ),
+        "{edges:?}"
+    );
+
+    let call_at = |line: i64| {
+        edges
+            .iter()
+            .find(|edge| {
+                edge.kind == "CALLS" && edge.source == "src/app.js::main" && edge.line == line
+            })
+            .map(|edge| edge.target.as_str())
+    };
+    for (line, target) in [
+        (9, "src/helpers.js::other"),
+        (10, "src/helpers.js::helper"),
+        (11, "src/helpers.js::other"),
+        (12, "src/single.js::config"),
+        (13, "src/esm.ts::esmFn"),
+        (14, "src/helpers.js::other"),
+    ] {
+        assert_eq!(call_at(line), Some(target), "line {line}: {edges:?}");
+    }
+
+    let ts_source = br#"import lib = require("./helpers");
+import typed = require("./typed");
+import fs = require("fs");
+export function run() {
+  lib.helper();
+  typed();
+}
+"#;
+    let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "src/run.ts", ts_source);
+    let imports = edges
+        .iter()
+        .filter(|edge| edge.kind == "IMPORTS_FROM")
+        .map(|edge| {
+            (
+                edge.line,
+                edge.target.as_str(),
+                edge.extra.get("import_kind").and_then(|kind| kind.as_str()),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        imports,
+        vec![
+            (1, "src/helpers.js", Some("import_equals")),
+            (2, "src/typed.ts", Some("import_equals")),
+            (3, "fs", Some("import_equals")),
+        ],
+        "{edges:?}"
+    );
+    let calls = edges
+        .iter()
+        .filter(|edge| edge.kind == "CALLS" && edge.source == "src/run.ts::run")
+        .map(|edge| (edge.line, edge.target.as_str()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        calls,
+        vec![
+            (5, "src/helpers.js::helper"),
+            (6, "src/typed.ts::typedMain")
+        ],
+        "{edges:?}"
+    );
 
     let _ = std::fs::remove_dir_all(&repo_root);
 }
@@ -3745,6 +5088,1988 @@ fn parses_rust_owned_files_as_one_compact_batch() {
         results
             .iter()
             .any(|item| item["file_path"] == "docs/README.md")
+    );
+
+    let _ = std::fs::remove_dir_all(&repo_root);
+}
+
+#[test]
+fn parses_typescript_nested_object_containers() {
+    let source = br#"export const api = {
+  a: {
+    b: {
+      c() { return helper(); },
+      d: () => this_is_not_bound(),
+    },
+    e() { return 1; },
+  },
+  top() { return api.a.b.c(); },
+  data: { plain: 1, deeper: { value: 2 } },
+};
+function helper() { return 0; }
+export function use() { api.a.b.c(); api.a.e(); }
+"#;
+    for (file, language) in [("api.ts", "typescript"), ("api.js", "javascript")] {
+        let (nodes, edges) = parse_javascript_like(file, source, language);
+        let has_node = |kind: &str, name: &str, parent: Option<&str>| {
+            nodes.iter().any(|node| {
+                node.kind == kind && node.name == name && node.parent_name.as_deref() == parent
+            })
+        };
+        let qn = |name: &str| format!("{file}::{name}");
+        assert!(has_node("Class", "api", None), "{file}: {nodes:?}");
+        assert!(has_node("Class", "a", Some("api")), "{file}");
+        assert!(has_node("Class", "b", Some("api.a")), "{file}");
+        assert!(has_node("Function", "c", Some("api.a.b")), "{file}");
+        assert!(has_node("Function", "d", Some("api.a.b")), "{file}");
+        assert!(has_node("Function", "e", Some("api.a")), "{file}");
+        // Objects without function-valued members anywhere below are data.
+        assert!(
+            !nodes
+                .iter()
+                .any(|node| matches!(node.name.as_str(), "data" | "deeper" | "plain")),
+            "{file}"
+        );
+        for (source, target) in [
+            (qn("api"), qn("api.a")),
+            (qn("api.a"), qn("api.a.b")),
+            (qn("api.a.b"), qn("api.a.b.c")),
+            (qn("api.a"), qn("api.a.e")),
+        ] {
+            assert!(
+                edges.iter().any(|edge| {
+                    edge.kind == "CONTAINS" && edge.source == source && edge.target == target
+                }),
+                "{file}: CONTAINS {source} -> {target}"
+            );
+        }
+        for (source, target) in [
+            (qn("use"), qn("api.a.b.c")),
+            (qn("use"), qn("api.a.e")),
+            (qn("api.top"), qn("api.a.b.c")),
+            (qn("api.a.b.c"), qn("helper")),
+        ] {
+            assert!(
+                edges.iter().any(|edge| {
+                    edge.kind == "CALLS" && edge.source == source && edge.target == target
+                }),
+                "{file}: CALLS {source} -> {target}: {edges:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn resolves_calls_scoped_to_dotted_owner_paths() {
+    let file = "ns.ts";
+    let node = |kind: NodeKind, name: &str, parent: Option<&str>| ParsedNode {
+        kind,
+        name: name.to_string(),
+        file_path: FilePath::new(file),
+        line_start: 1,
+        line_end: 1,
+        language: "typescript".to_string(),
+        parent_name: parent.map(str::to_string),
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: json!({}),
+    };
+    let call = |source: &str, target: &str| ParsedEdge {
+        kind: EdgeKind::Calls,
+        source: source.to_string(),
+        target: target.to_string(),
+        file_path: FilePath::new(file),
+        line: 1,
+        extra: json!({}),
+    };
+    let nodes = vec![
+        node(NodeKind::Class, "Outer", None),
+        node(NodeKind::Class, "Inner", Some("Outer")),
+        node(NodeKind::Function, "run", Some("Outer.Inner")),
+        node(NodeKind::Function, "help", Some("Outer.Inner")),
+        node(NodeKind::Class, "Other", None),
+        node(NodeKind::Function, "help", Some("Other")),
+        node(NodeKind::Function, "shared", Some("Other")),
+        node(NodeKind::Function, "shared", Some("Outer")),
+    ];
+    let edges = resolve_rust_call_targets(
+        &nodes,
+        vec![
+            // `this.help()` bound to the owner path.
+            call("ns.ts::Outer.Inner.run", "Outer.Inner::help"),
+            // A bare `help` prefers the caller's own owner path.
+            call("ns.ts::Outer.Inner.run", "help"),
+            // Not a same-file owner: left alone.
+            call("ns.ts::Outer.Inner.run", "lib/util.ts::help"),
+            // Nearest enclosing owner that declares it.
+            call("ns.ts::Outer.Inner.run", "shared"),
+        ],
+        file,
+    );
+    let targets = edges
+        .iter()
+        .map(|edge| edge.target.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        targets,
+        [
+            "ns.ts::Outer.Inner.help",
+            "ns.ts::Outer.Inner.help",
+            "lib/util.ts::help",
+            "ns.ts::Outer.shared"
+        ]
+    );
+}
+
+#[test]
+fn parses_typescript_namespaces_and_ambient_modules() {
+    let source = br#"export namespace Outer {
+  export const x = 1;
+  export function helper(): number { return x; }
+  export class Inner {
+    run() { helper(); }
+  }
+  export namespace Deep {
+    export function deepFn() {}
+  }
+  export const api = { get() { return helper(); } };
+}
+namespace Outer {
+  export function more() { return helper(); }
+}
+namespace A.B.C {
+  export function abc() {}
+}
+module Legacy {
+  export function old() {}
+}
+declare module "external-lib" {
+  export function ext(): void;
+  export interface ExtOptions { a: number }
+}
+declare global {
+  interface Window { myGlobal: string }
+  function globalFn(): void;
+}
+declare namespace NS {
+  function nsFn(): void;
+}
+declare function declaredFn(a: number): string;
+declare class DeclaredClass { method(): void; }
+export function useNs() {
+  Outer.helper();
+  const inner = new Outer.Inner();
+  inner.run();
+  A.B.C.abc();
+  Outer.Deep.deepFn();
+  Outer.api.get();
+}
+"#;
+    let file = "ns.ts";
+    let (nodes, edges) = parse_javascript_like(file, source, "typescript");
+    let find = |kind: &str, name: &str, parent: Option<&str>| {
+        nodes.iter().find(|node| {
+            node.kind == kind && node.name == name && node.parent_name.as_deref() == parent
+        })
+    };
+    let qn = |name: &str| format!("{file}::{name}");
+    for (name, parent, role) in [
+        ("Outer", None, "namespace"),
+        ("Deep", Some("Outer"), "namespace"),
+        ("A", None, "namespace"),
+        ("B", Some("A"), "namespace"),
+        ("C", Some("A.B"), "namespace"),
+        ("Legacy", None, "namespace"),
+        ("external-lib", None, "ambient_module"),
+        ("global", None, "ambient_module"),
+        ("NS", None, "namespace"),
+    ] {
+        let node = find("Class", name, parent).unwrap_or_else(|| panic!("{name}: {nodes:?}"));
+        assert_eq!(node.extra["type_role"], role, "{name}");
+    }
+    // One QN, one node: `namespace Outer` is declared twice.
+    assert_eq!(
+        nodes
+            .iter()
+            .filter(|node| node.kind == "Class" && node.name == "Outer")
+            .count(),
+        1
+    );
+    for (name, parent) in [
+        ("helper", Some("Outer")),
+        ("more", Some("Outer")),
+        ("deepFn", Some("Outer.Deep")),
+        ("abc", Some("A.B.C")),
+        ("old", Some("Legacy")),
+        ("ext", Some("external-lib")),
+        ("globalFn", Some("global")),
+        ("nsFn", Some("NS")),
+        ("run", Some("Outer.Inner")),
+        ("get", Some("Outer.api")),
+    ] {
+        assert!(
+            find("Function", name, parent).is_some(),
+            "{name}: {nodes:?}"
+        );
+        assert!(
+            find("Function", name, None).is_none(),
+            "{name} is not top-level"
+        );
+    }
+    for (name, parent) in [
+        ("Inner", Some("Outer")),
+        ("ExtOptions", Some("external-lib")),
+        ("Window", Some("global")),
+        ("api", Some("Outer")),
+    ] {
+        assert!(find("Class", name, parent).is_some(), "{name}: {nodes:?}");
+    }
+    for name in ["ext", "globalFn", "nsFn"] {
+        let node = nodes.iter().find(|node| node.name == name).unwrap();
+        assert_eq!(node.extra["ambient"], true, "{name}");
+    }
+    for name in ["external-lib", "global", "NS", "DeclaredClass"] {
+        let node = nodes.iter().find(|node| node.name == name).unwrap();
+        assert_eq!(node.extra["ambient"], true, "{name}");
+    }
+    assert!(
+        find("Class", "Outer", None)
+            .unwrap()
+            .extra
+            .get("ambient")
+            .is_none()
+    );
+    let declared = find("Function", "declaredFn", None).unwrap();
+    assert_eq!(declared.extra["ambient"], true);
+    assert_eq!(declared.extra["declaration_only"], true);
+    assert!(declared.extra.get("is_abstract").is_none(), "{declared:?}");
+    let method = find("Function", "method", Some("DeclaredClass")).unwrap();
+    assert!(method.extra.get("is_abstract").is_none(), "{method:?}");
+    assert_eq!(method.extra["declaration_only"], true);
+    for (source, target) in [
+        (qn("Outer"), qn("Outer.helper")),
+        (qn("Outer"), qn("Outer.Deep")),
+        (qn("Outer.Deep"), qn("Outer.Deep.deepFn")),
+        (qn("Outer"), qn("Outer.Inner")),
+        (qn("Outer.Inner"), qn("Outer.Inner.run")),
+        (qn("A"), qn("A.B")),
+        (qn("A.B"), qn("A.B.C")),
+        (qn("A.B.C"), qn("A.B.C.abc")),
+        (file.to_string(), qn("Outer")),
+        (qn("global"), qn("global.Window")),
+    ] {
+        assert!(
+            edges.iter().any(|edge| {
+                edge.kind == "CONTAINS" && edge.source == source && edge.target == target
+            }),
+            "CONTAINS {source} -> {target}"
+        );
+    }
+    for (source, target) in [
+        (qn("Outer.Inner.run"), qn("Outer.helper")),
+        (qn("Outer.more"), qn("Outer.helper")),
+        (qn("Outer.api.get"), qn("Outer.helper")),
+        (qn("useNs"), qn("Outer.helper")),
+        (qn("useNs"), qn("Outer.Inner")),
+        (qn("useNs"), qn("Outer.Inner.run")),
+        (qn("useNs"), qn("A.B.C.abc")),
+        (qn("useNs"), qn("Outer.Deep.deepFn")),
+        (qn("useNs"), qn("Outer.api.get")),
+    ] {
+        assert!(
+            edges.iter().any(|edge| {
+                edge.kind == "CALLS" && edge.source == source && edge.target == target
+            }),
+            "CALLS {source} -> {target}: {edges:?}"
+        );
+    }
+}
+
+#[test]
+fn marks_typescript_declaration_files() {
+    let source = br#"declare function declaredFn(a: number): string;
+export interface Exported { e: 1 }
+export declare function exportedDeclared(): void;
+export as namespace MyLib;
+"#;
+    let (nodes, _) = parse_javascript_like("types/lib.d.ts", source, "typescript");
+    let file = nodes.iter().find(|node| node.kind == "File").unwrap();
+    assert_eq!(file.extra["declaration_file"], true);
+    assert_eq!(file.extra["umd_global"], "MyLib");
+    for name in ["declaredFn", "Exported", "exportedDeclared"] {
+        let node = nodes.iter().find(|node| node.name == name).unwrap();
+        assert_eq!(node.extra["ambient"], true, "{name}");
+    }
+    let (nodes, _) = parse_javascript_like("src/lib.ts", source, "typescript");
+    let file = nodes.iter().find(|node| node.kind == "File").unwrap();
+    assert!(file.extra.get("declaration_file").is_none());
+    let exported = nodes.iter().find(|node| node.name == "Exported").unwrap();
+    assert!(exported.extra.get("ambient").is_none());
+}
+
+#[test]
+fn parses_cjs_mts_cts_and_declaration_variants() {
+    for (path, language) in [
+        ("conf.cjs", "javascript"),
+        ("CONF.CJS", "javascript"),
+        ("util.mts", "typescript"),
+        ("legacy.cts", "typescript"),
+        ("types.d.mts", "typescript"),
+        ("types.d.cts", "typescript"),
+    ] {
+        assert_eq!(detect_language(Path::new(path)), Some(language), "{path}");
+        assert!(rust_parser_owns_path(path), "{path}");
+    }
+
+    let mut repo_root = std::env::temp_dir();
+    repo_root.push(format!(
+        "dagayn-parser-cjs-mts-cts-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    let _ = std::fs::remove_dir_all(&repo_root);
+    std::fs::create_dir_all(repo_root.join("src")).unwrap();
+    let files = [
+        (
+            "src/conf.cjs",
+            "function helper() {}\nmodule.exports = { helper };\n",
+        ),
+        (
+            "src/util.mts",
+            "export function utilFn(x: number): number { return x; }\n",
+        ),
+        (
+            "src/legacy.cts",
+            "import conf = require(\"./conf.cjs\");\nexport function legacy(): void { conf.helper(); }\n",
+        ),
+        (
+            "src/types.d.mts",
+            "export declare function declaredM(a: number): string;\n",
+        ),
+        (
+            "src/types.d.cts",
+            "export declare function declaredC(a: number): string;\n",
+        ),
+        (
+            "src/app.mts",
+            "import { utilFn } from \"./util.mjs\";\nimport { legacy } from \"./legacy.cjs\";\nexport function main(): void {\n  utilFn(1);\n  legacy();\n}\n",
+        ),
+    ];
+    for (path, body) in files {
+        std::fs::write(repo_root.join(path), body).unwrap();
+    }
+    let mut collected = collect_parseable_files(&repo_root, None);
+    collected.sort();
+    let mut expected = files
+        .iter()
+        .map(|(path, _)| path.to_string())
+        .collect::<Vec<_>>();
+    expected.sort();
+    assert_eq!(collected, expected);
+
+    let mut parser = RustOwnedParser::new();
+    let mut parse = |path: &str| {
+        let source = std::fs::read(repo_root.join(path)).unwrap();
+        parser.parse_file_in_repo(Some(&repo_root), path, &source)
+    };
+    for (path, name, language) in [
+        ("src/conf.cjs", "helper", "javascript"),
+        ("src/util.mts", "utilFn", "typescript"),
+        ("src/legacy.cts", "legacy", "typescript"),
+        ("src/types.d.mts", "declaredM", "typescript"),
+        ("src/types.d.cts", "declaredC", "typescript"),
+    ] {
+        let (nodes, _) = parse(path);
+        let node = nodes
+            .iter()
+            .find(|node| node.kind == "Function" && node.name == name)
+            .unwrap_or_else(|| panic!("{path}: {nodes:?}"));
+        assert_eq!(node.language, language, "{path}");
+        let file = nodes.iter().find(|node| node.kind == "File").unwrap();
+        let declaration = path.contains(".d.");
+        assert_eq!(
+            file.extra.get("declaration_file").is_some(),
+            declaration,
+            "{path}"
+        );
+        assert_eq!(
+            node.extra.get("ambient").is_some(),
+            declaration,
+            "{path}: {node:?}"
+        );
+    }
+
+    let (_, edges) = parse("src/legacy.cts");
+    assert!(
+        edges
+            .iter()
+            .any(|edge| edge.kind == "IMPORTS_FROM" && edge.target == "src/conf.cjs")
+    );
+    assert!(edges.iter().any(|edge| edge.kind == "CALLS"
+        && edge.source == "src/legacy.cts::legacy"
+        && edge.target == "src/conf.cjs::helper"));
+
+    let (_, edges) = parse("src/app.mts");
+    let mut imports = edges
+        .iter()
+        .filter(|edge| edge.kind == "IMPORTS_FROM")
+        .map(|edge| edge.target.as_str())
+        .collect::<Vec<_>>();
+    imports.sort_unstable();
+    assert_eq!(imports, vec!["src/legacy.cts", "src/util.mts"], "{edges:?}");
+    let mut calls = edges
+        .iter()
+        .filter(|edge| edge.kind == "CALLS" && edge.source == "src/app.mts::main")
+        .map(|edge| edge.target.as_str())
+        .collect::<Vec<_>>();
+    calls.sort_unstable();
+    assert_eq!(
+        calls,
+        vec!["src/legacy.cts::legacy", "src/util.mts::utilFn"],
+        "{edges:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&repo_root);
+}
+
+#[test]
+fn parses_typescript_type_aliases_and_enums() {
+    let source = br#"export type UserId = string;
+export type Shape = { kind: "circle"; r: number } | { kind: "sq"; s: number };
+export type Props = { label: string; onClick(): void };
+export type ReadonlyAll<T> = { readonly [K in keyof T]: T[K] };
+export type Unwrap<T> = T extends Promise<infer U> ? U : T;
+export type Handler = (req: Request) => Promise<Response>;
+export type Both = Props & Shape;
+export type Pair = [string, number];
+export type Named = Map<string, Props>;
+export type Key = keyof Props;
+export enum Color { Red, Green = "g" }
+export const enum Direction { Up = 1, Down }
+declare enum Ambient { A }
+namespace N { export type Inner = { a: 1 }; }
+function use(c: Color): Props { return {} as Props; }
+"#;
+    let (nodes, edges) = parse_javascript_like("types.ts", source, "typescript");
+    let alias = |name: &str| {
+        nodes
+            .iter()
+            .find(|node| node.name == name)
+            .unwrap_or_else(|| panic!("{name}: {nodes:?}"))
+    };
+    for (name, form) in [
+        ("UserId", "primitive"),
+        ("Shape", "union"),
+        ("Props", "object"),
+        ("ReadonlyAll", "mapped"),
+        ("Unwrap", "conditional"),
+        ("Handler", "function"),
+        ("Both", "intersection"),
+        ("Pair", "tuple"),
+        ("Named", "reference"),
+        ("Key", "operator"),
+    ] {
+        let node = alias(name);
+        assert_eq!(node.kind, "Type", "{name}");
+        assert_eq!(node.extra["type_role"], "alias", "{name}");
+        assert_eq!(node.extra["alias_form"], form, "{name}");
+        if form == "object" {
+            assert_eq!(node.extra["container_role"], "data_container", "{name}");
+        } else {
+            assert!(node.extra.get("container_role").is_none(), "{name}");
+        }
+    }
+    // Alias members are not nodes: an alias is not a container.
+    assert!(!nodes.iter().any(|node| node.name == "onClick"));
+    let inner = alias("Inner");
+    assert_eq!(inner.kind, "Type");
+    assert_eq!(inner.parent_name.as_deref(), Some("N"));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "CONTAINS"
+            && edge.source == "types.ts::N"
+            && edge.target == "types.ts::N.Inner"
+    }));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "CONTAINS" && edge.source == "types.ts" && edge.target == "types.ts::Props"
+    }));
+
+    let color = alias("Color");
+    assert_eq!(color.kind, "Class");
+    assert_eq!(color.extra["type_role"], "enum");
+    assert!(color.extra.get("const_enum").is_none());
+    let direction = alias("Direction");
+    assert_eq!(direction.extra["type_role"], "enum");
+    assert_eq!(direction.extra["const_enum"], true);
+    let ambient = alias("Ambient");
+    assert_eq!(ambient.extra["type_role"], "enum");
+    assert_eq!(ambient.extra["ambient"], true);
+    assert!(color.extra.get("ambient").is_none());
+}
+
+#[test]
+fn collapses_typescript_overloads_accessors_and_merged_interfaces() {
+    let source = br#"export function over(a: string): string;
+export function over(a: number): number;
+export function over(a: any): any { return helper(a); }
+declare function sig(a: string): void;
+declare function sig(a: number): void;
+export interface Repo { find(id: string): string; }
+export interface Repo { save(item: string): void; }
+export class Box {
+  static count = 0;
+  #secret = 1;
+  #handler = () => this.#privateMethod();
+  protected override async load(): Promise<void> {}
+  static *items() {}
+  get value(): number { return this.#secret; }
+  set value(v: number) { this.#secret = v; }
+  #privateMethod(): void { helper(1); }
+  ["computed"](): void { helper(2); }
+  42(): void {}
+  "quoted-name"(): void {}
+  m(a: string): string;
+  m(a: number): number;
+  m(a: any): any { return a; }
+}
+export abstract class Shape { protected abstract get label(): string; }
+export function buildLabel() {}
+export namespace buildLabel { export const suffix = ""; }
+function helper(x: unknown) { return x; }
+const local = 1;
+export { local };
+"#;
+    let file = "over.ts";
+    let (nodes, edges) = parse_javascript_like(file, source, "typescript");
+    let qn = |node: &ParsedNode| qualify(file, &node.name, node.parent_name.as_deref());
+    let mut seen = HashSet::new();
+    for node in &nodes {
+        assert!(
+            seen.insert(qn(node)),
+            "duplicate QN {}: {nodes:?}",
+            qn(node)
+        );
+    }
+    let find = |name: &str, parent: Option<&str>| {
+        nodes
+            .iter()
+            .find(|node| node.name == name && node.parent_name.as_deref() == parent)
+            .unwrap_or_else(|| panic!("{name}: {nodes:?}"))
+    };
+    let over = find("over", None);
+    assert_eq!(over.extra["overloads"], 2);
+    assert_eq!(over.line_start, 1);
+    assert_eq!(over.line_end, 3);
+    assert!(over.extra.get("declaration_only").is_none(), "{over:?}");
+    assert!(over.extra.get("is_abstract").is_none());
+    assert_eq!(over.extra["exported"], true);
+    let sig = find("sig", None);
+    assert_eq!(sig.extra["overloads"], 2);
+    assert_eq!(sig.extra["declaration_only"], true);
+    let m = find("m", Some("Box"));
+    assert_eq!(m.extra["overloads"], 2);
+    assert!(m.extra.get("declaration_only").is_none());
+
+    let repo = find("Repo", None);
+    assert_eq!(repo.extra["merged_declarations"], 2);
+    assert_eq!(repo.extra["type_role"], "interface");
+    assert!(
+        nodes
+            .iter()
+            .any(|node| node.name == "find" && node.parent_name.as_deref() == Some("Repo"))
+    );
+    assert!(
+        nodes
+            .iter()
+            .any(|node| node.name == "save" && node.parent_name.as_deref() == Some("Repo"))
+    );
+
+    let value = find("value", Some("Box"));
+    assert_eq!(value.extra["member_role"], "accessor");
+    assert_eq!(value.extra["accessors"], json!(["get", "set"]));
+    let label = find("label", Some("Shape"));
+    assert_eq!(label.extra["member_role"], "accessor");
+    assert_eq!(label.extra["is_abstract"], true);
+    assert_eq!(label.modifiers.as_deref(), Some("protected abstract get"));
+
+    for name in [
+        "#privateMethod",
+        "#handler",
+        "computed",
+        "42",
+        "quoted-name",
+        "items",
+        "load",
+    ] {
+        assert!(
+            nodes.iter().any(|node| node.kind == "Function"
+                && node.name == name
+                && node.parent_name.as_deref() == Some("Box")),
+            "{name}: {nodes:?}"
+        );
+    }
+    assert_eq!(
+        find("load", Some("Box")).modifiers.as_deref(),
+        Some("protected override async")
+    );
+    assert_eq!(
+        find("items", Some("Box")).modifiers.as_deref(),
+        Some("static *")
+    );
+    assert_eq!(
+        find("value", Some("Box")).modifiers.as_deref(),
+        Some("get set")
+    );
+
+    // `function` + `namespace` merging keeps the function.
+    let build = find("buildLabel", None);
+    assert_eq!(build.kind, "Function");
+    assert_eq!(build.extra["merged_declarations"], 2);
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "CONTAINS" && edge.source == "over.ts" && edge.target == "over.ts::buildLabel"
+    }));
+
+    assert_eq!(find("Box", None).extra["exported"], true);
+    assert!(find("helper", None).extra.get("exported").is_none());
+    assert!(find("load", Some("Box")).extra.get("exported").is_none());
+
+    for (source, target) in [
+        ("over.ts::Box.#privateMethod", "over.ts::helper"),
+        ("over.ts::Box.computed", "over.ts::helper"),
+        ("over.ts::Box.#handler", "over.ts::Box.#privateMethod"),
+        ("over.ts::over", "over.ts::helper"),
+    ] {
+        assert!(
+            edges
+                .iter()
+                .any(|edge| edge.kind == "CALLS" && edge.source == source && edge.target == target),
+            "CALLS {source} -> {target}: {edges:?}"
+        );
+    }
+    let contains = edges
+        .iter()
+        .filter(|edge| edge.kind == "CONTAINS")
+        .map(|edge| (edge.source.as_str(), edge.target.as_str()))
+        .collect::<Vec<_>>();
+    let unique = contains.iter().collect::<HashSet<_>>();
+    assert_eq!(
+        contains.len(),
+        unique.len(),
+        "duplicate CONTAINS: {contains:?}"
+    );
+}
+
+#[test]
+fn attributes_local_declarations_to_enclosing_function() {
+    let source = br#"import { UserService } from "./user.service";
+function log(value: unknown) { return value; }
+function nested() { return 0; }
+export function App() {
+  const handle = () => log("click");
+  function inner() { return log("inner"); }
+  class Local { run() { log("local"); } }
+  interface Shape { a: number }
+  type Alias = { b: string };
+  const obj = { m() { log("m"); } };
+  items.map(x => log(x));
+  handle();
+  inner();
+  new Local().run();
+  return nested();
+}
+export function outer() {
+  function nested() { return log("shadow"); }
+  return nested();
+}
+export class Caller {
+  private svc = new UserService();
+  static registry = register(Caller);
+  handler = () => log("handler");
+  static { log("static"); }
+  [Symbol.iterator]() { return log("iter"); }
+  method() {
+    const local = () => this.helper();
+    local();
+  }
+  helper() {}
+}
+function register(value: unknown) { return value; }
+"#;
+    for (file, language) in [("app.ts", "typescript"), ("app.js", "javascript")] {
+        let source = if language == "javascript" {
+            String::from_utf8_lossy(source)
+                .replace("(value: unknown)", "(value)")
+                .replace("  interface Shape { a: number }\n", "")
+                .replace("  type Alias = { b: string };\n", "")
+                .replace("private svc", "svc")
+                .into_bytes()
+        } else {
+            source.to_vec()
+        };
+        let (nodes, edges) = parse_javascript_like(file, &source, language);
+        let qn = |name: &str| format!("{file}::{name}");
+        for local in [
+            "handle", "inner", "Local", "Shape", "Alias", "obj", "m", "x", "local", "run",
+        ] {
+            assert!(
+                !nodes.iter().any(|node| node.name == local),
+                "{file}: {local} is local: {nodes:?}"
+            );
+        }
+        // Only the top-level `nested` exists; `outer`'s local one is not a node.
+        assert_eq!(
+            nodes.iter().filter(|node| node.name == "nested").count(),
+            1,
+            "{file}"
+        );
+        let calls = |source: &str, target: &str| {
+            edges
+                .iter()
+                .any(|edge| edge.kind == "CALLS" && edge.source == source && edge.target == target)
+        };
+        for message in ["click", "inner", "local", "m"] {
+            let _ = message;
+        }
+        assert!(calls(&qn("App"), &qn("log")), "{file}: {edges:?}");
+        assert!(calls(&qn("App"), &qn("nested")), "{file}");
+        assert!(calls(&qn("outer"), &qn("log")), "{file}");
+        // Calls of local declarations are internal to the function.
+        for local in ["handle", "inner", "Local", "nested"] {
+            assert!(
+                !edges.iter().any(|edge| edge.kind == "CALLS"
+                    && edge.source == qn("outer")
+                    && edge.target.ends_with(local)),
+                "{file}: outer -> {local}"
+            );
+        }
+        for local in ["handle", "inner", "Local"] {
+            assert!(
+                !edges.iter().any(|edge| edge.kind == "CALLS"
+                    && edge.source == qn("App")
+                    && (edge.target == local || edge.target == qn(local))),
+                "{file}: App -> {local}: {edges:?}"
+            );
+        }
+        // Class-level code is attributed to the class.
+        assert!(
+            calls(&qn("Caller"), "user.service::UserService")
+                || edges.iter().any(|edge| edge.kind == "CALLS"
+                    && edge.source == qn("Caller")
+                    && edge.target.ends_with("UserService")),
+            "{file}: {edges:?}"
+        );
+        assert!(calls(&qn("Caller"), &qn("register")), "{file}");
+        assert!(calls(&qn("Caller"), &qn("log")), "{file}");
+        assert!(
+            calls(&qn("Caller.method"), &qn("Caller.helper")),
+            "{file}: {edges:?}"
+        );
+        if language == "typescript" {
+            assert!(calls(&qn("Caller.handler"), &qn("log")), "{file}");
+        }
+        assert!(
+            !edges.iter().any(|edge| edge.kind == "CALLS"
+                && edge.source == file
+                && edge.target == qn("log")),
+            "{file}: no file-sourced log calls: {edges:?}"
+        );
+    }
+}
+
+#[test]
+fn parses_typescript_decorators_metadata() {
+    let source = br#"import { Controller, Get, UseGuards, Injectable } from "@nestjs/common";
+import * as ng from "@angular/core";
+@sealed
+@Injectable({ providedIn: "root", factory: makeFactory() })
+export class Decorated {
+  @Input() title = "";
+  @Output() changed = makeEmitter();
+  @HostListener("click", ["$event"])
+  onClick(@Inject(TOKEN) e: Event) { track(); }
+  @Get(":id") @UseGuards(AuthGuard) find() {}
+  @Debounce(300) handler = () => track();
+}
+@ng.Component({ selector: "app-root" })
+class NgRoot {}
+function sealed(ctor: Function) {}
+function makeFactory() { return 1; }
+function makeEmitter() { return 2; }
+function track() {}
+function Debounce(ms: number) { return (target: unknown) => target; }
+"#;
+    let file = "dec.ts";
+    let (nodes, edges) = parse_javascript_like(file, source, "typescript");
+    let find = |name: &str, parent: Option<&str>| {
+        nodes
+            .iter()
+            .find(|node| node.name == name && node.parent_name.as_deref() == parent)
+            .unwrap_or_else(|| panic!("{name}: {nodes:?}"))
+    };
+    let qn = |name: &str| format!("{file}::{name}");
+    let decorated = find("Decorated", None);
+    assert_eq!(
+        decorated.extra["decorators"],
+        json!(["sealed", "Injectable"])
+    );
+    assert_eq!(
+        decorated.extra["member_decorators"],
+        json!(["Input", "Output"])
+    );
+    assert_eq!(
+        find("onClick", Some("Decorated")).extra["decorators"],
+        json!(["HostListener"])
+    );
+    assert_eq!(
+        find("find", Some("Decorated")).extra["decorators"],
+        json!(["Get", "UseGuards"])
+    );
+    assert_eq!(
+        find("handler", Some("Decorated")).extra["decorators"],
+        json!(["Debounce"])
+    );
+    assert_eq!(
+        find("NgRoot", None).extra["decorators"],
+        json!(["ng.Component"])
+    );
+    let references = |source: &str, target_suffix: &str| {
+        edges.iter().any(|edge| {
+            edge.kind == "REFERENCES"
+                && edge.source == source
+                && edge.target.ends_with(target_suffix)
+                && edge.extra["relationship_role"] == "decorator"
+        })
+    };
+    assert!(references(&qn("Decorated"), &qn("sealed")), "{edges:?}");
+    assert!(references(&qn("Decorated"), "Injectable"));
+    assert!(references(&qn("Decorated"), "Input"));
+    assert!(references(&qn("Decorated.onClick"), "HostListener"));
+    assert!(references(&qn("Decorated.onClick"), "Inject"));
+    assert!(references(&qn("Decorated.find"), "Get"));
+    assert!(references(&qn("Decorated.find"), "UseGuards"));
+    assert!(references(&qn("Decorated.handler"), &qn("Debounce")));
+    assert!(references(&qn("NgRoot"), "Component"));
+    // Decorators are not CALLS; calls in their arguments belong to the
+    // decorated node.
+    for decorator in [
+        "sealed",
+        "Injectable",
+        "Input",
+        "HostListener",
+        "Get",
+        "UseGuards",
+        "Inject",
+        "Debounce",
+        "Component",
+    ] {
+        assert!(
+            !edges
+                .iter()
+                .any(|edge| edge.kind == "CALLS" && edge.target.ends_with(decorator)),
+            "{decorator}: {edges:?}"
+        );
+    }
+    let calls = |source: &str, target: &str| {
+        edges
+            .iter()
+            .any(|edge| edge.kind == "CALLS" && edge.source == source && edge.target == target)
+    };
+    assert!(calls(&qn("Decorated"), &qn("makeFactory")), "{edges:?}");
+    assert!(calls(&qn("Decorated"), &qn("makeEmitter")));
+    assert!(calls(&qn("Decorated.onClick"), &qn("track")));
+    assert!(calls(&qn("Decorated.handler"), &qn("track")));
+    assert!(
+        !edges
+            .iter()
+            .any(|edge| edge.source == file && edge.kind == "CALLS"),
+        "{edges:?}"
+    );
+}
+
+#[test]
+fn resolves_typescript_member_calls() {
+    let mut repo_root = std::env::temp_dir();
+    repo_root.push(format!(
+        "dagayn-parser-ts-member-calls-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    let _ = std::fs::remove_dir_all(&repo_root);
+    std::fs::create_dir_all(repo_root.join("src/lib")).unwrap();
+    let classes = r#"import { Repo } from "./interfaces";
+import { Base } from "./lib/base";
+export class DefaultShape { find(id: string) { return id; } area() { return 1; } }
+export class Box extends Base {
+  private cache = new DefaultShape();
+  shape!: DefaultShape;
+  constructor(private readonly repo: Repo) { super(repo); }
+  static create(): Box { return new Box({} as Repo); }
+  async load() {
+    await this.repo.find("x");
+    this.cache.area();
+    this.shape.find("y");
+    this.helper();
+    super.helper();
+    this.own();
+  }
+  own() {}
+}
+"#;
+    let controller = r#"export class UsersService { findAll() { return []; } }
+export class UsersController {
+  constructor(private readonly users: UsersService) {}
+  findAll() { return this.users.findAll(); }
+}
+"#;
+    for (path, body) in [
+        (
+            "src/interfaces.ts",
+            "export interface Repo { find(id: string): string; }\nexport interface Repo { count(): number; }\n",
+        ),
+        (
+            "src/lib/base.ts",
+            "export class Base { constructor(public dep: unknown) {} helper(): void {} }\n",
+        ),
+        ("src/classes.ts", classes),
+        (
+            "src/functions.ts",
+            "export function decl() {}\nexport const api = { get() { return 1; } };\n",
+        ),
+        (
+            "src/namespaces.ts",
+            "export namespace Outer {\n  export function helper() {}\n  export class Inner { run() {} }\n  export namespace Deep { export function deepFn() {} }\n}\n",
+        ),
+        ("src/users.controller.ts", controller),
+    ] {
+        std::fs::write(repo_root.join(path), body).unwrap();
+    }
+    let app = br#"import * as fns from "./functions";
+import { Box, DefaultShape } from "./classes";
+import { Outer } from "./namespaces";
+import type { Repo } from "./interfaces";
+export function run(r: Repo) {
+  fns.decl();
+  fns.api.get();
+  Box.create();
+  Outer.helper();
+  Outer.Deep.deepFn();
+  const shape = new DefaultShape();
+  shape.area();
+  r.find("id");
+  const typed: Repo = r;
+  typed.find("x");
+  res.json();
+  r.count();
+  new Outer.Inner().run();
+}
+function json() {}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "src/app.ts", app);
+    fn calls<'a>(edges: &'a [ParsedEdge], source: &str, target: &str) -> Option<&'a ParsedEdge> {
+        edges
+            .iter()
+            .find(|edge| edge.kind == "CALLS" && edge.source == source && edge.target == target)
+    }
+    for target in [
+        "src/functions.ts::decl",
+        "src/functions.ts::api.get",
+        "src/classes.ts::Box.create",
+        "src/namespaces.ts::Outer.helper",
+        "src/namespaces.ts::Outer.Deep.deepFn",
+        "src/classes.ts::DefaultShape.area",
+        "src/interfaces.ts::Repo.find",
+        "src/interfaces.ts::Repo.count",
+        "src/namespaces.ts::Outer.Inner.run",
+    ] {
+        assert!(
+            calls(&edges, "src/app.ts::run", target).is_some(),
+            "run -> {target}: {edges:?}"
+        );
+    }
+    let unknown = edges
+        .iter()
+        .find(|edge| edge.kind == "CALLS" && edge.line == 16)
+        .expect("res.json()");
+    assert_eq!(unknown.target, "json", "{unknown:?}");
+    assert_eq!(unknown.extra["receiver_unknown"], true);
+
+    let (_nodes, edges) =
+        parser.parse_file_in_repo(Some(&repo_root), "src/classes.ts", classes.as_bytes());
+    let load = "src/classes.ts::Box.load";
+    assert!(
+        calls(&edges, load, "src/interfaces.ts::Repo.find").is_some(),
+        "{edges:?}"
+    );
+    assert!(calls(&edges, load, "src/classes.ts::DefaultShape.find").is_some());
+    assert_eq!(
+        edges
+            .iter()
+            .filter(|edge| edge.kind == "CALLS"
+                && edge.source == load
+                && edge.target == "src/classes.ts::DefaultShape.find")
+            .count(),
+        1,
+        "only this.shape.find() binds to DefaultShape.find"
+    );
+    assert!(calls(&edges, load, "src/classes.ts::DefaultShape.area").is_some());
+    assert!(calls(&edges, load, "src/classes.ts::Box.own").is_some());
+    let inherited = edges
+        .iter()
+        .filter(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == load
+                && edge.target == "src/lib/base.ts::Base.helper"
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        inherited.len(),
+        2,
+        "this.helper() and super.helper(): {edges:?}"
+    );
+    for edge in inherited {
+        assert_eq!(edge.extra["confidence_tier"], "MEDIUM");
+    }
+    let super_call = calls(
+        &edges,
+        "src/classes.ts::Box.constructor",
+        "src/lib/base.ts::Base",
+    )
+    .unwrap_or_else(|| panic!("super(repo): {edges:?}"));
+    assert_eq!(super_call.extra["call_kind"], "super");
+
+    let (_nodes, edges) = parser.parse_file_in_repo(
+        Some(&repo_root),
+        "src/users.controller.ts",
+        controller.as_bytes(),
+    );
+    let find_all = "src/users.controller.ts::UsersController.findAll";
+    assert!(
+        calls(
+            &edges,
+            find_all,
+            "src/users.controller.ts::UsersService.findAll"
+        )
+        .is_some(),
+        "{edges:?}"
+    );
+    assert!(calls(&edges, find_all, find_all).is_none(), "no self-loop");
+
+    let _ = std::fs::remove_dir_all(&repo_root);
+}
+
+#[test]
+fn resolves_javascript_member_calls_with_evidence_only() {
+    let source = br#"class Repo { find() {} }
+class Base { helper() {} }
+class Service extends Base {
+  constructor(users) {
+    super();
+    this.repo = new Repo();
+    this.users = users;
+  }
+  findAll() {
+    this.repo.find();
+    this.users.findAll();
+    this.helper();
+    super.helper();
+    this.setState();
+  }
+}
+class Widget extends External {
+  render() { this.setState(); }
+}
+function find() {}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_nodes, edges) = parser.parse_file("src/service.js", source);
+    let calls_on = |line: i64| {
+        edges
+            .iter()
+            .filter(|edge| edge.kind == "CALLS" && edge.line == line)
+            .collect::<Vec<_>>()
+    };
+    let target_on = |line: i64| {
+        let found = calls_on(line);
+        assert_eq!(found.len(), 1, "line {line}: {edges:?}");
+        found[0]
+    };
+    let super_call = target_on(5);
+    assert_eq!(super_call.source, "src/service.js::Service.constructor");
+    assert_eq!(super_call.target, "src/service.js::Base");
+    assert_eq!(super_call.extra["call_kind"], "super");
+    assert_eq!(target_on(10).target, "src/service.js::Repo.find");
+    let untyped = target_on(11);
+    assert_eq!(untyped.target, "findAll", "no self-loop: {untyped:?}");
+    assert_eq!(untyped.extra["receiver_unknown"], true);
+    for line in [12, 13] {
+        let inherited = target_on(line);
+        assert_eq!(inherited.target, "src/service.js::Base.helper");
+        assert_eq!(inherited.extra["confidence_tier"], "MEDIUM");
+    }
+    for line in [14, 18] {
+        let unknown = target_on(line);
+        assert_eq!(unknown.target, "setState", "{unknown:?}");
+        assert_eq!(unknown.extra["receiver_unknown"], true);
+    }
+    let external_super = edges
+        .iter()
+        .filter(|edge| edge.kind == "CALLS" && edge.extra["call_kind"] == "super")
+        .count();
+    assert_eq!(external_super, 1);
+}
+
+fn type_references<'a>(edges: &'a [ParsedEdge], source: &str) -> Vec<&'a ParsedEdge> {
+    edges
+        .iter()
+        .filter(|edge| {
+            edge.kind == "REFERENCES"
+                && edge.source == source
+                && matches!(
+                    edge.extra["relationship_role"].as_str(),
+                    Some("type_reference" | "type_query")
+                )
+        })
+        .collect()
+}
+
+fn type_reference_positions(edges: &[ParsedEdge], source: &str, target: &str) -> Vec<String> {
+    let found = type_references(edges, source)
+        .into_iter()
+        .filter(|edge| edge.target == target)
+        .collect::<Vec<_>>();
+    assert_eq!(found.len(), 1, "{source} -> {target}: {edges:#?}");
+    found[0].extra["type_positions"]
+        .as_array()
+        .expect("type_positions")
+        .iter()
+        .map(|position| position.as_str().unwrap().to_string())
+        .collect()
+}
+
+fn write_type_reference_repo(name: &str) -> std::path::PathBuf {
+    let mut repo_root = std::env::temp_dir();
+    repo_root.push(format!(
+        "dagayn-parser-ts-{name}-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    let _ = std::fs::remove_dir_all(&repo_root);
+    std::fs::create_dir_all(repo_root.join("src")).unwrap();
+    let models = r#"export interface User { id: string }
+export class Repo<T> { find(id: string): T | undefined { return undefined; } }
+export type UserId = string;
+export enum Role { Admin, Guest }
+export namespace Api { export interface Request { user: User } }
+export default class DefaultModel { save() {} }
+export const helper = () => 1;
+"#;
+    std::fs::write(repo_root.join("src/models.ts"), models).unwrap();
+    std::fs::write(
+        repo_root.join("src/barrel.ts"),
+        "export { User as Member } from \"./models\";\nexport * as models from \"./models\";\n",
+    )
+    .unwrap();
+    repo_root
+}
+
+#[test]
+fn emits_typescript_signature_type_references() {
+    let repo_root = write_type_reference_repo("signature-type-refs");
+    let app = br#"import type { User, UserId } from "./models";
+import { Repo, Role, Api, Ghost } from "./models";
+import * as m from "./models";
+import DefaultModel from "./models";
+import { Member, models } from "./barrel";
+import { External } from "external-pkg";
+export interface Service<T> { handle(input: T): void; }
+interface Local { owner: User; [key: string]: User | Role; }
+export interface Tree { children: Tree[]; ghost: Ghost; }
+type Pair = [User, Repo<UserId>] | Promise<Member>;
+export function load(id: UserId, repo: Repo<User>): Promise<User | undefined> { return repo.find(id) as any; }
+export function load2(id: string): User;
+export function load2(id: number): Role;
+export function load2(id: any): any { return id; }
+export function pick<T extends User = User>(items: T[]): T { return items[0]; }
+export function guard(x: unknown): x is m.User { return true; }
+export class Holder implements Service<Api.Request> {
+  repo!: Repo<DefaultModel>;
+  constructor(private readonly owner: models.User, plain: Member) {}
+  handle(input: Api.Request): void {}
+  handler: (e: External) => Role = () => Role.Admin;
+  kind: typeof Role = Role;
+  self(): Holder { return this; }
+  map: Map<string, External> = new Map();
+}
+export class Box<T extends User> { value!: T; }
+export namespace Shapes {
+  export interface Circle { r: number }
+  export function area(c: Circle): number { return 0; }
+}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "src/app.ts", app);
+    let _ = std::fs::remove_dir_all(&repo_root);
+    let user = "src/models.ts::User";
+    let request = "src/models.ts::Api.Request";
+    let role = "src/models.ts::Role";
+    let repo = "src/models.ts::Repo";
+    let positions = |source: &str, target: &str| {
+        type_reference_positions(&edges, &format!("src/app.ts::{source}"), target)
+    };
+
+    assert_eq!(positions("Local", user), ["field", "index_signature"]);
+    assert_eq!(positions("Local", role), ["index_signature"]);
+    // `Member` is `User` re-exported under another name: one edge.
+    assert_eq!(positions("Pair", user), ["type_alias"]);
+    assert_eq!(positions("Pair", repo), ["type_alias"]);
+    assert_eq!(positions("Pair", "src/models.ts::UserId"), ["type_alias"]);
+    assert_eq!(positions("load", "src/models.ts::UserId"), ["parameter"]);
+    assert_eq!(positions("load", repo), ["parameter"]);
+    assert_eq!(positions("load", user), ["parameter", "return"]);
+    // Overloads are one node: their signatures merge into its edges.
+    assert_eq!(positions("load2", user), ["return"]);
+    assert_eq!(positions("load2", role), ["return"]);
+    assert_eq!(
+        positions("pick", user),
+        ["type_parameter_constraint", "type_parameter_default"]
+    );
+    assert_eq!(positions("guard", user), ["type_predicate"]);
+    assert_eq!(positions("Holder", request), ["heritage_type_argument"]);
+    assert_eq!(positions("Holder", repo), ["field"]);
+    assert_eq!(
+        positions("Holder", "src/models.ts::DefaultModel"),
+        ["field"]
+    );
+    assert_eq!(positions("Holder", user), ["parameter_property"]);
+    assert_eq!(positions("Holder.constructor", user), ["parameter"]);
+    assert_eq!(positions("Holder.handle", request), ["parameter"]);
+    assert_eq!(positions("Holder.handler", role), ["field"]);
+    assert_eq!(positions("Holder.self", "src/app.ts::Holder"), ["return"]);
+    assert_eq!(positions("Box", user), ["type_parameter_constraint"]);
+    assert_eq!(
+        positions("Shapes.area", "src/app.ts::Shapes.Circle"),
+        ["parameter"]
+    );
+    let holder = type_references(&edges, "src/app.ts::Holder");
+    let kind = holder
+        .iter()
+        .find(|edge| edge.target == role)
+        .expect("typeof Role");
+    assert_eq!(kind.extra["relationship_role"], "type_query");
+    assert!(
+        holder
+            .iter()
+            .filter(|edge| edge.target != role)
+            .all(|edge| edge.extra["relationship_role"] == "type_reference"),
+        "{holder:#?}"
+    );
+    // The heritage base itself is IMPLEMENTS, not a type reference.
+    assert!(!holder.iter().any(|edge| edge.target.ends_with("::Service")));
+
+    // Type parameters, builtins, external packages, names the module does
+    // not declare, and self references emit nothing.
+    for source in ["Service", "Service.handle", "Tree", "Box"] {
+        let found = type_references(&edges, &format!("src/app.ts::{source}"));
+        let unexpected = found
+            .iter()
+            .filter(|edge| !(source == "Box" && edge.target == user))
+            .collect::<Vec<_>>();
+        assert!(unexpected.is_empty(), "{source}: {unexpected:#?}");
+    }
+    let type_edges = edges
+        .iter()
+        .filter(|edge| {
+            edge.kind == "REFERENCES"
+                && matches!(
+                    edge.extra["relationship_role"].as_str(),
+                    Some("type_reference" | "type_query")
+                )
+        })
+        .collect::<Vec<_>>();
+    for edge in &type_edges {
+        assert!(
+            edge.target.starts_with("src/models.ts::") || edge.target.starts_with("src/app.ts::"),
+            "dangling type reference: {edge:?}"
+        );
+        assert!(
+            !["Promise", "Map", "External", "Ghost", "T", "Tree"]
+                .iter()
+                .any(|name| edge.target.ends_with(&format!("::{name}"))),
+            "{edge:?}"
+        );
+        assert_ne!(edge.source, edge.target, "self reference: {edge:?}");
+    }
+    let mut pairs = type_edges
+        .iter()
+        .map(|edge| (edge.source.as_str(), edge.target.as_str()))
+        .collect::<Vec<_>>();
+    let total = pairs.len();
+    pairs.sort_unstable();
+    pairs.dedup();
+    assert_eq!(pairs.len(), total, "one edge per (source, target)");
+}
+
+#[test]
+fn emits_typescript_body_type_references() {
+    let repo_root = write_type_reference_repo("body-type-refs");
+    let app = br#"import type { User, UserId } from "./models";
+import { Repo, Role, Api } from "./models";
+import * as m from "./models";
+export function run(input: unknown) {
+  const u: User = input as User;
+  const r = new Repo<User>();
+  const ok = { id: "1" } satisfies m.User;
+  const ids = [] as UserId[];
+  const legacy = <Api.Request>input;
+  if (input instanceof Repo) {}
+  const h: typeof m.helper = m.helper;
+  interface LocalShape { owner: User; role: Role }
+  type LocalAlias = Api.Request | LocalShape;
+  const handle = (req: Api.Request): User => u;
+  class LocalBox implements m.User { id = "x"; value!: UserId; take(x: Repo<User>): void {} }
+  const local: LocalShape = { owner: u, role: Role.Admin };
+  pick<UserId>(ids);
+  return [u, r, ok, legacy, h, handle, local, LocalBox];
+}
+function pick<T>(items: T[]): T { return items[0]; }
+export const api = {
+  get(id: UserId): User { return {} as User; },
+};
+export const handler: (req: Api.Request) => void = (req) => {};
+export const config: Record<string, Role> = {};
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "src/app.ts", app);
+    let script = b"import { Repo } from \"./models\";\nexport function isRepo(x) { return x instanceof Repo; }\n";
+    let (_nodes, js_edges) = parser.parse_file_in_repo(Some(&repo_root), "src/check.js", script);
+    let _ = std::fs::remove_dir_all(&repo_root);
+    let user = "src/models.ts::User";
+    let repo = "src/models.ts::Repo";
+    let user_id = "src/models.ts::UserId";
+    let request = "src/models.ts::Api.Request";
+    let positions = |source: &str, target: &str| {
+        type_reference_positions(&edges, &format!("src/app.ts::{source}"), target)
+    };
+
+    assert_eq!(
+        positions("run", user),
+        [
+            "variable_annotation",
+            "as",
+            "type_argument",
+            "satisfies",
+            "local_declaration",
+            "return",
+            "heritage",
+            "parameter"
+        ]
+    );
+    assert_eq!(positions("run", repo), ["instanceof", "parameter"]);
+    assert_eq!(positions("run", user_id), ["as", "field", "type_argument"]);
+    assert_eq!(
+        positions("run", request),
+        ["as", "local_declaration", "parameter"]
+    );
+    assert_eq!(
+        positions("run", "src/models.ts::Role"),
+        ["local_declaration"]
+    );
+    let run = type_references(&edges, "src/app.ts::run");
+    let query = run
+        .iter()
+        .find(|edge| edge.target == "src/models.ts::helper")
+        .expect("typeof m.helper");
+    assert_eq!(query.extra["relationship_role"], "type_query");
+    assert_eq!(
+        query.extra["type_positions"],
+        json!(["variable_annotation"])
+    );
+    // Local declarations are not nodes and never targets.
+    assert_eq!(run.len(), 6, "{run:#?}");
+    assert!(type_references(&edges, "src/app.ts::pick").is_empty());
+    assert_eq!(positions("api.get", user_id), ["parameter"]);
+    assert_eq!(positions("api.get", user), ["return", "as"]);
+    assert_eq!(positions("handler", request), ["variable_annotation"]);
+    let file_refs = type_references(&edges, "src/app.ts");
+    assert_eq!(file_refs.len(), 1, "{file_refs:#?}");
+    assert_eq!(file_refs[0].target, "src/models.ts::Role");
+    assert_eq!(
+        file_refs[0].extra["type_positions"],
+        json!(["variable_annotation"])
+    );
+    assert_eq!(
+        type_reference_positions(&js_edges, "src/check.js::isRepo", repo),
+        ["instanceof"]
+    );
+}
+
+#[test]
+fn qualifies_external_package_symbols() {
+    let mut repo_root = std::env::temp_dir();
+    repo_root.push(format!(
+        "dagayn-parser-ts-external-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    let _ = std::fs::remove_dir_all(&repo_root);
+    std::fs::create_dir_all(repo_root.join("src/lib")).unwrap();
+    std::fs::write(
+        repo_root.join("tsconfig.json"),
+        br#"{ "compilerOptions": { "baseUrl": ".", "paths": { "@app/*": ["src/*"] } } }"#,
+    )
+    .unwrap();
+    for (path, body) in [
+        ("src/lib/util.ts", "export function util() {}\n"),
+        ("src/helper.ts", "export function helper() {}\n"),
+        (
+            "src/ClassComp.tsx",
+            "export class ClassComp { render() { return null; } }\n",
+        ),
+    ] {
+        std::fs::write(repo_root.join(path), body).unwrap();
+    }
+    let source = br#"import React, { useState as useLocalState, type FC } from "react";
+import * as fs from "node:fs";
+import { map } from "lodash/fp";
+import { Button, Form } from "antd";
+import { Injectable } from "@nestjs/common";
+import express from "express";
+import cors from "cors";
+import { z } from "zod";
+import { helper } from "./helper";
+import { util } from "@app/lib/util";
+import { missing } from "@app/lib/missing";
+import { gone } from "./gone";
+const lib = require("lib-cjs");
+const { pick } = require("lodash");
+
+@Injectable()
+export class Svc {}
+
+export const Label: FC = () => null;
+
+export function App() {
+  const [n] = useLocalState(0);
+  React.useEffect(() => {});
+  fs.readFile("x", () => {});
+  map(helper);
+  z.object({});
+  lib();
+  lib.run();
+  pick();
+  util();
+  missing();
+  gone();
+  const app = express();
+  app.use(cors);
+  app.get("/");
+  return <Form.Item><Button /></Form.Item>;
+}
+
+function shadow() {
+  const pick = () => 1;
+  pick();
+}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "src/App.tsx", source);
+    let from_app = |kind: &str| {
+        edges
+            .iter()
+            .filter(|edge| edge.kind == kind && edge.source == "src/App.tsx::App")
+            .map(|edge| (edge.line, edge.target.as_str(), &edge.extra))
+            .collect::<Vec<_>>()
+    };
+    let calls = from_app("CALLS");
+    let call_at = |line: i64| {
+        calls
+            .iter()
+            .filter(|(at, _, _)| *at == line)
+            .map(|(_, target, extra)| (*target, *extra))
+            .collect::<Vec<_>>()
+    };
+    let external = |line: i64, target: &str, package: &str| {
+        let found = call_at(line);
+        let (_, extra) = found
+            .iter()
+            .find(|(written, _)| *written == target)
+            .unwrap_or_else(|| panic!("line {line}: {target} not in {found:#?}"));
+        assert_eq!(extra["external"], true, "{target}");
+        assert_eq!(extra["external_package"], package, "{target}");
+    };
+    external(22, "react::useState", "react");
+    // A default import's members are the module's (CommonJS interop).
+    external(23, "react::useEffect", "react");
+    external(24, "node:fs::readFile", "node:fs");
+    // The target keeps the specifier as written; the package drops the subpath.
+    external(25, "lodash/fp::map", "lodash");
+    external(26, "zod::z.object", "zod");
+    external(27, "lib-cjs::default", "lib-cjs");
+    external(28, "lib-cjs::run", "lib-cjs");
+    external(29, "lodash::pick", "lodash");
+    external(33, "express::default", "express");
+    external(36, "antd::Form.Item", "antd");
+    external(36, "antd::Button", "antd");
+    // In-repo and unresolvable in-repo specifiers are never external.
+    for (line, target) in [(30, "src/lib/util.ts::util"), (31, "missing"), (32, "gone")] {
+        let found = call_at(line);
+        assert_eq!(found.len(), 1, "{found:#?}");
+        assert_eq!(found[0].0, target);
+        assert!(found[0].1.get("external").is_none(), "{found:#?}");
+    }
+    // A method on a value returned by an external call has no evidence of
+    // its type: the bare name stays, marked as an unknown receiver.
+    let get = call_at(35);
+    assert_eq!(get.len(), 1, "{get:#?}");
+    assert_eq!(get[0].0, "get");
+    assert_eq!(get[0].1["receiver_unknown"], true);
+    assert!(get[0].1.get("external").is_none());
+
+    let references = from_app("REFERENCES");
+    let reference = |target: &str| {
+        references
+            .iter()
+            .find(|(_, written, _)| *written == target)
+            .unwrap_or_else(|| panic!("{target} not in {references:#?}"))
+            .2
+    };
+    assert_eq!(reference("cors::default")["external_package"], "cors");
+    assert!(reference("src/helper.ts::helper").get("external").is_none());
+    let decorator = edges
+        .iter()
+        .find(|edge| edge.kind == "REFERENCES" && edge.source == "src/App.tsx::Svc")
+        .expect("decorator reference");
+    assert_eq!(decorator.target, "@nestjs/common::Injectable");
+    assert_eq!(decorator.extra["relationship_role"], "decorator");
+    assert_eq!(decorator.extra["external_package"], "@nestjs/common");
+    // External types stay out of the graph (no `react::FC` edge).
+    assert!(
+        edges.iter().all(|edge| !edge.target.ends_with("FC")),
+        "{edges:#?}"
+    );
+    // A local shadowing an imported name is not the import.
+    assert!(
+        edges
+            .iter()
+            .all(|edge| !(edge.source.ends_with("::shadow") && edge.kind == "CALLS")),
+        "{edges:#?}"
+    );
+
+    let test_source = br#"import { render } from "@testing-library/react";
+import { ClassComp } from "./ClassComp";
+test("renders", () => {
+  render(<ClassComp />);
+});
+"#;
+    let (_nodes, edges) =
+        parser.parse_file_in_repo(Some(&repo_root), "src/App.test.tsx", test_source);
+    let render = edges
+        .iter()
+        .find(|edge| edge.kind == "CALLS" && edge.line == 4 && edge.target.ends_with("render"))
+        .expect("render call");
+    assert_eq!(render.target, "@testing-library/react::render");
+    assert_eq!(render.extra["external_package"], "@testing-library/react");
+    let tested = edges
+        .iter()
+        .filter(|edge| edge.kind == "TESTED_BY")
+        .map(|edge| edge.source.as_str())
+        .collect::<Vec<_>>();
+    // An external package is never the code under test.
+    assert_eq!(tested, ["src/ClassComp.tsx::ClassComp"]);
+
+    let _ = std::fs::remove_dir_all(&repo_root);
+}
+
+#[test]
+fn parses_react_hoc_wrapped_components() {
+    let mut repo_root = std::env::temp_dir();
+    repo_root.push(format!(
+        "dagayn-parser-ts-hoc-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    let _ = std::fs::remove_dir_all(&repo_root);
+    std::fs::create_dir_all(repo_root.join("src")).unwrap();
+    let component = br#"import React, { memo, forwardRef } from "react";
+import { observer } from "mobx-react";
+import type { Props } from "./types";
+export const Memo = memo(function Inner({ x }: Props) { return helper(x); });
+export const Arrow = memo(() => <div>{helper()}</div>);
+export const Fwd = React.forwardRef<HTMLInputElement, Props>((props, ref) => <input ref={ref} />);
+export const Obs = observer(() => { helper(); return <Fwd />; });
+export const Nested = memo(forwardRef(function N(p, r) { return helper(); }), areEqual);
+const items = [1, 2];
+export const doubled = items.map((x) => x * 2);
+export const composed = compose(helper, areEqual);
+export default memo(function Page() { return <Memo />; });
+function helper(_x?: unknown) { return null; }
+function areEqual() { return true; }
+"#;
+    for (path, body) in [
+        (
+            "src/types.ts",
+            &b"export interface Props { x: number }\n"[..],
+        ),
+        ("src/Comp.tsx", &component[..]),
+    ] {
+        std::fs::write(repo_root.join(path), body).unwrap();
+    }
+    let mut parser = RustOwnedParser::new();
+    let (nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "src/Comp.tsx", component);
+    let node = |name: &str| {
+        nodes
+            .iter()
+            .find(|node| node.name == name && node.parent_name.is_none())
+    };
+    for name in ["Memo", "Arrow", "Fwd", "Obs", "Nested", "default"] {
+        let found = node(name).unwrap_or_else(|| panic!("{name}: {nodes:?}"));
+        assert_eq!(found.kind, "Function", "{name}");
+    }
+    for name in ["doubled", "composed", "Inner", "N", "Page", "items"] {
+        assert!(node(name).is_none(), "{name} must not be a node");
+    }
+    assert_eq!(
+        node("Memo").unwrap().extra["wrapped_by"],
+        serde_json::json!(["memo"])
+    );
+    assert_eq!(node("Memo").unwrap().extra["expression_name"], "Inner");
+    assert_eq!(
+        node("Memo").unwrap().params.as_deref(),
+        Some("({ x }: Props)")
+    );
+    assert_eq!(
+        node("Fwd").unwrap().extra["wrapped_by"],
+        serde_json::json!(["React.forwardRef"])
+    );
+    assert!(
+        node("Arrow")
+            .unwrap()
+            .extra
+            .get("expression_name")
+            .is_none()
+    );
+    assert_eq!(
+        node("Nested").unwrap().extra["wrapped_by"],
+        serde_json::json!(["memo", "forwardRef"])
+    );
+    let default = node("default").unwrap();
+    assert_eq!(default.extra["export_default"], true);
+    assert_eq!(default.extra["wrapped_by"], serde_json::json!(["memo"]));
+    assert_eq!(default.extra["expression_name"], "Page");
+
+    let qn = |name: &str| format!("src/Comp.tsx::{name}");
+    let has = |kind: &str, source: &str, target: &str| {
+        edges
+            .iter()
+            .any(|edge| edge.kind == kind && edge.source == source && edge.target == target)
+    };
+    for caller in ["Memo", "Arrow", "Obs", "Nested"] {
+        assert!(
+            has("CALLS", &qn(caller), &qn("helper")),
+            "{caller}: {edges:?}"
+        );
+    }
+    assert!(has("CALLS", &qn("Obs"), &qn("Fwd")));
+    assert!(has("CALLS", &qn("default"), &qn("Memo")));
+    // The wrapper runs at module scope: the File calls it.
+    assert!(has("CALLS", "src/Comp.tsx", "react::memo"));
+    assert!(has("CALLS", "src/Comp.tsx", "react::forwardRef"));
+    assert!(has("CALLS", "src/Comp.tsx", "mobx-react::observer"));
+    assert!(has("REFERENCES", "src/Comp.tsx", &qn("areEqual")));
+    assert!(!has("CALLS", "src/Comp.tsx", &qn("helper")));
+    assert!(has("CALLS", "src/Comp.tsx", "compose"));
+    // Types of the wrapped function and of the wrapper's type arguments.
+    assert!(has("REFERENCES", &qn("Memo"), "src/types.ts::Props"));
+    assert!(has("REFERENCES", &qn("Fwd"), "src/types.ts::Props"));
+    assert!(
+        edges
+            .iter()
+            .any(|edge| edge.kind == "CONTAINS" && edge.target == qn("Fwd"))
+    );
+
+    let usage = br#"import Page, { Fwd, Nested } from "./Comp";
+export function App() { return <><Fwd /><Nested /><Page /></>; }
+"#;
+    std::fs::write(repo_root.join("src/App.tsx"), usage).unwrap();
+    let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "src/App.tsx", usage);
+    for target in ["Fwd", "Nested", "default"] {
+        assert!(
+            edges.iter().any(|edge| edge.kind == "CALLS"
+                && edge.source == "src/App.tsx::App"
+                && edge.target == qn(target)),
+            "{target}: {edges:?}"
+        );
+    }
+
+    // The same rule in JavaScript, including a CommonJS-less `React` global.
+    let (nodes, edges) = parse_javascript_like(
+        "hoc.jsx",
+        b"export const Card = React.memo(function () { return run(); });\nfunction run() {}\n",
+        "javascript",
+    );
+    let card = nodes.iter().find(|node| node.name == "Card").expect("Card");
+    assert_eq!(card.extra["wrapped_by"], serde_json::json!(["React.memo"]));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "CALLS" && edge.source == "hoc.jsx::Card" && edge.target == "hoc.jsx::run"
+    }));
+
+    let _ = std::fs::remove_dir_all(&repo_root);
+}
+
+#[test]
+fn parses_javascript_class_field_functions() {
+    let source = br#"class Legacy {
+  handle = () => { helper(); };
+  other = function () { this.handle(); };
+  static make = () => new Legacy();
+  #secret = () => 1;
+  plain = compute();
+}
+function helper() {}
+function compute() {}
+"#;
+    for (file, language) in [("legacy.js", "javascript"), ("legacy.ts", "typescript")] {
+        let (nodes, edges) = parse_javascript_like(file, source, language);
+        for member in ["handle", "other", "make", "#secret"] {
+            let found = nodes
+                .iter()
+                .find(|node| node.name == member && node.parent_name.as_deref() == Some("Legacy"))
+                .unwrap_or_else(|| panic!("{file}: Legacy.{member}: {nodes:?}"));
+            assert_eq!(found.kind, "Function");
+        }
+        assert!(!nodes.iter().any(|node| node.name == "plain"));
+        let class = nodes.iter().find(|node| node.name == "Legacy").unwrap();
+        // Function-valued fields are methods: not a property-only class.
+        assert!(
+            class.extra.get("container_role").is_none(),
+            "{file}: {class:?}"
+        );
+        let qn = |name: &str| format!("{file}::{name}");
+        let calls = |source: &str, target: &str| {
+            edges
+                .iter()
+                .any(|edge| edge.kind == "CALLS" && edge.source == source && edge.target == target)
+        };
+        assert!(
+            calls(&qn("Legacy.handle"), &qn("helper")),
+            "{file}: {edges:?}"
+        );
+        assert!(calls(&qn("Legacy.other"), &qn("Legacy.handle")));
+        assert!(calls(&qn("Legacy.make"), &qn("Legacy")));
+        assert!(calls(&qn("Legacy"), &qn("compute")));
+        assert!(!calls(&qn("Legacy"), &qn("helper")));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CONTAINS"
+                && edge.source == qn("Legacy")
+                && edge.target == qn("Legacy.handle")
+        }));
+    }
+}
+
+#[test]
+fn resolves_typescript_base_url_and_nearest_config_imports() {
+    let mut repo_root = std::env::temp_dir();
+    repo_root.push(format!(
+        "dagayn-parser-ts-base-url-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    let _ = std::fs::remove_dir_all(&repo_root);
+    for dir in [
+        "shared",
+        "packages/web/src/services",
+        "packages/web/src/lib",
+        "packages/api/src",
+        "apps/vite/src/lib",
+        "apps/legacy/src/utils",
+    ] {
+        std::fs::create_dir_all(repo_root.join(dir)).unwrap();
+    }
+    for (path, body) in [
+        // Root config: `paths` relative to `baseUrl`.
+        (
+            "tsconfig.json",
+            r#"{ "compilerOptions": { "baseUrl": ".", "paths": { "@shared/*": ["shared/*"] } } }"#,
+        ),
+        ("shared/log.ts", "export function log() {}\n"),
+        // Nearest config: `baseUrl` only, plus a `paths` alias under it.
+        (
+            "packages/web/tsconfig.json",
+            r#"{ "compilerOptions": { "baseUrl": "src", "paths": { "~/*": ["lib/*"] } } }"#,
+        ),
+        (
+            "packages/web/src/services/user.ts",
+            "export function getUser() {}\n",
+        ),
+        ("packages/web/src/lib/fmt.ts", "export function fmt() {}\n"),
+        // Solution-style tsconfig.json: the aliases live in tsconfig.app.json.
+        (
+            "apps/vite/tsconfig.json",
+            r#"{ "files": [], "references": [{ "path": "./tsconfig.app.json" }] }"#,
+        ),
+        (
+            "apps/vite/tsconfig.app.json",
+            r#"{ "compilerOptions": { "paths": { "@/*": ["./src/*"] } } }"#,
+        ),
+        ("apps/vite/src/lib/cn.ts", "export function cn() {}\n"),
+        // JavaScript project: jsconfig.json.
+        (
+            "apps/legacy/jsconfig.json",
+            r#"{ "compilerOptions": { "baseUrl": "src" } }"#,
+        ),
+        (
+            "apps/legacy/src/utils/date.js",
+            "export function day() {}\n",
+        ),
+    ] {
+        std::fs::write(repo_root.join(path), body).unwrap();
+    }
+    let mut parser = RustOwnedParser::new();
+    let mut check = |file: &str, source: &str, expected: &[(&str, &str)]| {
+        std::fs::write(repo_root.join(file), source).unwrap();
+        let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), file, source.as_bytes());
+        for (imported, target) in expected {
+            assert!(
+                edges.iter().any(|edge| edge.kind == "IMPORTS_FROM"
+                    && edge.source == file
+                    && edge.target == *imported),
+                "{file}: IMPORTS_FROM {imported}: {edges:?}"
+            );
+            assert!(
+                edges
+                    .iter()
+                    .any(|edge| edge.kind == "CALLS" && edge.target == *target),
+                "{file}: CALLS {target}: {edges:?}"
+            );
+        }
+        edges
+    };
+    let edges = check(
+        "packages/web/src/app.ts",
+        r#"import { getUser } from "services/user";
+import { fmt } from "~/fmt";
+import { useState } from "react";
+export function app() { getUser(); fmt(); useState(); }
+"#,
+        &[
+            (
+                "packages/web/src/services/user.ts",
+                "packages/web/src/services/user.ts::getUser",
+            ),
+            (
+                "packages/web/src/lib/fmt.ts",
+                "packages/web/src/lib/fmt.ts::fmt",
+            ),
+        ],
+    );
+    // A package name with no file under `baseUrl` stays external.
+    assert!(
+        edges
+            .iter()
+            .any(|edge| edge.kind == "CALLS" && edge.target == "react::useState")
+    );
+    // Without its own tsconfig, a package uses the root one.
+    check(
+        "packages/api/src/server.ts",
+        "import { log } from \"@shared/log\";\nexport function serve() { log(); }\n",
+        &[("shared/log.ts", "shared/log.ts::log")],
+    );
+    check(
+        "apps/vite/src/main.ts",
+        "import { cn } from \"@/lib/cn\";\nexport function main() { cn(); }\n",
+        &[("apps/vite/src/lib/cn.ts", "apps/vite/src/lib/cn.ts::cn")],
+    );
+    check(
+        "apps/legacy/src/index.js",
+        "import { day } from \"utils/date\";\nexport function run() { day(); }\n",
+        &[(
+            "apps/legacy/src/utils/date.js",
+            "apps/legacy/src/utils/date.js::day",
+        )],
+    );
+
+    let _ = std::fs::remove_dir_all(&repo_root);
+}
+
+#[test]
+fn does_not_turn_type_literal_method_signatures_into_nodes() {
+    let repo_root = write_type_reference_repo("type-literal-methods");
+    std::fs::write(
+        repo_root.join("repo.ts"),
+        "export interface Repo { find(): void }\n",
+    )
+    .unwrap();
+    let source = r#"import { Repo } from "./repo";
+function f(p: { m(): void }): void;
+function f(p: { m(): void; n(x: Repo): Repo }, q?: number): void;
+function f(p: any, q?: any) {}
+interface I {
+  p: { inner(): void; deep: { d(): Repo } };
+  m(): void;
+  cb: (x: { z(): void }) => void;
+}
+type T = { tm(): void; nested: { k(): Repo } };
+class C {
+  field: { handler(): void } = { handler() {} };
+  method(opts: { run(): Repo }): { done(): void } { return { done() {} }; }
+}
+export const g = (o: { w(): void }) => o.w();
+declare function h(x: { y(): void }): void;
+let v: { lm(): void } = { lm() {} };
+function body() { const local: { bm(): Repo } = { bm: () => ({} as Repo) }; return local; }
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "a.ts", source.as_bytes());
+    let names = nodes
+        .iter()
+        .filter(|node| node.kind != "File")
+        .map(|node| match &node.parent_name {
+            Some(parent) => format!("{parent}.{}", node.name),
+            None => node.name.clone(),
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    // `v` is a module-scope object container (`= { lm() {} }`), not a type.
+    let expected = [
+        "C", "C.method", "I", "I.m", "T", "body", "f", "g", "h", "v", "v.lm",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(names, expected, "{nodes:?}");
+    let f = nodes.iter().find(|node| node.name == "f").unwrap();
+    assert_eq!(f.extra["overloads"], 2, "{f:?}");
+    let interface_method = nodes
+        .iter()
+        .find(|node| node.name == "m" && node.parent_name.as_deref() == Some("I"))
+        .unwrap();
+    assert_eq!(interface_method.extra["is_abstract"], true);
+    // The types named inside the literals still belong to the declaration.
+    for (source, position) in [
+        ("a.ts::f", "parameter"),
+        ("a.ts::I", "field"),
+        ("a.ts::T", "type_alias"),
+        ("a.ts::C.method", "parameter"),
+        ("a.ts::body", "variable_annotation"),
+    ] {
+        assert!(
+            type_reference_positions(&edges, source, "repo.ts::Repo")
+                .iter()
+                .any(|found| found == position),
+            "{source} {position}: {edges:?}"
+        );
+    }
+    let qualified = names
+        .iter()
+        .map(|name| format!("a.ts::{name}"))
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(
+        edges
+            .iter()
+            .filter(|edge| edge.kind == "CONTAINS")
+            .all(|edge| qualified.contains(&edge.target)),
+        "{edges:?}"
     );
 
     let _ = std::fs::remove_dir_all(&repo_root);

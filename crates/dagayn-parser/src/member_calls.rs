@@ -37,6 +37,13 @@ impl MemberCallBindings {
         }
     }
 
+    /// Binds `var` to a same-file owner path the caller already verified
+    /// (`Outer.Inner` for `new Outer.Inner()`), bypassing the bare type-name
+    /// check.
+    pub(super) fn bind_path(&mut self, var: impl Into<String>, owner_path: impl Into<String>) {
+        self.bindings.insert(var.into(), owner_path.into());
+    }
+
     pub(super) fn bind_implicit_receivers(&mut self, type_name: &str) {
         if type_name.is_empty() {
             return;
@@ -47,8 +54,22 @@ impl MemberCallBindings {
         }
     }
 
+    pub(super) fn is_bound(&self, receiver: &str) -> bool {
+        self.bindings.contains_key(receiver)
+    }
+
+    /// The type bound to `var`: a same-file owner path, or a `file::path`
+    /// QN for a type declared in another module.
+    pub(super) fn bound_type(&self, var: &str) -> Option<&str> {
+        self.bindings.get(var).map(String::as_str)
+    }
+
     pub(super) fn resolve_member(&self, receiver: &str, method: &str) -> Option<String> {
         let type_name = self.bindings.get(receiver)?;
+        // A type of another module is resolved by the extractor itself.
+        if type_name.contains("::") {
+            return None;
+        }
         Some(format!("{type_name}::{method}"))
     }
 

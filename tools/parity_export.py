@@ -4,6 +4,14 @@ Usage:
     uv run python tools/parity_export.py <repo_dir> --out <snapshot.json>
     uv run python tools/parity_export.py <repo_dir> --stdout
     uv run python tools/parity_export.py <repo_dir> --check-determinism
+
+    uv run python tools/parity_export.py --regenerate typescript javascript
+
+``--entity-lines`` writes one node / edge per line (the format of the
+TypeScript and JavaScript snapshots), so parser changes show up as reviewable
+line diffs. ``--regenerate`` builds the named fixtures under
+``tests/fixtures/parity/`` in a temporary directory and rewrites their
+committed snapshots in the fixture's own format.
 """
 
 from __future__ import annotations
@@ -71,8 +79,32 @@ def _edge_row(row) -> dict:
     }
 
 
-def export_db(db_path: Path) -> str:
-    """Return a deterministic canonical JSON snapshot of the graph at db_path."""
+def _dumps(value: object) -> str:
+    return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+
+
+def _entity_lines(snapshot: dict) -> str:
+    """Canonical JSON with one node / edge per line (same data as the compact form)."""
+    lines = ["{"]
+    for key in ("edges", "nodes"):
+        lines.append(f"{_dumps(key)}:[")
+        items = snapshot[key]
+        last = len(items) - 1
+        lines.extend(
+            _dumps(item) + ("," if index < last else "") for index, item in enumerate(items)
+        )
+        lines.append("],")
+    lines.append(f"{_dumps('schema_version')}:{_dumps(snapshot['schema_version'])}")
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
+def export_db(db_path: Path, *, entity_lines: bool = False) -> str:
+    """Return a deterministic canonical JSON snapshot of the graph at db_path.
+
+    *entity_lines* puts each node and edge on its own line; the content is
+    identical to the compact single-line form.
+    """
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
@@ -95,10 +127,34 @@ def export_db(db_path: Path) -> str:
         "nodes": nodes,
         "edges": edges,
     }
-    return json.dumps(snapshot, sort_keys=True, ensure_ascii=False, separators=(",", ":")) + "\n"
+    if entity_lines:
+        return _entity_lines(snapshot)
+    return _dumps(snapshot) + "\n"
+
+
+def regenerate(names: list[str]) -> None:
+    """Build parity fixtures in a scratch directory and rewrite their snapshots."""
+    import tempfile
+
+    from tests.conftest import (
+        ENTITY_LINE_PARITY_FIXTURES,
+        PARITY_FIXTURE_DIR,
+        build_parity_fixture,
+    )
+
+    for name in names:
+        with tempfile.TemporaryDirectory() as scratch:
+            db_path = build_parity_fixture(PARITY_FIXTURE_DIR / name, Path(scratch))
+            snapshot = export_db(db_path, entity_lines=name in ENTITY_LINE_PARITY_FIXTURES)
+        out = PARITY_FIXTURE_DIR / "__snapshots__" / f"{name}.json"
+        out.write_text(snapshot, encoding="utf-8")
+        print(f"Wrote {out} ({len(snapshot)} bytes)")
 
 
 def main() -> None:
+    if len(sys.argv) > 1 and sys.argv[1] == "--regenerate":
+        regenerate(sys.argv[2:])
+        return
     parser = argparse.ArgumentParser(
         description="Export a canonical dagayn graph snapshot for Rust parity testing."
     )
@@ -115,6 +171,11 @@ def main() -> None:
         action="store_true",
         help="Export the DB twice and assert the SHA256 is identical (tests serialization)",
     )
+    parser.add_argument(
+        "--entity-lines",
+        action="store_true",
+        help="Write one node / edge per line (TypeScript / JavaScript snapshots)",
+    )
     args = parser.parse_args()
 
     db_path = args.repo_dir / ".dagayn" / "graph.db"
@@ -122,13 +183,13 @@ def main() -> None:
         sys.exit(f"No graph DB at {db_path}. Run 'dagayn build' in that directory first.")
 
     if args.out:
-        snapshot = export_db(db_path)
+        snapshot = export_db(db_path, entity_lines=args.entity_lines)
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(snapshot, encoding="utf-8")
         sha = hashlib.sha256(snapshot.encode()).hexdigest()
         print(f"Wrote {args.out} ({len(snapshot)} bytes, SHA256: {sha})")
     elif args.stdout:
-        print(export_db(db_path), end="")
+        print(export_db(db_path, entity_lines=args.entity_lines), end="")
     elif args.check_determinism:
         first = export_db(db_path)
         second = export_db(db_path)

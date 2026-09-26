@@ -25,6 +25,17 @@ uv run python tools/parity_export.py tests/fixtures/parity/<name> \
 | `markdown_only/` | Markdown headings + `derived-from` directive edge |
 | `notebook/` | Jupyter notebook with multiple code cells (cell attribution) |
 | `mixed/` | Python + Terraform + Markdown in one repo (cross-artifact edges) |
+| `typescript/` | TypeScript / TSX / `.d.ts` extraction model (`docs/TYPESCRIPT-EXTRACTION.md`) |
+| `javascript/` | JavaScript / JSX / `.mjs` / `.cjs` extraction (CommonJS, class fields, JSX) |
+
+The `typescript` and `javascript` snapshots hold one node / edge per line so
+that extractor changes review as line diffs (`--entity-lines`). Rebuild and
+rewrite any fixture's snapshot, in its own format, without touching the
+fixture directory:
+
+```bash
+uv run python tools/parity_export.py --regenerate typescript javascript
+```
 
 ## Acceptance criterion (Phase 0)
 

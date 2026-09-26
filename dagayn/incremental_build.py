@@ -14,6 +14,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Optional, cast
 
 from .contracts.state_types import BuildResult
+from .extractor_versions import record_extractor_versions
 from .graph import GraphStore
 from .incremental_files import (
     _MAX_DEPENDENT_FILES,
@@ -621,7 +622,10 @@ def _rust_parser_owns_path(rel_path: str, repo_root: Path | None = None) -> bool
             ".js",
             ".jsx",
             ".mjs",
+            ".cjs",
             ".ts",
+            ".mts",
+            ".cts",
             ".tsx",
             ".astro",
             ".sh",
@@ -927,6 +931,7 @@ def full_build(
             )
         else:
             _store_vcs_metadata(repo_root, store)
+            record_extractor_versions(store)
         store.commit()
 
     result = BuildResult(

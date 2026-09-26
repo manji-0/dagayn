@@ -217,7 +217,7 @@ dagayn install --mode remote-embedding --provider minimax
 
 그래프 스토어, 파서, FTS, 플로, 후처리는 네이티브 Rust 확장(`dagayn._core`)에서 돌아갑니다. 폴백할 Python 그래프 엔진은 없습니다. `DAGAYN_BACKEND=python`은 거부됩니다. 하이브리드 검색 랭킹과 manifest-bridge 추출은 Python에 남아 있습니다.
 
-파서 대상은 Markdown, Terraform, Rust, Python/노트북, Bash, Go, Java, Ruby, C#, PHP, Kotlin, Swift, Scala, Dart, Lua, C / C 헤더 / Perl XS, C++, Objective-C, Elixir, GDScript, R, Julia, Perl, Vue, Svelte, Zig, PowerShell, 지원 스크립트 언어의 shebang 있는 확장자 없는 파일, 그리고 핵심 JavaScript / JSX / TypeScript / TSX / Astro입니다:
+파서 대상은 Markdown, Terraform, Rust, Python/노트북, Bash, Go, Java, Ruby, C#, PHP, Kotlin, Swift, Scala, Dart, Lua, C / C 헤더 / Perl XS, C++, Objective-C, Elixir, GDScript, R, Julia, Perl, Vue, Svelte, Zig, PowerShell, 지원 스크립트 언어의 shebang 있는 확장자 없는 파일, 그리고 핵심 JavaScript / JSX (`.js`, `.jsx`, `.mjs`, `.cjs`) / TypeScript (`.ts`, `.mts`, `.cts`, and `.d.ts` / `.d.mts` / `.d.cts`) / TSX / Astro입니다:
 
 ```bash
 dagayn build

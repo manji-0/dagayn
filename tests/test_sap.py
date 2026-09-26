@@ -449,3 +449,34 @@ def test_dependency_profile_implementation_adds_calls_to_sap_counts(tmp_path):
     assert metrics["app"]["sap_applicable"] is True
     assert metrics["svc"]["ca"] == 1
     assert metrics["svc"]["instability"] == 0.0
+
+
+def test_type_references_count_only_under_infra_dataflow(tmp_path):
+    """TypeScript type REFERENCES leave strict_static SAP counts unchanged."""
+    s = GraphStore(tmp_path / "sap_type_refs.db")
+    s.upsert_node(_node("File", "app/a.ts", "app/a.ts", language="typescript"))
+    s.upsert_node(_node("Class", "App", "app/a.ts", extra={"type_role": "class"}))
+    s.upsert_node(_node("File", "svc/b.ts", "svc/b.ts", language="typescript"))
+    s.upsert_node(_node("Class", "Svc", "svc/b.ts", extra={"type_role": "interface"}))
+    s.upsert_edge(
+        EdgeInfo(
+            kind="REFERENCES",
+            source="app/a.ts::App",
+            target="svc/b.ts::Svc",
+            file_path="app/a.ts",
+            line=1,
+            extra={"relationship_role": "type_reference", "type_positions": ["field"]},
+        )
+    )
+    s.commit()
+
+    strict = {row["scope_key"]: row for row in compute_sap_metrics(s, scope_kind="package")}
+    assert strict["app"]["ce"] == 0
+    assert strict["svc"]["ca"] == 0
+
+    dataflow = {
+        row["scope_key"]: row
+        for row in compute_sap_metrics(s, scope_kind="package", dependency_profile="infra_dataflow")
+    }
+    assert dataflow["app"]["ce"] == 1
+    assert dataflow["svc"]["ca"] == 1

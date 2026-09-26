@@ -25,6 +25,8 @@ mod discovery;
 mod documentation_directives;
 #[path = "elixir.rs"]
 mod elixir;
+#[path = "extractor_version.rs"]
+mod extractor_version;
 #[path = "file_only.rs"]
 mod file_only;
 #[path = "gdscript.rs"]
@@ -35,10 +37,16 @@ mod go;
 mod java;
 #[path = "js_like.rs"]
 mod js_like;
+#[path = "js_members.rs"]
+mod js_members;
 #[path = "js_modules.rs"]
 mod js_modules;
 #[path = "js_sfc.rs"]
 mod js_sfc;
+#[path = "js_tests.rs"]
+mod js_tests;
+#[path = "js_types.rs"]
+mod js_types;
 #[path = "julia.rs"]
 mod julia;
 #[path = "kotlin.rs"]
@@ -86,6 +94,7 @@ pub use discovery::{
     collect_parseable_files, detect_language, filter_ignored_paths, filter_incremental_candidates,
     filter_parseable_files,
 };
+pub use extractor_version::{EXTRACTOR_VERSIONS, ExtractorVersion, extractor_versions};
 pub use js_sfc::{parse_svelte, parse_vue};
 pub use types::{EdgeKind, FilePath, NodeKind, ParsedEdge, ParsedNode};
 
@@ -601,6 +610,20 @@ pub fn parse_swift(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<Pars
     swift::parse_swift_with_parser(file_path, source, parser.as_mut())
 }
 
+/// A `CALLS` edge to an assertion or mock API (`extra.test_api`), which
+/// never makes its target "tested by" the calling test.
+fn is_test_api_call(extra: &Value) -> bool {
+    extra.get("test_api").and_then(Value::as_bool) == Some(true)
+}
+
+/// A call into an external package (`react::useState`, marked by the
+/// JavaScript extractor): never a symbol of this repository.
+fn is_external_call(extra: &Value) -> bool {
+    extra.get("external").and_then(Value::as_bool) == Some(true)
+}
+
+/// `TESTED_BY target -> test` for every `CALLS test -> target` made by a
+/// test node, except calls to assertion / mock APIs and external packages.
 fn add_tested_by_edges(nodes: &[ParsedNode], edges: &mut Vec<ParsedEdge>) {
     let test_qnames = nodes
         .iter()
@@ -609,7 +632,12 @@ fn add_tested_by_edges(nodes: &[ParsedNode], edges: &mut Vec<ParsedEdge>) {
         .collect::<HashSet<_>>();
     let tested_by = edges
         .iter()
-        .filter(|edge| edge.kind == "CALLS" && test_qnames.contains(&edge.source))
+        .filter(|edge| {
+            edge.kind == "CALLS"
+                && test_qnames.contains(&edge.source)
+                && !is_test_api_call(&edge.extra)
+                && !is_external_call(&edge.extra)
+        })
         .map(|edge| ParsedEdge {
             kind: crate::core::types::EdgeKind::TestedBy,
             source: edge.target.clone(),
@@ -718,6 +746,16 @@ pub(super) fn resolve_rust_call_targets(
     file_path: &str,
 ) -> Vec<ParsedEdge> {
     let mut symbols = HashMap::<String, Vec<(Option<String>, String)>>::new();
+    // JavaScript object-literal containers (`const api = { get() {} }`):
+    // their members are reachable only as `api.get`, never by a bare name.
+    let object_owners = nodes
+        .iter()
+        .filter(|node| node.kind == NodeKind::Class && node.extra["type_role"] == "object")
+        .map(|node| match node.parent_name.as_deref() {
+            Some(parent) => format!("{parent}.{}", node.name),
+            None => node.name.clone(),
+        })
+        .collect::<HashSet<_>>();
     for node in nodes {
         if !matches!(
             node.kind,
@@ -737,9 +775,19 @@ pub(super) fn resolve_rust_call_targets(
     edges
         .into_iter()
         .map(|mut edge| {
+            // A member call whose receiver the extractor could not type
+            // (`res.json()`) must not bind to a same-named declaration, nor
+            // may a call into an external package (`react::render`).
             if matches!(edge.kind, EdgeKind::Calls | EdgeKind::References)
-                && let Some(target) =
-                    resolve_same_file_call_target(file_path, &edge.source, &edge.target, &symbols)
+                && edge.extra["receiver_unknown"] != true
+                && !is_external_call(&edge.extra)
+                && let Some(target) = resolve_same_file_call_target(
+                    file_path,
+                    &edge.source,
+                    &edge.target,
+                    &symbols,
+                    &object_owners,
+                )
             {
                 edge.target = target;
             }
@@ -753,6 +801,7 @@ fn resolve_same_file_call_target(
     caller: &str,
     target: &str,
     symbols: &HashMap<String, Vec<(Option<String>, String)>>,
+    object_owners: &HashSet<String>,
 ) -> Option<String> {
     if let Some(resolved) = resolve_type_scoped_call(file_path, target, symbols) {
         return Some(resolved);
@@ -762,7 +811,11 @@ fn resolve_same_file_call_target(
     let top_level = candidates.iter().find(|(parent, _)| parent.is_none());
     let methods = candidates
         .iter()
-        .filter(|(parent, _)| parent.is_some())
+        .filter(|(parent, _)| {
+            parent
+                .as_deref()
+                .is_some_and(|parent| !object_owners.contains(parent))
+        })
         .collect::<Vec<_>>();
     if target.contains("::") {
         // Keep `file::helper` for a real top-level symbol. Rewrite `file::find`
@@ -778,6 +831,10 @@ fn resolve_same_file_call_target(
     pick_method_for_caller(file_path, caller, &methods)
 }
 
+/// Rewrites `Type::method` (a receiver bound to a same-file type) to the
+/// method's QN. `Type` may be a dotted owner path (`Outer.Inner::m`) when its
+/// root segment is a same-file top-level declaration; anything else with a
+/// dot or a slash is a file path (`lib/util.ts::m`) and is left alone.
 fn resolve_type_scoped_call(
     file_path: &str,
     target: &str,
@@ -787,15 +844,40 @@ fn resolve_type_scoped_call(
         return None;
     }
     let (type_name, method) = target.rsplit_once("::")?;
-    if type_name.is_empty() || method.is_empty() || type_name.contains("::") {
+    if type_name.is_empty()
+        || method.is_empty()
+        || type_name.contains("::")
+        || type_name.contains('/')
+    {
         return None;
     }
-    symbols.get(method).and_then(|candidates| {
-        candidates
-            .iter()
-            .find(|(parent, _)| parent.as_deref() == Some(type_name))
-            .map(|(_, qualified)| qualified.clone())
-    })
+    if let Some((root, _)) = type_name.split_once('.') {
+        let root_is_local_container = symbols
+            .get(root)
+            .is_some_and(|candidates| candidates.iter().any(|(parent, _)| parent.is_none()));
+        if !root_is_local_container {
+            return None;
+        }
+    }
+    let candidates = symbols.get(method)?;
+    if let Some((_, qualified)) = candidates
+        .iter()
+        .find(|(parent, _)| parent.as_deref() == Some(type_name))
+    {
+        return Some(qualified.clone());
+    }
+    // A bare type bound inside a namespace (`new Inner()` in `Outer`) owns the
+    // method as `Outer.Inner`; accept a unique owner ending in `.Type`.
+    let suffix = format!(".{type_name}");
+    let mut nested = candidates.iter().filter(|(parent, _)| {
+        parent
+            .as_deref()
+            .is_some_and(|parent| parent.ends_with(&suffix))
+    });
+    match (nested.next(), nested.next()) {
+        (Some((_, qualified)), None) => Some(qualified.clone()),
+        _ => None,
+    }
 }
 
 fn pick_method_for_caller(
@@ -803,6 +885,7 @@ fn pick_method_for_caller(
     caller: &str,
     methods: &[&(Option<String>, String)],
 ) -> Option<String> {
+    // Nearest owner first: `Outer.Inner.run` tries `Outer.Inner`, then `Outer`.
     for parent in caller_scopes(file_path, caller) {
         if let Some((_, qualified)) = methods
             .iter()

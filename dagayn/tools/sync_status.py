@@ -4,6 +4,11 @@ Freshness is a state, not a pile of booleans, and it is decided in two tiers:
 
 * **commit tier** — does the graph's ``git_head_sha`` equal HEAD? A graph built
   at another commit answers for the wrong tree (``commit_drift``).
+* **extractor tier** — was the graph parsed by the running extractors? A
+  graph stamped with an older extractor version (see
+  :mod:`dagayn.extractor_versions`) holds output a fresh parse would not
+  produce, so it is ``commit_drift`` too, with ``extractor_drift`` naming the
+  extractors; the next ``dagayn update`` re-parses their files.
 * **diff tier** — once the commit tier agrees, are the uncommitted working-tree
   edits in the graph? ``worktree_behind`` when some are missing,
   ``worktree_ahead`` when the graph already describes them (an edit hook
@@ -23,6 +28,7 @@ from pathlib import Path
 from typing import Any, Literal, TypedDict, cast
 
 from ..contracts.state_types import GraphSyncStateName, seal_graph_sync_state
+from ..extractor_versions import outdated_extractors
 from ..incremental import (
     GIT_BACKED_VCS,
     _git_branch_info,
@@ -51,6 +57,7 @@ class SyncPayload(TypedDict, total=False):
     unverified_file_count: int
     pending_files: list[str]
     indexed_files: list[str]
+    extractor_drift: list[str]
 
 
 #: Diff-tier verification stats every indexed file (cheap) but only hashes the
@@ -253,12 +260,17 @@ def commit_tier_freshness(store: Any, repo_root: str | Path) -> SyncPayload:
     except Exception:  # noqa: BLE001 — a status failure is not dirtiness
         dirty = False
     state: GraphSyncStateName = "commit_synced" if stored_sha == current_sha else "commit_drift"
-    return {
+    payload: SyncPayload = {
         "state": state,
         "git_head_sha": stored_sha,
         "current_head_sha": current_sha,
         "worktree_dirty": dirty,
     }
+    extractor_drift = outdated_extractors(store)
+    if extractor_drift:
+        payload["state"] = "commit_drift"
+        payload["extractor_drift"] = extractor_drift
+    return payload
 
 
 def _seed_needs_verification(store: Any) -> bool:
@@ -322,6 +334,11 @@ def assess_graph_sync(
         # reports jj's reason instead of this state claiming the graph is fresh.
         commit_drift = True
     undated = not last_updated and not graph_empty
+    # Parsed by an older extractor: unchanged files keep output (qualified
+    # names, edges) that a fresh parse no longer produces.
+    extractor_drift = (
+        [] if graph_empty else outdated_extractors(store, getattr(stats, "languages", None))
+    )
 
     if _seed_needs_verification(store):
         # A seeded worktree graph carries the parent's per-file mtimes, so a
@@ -332,11 +349,13 @@ def assess_graph_sync(
         max_hash_candidates = None
 
     extra: SyncPayload = {}
+    if extractor_drift:
+        extra["extractor_drift"] = extractor_drift
     state: GraphSyncStateName
     if graph_empty:
         state = "unbuilt"
         dirty_files = []
-    elif commit_drift or undated:
+    elif commit_drift or undated or extractor_drift:
         state = "commit_drift"
     else:
         state, evidence, verification = _classify_diff_tier(

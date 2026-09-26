@@ -48,8 +48,23 @@ The persisted / Python form remains the uppercase string.
 
 `TESTED_BY` edges are directed from the covered production symbol to the test
 symbol that exercises it. For example, `src/auth.py::login -> tests/test_auth.py::test_login`.
+Parsers derive them from the test's `CALLS` edges (same file and line), so a
+bare call target first gives a bare `TESTED_BY` source. When post-processing's
+bare-name resolution binds the call, the `TESTED_BY` edge takes the same
+qualified target and confidence (`MEDIUM`); a bare edge whose call is still
+unresolved stays bare.
 
 The fork also stores confidence-related metadata and graph relationships used by higher-order analysis.
+
+## Language extraction models
+
+Each extractor maps its language onto the shared node and edge kinds above.
+TypeScript, TSX, JavaScript, and JSX (including Vue and Svelte script blocks)
+are specified in [TYPESCRIPT-EXTRACTION.md](./TYPESCRIPT-EXTRACTION.md): which
+declarations become `Class` / `Type` / `Function` nodes, how owner paths,
+anonymous `default` exports, object-literal containers, and external
+`pkg::symbol` targets appear in qualified names, and what `CALLS`,
+`REFERENCES`, `INHERITS`, and `IMPLEMENTS` mean for TypeScript code.
 
 ## Metadata
 

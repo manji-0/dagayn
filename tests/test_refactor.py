@@ -28,7 +28,7 @@ from dagayn.refactor.concerns import (
     comment_line_count,
     function_concern_profile,
 )
-from dagayn.refactor.dead_code import _source_line, find_dead_code
+from dagayn.refactor.dead_code import _is_test_file, _source_line, find_dead_code
 
 
 class TestFunctionConcernProfile:
@@ -798,6 +798,97 @@ class TestFindDeadCode:
         assert "/repo/src/lib.rs::Repository" not in dead_qnames
         assert "/repo/src/events.jl::BaseEvent" not in dead_qnames
         assert "/repo/src/worker.py::ConcreteWorker" in dead_qnames
+
+    def test_find_dead_code_excludes_scope_containers(self):
+        """Object-literal containers and namespaces group members; not dead code."""
+        for name, role in (("api", "object"), ("Outer", "namespace"), ("ext", "ambient_module")):
+            self.store.upsert_node(
+                NodeInfo(
+                    kind="Class",
+                    name=name,
+                    file_path="/repo/src/api.ts",
+                    line_start=1,
+                    line_end=5,
+                    language="typescript",
+                    extra={"type_role": role},
+                )
+            )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="Unused",
+                file_path="/repo/src/api.ts",
+                line_start=6,
+                line_end=9,
+                language="typescript",
+                extra={"type_role": "class"},
+            )
+        )
+        self.store.commit()
+
+        dead_qnames = {d["qualified_name"] for d in find_dead_code(self.store)}
+
+        for name in ("api", "Outer", "ext"):
+            assert f"/repo/src/api.ts::{name}" not in dead_qnames
+        assert "/repo/src/api.ts::Unused" in dead_qnames
+
+    def test_find_dead_code_excludes_nestjs_decorated_classes_and_handlers(self):
+        """`@Controller` classes and `@Get` handlers are wired by the framework."""
+        for kind, name, parent, extra in (
+            (
+                "Class",
+                "UsersController",
+                None,
+                {"type_role": "class", "decorators": ["Controller"]},
+            ),
+            ("Function", "findAll", "UsersController", {"decorators": ["Get"]}),
+            ("Class", "Plain", None, {"type_role": "class"}),
+            ("Function", "unused", "Plain", {}),
+        ):
+            self.store.upsert_node(
+                NodeInfo(
+                    kind=kind,
+                    name=name,
+                    file_path="/repo/src/users.controller.ts",
+                    line_start=1,
+                    line_end=3,
+                    language="typescript",
+                    parent_name=parent,
+                    extra=extra,
+                )
+            )
+        self.store.commit()
+
+        dead_qnames = {d["qualified_name"] for d in find_dead_code(self.store)}
+
+        prefix = "/repo/src/users.controller.ts::"
+        assert f"{prefix}UsersController" not in dead_qnames
+        assert f"{prefix}UsersController.findAll" not in dead_qnames
+        assert f"{prefix}Plain.unused" in dead_qnames
+
+    def test_find_dead_code_excludes_ambient_declarations(self):
+        """`declare function` / `declare class` implementations live elsewhere."""
+        for name, extra in (
+            ("declaredFn", {"ambient": True, "declaration_only": True}),
+            ("localFn", {}),
+        ):
+            self.store.upsert_node(
+                NodeInfo(
+                    kind="Function",
+                    name=name,
+                    file_path="/repo/src/decls.ts",
+                    line_start=1,
+                    line_end=1,
+                    language="typescript",
+                    extra=extra,
+                )
+            )
+        self.store.commit()
+
+        dead_qnames = {d["qualified_name"] for d in find_dead_code(self.store)}
+
+        assert "/repo/src/decls.ts::declaredFn" not in dead_qnames
+        assert "/repo/src/decls.ts::localFn" in dead_qnames
 
     def test_find_dead_code_excludes_value_containers(self):
         """Value/data containers are data model assets, not dead-code candidates."""
@@ -2552,6 +2643,46 @@ class TestFindDeadCodeModuleScope:
         dead_names = {d["name"] for d in dead}
         assert "launch" not in dead_names
 
+    def test_typescript_type_reference_prevents_dead_code_flag(self, tmp_path):
+        """A class named only in another file's type positions is used."""
+        engine = tmp_path / "engine.ts"
+        engine.write_bytes(
+            b"export class Engine { start() { return 1; } }\n"
+            b"export class Wheel { spin() { return 1; } }\n"
+            b"export class Spare { start() { return 1; } }\n"
+        )
+        car = tmp_path / "car.ts"
+        car.write_bytes(
+            b'import type { Engine, Wheel } from "./engine";\n'
+            b"export class Car { engine!: Engine; wheel() { return {} as Wheel; } }\n"
+        )
+        for path in (engine, car):
+            self._store_parsed(path, path.read_bytes())
+
+        dead_names = {d["name"] for d in find_dead_code(self.store)}
+        assert "Engine" not in dead_names
+        # A body-level `as Wheel` counts too.
+        assert "Wheel" not in dead_names
+        assert "Spare" in dead_names
+
+    def test_external_package_call_does_not_keep_a_same_named_symbol_alive(self, tmp_path):
+        """`format` from date-fns is not the project's `format`."""
+        util = tmp_path / "util.ts"
+        util.write_bytes(b"export function format() { return 1; }\n")
+        app = tmp_path / "app.ts"
+        app.write_bytes(
+            b'import { format } from "date-fns";\n'
+            b'import "./util";\n'
+            b"export function show() { return format(); }\n"
+        )
+        for path in (util, app):
+            self._store_parsed(path, path.read_bytes())
+
+        calls = [e for e in self.store.get_edges_by_source(f"{app}::show") if e.kind == "CALLS"]
+        assert [e.target_qualified for e in calls] == ["date-fns::format"]
+        dead_names = {d["name"] for d in find_dead_code(self.store)}
+        assert "format" in dead_names
+
 
 class TestApplyRefactorIdentifierBoundaries:
     """Edits must land on the recorded identifier, or be reported as skipped."""
@@ -2742,3 +2873,20 @@ class TestRefactorToolWithNativeBackend:
 
         assert result["status"] == "ok", result
         assert result["edits"]
+
+
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [
+        ("src/App.test.tsx", True),
+        ("src/app.spec.mts", True),
+        ("src/app.test.cjs", True),
+        ("cypress/e2e/login.cy.ts", True),
+        ("src/__tests__/util.ts", True),
+        ("src/latest.ts", False),
+        ("src/contest.tsx", False),
+    ],
+)
+def test_dead_code_test_file_pattern_covers_javascript_variants(path, expected):
+    """Dead-code test exclusion matches the parser's JS / TS test-file rules."""
+    assert _is_test_file(path) is expected

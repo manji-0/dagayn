@@ -25,6 +25,12 @@ class TestCodeParser:
     def test_detect_language_unknown(self):
         assert self.parser.detect_language(Path("foo.txt")) is None
 
+    def test_detect_language_mts_cts_cjs(self):
+        assert self.parser.detect_language(Path("conf.cjs")) == "javascript"
+        assert self.parser.detect_language(Path("CONF.CJS")) == "javascript"
+        for name in ("util.mts", "legacy.cts", "types.d.mts", "types.d.cts"):
+            assert self.parser.detect_language(Path(name)) == "typescript", name
+
     # --- Shebang detection for extension-less Unix scripts (#237) ---
 
     def _write_shebang_file(self, tmp_path: Path, name: str, content: str) -> Path:
@@ -608,6 +614,29 @@ class TestCodeParser:
         assert len(resolved_imports) >= 1, (
             f"Expected resolved alias import, got targets: {[e.target for e in imports]}"
         )
+
+    def test_tsconfig_base_url_resolution(self):
+        """A `baseUrl`-only tsconfig resolves bare specifiers under it."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "src" / "services").mkdir(parents=True)
+            (root / "tsconfig.json").write_text('{ "compilerOptions": { "baseUrl": "src" } }')
+            (root / "src" / "services" / "user.ts").write_text("export function getUser() {}\n")
+            app = root / "src" / "app.ts"
+            app.write_text(
+                'import { getUser } from "services/user";\n'
+                'import { useState } from "react";\n'
+                "export function run() { getUser(); useState(); }\n"
+            )
+            _nodes, edges = self.parser.parse_file(app)
+            imports = [e.target for e in edges if e.kind == "IMPORTS_FROM"]
+            assert any(t.endswith("src/services/user.ts") for t in imports), imports
+            assert "react" in imports
+            calls = [e.target for e in edges if e.kind == "CALLS"]
+            assert any(t.endswith("src/services/user.ts::getUser") for t in calls), calls
+            assert "react::useState" in calls
 
     def test_tsconfig_missing_gracefully_handled(self):
         """Files without a tsconfig should still parse without errors."""
@@ -1332,6 +1361,135 @@ class TestTypeRoleAndImplements:
         assert iface is not None
         assert iface.extra.get("type_role") == "interface"
 
+    def test_typescript_abstract_class_role(self, tmp_path):
+        src = (
+            "export abstract class Shape {\n"
+            "  abstract area(): number;\n"
+            "  describe() { return this.area(); }\n"
+            "}\n"
+        )
+        nodes, edges = self._parse(src, "ts", tmp_path)
+        shape = next((n for n in nodes if n.name == "Shape"), None)
+        assert shape is not None
+        assert shape.kind == "Class"
+        assert shape.extra.get("type_role") == "abstract_class"
+        assert shape.extra.get("is_abstract") is True
+        area = next((n for n in nodes if n.name == "area"), None)
+        assert area is not None
+        assert area.parent_name == "Shape"
+        assert area.extra.get("is_abstract") is True
+        assert any(n.name == "describe" and n.parent_name == "Shape" for n in nodes)
+        assert any(
+            e.kind == "CALLS"
+            and e.source.endswith("::Shape.describe")
+            and e.target.endswith("::Shape.area")
+            for e in edges
+        )
+
+    def test_typescript_local_declarations_are_not_nodes(self, tmp_path):
+        src = (
+            "function log(v: unknown) { return v; }\n"
+            "export function App() {\n"
+            "  const handle = () => log(1);\n"
+            "  function inner() { return log(2); }\n"
+            "  return inner() + handle();\n"
+            "}\n"
+            "export class Svc { dep = makeDep(); static { log(3); } }\n"
+            "function makeDep() { return 1; }\n"
+        )
+        for language in ("ts", "js"):
+            nodes, edges = self._parse(src.replace(": unknown", ""), language, tmp_path)
+            names = {n.name for n in nodes}
+            assert "handle" not in names and "inner" not in names
+            calls = {
+                (e.source.split("::")[-1], e.target.split("::")[-1])
+                for e in edges
+                if e.kind == "CALLS"
+            }
+            assert ("App", "log") in calls
+            assert ("App", "inner") not in calls and ("App", "handle") not in calls
+            assert ("Svc", "makeDep") in calls
+            assert ("Svc", "log") in calls
+
+    def test_typescript_member_calls_bind_with_evidence(self, tmp_path):
+        src = (
+            "export class UsersService { findAll() { return []; } }\n"
+            "export class UsersController {\n"
+            "  constructor(private readonly users: UsersService) {}\n"
+            "  findAll() { return this.users.findAll(); }\n"
+            "  send(res: any) { return res.json(); }\n"
+            "}\n"
+            "function json() {}\n"
+        )
+        _, edges = self._parse(src, "ts", tmp_path)
+        calls = {
+            (e.source.split("::")[-1], e.target.split("::")[-1]): e
+            for e in edges
+            if e.kind == "CALLS"
+        }
+        assert ("UsersController.findAll", "UsersService.findAll") in calls
+        assert ("UsersController.findAll", "UsersController.findAll") not in calls
+        unknown = calls[("UsersController.send", "json")]
+        assert unknown.target == "json"
+        assert unknown.extra.get("receiver_unknown") is True
+
+    def test_typescript_type_alias_is_type_node(self, tmp_path):
+        src = (
+            "export type Props = { label: string };\n"
+            "export type Id = string | number;\n"
+            "export const enum Dir { Up }\n"
+        )
+        nodes, _ = self._parse(src, "ts", tmp_path)
+        props = next(n for n in nodes if n.name == "Props")
+        assert props.kind == "Type"
+        assert props.extra.get("type_role") == "alias"
+        assert props.extra.get("alias_form") == "object"
+        assert props.extra.get("container_role") == "data_container"
+        ident = next(n for n in nodes if n.name == "Id")
+        assert ident.kind == "Type"
+        assert ident.extra.get("alias_form") == "union"
+        assert "container_role" not in ident.extra
+        direction = next(n for n in nodes if n.name == "Dir")
+        assert direction.kind == "Class"
+        assert direction.extra.get("type_role") == "enum"
+        assert direction.extra.get("const_enum") is True
+
+    def test_typescript_declaration_file_and_namespaces(self, tmp_path):
+        src = (
+            "declare function declaredFn(a: number): string;\n"
+            "declare namespace NS { function nsFn(): void; }\n"
+            "export as namespace MyLib;\n"
+        )
+        p = tmp_path / "lib.d.ts"
+        p.write_text(src, encoding="utf-8")
+        nodes, edges = self.parser.parse_file(p)
+        file_node = next(n for n in nodes if n.kind == "File")
+        assert file_node.extra.get("declaration_file") is True
+        assert file_node.extra.get("umd_global") == "MyLib"
+        declared = next(n for n in nodes if n.name == "declaredFn")
+        assert declared.extra.get("ambient") is True
+        assert declared.extra.get("declaration_only") is True
+        assert "is_abstract" not in declared.extra
+        ns = next(n for n in nodes if n.name == "NS")
+        assert ns.kind == "Class"
+        assert ns.extra.get("type_role") == "namespace"
+        assert any(n.name == "nsFn" and n.parent_name == "NS" for n in nodes)
+
+        nodes, _ = self._parse("namespace Outer { export function helper() {} }\n", "ts", tmp_path)
+        assert any(n.name == "helper" and n.parent_name == "Outer" for n in nodes)
+        assert not any(n.name == "helper" and n.parent_name is None for n in nodes)
+
+    def test_javascript_generator_declarations(self, tmp_path):
+        src = "function* gen() { yield 1; }\nasync function* agen() { yield* gen(); }\n"
+        for language in ("js", "ts"):
+            nodes, edges = self._parse(src, language, tmp_path)
+            names = {n.name for n in nodes if n.kind == "Function"}
+            assert {"gen", "agen"} <= names
+            assert any(
+                e.kind == "CALLS" and e.source.endswith("::agen") and e.target.endswith("::gen")
+                for e in edges
+            )
+
     def test_typescript_implements_edge(self, tmp_path):
         src = "interface IBar {} class Foo implements IBar {}"
         _, edges = self._parse(src, "ts", tmp_path)
@@ -1343,6 +1501,310 @@ class TestTypeRoleAndImplements:
         _, edges = self._parse(src, "ts", tmp_path)
         inh = [e for e in edges if e.kind == "INHERITS"]
         assert any("Dog" in e.source and "Animal" in e.target for e in inh)
+
+    def test_javascript_extends_edge(self, tmp_path):
+        src = "class Animal {}\nclass Dog extends Animal {}\nclass Pup extends ns.Dog {}\n"
+        _, edges = self._parse(src, "js", tmp_path)
+        inh = [e for e in edges if e.kind == "INHERITS"]
+        assert any(e.source.endswith("::Dog") and e.target == "Animal" for e in inh)
+        assert any(
+            e.source.endswith("::Pup")
+            and e.target == "Dog"
+            and e.extra.get("heritage_expression") == "ns.Dog"
+            for e in inh
+        )
+
+    def test_typescript_interface_extends_edge(self, tmp_path):
+        src = "interface Repo {}\ninterface Service<T> extends Repo, Logger<T> {}\n"
+        _, edges = self._parse(src, "ts", tmp_path)
+        inh = [e for e in edges if e.kind == "INHERITS" and e.source.endswith("::Service")]
+        assert {e.target for e in inh} == {"Repo", "Logger"}
+        assert all(e.extra.get("relationship_role") == "extends" for e in inh)
+
+    def test_typescript_dotted_module_import_resolves(self, tmp_path):
+        (tmp_path / "user.service.ts").write_text("export class UserService {}\n", encoding="utf-8")
+        consumer = tmp_path / "consumer.ts"
+        consumer.write_text(
+            'import { UserService } from "./user.service";\n'
+            "export function run() { return new UserService(); }\n",
+            encoding="utf-8",
+        )
+        _, edges = self.parser.parse_file(consumer)
+        imports = [e for e in edges if e.kind == "IMPORTS_FROM"]
+        assert any(e.target.endswith("user.service.ts") for e in imports), imports
+        assert any(
+            e.kind == "CALLS" and e.target.endswith("user.service.ts::UserService") for e in edges
+        )
+
+    def test_typescript_test_prefixed_component_is_not_a_test(self, tmp_path):
+        path = tmp_path / "Testimonial.tsx"
+        path.write_text("export function TestimonialCard() { return <div />; }\n", encoding="utf-8")
+        nodes, _ = self.parser.parse_file(path)
+        card = next(n for n in nodes if n.name == "TestimonialCard")
+        assert card.kind == "Function"
+        assert card.is_test is False
+
+    def test_typescript_test_each_and_tsx_test_files(self, tmp_path):
+        path = tmp_path / "App.test.tsx"
+        path.write_text(
+            'import { add } from "./add";\n'
+            'describe("add", () => {\n'
+            "  beforeEach(() => add(0, 0));\n"
+            '  test.each([[1, 2]])("adds %i", (a, b) => {\n'
+            "    expect(add(a, b)).toBe(3);\n"
+            "  });\n"
+            "});\n",
+            encoding="utf-8",
+        )
+        nodes, edges = self.parser.parse_file(path)
+        assert nodes[0].kind == "File" and nodes[0].is_test is True
+        tests = {n.name: n for n in nodes if n.kind == "Test"}
+        assert set(tests) == {"describe:add@L2", "test:adds %i@L4"}
+        each = tests["test:adds %i@L4"]
+        assert (each.line_start, each.line_end) == (4, 6)
+        assert each.extra.get("test_modifiers") == ["each"]
+        qn = f"{path}::test:adds %i@L4"
+        assert any(e.kind == "CALLS" and e.source == qn and e.target.endswith("add") for e in edges)
+        tested_by_sources = {e.source for e in edges if e.kind == "TESTED_BY"}
+        assert not tested_by_sources & {"expect", "toBe", "beforeEach", "each"}
+        assert not any(e.target == "beforeEach" for e in edges)
+
+    def test_typescript_anonymous_default_export_is_named_default(self, tmp_path):
+        src = "export default function () { helper(); }\nfunction helper() {}\n"
+        nodes, edges = self._parse(src, "ts", tmp_path)
+        default = next(n for n in nodes if n.name == "default")
+        assert default.kind == "Function"
+        assert default.extra.get("export_default") is True
+        assert default.extra.get("anonymous") is True
+        assert any(
+            e.kind == "CALLS" and e.source.endswith("::default") and e.target.endswith("::helper")
+            for e in edges
+        )
+
+    def test_javascript_class_expression_takes_binding_name(self, tmp_path):
+        nodes, _ = self._parse("export const Anon = class { run() {} };\n", "js", tmp_path)
+        anon = next(n for n in nodes if n.name == "Anon")
+        assert anon.kind == "Class"
+        assert anon.extra.get("class_expression") is True
+        assert any(n.name == "run" and n.parent_name == "Anon" for n in nodes)
+
+    def test_typescript_object_literal_container(self, tmp_path):
+        src = (
+            "export const api = { get() { return 1; }, post: () => 2, value: 3 };\n"
+            "export function use() { return api.get(); }\n"
+        )
+        nodes, edges = self._parse(src, "ts", tmp_path)
+        api = next(n for n in nodes if n.name == "api")
+        assert api.kind == "Class"
+        assert api.extra.get("type_role") == "object"
+        members = {n.name for n in nodes if n.kind == "Function" and n.parent_name == "api"}
+        assert members == {"get", "post"}
+        assert not any(n.name == "get" and n.parent_name is None for n in nodes)
+        assert any(
+            e.kind == "CALLS" and e.source.endswith("::use") and e.target.endswith("::api.get")
+            for e in edges
+        )
+
+    def test_typescript_aliased_and_default_imports_bind_exported_names(self, tmp_path):
+        (tmp_path / "functions.ts").write_text("export function decl() {}\n", encoding="utf-8")
+        (tmp_path / "Button.tsx").write_text(
+            "export default function DefaultCard() { return <div />; }\n", encoding="utf-8"
+        )
+        consumer = tmp_path / "App.tsx"
+        consumer.write_text(
+            'import { decl as renamed } from "./functions";\n'
+            'import Card from "./Button";\n'
+            "export function App() { renamed(); return <Card />; }\n",
+            encoding="utf-8",
+        )
+        _, edges = self.parser.parse_file(consumer)
+        targets = {e.target for e in edges if e.kind == "CALLS"}
+        assert any(t.endswith("functions.ts::decl") for t in targets), targets
+        assert any(t.endswith("Button.tsx::DefaultCard") for t in targets), targets
+        assert not any(t.endswith("::renamed") or t.endswith("::Card") for t in targets)
+
+    def test_typescript_signature_type_references(self, tmp_path):
+        (tmp_path / "models.ts").write_text(
+            "export interface User { id: string }\n"
+            "export class Repo<T> { find(): T | undefined { return undefined; } }\n"
+            "export type UserId = string;\n",
+            encoding="utf-8",
+        )
+        consumer = tmp_path / "app.ts"
+        consumer.write_text(
+            'import type { User, UserId } from "./models";\n'
+            'import { Repo } from "./models";\n'
+            'import { Ext } from "external-pkg";\n'
+            "export function load(id: UserId, repo: Repo<User>, e: Ext): Promise<User> {\n"
+            "  return repo.find() as any;\n"
+            "}\n"
+            "export class Holder { constructor(private repo: Repo<User>) {} owner!: User; }\n",
+            encoding="utf-8",
+        )
+        _, edges = self.parser.parse_file(consumer)
+        refs = {
+            (e.source.split("::")[-1], e.target.split("::")[-1]): e
+            for e in edges
+            if e.kind == "REFERENCES"
+            and e.extra.get("relationship_role") in ("type_reference", "type_query")
+        }
+        assert refs[("load", "UserId")].extra["type_positions"] == ["parameter"]
+        assert refs[("load", "Repo")].extra["type_positions"] == ["parameter"]
+        assert refs[("load", "User")].extra["type_positions"] == ["parameter", "return"]
+        assert refs[("Holder", "Repo")].extra["type_positions"] == ["parameter_property"]
+        assert refs[("Holder", "User")].extra["type_positions"] == ["parameter_property", "field"]
+        # Builtins and external packages never produce dangling edges.
+        assert all(e.target.split("::")[0].endswith("models.ts") for e in refs.values()), refs
+        assert len(refs) == 5, sorted(refs)
+
+    def test_typescript_body_type_references(self, tmp_path):
+        (tmp_path / "models.ts").write_text(
+            "export interface User { id: string }\n"
+            "export class Repo { find(): User | undefined { return undefined; } }\n",
+            encoding="utf-8",
+        )
+        consumer = tmp_path / "app.ts"
+        consumer.write_text(
+            'import type { User } from "./models";\n'
+            'import { Repo } from "./models";\n'
+            "export function run(input: unknown) {\n"
+            "  const u: User = input as User;\n"
+            "  interface Local { repo: Repo }\n"
+            "  const local: Local = { repo: new Repo() };\n"
+            "  if (input instanceof Repo) { return local; }\n"
+            "  return u;\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        _, edges = self.parser.parse_file(consumer)
+        refs = {
+            (e.source.split("::")[-1], e.target.split("::")[-1]): e
+            for e in edges
+            if e.kind == "REFERENCES"
+            and e.extra.get("relationship_role") in ("type_reference", "type_query")
+        }
+        assert refs[("run", "User")].extra["type_positions"] == ["variable_annotation", "as"]
+        assert refs[("run", "Repo")].extra["type_positions"] == [
+            "local_declaration",
+            "instanceof",
+        ]
+        # The local interface is not a node, so it is never a target.
+        assert set(refs) == {("run", "User"), ("run", "Repo")}, sorted(refs)
+
+    def test_reexports_namespace_reexports_and_commonjs_exports_bind_origins(self, tmp_path):
+        barrel = tmp_path / "barrel"
+        barrel.mkdir()
+        (barrel / "a.ts").write_text(
+            "export function fromA() {}\nexport function shared() {}\n", encoding="utf-8"
+        )
+        (barrel / "b.ts").write_text(
+            "export function fromB() {}\nexport function shared() {}\n", encoding="utf-8"
+        )
+        (barrel / "index.ts").write_text(
+            'export * from "./a";\nexport * from "./b";\nexport * as bns from "./b";\n'
+            'import { fromA } from "./a";\nexport { fromA as localRenamed };\n',
+            encoding="utf-8",
+        )
+        (tmp_path / "helpers.js").write_text(
+            "function other() {}\nmodule.exports = { renamed: other };\n", encoding="utf-8"
+        )
+        consumer = tmp_path / "app.ts"
+        consumer.write_text(
+            'import { localRenamed, bns, shared } from "./barrel";\n'
+            'import helpers from "./helpers.js";\n'
+            'import { renamed } from "./helpers.js";\n'
+            "export function run() {\n"
+            "  localRenamed();\n  bns.fromB();\n  shared();\n  helpers.renamed();\n  renamed();\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        _, edges = self.parser.parse_file(consumer)
+        by_line = {e.line: e.target for e in edges if e.kind == "CALLS"}
+        assert by_line[5].endswith("barrel/a.ts::fromA"), by_line
+        assert by_line[6].endswith("barrel/b.ts::fromB"), by_line
+        assert not by_line[7].endswith(("a.ts::shared", "b.ts::shared")), by_line
+        assert by_line[8].endswith("helpers.js::other"), by_line
+        assert by_line[9].endswith("helpers.js::other"), by_line
+
+    def test_javascript_require_imports(self, tmp_path):
+        (tmp_path / "helpers.js").write_text(
+            "function helper() {}\nfunction other() {}\n"
+            "module.exports = { helper, renamed: other };\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "single.js").write_text(
+            "function config() {}\nmodule.exports = config;\n", encoding="utf-8"
+        )
+        (tmp_path / "lazy.js").write_text("export function lazy() {}\n", encoding="utf-8")
+        consumer = tmp_path / "app.js"
+        consumer.write_text(
+            'const helpers = require("./helpers");\n'
+            'const { helper, renamed: alias } = require("./helpers");\n'
+            'const cfg = require("./single");\n'
+            "function main(name) {\n"
+            "  helpers.renamed();\n  helper();\n  alias();\n  cfg();\n"
+            '  import("./lazy");\n  require(name);\n'
+            "}\n",
+            encoding="utf-8",
+        )
+        _, edges = self.parser.parse_file(consumer)
+        imports = {
+            (e.line, e.target, e.extra.get("import_kind"))
+            for e in edges
+            if e.kind == "IMPORTS_FROM"
+        }
+        assert {(line, kind) for line, _, kind in imports} == {
+            (1, "require"),
+            (2, "require"),
+            (3, "require"),
+            (9, "dynamic"),
+        }, imports
+        by_line = {line: target for line, target, _ in imports}
+        assert by_line[1].endswith("helpers.js"), imports
+        assert by_line[3].endswith("single.js"), imports
+        assert by_line[9].endswith("lazy.js"), imports
+        calls = {e.line: e.target for e in edges if e.kind == "CALLS"}
+        assert calls[5].endswith("helpers.js::other"), calls
+        assert calls[6].endswith("helpers.js::helper"), calls
+        assert calls[7].endswith("helpers.js::other"), calls
+        assert calls[8].endswith("single.js::config"), calls
+        assert not any(e.kind == "CALLS" and e.target == "require" for e in edges), edges
+
+    def test_typescript_external_package_symbols(self, tmp_path):
+        (tmp_path / "helper.ts").write_text("export function helper() {}\n", encoding="utf-8")
+        src = (
+            'import { useState } from "react";\n'
+            'import * as fs from "node:fs";\n'
+            'import { render } from "@testing-library/react";\n'
+            'import express from "express";\n'
+            'import { helper } from "./helper";\n'
+            "export function main() {\n"
+            "  useState(0);\n"
+            '  fs.readFile("x");\n'
+            "  render(null);\n"
+            "  const app = express();\n"
+            '  app.get("/");\n'
+            "  helper();\n"
+            "}\n"
+        )
+        _, edges = self._parse(src, "ts", tmp_path)
+        calls = {e.line: e for e in edges if e.kind == "CALLS"}
+        expected = {
+            7: ("react::useState", "react"),
+            8: ("node:fs::readFile", "node:fs"),
+            9: ("@testing-library/react::render", "@testing-library/react"),
+            10: ("express::default", "express"),
+        }
+        for line, (target, package) in expected.items():
+            assert calls[line].target == target, calls[line]
+            assert calls[line].extra.get("external") is True, calls[line]
+            assert calls[line].extra.get("external_package") == package, calls[line]
+        # No evidence for the type of `app`: bare, unknown receiver.
+        assert calls[11].target == "get"
+        assert calls[11].extra.get("receiver_unknown") is True
+        assert "external" not in calls[11].extra
+        assert calls[12].target.endswith("helper.ts::helper")
+        assert "external" not in calls[12].extra
 
     def test_typescript_constructor_and_method_call_resolution(self, tmp_path):
         src = """

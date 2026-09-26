@@ -23,7 +23,7 @@ from dagayn.parser import CodeParser, EdgeInfo, NodeInfo
 sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
 from parity_export import export_db  # noqa: E402
 
-from tests.conftest import PARITY_FIXTURE_DIR
+from tests.conftest import ENTITY_LINE_PARITY_FIXTURES, PARITY_FIXTURE_DIR
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -33,6 +33,8 @@ RUST_OWNED_PARITY_FIXTURES = [
     "python_only",
     "notebook",
     "mixed",
+    "typescript",
+    "javascript",
 ]
 
 
@@ -198,7 +200,7 @@ def test_rust_backend_matches_python_parity_snapshots(name, tmp_path_factory, mo
     finally:
         store.close()
 
-    actual = export_db(db_path)
+    actual = export_db(db_path, entity_lines=name in ENTITY_LINE_PARITY_FIXTURES)
     expected = (PARITY_FIXTURE_DIR / "__snapshots__" / f"{name}.json").read_text(encoding="utf-8")
     assert actual == expected
 

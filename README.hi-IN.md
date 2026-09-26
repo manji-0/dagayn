@@ -217,7 +217,7 @@ dagayn install --mode remote-embedding --provider minimax
 
 Graph store, parsers, FTS, flows, और post-processing native Rust extension (`dagayn._core`) में चलते हैं। Fall back करने के लिए Python graph engine नहीं है: `DAGAYN_BACKEND=python` reject होता है। Hybrid search ranking और manifest-bridge extraction Python में रहते हैं।
 
-Parsers Markdown, Terraform, Rust, Python/notebooks, Bash, Go, Java, Ruby, C#, PHP, Kotlin, Swift, Scala, Dart, Lua, C / C headers / Perl XS, C++, Objective-C, Elixir, GDScript, R, Julia, Perl, Vue, Svelte, Zig, PowerShell, supported scripting languages के extensionless shebang scripts, और core JavaScript / JSX / TypeScript / TSX / Astro files कवर करते हैं:
+Parsers Markdown, Terraform, Rust, Python/notebooks, Bash, Go, Java, Ruby, C#, PHP, Kotlin, Swift, Scala, Dart, Lua, C / C headers / Perl XS, C++, Objective-C, Elixir, GDScript, R, Julia, Perl, Vue, Svelte, Zig, PowerShell, supported scripting languages के extensionless shebang scripts, और core JavaScript / JSX (`.js`, `.jsx`, `.mjs`, `.cjs`) / TypeScript (`.ts`, `.mts`, `.cts`, and `.d.ts` / `.d.mts` / `.d.cts`) / TSX / Astro files कवर करते हैं:
 
 ```bash
 dagayn build

@@ -17,7 +17,11 @@ _FILE_TARGET_SUFFIXES = (
     ".tfvars",
     ".rs",
     ".js",
+    ".mjs",
+    ".cjs",
     ".ts",
+    ".mts",
+    ".cts",
     ".tsx",
     ".jsx",
     ".java",
@@ -44,6 +48,17 @@ def looks_like_file_target(target: str) -> bool:
         return True
     lower = path.lower()
     return any(lower.endswith(suffix) for suffix in _FILE_TARGET_SUFFIXES)
+
+
+def is_external_package_edge(edge: Any) -> bool:
+    """Return True for an edge into an external package (``react::useState``).
+
+    The JavaScript / TypeScript extractor marks these with
+    ``extra.external``. Their target is never a node of this repository, so
+    name-based fallbacks must not match them against same-named symbols.
+    """
+    extra = getattr(edge, "extra", None)
+    return isinstance(extra, dict) and extra.get("external") is True
 
 
 def node_file_from_qualified(qualified: str, fallback_file: str = "") -> str:

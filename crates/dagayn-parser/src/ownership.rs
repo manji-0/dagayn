@@ -63,9 +63,12 @@ pub(super) fn rust_owned_path_kind(file_path: &str) -> RustOwnedPathKind {
     } else if ends_with_ascii_ignore_case(file_path, ".js")
         || ends_with_ascii_ignore_case(file_path, ".jsx")
         || ends_with_ascii_ignore_case(file_path, ".mjs")
+        || ends_with_ascii_ignore_case(file_path, ".cjs")
     {
         RustOwnedPathKind::JavaScript
     } else if ends_with_ascii_ignore_case(file_path, ".ts")
+        || ends_with_ascii_ignore_case(file_path, ".mts")
+        || ends_with_ascii_ignore_case(file_path, ".cts")
         || ends_with_ascii_ignore_case(file_path, ".astro")
     {
         RustOwnedPathKind::TypeScript

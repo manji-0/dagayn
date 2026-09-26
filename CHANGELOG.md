@@ -11,6 +11,177 @@ All notable changes to `dagayn` are documented here.
   named/doc/anonymous tests with `TESTED_BY` edges, `@import` file
   dependencies, and scope-aware call resolution. Previously `.zig` files
   produced only a File node.
+- Anonymous default exports are nodes named `default`:
+  `export default function () {}`, `export default () => ...`, and
+  `export default class { ... }` (whose methods become `default.m`) carry
+  `export_default: true` and `anonymous: true`; their calls are no longer
+  attributed to the file. Named default exports keep their name and gain
+  `export_default: true`. A class expression bound at `const X = class
+  [Inner] {}` is `Class X` (`class_expression: true`, `expression_name`)
+  with members under `X`, and `new X()` / `x.m()` bind to it. Members of
+  unbound class expressions (for example a mixin's `return class extends
+  Base { ... }`) are no longer flattened into top-level functions.
+- Module-scope object literals with function-valued members are containers:
+  `export const api = { get() {}, post: () => {}, put: function () {} }` is
+  `Class api` (`type_role: "object"`) holding `api.get`, `api.post`, and
+  `api.put`, with one nested level (`api.nested.deep`); `as const`,
+  `satisfies`, and `export default { ... }` are covered. Before, `get` was a
+  top-level function, `post` / `put` had no node, and a full build resolved
+  Express's `app.get(...)` to that flattened `get`. Container members are
+  never bare-name candidates (same-file fallback or post-processing
+  `resolve_bare_call_targets`); `api.get()`, `api.nested.deep()`, and
+  `this.m()` inside a member resolve to the member. Methods of object
+  literals inside functions or arguments are no longer top-level nodes;
+  their calls stay with the enclosing node. Dead-code analysis skips
+  `object`, `namespace`, and `ambient_module` containers.
+- Object-literal containers nest: a nested object that holds a
+  function-valued member at any depth (up to six levels) is a container, so
+  `const api = { a: { b: { c() {} } } }` yields `Class api.a`,
+  `Class api.a.b`, and `Function api.a.b.c`, and `api.a.b.c()` resolves.
+  Same-file call resolution handles dotted owner paths for every language:
+  a bare call prefers the member of the caller's nearest owner
+  (`Outer.Inner`, then `Outer`), and a receiver bound to a dotted owner
+  (`Outer.Inner::m`) resolves when the root is a same-file declaration.
+  JavaScript / TypeScript class members now record the full owner path of
+  their class in `parent_name`.
+- TypeScript / JavaScript decorators are metadata and references. Classes,
+  methods, and function-valued fields record `extra.decorators` (callee
+  names, as for Python: `["Controller"]`, `["ng.Component"]`), a class
+  lists its non-function fields' decorators in `member_decorators`, and each
+  decorator is `REFERENCES decorated -> decorator`
+  (`relationship_role: "decorator"`) instead of a `CALLS` edge from the file;
+  calls in decorator arguments belong to the decorated node (the class for
+  class and field decorators). NestJS handlers (`@Get`, `@Post`, `@Put`,
+  `@Delete`, `@Patch`, `@Options`, `@Head`, `@All`, `@MessagePattern`,
+  `@EventPattern`, `@Cron`, `@Interval`, `@Timeout`, `@OnEvent`,
+  `@Process`, `@Processor`, `@SubscribeMessage`, `@WebSocketGateway`) and
+  Angular `@HostListener` methods are flow entry points even when called,
+  and decorated NestJS / Angular classes and handlers are not dead-code
+  candidates. `@Entity()`-style decorators on exported classes now mark
+  them as data containers.
+- JavaScript / TypeScript nodes fill the `modifiers` column (`static`,
+  `async`, `*`, `get`, `set`, `readonly`, `public` / `private` /
+  `protected`, `override`, `declare`, `abstract`, `accessor`) and mark
+  exported declarations with `extra.exported: true` (`export ...` and local
+  `export { name }` clauses).
+- TypeScript type aliases are `Type` nodes (`type_role: "alias"`) with an
+  `alias_form` (`object`, `union`, `function`, `mapped`, ...); only
+  object-shaped aliases carry `container_role: "data_container"`. They were
+  `Class` nodes (`type_role: "type_alias"`) marked as data containers
+  whatever their shape, and method signatures of an alias's object type are
+  no longer `Function` nodes. `const enum` records `const_enum: true`.
+  Bare `INHERITS` / `IMPLEMENTS` resolution in post-processing falls back to
+  `Type` nodes when no class matches, so `interface X extends Props` still
+  resolves to an imported alias.
+- TypeScript namespaces and ambient declarations are modeled.
+  `namespace Outer {}` / `module Legacy {}` are `Class` nodes
+  (`type_role: "namespace"`), `namespace A.B.C {}` yields nested `A`, `A.B`,
+  `A.B.C`, and a namespace declared twice in a file is one node; their
+  members (functions, classes, object containers, nested namespaces) live
+  under the owner path (`Outer.helper`, `Outer.Inner.run`,
+  `Outer.Deep.deepFn`) instead of being flattened to the top level, and
+  same-file `Outer.helper()`, `A.B.C.abc()`, and `new Outer.Inner()` resolve.
+  `declare module "x" {}` and `declare global {}` are
+  `type_role: "ambient_module"` (`global.Window`). Declarations inside
+  `declare ...`, ambient modules, and `.d.ts` / `.d.mts` / `.d.cts` files
+  carry `ambient: true`; `.d.ts` File nodes carry `declaration_file: true`
+  and `export as namespace X` records `umd_global: "X"`. Dead-code analysis
+  skips ambient declarations and `.d.mts` / `.d.cts` files.
+- TypeScript signature types are `REFERENCES` edges. Parameter, return, and
+  type-predicate types of functions and methods (overloads merged into one
+  node), class fields, parameter properties, interface property and index
+  signatures, type-parameter constraints and defaults, heritage type
+  arguments (`implements Service<User>`), and type alias right-hand sides
+  yield `REFERENCES owner -> type` with `relationship_role:
+  "type_reference"` (`"type_query"` for `typeof X`) and `type_positions`, the
+  positions the type appears in (one edge per source and target). Names
+  resolve through enclosing namespaces, same-file declarations, and
+  named / default / namespace imports and re-exports (`ns.Type`,
+  `Outer.Inner`); builtin, global, and external-package types, undeclared
+  names, and type parameters produce no edge. A module that depends on
+  another only through types is now visible to impact radius and
+  `infra_dataflow` metrics, and dead-code analysis no longer reports a class
+  used only as another file's field or return type; `strict_static` SAP /
+  SDP and `CALLS` flows do not change. The TypeScript parity fixture gains 18
+  edges (377 to 395, +4.8%); `dagayn-vscode/` gains 221 (4,646 to 4,867,
+  +4.8%).
+- TypeScript body types are `REFERENCES` edges too, in the same form:
+  variable annotations, `as` / `<T>x` assertions, `satisfies`, call and
+  `new` type arguments (`pick<UserId>()`), and `instanceof` right-hand
+  sides (also in JavaScript) yield `type_positions` `variable_annotation`,
+  `as`, `satisfies`, `type_argument`, and `instanceof`. Following the
+  local-declaration rule, the types named by local interfaces, type
+  aliases, and enums (`local_declaration`), local classes, local functions,
+  callbacks, and object-literal methods in a body belong to the enclosing
+  node, and local names are never targets. A module-scope binding's
+  annotation (`const h: Handler = () => ...`, `const api: Api = { ... }`)
+  belongs to the node the binding becomes. The TypeScript parity fixture
+  gains 5 more edges (395 to 400; +6.1% over both changes);
+  `dagayn-vscode/` gains 99 (4,867 to 4,966; +6.9% over both).
+- JavaScript / TypeScript calls and references into external packages are
+  `pkg::symbol`: `useState` from `react` is `CALLS -> react::useState`,
+  `fs.readFile()` on `import * as fs from "node:fs"` is
+  `node:fs::readFile`, a default import or `require` binding called alone is
+  `pkg::default` (`express::default`), subpaths and scopes keep the
+  specifier as written (`lodash/fp::map`, `@testing-library/react::render`),
+  and JSX components and decorators follow the same rule
+  (`antd::Form.Item`, `@nestjs/common::Injectable`). The edges carry
+  `extra.external: true` and `extra.external_package` (the package name
+  without a subpath). Before, the bare name could be bound by
+  post-processing to an unrelated project symbol of the same name (a test's
+  `render` became `CALLS -> ClassComp.render`, and `TESTED_BY` marked that
+  method as tested); `::` targets are never bare-resolved, and they are
+  demoted to `LOW` because no node exists. A specifier counts as external
+  only when it is a package name that resolves to no file and matches no
+  tsconfig `paths` alias or `baseUrl` directory. Calls from tests into
+  packages no longer produce `TESTED_BY`, and dead-code analysis and the
+  `callers_of` / `inheritors_of` name fallbacks ignore external edges, so
+  `date-fns::format` no longer keeps a project `format` alive.
+  `callers_of("react::useState")` lists the package symbol's callers.
+  A method on a value returned by a package call (`app.get()` after
+  `const app = express()`) keeps its bare name, and external types still
+  produce no `REFERENCES` edge. The TypeScript parity fixture keeps 400
+  edges (14 change target); `dagayn-vscode/` turns 835 edges external and
+  loses 120 dangling `TESTED_BY` edges (4,942 to 4,824).
+- JavaScript / TypeScript bindings of wrapped functions are `Function`
+  nodes: `const Comp = memo(function Inner() {})`, `memo(() => ...)`,
+  `forwardRef((props, ref) => ...)`, `React.memo(...)`, `observer(...)`, and
+  nested wrappers give `Function Comp` with the wrapped function's
+  parameters and body and `extra.wrapped_by` (`["memo", "forwardRef"]`), so
+  `<Comp />` and `import { Comp }` resolve and the body's calls belong to
+  `Comp` instead of the File. A wrapper is any call whose first argument is
+  an inline function literal and whose callee is a plain identifier or a
+  member of an imported binding or `React`; `items.map(x => ...)` and
+  `compose(a, b)` are not. The wrapper call itself stays `CALLS File ->
+  react::memo`. `export default memo(function Page() {})` is
+  `Function default`. JavaScript class fields holding a function
+  (`handle = () => {}`, `handle = function () {}`) are methods
+  (`Class.handle`), as they already were in TypeScript, and a class with a
+  function-valued field is no longer marked as a property-only
+  `data_container`. The TypeScript parity fixture gains 3 nodes and 3 edges
+  (`Memo`, `Fwd`, a `memoize`-wrapped `wrapped`), the JavaScript one 2 nodes
+  and 2 edges.
+- JavaScript / TypeScript module resolution reads tsconfig `baseUrl` on
+  its own: with `"baseUrl": "src"`, `import "services/user"` resolves to
+  `src/services/user.ts` (before, only `paths` patterns were applied, so
+  such imports stayed unresolved and their calls bare). `baseUrl` is the
+  fallback for specifiers that no `paths` pattern matches, and only an
+  existing file counts, so package names stay external. The nearest
+  directory with a `tsconfig.json`, `tsconfig.app.json`, or (new)
+  `jsconfig.json` supplies the options; within it, a solution-style
+  `tsconfig.json` without `compilerOptions` no longer hides the `paths` of
+  `tsconfig.app.json`. `extends` chains are still not followed.
+- Graphs record the extractor versions they were parsed with (metadata
+  `extractor_versions`, for example `javascript=1`). When the running parser's
+  extractor is newer, `dagayn update` re-parses every indexed file that
+  extractor owns, including unchanged ones, and the sync assessment reports
+  `commit_drift` with `extractor_drift: ["javascript"]` until it has (reason
+  code `graph_built_by_older_extractor`, and a line in `dagayn status`), so
+  session prepare and MCP auto-prepare catch up. Graphs built before this
+  change count as version 0: the first update after upgrading re-parses
+  their JavaScript / TypeScript / Vue / Svelte files once, which replaces the
+  qualified names the TypeScript changes above renamed without a
+  `--force-full-build`.
 
 ### Removed
 
@@ -40,6 +211,168 @@ All notable changes to `dagayn` are documented here.
   slugs follow GitHub rules for closing hashes and inline links.
 - Markdown link extraction skips inline code spans and fenced code blocks, so
   documented link examples no longer create dangling `IMPORTS_FROM` edges.
+- TypeScript method signatures inside type literals are no longer nodes.
+  `function f(p: { m(): void })` created a top-level `Function f.ts::m`
+  (merged into `overloads: 2` when the overloads repeated the literal),
+  `interface I { p: { inner(): void } }` created `I.inner`, and parameter,
+  return, variable, and callback types did the same. Only the direct
+  members of an `interface` body are method nodes; `type T = { m(): void }`
+  keeps giving `Type T` alone. The types named inside a literal remain
+  `REFERENCES` from the owning declaration.
+- `TESTED_BY` edges now follow the `CALLS` edges that post-processing's
+  bare-name resolution binds. Parsers derive `TESTED_BY target -> test`
+  from each call a test makes, so a bare call target (for example a
+  TypeScript `box.helper()` on an untyped local, or any other call that
+  only post-processing resolves) kept a bare `TESTED_BY helper` source that was
+  demoted to `LOW`, while the call itself pointed at `Box.helper`: the
+  symbol looked untested. `resolve_bare_call_targets` now rewrites such a
+  `TESTED_BY` edge (same test, file, line, and name) to the resolved
+  qualified name with the call's confidence, drops it when that would
+  duplicate an existing edge, and leaves it bare while its own call is
+  unresolved. The pass applies to every language and also repairs graphs
+  whose calls were resolved by an earlier run.
+- JavaScript / TypeScript test detection covers more files and runner
+  forms. Test files now include `*.test.*` / `*.spec.*` / Cypress `*.cy.*`
+  with any JS / TS extension (`.tsx`, `.jsx`, `.mjs`, `.cjs`, `.mts`,
+  `.cts`), `__tests__/`, `e2e/`, and `cypress/` directories (before,
+  `App.test.tsx` was not a test file and its `it(...)` calls were `CALLS
+  File -> it`); the flow and dead-code test-file patterns accept the same
+  suffixes. `test.each(table)("adds %i", fn)` and tagged-template `.each`
+  are one `Test test:adds %i@L9` spanning the outer call, and their bodies'
+  calls belong to it (before, `test@L9` covered only the inner call and the
+  body was attributed to the `describe`). `suite`, `specify`, `context`,
+  `fit` / `xit`, `fdescribe` / `xdescribe`, Playwright `test.describe.only`,
+  and identifier titles (`describe(UserService, fn)`) are recognized, and
+  chained modifiers are recorded as `extra.test_modifiers`. Hooks
+  (`beforeEach`, `afterAll`, `test.beforeEach`), `test.step`, and
+  Playwright `test.skip()` inside a body are no longer `CALLS` / `TESTED_BY`
+  targets or `Test` nodes; assertion and mock calls (`expect(...).toBe()`,
+  `vi.fn()`, `jest.mock()`, `cy.get()`) keep their `CALLS` edge with
+  `test_api: true` but no longer produce `TESTED_BY` edges.
+- `.cjs` files are parsed as JavaScript and `.mts` / `.cts` files as
+  TypeScript; `.d.mts` / `.d.cts` are declaration files like `.d.ts`
+  (`declaration_file: true`, every node `ambient`). Before, these files were
+  skipped by `dagayn build` / `update`, so imports that resolved to them (for
+  example `./util.mjs` backed by `util.mts`, or `./conf.cjs`) pointed at files
+  with no nodes. The extensions are added to both the Rust and Python
+  language tables and to the file-target suffix lists.
+- JavaScript / TypeScript `require("./m")`, dynamic `import("./m")`, and
+  TypeScript `import x = require("./m")` with a string-literal specifier are
+  `IMPORTS_FROM` edges (`extra.import_kind`: `"require"`, `"dynamic"`,
+  `"import_equals"`), including a `require` inside a function; before, they
+  produced a `CALLS -> require` edge or nothing. Module-scope `const m =
+  require("./m")`, `const { a, b: c } = require("./m")`, `const c =
+  require("./m").b`, and `import m = require("./m")` bind like ES imports,
+  so `m.a()`, `a()`, `c()`, and `m()` (for `module.exports = fn` or `export =
+  fn`) resolve through the target's CommonJS or ES exports. Non-literal
+  specifiers emit no edge, and `require` no longer gets `CALLS` edges.
+- JavaScript / TypeScript imports through barrels resolve to the origin in
+  more cases. A local re-export of an import (`import { a } from "./a";
+  export { a as b }`, `export default importedName`) follows the import
+  instead of pointing at the barrel (`barrel::a`). `export * as ns from
+  "./m"` exports `m`'s module object, so `import { ns } from "./barrel";
+  ns.f()` and `b.ns.f()` resolve to `m::f` (before, the statement was
+  ignored). `export * from` follows ES semantics: explicit exports win,
+  `default` is not re-exported, star sources contribute only what they
+  export, and a name exported by two star sources is ambiguous and binds to
+  neither (before, the first source's declaration won, exported or not).
+  CommonJS exports in `.js` / `.jsx` / `.cjs` files (`module.exports = {
+  a, b: fn }`, `module.exports.x =`, `exports.x =`) and TypeScript
+  `export = main` feed the export index, so ES imports of such modules
+  (`import { b } from "./cjs"`, `import m from "./cjs"; m.a()`) resolve to
+  the declarations.
+- JavaScript / TypeScript member calls bind only with evidence about the
+  receiver. `this.repo.find()` resolves through the field's declared type
+  (parameter properties such as `constructor(private repo: Repo)`, field
+  annotations, `repo = new Repo()`, and JavaScript `this.repo = new Repo()`
+  in the constructor), including classes and interfaces imported from other
+  modules; typed parameters (`run(r: Repo)`), `new X().m()`, static calls
+  (`Box.create()`), namespace imports (`fns.decl()`, `fns.api.get()`), and
+  imported namespaces (`Outer.helper()`) resolve to the declaring module.
+  Members inherited from a base (`this.helper()`, `super.m()`) resolve to the
+  base's member with `MEDIUM` confidence, and `super(...)` is a `CALLS` edge
+  to the base class (`call_kind: "super"`). Any other receiver keeps the bare
+  member name with `receiver_unknown: true`: before, `res.json()` bound to an
+  unrelated same-file `json`, a NestJS `this.users.findAll()` resolved to
+  the calling `findAll` itself (a self-loop), and `this.repo.find()` could
+  bind to the first same-file class declaring `find`.
+- JavaScript / TypeScript declarations local to a function body (nested
+  functions, `const handle = () => ...`, local classes, interfaces, type
+  aliases, enums) are no longer nodes: their calls are attributed to the
+  enclosing function, and calls of the locals themselves are not edges.
+  Before, a nested function became a top-level node (`file::nested`), so
+  the calls it made left the enclosing function's flow and same-named
+  handlers of different components collided on one QN. An unparenthesized
+  arrow parameter (`items.map(x => f(x))`) no longer produces a `Function x`.
+  Class-level code — field initializers (`svc = new UserService()`),
+  `static {}` blocks, and members without a static name — is attributed to
+  the class instead of the file.
+- JavaScript / TypeScript emit one node per qualified name. Function and
+  method overloads collapse into the implementation (`overloads: n`,
+  spanning the signatures), getter / setter pairs into one accessor
+  (`member_role: "accessor"`, `accessors: ["get", "set"]`), and same-file
+  declaration merging (`interface Repo` twice, `function f` +
+  `namespace f`) into one node (`merged_declarations: n`). Before, the graph
+  kept whichever duplicate was written last (the setter, the last overload
+  signature, or the second interface body).
+- `#private` methods and fields, string / number literal member names
+  (`"quoted-name"() {}`, `42() {}`), and literal computed names
+  (`["computed"]() {}`) are nodes, and `this.#privateMethod()` resolves.
+  They had no node, so their calls were attributed to the file.
+- TypeScript bodiless declarations that are not contracts —
+  `declare function f(): T;`, function overload signatures, and methods of
+  a `declare class` or class overload signatures — carry
+  `declaration_only: true` instead of `is_abstract: true`. Interface method
+  signatures and `abstract` members keep `is_abstract`.
+- TypeScript `abstract class` and `declare abstract class` declarations are
+  `Class` nodes (`type_role: "abstract_class"`, `is_abstract: true`), and
+  their `abstract` methods and accessors are `Function` nodes marked
+  `is_abstract`. Before, the class had no node, its concrete methods became
+  top-level functions, `this.m()` inside them resolved to a same-named method
+  of another class, and SAP undercounted abstractness. The first
+  `dagayn update` after upgrading re-parses existing TypeScript files (see
+  the extractor version stamp below), which drops the old top-level method
+  names.
+- JavaScript / TypeScript generator declarations (`function*`,
+  `async function*`) and generator function expressions bound at module
+  scope (`const g = function* () {}`) are `Function` nodes. They were
+  skipped, so their calls were attributed to the file.
+- Class and interface heritage is read per grammar. JavaScript
+  `class Legacy extends Base` now emits `INHERITS` (the JavaScript grammar has
+  no `extends_clause`); `extends ns.Base`, `implements Service<T>`,
+  `implements ns.Marker`, and interface `extends A, B<T>` emit `INHERITS` /
+  `IMPLEMENTS` (namespace-qualified bases resolve through the namespace
+  import, with the original text in `extra.heritage_expression`); and a
+  mixin base `extends Mixin(Base)` emits `INHERITS -> Base` plus
+  `CALLS class -> Mixin` instead of file-sourced `CALLS` / `REFERENCES`.
+  Bases of classes declared inside method bodies no longer leak onto the
+  enclosing class.
+- Relative JavaScript / TypeScript imports with dotted file names resolve.
+  `./user.service`, `./hero.component`, and `./app.module` used to be probed
+  as `./user.ts` (the `.service` segment was replaced as an extension), so
+  Angular / NestJS style imports stayed raw strings and their symbols never
+  resolved. Relative and tsconfig `paths` specifiers now share one probe:
+  the path as written, `.js`/`.jsx`/`.mjs`/`.cjs` mapped to their TypeScript
+  sources, then `.ts`, `.tsx`, `.d.ts`, `.js`, `.jsx`, `.mjs`, `.cjs`,
+  `.mts`, `.cts`, `.vue` appended, then `index.*`. `.mts`, `.cts`, and
+  `.cjs` modules are read for export lookups.
+- JavaScript / TypeScript functions named `Test*`, `test_*`, `*_test`, or
+  `*_spec` are `Test` nodes only inside test files. A component such as
+  `TestimonialCard` in `Testimonial.tsx` was a `Test`, which hid it from
+  dead-code and flow analysis and produced spurious `TESTED_BY` edges.
+- JavaScript / TypeScript imports bind by module and exported name. An
+  aliased import `import { decl as renamed }` resolved calls to the
+  nonexistent `functions.ts::renamed`; it now resolves to
+  `functions.ts::decl`. A default import `import Card from "./Button"`
+  resolved to `Button.tsx::Card`; it now resolves to the module's default
+  export (`Button.tsx::DefaultCard`, or `m::default` for an anonymous
+  default), including `export default ident;` and
+  `export { x as default }` (also in JavaScript, whose grammar spells
+  `default` as a keyword token), and re-exports such as
+  `export { default as defB } from "./b"` follow to `b`'s default-exported
+  symbol. `import { default as X }` is a default import. A module with no default export still resolves by the local name
+  for bundler interop. `ns.X` member bases and JSX `<ns.X />` resolve only
+  through namespace or default imports, not through named imports.
 
 ### Performance
 
@@ -151,6 +484,12 @@ All notable changes to `dagayn` are documented here.
   known gap is now documented with its workarounds: `dagayn update` for files
   git reports, `touch`, or `dagayn build`. The spec also notes that the
   uncapped verification still skips files whose mtime is unchanged.
+- `docs/TYPESCRIPT-EXTRACTION.md` specifies the TypeScript / JavaScript
+  extraction model: node kinds and `extra` roles, qualified names with owner
+  paths, anonymous `default` exports, object-literal containers and
+  `pkg::symbol` targets, edge semantics, import and module-path resolution,
+  and a per-construct coverage matrix. Linked from `docs/INDEX.md` and
+  `docs/SCHEMA.md`.
 
 ### Fixes
 
@@ -188,6 +527,11 @@ All notable changes to `dagayn` are documented here.
   between the native Rust `embedding_search`, the numpy matmul path, and the
   pure-Python cosine loop: 300 seeded random 64-dimension vectors must score
   within `1e-5` on a full scan and on a top-k cut.
+- TypeScript / TSX and JavaScript parity fixtures
+  (`tests/fixtures/parity/typescript`, `tests/fixtures/parity/javascript`)
+  with snapshots that hold one node / edge per line
+  (`tools/parity_export.py --entity-lines`), so extractor changes are
+  reviewed as snapshot diffs.
 
 ### Fixes
 

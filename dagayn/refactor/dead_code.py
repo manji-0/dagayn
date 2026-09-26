@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 from typing import Any, Optional
 
+from ..bare_name_resolution import is_external_package_edge
 from ..contracts.cross_artifact import (
     cross_artifact_role,
     edge_extra,
@@ -48,7 +49,7 @@ _MOCK_NAME_RE = re.compile(
 )
 
 _TEST_FILE_RE = re.compile(
-    r"([\\/]__tests__[\\/]|\.spec\.[jt]sx?$|\.test\.[jt]sx?$|[\\/]test_[^/\\]*\.py$"
+    r"([\\/]__tests__[\\/]|\.(spec|test|cy)\.[cm]?[jt]sx?$|[\\/]test_[^/\\]*\.py$"
     r"|[\\/]e2e[_-]?tests?[\\/]|[\\/]test[_-]utils?[\\/])",
 )
 
@@ -62,6 +63,9 @@ _STRUCTURAL_CLASS_ROLES = frozenset(
     {"interface", "trait", "abstract_class", "abstract_type", "implementation"}
 )
 _VALUE_CONTAINER_CLASS_ROLES = frozenset({"struct", "enum", "record"})
+# Scope containers group members (TypeScript namespaces and ambient modules,
+# JavaScript object-literal containers); they are not deletion targets.
+_SCOPE_CONTAINER_CLASS_ROLES = frozenset({"object", "namespace", "ambient_module"})
 _VALUE_CONTAINER_DERIVE_TRAITS = frozenset({"Serialize", "Deserialize"})
 
 # Configuration / manifest languages are not executable deletion targets.
@@ -230,6 +234,19 @@ def _is_structural_type_node(node: Any) -> bool:
     return False
 
 
+def _is_ambient_declaration(node: Any) -> bool:
+    """TypeScript ``declare`` declarations describe code that lives elsewhere."""
+    extra = node.extra if isinstance(node.extra, dict) else {}
+    return bool(extra.get("ambient"))
+
+
+def _is_scope_container_node(node: Any) -> bool:
+    if node.kind != "Class":
+        return False
+    extra = node.extra if isinstance(node.extra, dict) else {}
+    return extra.get("type_role") in _SCOPE_CONTAINER_CLASS_ROLES
+
+
 def _has_value_container_metadata(extra: DeadPayload) -> bool:
     if extra.get("container_role") == "data_container":
         return True
@@ -327,7 +344,9 @@ def _survives_dead_code_node_filters(
         return False
     if node.language == "rust" and node.parent_name and "tests" in node.parent_name.split("::"):
         return False
-    if node.file_path.endswith(".d.ts"):
+    if node.file_path.endswith((".d.ts", ".d.mts", ".d.cts")):
+        return False
+    if _is_ambient_declaration(node):
         return False
     if node.name.startswith("__") and node.name.endswith("__"):
         return False
@@ -340,6 +359,8 @@ def _survives_dead_code_node_filters(
     if node.kind == "Class" and has_framework_decorator(node):
         return False
     if _is_structural_type_node(node):
+        return False
+    if _is_scope_container_node(node):
         return False
     if _is_value_container_type_node(node):
         return False
@@ -701,10 +722,12 @@ def _node_dead_code_evidence(
         all_bare = lookups.bare_calls_by_name.get(node.name, []) + lookups.suffix_calls_by_name.get(
             node.name, []
         )
+        # Calls into external packages (`date-fns::format`) only share the name.
         all_bare = [
             e
             for e in all_bare
-            if _is_plausible_caller(
+            if not is_external_package_edge(e)
+            and _is_plausible_caller(
                 e.file_path,
                 node.file_path,
                 node.name,

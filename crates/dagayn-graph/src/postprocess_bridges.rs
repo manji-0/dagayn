@@ -35,7 +35,11 @@ fn looks_like_file_target(target: &str) -> bool {
         ".tfvars",
         ".rs",
         ".js",
+        ".mjs",
+        ".cjs",
         ".ts",
+        ".mts",
+        ".cts",
         ".tsx",
         ".jsx",
         ".java",
@@ -85,8 +89,9 @@ fn terraform_module_matches_file(module: &str, file_path: &str) -> bool {
 /// Import targets that are not file paths, keyed by the file that can be
 /// reached through them. Mirrors `dagayn.bare_name_resolution`.
 const NAMESPACE_FILE_SUFFIXES: &[&str] = &[
-    ".c", ".cpp", ".cs", ".dart", ".go", ".h", ".hpp", ".java", ".jl", ".js", ".json", ".jsx",
-    ".kt", ".md", ".php", ".py", ".rb", ".rs", ".scala", ".swift", ".tf", ".ts", ".tsx",
+    ".c", ".cjs", ".cpp", ".cs", ".cts", ".dart", ".go", ".h", ".hpp", ".java", ".jl", ".js",
+    ".json", ".jsx", ".kt", ".md", ".mjs", ".mts", ".php", ".py", ".rb", ".rs", ".scala", ".swift",
+    ".tf", ".ts", ".tsx",
 ];
 
 fn normalize_namespace(value: &str) -> String {
@@ -319,7 +324,18 @@ fn load_bare_name_index(
     let placeholders = std::iter::repeat_n("?", kinds.len())
         .collect::<Vec<_>>()
         .join(",");
-    let sql = format!("SELECT name, qualified_name FROM nodes WHERE kind IN ({placeholders})");
+    // Members of JavaScript object-literal containers (`const api = { get() {} }`,
+    // `type_role: "object"`) are reachable only through the container
+    // (`api.get()`), so a bare `get` call elsewhere must never bind to them.
+    let sql = format!(
+        "SELECT n.name, n.qualified_name FROM nodes n \
+         WHERE n.kind IN ({placeholders}) \
+           AND NOT (n.parent_name IS NOT NULL AND EXISTS ( \
+               SELECT 1 FROM nodes p \
+               WHERE p.qualified_name = n.file_path || '::' || n.parent_name \
+                 AND p.kind = 'Class' \
+                 AND json_extract(p.extra, '$.type_role') = 'object'))"
+    );
     let mut stmt = tx.prepare(&sql)?;
     let rows = stmt.query_map(rusqlite::params_from_iter(kinds), |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -354,6 +370,103 @@ fn resolve_via_imports(
         [only] => Some((*only).clone()),
         _ => None,
     }
+}
+
+/// Last name segment of an edge endpoint: `helper` for `helper`,
+/// `obj.helper`, and `src/a.ts::Box.helper`.
+fn endpoint_leaf(endpoint: &str) -> &str {
+    let path = endpoint.rsplit("::").next().unwrap_or(endpoint);
+    path.rsplit('.').next().unwrap_or(path)
+}
+
+/// Points parse-time `TESTED_BY` edges at the target their `CALLS` edge
+/// resolved to, and returns how many edges changed.
+///
+/// Parsers derive `TESTED_BY target -> test` from each `CALLS test -> target`
+/// (same file and line), so a bare call target gives a bare `TESTED_BY`
+/// source. Once bare-name resolution binds the call (in this run, or in an
+/// earlier one for graphs built before this sync existed), the bare
+/// `TESTED_BY` has no bare `CALLS` left; it then takes the qualified name and
+/// confidence of the one resolved call of the same name that the test makes
+/// on that line. A bare `TESTED_BY` whose bare `CALLS` still exists, or with
+/// several such resolved calls, is left alone. A rewrite that would
+/// duplicate an existing `TESTED_BY` edge drops the bare edge instead. Both
+/// edges live in the test's file, so file-scoped replacement on re-parse
+/// keeps working.
+fn sync_tested_by_with_calls(tx: &Transaction<'_>) -> Result<i64> {
+    let rows = {
+        let mut stmt = tx.prepare(
+            "SELECT tb.id, tb.source_qualified, tb.target_qualified, tb.file_path, tb.line, \
+                    c.target_qualified, c.confidence, c.confidence_tier \
+             FROM edges tb JOIN edges c \
+               ON c.kind = 'CALLS' AND c.source_qualified = tb.target_qualified \
+              AND c.file_path = tb.file_path AND c.line = tb.line \
+             WHERE tb.kind = 'TESTED_BY' AND tb.source_qualified NOT LIKE '%::%' \
+               AND c.target_qualified LIKE '%::%' \
+               AND NOT EXISTS ( \
+                   SELECT 1 FROM edges bare \
+                   WHERE bare.kind = 'CALLS' AND bare.source_qualified = tb.target_qualified \
+                     AND bare.target_qualified = tb.source_qualified \
+                     AND bare.file_path = tb.file_path AND bare.line = tb.line) \
+             ORDER BY tb.id",
+        )?;
+        let mapped = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, f64>(6)?,
+                row.get::<_, String>(7)?,
+            ))
+        })?;
+        mapped.collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    // Per bare TESTED_BY edge: its endpoints and the resolved calls whose
+    // target has the bare name.
+    type Candidate = (String, f64, String);
+    let mut groups: Vec<(i64, String, String, i64, Vec<Candidate>)> = Vec::new();
+    for (id, bare, test, file_path, line, target, confidence, tier) in rows {
+        if groups.last().is_none_or(|group| group.0 != id) {
+            groups.push((id, test, file_path, line, Vec::new()));
+        }
+        if endpoint_leaf(&target) != endpoint_leaf(&bare) {
+            continue;
+        }
+        if let Some(group) = groups.last_mut()
+            && !group.4.iter().any(|candidate| candidate.0 == target)
+        {
+            group.4.push((target, confidence, tier));
+        }
+    }
+    let mut changed = 0_i64;
+    for (id, test, file_path, line, candidates) in groups {
+        let [(target, confidence, tier)] = candidates.as_slice() else {
+            continue;
+        };
+        let duplicate = tx
+            .query_row(
+                "SELECT 1 FROM edges WHERE kind = 'TESTED_BY' AND source_qualified = ? \
+                 AND target_qualified = ? AND file_path = ? AND line = ? LIMIT 1",
+                params![target, test, file_path, line],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        if duplicate {
+            tx.execute("DELETE FROM edges WHERE id = ?", params![id])?;
+        } else {
+            tx.execute(
+                "UPDATE edges SET source_qualified = ?, confidence = ?, confidence_tier = ? \
+                 WHERE id = ?",
+                params![target, confidence, tier, id],
+            )?;
+        }
+        changed += 1;
+    }
+    Ok(changed)
 }
 
 impl GraphStore {
@@ -522,6 +635,7 @@ impl GraphStore {
             )?;
             resolved += 1;
         }
+        sync_tested_by_with_calls(&tx)?;
         tx.commit()?;
         Ok(resolved)
     }
@@ -531,6 +645,10 @@ impl GraphStore {
         let import_targets = import_targets_tx(&tx)?;
         let visibility = symbol_visibility(&tx)?;
         let index = load_bare_name_index(&tx, &["Class"])?;
+        // TypeScript `interface X extends Alias` / `class C implements Alias`
+        // may name an object-shaped type alias (a `Type` node). Classes are
+        // tried first so the alias index only adds resolutions.
+        let alias_index = load_bare_name_index(&tx, &["Type"])?;
         let edges = {
             let mut stmt = tx.prepare(
                 "SELECT id, source_qualified, target_qualified, file_path, extra \
@@ -555,9 +673,14 @@ impl GraphStore {
             }
             let candidates = index.get(&target_qualified).cloned().unwrap_or_default();
             let src_file = node_file_from_qualified(&source_qualified, &file_path);
-            if let Some(qualified) =
-                resolve_via_imports(&candidates, &src_file, &import_targets, &visibility)
-            {
+            let resolved_target =
+                resolve_via_imports(&candidates, &src_file, &import_targets, &visibility).or_else(
+                    || {
+                        let aliases = alias_index.get(&target_qualified)?;
+                        resolve_via_imports(aliases, &src_file, &import_targets, &visibility)
+                    },
+                );
+            if let Some(qualified) = resolved_target {
                 tx.execute(
                     "UPDATE edges SET target_qualified = ?, target_name = ?, \
                      confidence = ?, confidence_tier = ? WHERE id = ?",
@@ -932,6 +1055,173 @@ mod tests {
             is_test: false,
             extra: Value::Object(Default::default()),
         }
+    }
+
+    fn edge(kind: &str, source: &str, target: &str, file_path: &str, line: i64) -> EdgeInput {
+        EdgeInput {
+            kind: kind.to_string(),
+            source: source.to_string(),
+            target: target.to_string(),
+            file_path: file_path.to_string(),
+            line,
+            extra: json!({}),
+        }
+    }
+
+    fn test_node(name: &str, file_path: &str) -> NodeInput {
+        NodeInput {
+            kind: "Test".to_string(),
+            is_test: true,
+            ..function_node(name, file_path)
+        }
+    }
+
+    fn tested_by_rows(store: &GraphStore) -> Vec<(String, String, i64, String)> {
+        let mut stmt = store
+            .conn
+            .prepare(
+                "SELECT source_qualified, target_qualified, line, confidence_tier FROM edges \
+                 WHERE kind = 'TESTED_BY' ORDER BY line, source_qualified",
+            )
+            .unwrap();
+        stmt.query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
+        .unwrap()
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .unwrap()
+    }
+
+    /// A test file importing `a.py`: `test_run` calls `helper` (resolvable),
+    /// `missing` (not), and both `helper` / `other` on line 4, as parsers
+    /// emit them: bare `CALLS` plus the mirrored bare `TESTED_BY`.
+    fn store_test_file(store: &mut GraphStore, test_edges: &[EdgeInput]) {
+        store
+            .store_file_nodes_edges(
+                "a.py",
+                &[
+                    file_node("a.py"),
+                    function_node("helper", "a.py"),
+                    function_node("other", "a.py"),
+                ],
+                &[],
+                "",
+                0,
+            )
+            .expect("store a");
+        let mut edges = vec![edge(
+            "IMPORTS_FROM",
+            "tests/test_b.py",
+            "a.py",
+            "tests/test_b.py",
+            1,
+        )];
+        edges.extend_from_slice(test_edges);
+        store
+            .store_file_nodes_edges(
+                "tests/test_b.py",
+                &[
+                    file_node("tests/test_b.py"),
+                    test_node("test_run", "tests/test_b.py"),
+                ],
+                &edges,
+                "",
+                0,
+            )
+            .expect("store test");
+    }
+
+    #[test]
+    fn resolving_bare_calls_moves_tested_by_to_the_resolved_target() {
+        let path = temp_db("tested-by-sync");
+        let mut store = GraphStore::open(&path).expect("open");
+        let test = "tests/test_b.py::test_run";
+        let file = "tests/test_b.py";
+        store_test_file(
+            &mut store,
+            &[
+                edge("CALLS", test, "helper", file, 2),
+                edge("TESTED_BY", "helper", test, file, 2),
+                edge("CALLS", test, "missing", file, 3),
+                edge("TESTED_BY", "missing", test, file, 3),
+                edge("CALLS", test, "other", file, 4),
+                edge("TESTED_BY", "other", test, file, 4),
+            ],
+        );
+        assert_eq!(store.resolve_bare_call_targets().unwrap(), 2);
+        assert_eq!(
+            tested_by_rows(&store),
+            vec![
+                (
+                    "a.py::helper".to_string(),
+                    test.to_string(),
+                    2,
+                    "MEDIUM".to_string()
+                ),
+                (
+                    "missing".to_string(),
+                    test.to_string(),
+                    3,
+                    "EXTRACTED".to_string()
+                ),
+                (
+                    "a.py::other".to_string(),
+                    test.to_string(),
+                    4,
+                    "MEDIUM".to_string()
+                ),
+            ]
+        );
+        // Idempotent: a second run changes nothing.
+        assert_eq!(store.resolve_bare_call_targets().unwrap(), 0);
+        assert_eq!(tested_by_rows(&store).len(), 3);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn tested_by_follows_calls_resolved_by_an_earlier_run() {
+        // Graphs built before the sync: the CALLS edge is already resolved,
+        // the TESTED_BY edge is still bare. A bare TESTED_BY whose own bare
+        // CALLS remains (`obj.helper()` next to `helper()`) stays, and a
+        // rewrite that would duplicate an edge drops the bare copy.
+        let path = temp_db("tested-by-stale");
+        let mut store = GraphStore::open(&path).expect("open");
+        let test = "tests/test_b.py::test_run";
+        let file = "tests/test_b.py";
+        store_test_file(
+            &mut store,
+            &[
+                edge("CALLS", test, "a.py::helper", file, 2),
+                edge("TESTED_BY", "helper", test, file, 2),
+                edge("CALLS", test, "a.py::other", file, 3),
+                edge("CALLS", test, "other", file, 3),
+                edge("TESTED_BY", "a.py::other", test, file, 3),
+                edge("TESTED_BY", "other", test, file, 3),
+                edge("CALLS", test, "a.py::helper", file, 5),
+                edge("TESTED_BY", "a.py::helper", test, file, 5),
+                edge("TESTED_BY", "helper", test, file, 5),
+                edge("CALLS", test, "ext.py::Remote.fetch", file, 6),
+                edge("CALLS", test, "fetch", file, 6),
+                edge("TESTED_BY", "ext.py::Remote.fetch", test, file, 6),
+                edge("TESTED_BY", "fetch", test, file, 6),
+            ],
+        );
+        store.resolve_bare_call_targets().unwrap();
+        let rows = tested_by_rows(&store)
+            .into_iter()
+            .map(|(source, _, line, _)| (source, line))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            rows,
+            vec![
+                ("a.py::helper".to_string(), 2),
+                ("a.py::other".to_string(), 3),
+                ("a.py::helper".to_string(), 5),
+                ("ext.py::Remote.fetch".to_string(), 6),
+                ("fetch".to_string(), 6),
+            ]
+        );
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]
@@ -1437,6 +1727,89 @@ mod tests {
             )
             .unwrap();
         assert_eq!(target, "a.py::helper");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn external_package_calls_keep_their_package_target() {
+        // `App.test.tsx` imports `ClassComp.tsx` (which declares
+        // `ClassComp.render`) and calls `render` from
+        // `@testing-library/react`. The extractor qualifies the external call,
+        // so bare-name resolution cannot steal it; only the bare call binds.
+        let path = temp_db("external-package");
+        let mut store = GraphStore::open(&path).expect("open");
+        store
+            .store_file_nodes_edges(
+                "src/ClassComp.tsx",
+                &[
+                    file_node("src/ClassComp.tsx"),
+                    class_node("ClassComp", "src/ClassComp.tsx"),
+                    method_node("render", "src/ClassComp.tsx", "ClassComp"),
+                ],
+                &[],
+                "",
+                0,
+            )
+            .expect("store component");
+        let test = "src/App.test.tsx::renders";
+        let file = "src/App.test.tsx";
+        let external = EdgeInput {
+            extra: json!({"external": true, "external_package": "@testing-library/react"}),
+            ..edge("CALLS", test, "@testing-library/react::render", file, 4)
+        };
+        store
+            .store_file_nodes_edges(
+                file,
+                &[file_node(file), test_node("renders", file)],
+                &[
+                    edge("IMPORTS_FROM", file, "@testing-library/react", file, 1),
+                    edge("IMPORTS_FROM", file, "src/ClassComp.tsx", file, 2),
+                    external,
+                    edge("CALLS", test, "render", file, 5),
+                ],
+                "",
+                0,
+            )
+            .expect("store test");
+        assert_eq!(store.resolve_bare_call_targets().unwrap(), 1);
+        store.demote_unresolved_endpoint_edges().unwrap();
+        let mut stmt = store
+            .conn
+            .prepare(
+                "SELECT line, target_qualified, confidence_tier, \
+                 json_extract(extra, '$.external_package') \
+                 FROM edges WHERE kind = 'CALLS' ORDER BY line",
+            )
+            .unwrap();
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            })
+            .unwrap()
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(
+            rows,
+            vec![
+                (
+                    4,
+                    "@testing-library/react::render".to_string(),
+                    "LOW".to_string(),
+                    Some("@testing-library/react".to_string()),
+                ),
+                (
+                    5,
+                    "src/ClassComp.tsx::ClassComp.render".to_string(),
+                    "MEDIUM".to_string(),
+                    None,
+                ),
+            ]
+        );
         let _ = std::fs::remove_file(path);
     }
 }
