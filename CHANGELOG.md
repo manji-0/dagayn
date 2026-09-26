@@ -161,6 +161,16 @@ All notable changes to `dagayn` are documented here.
   `data_container`. The TypeScript parity fixture gains 3 nodes and 3 edges
   (`Memo`, `Fwd`, a `memoize`-wrapped `wrapped`), the JavaScript one 2 nodes
   and 2 edges.
+- JavaScript / TypeScript module resolution reads tsconfig `baseUrl` on
+  its own: with `"baseUrl": "src"`, `import "services/user"` resolves to
+  `src/services/user.ts` (before, only `paths` patterns were applied, so
+  such imports stayed unresolved and their calls bare). `baseUrl` is the
+  fallback for specifiers that no `paths` pattern matches, and only an
+  existing file counts, so package names stay external. The nearest
+  directory with a `tsconfig.json`, `tsconfig.app.json`, or (new)
+  `jsconfig.json` supplies the options; within it, a solution-style
+  `tsconfig.json` without `compilerOptions` no longer hides the `paths` of
+  `tsconfig.app.json`. `extends` chains are still not followed.
 - Graphs record the extractor versions they were parsed with (metadata
   `extractor_versions`, for example `javascript=1`). When the running parser's
   extractor is newer, `dagayn update` re-parses every indexed file that

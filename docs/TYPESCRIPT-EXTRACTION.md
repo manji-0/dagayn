@@ -351,8 +351,29 @@ order:
 
 A file wins over a directory with the same stem, and an implementation file
 wins over its `.d.ts`. Non-relative specifiers go through the nearest
-`tsconfig.json` / `tsconfig.app.json` `paths` (relative to `baseUrl`), using
-the same candidate list. A specifier that is a package name (`react`,
+project config, using the same candidate list:
+
+- **Which config.** The nearest directory from the importer up that holds a
+  `tsconfig.json`, `tsconfig.app.json`, or `jsconfig.json` wins, so each
+  package of a monorepo uses its own config and a package without one uses
+  the root's. Within that directory, the first of those files that sets
+  `paths` or `baseUrl` is used (a solution-style `tsconfig.json` with
+  `files: []` and `references` does not hide `tsconfig.app.json`).
+- **`paths`.** Patterns are tried from the most specific; replacements are
+  relative to `baseUrl`, or to the config's directory without one.
+- **`baseUrl`.** A specifier that no `paths` pattern matches is looked up
+  under `baseUrl`, as TypeScript does: `"baseUrl": "src"` resolves
+  `import "services/user"` to `src/services/user.ts`. Only an existing file
+  counts, so `react` stays a package unless `src/react.ts` (or
+  `src/react/index.ts`) exists.
+- **Not followed.** `extends` chains are not read (deferred): a package config
+  that inherits its `paths` from a shared `tsconfig.base.json` resolves
+  only its own `paths` / `baseUrl`, and the inherited aliases stay
+  unresolved (a scoped alias such as `@shared/log` is then treated as a
+  package). Project references and `include` / `files` selection are out of
+  scope (§9).
+
+A specifier that is a package name (`react`,
 `@scope/name`, `lodash/fp`, `node:fs`), resolves to no file, matches no
 `paths` pattern other than `*`, and whose first segment does not exist
 under `baseUrl` is external (§7.6). Anything else that fails to resolve
@@ -842,7 +863,10 @@ QNs omit the `file::` prefix.
 | `.cjs`, `.mts`, `.cts` files themselves | parsed (JavaScript / TypeScript), so their declarations are nodes and imports of them resolve to those nodes | implemented (#20) |
 | `./lib` directory | `IMPORTS_FROM -> lib/index.ts` | implemented (existing) |
 | tsconfig `paths` | resolved | implemented (existing) |
-| tsconfig `baseUrl` without `paths` | resolved | planned (part 2/3, #27) |
+| tsconfig `baseUrl` without `paths`, and `baseUrl` as the fallback when no `paths` pattern matches | `import "services/user"` -> `src/services/user.ts` for `"baseUrl": "src"`; a package name without such a file stays external | implemented (#27) |
+| monorepo configs | the nearest `tsconfig.json` / `tsconfig.app.json` / `jsconfig.json` directory from the importer; solution-style `tsconfig.json` defers to a sibling config with `paths` / `baseUrl` | implemented (#27) |
+| `jsconfig.json` | read like `tsconfig.json` | implemented (#27) |
+| tsconfig `extends` chains | not followed; inherited `paths` / `baseUrl` are not applied | deferred |
 | `export { a as b }`, `export * from` | export index | implemented (existing) |
 | `export { x as default }`, `export default <decl>` | export index `default` | implemented (#9) |
 | `export { default as x } from "./b"` | followed to `b`'s default export | implemented (#9) |

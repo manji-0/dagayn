@@ -615,6 +615,29 @@ class TestCodeParser:
             f"Expected resolved alias import, got targets: {[e.target for e in imports]}"
         )
 
+    def test_tsconfig_base_url_resolution(self):
+        """A `baseUrl`-only tsconfig resolves bare specifiers under it."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "src" / "services").mkdir(parents=True)
+            (root / "tsconfig.json").write_text('{ "compilerOptions": { "baseUrl": "src" } }')
+            (root / "src" / "services" / "user.ts").write_text("export function getUser() {}\n")
+            app = root / "src" / "app.ts"
+            app.write_text(
+                'import { getUser } from "services/user";\n'
+                'import { useState } from "react";\n'
+                "export function run() { getUser(); useState(); }\n"
+            )
+            _nodes, edges = self.parser.parse_file(app)
+            imports = [e.target for e in edges if e.kind == "IMPORTS_FROM"]
+            assert any(t.endswith("src/services/user.ts") for t in imports), imports
+            assert "react" in imports
+            calls = [e.target for e in edges if e.kind == "CALLS"]
+            assert any(t.endswith("src/services/user.ts::getUser") for t in calls), calls
+            assert "react::useState" in calls
+
     def test_tsconfig_missing_gracefully_handled(self):
         """Files without a tsconfig should still parse without errors."""
         import os

@@ -6867,3 +6867,128 @@ function compute() {}
         }));
     }
 }
+
+#[test]
+fn resolves_typescript_base_url_and_nearest_config_imports() {
+    let mut repo_root = std::env::temp_dir();
+    repo_root.push(format!(
+        "dagayn-parser-ts-base-url-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    let _ = std::fs::remove_dir_all(&repo_root);
+    for dir in [
+        "shared",
+        "packages/web/src/services",
+        "packages/web/src/lib",
+        "packages/api/src",
+        "apps/vite/src/lib",
+        "apps/legacy/src/utils",
+    ] {
+        std::fs::create_dir_all(repo_root.join(dir)).unwrap();
+    }
+    for (path, body) in [
+        // Root config: `paths` relative to `baseUrl`.
+        (
+            "tsconfig.json",
+            r#"{ "compilerOptions": { "baseUrl": ".", "paths": { "@shared/*": ["shared/*"] } } }"#,
+        ),
+        ("shared/log.ts", "export function log() {}\n"),
+        // Nearest config: `baseUrl` only, plus a `paths` alias under it.
+        (
+            "packages/web/tsconfig.json",
+            r#"{ "compilerOptions": { "baseUrl": "src", "paths": { "~/*": ["lib/*"] } } }"#,
+        ),
+        (
+            "packages/web/src/services/user.ts",
+            "export function getUser() {}\n",
+        ),
+        ("packages/web/src/lib/fmt.ts", "export function fmt() {}\n"),
+        // Solution-style tsconfig.json: the aliases live in tsconfig.app.json.
+        (
+            "apps/vite/tsconfig.json",
+            r#"{ "files": [], "references": [{ "path": "./tsconfig.app.json" }] }"#,
+        ),
+        (
+            "apps/vite/tsconfig.app.json",
+            r#"{ "compilerOptions": { "paths": { "@/*": ["./src/*"] } } }"#,
+        ),
+        ("apps/vite/src/lib/cn.ts", "export function cn() {}\n"),
+        // JavaScript project: jsconfig.json.
+        (
+            "apps/legacy/jsconfig.json",
+            r#"{ "compilerOptions": { "baseUrl": "src" } }"#,
+        ),
+        (
+            "apps/legacy/src/utils/date.js",
+            "export function day() {}\n",
+        ),
+    ] {
+        std::fs::write(repo_root.join(path), body).unwrap();
+    }
+    let mut parser = RustOwnedParser::new();
+    let mut check = |file: &str, source: &str, expected: &[(&str, &str)]| {
+        std::fs::write(repo_root.join(file), source).unwrap();
+        let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), file, source.as_bytes());
+        for (imported, target) in expected {
+            assert!(
+                edges.iter().any(|edge| edge.kind == "IMPORTS_FROM"
+                    && edge.source == file
+                    && edge.target == *imported),
+                "{file}: IMPORTS_FROM {imported}: {edges:?}"
+            );
+            assert!(
+                edges
+                    .iter()
+                    .any(|edge| edge.kind == "CALLS" && edge.target == *target),
+                "{file}: CALLS {target}: {edges:?}"
+            );
+        }
+        edges
+    };
+    let edges = check(
+        "packages/web/src/app.ts",
+        r#"import { getUser } from "services/user";
+import { fmt } from "~/fmt";
+import { useState } from "react";
+export function app() { getUser(); fmt(); useState(); }
+"#,
+        &[
+            (
+                "packages/web/src/services/user.ts",
+                "packages/web/src/services/user.ts::getUser",
+            ),
+            (
+                "packages/web/src/lib/fmt.ts",
+                "packages/web/src/lib/fmt.ts::fmt",
+            ),
+        ],
+    );
+    // A package name with no file under `baseUrl` stays external.
+    assert!(
+        edges
+            .iter()
+            .any(|edge| edge.kind == "CALLS" && edge.target == "react::useState")
+    );
+    // Without its own tsconfig, a package uses the root one.
+    check(
+        "packages/api/src/server.ts",
+        "import { log } from \"@shared/log\";\nexport function serve() { log(); }\n",
+        &[("shared/log.ts", "shared/log.ts::log")],
+    );
+    check(
+        "apps/vite/src/main.ts",
+        "import { cn } from \"@/lib/cn\";\nexport function main() { cn(); }\n",
+        &[("apps/vite/src/lib/cn.ts", "apps/vite/src/lib/cn.ts::cn")],
+    );
+    check(
+        "apps/legacy/src/index.js",
+        "import { day } from \"utils/date\";\nexport function run() { day(); }\n",
+        &[(
+            "apps/legacy/src/utils/date.js",
+            "apps/legacy/src/utils/date.js::day",
+        )],
+    );
+
+    let _ = std::fs::remove_dir_all(&repo_root);
+}

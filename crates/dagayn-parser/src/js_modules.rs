@@ -1788,20 +1788,22 @@ fn resolve_javascript_alias(
 ) -> Option<String> {
     let (tsconfig_path, config) = find_javascript_tsconfig(file_path, repo_root, caches.tsconfig)?;
     let compiler_options = config.get("compilerOptions")?;
-    let paths = compiler_options.get("paths")?.as_object()?;
-    let base_url = compiler_options
-        .get("baseUrl")
-        .and_then(Value::as_str)
-        .unwrap_or("");
+    let base_url = compiler_options.get("baseUrl").and_then(Value::as_str);
     let base_dir = tsconfig_path.parent().unwrap_or_else(|| Path::new(""));
-    let base_dir = base_dir.join(base_url);
+    let base_dir = base_dir.join(base_url.unwrap_or(""));
 
-    let mut patterns = paths.iter().collect::<Vec<_>>();
+    let mut patterns = compiler_options
+        .get("paths")
+        .and_then(Value::as_object)
+        .map(|paths| paths.iter().collect::<Vec<_>>())
+        .unwrap_or_default();
     patterns.sort_by_key(|(pattern, _)| std::cmp::Reverse(javascript_alias_specificity(pattern)));
+    let mut matched = false;
     for (pattern, replacements) in patterns {
         let Some(suffix) = javascript_alias_match(pattern, module) else {
             continue;
         };
+        matched = true;
         let Some(replacements) = replacements.as_array() else {
             continue;
         };
@@ -1820,7 +1822,14 @@ fn resolve_javascript_alias(
             }
         }
     }
-    None
+    // As in TypeScript, `baseUrl` is the fallback for specifiers no `paths`
+    // pattern matches: `"baseUrl": "src"` + `import "services/user"` gives
+    // `src/services/user.ts`. Only an existing file counts, so a package
+    // name without a same-named file under `baseUrl` stays external.
+    if matched {
+        return None;
+    }
+    base_url.and_then(|_| probe_javascript_module_candidate(&base_dir.join(module), repo_root))
 }
 
 fn find_javascript_tsconfig(
@@ -1847,14 +1856,36 @@ fn find_javascript_tsconfig(
     result
 }
 
+/// Project config files, in priority order within one directory.
+const JAVASCRIPT_PROJECT_CONFIGS: [&str; 3] =
+    ["tsconfig.json", "tsconfig.app.json", "jsconfig.json"];
+
+/// The nearest directory (from the importer up) holding a project config
+/// wins. Within it, the first config that sets `paths` or `baseUrl` is used,
+/// so a solution-style `tsconfig.json` (`files: []` plus `references`) does
+/// not hide the aliases of its `tsconfig.app.json`; otherwise the first
+/// readable one. `extends` is not followed.
 fn find_javascript_tsconfig_uncached(mut current: PathBuf) -> Option<(PathBuf, Value)> {
     loop {
-        for name in ["tsconfig.json", "tsconfig.app.json"] {
+        let mut first = None;
+        for name in JAVASCRIPT_PROJECT_CONFIGS {
             let candidate = current.join(name);
-            if candidate.is_file() {
-                let value = read_javascript_tsconfig(&candidate)?;
+            if !candidate.is_file() {
+                continue;
+            }
+            let Some(value) = read_javascript_tsconfig(&candidate) else {
+                continue;
+            };
+            let options = value.get("compilerOptions");
+            if options.is_some_and(|options| {
+                options.get("paths").is_some() || options.get("baseUrl").is_some()
+            }) {
                 return Some((candidate, value));
             }
+            first.get_or_insert((candidate, value));
+        }
+        if first.is_some() {
+            return first;
         }
         let Some(parent) = current.parent() else {
             break;
