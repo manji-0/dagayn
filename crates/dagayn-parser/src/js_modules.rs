@@ -296,12 +296,18 @@ fn new_javascript_module_parser(module_file: &str) -> Option<tree_sitter::Parser
     if ends_with_ascii_ignore_case(module_file, ".tsx") {
         return new_tsx_parser();
     }
-    if ends_with_ascii_ignore_case(module_file, ".ts") {
+    // `.mts` / `.cts` / `.cjs` are read here for export lookups even before
+    // they are parsed as graph files themselves.
+    if ends_with_ascii_ignore_case(module_file, ".ts")
+        || ends_with_ascii_ignore_case(module_file, ".mts")
+        || ends_with_ascii_ignore_case(module_file, ".cts")
+    {
         return new_typescript_parser();
     }
     if ends_with_ascii_ignore_case(module_file, ".js")
         || ends_with_ascii_ignore_case(module_file, ".jsx")
         || ends_with_ascii_ignore_case(module_file, ".mjs")
+        || ends_with_ascii_ignore_case(module_file, ".cjs")
     {
         return new_javascript_parser();
     }
@@ -545,26 +551,24 @@ fn resolve_javascript_module_uncached(
     let caller_dir = Path::new(file_path)
         .parent()
         .unwrap_or_else(|| Path::new(""));
-    let base = caller_dir.join(module);
-    if javascript_module_candidate_is_file(&base, repo_root) {
-        return javascript_module_candidate_path(base, repo_root);
-    }
-    for ext in [".ts", ".tsx", ".js", ".jsx", ".vue"] {
-        let target = base.with_extension(ext.trim_start_matches('.'));
-        if javascript_module_candidate_is_file(&target, repo_root) {
-            return javascript_module_candidate_path(target, repo_root);
-        }
-    }
-    if javascript_module_candidate_is_dir(&base, repo_root) {
-        for ext in [".ts", ".tsx", ".js", ".jsx", ".vue"] {
-            let target = base.join(format!("index{ext}"));
-            if javascript_module_candidate_is_file(&target, repo_root) {
-                return javascript_module_candidate_path(target, repo_root);
-            }
-        }
-    }
-    None
+    probe_javascript_module_candidate(&caller_dir.join(module), repo_root)
 }
+
+/// Extensions appended to an extensionless (or dotted, like
+/// `./user.service`) specifier, in priority order. Implementation files come
+/// before `.d.ts` so a declaration file never shadows its source.
+const JAVASCRIPT_MODULE_EXTENSIONS: [&str; 10] = [
+    ".ts", ".tsx", ".d.ts", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts", ".vue",
+];
+
+/// Runtime extension -> source extensions tried when the written path does
+/// not exist (`import "./x.js"` compiled from `x.ts`).
+const JAVASCRIPT_RUNTIME_TO_SOURCE_EXTENSIONS: [(&str, &[&str]); 4] = [
+    (".js", &[".ts", ".tsx", ".d.ts"]),
+    (".jsx", &[".tsx"]),
+    (".mjs", &[".mts", ".d.mts"]),
+    (".cjs", &[".cts", ".d.cts"]),
+];
 
 fn javascript_module_candidate_is_file(candidate: &Path, repo_root: Option<&Path>) -> bool {
     repo_root
@@ -773,22 +777,37 @@ fn javascript_alias_match(pattern: &str, module: &str) -> Option<String> {
     Some(module[prefix.len()..end].to_string())
 }
 
+/// Resolves one module path candidate (relative specifier joined to the
+/// importer directory, or a tsconfig `paths` replacement) to a file.
+///
+/// Order: the path as written, runtime-to-source extension mapping, each
+/// [`JAVASCRIPT_MODULE_EXTENSIONS`] appended to the full path (never
+/// replacing a dotted segment such as `.service`), then `index.*` when the
+/// path is a directory. A file therefore wins over a same-stem directory.
 fn probe_javascript_module_candidate(candidate: &Path, repo_root: Option<&Path>) -> Option<String> {
     if javascript_module_candidate_is_file(candidate, repo_root) {
         return javascript_module_candidate_path(candidate.to_path_buf(), repo_root);
     }
-    for ext in [".ts", ".tsx", ".js", ".jsx", ".vue"] {
-        let target = if candidate.extension().is_none() {
-            candidate.with_extension(ext.trim_start_matches('.'))
-        } else {
-            PathBuf::from(format!("{}{}", candidate.to_string_lossy(), ext))
+    let raw = candidate.to_string_lossy();
+    for (runtime, sources) in JAVASCRIPT_RUNTIME_TO_SOURCE_EXTENSIONS {
+        let Some(stem) = raw.strip_suffix(runtime) else {
+            continue;
         };
+        for source_ext in sources {
+            let target = PathBuf::from(format!("{stem}{source_ext}"));
+            if javascript_module_candidate_is_file(&target, repo_root) {
+                return javascript_module_candidate_path(target, repo_root);
+            }
+        }
+    }
+    for ext in JAVASCRIPT_MODULE_EXTENSIONS {
+        let target = PathBuf::from(format!("{raw}{ext}"));
         if javascript_module_candidate_is_file(&target, repo_root) {
             return javascript_module_candidate_path(target, repo_root);
         }
     }
     if javascript_module_candidate_is_dir(candidate, repo_root) {
-        for ext in [".ts", ".tsx", ".js", ".jsx", ".vue"] {
+        for ext in JAVASCRIPT_MODULE_EXTENSIONS {
             let target = candidate.join(format!("index{ext}"));
             if javascript_module_candidate_is_file(&target, repo_root) {
                 return javascript_module_candidate_path(target, repo_root);

@@ -3778,6 +3778,107 @@ export function formatUser(name: string): string {
 }
 
 #[test]
+fn resolves_typescript_dotted_basename_imports() {
+    let mut repo_root = std::env::temp_dir();
+    repo_root.push(format!(
+        "dagayn-parser-ts-dotted-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    let _ = std::fs::remove_dir_all(&repo_root);
+    std::fs::create_dir_all(repo_root.join("src/lib")).unwrap();
+    std::fs::create_dir_all(repo_root.join("src/dir")).unwrap();
+    std::fs::write(
+        repo_root.join("tsconfig.json"),
+        br#"{ "compilerOptions": { "baseUrl": ".", "paths": { "@/*": ["src/*"] } } }"#,
+    )
+    .unwrap();
+    for (path, body) in [
+        ("src/user.service.ts", "export class UserService {}\n"),
+        ("src/hero.component.ts", "export class HeroComponent {}\n"),
+        ("src/esm-compat.ts", "export function compat() {}\n"),
+        ("src/lib/index.ts", "export function fromLib() {}\n"),
+        (
+            "src/types.d.ts",
+            "export declare function declared(): void;\n",
+        ),
+        ("src/both.ts", "export function both() {}\n"),
+        ("src/both.d.ts", "export declare function both(): void;\n"),
+        ("src/dir.ts", "export function dirFile() {}\n"),
+        ("src/dir/index.ts", "export function dirIndex() {}\n"),
+        ("src/util.mts", "export function utilFn() {}\n"),
+        ("src/conf.cjs", "module.exports = {};\n"),
+    ] {
+        std::fs::write(repo_root.join(path), body).unwrap();
+    }
+
+    let source = br#"import { UserService } from "./user.service";
+import { HeroComponent } from "@/hero.component";
+import { compat } from "./esm-compat.js";
+import { fromLib } from "./lib";
+import { declared } from "./types";
+import { both } from "./both";
+import { dirFile } from "./dir";
+import { utilFn } from "./util.mjs";
+import conf from "./conf";
+
+export function run() {
+  new UserService();
+  new HeroComponent();
+  compat();
+  fromLib();
+  declared();
+  both();
+  dirFile();
+  utilFn();
+}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "src/consumer.ts", source);
+    for target in [
+        "src/user.service.ts",
+        "src/hero.component.ts",
+        "src/esm-compat.ts",
+        "src/lib/index.ts",
+        "src/types.d.ts",
+        "src/both.ts",
+        "src/dir.ts",
+        "src/util.mts",
+        "src/conf.cjs",
+    ] {
+        assert!(
+            edges.iter().any(|edge| {
+                edge.kind == "IMPORTS_FROM"
+                    && edge.source == "src/consumer.ts"
+                    && edge.target == target
+            }),
+            "missing IMPORTS_FROM {target}: {edges:?}"
+        );
+    }
+    for target in [
+        "src/user.service.ts::UserService",
+        "src/hero.component.ts::HeroComponent",
+        "src/esm-compat.ts::compat",
+        "src/lib/index.ts::fromLib",
+        "src/types.d.ts::declared",
+        "src/both.ts::both",
+        "src/dir.ts::dirFile",
+        "src/util.mts::utilFn",
+    ] {
+        assert!(
+            edges.iter().any(|edge| {
+                edge.kind == "CALLS"
+                    && edge.source == "src/consumer.ts::run"
+                    && edge.target == target
+            }),
+            "missing CALLS {target}: {edges:?}"
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&repo_root);
+}
+
+#[test]
 fn resolves_typescript_barrel_reexports_to_origin() {
     let mut repo_root = std::env::temp_dir();
     repo_root.push(format!(

@@ -1399,6 +1399,21 @@ class TestTypeRoleAndImplements:
         assert {e.target for e in inh} == {"Repo", "Logger"}
         assert all(e.extra.get("relationship_role") == "extends" for e in inh)
 
+    def test_typescript_dotted_module_import_resolves(self, tmp_path):
+        (tmp_path / "user.service.ts").write_text("export class UserService {}\n", encoding="utf-8")
+        consumer = tmp_path / "consumer.ts"
+        consumer.write_text(
+            'import { UserService } from "./user.service";\n'
+            "export function run() { return new UserService(); }\n",
+            encoding="utf-8",
+        )
+        _, edges = self.parser.parse_file(consumer)
+        imports = [e for e in edges if e.kind == "IMPORTS_FROM"]
+        assert any(e.target.endswith("user.service.ts") for e in imports), imports
+        assert any(
+            e.kind == "CALLS" and e.target.endswith("user.service.ts::UserService") for e in edges
+        )
+
     def test_typescript_constructor_and_method_call_resolution(self, tmp_path):
         src = """
 interface Repo { find(): void; }

@@ -62,6 +62,15 @@ All notable changes to `dagayn` are documented here.
   `CALLS class -> Mixin` instead of file-sourced `CALLS` / `REFERENCES`.
   Bases of classes declared inside method bodies no longer leak onto the
   enclosing class.
+- Relative JavaScript / TypeScript imports with dotted file names resolve.
+  `./user.service`, `./hero.component`, and `./app.module` used to be probed
+  as `./user.ts` (the `.service` segment was replaced as an extension), so
+  Angular / NestJS style imports stayed raw strings and their symbols never
+  resolved. Relative and tsconfig `paths` specifiers now share one probe:
+  the path as written, `.js`/`.jsx`/`.mjs`/`.cjs` mapped to their TypeScript
+  sources, then `.ts`, `.tsx`, `.d.ts`, `.js`, `.jsx`, `.mjs`, `.cjs`,
+  `.mts`, `.cts`, `.vue` appended, then `index.*`. `.mts`, `.cts`, and
+  `.cjs` modules are read for export lookups.
 
 ### Performance
 
