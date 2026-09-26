@@ -106,11 +106,52 @@ fn java_walk_children(
                         nodes,
                         edges,
                     );
-                    java_walk_children(child, context, Some(&name), None, nodes, edges);
+                    let path = java_scope_join(enclosing_class, &name);
+                    java_walk_children(child, context, Some(&path), None, nodes, edges);
                     continue;
                 }
             }
-            "method_declaration" | "constructor_declaration" => {
+            "object_creation_expression"
+                if let Some(body) = java_anonymous_body(child)
+                    && let Some(base) = child
+                        .child_by_field_name("type")
+                        .map(|ty| java_simple_type_name(ty, context.source)) =>
+            {
+                let owner = match (enclosing_class, enclosing_func) {
+                    (Some(class), Some(func)) => format!("{class}.{func}"),
+                    (Some(class), None) => class.to_string(),
+                    (None, Some(func)) => func.to_string(),
+                    (None, None) => String::new(),
+                };
+                let owner = (!owner.is_empty()).then_some(owner);
+                java_emit_anonymous_class(
+                    child,
+                    &context.file_path,
+                    &base,
+                    owner.as_deref(),
+                    nodes,
+                    edges,
+                );
+                let mut cursor = child.walk();
+                for part in child.children(&mut cursor) {
+                    if part.id() != body.id() {
+                        java_walk_children(
+                            part,
+                            context,
+                            enclosing_class,
+                            enclosing_func,
+                            nodes,
+                            edges,
+                        );
+                    }
+                }
+                let path = java_scope_join(owner.as_deref(), &base);
+                java_walk_children(body, context, Some(&path), None, nodes, edges);
+                continue;
+            }
+            "method_declaration"
+            | "constructor_declaration"
+            | "compact_constructor_declaration" => {
                 if let Some(name) = java_function_name(child, context.source) {
                     java_emit_function(
                         child,
@@ -400,6 +441,72 @@ fn java_emit_function(
     });
 }
 
+fn java_scope_join(enclosing: Option<&str>, name: &str) -> String {
+    match enclosing {
+        Some(parent) => format!("{parent}.{name}"),
+        None => name.to_string(),
+    }
+}
+
+fn java_anonymous_body(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .find(|child| child.kind() == "class_body")
+}
+
+fn java_simple_type_name(node: tree_sitter::Node<'_>, source: &[u8]) -> String {
+    let text = node_text(node, source);
+    let base = text.split('<').next().unwrap_or(&text).trim();
+    base.rsplit('.').next().unwrap_or(base).to_string()
+}
+
+/// Anonymous classes are named after their base type and scoped under the
+/// member that creates them, so `new Runnable() { run() }` inside `Outer.run`
+/// becomes `Outer.run.Runnable.run` instead of colliding with `Outer.run`.
+fn java_emit_anonymous_class(
+    node: tree_sitter::Node<'_>,
+    file_path: &FilePath,
+    base: &str,
+    owner: Option<&str>,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let qualified = qualify(file_path, base, owner);
+    let line = node.start_position().row as i64 + 1;
+    nodes.push(ParsedNode {
+        kind: crate::core::types::NodeKind::Class,
+        name: base.to_string(),
+        file_path: file_path.clone(),
+        line_start: line,
+        line_end: node.end_position().row as i64 + 1,
+        language: "java".to_string(),
+        parent_name: owner.map(str::to_string),
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: json!({"type_role": "class", "is_anonymous": true}),
+    });
+    edges.push(ParsedEdge {
+        kind: crate::core::types::EdgeKind::Contains,
+        source: owner
+            .map(|owner| qualify(file_path, owner, None))
+            .unwrap_or_else(|| file_path.to_string()),
+        target: qualified.clone(),
+        file_path: file_path.clone(),
+        line,
+        extra: json!({}),
+    });
+    edges.push(ParsedEdge {
+        kind: crate::core::types::EdgeKind::Inherits,
+        source: qualified,
+        target: base.to_string(),
+        file_path: file_path.clone(),
+        line,
+        extra: json!({}),
+    });
+}
+
 fn java_function_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     java_field_text(node, source, "name")
         .or_else(|| java_direct_child_text(node, source, &["identifier"]))
@@ -419,9 +526,11 @@ fn java_emit_call(
     enclosing_func: Option<&str>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let caller = enclosing_func
-        .map(|func| qualify(file_path, func, enclosing_class))
-        .unwrap_or_else(|| file_path.to_string());
+    let caller = match (enclosing_func, enclosing_class) {
+        (Some(func), _) => qualify(file_path, func, enclosing_class),
+        (None, Some(class)) => qualify(file_path, class, None),
+        (None, None) => file_path.to_string(),
+    };
 
     if let Some(call_name) = java_call_name(node, source) {
         edges.push(ParsedEdge {

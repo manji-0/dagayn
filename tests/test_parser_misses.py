@@ -124,3 +124,36 @@ func helper() {}
     def test_method_calls_use_qualified_caller(self, parse):
         _, edges, _ = parse("m.go", self.SOURCE)
         assert ("CALLS", "<f>::Box.Set", "<f>::helper") in edges
+
+
+class TestJava:
+    SOURCE = """\
+public class Outer {
+    static { init(); }
+    public void run() {
+        new Thread(new Runnable() { public void run() { inner(); } }).start();
+    }
+    record Point(int x, int y) { Point { check(x); } }
+    class Inner { void m() { mcall(); } }
+}
+"""
+
+    def test_nested_types_use_dotted_scope(self, parse):
+        names, edges, _ = parse("Outer.java", self.SOURCE)
+        assert ("Function", "m", "Outer.Inner") in names
+        assert ("CONTAINS", "<f>::Outer.Inner", "<f>::Outer.Inner.m") in edges
+
+    def test_initializer_calls_use_class_source(self, parse):
+        _, edges, _ = parse("Outer.java", self.SOURCE)
+        assert ("CALLS", "<f>::Outer", "init") in edges
+
+    def test_anonymous_class_methods_do_not_collide(self, parse):
+        names, edges, _ = parse("Outer.java", self.SOURCE)
+        assert ("Function", "run", "Outer.run.Runnable") in names
+        assert ("CALLS", "<f>::Outer.run.Runnable.run", "inner") in edges
+        assert ("CALLS", "<f>::Outer.run", "inner") not in edges
+
+    def test_compact_constructor(self, parse):
+        names, edges, _ = parse("Outer.java", self.SOURCE)
+        assert ("Function", "Point", "Outer.Point") in names
+        assert ("CALLS", "<f>::Outer.Point.Point", "check") in edges
