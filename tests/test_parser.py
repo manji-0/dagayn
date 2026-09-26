@@ -1380,6 +1380,25 @@ class TestTypeRoleAndImplements:
         inh = [e for e in edges if e.kind == "INHERITS"]
         assert any("Dog" in e.source and "Animal" in e.target for e in inh)
 
+    def test_javascript_extends_edge(self, tmp_path):
+        src = "class Animal {}\nclass Dog extends Animal {}\nclass Pup extends ns.Dog {}\n"
+        _, edges = self._parse(src, "js", tmp_path)
+        inh = [e for e in edges if e.kind == "INHERITS"]
+        assert any(e.source.endswith("::Dog") and e.target == "Animal" for e in inh)
+        assert any(
+            e.source.endswith("::Pup")
+            and e.target == "Dog"
+            and e.extra.get("heritage_expression") == "ns.Dog"
+            for e in inh
+        )
+
+    def test_typescript_interface_extends_edge(self, tmp_path):
+        src = "interface Repo {}\ninterface Service<T> extends Repo, Logger<T> {}\n"
+        _, edges = self._parse(src, "ts", tmp_path)
+        inh = [e for e in edges if e.kind == "INHERITS" and e.source.endswith("::Service")]
+        assert {e.target for e in inh} == {"Repo", "Logger"}
+        assert all(e.extra.get("relationship_role") == "extends" for e in inh)
+
     def test_typescript_constructor_and_method_call_resolution(self, tmp_path):
         src = """
 interface Repo { find(): void; }

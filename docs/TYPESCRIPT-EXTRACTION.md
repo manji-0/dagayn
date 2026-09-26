@@ -162,8 +162,12 @@ Nodes that are **not** created:
 - `implements A, Service<T>, ns.Marker` yields one `IMPLEMENTS` per type.
 - Interface `extends A, B<T>` yields `INHERITS` edges
   (`relationship_role: "extends"`), as Java does for interface extension.
-- Base names stay bare unless the parser can bind them (same-file declaration
-  or import); `resolve_bare_inheritance_targets` handles the rest.
+- Identifier bases stay bare; `resolve_bare_inheritance_targets` binds them
+  through same-file declarations and import visibility. Member-expression and
+  qualified-type bases rooted at an imported module binding (`ns.Base`,
+  `ns.Marker`) resolve to the exporting module's QN.
+- Only the declaration's own heritage is read: a class declared inside a
+  method body never contributes bases to the enclosing class.
 
 ## 6. Resolution
 

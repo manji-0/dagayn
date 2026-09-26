@@ -3516,6 +3516,121 @@ function helper() {}
 }
 
 #[test]
+fn parses_typescript_heritage_forms() {
+    let mut repo_root = std::env::temp_dir();
+    repo_root.push(format!(
+        "dagayn-parser-ts-heritage-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    let _ = std::fs::remove_dir_all(&repo_root);
+    std::fs::create_dir_all(repo_root.join("src/lib")).unwrap();
+    std::fs::write(
+        repo_root.join("src/lib/base.ts"),
+        b"export class Base {}\nexport interface Marker {}\nexport interface X<T> {}\n",
+    )
+    .unwrap();
+
+    let source = br#"import * as ns from "./lib/base";
+
+function Mixin<T>(base: T): T { return base; }
+class Local {}
+
+class A extends ns.Base implements Service<string>, ns.Marker {}
+class M extends Mixin(Local) {}
+class G extends Array<number> {}
+interface I2 extends Repo, Service<number>, ns.X<T> {}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "src/heritage.ts", source);
+    let has = |kind: &str, source: &str, target: &str| {
+        edges
+            .iter()
+            .any(|edge| edge.kind == kind && edge.source == source && edge.target == target)
+    };
+    assert!(
+        has("INHERITS", "src/heritage.ts::A", "src/lib/base.ts::Base"),
+        "{edges:?}"
+    );
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "INHERITS"
+            && edge.source == "src/heritage.ts::A"
+            && edge.extra["heritage_expression"] == "ns.Base"
+            && edge.extra["relationship_role"] == "extends"
+    }));
+    assert!(has("IMPLEMENTS", "src/heritage.ts::A", "Service"));
+    assert!(has(
+        "IMPLEMENTS",
+        "src/heritage.ts::A",
+        "src/lib/base.ts::Marker"
+    ));
+    assert!(!edges.iter().any(|edge| {
+        edge.source == "src/heritage.ts::A" && (edge.target == "string" || edge.target == "ns")
+    }));
+
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "INHERITS"
+            && edge.source == "src/heritage.ts::M"
+            && edge.target == "Local"
+            && edge.extra["heritage_expression"] == "Mixin(Local)"
+    }));
+    assert!(has("CALLS", "src/heritage.ts::M", "src/heritage.ts::Mixin"));
+    assert!(!edges.iter().any(|edge| {
+        edge.source == "src/heritage.ts" && matches!(edge.kind.as_str(), "CALLS" | "REFERENCES")
+    }));
+
+    assert!(has("INHERITS", "src/heritage.ts::G", "Array"));
+    assert!(!has("INHERITS", "src/heritage.ts::G", "number"));
+
+    for target in ["Repo", "Service", "src/lib/base.ts::X"] {
+        assert!(
+            edges.iter().any(|edge| {
+                edge.kind == "INHERITS"
+                    && edge.source == "src/heritage.ts::I2"
+                    && edge.target == target
+                    && edge.extra["relationship_role"] == "extends"
+            }),
+            "I2 -> {target}: {edges:?}"
+        );
+    }
+    assert!(!edges.iter().any(|edge| {
+        edge.source == "src/heritage.ts::I2" && (edge.target == "T" || edge.target == "number")
+    }));
+
+    let _ = std::fs::remove_dir_all(&repo_root);
+}
+
+#[test]
+fn parses_javascript_class_extends() {
+    let source = br#"import * as ns from "./base";
+
+class Legacy extends Base {}
+class Namespaced extends ns.Base {}
+class Mixed extends Mixin(Base) {
+  run() {
+    class Inner extends Other {}
+  }
+}
+"#;
+    let (_nodes, edges) = parse_javascript_like("legacy.js", source, "javascript");
+    let inherits = |source: &str, target: &str| {
+        edges.iter().any(|edge| {
+            edge.kind == "INHERITS"
+                && edge.source == source
+                && edge.target == target
+                && edge.extra["relationship_role"] == "extends"
+        })
+    };
+    assert!(inherits("legacy.js::Legacy", "Base"), "{edges:?}");
+    assert!(inherits("legacy.js::Namespaced", "Base"));
+    assert!(inherits("legacy.js::Mixed", "Base"));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "CALLS" && edge.source == "legacy.js::Mixed" && edge.target == "Mixin"
+    }));
+    assert!(!inherits("legacy.js::Mixed", "Other"));
+}
+
+#[test]
 fn parses_typescript_constructors_reexports_and_interface_methods() {
     let source = br#"
 export { Repo } from "./other";

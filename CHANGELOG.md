@@ -52,6 +52,16 @@ All notable changes to `dagayn` are documented here.
   `async function*`) and generator function expressions bound at module
   scope (`const g = function* () {}`) are `Function` nodes. They were
   skipped, so their calls were attributed to the file.
+- Class and interface heritage is read per grammar. JavaScript
+  `class Legacy extends Base` now emits `INHERITS` (the JavaScript grammar has
+  no `extends_clause`); `extends ns.Base`, `implements Service<T>`,
+  `implements ns.Marker`, and interface `extends A, B<T>` emit `INHERITS` /
+  `IMPLEMENTS` (namespace-qualified bases resolve through the namespace
+  import, with the original text in `extra.heritage_expression`); and a
+  mixin base `extends Mixin(Base)` emits `INHERITS -> Base` plus
+  `CALLS class -> Mixin` instead of file-sourced `CALLS` / `REFERENCES`.
+  Bases of classes declared inside method bodies no longer leak onto the
+  enclosing class.
 
 ### Performance
 
