@@ -145,6 +145,19 @@ fn bash_emit_command(
         return;
     }
 
+    // `exec greet` / `nohup greet &` run `greet`; `command -v greet` only looks it up.
+    let command_name = if matches!(command_name.as_str(), "exec" | "command" | "nohup") {
+        let args = bash_command_words(node, source);
+        if args.iter().any(|arg| arg == "-v" || arg == "-V") {
+            return;
+        }
+        match args.into_iter().find(|arg| !arg.starts_with('-')) {
+            Some(wrapped) => wrapped,
+            None => command_name,
+        }
+    } else {
+        command_name
+    };
     let caller = enclosing_func
         .map(|func| qualify(file_path, func, None))
         .unwrap_or_else(|| file_path.to_string());
@@ -162,11 +175,26 @@ fn bash_command_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<Strin
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if child.kind() == "command_name" {
+            // `"$CMD" args` / `${TOOL} build` run a command chosen at runtime.
+            let static_name = child
+                .named_child(0)
+                .is_some_and(|name| name.kind() == "word");
             return Some(node_text(child, source).trim().to_string())
-                .filter(|name| !name.is_empty());
+                .filter(|name| static_name && !name.is_empty());
         }
     }
     None
+}
+
+/// Literal word arguments after the command name.
+fn bash_command_words(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .skip_while(|child| child.kind() != "command_name")
+        .skip(1)
+        .filter(|child| child.kind() == "word")
+        .map(|child| node_text(child, source))
+        .collect()
 }
 
 fn bash_first_command_arg(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
@@ -177,7 +205,17 @@ fn bash_first_command_arg(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<
             seen_command = true;
             continue;
         }
-        if seen_command && matches!(child.kind(), "word" | "string" | "raw_string") {
+        if seen_command
+            && matches!(
+                child.kind(),
+                "word"
+                    | "string"
+                    | "raw_string"
+                    | "concatenation"
+                    | "simple_expansion"
+                    | "expansion"
+            )
+        {
             let text = node_text(child, source);
             return Some(strip_matching_quotes(text.trim()).to_string())
                 .filter(|arg| !arg.is_empty());

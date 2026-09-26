@@ -598,3 +598,32 @@ class Inner extends Node:
         assert ("INHERITS", "<f>::Inner", "Node") in edges
         assert ("INHERITS", "<f>::Inner.Deep", "Sprite2D") in edges
         assert ("Function", "run", "Inner.Deep") in names
+
+
+class TestBash:
+    SOURCE = """\
+#!/bin/bash
+greet() { echo hi; }
+deploy() {
+  "$CMD" --flag
+  ${TOOL} build
+  exec greet
+  command -v docker
+}
+source $DIR/lib.sh
+"""
+
+    def test_dynamic_command_names_are_not_calls(self, parse):
+        _, edges, _ = parse("m.sh", self.SOURCE)
+        targets = {e[2] for e in edges if e[0] == "CALLS"}
+        assert '"$CMD"' not in targets
+        assert "${TOOL}" not in targets
+
+    def test_exec_wraps_command(self, parse):
+        _, edges, _ = parse("m.sh", self.SOURCE)
+        assert ("CALLS", "<f>::deploy", "<f>::greet") in edges
+        assert not any(e[2] in {"exec", "command", "docker"} for e in edges)
+
+    def test_unquoted_expansion_source(self, parse):
+        _, edges, _ = parse("m.sh", self.SOURCE)
+        assert ("IMPORTS_FROM", "<f>", "$DIR/lib.sh") in edges
