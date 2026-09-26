@@ -42,6 +42,7 @@ pub(super) fn parse_php_with_parser(
             &mut nodes,
             &mut edges,
         );
+        php_apply_use_aliases(tree.root_node(), source, &mut edges);
         set_declared_namespaces(
             &mut nodes,
             collect_namespace_paths(
@@ -74,9 +75,20 @@ fn php_walk_children(
             "namespace_use_declaration" => {
                 php_emit_import(child, source, file_path, edges);
             }
-            "class_declaration" | "interface_declaration" => {
+            "class_declaration"
+            | "interface_declaration"
+            | "trait_declaration"
+            | "enum_declaration" => {
                 if let Some(name) = php_direct_child_text(child, source, &["name"]) {
-                    php_emit_type(child, file_path, &name, enclosing_class, nodes, edges);
+                    php_emit_type(
+                        child,
+                        source,
+                        file_path,
+                        &name,
+                        enclosing_class,
+                        nodes,
+                        edges,
+                    );
                     php_walk_children(child, source, file_path, Some(&name), None, nodes, edges);
                     continue;
                 }
@@ -102,6 +114,25 @@ fn php_walk_children(
                         edges,
                     );
                     continue;
+                }
+            }
+            "object_creation_expression" => {
+                if let Some(class) = php_direct_child(child, &["name", "qualified_name"])
+                    .map(|name| php_simple_name(&node_text(name, source)))
+                {
+                    let caller = match (enclosing_func, enclosing_class) {
+                        (Some(func), _) => qualify(file_path, func, enclosing_class),
+                        (None, Some(class)) => qualify(file_path, class, None),
+                        (None, None) => file_path.to_string(),
+                    };
+                    edges.push(ParsedEdge {
+                        kind: crate::core::types::EdgeKind::Calls,
+                        source: caller,
+                        target: class,
+                        file_path: file_path.clone(),
+                        line: child.start_position().row as i64 + 1,
+                        extra: json!({"call_role": "instantiation"}),
+                    });
                 }
             }
             "function_call_expression"
@@ -199,18 +230,87 @@ fn php_use_clause_target(
     })
 }
 
+fn php_simple_name(text: &str) -> String {
+    text.trim()
+        .rsplit('\\')
+        .next()
+        .unwrap_or_default()
+        .to_string()
+}
+
+fn php_direct_child<'a>(
+    node: tree_sitter::Node<'a>,
+    kinds: &[&str],
+) -> Option<tree_sitter::Node<'a>> {
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .find(|child| kinds.contains(&child.kind()))
+}
+
+/// Names listed directly under `clause` (`base_clause`, `class_interface_clause`
+/// or a trait `use_declaration`), reduced to their unqualified class name.
+fn php_clause_names(clause: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
+    let mut cursor = clause.walk();
+    clause
+        .children(&mut cursor)
+        .filter(|child| matches!(child.kind(), "name" | "qualified_name"))
+        .map(|child| php_simple_name(&node_text(child, source)))
+        .filter(|name| !name.is_empty())
+        .collect()
+}
+
+/// Rewrites type and instantiation targets written through a `use ... as`
+/// alias (`new P()` after `use App\Post as P`) to the imported class name.
+fn php_apply_use_aliases(root: tree_sitter::Node<'_>, source: &[u8], edges: &mut [ParsedEdge]) {
+    let mut aliases = std::collections::HashMap::new();
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "namespace_use_clause" {
+            let mut cursor = node.walk();
+            let parts: Vec<_> = node
+                .children(&mut cursor)
+                .filter(|child| matches!(child.kind(), "name" | "qualified_name"))
+                .collect();
+            if let [original, alias] = parts.as_slice() {
+                aliases.insert(
+                    node_text(*alias, source).trim().to_string(),
+                    php_simple_name(&node_text(*original, source)),
+                );
+            }
+            continue;
+        }
+        let mut cursor = node.walk();
+        stack.extend(node.children(&mut cursor));
+    }
+    if aliases.is_empty() {
+        return;
+    }
+    for edge in edges.iter_mut() {
+        let rewritable = matches!(
+            edge.kind,
+            crate::core::types::EdgeKind::Inherits | crate::core::types::EdgeKind::Implements
+        ) || edge.extra.get("call_role").and_then(|v| v.as_str())
+            == Some("instantiation");
+        if rewritable && let Some(original) = aliases.get(&edge.target) {
+            edge.target = original.clone();
+        }
+    }
+}
+
 fn php_emit_type(
     node: tree_sitter::Node<'_>,
+    source: &[u8],
     file_path: &FilePath,
     name: &str,
     enclosing_class: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let (type_role, is_abstract, is_contract) = if node.kind() == "interface_declaration" {
-        ("interface", true, true)
-    } else {
-        ("class", false, false)
+    let (type_role, is_abstract, is_contract) = match node.kind() {
+        "interface_declaration" => ("interface", true, true),
+        "trait_declaration" => ("trait", false, false),
+        "enum_declaration" => ("enum", false, false),
+        _ => ("class", false, false),
     };
     let mut extra = json!({"type_role": type_role});
     if let Some(map) = extra.as_object_mut() {
@@ -235,14 +335,48 @@ fn php_emit_type(
         is_test: false,
         extra,
     });
+    let qualified = qualify(file_path, name, enclosing_class);
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Contains,
         source: file_path.to_string(),
-        target: qualify(file_path, name, enclosing_class),
+        target: qualified.clone(),
         file_path: file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
+    let mut relations = Vec::new();
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "base_clause" => relations.push((child, "extends")),
+            "class_interface_clause" => relations.push((child, "implements")),
+            "declaration_list" => {
+                let mut members = child.walk();
+                for member in child.children(&mut members) {
+                    if member.kind() == "use_declaration" {
+                        relations.push((member, "uses_trait"));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    for (clause, role) in relations {
+        for target in php_clause_names(clause, source) {
+            edges.push(ParsedEdge {
+                kind: if role == "implements" {
+                    crate::core::types::EdgeKind::Implements
+                } else {
+                    crate::core::types::EdgeKind::Inherits
+                },
+                source: qualified.clone(),
+                target,
+                file_path: file_path.clone(),
+                line: clause.start_position().row as i64 + 1,
+                extra: json!({"relationship_role": role, "syntax_source": clause.kind()}),
+            });
+        }
+    }
 }
 
 fn php_emit_function(

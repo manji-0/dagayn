@@ -1446,7 +1446,11 @@ class Broker {
     assert!(edges.iter().any(|edge| {
         edge.kind == "IMPORTS_FROM" && edge.source == "sample.php" && edge.target == "Exception"
     }));
-    assert!(edges.iter().all(|edge| edge.kind != "IMPLEMENTS"));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "IMPLEMENTS"
+            && edge.source == "sample.php::ExtendedRepo"
+            && edge.target == "Repository"
+    }));
     assert!(edges.iter().any(|edge| {
         edge.kind == "CALLS"
             && edge.source == "sample.php::ExtendedRepo.save"

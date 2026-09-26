@@ -353,3 +353,32 @@ void main() { A.make(); }
         assert ("Function", "shout", "StrX") in names
         ext = next(n for n in nodes if n.name == "StrX")
         assert ext.extra["type_role"] == "extension"
+
+
+class TestPhp:
+    SOURCE = """\
+<?php
+use App\\Models\\{User, Post as P};
+interface Svc { public function run(); }
+trait Loggable { public function log($m) { error_log($m); } }
+class UserService extends Base implements Svc {
+    use Loggable;
+    public function run() { return new P(); }
+}
+"""
+
+    def test_traits_are_types_with_members(self, parse):
+        names, _, nodes = parse("m.php", self.SOURCE)
+        assert ("Function", "log", "Loggable") in names
+        trait = next(n for n in nodes if n.name == "Loggable")
+        assert trait.extra["type_role"] == "trait"
+
+    def test_extends_implements_and_trait_use(self, parse):
+        _, edges, _ = parse("m.php", self.SOURCE)
+        assert ("INHERITS", "<f>::UserService", "Base") in edges
+        assert ("IMPLEMENTS", "<f>::UserService", "Svc") in edges
+        assert ("INHERITS", "<f>::UserService", "Loggable") in edges
+
+    def test_new_resolves_use_alias(self, parse):
+        _, edges, _ = parse("m.php", self.SOURCE)
+        assert ("CALLS", "<f>::UserService.run", "Post") in edges
