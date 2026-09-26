@@ -188,6 +188,22 @@ def _resolve_bare_name_edges(
         warnings.append(f"Bare-name edge resolution failed: {type(e).__name__}: {e}")
 
 
+def _resolve_terraform_module_references(
+    store: GraphStore,
+    result: PostprocessResult,
+    warnings: list[str],
+) -> None:
+    """Qualify bare Terraform REFERENCES declared in another file of the module."""
+    native = _native_method(store, "resolve_terraform_module_references")
+    if native is None:
+        raise RuntimeError("terraform module reference resolution requires the Rust GraphStore")
+    try:
+        result.terraform_module_references_resolved = int(cast(Callable[[], int], native)())
+    except (OSError, RuntimeError, TypeError, ValueError) as e:
+        logger.warning("Terraform module reference resolution failed: %s", e)
+        warnings.append(f"Terraform module reference resolution failed: {type(e).__name__}: {e}")
+
+
 def _demote_unresolved_endpoint_edges(
     store: GraphStore,
     result: PostprocessResult,

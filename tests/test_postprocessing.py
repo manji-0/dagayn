@@ -582,6 +582,59 @@ class TestMarkdownArtifactResolver:
         assert row["target_qualified"] == "/repo/ui.py::Widget"
 
 
+class TestTerraformModuleReferenceResolver:
+    """Bare Terraform REFERENCES bind to a declaration elsewhere in the module."""
+
+    def setup_method(self):
+        self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self.store = GraphStore(self.tmp.name)
+
+    def teardown_method(self):
+        self.store.close()
+        Path(self.tmp.name).unlink(missing_ok=True)
+
+    def _node(self, kind: str, name: str, file_path: str) -> NodeInfo:
+        return NodeInfo(
+            kind=kind,
+            name=name,
+            file_path=file_path,
+            line_start=1,
+            line_end=3,
+            language="terraform",
+        )
+
+    def test_resolves_variable_declared_in_sibling_file(self):
+        self.store.upsert_node(self._node("File", "infra/main.tf", "infra/main.tf"))
+        self.store.upsert_node(self._node("Class", "resource.aws_vpc.main", "infra/main.tf"))
+        self.store.upsert_node(self._node("File", "infra/variables.tf", "infra/variables.tf"))
+        self.store.upsert_node(self._node("Function", "var.region", "infra/variables.tf"))
+        self.store.upsert_edge(
+            EdgeInfo(
+                kind="REFERENCES",
+                source="infra/main.tf::resource.aws_vpc.main",
+                target="var.region",
+                file_path="infra/main.tf",
+                line=2,
+            )
+        )
+        self.store.commit()
+
+        result = PostprocessResult()
+        warnings: list[str] = []
+        from dagayn.postprocessing import _resolve_terraform_module_references
+
+        _resolve_terraform_module_references(self.store, result, warnings)
+        assert warnings == []
+        assert result.terraform_module_references_resolved == 1
+        row = (
+            store_conn(self.store)
+            .execute("SELECT target_qualified, confidence_tier FROM edges WHERE kind='REFERENCES'")
+            .fetchone()
+        )
+        assert row["target_qualified"] == "infra/variables.tf::var.region"
+        assert row["confidence_tier"] == "HIGH"
+
+
 class TestTerraformArtifactResolver:
     """Postprocess resolution for Terraform entrypoint CROSS_ARTIFACT edges."""
 

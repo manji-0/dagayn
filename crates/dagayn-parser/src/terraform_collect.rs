@@ -481,11 +481,9 @@ fn collect_terraform_reference_nodes(
     source: &[u8],
     references: &mut Vec<String>,
 ) {
-    if matches!(node.kind(), "template_expr" | "quoted_template") {
-        references.extend(collect_terraform_reference_targets(&node_text(
-            node, source,
-        )));
-    }
+    // String and heredoc literal text is never scanned: only the expressions
+    // inside `${ ... }` (`template_interpolation`) are references, and the
+    // recursion below reaches them as ordinary `expression` nodes.
     if node.kind() == "expression"
         && let Some(segments) = terraform_traversal_segments(node, source)
         && let Some(target) = terraform_reference_from_segments(&segments)

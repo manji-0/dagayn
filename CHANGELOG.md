@@ -166,6 +166,30 @@ All notable changes to `dagayn` are documented here.
   pure-Python cosine loop: 300 seeded random 64-dimension vectors must score
   within `1e-5` on a full scan and on a top-k cut.
 
+### Fixes
+
+- Terraform `REFERENCES` and `CALLS` edges now start from the block's
+  qualified node (`infra/main.tf::resource.aws_s3_bucket.logs`) instead of its
+  bare name (`resource.aws_s3_bucket.logs`). The bare source matched no node,
+  so unresolved-endpoint demotion marked every Terraform reference and call
+  edge `LOW` confidence, even between blocks of the same file.
+- Terraform string and heredoc literals no longer produce `REFERENCES` edges.
+  The whole quoted template was matched against the reference pattern, so
+  values such as `"t3.micro"` or `"handler.zip"` became references to
+  `resource.t3.micro` and `resource.handler.zip`. Only `${ ... }`
+  interpolations are scanned now.
+- Terraform references to blocks declared in another file of the same module
+  resolve to that block. `var.region` in `main.tf` used to stay a bare target
+  when `variable "region"` lived in `variables.tf`, because the parser only
+  qualifies names defined in the file it parses. A new post-processing step
+  binds bare Terraform `REFERENCES` targets to the unique Terraform node of
+  that name in the same directory (`HIGH` confidence); ambiguous names and
+  names declared only in other directories stay bare. The step reports
+  `terraform_module_references_resolved`.
+- The README Terraform block table (and its translations) lists `check`
+  blocks as `Class` nodes, matching the parser since production `check`
+  blocks stopped being classified as tests; it still said `Test`.
+
 ## 4.15.0 — 2026-09-25
 
 ### Fixes

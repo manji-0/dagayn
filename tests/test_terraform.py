@@ -94,6 +94,44 @@ class TestTerraformParsing:
         assert any(target.endswith("::data.aws_caller_identity.current") for target in targets)
         assert any(target.endswith("::resource.aws_vpc.main") for target in targets)
 
+    def test_reference_and_call_sources_are_node_qualified_names(self):
+        """REFERENCES/CALLS sources must match node qualified names.
+
+        Bare sources such as ``resource.aws_vpc.main`` never match a node, so
+        post-processing demoted every Terraform edge to LOW confidence.
+        """
+        qualified = {
+            node.file_path if node.kind == "File" else f"{node.file_path}::{node.name}"
+            for node in self.nodes
+        }
+        flow_edges = [edge for edge in self.edges if edge.kind in {"REFERENCES", "CALLS"}]
+        assert flow_edges
+        for edge in flow_edges:
+            assert edge.source in qualified, (edge.kind, edge.source)
+
+    def test_string_literals_are_not_references(self):
+        """Only ``${ ... }`` interpolations inside strings and heredocs are references."""
+        _, edges = self.parser.parse_bytes(
+            Path("main.tf"),
+            b"""resource "aws_s3_bucket" "logs" {}
+
+resource "aws_instance" "web" {
+  instance_type = "t3.micro"
+  filename      = "handler.zip"
+  user_data     = "bucket=${aws_s3_bucket.logs.id} file=handler.zip"
+  script        = <<-EOT
+    echo config.json ${var.prefix}
+  EOT
+}
+""",
+        )
+        targets = {
+            edge.target
+            for edge in edges
+            if edge.kind == "REFERENCES" and edge.source == "main.tf::resource.aws_instance.web"
+        }
+        assert targets == {"main.tf::resource.aws_s3_bucket.logs", "var.prefix"}
+
 
 class TestTerraformCodeBridges:
     """CROSS_ARTIFACT bridges from Terraform resources to application code."""

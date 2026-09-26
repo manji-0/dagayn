@@ -1837,6 +1837,9 @@ class TestBuildPostprocess:
             def resolve_bare_inheritance_targets(self):
                 return 0
 
+            def resolve_terraform_module_references(self):
+                return 0
+
             def replace_manifest_bridges_json(self, *_args):
                 return 0
 

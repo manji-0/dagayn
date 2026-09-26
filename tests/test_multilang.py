@@ -1794,6 +1794,54 @@ class TestTerraformMultiFileBuild(_TempRepoBuildMixin):
         ).fetchall()
         assert any("module.network" in row["target_qualified"] for row in references)
 
+    def test_build_keeps_same_file_terraform_references_confident(self, tmp_path):
+        from dagayn.postprocessing import run_post_processing
+
+        store, _ = self._build(tmp_path)
+        run_post_processing(store)
+        cur = store_conn(store).cursor()
+        module_main = "infra/modules/network/main.tf"
+
+        rows = cur.execute(
+            "SELECT source_qualified, target_qualified, confidence_tier FROM edges "
+            "WHERE kind='REFERENCES' AND file_path=?",
+            (module_main,),
+        ).fetchall()
+        edge = next(
+            row
+            for row in rows
+            if row["source_qualified"] == f"{module_main}::resource.aws_vpc.main"
+            and row["target_qualified"] == f"{module_main}::var.cidr_block"
+        )
+        assert edge["confidence_tier"] != "LOW"
+
+    def test_build_resolves_terraform_references_across_module_files(self, tmp_path):
+        from dagayn.postprocessing import run_post_processing
+
+        store, _ = self._build(tmp_path)
+        result = run_post_processing(store)
+        assert result.terraform_module_references_resolved
+        cur = store_conn(store).cursor()
+        rows = cur.execute(
+            "SELECT source_qualified, target_qualified, confidence_tier FROM edges "
+            "WHERE kind='REFERENCES'"
+        ).fetchall()
+        edges = {(row["source_qualified"], row["target_qualified"]): row for row in rows}
+
+        # var.* declared in variables.tf, referenced from main.tf.
+        region = edges[("infra/main.tf::provider.aws", "infra/variables.tf::var.region")]
+        assert region["confidence_tier"] != "LOW"
+        assert ("infra/main.tf::module.network", "infra/variables.tf::var.vpc_cidr") in edges
+        # module.* declared in main.tf, referenced from outputs.tf.
+        assert ("infra/outputs.tf::output.vpc_id", "infra/main.tf::module.network") in edges
+        # Resolution stays inside the module directory.
+        assert not any(
+            source.startswith("infra/")
+            and not source.startswith("infra/modules/")
+            and target.startswith("infra/modules/")
+            for source, target in edges
+        )
+
 
 class TestMixedMonorepoBuild(_TempRepoBuildMixin):
     def _build(self, tmp_path):

@@ -64,6 +64,7 @@ def _can_run_minimal_postprocess(store: Any) -> bool:
             "resolve_terraform_artifact_refs",
             "resolve_bare_call_targets",
             "resolve_bare_inheritance_targets",
+            "resolve_terraform_module_references",
             "replace_manifest_bridges_json",
         )
     )
@@ -564,6 +565,16 @@ def _run_postprocess(
         except (sqlite3.OperationalError, ImportError) as e:
             logger.warning("Bare-name edge resolution failed: %s", e)
             warnings.append(f"Bare-name edge resolution failed: {type(e).__name__}: {e}")
+
+        try:
+            from dagayn.postprocessing import _resolve_terraform_module_references
+
+            _resolve_terraform_module_references(store, post_result, warnings)
+        except (sqlite3.OperationalError, ImportError) as e:
+            logger.warning("Terraform module reference resolution failed: %s", e)
+            warnings.append(
+                f"Terraform module reference resolution failed: {type(e).__name__}: {e}"
+            )
 
         try:
             from dagayn.postprocessing import _demote_unresolved_endpoint_edges

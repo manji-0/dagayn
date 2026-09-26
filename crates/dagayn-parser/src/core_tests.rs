@@ -302,9 +302,118 @@ output "vpc_id" {
     );
     assert!(edges.iter().any(|edge| {
         edge.kind == "REFERENCES"
-            && edge.source == "resource.aws_vpc.main"
+            && edge.source == "main.tf::resource.aws_vpc.main"
             && edge.target == "main.tf::data.aws_caller_identity.current"
     }));
+}
+
+#[test]
+fn terraform_reference_and_call_sources_use_node_qualified_names() {
+    let source = br#"locals {
+  bucket_name = lower("logs")
+}
+
+resource "aws_s3_bucket" "logs" {
+  bucket = local.bucket_name
+  tags = {
+    Self = aws_s3_bucket.logs.id
+  }
+}
+
+output "bucket_arn" {
+  value = aws_s3_bucket.logs.arn
+}
+"#;
+    let (nodes, edges) = parse_terraform("infra/main.tf", source);
+    let qualified = nodes
+        .iter()
+        .map(|node| {
+            if node.kind == "File" {
+                node.file_path.to_string()
+            } else {
+                format!("{}::{}", node.file_path, node.name)
+            }
+        })
+        .collect::<HashSet<_>>();
+    let flow_edges = edges
+        .iter()
+        .filter(|edge| matches!(edge.kind, EdgeKind::References | EdgeKind::Calls))
+        .collect::<Vec<_>>();
+    assert!(!flow_edges.is_empty());
+    for edge in &flow_edges {
+        assert!(
+            qualified.contains(&edge.source),
+            "{:?} source {:?} is not a node qualified name",
+            edge.kind,
+            edge.source
+        );
+    }
+    assert!(flow_edges.iter().any(|edge| {
+        edge.kind == "CALLS"
+            && edge.source == "infra/main.tf::local.bucket_name"
+            && edge.target == "lower"
+    }));
+    assert!(flow_edges.iter().any(|edge| {
+        edge.kind == "REFERENCES"
+            && edge.source == "infra/main.tf::resource.aws_s3_bucket.logs"
+            && edge.target == "infra/main.tf::local.bucket_name"
+    }));
+    assert!(flow_edges.iter().any(|edge| {
+        edge.kind == "REFERENCES"
+            && edge.source == "infra/main.tf::output.bucket_arn"
+            && edge.target == "infra/main.tf::resource.aws_s3_bucket.logs"
+    }));
+    assert!(
+        !flow_edges
+            .iter()
+            .any(|edge| edge.kind == "REFERENCES" && edge.source == edge.target),
+        "a block referencing itself must not produce a self edge"
+    );
+}
+
+#[test]
+fn terraform_string_literals_are_not_references() {
+    let source = br#"resource "aws_s3_bucket" "logs" {}
+
+locals {
+  greeting = "hello"
+}
+
+resource "aws_instance" "web" {
+  instance_type = "t3.micro"
+  filename      = "handler.zip"
+  bucket_id     = "${aws_s3_bucket.logs.id}"
+  user_data     = "bucket=${aws_s3_bucket.logs.arn} file=handler.zip ${var.prefix}.example"
+  script        = <<-EOT
+    echo config.json app.main
+    echo ${local.greeting}
+  EOT
+}
+"#;
+    let (_nodes, edges) = parse_terraform("main.tf", source);
+    let targets = edges
+        .iter()
+        .filter(|edge| {
+            edge.kind == EdgeKind::References && edge.source == "main.tf::resource.aws_instance.web"
+        })
+        .map(|edge| edge.target.as_str())
+        .collect::<HashSet<_>>();
+    for literal in [
+        "resource.t3.micro",
+        "resource.handler.zip",
+        "resource.prefix.example",
+        "resource.config.json",
+        "resource.app.main",
+    ] {
+        assert!(
+            !targets.contains(literal),
+            "string literal text leaked as {literal}: {targets:?}"
+        );
+    }
+    assert!(targets.contains("main.tf::resource.aws_s3_bucket.logs"));
+    assert!(targets.contains("var.prefix"));
+    assert!(targets.contains("main.tf::local.greeting"));
+    assert_eq!(targets.len(), 3, "unexpected targets: {targets:?}");
 }
 
 #[test]

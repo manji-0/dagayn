@@ -11,6 +11,8 @@ const NODE_QUALIFIED_EDGE_KINDS: [&str; 6] = [
 ];
 const INFERRED_CONFIDENCE: f64 = 0.6;
 const BARE_UNRESOLVED_CONFIDENCE: f64 = 0.3;
+/// A bare Terraform reference bound to the only same-module declaration.
+const TERRAFORM_MODULE_SCOPE_CONFIDENCE: f64 = 0.8;
 
 fn extra_json(extra: &Value) -> Result<String> {
     Ok(serde_json::to_string(extra)?)
@@ -60,6 +62,11 @@ fn node_file_from_qualified(qualified: &str, fallback: &str) -> String {
         .split_once("::")
         .map(|(file, _)| file.to_string())
         .unwrap_or_else(|| fallback.to_string())
+}
+
+/// The Terraform module a file belongs to: its directory (`""` at the root).
+fn terraform_module_dir(file_path: &str) -> &str {
+    file_path.rsplit_once('/').map_or("", |(dir, _)| dir)
 }
 
 fn terraform_module_matches_file(module: &str, file_path: &str) -> bool {
@@ -590,6 +597,82 @@ impl GraphStore {
         Ok(resolved)
     }
 
+    /// Qualify bare Terraform `REFERENCES` targets declared in another file
+    /// of the same module.
+    ///
+    /// Terraform merges every file of one directory into a single module, so
+    /// `var.region` in `main.tf` refers to the `variable "region"` block in
+    /// `variables.tf`. The parser only qualifies names defined in the file it
+    /// is parsing; this step binds the remaining bare targets to the unique
+    /// Terraform node with that name in the edge's directory. Ambiguous
+    /// names (for example an `override.tf` redefining a block) stay bare.
+    pub fn resolve_terraform_module_references(&mut self) -> Result<i64> {
+        let tx = write_tx(&mut self.conn)?;
+        let index = {
+            let mut stmt = tx.prepare(
+                "SELECT name, qualified_name, file_path FROM nodes \
+                 WHERE language = 'terraform' AND kind != 'File'",
+            )?;
+            let mapped = stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })?;
+            let mut index = HashMap::<String, Vec<(String, String)>>::new();
+            for row in mapped {
+                let (name, qualified_name, file_path) = row?;
+                index
+                    .entry(name)
+                    .or_default()
+                    .push((terraform_module_dir(&file_path).to_string(), qualified_name));
+            }
+            index
+        };
+        let edges = {
+            let mut stmt = tx.prepare(
+                "SELECT e.id, e.target_qualified, e.file_path FROM edges e \
+                 WHERE e.kind = 'REFERENCES' AND e.target_qualified NOT LIKE '%::%' \
+                 AND EXISTS (SELECT 1 FROM nodes f WHERE f.qualified_name = e.file_path \
+                             AND f.kind = 'File' AND f.language = 'terraform')",
+            )?;
+            let mapped = stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })?;
+            mapped.collect::<std::result::Result<Vec<_>, _>>()?
+        };
+        let mut resolved = 0_i64;
+        for (edge_id, target, file_path) in edges {
+            let Some(candidates) = index.get(&target) else {
+                continue;
+            };
+            let module_dir = terraform_module_dir(&file_path);
+            let mut in_module = candidates.iter().filter(|(dir, _)| dir == module_dir);
+            let (Some((_, qualified)), None) = (in_module.next(), in_module.next()) else {
+                continue;
+            };
+            tx.execute(
+                "UPDATE edges SET target_qualified = ?, target_name = ?, \
+                 confidence = ?, confidence_tier = ? WHERE id = ?",
+                params![
+                    qualified,
+                    edge_target_name(qualified),
+                    TERRAFORM_MODULE_SCOPE_CONFIDENCE,
+                    ConfidenceTier::High.as_str(),
+                    edge_id
+                ],
+            )?;
+            resolved += 1;
+        }
+        tx.commit()?;
+        Ok(resolved)
+    }
+
     pub fn replace_manifest_bridges(
         &mut self,
         extractor_id: &str,
@@ -926,6 +1009,162 @@ mod tests {
             )
             .unwrap();
         assert_eq!(target, "app/hello.py::main");
+        let _ = std::fs::remove_file(path);
+    }
+
+    fn terraform_node(kind: &str, name: &str, file_path: &str) -> NodeInput {
+        NodeInput {
+            kind: kind.to_string(),
+            language: "terraform".to_string(),
+            ..function_node(name, file_path)
+        }
+    }
+
+    fn terraform_file_node(file_path: &str) -> NodeInput {
+        NodeInput {
+            language: "terraform".to_string(),
+            ..file_node(file_path)
+        }
+    }
+
+    fn reference_edge(source: &str, target: &str, file_path: &str, line: i64) -> EdgeInput {
+        EdgeInput {
+            kind: "REFERENCES".to_string(),
+            source: source.to_string(),
+            target: target.to_string(),
+            file_path: file_path.to_string(),
+            line,
+            extra: json!({}),
+        }
+    }
+
+    #[test]
+    fn resolves_terraform_references_within_module_directory() {
+        let path = temp_db("terraform-module-refs");
+        let mut store = GraphStore::open(&path).expect("open");
+        store
+            .store_file_nodes_edges(
+                "infra/variables.tf",
+                &[
+                    terraform_file_node("infra/variables.tf"),
+                    terraform_node("Function", "var.region", "infra/variables.tf"),
+                    terraform_node("Function", "var.dup", "infra/variables.tf"),
+                ],
+                &[],
+                "",
+                0,
+            )
+            .expect("store variables");
+        store
+            .store_file_nodes_edges(
+                "infra/override.tf",
+                &[
+                    terraform_file_node("infra/override.tf"),
+                    terraform_node("Function", "var.dup", "infra/override.tf"),
+                ],
+                &[],
+                "",
+                0,
+            )
+            .expect("store override");
+        store
+            .store_file_nodes_edges(
+                "infra/modules/net/variables.tf",
+                &[
+                    terraform_file_node("infra/modules/net/variables.tf"),
+                    terraform_node("Function", "var.cidr", "infra/modules/net/variables.tf"),
+                ],
+                &[],
+                "",
+                0,
+            )
+            .expect("store child module");
+        let source = "infra/main.tf::resource.aws_vpc.main";
+        store
+            .store_file_nodes_edges(
+                "infra/main.tf",
+                &[
+                    terraform_file_node("infra/main.tf"),
+                    terraform_node("Class", "resource.aws_vpc.main", "infra/main.tf"),
+                ],
+                &[
+                    reference_edge(source, "var.region", "infra/main.tf", 1),
+                    // Declared twice in the module: ambiguous, stays bare.
+                    reference_edge(source, "var.dup", "infra/main.tf", 2),
+                    // Only declared in a child module directory: out of scope.
+                    reference_edge(source, "var.cidr", "infra/main.tf", 3),
+                    reference_edge(source, "var.missing", "infra/main.tf", 4),
+                ],
+                "",
+                0,
+            )
+            .expect("store main");
+        // A non-Terraform file with the same bare target is left alone.
+        store
+            .store_file_nodes_edges(
+                "infra/app.py",
+                &[
+                    file_node("infra/app.py"),
+                    function_node("main", "infra/app.py"),
+                ],
+                &[reference_edge(
+                    "infra/app.py::main",
+                    "var.region",
+                    "infra/app.py",
+                    1,
+                )],
+                "",
+                0,
+            )
+            .expect("store python");
+
+        assert_eq!(store.resolve_terraform_module_references().unwrap(), 1);
+        let rows = {
+            let mut stmt = store
+                .conn
+                .prepare(
+                    "SELECT file_path, line, target_qualified, confidence_tier FROM edges \
+                     WHERE kind='REFERENCES' ORDER BY file_path, line",
+                )
+                .unwrap();
+            stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })
+            .unwrap()
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .unwrap()
+        };
+        let targets = rows
+            .iter()
+            .map(|(file, line, target, _)| (file.as_str(), *line, target.as_str()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            targets,
+            vec![
+                ("infra/app.py", 1, "var.region"),
+                ("infra/main.tf", 1, "infra/variables.tf::var.region"),
+                ("infra/main.tf", 2, "var.dup"),
+                ("infra/main.tf", 3, "var.cidr"),
+                ("infra/main.tf", 4, "var.missing"),
+            ]
+        );
+        assert_eq!(rows[1].3, "HIGH");
+        // The resolved edge survives endpoint demotion; the bare ones do not.
+        store.demote_unresolved_endpoint_edges().unwrap();
+        let tier: String = store
+            .conn
+            .query_row(
+                "SELECT confidence_tier FROM edges WHERE file_path='infra/main.tf' AND line=1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(tier, "HIGH");
         let _ = std::fs::remove_file(path);
     }
 
