@@ -90,8 +90,24 @@ fn gdscript_walk_children(
             "class_definition" => {
                 if let Some(name) = gdscript_direct_child_text(child, context.source, &["name"]) {
                     gdscript_emit_class(child, context, &name, enclosing_class, nodes, edges);
+                    let scope = match enclosing_class {
+                        Some(parent) => format!("{parent}.{name}"),
+                        None => name,
+                    };
+                    if let Some(target) = gdscript_direct_child(child, &["extends_statement"])
+                        .and_then(|extends| gdscript_extends_target(extends, context.source))
+                    {
+                        edges.push(ParsedEdge {
+                            kind: crate::core::types::EdgeKind::Inherits,
+                            source: qualify(&context.file_path, &scope, None),
+                            target,
+                            file_path: context.file_path.clone(),
+                            line: child.start_position().row as i64 + 1,
+                            extra: json!({}),
+                        });
+                    }
                     if let Some(body) = gdscript_direct_child(child, &["class_body"]) {
-                        gdscript_walk_children(body, context, Some(&name), None, nodes, edges);
+                        gdscript_walk_children(body, context, Some(&scope), None, nodes, edges);
                     }
                     continue;
                 }
@@ -114,6 +130,16 @@ fn gdscript_walk_children(
             }
             "call" | "attribute_call" => {
                 gdscript_emit_call(child, context, enclosing_class, enclosing_func, edges);
+                if let Some(path) = gdscript_preload_path(child, context.source) {
+                    edges.push(ParsedEdge {
+                        kind: crate::core::types::EdgeKind::ImportsFrom,
+                        source: context.file_path.to_string(),
+                        target: path,
+                        file_path: context.file_path.clone(),
+                        line: child.start_position().row as i64 + 1,
+                        extra: json!({}),
+                    });
+                }
             }
             _ => {}
         }
@@ -227,10 +253,31 @@ fn gdscript_emit_call(
 }
 
 fn gdscript_extends_target(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    if let Some(path) = gdscript_direct_child(node, &["string"]) {
+        return gdscript_string_value(path, source);
+    }
     let type_node = gdscript_direct_child(node, &["type"])?;
     gdscript_first_descendant_text(type_node, source, &["identifier"])
         .or_else(|| Some(node_text(type_node, source).trim().to_string()))
         .filter(|target| !target.is_empty())
+}
+
+fn gdscript_string_value(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let value = node_text(node, source)
+        .trim_matches(|c| c == '"' || c == '\'')
+        .to_string();
+    (!value.is_empty()).then_some(value)
+}
+
+/// `preload("res://x.gd")` / `load(...)` pull in another script.
+fn gdscript_preload_path(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let name = gdscript_call_name(node, source)?;
+    if !matches!(name.as_str(), "preload" | "load") {
+        return None;
+    }
+    let arguments = gdscript_direct_child(node, &["arguments"])?;
+    let path = gdscript_direct_child(arguments, &["string"])?;
+    gdscript_string_value(path, source)
 }
 
 fn gdscript_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {

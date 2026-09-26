@@ -67,7 +67,11 @@ fn go_walk_children(
                         nodes,
                         edges,
                     );
-                    go_walk_children(child, source, file_path, Some(&name), nodes, edges);
+                    let scope = match receiver.as_deref() {
+                        Some(receiver) => format!("{receiver}.{name}"),
+                        None => name.clone(),
+                    };
+                    go_walk_children(child, source, file_path, Some(&scope), nodes, edges);
                     continue;
                 }
             }
@@ -229,7 +233,22 @@ fn go_receiver_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String
     let receiver_list = node
         .children(&mut cursor)
         .find(|child| child.kind() == "parameter_list")?;
-    go_last_named_descendant(receiver_list, source, &["type_identifier"])
+    let mut params = receiver_list.walk();
+    let declaration = receiver_list
+        .named_children(&mut params)
+        .find(|child| child.kind() == "parameter_declaration")?;
+    let mut ty = declaration.child_by_field_name("type")?;
+    loop {
+        match ty.kind() {
+            "pointer_type" | "parenthesized_type" => {
+                let mut inner = ty.walk();
+                ty = ty.named_children(&mut inner).next()?;
+            }
+            "generic_type" => ty = ty.child_by_field_name("type")?,
+            "type_identifier" => return Some(node_text(ty, source)),
+            _ => return go_last_named_descendant(receiver_list, source, &["type_identifier"]),
+        }
+    }
 }
 
 fn go_first_parameter_list(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {

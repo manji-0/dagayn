@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 use serde_json::json;
 
@@ -91,6 +91,18 @@ fn lua_walk_children(
             {
                 continue;
             }
+            "assignment_statement"
+                if lua_emit_assigned_functions(
+                    child,
+                    context,
+                    enclosing_class,
+                    enclosing_func,
+                    nodes,
+                    edges,
+                ) =>
+            {
+                continue;
+            }
             "function_declaration" => {
                 if let Some((parent, name)) = lua_table_function_name(child, context.source) {
                     lua_emit_function(child, context, &name, Some(&parent), nodes, edges);
@@ -167,24 +179,116 @@ fn lua_handle_variable_declaration(
         }
     }
 
-    let mut cursor = expr_list.walk();
-    for expr in expr_list.children(&mut cursor) {
-        if expr.kind() == "function_definition" {
-            lua_emit_function(node, context, &var_name, enclosing_class, nodes, edges);
-            lua_walk_children(
-                expr,
+    let _ = var_name;
+    lua_emit_assigned_functions(
+        assign,
+        context,
+        enclosing_class,
+        enclosing_func,
+        nodes,
+        edges,
+    )
+}
+
+/// Emits functions bound by assignment: `f = function`, `M.a.h = function`,
+/// and `t = { cb = function ... }`. Other values are walked normally.
+/// Returns whether any function was bound.
+fn lua_emit_assigned_functions(
+    assign: tree_sitter::Node<'_>,
+    context: &LuaParseContext<'_>,
+    enclosing_class: Option<&str>,
+    enclosing_func: Option<&str>,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) -> bool {
+    let (Some(variables), Some(values)) = (
+        lua_direct_child(assign, &["variable_list"]),
+        lua_direct_child(assign, &["expression_list"]),
+    ) else {
+        return false;
+    };
+    let mut cursor = variables.walk();
+    let targets: Vec<_> = variables.named_children(&mut cursor).collect();
+    let mut cursor = values.walk();
+    let exprs: Vec<_> = values.named_children(&mut cursor).collect();
+    if !exprs
+        .iter()
+        .any(|expr| matches!(expr.kind(), "function_definition" | "table_constructor"))
+    {
+        return false;
+    }
+    let mut bound = false;
+    for (index, expr) in exprs.iter().enumerate() {
+        let target = targets.get(index).copied();
+        let binding = target.and_then(|target| lua_binding_path(target, context.source));
+        match (expr.kind(), binding) {
+            ("function_definition", Some((parent, name))) => {
+                let parent = parent.as_deref().or(enclosing_class);
+                lua_emit_function(*expr, context, &name, parent, nodes, edges);
+                lua_walk_children(*expr, context, parent, Some(&name), nodes, edges);
+                bound = true;
+            }
+            ("table_constructor", Some((parent, name))) => {
+                let table = match parent {
+                    Some(parent) => format!("{parent}.{name}"),
+                    None => name,
+                };
+                let mut fields = expr.walk();
+                for field in expr.named_children(&mut fields) {
+                    let key = field
+                        .child_by_field_name("name")
+                        .filter(|key| key.kind() == "identifier");
+                    let value = field
+                        .child_by_field_name("value")
+                        .filter(|value| value.kind() == "function_definition");
+                    if let (Some(key), Some(value)) = (key, value) {
+                        let key = node_text(key, context.source);
+                        lua_emit_function(value, context, &key, Some(&table), nodes, edges);
+                        lua_walk_children(value, context, Some(&table), Some(&key), nodes, edges);
+                        bound = true;
+                    } else {
+                        lua_walk_children(
+                            field,
+                            context,
+                            enclosing_class,
+                            enclosing_func,
+                            nodes,
+                            edges,
+                        );
+                    }
+                }
+            }
+            _ => lua_walk_children(
+                *expr,
                 context,
                 enclosing_class,
-                Some(&var_name),
+                enclosing_func,
                 nodes,
                 edges,
-            );
-            return true;
+            ),
         }
     }
+    bound
+}
 
-    let _ = enclosing_func;
-    false
+/// `(parent, name)` for an assignment target: `f` -> (None, f),
+/// `M.a.h` -> (Some("M.a"), h).
+fn lua_binding_path(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> Option<(Option<String>, String)> {
+    match node.kind() {
+        "identifier" => Some((None, node_text(node, source))),
+        "dot_index_expression" | "method_index_expression" => {
+            let table = node.child_by_field_name("table")?;
+            let field = node
+                .child_by_field_name("field")
+                .or_else(|| node.child_by_field_name("method"))?;
+            let parent = node_text(table, source).replace(':', ".");
+            Some((Some(parent), node_text(field, source)))
+        }
+        _ => None,
+    }
 }
 
 fn lua_emit_function(
@@ -260,7 +364,11 @@ fn lua_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     match callee.kind() {
         "identifier" => Some(node_text(callee, source)),
         "dot_index_expression" | "method_index_expression" => {
-            lua_last_direct_child_text(callee, source, "identifier")
+            let (parent, name) = lua_binding_path(callee, source)?;
+            Some(match parent {
+                Some(parent) if parent != "self" => format!("{parent}.{name}"),
+                _ => name,
+            })
         }
         _ => None,
     }
@@ -361,14 +469,8 @@ fn lua_string_text(node: tree_sitter::Node<'_>, source: &[u8]) -> String {
 fn lua_table_function_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<(String, String)> {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        if matches!(
-            child.kind(),
-            "dot_index_expression" | "method_index_expression"
-        ) {
-            let names = lua_direct_child_texts(child, source, &["identifier"]);
-            if names.len() >= 2 {
-                return Some((names[0].clone(), names[names.len() - 1].clone()));
-            }
+        if let Some((Some(parent), name)) = lua_binding_path(child, source) {
+            return Some((parent, name));
         }
     }
     None
@@ -397,36 +499,6 @@ fn lua_direct_child_text(
     lua_direct_child(node, kinds).map(|child| node_text(child, source))
 }
 
-fn lua_direct_child_texts(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if kinds.contains(&child.kind()) {
-            out.push(node_text(child, source));
-        }
-    }
-    out
-}
-
-fn lua_last_direct_child_text(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kind: &str,
-) -> Option<String> {
-    let mut found = None;
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == kind {
-            found = Some(node_text(child, source));
-        }
-    }
-    found
-}
-
 fn lua_first_descendant_text(
     node: tree_sitter::Node<'_>,
     source: &[u8],
@@ -449,19 +521,60 @@ fn resolve_lua_call_targets(
     edges: Vec<ParsedEdge>,
     file_path: &FilePath,
 ) -> Vec<ParsedEdge> {
-    let symbols = nodes
+    // `M.f` resolves through its table path; a bare name prefers a free
+    // function, then a sibling in the caller's table.
+    let mut by_path = HashMap::<String, String>::new();
+    let mut by_name = HashMap::<&str, Vec<(Option<&str>, String)>>::new();
+    for node in nodes
         .iter()
         .filter(|node| matches!(node.kind.as_str(), "Function" | "Test"))
-        .map(|node| node.name.as_str())
-        .collect::<HashSet<_>>();
+    {
+        let qualified = qualify(file_path, &node.name, node.parent_name.as_deref());
+        if let Some(parent) = node.parent_name.as_deref() {
+            by_path
+                .entry(format!("{parent}.{}", node.name))
+                .or_insert_with(|| qualified.clone());
+        }
+        by_name
+            .entry(node.name.as_str())
+            .or_default()
+            .push((node.parent_name.as_deref(), qualified));
+    }
+    let prefix = format!("{file_path}::");
     edges
         .into_iter()
         .map(|mut edge| {
-            if edge.kind == "CALLS"
-                && !edge.target.contains("::")
-                && symbols.contains(edge.target.as_str())
-            {
-                edge.target = qualify(file_path, &edge.target, None);
+            if edge.kind != "CALLS" || edge.target.contains("::") {
+                return edge;
+            }
+            if let Some(target) = by_path.get(&edge.target) {
+                edge.target = target.clone();
+                return edge;
+            }
+            // Unresolved `lib.fn` keeps its historical bare-name target.
+            let name = match edge.target.rsplit_once('.') {
+                Some((_, name)) => name.to_string(),
+                None => edge.target.clone(),
+            };
+            let dotted = edge.target.contains('.');
+            match by_name.get(name.as_str()) {
+                Some(candidates) if !dotted => {
+                    let caller_table = edge
+                        .source
+                        .strip_prefix(&prefix)
+                        .and_then(|rest| rest.rsplit_once('.').map(|(table, _)| table));
+                    let chosen = candidates
+                        .iter()
+                        .find(|(parent, _)| parent.is_none())
+                        .or_else(|| {
+                            candidates
+                                .iter()
+                                .find(|(parent, _)| *parent == caller_table)
+                        })
+                        .unwrap_or(&candidates[0]);
+                    edge.target = chosen.1.clone();
+                }
+                _ => edge.target = name,
             }
             edge
         })

@@ -74,7 +74,7 @@ fn kotlin_walk_children(
             "import_header" => {
                 kotlin_emit_import(child, source, file_path, edges);
             }
-            "class_declaration" => {
+            "class_declaration" | "object_declaration" => {
                 if let Some(name) = kotlin_direct_child_text(child, source, &["type_identifier"]) {
                     kotlin_emit_type(
                         child,
@@ -85,9 +85,33 @@ fn kotlin_walk_children(
                         nodes,
                         edges,
                     );
-                    kotlin_walk_children(child, source, file_path, Some(&name), None, nodes, edges);
+                    let path = match enclosing_class {
+                        Some(parent) => format!("{parent}.{name}"),
+                        None => name.clone(),
+                    };
+                    kotlin_walk_children(child, source, file_path, Some(&path), None, nodes, edges);
                     continue;
                 }
+            }
+            "secondary_constructor" if enclosing_class.is_some() => {
+                kotlin_emit_function(
+                    child,
+                    file_path,
+                    "constructor",
+                    enclosing_class,
+                    nodes,
+                    edges,
+                );
+                kotlin_walk_children(
+                    child,
+                    source,
+                    file_path,
+                    enclosing_class,
+                    Some("constructor"),
+                    nodes,
+                    edges,
+                );
+                continue;
             }
             "function_declaration" => {
                 if let Some(name) = kotlin_direct_child_text(child, source, &["simple_identifier"])
@@ -185,46 +209,87 @@ fn kotlin_emit_type(
     });
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Contains,
-        source: file_path.to_string(),
+        source: enclosing_class
+            .map(|parent| qualify(file_path, parent, None))
+            .unwrap_or_else(|| file_path.to_string()),
         target: qualified.clone(),
         file_path: file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Inherits,
-        source: qualified,
-        target: name.to_string(),
-        file_path: file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({
-            "relationship_role": "extends",
-            "syntax_source": "class_declaration",
-        }),
-    });
+    let mut cursor = node.walk();
+    for specifier in node.children(&mut cursor) {
+        if specifier.kind() != "delegation_specifier" {
+            continue;
+        }
+        // `Base(a)` invokes a superclass constructor; a bare type names an
+        // interface (or a delegated one via `by`).
+        let is_class = kotlin_direct_child(specifier, &["constructor_invocation"]).is_some();
+        let Some(target) = kotlin_last_descendant_text(specifier, source, &["type_identifier"])
+        else {
+            continue;
+        };
+        let (kind, role) = if is_class {
+            (crate::core::types::EdgeKind::Inherits, "extends")
+        } else {
+            (crate::core::types::EdgeKind::Implements, "implements")
+        };
+        edges.push(ParsedEdge {
+            kind,
+            source: qualified.clone(),
+            target,
+            file_path: file_path.clone(),
+            line: node.start_position().row as i64 + 1,
+            extra: json!({
+                "relationship_role": role,
+                "syntax_source": node.kind(),
+            }),
+        });
+    }
+}
+
+fn kotlin_class_modifiers(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
+    let Some(modifiers) = kotlin_direct_child(node, &["modifiers"]) else {
+        return Vec::new();
+    };
+    let mut cursor = modifiers.walk();
+    modifiers
+        .children(&mut cursor)
+        .filter(|child| child.kind() == "class_modifier")
+        .map(|child| node_text(child, source).trim().to_string())
+        .collect()
 }
 
 fn kotlin_type_extra(node: tree_sitter::Node<'_>, source: &[u8]) -> serde_json::Value {
-    let type_role = if kotlin_is_data_class(node, source) {
+    let modifiers = kotlin_class_modifiers(node, source);
+    let has_keyword = |keyword: &str| {
+        let mut cursor = node.walk();
+        node.children(&mut cursor)
+            .any(|child| !child.is_named() && child.kind() == keyword)
+    };
+    let type_role = if node.kind() == "object_declaration" {
+        "object"
+    } else if modifiers.iter().any(|modifier| modifier == "data") {
         "record"
+    } else if modifiers.iter().any(|modifier| modifier == "enum") {
+        "enum"
+    } else if has_keyword("interface") {
+        "interface"
     } else {
         "class"
     };
     let mut extra = json!({"type_role": type_role});
-    if let Some(map) = extra.as_object_mut()
-        && type_role == "record"
-    {
-        map.insert("container_role".to_string(), json!("data_container"));
-        map.insert("value_semantics".to_string(), json!(true));
+    if let Some(map) = extra.as_object_mut() {
+        if type_role == "record" {
+            map.insert("container_role".to_string(), json!("data_container"));
+            map.insert("value_semantics".to_string(), json!(true));
+        }
+        if type_role == "interface" {
+            map.insert("is_abstract".to_string(), json!(true));
+            map.insert("is_contract".to_string(), json!(true));
+        }
     }
     extra
-}
-
-fn kotlin_is_data_class(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
-    let mut cursor = node.walk();
-
-    node.children(&mut cursor)
-        .any(|child| node_text(child, source).trim() == "data")
 }
 
 fn kotlin_emit_function(
@@ -270,9 +335,11 @@ fn kotlin_emit_call(
     enclosing_func: Option<&str>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let caller = enclosing_func
-        .map(|func| qualify(file_path, func, enclosing_class))
-        .unwrap_or_else(|| file_path.to_string());
+    let caller = match (enclosing_func, enclosing_class) {
+        (Some(func), _) => qualify(file_path, func, enclosing_class),
+        (None, Some(class)) => qualify(file_path, class, None),
+        (None, None) => file_path.to_string(),
+    };
     if let Some(call_name) = kotlin_call_name(node, source) {
         edges.push(ParsedEdge {
             kind: crate::core::types::EdgeKind::Calls,

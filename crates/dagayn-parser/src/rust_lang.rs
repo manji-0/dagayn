@@ -65,6 +65,35 @@ fn rust_walk_children(
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         match child.kind() {
+            "mod_item" if child.child_by_field_name("body").is_some() => {
+                if let Some(name) = rust_identifier_child(child, context.source) {
+                    let path = rust_scope_join(enclosing_class, &name);
+                    nodes.push(ParsedNode {
+                        kind: crate::core::types::NodeKind::Class,
+                        name: name.clone(),
+                        file_path: context.file_path.clone(),
+                        line_start: child.start_position().row as i64 + 1,
+                        line_end: child.end_position().row as i64 + 1,
+                        language: "rust".to_string(),
+                        parent_name: enclosing_class.map(str::to_string),
+                        params: None,
+                        return_type: None,
+                        modifiers: None,
+                        is_test: false,
+                        extra: json!({"type_role": "module"}),
+                    });
+                    edges.push(ParsedEdge {
+                        kind: crate::core::types::EdgeKind::Contains,
+                        source: rust_container(&context.file_path, enclosing_class),
+                        target: qualify(&context.file_path, &name, enclosing_class),
+                        file_path: context.file_path.clone(),
+                        line: child.start_position().row as i64 + 1,
+                        extra: json!({}),
+                    });
+                    rust_walk_children(child, context, Some(&path), None, nodes, edges);
+                    continue;
+                }
+            }
             "struct_item" | "enum_item" | "trait_item" | "type_item" => {
                 if let Some(name) = rust_type_name(child, context.source) {
                     let qualified = qualify(&context.file_path, &name, enclosing_class);
@@ -89,7 +118,7 @@ fn rust_walk_children(
                     });
                     edges.push(ParsedEdge {
                         kind: crate::core::types::EdgeKind::Contains,
-                        source: context.file_path.to_string(),
+                        source: rust_container(&context.file_path, enclosing_class),
                         target: qualified,
                         file_path: context.file_path.clone(),
                         line: child.start_position().row as i64 + 1,
@@ -104,11 +133,13 @@ fn rust_walk_children(
                         Some(&name),
                         edges,
                     );
-                    rust_walk_children(child, context, Some(&name), None, nodes, edges);
+                    let path = rust_scope_join(enclosing_class, &name);
+                    rust_walk_children(child, context, Some(&path), None, nodes, edges);
                     continue;
                 }
             }
             "impl_item" if let Some(type_name) = rust_impl_type_name(child, context.source) => {
+                let type_name = rust_scope_join(enclosing_class, &type_name);
                 if let Some(trait_name) = rust_impl_trait_name(child, context.source) {
                     edges.push(ParsedEdge {
                         kind: crate::core::types::EdgeKind::Implements,
@@ -154,9 +185,7 @@ fn rust_walk_children(
                         is_test,
                         extra,
                     });
-                    let container = enclosing_class
-                        .map(|name| qualify(&context.file_path, name, None))
-                        .unwrap_or_else(|| context.file_path.to_string());
+                    let container = rust_container(&context.file_path, enclosing_class);
                     edges.push(ParsedEdge {
                         kind: crate::core::types::EdgeKind::Contains,
                         source: container,
@@ -187,7 +216,7 @@ fn rust_walk_children(
                 }
             }
             "use_declaration" => {
-                if let Some(target) = rust_use_target(child, context.source) {
+                for target in rust_use_targets(child, context.source) {
                     edges.push(ParsedEdge {
                         kind: crate::core::types::EdgeKind::ImportsFrom,
                         source: context.file_path.to_string(),
@@ -202,6 +231,7 @@ fn rust_walk_children(
                 if let Some(call_name) = rust_bound_member_target(child, context)
                     .or_else(|| rust_call_name(child, context.source))
                 {
+                    let call_name = rust_rewrite_relative_path(call_name, enclosing_class);
                     let caller = enclosing_func
                         .map(|name| qualify(&context.file_path, name, enclosing_class))
                         .unwrap_or_else(|| context.file_path.to_string());
@@ -491,15 +521,89 @@ fn rust_derive_traits(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<Vec<
     }
 }
 
-fn rust_use_target(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let text = node_text(node, source);
-    Some(
-        text.replace("use ", "")
-            .trim_end_matches(';')
-            .trim()
-            .to_string(),
-    )
-    .filter(|value| !value.is_empty())
+/// Rewrites `Self::f` and `super::f` against the enclosing scope path so the
+/// type-scoped resolver can match them.
+fn rust_rewrite_relative_path(call_name: String, enclosing: Option<&str>) -> String {
+    if let (Some(rest), Some(scope)) = (call_name.strip_prefix("Self::"), enclosing) {
+        return format!("{scope}::{rest}");
+    }
+    if let Some(rest) = call_name.strip_prefix("super::") {
+        let parent = enclosing.and_then(|scope| scope.rsplit_once('.').map(|(head, _)| head));
+        return match parent {
+            Some(parent) => format!("{parent}::{rest}"),
+            None => rest.to_string(),
+        };
+    }
+    call_name
+}
+
+fn rust_scope_join(enclosing: Option<&str>, name: &str) -> String {
+    match enclosing {
+        Some(parent) => format!("{parent}.{name}"),
+        None => name.to_string(),
+    }
+}
+
+fn rust_container(file_path: &FilePath, enclosing: Option<&str>) -> String {
+    enclosing
+        .map(|name| qualify(file_path, name, None))
+        .unwrap_or_else(|| file_path.to_string())
+}
+
+/// Expands a `use` tree into one path per imported item:
+/// `use a::{b, c::d as e, self}` yields `a::b`, `a::c::d`, `a`.
+fn rust_use_targets(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
+    let mut targets = Vec::new();
+    if let Some(argument) = node.child_by_field_name("argument") {
+        rust_collect_use_tree(argument, source, "", &mut targets);
+    }
+    targets
+}
+
+fn rust_collect_use_tree(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    prefix: &str,
+    targets: &mut Vec<String>,
+) {
+    let join = |tail: &str| {
+        if prefix.is_empty() {
+            tail.to_string()
+        } else {
+            format!("{prefix}::{tail}")
+        }
+    };
+    match node.kind() {
+        "use_as_clause" => {
+            if let Some(path) = node.child_by_field_name("path") {
+                rust_collect_use_tree(path, source, prefix, targets);
+            }
+        }
+        "scoped_use_list" => {
+            let nested = node
+                .child_by_field_name("path")
+                .map(|path| join(node_text(path, source).trim()))
+                .unwrap_or_else(|| prefix.to_string());
+            if let Some(list) = node.child_by_field_name("list") {
+                rust_collect_use_tree(list, source, &nested, targets);
+            }
+        }
+        "use_list" => {
+            let mut cursor = node.walk();
+            for item in node.named_children(&mut cursor) {
+                rust_collect_use_tree(item, source, prefix, targets);
+            }
+        }
+        "self" if !prefix.is_empty() => targets.push(prefix.to_string()),
+        "line_comment" | "block_comment" => {}
+        _ => {
+            let text = node_text(node, source);
+            let text = text.trim();
+            if !text.is_empty() {
+                targets.push(join(text));
+            }
+        }
+    }
 }
 
 fn rust_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {

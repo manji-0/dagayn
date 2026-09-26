@@ -108,10 +108,24 @@ fn r_handle_binary_operator(
     let Some((left, operator, right)) = r_binary_operator_parts(node) else {
         return false;
     };
-    if !matches!(operator.kind(), "<-" | "=") || left.kind() != "identifier" {
+    // `->` and `->>` bind right-to-left, so the target is on the right.
+    let (target, value) = match operator.kind() {
+        "<-" | "=" | "<<-" => (left, right),
+        "->" | "->>" => (right, left),
+        _ => return false,
+    };
+    if target.kind() != "identifier" {
         return false;
     }
-    let name = node_text(left, context.source);
+    let mut value = value;
+    while value.kind() == "parenthesized_expression" {
+        let mut cursor = value.walk();
+        let Some(inner) = value.named_children(&mut cursor).next() else {
+            break;
+        };
+        value = inner;
+    }
+    let (name, right) = (node_text(target, context.source), value);
     if right.kind() == "function_definition" {
         r_emit_function(right, context, &name, enclosing_class, nodes, edges);
         r_walk_children(right, context, enclosing_class, Some(&name), nodes, edges);
@@ -119,10 +133,7 @@ fn r_handle_binary_operator(
     }
     if right.kind() == "call"
         && let Some(call_name) = r_call_name(right, context.source)
-        && matches!(
-            call_name.as_str(),
-            "setRefClass" | "setClass" | "setGeneric"
-        )
+        && r_is_class_constructor(&call_name)
     {
         r_emit_class_call(right, context, Some(&name), enclosing_class, nodes, edges);
         return true;
@@ -156,10 +167,7 @@ fn r_handle_call(
         return true;
     }
 
-    if matches!(
-        call_name.as_str(),
-        "setRefClass" | "setClass" | "setGeneric"
-    ) {
+    if r_is_class_constructor(&call_name) {
         r_emit_class_call(node, context, None, enclosing_class, nodes, edges);
         return true;
     }
@@ -174,6 +182,13 @@ fn r_handle_call(
     );
     r_walk_children(node, context, enclosing_class, enclosing_func, nodes, edges);
     true
+}
+
+fn r_is_class_constructor(call_name: &str) -> bool {
+    matches!(
+        call_name.strip_prefix("R6::").unwrap_or(call_name),
+        "setRefClass" | "setClass" | "setGeneric" | "R6Class"
+    )
 }
 
 fn r_emit_function(
@@ -249,13 +264,61 @@ fn r_emit_class_call(
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Contains,
         source: context.file_path.to_string(),
-        target: qualified,
+        target: qualified.clone(),
         file_path: context.file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
-    if let Some(methods) = r_find_named_arg(node, context.source, "methods") {
-        r_extract_methods(methods, context, &class_name, nodes, edges);
+    // S4/RC use `contains`; R6 uses `inherit`.
+    for key in ["contains", "inherit"] {
+        let Some(value) = r_find_named_arg(node, context.source, key) else {
+            continue;
+        };
+        for base in r_class_references(value, context.source) {
+            edges.push(ParsedEdge {
+                kind: crate::core::types::EdgeKind::Inherits,
+                source: qualified.clone(),
+                target: base,
+                file_path: context.file_path.clone(),
+                line: node.start_position().row as i64 + 1,
+                extra: json!({"relationship_role": "extends", "syntax_source": key}),
+            });
+        }
+    }
+    // RC declares `methods`; R6 splits them across `public`/`private`/`active`.
+    for key in ["methods", "public", "private", "active"] {
+        if let Some(methods) = r_find_named_arg(node, context.source, key) {
+            r_extract_methods(methods, context, &class_name, nodes, edges);
+        }
+    }
+}
+
+/// Class names in a `contains`/`inherit` value: `"P"`, `Base`, or `c("A", "B")`.
+fn r_class_references(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
+    match node.kind() {
+        "identifier" => vec![node_text(node, source)],
+        "string" => r_first_descendant_text(node, source, &["string_content"])
+            .into_iter()
+            .collect(),
+        "call" => {
+            let mut out = Vec::new();
+            let mut stack = vec![node];
+            while let Some(current) = stack.pop() {
+                if current.kind() == "string" {
+                    out.extend(r_first_descendant_text(
+                        current,
+                        source,
+                        &["string_content"],
+                    ));
+                    continue;
+                }
+                let mut cursor = current.walk();
+                let children: Vec<_> = current.children(&mut cursor).collect();
+                stack.extend(children.into_iter().rev());
+            }
+            out
+        }
+        _ => Vec::new(),
     }
 }
 

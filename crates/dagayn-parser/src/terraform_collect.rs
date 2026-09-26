@@ -472,27 +472,88 @@ fn collect_terraform_references_from_tree(
     source: &[u8],
 ) -> Vec<String> {
     let mut references = Vec::new();
-    collect_terraform_reference_nodes(node, source, &mut references);
+    let mut bound = Vec::new();
+    collect_terraform_reference_nodes(node, source, &mut bound, &mut references);
     dedupe_strings(references)
 }
 
 fn collect_terraform_reference_nodes(
     node: tree_sitter::Node<'_>,
     source: &[u8],
+    bound: &mut Vec<String>,
     references: &mut Vec<String>,
 ) {
+    // `provider = aws.east` selects a provider configuration, not a resource.
+    if node.kind() == "attribute"
+        && node
+            .child_by_field_name("name")
+            .is_some_and(|name| node_text(name, source) == "provider")
+        && let Some(value) = node.child_by_field_name("value")
+        && let Some(segments) = terraform_traversal_segments(value, source)
+        && segments.len() <= 2
+    {
+        references.push(format!("provider.{}", segments[0]));
+        return;
+    }
     // String and heredoc literal text is never scanned: only the expressions
     // inside `${ ... }` (`template_interpolation`) are references, and the
     // recursion below reaches them as ordinary `expression` nodes.
     if node.kind() == "expression"
         && let Some(segments) = terraform_traversal_segments(node, source)
+        && segments.first().is_none_or(|root| !bound.contains(root))
         && let Some(target) = terraform_reference_from_segments(&segments)
     {
         references.push(target);
     }
+    let scope_len = bound.len();
+    bound.extend(terraform_local_bindings(node, source));
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        collect_terraform_reference_nodes(child, source, references);
+        collect_terraform_reference_nodes(child, source, bound, references);
+    }
+    bound.truncate(scope_len);
+}
+
+/// Names a node binds for its subtree: `for k, v in ...` iterators and the
+/// iterator of a `dynamic "label"` block (the label, or its `iterator` attribute).
+fn terraform_local_bindings(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
+    let mut cursor = node.walk();
+    match node.kind() {
+        "for_tuple_expr" | "for_object_expr" => node
+            .children(&mut cursor)
+            .filter(|child| child.kind() == "identifier")
+            .map(|child| node_text(child, source))
+            .collect(),
+        "block" => {
+            let children = node.children(&mut cursor).collect::<Vec<_>>();
+            if children
+                .first()
+                .is_none_or(|first| node_text(*first, source) != "dynamic")
+            {
+                return Vec::new();
+            }
+            let iterator = terraform_block_body_node(node).and_then(|body| {
+                let mut cursor = body.walk();
+                body.children(&mut cursor)
+                    .filter(|attr| attr.kind() == "attribute")
+                    .find(|attr| {
+                        attr.child_by_field_name("name")
+                            .is_some_and(|name| node_text(name, source) == "iterator")
+                    })
+                    .and_then(|attr| attr.child_by_field_name("value"))
+                    .map(|value| node_text(value, source).trim().to_string())
+            });
+            iterator
+                .or_else(|| {
+                    children
+                        .iter()
+                        .find(|child| child.kind() == "string_lit")
+                        .map(|label| strip_tf_string(&node_text(*label, source)))
+                })
+                .into_iter()
+                .collect()
+        }
+        _ => Vec::new(),
     }
 }
 

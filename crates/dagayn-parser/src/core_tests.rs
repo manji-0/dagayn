@@ -796,7 +796,7 @@ end
     assert!(nodes.iter().any(|node| {
         node.kind == "Function"
             && node.name == "save"
-            && node.parent_name.as_deref() == Some("UserRepository")
+            && node.parent_name.as_deref() == Some("Auth.UserRepository")
             && node.params.is_none()
     }));
     assert!(edges.iter().any(|edge| {
@@ -804,8 +804,8 @@ end
     }));
     assert!(edges.iter().any(|edge| {
         edge.kind == "CALLS"
-            && edge.source == "app.rb::UserRepository.create_user"
-            && edge.target == "app.rb::UserRepository.save"
+            && edge.source == "app.rb::Auth.UserRepository.create_user"
+            && edge.target == "app.rb::Auth.UserRepository.save"
     }));
     assert!(edges.iter().any(|edge| {
         edge.kind == "CROSS_ARTIFACT"
@@ -1446,7 +1446,11 @@ class Broker {
     assert!(edges.iter().any(|edge| {
         edge.kind == "IMPORTS_FROM" && edge.source == "sample.php" && edge.target == "Exception"
     }));
-    assert!(edges.iter().all(|edge| edge.kind != "IMPLEMENTS"));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "IMPLEMENTS"
+            && edge.source == "sample.php::ExtendedRepo"
+            && edge.target == "Repository"
+    }));
     assert!(edges.iter().any(|edge| {
         edge.kind == "CALLS"
             && edge.source == "sample.php::ExtendedRepo.save"
@@ -1511,7 +1515,9 @@ fun createUser(repo: UserRepository) {
 "#;
     let (nodes, edges) = parse_kotlin("sample.kt", source);
     assert!(nodes.iter().any(|node| {
-        node.kind == "Class" && node.name == "UserRepository" && node.extra["type_role"] == "class"
+        node.kind == "Class"
+            && node.name == "UserRepository"
+            && node.extra["type_role"] == "interface"
     }));
     assert!(nodes.iter().any(|node| {
         node.kind == "Class"
@@ -1532,9 +1538,9 @@ fun createUser(repo: UserRepository) {
             && edge.target == "java.nio.file.Files"
     }));
     assert!(edges.iter().any(|edge| {
-        edge.kind == "INHERITS"
+        edge.kind == "IMPLEMENTS"
             && edge.source == "sample.kt::InMemoryRepo"
-            && edge.target == "InMemoryRepo"
+            && edge.target == "UserRepository"
     }));
     assert!(edges.iter().any(|edge| {
         edge.kind == "CALLS"
@@ -1612,7 +1618,9 @@ object BridgeSamples:
             && edge.target == "Serializable"
     }));
     assert!(edges.iter().any(|edge| {
-        edge.kind == "CALLS" && edge.source == "sample.scala" && edge.target == "HashMap"
+        edge.kind == "CALLS"
+            && edge.source == "sample.scala::InMemoryRepo"
+            && edge.target == "HashMap"
     }));
     assert!(edges.iter().any(|edge| {
         edge.kind == "CROSS_ARTIFACT"
@@ -1790,7 +1798,7 @@ end
     assert!(edges.iter().any(|edge| {
         edge.kind == "CALLS"
             && edge.source == "sample.lua::Dog.fetch"
-            && edge.target == "sample.lua::speak"
+            && edge.target == "sample.lua::Animal.speak"
     }));
     assert!(edges.iter().any(|edge| {
         edge.kind == "CROSS_ARTIFACT"
@@ -2309,15 +2317,15 @@ sub bark {
     assert!(
         edges
             .iter()
-            .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "use strict;" })
+            .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "File::Basename" })
     );
     assert!(edges.iter().any(|edge| {
-        edge.kind == "CALLS" && edge.source == "sample.pl::new" && edge.target == "bless"
+        edge.kind == "CALLS" && edge.source == "sample.pl::Animal.new" && edge.target == "bless"
     }));
     assert!(edges.iter().any(|edge| {
         edge.kind == "CALLS"
-            && edge.source == "sample.pl::bark"
-            && edge.target == "sample.pl::speak"
+            && edge.source == "sample.pl::Dog.bark"
+            && edge.target == "sample.pl::Animal.speak"
     }));
 
     let bridge_source = br#"sub run_command {
@@ -2968,7 +2976,7 @@ fn helper() {}
     assert!(edges.iter().any(|edge| {
         edge.kind == "IMPORTS_FROM"
             && edge.source == "src/lib.rs"
-            && edge.target == "pub dagayn_graph::{GraphStore}"
+            && edge.target == "dagayn_graph::GraphStore"
     }));
     assert!(edges.iter().any(|edge| {
         edge.kind == "CALLS"

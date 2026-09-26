@@ -154,7 +154,10 @@ fn dart_walk_children(
             "import_or_export" => {
                 dart_emit_import(child, source, file_path, edges);
             }
-            "class_definition" | "mixin_declaration" | "enum_declaration" => {
+            "class_definition"
+            | "mixin_declaration"
+            | "enum_declaration"
+            | "extension_declaration" => {
                 if let Some(name) = dart_direct_child_text(child, source, &["identifier"]) {
                     dart_emit_type(
                         child,
@@ -165,12 +168,17 @@ fn dart_walk_children(
                         nodes,
                         edges,
                     );
-                    dart_walk_children(child, source, file_path, Some(&name), None, nodes, edges);
+                    let path = match enclosing_class {
+                        Some(parent) => format!("{parent}.{name}"),
+                        None => name.clone(),
+                    };
+                    dart_walk_children(child, source, file_path, Some(&path), None, nodes, edges);
                     continue;
                 }
             }
-            "function_signature" | "method_signature" => {
-                if let Some((signature, name)) = dart_signature_name(child, source) {
+            "function_signature" | "method_signature" | "declaration" => {
+                if let Some((signature, name)) = dart_signature_name(child, source, enclosing_class)
+                {
                     dart_emit_function(
                         signature,
                         source,
@@ -219,17 +227,40 @@ fn dart_walk_children(
 
 /// Returns the `function_signature` node and its declared name.
 ///
-/// Class members wrap the signature in a `method_signature`; getters, setters
-/// and constructors have no `function_signature` and yield `None`.
+/// Class members wrap the signature in a `method_signature`. A constructor is
+/// named after its class (`A`) or its named suffix (`A.named` -> `named`).
 fn dart_signature_name<'tree>(
     node: tree_sitter::Node<'tree>,
     source: &[u8],
+    enclosing_class: Option<&str>,
 ) -> Option<(tree_sitter::Node<'tree>, String)> {
     let signature = if node.kind() == "function_signature" {
         node
     } else {
-        dart_direct_child(node, &["function_signature"])?
+        dart_direct_child(
+            node,
+            &[
+                "function_signature",
+                "getter_signature",
+                "setter_signature",
+                "constructor_signature",
+                "factory_constructor_signature",
+            ],
+        )?
     };
+    if matches!(
+        signature.kind(),
+        "constructor_signature" | "factory_constructor_signature"
+    ) {
+        enclosing_class?;
+        let mut cursor = signature.walk();
+        let name = signature
+            .children(&mut cursor)
+            .filter(|child| child.kind() == "identifier")
+            .last()
+            .map(|child| node_text(child, source).trim().to_string())?;
+        return (!name.is_empty()).then_some((signature, name));
+    }
     let name = signature
         .child_by_field_name("name")
         .map(|name| node_text(name, source).trim().to_string())
@@ -272,6 +303,7 @@ fn dart_emit_type(
     let (type_role, is_abstract) = match node.kind() {
         "mixin_declaration" => ("mixin", false),
         "enum_declaration" => ("enum", false),
+        "extension_declaration" => ("extension", false),
         _ if dart_has_direct_child_kind(node, "abstract") => ("abstract_class", true),
         _ => ("class", false),
     };
@@ -302,7 +334,9 @@ fn dart_emit_type(
     });
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Contains,
-        source: file_path.to_string(),
+        source: enclosing_class
+            .map(|parent| qualify(file_path, parent, None))
+            .unwrap_or_else(|| file_path.to_string()),
         target: qualified.clone(),
         file_path: file_path.clone(),
         line: node.start_position().row as i64 + 1,
@@ -371,9 +405,11 @@ fn dart_emit_calls_from_children(
     enclosing_func: Option<&str>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let caller = enclosing_func
-        .map(|func| qualify(file_path, func, enclosing_class))
-        .unwrap_or_else(|| file_path.to_string());
+    let caller = match (enclosing_func, enclosing_class) {
+        (Some(func), _) => qualify(file_path, func, enclosing_class),
+        (None, Some(class)) => qualify(file_path, class, None),
+        (None, None) => file_path.to_string(),
+    };
     let mut call_name = None;
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
