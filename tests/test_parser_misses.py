@@ -540,3 +540,38 @@ end
         names, edges, _ = parse("m.jl", self.SOURCE)
         assert ("Function", "operator()", "Geo.Pt") in names
         assert ("CALLS", "<f>::Geo.Pt.operator()", "helper") in edges
+
+
+class TestElixir:
+    SOURCE = """\
+defmodule MyApp.Accounts do
+  alias MyApp.{Repo, User}
+
+  defmodule Helper do
+    def fmt(x), do: String.trim(x)
+  end
+
+  def get(id) when is_integer(id) do
+    id |> fetch() |> Helper.fmt()
+  end
+
+  defp fetch(id), do: Repo.get(User, id)
+end
+"""
+
+    def test_guarded_def(self, parse):
+        names, edges, _ = parse("m.ex", self.SOURCE)
+        assert ("Function", "get", "MyApp.Accounts") in names
+        assert ("CALLS", "<f>::MyApp.Accounts.get", "<f>::MyApp.Accounts.fetch") in edges
+
+    def test_nested_module_scope(self, parse):
+        names, edges, _ = parse("m.ex", self.SOURCE)
+        assert ("Class", "Helper", "MyApp.Accounts") in names
+        assert ("CONTAINS", "<f>::MyApp.Accounts", "<f>::MyApp.Accounts.Helper") in edges
+        assert ("CALLS", "<f>::MyApp.Accounts.get", "<f>::MyApp.Accounts.Helper.fmt") in edges
+
+    def test_keyword_do_body_and_multi_alias(self, parse):
+        _, edges, _ = parse("m.ex", self.SOURCE)
+        assert ("CALLS", "<f>::MyApp.Accounts.Helper.fmt", "trim") in edges
+        assert ("IMPORTS_FROM", "<f>", "MyApp.Repo") in edges
+        assert ("IMPORTS_FROM", "<f>", "MyApp.User") in edges

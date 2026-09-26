@@ -110,9 +110,13 @@ fn elixir_handle_call(
             let Some(module_name) = elixir_module_name(arguments, context.source) else {
                 return false;
             };
-            elixir_emit_module(node, context, &module_name, nodes, edges);
+            elixir_emit_module(node, context, &module_name, enclosing_module, nodes, edges);
+            let scope = match enclosing_module {
+                Some(parent) => format!("{parent}.{module_name}"),
+                None => module_name,
+            };
             if let Some(do_block) = elixir_direct_child(node, &["do_block"]) {
-                elixir_walk_children(do_block, context, Some(&module_name), None, nodes, edges);
+                elixir_walk_children(do_block, context, Some(&scope), None, nodes, edges);
             }
             true
         }
@@ -144,20 +148,31 @@ fn elixir_handle_call(
                     edges,
                 );
             }
+            // `def f(x), do: body` keeps its body in a keyword pair.
+            if let Some(keywords) = elixir_direct_child(arguments, &["keywords"]) {
+                elixir_walk_children(
+                    keywords,
+                    context,
+                    enclosing_module,
+                    Some(&function_name),
+                    nodes,
+                    edges,
+                );
+            }
             true
         }
         "alias" | "import" | "require" | "use" => {
-            if let Some(arguments) = elixir_direct_child(node, &["arguments"])
-                && let Some(module_name) = elixir_module_name(arguments, context.source)
-            {
-                edges.push(ParsedEdge {
-                    kind: crate::core::types::EdgeKind::ImportsFrom,
-                    source: context.file_path.to_string(),
-                    target: module_name,
-                    file_path: context.file_path.clone(),
-                    line: node.start_position().row as i64 + 1,
-                    extra: json!({}),
-                });
+            if let Some(arguments) = elixir_direct_child(node, &["arguments"]) {
+                for module_name in elixir_import_targets(arguments, context.source) {
+                    edges.push(ParsedEdge {
+                        kind: crate::core::types::EdgeKind::ImportsFrom,
+                        source: context.file_path.to_string(),
+                        target: module_name,
+                        file_path: context.file_path.clone(),
+                        line: node.start_position().row as i64 + 1,
+                        extra: json!({}),
+                    });
+                }
             }
             true
         }
@@ -185,10 +200,11 @@ fn elixir_emit_module(
     node: tree_sitter::Node<'_>,
     context: &ElixirParseContext<'_>,
     name: &str,
+    enclosing_module: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let qualified = qualify(&context.file_path, name, None);
+    let qualified = qualify(&context.file_path, name, enclosing_module);
     nodes.push(ParsedNode {
         kind: crate::core::types::NodeKind::Class,
         name: name.to_string(),
@@ -196,7 +212,7 @@ fn elixir_emit_module(
         line_start: node.start_position().row as i64 + 1,
         line_end: node.end_position().row as i64 + 1,
         language: "elixir".to_string(),
-        parent_name: None,
+        parent_name: enclosing_module.map(str::to_string),
         params: None,
         return_type: None,
         modifiers: None,
@@ -205,7 +221,9 @@ fn elixir_emit_module(
     });
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Contains,
-        source: context.file_path.to_string(),
+        source: enclosing_module
+            .map(|module| qualify(&context.file_path, module, None))
+            .unwrap_or_else(|| context.file_path.to_string()),
         target: qualified,
         file_path: context.file_path.clone(),
         line: node.start_position().row as i64 + 1,
@@ -305,6 +323,31 @@ fn elixir_module_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<Stri
     None
 }
 
+/// `alias MyApp.{Repo, User}` names two modules.
+fn elixir_import_targets(arguments: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
+    let mut cursor = arguments.walk();
+    let Some(target) = arguments
+        .children(&mut cursor)
+        .find(|child| matches!(child.kind(), "alias" | "dot"))
+    else {
+        return Vec::new();
+    };
+    if target.kind() == "dot"
+        && let Some(tuple) = elixir_direct_child(target, &["tuple"])
+    {
+        let prefix = elixir_first_named_child(target)
+            .map(|base| node_text(base, source).replace(' ', ""))
+            .unwrap_or_default();
+        let mut cursor = tuple.walk();
+        return tuple
+            .named_children(&mut cursor)
+            .filter(|child| child.kind() == "alias")
+            .map(|child| format!("{prefix}.{}", node_text(child, source)))
+            .collect();
+    }
+    vec![node_text(target, source).replace(' ', "")]
+}
+
 fn elixir_function_name_and_params(
     arguments: tree_sitter::Node<'_>,
     source: &[u8],
@@ -321,6 +364,19 @@ fn elixir_function_name_and_params(
         }
         if child.kind() == "identifier" {
             return Some((node_text(child, source), None));
+        }
+        // `def f(x) when is_integer(x)`: the head is the guard's left operand.
+        if child.kind() == "binary_operator"
+            && let Some(head) = elixir_first_named_child(child)
+            && matches!(head.kind(), "call" | "identifier")
+        {
+            let mut cursor = child.walk();
+            let is_guard = child
+                .children(&mut cursor)
+                .any(|op| node_text(op, source) == "when");
+            if is_guard {
+                return elixir_function_name_and_params(child, source);
+            }
         }
     }
     None
@@ -391,7 +447,10 @@ fn resolve_elixir_call_targets(
         .into_iter()
         .map(|mut edge| {
             if edge.kind == "CALLS" && !edge.target.contains("::") {
-                if let Some(target) = dotted_functions.get(&edge.target) {
+                let nested = elixir_source_module(&edge.source, file_path)
+                    .map(|module| format!("{module}.{}", edge.target))
+                    .and_then(|dotted| dotted_functions.get(&dotted));
+                if let Some(target) = dotted_functions.get(&edge.target).or(nested) {
                     edge.target = target.clone();
                 } else if edge.target.contains('.') {
                     edge.target = edge
