@@ -858,8 +858,10 @@ def hybrid_search(
 ) -> SearchPayload:
     """Hybrid search combining FTS5 BM25 and vector embeddings via RRF.
 
-    Attempts FTS5 + embedding search first, falling back to FTS5-only,
-    then keyword LIKE matching if FTS5 is unavailable.
+    Runs the FTS5 arm, then the embedding arm (sequentially), and fuses
+    whichever returned hits.  The mode is ``"hybrid"`` when both did,
+    ``"fts_only"`` or ``"embedding_only"`` when only one did, and
+    ``"keyword_fallback"`` (LIKE matching) when neither did.
 
     Args:
         store: The graph store to search.

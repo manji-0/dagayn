@@ -102,6 +102,10 @@ All notable changes to `dagayn` are documented here.
   embedding results are fused, a smaller `k` favours items at the top of one
   arm and a larger `k` favours items that both arms return, so `k=10` can
   order results differently from the textbook 60.
+- `docs/ARCHITECTURE.md` no longer says hybrid search runs its two arms in
+  parallel. `hybrid_search` runs the FTS arm, then the embedding arm, and the
+  fallback chain (`hybrid` → `fts_only` → `embedding_only` →
+  `keyword_fallback`) is now described by which arms returned hits.
 
 ## 4.15.0 — 2026-09-25
 
