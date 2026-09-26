@@ -1794,6 +1794,27 @@ class TestTerraformMultiFileBuild(_TempRepoBuildMixin):
         ).fetchall()
         assert any("module.network" in row["target_qualified"] for row in references)
 
+    def test_build_keeps_same_file_terraform_references_confident(self, tmp_path):
+        from dagayn.postprocessing import run_post_processing
+
+        store, _ = self._build(tmp_path)
+        run_post_processing(store)
+        cur = store_conn(store).cursor()
+        module_main = "infra/modules/network/main.tf"
+
+        rows = cur.execute(
+            "SELECT source_qualified, target_qualified, confidence_tier FROM edges "
+            "WHERE kind='REFERENCES' AND file_path=?",
+            (module_main,),
+        ).fetchall()
+        edge = next(
+            row
+            for row in rows
+            if row["source_qualified"] == f"{module_main}::resource.aws_vpc.main"
+            and row["target_qualified"] == f"{module_main}::var.cidr_block"
+        )
+        assert edge["confidence_tier"] != "LOW"
+
 
 class TestMixedMonorepoBuild(_TempRepoBuildMixin):
     def _build(self, tmp_path):

@@ -302,9 +302,73 @@ output "vpc_id" {
     );
     assert!(edges.iter().any(|edge| {
         edge.kind == "REFERENCES"
-            && edge.source == "resource.aws_vpc.main"
+            && edge.source == "main.tf::resource.aws_vpc.main"
             && edge.target == "main.tf::data.aws_caller_identity.current"
     }));
+}
+
+#[test]
+fn terraform_reference_and_call_sources_use_node_qualified_names() {
+    let source = br#"locals {
+  bucket_name = lower("logs")
+}
+
+resource "aws_s3_bucket" "logs" {
+  bucket = local.bucket_name
+  tags = {
+    Self = aws_s3_bucket.logs.id
+  }
+}
+
+output "bucket_arn" {
+  value = aws_s3_bucket.logs.arn
+}
+"#;
+    let (nodes, edges) = parse_terraform("infra/main.tf", source);
+    let qualified = nodes
+        .iter()
+        .map(|node| {
+            if node.kind == "File" {
+                node.file_path.to_string()
+            } else {
+                format!("{}::{}", node.file_path, node.name)
+            }
+        })
+        .collect::<HashSet<_>>();
+    let flow_edges = edges
+        .iter()
+        .filter(|edge| matches!(edge.kind, EdgeKind::References | EdgeKind::Calls))
+        .collect::<Vec<_>>();
+    assert!(!flow_edges.is_empty());
+    for edge in &flow_edges {
+        assert!(
+            qualified.contains(&edge.source),
+            "{:?} source {:?} is not a node qualified name",
+            edge.kind,
+            edge.source
+        );
+    }
+    assert!(flow_edges.iter().any(|edge| {
+        edge.kind == "CALLS"
+            && edge.source == "infra/main.tf::local.bucket_name"
+            && edge.target == "lower"
+    }));
+    assert!(flow_edges.iter().any(|edge| {
+        edge.kind == "REFERENCES"
+            && edge.source == "infra/main.tf::resource.aws_s3_bucket.logs"
+            && edge.target == "infra/main.tf::local.bucket_name"
+    }));
+    assert!(flow_edges.iter().any(|edge| {
+        edge.kind == "REFERENCES"
+            && edge.source == "infra/main.tf::output.bucket_arn"
+            && edge.target == "infra/main.tf::resource.aws_s3_bucket.logs"
+    }));
+    assert!(
+        !flow_edges
+            .iter()
+            .any(|edge| edge.kind == "REFERENCES" && edge.source == edge.target),
+        "a block referencing itself must not produce a self edge"
+    );
 }
 
 #[test]

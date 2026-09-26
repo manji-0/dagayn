@@ -94,6 +94,21 @@ class TestTerraformParsing:
         assert any(target.endswith("::data.aws_caller_identity.current") for target in targets)
         assert any(target.endswith("::resource.aws_vpc.main") for target in targets)
 
+    def test_reference_and_call_sources_are_node_qualified_names(self):
+        """REFERENCES/CALLS sources must match node qualified names.
+
+        Bare sources such as ``resource.aws_vpc.main`` never match a node, so
+        post-processing demoted every Terraform edge to LOW confidence.
+        """
+        qualified = {
+            node.file_path if node.kind == "File" else f"{node.file_path}::{node.name}"
+            for node in self.nodes
+        }
+        flow_edges = [edge for edge in self.edges if edge.kind in {"REFERENCES", "CALLS"}]
+        assert flow_edges
+        for edge in flow_edges:
+            assert edge.source in qualified, (edge.kind, edge.source)
+
 
 class TestTerraformCodeBridges:
     """CROSS_ARTIFACT bridges from Terraform resources to application code."""

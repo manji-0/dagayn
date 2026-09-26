@@ -166,6 +166,14 @@ All notable changes to `dagayn` are documented here.
   pure-Python cosine loop: 300 seeded random 64-dimension vectors must score
   within `1e-5` on a full scan and on a top-k cut.
 
+### Fixes
+
+- Terraform `REFERENCES` and `CALLS` edges now start from the block's
+  qualified node (`infra/main.tf::resource.aws_s3_bucket.logs`) instead of its
+  bare name (`resource.aws_s3_bucket.logs`). The bare source matched no node,
+  so unresolved-endpoint demotion marked every Terraform reference and call
+  edge `LOW` confidence, even between blocks of the same file.
+
 ## 4.15.0 — 2026-09-25
 
 ### Fixes

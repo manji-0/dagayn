@@ -251,7 +251,7 @@ fn parse_terraform_hcl(
                 );
                 scan_terraform_attr(
                     attr,
-                    &node_name,
+                    &terraform_qualified(&file_path, &node_name),
                     &file_path,
                     attr.line_start,
                     &defined_names,
@@ -296,7 +296,7 @@ fn parse_terraform_hcl(
         );
         scan_terraform_block(
             block,
-            &node_name,
+            &terraform_qualified(&file_path, &node_name),
             &file_path,
             block.line_start,
             &defined_names,
@@ -601,7 +601,7 @@ fn push_terraform_references(
 ) {
     let mut seen = HashSet::new();
     for target in references {
-        if target == caller || !seen.insert(target.clone()) {
+        if !seen.insert(target.clone()) {
             continue;
         }
         let resolved = if defined_names.contains(target) {
@@ -609,6 +609,10 @@ fn push_terraform_references(
         } else {
             target.clone()
         };
+        // `caller` is the qualified source; a block naming itself is not an edge.
+        if resolved == caller {
+            continue;
+        }
         edges.push(ParsedEdge {
             kind: crate::core::types::EdgeKind::References,
             source: caller.to_string(),
