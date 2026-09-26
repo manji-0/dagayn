@@ -478,3 +478,35 @@ function a.b.c() priv() end
     def test_table_calls_resolve_through_table(self, parse):
         _, edges, _ = parse("m.lua", self.SOURCE)
         assert ("CALLS", "<f>::priv", "<f>::M.f") in edges
+
+
+class TestR:
+    SOURCE = """\
+Person <- R6::R6Class("Person",
+  inherit = Base,
+  public = list(
+    initialize = function(name) { helper() }
+  )
+)
+setClass("S", contains = c("P", "Q"))
+k <<- function() f()
+(function(z) z) -> kk
+f <- function() 1
+"""
+
+    def test_r6_classes(self, parse):
+        names, edges, _ = parse("m.R", self.SOURCE)
+        assert ("Function", "initialize", "Person") in names
+        assert ("INHERITS", "<f>::Person", "Base") in edges
+        assert ("CALLS", "<f>::Person.initialize", "helper") in edges
+
+    def test_contains_inheritance(self, parse):
+        _, edges, _ = parse("m.R", self.SOURCE)
+        assert ("INHERITS", "<f>::S", "P") in edges
+        assert ("INHERITS", "<f>::S", "Q") in edges
+
+    def test_other_assignment_operators(self, parse):
+        names, edges, _ = parse("m.R", self.SOURCE)
+        assert ("Function", "k", None) in names
+        assert ("Function", "kk", None) in names
+        assert ("CALLS", "<f>::k", "<f>::f") in edges
