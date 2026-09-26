@@ -3457,6 +3457,65 @@ export declare abstract class ExportedAbstract {
 }
 
 #[test]
+fn parses_javascript_and_typescript_generator_declarations() {
+    let source = br#"export function* gen() {
+  yield helper();
+}
+export async function* agen() {
+  yield* gen();
+}
+export const genExpr = function* () {
+  helper();
+};
+class Items {
+  *items() {
+    helper();
+  }
+  async *aitems() {}
+}
+function helper() {}
+"#;
+    for (file, language) in [("gen.js", "javascript"), ("gen.ts", "typescript")] {
+        let (nodes, edges) = parse_javascript_like(file, source, language);
+        for name in ["gen", "agen", "genExpr", "helper"] {
+            assert!(
+                nodes.iter().any(|node| {
+                    node.kind == "Function" && node.name == name && node.parent_name.is_none()
+                }),
+                "{file}: missing {name}: {nodes:?}"
+            );
+        }
+        for name in ["items", "aitems"] {
+            assert!(nodes.iter().any(|node| {
+                node.kind == "Function"
+                    && node.name == name
+                    && node.parent_name.as_deref() == Some("Items")
+            }));
+        }
+        for (caller, callee) in [
+            ("gen", "helper"),
+            ("agen", "gen"),
+            ("genExpr", "helper"),
+            ("Items.items", "helper"),
+        ] {
+            assert!(
+                edges.iter().any(|edge| {
+                    edge.kind == "CALLS"
+                        && edge.source == format!("{file}::{caller}")
+                        && edge.target == format!("{file}::{callee}")
+                }),
+                "{file}: missing CALLS {caller} -> {callee}: {edges:?}"
+            );
+        }
+        assert!(
+            !edges
+                .iter()
+                .any(|edge| edge.kind == "CALLS" && edge.source == file)
+        );
+    }
+}
+
+#[test]
 fn parses_typescript_constructors_reexports_and_interface_methods() {
     let source = br#"
 export { Repo } from "./other";

@@ -1357,6 +1357,17 @@ class TestTypeRoleAndImplements:
             for e in edges
         )
 
+    def test_javascript_generator_declarations(self, tmp_path):
+        src = "function* gen() { yield 1; }\nasync function* agen() { yield* gen(); }\n"
+        for language in ("js", "ts"):
+            nodes, edges = self._parse(src, language, tmp_path)
+            names = {n.name for n in nodes if n.kind == "Function"}
+            assert {"gen", "agen"} <= names
+            assert any(
+                e.kind == "CALLS" and e.source.endswith("::agen") and e.target.endswith("::gen")
+                for e in edges
+            )
+
     def test_typescript_implements_edge(self, tmp_path):
         src = "interface IBar {} class Foo implements IBar {}"
         _, edges = self._parse(src, "ts", tmp_path)

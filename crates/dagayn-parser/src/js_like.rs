@@ -167,6 +167,7 @@ fn javascript_walk_children(
                 }
             }
             "function_declaration"
+            | "generator_function_declaration"
             | "method_definition"
             | "method_signature"
             | "abstract_method_signature"
@@ -1151,7 +1152,10 @@ fn is_test_runner_name(name: &str) -> bool {
 }
 
 fn is_javascript_function_value(kind: &str) -> bool {
-    matches!(kind, "arrow_function" | "function_expression" | "function")
+    matches!(
+        kind,
+        "arrow_function" | "function_expression" | "function" | "generator_function"
+    )
 }
 
 fn is_javascript_test_function(name: &str, file_path: &FilePath) -> bool {

@@ -61,7 +61,7 @@ pub(super) fn collect_javascript_defined_names(
                 names.insert(name);
             }
         }
-        "function_declaration" => {
+        "function_declaration" | "generator_function_declaration" => {
             if let Some(name) = javascript_function_name(node, source) {
                 names.insert(name);
             }
@@ -455,7 +455,10 @@ fn javascript_variable_declarator_function_name(
 }
 
 fn is_javascript_function_value(kind: &str) -> bool {
-    matches!(kind, "arrow_function" | "function_expression" | "function")
+    matches!(
+        kind,
+        "arrow_function" | "function_expression" | "function" | "generator_function"
+    )
 }
 
 pub(super) fn javascript_function_name(

@@ -48,6 +48,10 @@ All notable changes to `dagayn` are documented here.
   of another class, and SAP undercounted abstractness. Rebuild existing
   graphs with `dagayn build --force-full-build` to drop the old top-level
   method names.
+- JavaScript / TypeScript generator declarations (`function*`,
+  `async function*`) and generator function expressions bound at module
+  scope (`const g = function* () {}`) are `Function` nodes. They were
+  skipped, so their calls were attributed to the file.
 
 ### Performance
 
