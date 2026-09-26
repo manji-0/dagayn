@@ -318,3 +318,38 @@ class Foo: Bar, Greeter { func greet() -> String { "" } }
         assert ("Function", "flip", "Point.Dir") in names
         assert ("Class", "Dir", "Point") in names
         assert ("Function", "greet", "Greeter") in names
+
+
+class TestDart:
+    SOURCE = """\
+extension StrX on String {
+  String shout() { return toUpperCase(); }
+}
+class A {
+  final int x;
+  A(this.x);
+  A.named() : x = 0 { initNamed(); }
+  factory A.make() { return A(build()); }
+  int get twice => compute(x);
+  set value(int v) { assign(v); }
+}
+void main() { A.make(); }
+"""
+
+    def test_constructors_getters_setters(self, parse):
+        names, edges, _ = parse("m.dart", self.SOURCE)
+        for member in ("A", "named", "make", "twice", "value"):
+            assert ("Function", member, "A") in names
+        assert ("CALLS", "<f>::A.named", "initNamed") in edges
+        assert ("CALLS", "<f>::A.twice", "compute") in edges
+        assert ("CALLS", "<f>::A.value", "assign") in edges
+
+    def test_static_call_resolves_to_factory(self, parse):
+        _, edges, _ = parse("m.dart", self.SOURCE)
+        assert ("CALLS", "<f>::main", "<f>::A.make") in edges
+
+    def test_extension_members(self, parse):
+        names, _, nodes = parse("m.dart", self.SOURCE)
+        assert ("Function", "shout", "StrX") in names
+        ext = next(n for n in nodes if n.name == "StrX")
+        assert ext.extra["type_role"] == "extension"
