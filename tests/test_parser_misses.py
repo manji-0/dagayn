@@ -627,3 +627,40 @@ source $DIR/lib.sh
     def test_unquoted_expansion_source(self, parse):
         _, edges, _ = parse("m.sh", self.SOURCE)
         assert ("IMPORTS_FROM", "<f>", "$DIR/lib.sh") in edges
+
+
+class TestTerraform:
+    SOURCE = """\
+provider "aws" {
+  alias = "east"
+}
+resource "aws_instance" "web" {
+  provider = aws.east
+  dynamic "ebs_block_device" {
+    for_each = local.disks
+    content { volume_size = ebs_block_device.value.size }
+  }
+  dynamic "rule" {
+    for_each = local.rules
+    iterator = r
+    content { port = r.value }
+  }
+}
+locals {
+  disks = []
+  rules = []
+}
+output "ids" { value = [for k, v in aws_instance.web : v.id] }
+"""
+
+    def test_provider_alias_reference(self, parse):
+        _, edges, _ = parse("main.tf", self.SOURCE)
+        assert ("REFERENCES", "<f>::resource.aws_instance.web", "<f>::provider.aws") in edges
+
+    def test_local_iterators_are_not_resources(self, parse):
+        _, edges, _ = parse("main.tf", self.SOURCE)
+        targets = {e[2] for e in edges if e[0] == "REFERENCES"}
+        assert "resource.ebs_block_device.value" not in targets
+        assert "resource.r.value" not in targets
+        assert "resource.v.id" not in targets
+        assert ("REFERENCES", "<f>::output.ids", "<f>::resource.aws_instance.web") in edges
