@@ -45,6 +45,8 @@ mod js_modules;
 mod js_sfc;
 #[path = "js_tests.rs"]
 mod js_tests;
+#[path = "js_types.rs"]
+mod js_types;
 #[path = "julia.rs"]
 mod julia;
 #[path = "kotlin.rs"]

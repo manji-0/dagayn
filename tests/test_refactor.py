@@ -2643,6 +2643,24 @@ class TestFindDeadCodeModuleScope:
         dead_names = {d["name"] for d in dead}
         assert "launch" not in dead_names
 
+    def test_typescript_type_reference_prevents_dead_code_flag(self, tmp_path):
+        """A class named only in another file's type positions is used."""
+        engine = tmp_path / "engine.ts"
+        engine.write_bytes(
+            b"export class Engine { start() { return 1; } }\n"
+            b"export class Spare { start() { return 1; } }\n"
+        )
+        car = tmp_path / "car.ts"
+        car.write_bytes(
+            b'import type { Engine } from "./engine";\nexport class Car { engine!: Engine; }\n'
+        )
+        for path in (engine, car):
+            self._store_parsed(path, path.read_bytes())
+
+        dead_names = {d["name"] for d in find_dead_code(self.store)}
+        assert "Engine" not in dead_names
+        assert "Spare" in dead_names
+
 
 class TestApplyRefactorIdentifierBoundaries:
     """Edits must land on the recorded identifier, or be reported as skipped."""

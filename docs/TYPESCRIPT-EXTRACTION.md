@@ -6,7 +6,8 @@
 This document specifies which nodes and edges dagayn extracts from TypeScript,
 TSX, JavaScript, and JSX sources, how their qualified names are formed, and how
 references are resolved. It is the contract for `crates/dagayn-parser`
-(`js_like.rs`, `js_modules.rs`, `member_calls.rs`, `js_sfc.rs`) and for the
+(`js_like.rs`, `js_modules.rs`, `js_members.rs`, `js_types.rs`,
+`member_calls.rs`, `js_sfc.rs`) and for the
 analysis code that reads the resulting metadata (`dagayn/sap.py`,
 `dagayn/refactor/dead_code.py`, `dagayn/entry_point_heuristics.py`,
 `crates/dagayn-graph` post-processing).
@@ -124,7 +125,7 @@ Nodes that are **not** created:
 | `CALLS` | the node that owns the call site (§5.1) | resolved QN, `pkg::symbol`, or a bare name | includes `new X()`, `super(...)`, JSX elements, tagged templates |
 | `IMPORTS_FROM` | File | resolved repo-relative file, or the raw specifier for external modules | static `import` and `export ... from`; `require("./m")` (`import_kind: "require"`, at any depth), dynamic `import("./m")` (`import_kind: "dynamic"`), and TypeScript `import x = require("./m")` (`import_kind: "import_equals"`) with a string-literal specifier; static imports carry no `import_kind` |
 | `REFERENCES` (value) | owning node | function or class used as a value | object `pair` values, shorthand properties, array elements, call arguments, assignment right-hand sides |
-| `REFERENCES` (type) | owning node | type QN | `relationship_role: "type_reference"` or `"type_query"` (§7.4) |
+| `REFERENCES` (type) | owning node | type QN | `relationship_role: "type_reference"` or `"type_query"`, `type_positions` (§7.4); one edge per `(source, target)` |
 | `REFERENCES` (decorator) | decorated node | decorator function | `relationship_role: "decorator"` (§7.7) |
 | `INHERITS` | class or interface | base QN or bare name | `relationship_role: "extends"`, `syntax_source` |
 | `IMPLEMENTS` | class | interface QN or bare name | `relationship_role: "implements"`, `syntax_source` |
@@ -425,7 +426,66 @@ skipped, and edges are de-duplicated per `(source, target)`. TypeScript code
 often depends on another module only through types, so without these edges
 the blast radius of an interface change is visible only at file granularity.
 Using `REFERENCES` keeps these dependencies out of `CALLS`-based flows.
-Planned (part 2/3, #23 and #24).
+Signatures are implemented (#23, `js_types.rs`); bodies are planned
+(part 2/3, #24).
+
+**Edge shape.** `REFERENCES source -> type` with
+`extra.relationship_role` (`"type_reference"`, or `"type_query"` when every
+occurrence is a `typeof X` operand) and `extra.type_positions`, the list of
+positions the type appears in, in source order and each once. One edge exists
+per `(source, target)`; its `line` is the first occurrence. Aggregating the
+positions (rather than keeping one) keeps the edge count independent of how
+often a type is repeated while still telling a return-type dependency from a
+field one. Positions:
+
+| `type_positions` value | Written as | Source |
+|---|---|---|
+| `parameter` | `f(a: Repo)`, `this: Window` | the function or method |
+| `parameter_property` | `constructor(private repo: Repo)` | the class (the parameter declares a field) |
+| `return` | `f(): Repo`, method / call / construct signature return | the function, method, or interface |
+| `type_predicate` | `x is Repo`, `asserts x is Repo` | the function |
+| `field` | class field, interface property signature, the annotation of a function-valued field (`handler: Handler = () => ...`) | the class / interface; the field's own node for a function-valued field |
+| `index_signature` | `[key: string]: Repo` | the class or interface |
+| `type_parameter_constraint`, `type_parameter_default` | `<T extends Repo = Repo>` | the declaration owning the type parameters |
+| `heritage_type_argument` | `implements Service<User>`, `extends Base<Props>` | the class or interface (the base itself stays `INHERITS` / `IMPLEMENTS`) |
+| `type_alias` | `type Pair = [User, Repo]` | the `Type` alias |
+
+Overload signatures collapse into one node (§2), so their types merge into
+that node's edges. A signature written in a function body (a local function,
+a callback's parameters, a local class) is body-level code and is handled
+with the body references (#24).
+
+**Targets.** A name resolves where TypeScript would look it up: first
+through the enclosing namespaces (`Circle` inside `namespace Shapes` is
+`Shapes.Circle`), then as a same-file declaration, then through imports
+(named, aliased, default, namespace `m.User`, re-exports, `export * as`),
+walking `ns.Type` / `Outer.Inner` paths like member calls do (§6.1.1). The
+target must be a class, interface, enum, or type alias the target module
+declares at module or namespace scope (`typeof X` may also name a function,
+class, or namespace member). Builtin and global types (`string`, `Promise`,
+`Map`, DOM types), external packages, names the module does not declare,
+type parameters, mapped-type keys (`[K in keyof T]`), `infer U`, and names of
+function-local declarations produce no edge. This is a deliberate exception
+to §2's "unresolved stays bare": a bare type name could not be bound safely
+later and would only add LOW-confidence dangling edges. Qualifying external
+types as `pkg::Type` is left to #25. Self references
+(`interface Tree { children: Tree[] }`) are dropped.
+
+**Analysis consumers.** The `strict_static` and `implementation` dependency
+profiles do not count `REFERENCES`, so SAP / SDP and cycle metrics under them
+do not change; `infra_dataflow` counts them. Flows follow `CALLS` only.
+Impact radius expands through every non-bridge edge kind, so an interface
+change now reaches the declarations that use it as a type. Dead-code analysis
+counts an incoming `REFERENCES` as usage, so a class named only in another
+file's field or return type is no longer reported. Rename previews gain the
+first reference line of each edge (not every occurrence).
+
+**Graph size.** Measured on the TypeScript parity fixture
+(`tests/fixtures/parity/typescript`, 36 files): 377 to 395 edges (+18, +4.8%).
+On `dagayn-vscode/` (49 TypeScript files): 4,646 to 4,867 edges (+221,
++4.8%; positions: 102 parameter, 76 return, 26 field, 12 type alias,
+5 parameter property, 2 type predicate, 1 heritage type argument). Nodes do
+not change, and JavaScript output does not change.
 
 ### 7.5 Anonymous default exports are named `default`
 
@@ -642,13 +702,20 @@ QNs omit the `file::` prefix.
 
 | Construct | Expected | Status |
 |---|---|---|
-| parameter / return types | `REFERENCES fn -> Type` (`type_reference`) | planned (part 2/3, #23) |
-| type parameters, constraints, heritage type arguments | `REFERENCES` | planned (part 2/3, #23) |
-| field and parameter-property types | `REFERENCES` | planned (part 2/3, #23) |
-| alias right-hand side, interface member types | `REFERENCES` | planned (part 2/3, #23) |
-| `typeof X` | `REFERENCES -> X` (`type_query`) | planned (part 2/3, #23) |
+| parameter / return types, `this: T`, type predicates | `REFERENCES fn -> Type` (`type_reference`, `type_positions: ["parameter", "return"]` / `["type_predicate"]`) | implemented (#23) |
+| overloads `f(a: A): X; f(a: B): Y; f(a) {}` | one set of edges from the merged `Function f` | implemented (#23) |
+| type parameter constraints and defaults `<T extends Repo = Repo>` | `REFERENCES -> Repo` (`type_parameter_constraint`, `type_parameter_default`); `T` itself is no edge | implemented (#23) |
+| heritage type arguments `implements Service<User>` | `REFERENCES class -> User` (`heritage_type_argument`); `Service` stays `IMPLEMENTS` | implemented (#23) |
+| class field types, interface property signatures, index signatures | `REFERENCES class -> Type` (`field`, `index_signature`) | implemented (#23) |
+| parameter properties `constructor(private repo: Repo)` | `REFERENCES class -> Repo` (`parameter_property`) | implemented (#23) |
+| function-valued field annotation `handler: Handler = () => ...` | `REFERENCES handler -> Handler` (`field`) | implemented (#23) |
+| alias right-hand side `type Pair = [User, Repo]` | `REFERENCES Pair -> User`, `-> Repo` (`type_alias`) | implemented (#23) |
+| `ns.Type`, `Outer.Inner`, aliased / default / re-exported imports, namespace-local names | resolved to the declaring QN (§7.4) | implemented (#23) |
+| `typeof X` in a signature | `REFERENCES -> X` (`type_query`) | implemented (#23) |
+| a type repeated in several positions of one declaration | one edge, every position in `type_positions` | implemented (#23) |
+| builtin and global types, external packages, undeclared names, type parameters, `infer U`, mapped keys, self references | no edge | implemented (#23) |
 | body annotations, `as`, `satisfies`, call type arguments | `REFERENCES outer -> Type` | planned (part 2/3, #24) |
-| builtin and global types | no edge | planned (part 2/3, #23) |
+| signatures written in a body (local functions, callbacks, local classes) | `REFERENCES outer -> Type` | planned (part 2/3, #24) |
 
 ### 10.8 Tests
 

@@ -45,9 +45,18 @@ pub(super) struct JavaScriptExportIndex {
     /// The module's own imports, to resolve type names written in it (the
     /// base of an imported class, the type of its fields).
     pub(super) import_map: Arc<JavaScriptImportMap>,
+    /// Owner paths of the module's type declarations (classes, interfaces,
+    /// enums, type aliases), the targets of type references into it.
+    pub(super) type_paths: Arc<HashSet<String>>,
 }
 
 impl JavaScriptExportIndex {
+    /// Whether the module declares a function, class, or namespace `name`
+    /// at module scope.
+    pub(super) fn declares(&self, name: &str) -> bool {
+        self.defined_names.contains(name)
+    }
+
     fn has_default_export(&self) -> bool {
         self.defined_names.contains("default") || self.named_exports.contains_key("default")
     }
@@ -134,6 +143,13 @@ pub(super) struct JavaScriptParseContext<'a> {
     pub(super) namespace_paths: &'a HashSet<String>,
     /// Class / interface shapes declared in this file.
     pub(super) class_table: &'a JavaScriptClassTable,
+    /// Owner paths of the type declarations of this file
+    /// ([`super::js_members::collect_javascript_type_paths`]).
+    pub(super) type_paths: &'a HashSet<String>,
+    /// Nesting depth of type subtrees being walked: references inside a
+    /// type already collected from its outermost node are not collected
+    /// again.
+    pub(super) type_depth: Cell<usize>,
     /// Local names exported by a module-level `export { name }` clause.
     pub(super) exported_names: &'a HashSet<String>,
     /// `.d.ts` / `.d.mts` / `.d.cts`: every declaration is ambient.
@@ -762,6 +778,9 @@ fn javascript_export_index_uncached(
             super::js_like::collect_javascript_member_paths(root, &source).members,
         ),
         import_map: Arc::new(import_map),
+        type_paths: Arc::new(super::js_members::collect_javascript_type_paths(
+            root, &source,
+        )),
     })
 }
 

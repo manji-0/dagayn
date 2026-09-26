@@ -87,6 +87,24 @@ All notable changes to `dagayn` are documented here.
   carry `ambient: true`; `.d.ts` File nodes carry `declaration_file: true`
   and `export as namespace X` records `umd_global: "X"`. Dead-code analysis
   skips ambient declarations and `.d.mts` / `.d.cts` files.
+- TypeScript signature types are `REFERENCES` edges. Parameter, return, and
+  type-predicate types of functions and methods (overloads merged into one
+  node), class fields, parameter properties, interface property and index
+  signatures, type-parameter constraints and defaults, heritage type
+  arguments (`implements Service<User>`), and type alias right-hand sides
+  yield `REFERENCES owner -> type` with `relationship_role:
+  "type_reference"` (`"type_query"` for `typeof X`) and `type_positions`, the
+  positions the type appears in (one edge per source and target). Names
+  resolve through enclosing namespaces, same-file declarations, and
+  named / default / namespace imports and re-exports (`ns.Type`,
+  `Outer.Inner`); builtin, global, and external-package types, undeclared
+  names, and type parameters produce no edge. A module that depends on
+  another only through types is now visible to impact radius and
+  `infra_dataflow` metrics, and dead-code analysis no longer reports a class
+  used only as another file's field or return type; `strict_static` SAP /
+  SDP and `CALLS` flows do not change. The TypeScript parity fixture gains 18
+  edges (377 to 395, +4.8%); `dagayn-vscode/` gains 221 (4,646 to 4,867,
+  +4.8%).
 - Graphs record the extractor versions they were parsed with (metadata
   `extractor_versions`, for example `javascript=1`). When the running parser's
   extractor is newer, `dagayn update` re-parses every indexed file that

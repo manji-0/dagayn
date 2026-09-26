@@ -6,9 +6,9 @@ use serde_json::{Value, json};
 
 use super::js_members::{
     JavaScriptTypeRef, annotation_type_name, collect_javascript_class_table,
-    javascript_base_member, javascript_receiver_type, javascript_resolved_base,
-    javascript_this_type, javascript_type_member, javascript_written_bases,
-    resolve_javascript_type_name,
+    collect_javascript_type_paths, javascript_base_member, javascript_receiver_type,
+    javascript_resolved_base, javascript_this_type, javascript_type_member,
+    javascript_written_bases, resolve_javascript_type_name,
 };
 use super::js_modules::{
     JavaScriptCaches, JavaScriptExportResolution, JavaScriptParseContext,
@@ -22,6 +22,11 @@ use super::js_modules::{
 use super::js_tests::{
     JavaScriptTestCall, is_javascript_test_file, is_test_runner_name, javascript_is_test_api_call,
     javascript_test_call, javascript_test_title,
+};
+use super::js_types::{
+    javascript_emit_heritage_type_references, javascript_emit_type_references,
+    javascript_is_signature_position, javascript_merge_type_references,
+    javascript_type_reference_source, javascript_type_root_in_body, javascript_type_root_position,
 };
 use super::member_calls::MemberCallBindings;
 use super::parsers::*;
@@ -114,6 +119,7 @@ pub(super) fn parse_javascript_like_interned(
         let scopes = collect_javascript_member_paths(root, source);
         let exported_names = collect_javascript_local_exports(root, source);
         let class_table = collect_javascript_class_table(root, source);
+        let type_paths = collect_javascript_type_paths(root, source);
         let context = JavaScriptParseContext {
             source,
             file_path: file_path.clone(),
@@ -124,6 +130,8 @@ pub(super) fn parse_javascript_like_interned(
             member_paths: &scopes.members,
             namespace_paths: &scopes.namespaces,
             class_table: &class_table,
+            type_paths: &type_paths,
+            type_depth: Cell::new(0),
             exported_names: &exported_names,
             declaration_file,
             ambient_depth: Cell::new(0),
@@ -134,6 +142,7 @@ pub(super) fn parse_javascript_like_interned(
         };
         javascript_walk_children(root, &context, None, None, &mut nodes, &mut edges);
         javascript_collapse_duplicate_nodes(&mut nodes, &mut edges);
+        javascript_merge_type_references(&nodes, &mut edges, file_path);
         let mut edges = resolve_rust_call_targets(&nodes, edges, file_path);
         if test_file {
             add_tested_by_edges(&nodes, &mut edges);
@@ -400,7 +409,35 @@ fn javascript_walk_children(
 }
 
 /// Extracts one syntax node and, unless an arm consumes it, its subtree.
+/// The outermost node of a type subtree also yields its type references
+/// (§7.4); the subtree is still walked, but nested type nodes are not
+/// collected twice.
 fn javascript_walk_node(
+    child: tree_sitter::Node<'_>,
+    context: &JavaScriptParseContext<'_>,
+    owner_path: Option<&str>,
+    enclosing_func: Option<&str>,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let position = (context.type_depth.get() == 0)
+        .then(|| javascript_type_root_position(child))
+        .flatten();
+    let Some(position) = position else {
+        javascript_walk_syntax_node(child, context, owner_path, enclosing_func, nodes, edges);
+        return;
+    };
+    if javascript_is_signature_position(position) && !javascript_type_root_in_body(child) {
+        let source =
+            javascript_type_reference_source(context, owner_path, enclosing_func, position);
+        javascript_emit_type_references(child, position, &source, context, edges);
+    }
+    context.type_depth.set(context.type_depth.get() + 1);
+    javascript_walk_syntax_node(child, context, owner_path, enclosing_func, nodes, edges);
+    context.type_depth.set(context.type_depth.get() - 1);
+}
+
+fn javascript_walk_syntax_node(
     child: tree_sitter::Node<'_>,
     context: &JavaScriptParseContext<'_>,
     owner_path: Option<&str>,
@@ -1729,14 +1766,23 @@ fn javascript_emit_type_alias(
             extra,
         },
     );
+    let qualified = qualify(&context.file_path, name, owner_path);
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Contains,
         source: javascript_container_qn(context, owner_path),
-        target: qualify(&context.file_path, name, owner_path),
+        target: qualified.clone(),
         file_path: context.file_path.clone(),
         line,
         extra: json!({}),
     });
+    for (field, position) in [
+        ("type_parameters", "type_parameter"),
+        ("value", "type_alias"),
+    ] {
+        if let Some(part) = node.child_by_field_name(field) {
+            javascript_emit_type_references(part, position, &qualified, context, edges);
+        }
+    }
 }
 
 /// Shape of a type alias right-hand side.
@@ -2349,7 +2395,7 @@ fn javascript_emit_field_function(
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Contains,
         source: container,
-        target: qualified,
+        target: qualified.clone(),
         file_path: context.file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
@@ -2364,6 +2410,10 @@ fn javascript_emit_field_function(
         nodes,
         edges,
     );
+    // `handler: Handler = () => ...`: the field's own annotation.
+    if let Some(annotation) = node.child_by_field_name("type") {
+        javascript_emit_type_references(annotation, "field", &qualified, context, edges);
+    }
     javascript_walk_function_body(function_node, context, owner_path, &name, nodes, edges);
     true
 }
@@ -2820,6 +2870,7 @@ fn emit_javascript_inheritance_edges(
             extra,
         });
     }
+    javascript_emit_heritage_type_references(node, qualified, context, edges);
     for (callee, line) in mixin_calls {
         edges.push(ParsedEdge {
             kind: crate::core::types::EdgeKind::Calls,

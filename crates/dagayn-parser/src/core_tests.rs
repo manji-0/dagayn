@@ -6216,3 +6216,195 @@ function find() {}
         .count();
     assert_eq!(external_super, 1);
 }
+
+fn type_references<'a>(edges: &'a [ParsedEdge], source: &str) -> Vec<&'a ParsedEdge> {
+    edges
+        .iter()
+        .filter(|edge| {
+            edge.kind == "REFERENCES"
+                && edge.source == source
+                && matches!(
+                    edge.extra["relationship_role"].as_str(),
+                    Some("type_reference" | "type_query")
+                )
+        })
+        .collect()
+}
+
+fn type_reference_positions(edges: &[ParsedEdge], source: &str, target: &str) -> Vec<String> {
+    let found = type_references(edges, source)
+        .into_iter()
+        .filter(|edge| edge.target == target)
+        .collect::<Vec<_>>();
+    assert_eq!(found.len(), 1, "{source} -> {target}: {edges:#?}");
+    found[0].extra["type_positions"]
+        .as_array()
+        .expect("type_positions")
+        .iter()
+        .map(|position| position.as_str().unwrap().to_string())
+        .collect()
+}
+
+fn write_type_reference_repo(name: &str) -> std::path::PathBuf {
+    let mut repo_root = std::env::temp_dir();
+    repo_root.push(format!(
+        "dagayn-parser-ts-{name}-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    let _ = std::fs::remove_dir_all(&repo_root);
+    std::fs::create_dir_all(repo_root.join("src")).unwrap();
+    let models = r#"export interface User { id: string }
+export class Repo<T> { find(id: string): T | undefined { return undefined; } }
+export type UserId = string;
+export enum Role { Admin, Guest }
+export namespace Api { export interface Request { user: User } }
+export default class DefaultModel { save() {} }
+export const helper = () => 1;
+"#;
+    std::fs::write(repo_root.join("src/models.ts"), models).unwrap();
+    std::fs::write(
+        repo_root.join("src/barrel.ts"),
+        "export { User as Member } from \"./models\";\nexport * as models from \"./models\";\n",
+    )
+    .unwrap();
+    repo_root
+}
+
+#[test]
+fn emits_typescript_signature_type_references() {
+    let repo_root = write_type_reference_repo("signature-type-refs");
+    let app = br#"import type { User, UserId } from "./models";
+import { Repo, Role, Api, Ghost } from "./models";
+import * as m from "./models";
+import DefaultModel from "./models";
+import { Member, models } from "./barrel";
+import { External } from "external-pkg";
+export interface Service<T> { handle(input: T): void; }
+interface Local { owner: User; [key: string]: User | Role; }
+export interface Tree { children: Tree[]; ghost: Ghost; }
+type Pair = [User, Repo<UserId>] | Promise<Member>;
+export function load(id: UserId, repo: Repo<User>): Promise<User | undefined> { return repo.find(id) as any; }
+export function load2(id: string): User;
+export function load2(id: number): Role;
+export function load2(id: any): any { return id; }
+export function pick<T extends User = User>(items: T[]): T { return items[0]; }
+export function guard(x: unknown): x is m.User { return true; }
+export class Holder implements Service<Api.Request> {
+  repo!: Repo<DefaultModel>;
+  constructor(private readonly owner: models.User, plain: Member) {}
+  handle(input: Api.Request): void {}
+  handler: (e: External) => Role = () => Role.Admin;
+  kind: typeof Role = Role;
+  self(): Holder { return this; }
+  map: Map<string, External> = new Map();
+}
+export class Box<T extends User> { value!: T; }
+export namespace Shapes {
+  export interface Circle { r: number }
+  export function area(c: Circle): number { return 0; }
+}
+export function body() { const u: User = {} as User; return u; }
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "src/app.ts", app);
+    let _ = std::fs::remove_dir_all(&repo_root);
+    let user = "src/models.ts::User";
+    let request = "src/models.ts::Api.Request";
+    let role = "src/models.ts::Role";
+    let repo = "src/models.ts::Repo";
+    let positions = |source: &str, target: &str| {
+        type_reference_positions(&edges, &format!("src/app.ts::{source}"), target)
+    };
+
+    assert_eq!(positions("Local", user), ["field", "index_signature"]);
+    assert_eq!(positions("Local", role), ["index_signature"]);
+    // `Member` is `User` re-exported under another name: one edge.
+    assert_eq!(positions("Pair", user), ["type_alias"]);
+    assert_eq!(positions("Pair", repo), ["type_alias"]);
+    assert_eq!(positions("Pair", "src/models.ts::UserId"), ["type_alias"]);
+    assert_eq!(positions("load", "src/models.ts::UserId"), ["parameter"]);
+    assert_eq!(positions("load", repo), ["parameter"]);
+    assert_eq!(positions("load", user), ["parameter", "return"]);
+    // Overloads are one node: their signatures merge into its edges.
+    assert_eq!(positions("load2", user), ["return"]);
+    assert_eq!(positions("load2", role), ["return"]);
+    assert_eq!(
+        positions("pick", user),
+        ["type_parameter_constraint", "type_parameter_default"]
+    );
+    assert_eq!(positions("guard", user), ["type_predicate"]);
+    assert_eq!(positions("Holder", request), ["heritage_type_argument"]);
+    assert_eq!(positions("Holder", repo), ["field"]);
+    assert_eq!(
+        positions("Holder", "src/models.ts::DefaultModel"),
+        ["field"]
+    );
+    assert_eq!(positions("Holder", user), ["parameter_property"]);
+    assert_eq!(positions("Holder.constructor", user), ["parameter"]);
+    assert_eq!(positions("Holder.handle", request), ["parameter"]);
+    assert_eq!(positions("Holder.handler", role), ["field"]);
+    assert_eq!(positions("Holder.self", "src/app.ts::Holder"), ["return"]);
+    assert_eq!(positions("Box", user), ["type_parameter_constraint"]);
+    assert_eq!(
+        positions("Shapes.area", "src/app.ts::Shapes.Circle"),
+        ["parameter"]
+    );
+    let holder = type_references(&edges, "src/app.ts::Holder");
+    let kind = holder
+        .iter()
+        .find(|edge| edge.target == role)
+        .expect("typeof Role");
+    assert_eq!(kind.extra["relationship_role"], "type_query");
+    assert!(
+        holder
+            .iter()
+            .filter(|edge| edge.target != role)
+            .all(|edge| edge.extra["relationship_role"] == "type_reference"),
+        "{holder:#?}"
+    );
+    // The heritage base itself is IMPLEMENTS, not a type reference.
+    assert!(!holder.iter().any(|edge| edge.target.ends_with("::Service")));
+
+    // Type parameters, builtins, external packages, names the module does
+    // not declare, self references, and body-level types emit nothing.
+    for source in ["Service", "Service.handle", "Tree", "Box", "body"] {
+        let found = type_references(&edges, &format!("src/app.ts::{source}"));
+        let unexpected = found
+            .iter()
+            .filter(|edge| !(source == "Box" && edge.target == user))
+            .collect::<Vec<_>>();
+        assert!(unexpected.is_empty(), "{source}: {unexpected:#?}");
+    }
+    let type_edges = edges
+        .iter()
+        .filter(|edge| {
+            edge.kind == "REFERENCES"
+                && matches!(
+                    edge.extra["relationship_role"].as_str(),
+                    Some("type_reference" | "type_query")
+                )
+        })
+        .collect::<Vec<_>>();
+    for edge in &type_edges {
+        assert!(
+            edge.target.starts_with("src/models.ts::") || edge.target.starts_with("src/app.ts::"),
+            "dangling type reference: {edge:?}"
+        );
+        assert!(
+            !["Promise", "Map", "External", "Ghost", "T", "Tree"]
+                .iter()
+                .any(|name| edge.target.ends_with(&format!("::{name}"))),
+            "{edge:?}"
+        );
+        assert_ne!(edge.source, edge.target, "self reference: {edge:?}");
+    }
+    let mut pairs = type_edges
+        .iter()
+        .map(|edge| (edge.source.as_str(), edge.target.as_str()))
+        .collect::<Vec<_>>();
+    let total = pairs.len();
+    pairs.sort_unstable();
+    pairs.dedup();
+    assert_eq!(pairs.len(), total, "one edge per (source, target)");
+}

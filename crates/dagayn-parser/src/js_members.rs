@@ -39,6 +39,96 @@ pub(super) fn collect_javascript_class_table(
     table
 }
 
+/// Owner paths of the type declarations a module can name in a type
+/// position: classes, interfaces, enums, type aliases, and `const X = class`
+/// bindings, at module scope and inside namespaces (`Api.Request`). Function
+/// bodies are not scanned (local declarations are not nodes).
+pub(super) fn collect_javascript_type_paths(
+    root: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> HashSet<String> {
+    let mut paths = HashSet::new();
+    collect_type_path_scope(root, source, None, &mut paths);
+    paths
+}
+
+fn collect_type_path_scope(
+    scope: tree_sitter::Node<'_>,
+    source: &[u8],
+    owner: Option<&str>,
+    paths: &mut HashSet<String>,
+) {
+    let mut cursor = scope.walk();
+    for statement in scope.named_children(&mut cursor) {
+        collect_type_path_statement(statement, source, owner, paths);
+    }
+}
+
+fn collect_type_path_statement(
+    statement: tree_sitter::Node<'_>,
+    source: &[u8],
+    owner: Option<&str>,
+    paths: &mut HashSet<String>,
+) {
+    match statement.kind() {
+        "export_statement" | "ambient_declaration" => {
+            let mut cursor = statement.walk();
+            let is_global = statement
+                .children(&mut cursor)
+                .any(|child| child.kind() == "global");
+            let mut cursor = statement.walk();
+            for child in statement.named_children(&mut cursor) {
+                if is_global && child.kind() == "statement_block" {
+                    let path = member_path(owner, "global");
+                    collect_type_path_scope(child, source, Some(&path), paths);
+                } else {
+                    collect_type_path_statement(child, source, owner, paths);
+                }
+            }
+        }
+        "internal_module" | "module" => {
+            let Some(name) = statement
+                .child_by_field_name("name")
+                .filter(|name| name.kind() != "string")
+            else {
+                return;
+            };
+            let mut path = owner.map(str::to_string);
+            for segment in node_text(name, source).split('.') {
+                path = Some(member_path(path.as_deref(), segment.trim()));
+            }
+            if let (Some(body), Some(path)) = (statement.child_by_field_name("body"), path) {
+                collect_type_path_scope(body, source, Some(&path), paths);
+            }
+        }
+        "class_declaration"
+        | "abstract_class_declaration"
+        | "interface_declaration"
+        | "enum_declaration"
+        | "type_alias_declaration" => {
+            if let Some(name) = statement.child_by_field_name("name") {
+                paths.insert(member_path(owner, &node_text(name, source)));
+            }
+        }
+        "lexical_declaration" | "variable_declaration" => {
+            let mut cursor = statement.walk();
+            for declarator in statement.named_children(&mut cursor) {
+                if let (Some(name), Some(_)) = (
+                    declarator
+                        .child_by_field_name("name")
+                        .filter(|name| name.kind() == "identifier"),
+                    declarator
+                        .child_by_field_name("value")
+                        .filter(|value| value.kind() == "class"),
+                ) {
+                    paths.insert(member_path(owner, &node_text(name, source)));
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 fn collect_scope(
     scope: tree_sitter::Node<'_>,
     source: &[u8],
@@ -443,6 +533,71 @@ pub(super) fn resolve_javascript_type_name(
     };
     let ty = JavaScriptTypeRef::from_qualified(&qualified)?;
     lookup_class(context, &ty).map(|_| ty)
+}
+
+/// Resolves a name written in a type position of the file being parsed
+/// (`Repo`, `Api.Request`, `ns.Repo`, a named / default import) to the QN of
+/// the type declaration it names. `scope` is the owner path the name is
+/// written in: `Circle` inside namespace `Shapes` is `Shapes.Circle` first.
+/// A `typeof` operand (`value`) may also name a function, class, or
+/// namespace member. Anything the repository does not declare (builtins,
+/// globals, external packages, type parameters) is `None`, so no edge
+/// dangles.
+pub(super) fn resolve_javascript_type_reference(
+    context: &JavaScriptParseContext<'_>,
+    name: &str,
+    scope: Option<&str>,
+    value: bool,
+) -> Option<String> {
+    let local_declares = |path: &str| {
+        context.type_paths.contains(path)
+            || (value
+                && (context.defined_names.contains(path) || context.member_paths.contains(path)))
+    };
+    let mut prefix = scope;
+    while let Some(owner) = prefix {
+        let candidate = format!("{owner}.{name}");
+        if local_declares(&candidate) {
+            return Some(qualify(&context.file_path, &candidate, None));
+        }
+        prefix = owner.rsplit_once('.').map(|(parent, _)| parent);
+    }
+    if local_declares(name) {
+        return Some(qualify(&context.file_path, name, None));
+    }
+    let (root, rest) = match name.split_once('.') {
+        Some((root, rest)) => (root, Some(rest)),
+        None => (name, None),
+    };
+    let binding = context.import_map.get(root)?;
+    let segments = rest
+        .map(|rest| rest.split('.').collect::<Vec<_>>())
+        .unwrap_or_default();
+    let (resolved, consumed) = resolve_javascript_import_path_in(
+        &context.file_path,
+        root,
+        binding,
+        &segments,
+        context.repo_root,
+        context.caches,
+    )?;
+    let JavaScriptExportResolution::Symbol(target) = resolved else {
+        return None;
+    };
+    let qualified = if consumed == segments.len() {
+        target
+    } else {
+        format!("{target}.{}", segments[consumed..].join("."))
+    };
+    let ty = JavaScriptTypeRef::from_qualified(&qualified)?;
+    let declared = if ty.file == context.file_path.as_str() {
+        local_declares(&ty.path)
+    } else {
+        let index = javascript_module_index(&ty.file, context)?;
+        index.type_paths.contains(&ty.path)
+            || (value && (index.declares(&ty.path) || index.member_paths.contains(&ty.path)))
+    };
+    declared.then_some(qualified)
 }
 
 /// Where a member call landed: the member's QN, and whether it was found on

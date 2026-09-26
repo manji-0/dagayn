@@ -1600,6 +1600,40 @@ class TestTypeRoleAndImplements:
         assert any(t.endswith("Button.tsx::DefaultCard") for t in targets), targets
         assert not any(t.endswith("::renamed") or t.endswith("::Card") for t in targets)
 
+    def test_typescript_signature_type_references(self, tmp_path):
+        (tmp_path / "models.ts").write_text(
+            "export interface User { id: string }\n"
+            "export class Repo<T> { find(): T | undefined { return undefined; } }\n"
+            "export type UserId = string;\n",
+            encoding="utf-8",
+        )
+        consumer = tmp_path / "app.ts"
+        consumer.write_text(
+            'import type { User, UserId } from "./models";\n'
+            'import { Repo } from "./models";\n'
+            'import { Ext } from "external-pkg";\n'
+            "export function load(id: UserId, repo: Repo<User>, e: Ext): Promise<User> {\n"
+            "  return repo.find() as any;\n"
+            "}\n"
+            "export class Holder { constructor(private repo: Repo<User>) {} owner!: User; }\n",
+            encoding="utf-8",
+        )
+        _, edges = self.parser.parse_file(consumer)
+        refs = {
+            (e.source.split("::")[-1], e.target.split("::")[-1]): e
+            for e in edges
+            if e.kind == "REFERENCES"
+            and e.extra.get("relationship_role") in ("type_reference", "type_query")
+        }
+        assert refs[("load", "UserId")].extra["type_positions"] == ["parameter"]
+        assert refs[("load", "Repo")].extra["type_positions"] == ["parameter"]
+        assert refs[("load", "User")].extra["type_positions"] == ["parameter", "return"]
+        assert refs[("Holder", "Repo")].extra["type_positions"] == ["parameter_property"]
+        assert refs[("Holder", "User")].extra["type_positions"] == ["parameter_property", "field"]
+        # Builtins and external packages never produce dangling edges.
+        assert all(e.target.split("::")[0].endswith("models.ts") for e in refs.values()), refs
+        assert len(refs) == 5, sorted(refs)
+
     def test_reexports_namespace_reexports_and_commonjs_exports_bind_origins(self, tmp_path):
         barrel = tmp_path / "barrel"
         barrel.mkdir()
