@@ -12,8 +12,9 @@ use super::js_members::{
 };
 use super::js_modules::{
     JavaScriptCaches, JavaScriptExportResolution, JavaScriptParseContext,
-    collect_javascript_defined_names, collect_javascript_import_map, collect_javascript_type_names,
-    decode_javascript_string_literal, javascript_child_text, javascript_dynamic_import_specifier,
+    collect_javascript_defined_names, collect_javascript_external_packages,
+    collect_javascript_import_map, collect_javascript_type_names, decode_javascript_string_literal,
+    javascript_child_text, javascript_dynamic_import_specifier, javascript_external_symbol,
     javascript_function_name, javascript_import_equals, javascript_import_targets,
     javascript_module_index, javascript_named_child, javascript_require_specifier,
     resolve_javascript_call_target, resolve_javascript_import_path_in, resolve_javascript_module,
@@ -116,6 +117,8 @@ pub(super) fn parse_javascript_like_interned(
         collect_javascript_type_names(root, source, &mut type_names);
         let mut import_map = HashMap::new();
         collect_javascript_import_map(root, source, &mut import_map);
+        let external_packages =
+            collect_javascript_external_packages(&import_map, file_path, repo_root, caches);
         let scopes = collect_javascript_member_paths(root, source);
         let exported_names = collect_javascript_local_exports(root, source);
         let class_table = collect_javascript_class_table(root, source);
@@ -127,6 +130,7 @@ pub(super) fn parse_javascript_like_interned(
             test_file,
             defined_names: &defined_names,
             import_map: &import_map,
+            external_packages: &external_packages,
             member_paths: &scopes.members,
             namespace_paths: &scopes.namespaces,
             class_table: &class_table,
@@ -143,6 +147,7 @@ pub(super) fn parse_javascript_like_interned(
         javascript_walk_children(root, &context, None, None, &mut nodes, &mut edges);
         javascript_collapse_duplicate_nodes(&mut nodes, &mut edges);
         javascript_merge_type_references(&nodes, &mut edges, file_path);
+        javascript_mark_external_edges(&mut edges, &context);
         let mut edges = resolve_rust_call_targets(&nodes, edges, file_path);
         if test_file {
             add_tested_by_edges(&nodes, &mut edges);
@@ -151,6 +156,37 @@ pub(super) fn parse_javascript_like_interned(
     }
 
     (nodes, edges)
+}
+
+/// Marks `CALLS` / `REFERENCES` into an external package (`pkg::symbol`,
+/// [`javascript_external_symbol`]) with `external: true` and
+/// `external_package` (the package name without a subpath), so same-file
+/// resolution, `TESTED_BY`, and query-time bare-name fallbacks leave them
+/// alone. Post-processing already skips `::` targets.
+fn javascript_mark_external_edges(edges: &mut [ParsedEdge], context: &JavaScriptParseContext<'_>) {
+    let packages = context.external_packages;
+    if packages.is_empty() {
+        return;
+    }
+    for edge in edges {
+        if !matches!(
+            edge.kind,
+            crate::core::types::EdgeKind::Calls | crate::core::types::EdgeKind::References
+        ) {
+            continue;
+        }
+        let Some(package) = edge
+            .target
+            .split_once("::")
+            .and_then(|(module, _)| packages.get(module))
+        else {
+            continue;
+        };
+        if let Some(map) = edge.extra.as_object_mut() {
+            map.insert("external".to_string(), json!(true));
+            map.insert("external_package".to_string(), json!(package));
+        }
+    }
 }
 
 /// One QN, one node: collapses overload signatures into their
@@ -1689,6 +1725,7 @@ fn javascript_emit_decorator(
                 callee
                     .child_by_field_name("object")
                     .and_then(|object| javascript_namespace_member_target(object, &name, context))
+                    .or_else(|| javascript_external_member_target(callee, context))
                     .unwrap_or(name)
             }
             _ => resolve_javascript_call_target(&node_text(callee, context.source), context),
@@ -2728,6 +2765,12 @@ fn javascript_jsx_component_target(
     }
     if let Some(base_name) = base_name {
         return resolve_javascript_namespace_member(&base_name, &component_name, context)
+            .or_else(|| {
+                let mut cursor = node.walk();
+                node.children(&mut cursor)
+                    .find(|child| child.kind() == "member_expression")
+                    .and_then(|member| javascript_external_member_target(member, context))
+            })
             .or(Some(component_name));
     }
     Some(resolve_javascript_call_target(&component_name, context))
@@ -3127,6 +3170,7 @@ fn javascript_member_call_target(
     }
     if let Some(target) = javascript_object_member_target(callee, context, owner_path)
         .or_else(|| javascript_imported_member_target(callee, context))
+        .or_else(|| javascript_external_member_target(callee, context))
     {
         return Some((target, json!({})));
     }
@@ -3226,6 +3270,25 @@ fn javascript_imported_member_target(
             .is_some_and(|index| index.member_paths.contains(&member_path))
     };
     known.then(|| qualify(&container.file, method, Some(&owner)))
+}
+
+/// `fs.readFile` / `React.useEffect` / `z.object` where the root is an
+/// import binding of an external package: `pkg::path`
+/// ([`javascript_external_symbol`]).
+fn javascript_external_member_target(
+    member: tree_sitter::Node<'_>,
+    context: &JavaScriptParseContext<'_>,
+) -> Option<String> {
+    let path = javascript_member_path(member, context.source)?;
+    let mut segments = path.split('.');
+    let root = segments.next()?;
+    if context.bindings.borrow().is_bound(root)
+        || javascript_is_local_name(context, root)
+        || context.defined_names.contains(root)
+    {
+        return None;
+    }
+    javascript_external_symbol(root, &segments.collect::<Vec<_>>(), context)
 }
 
 /// `api.get()` / `api.nested.deep()` where `api` is a same-file object

@@ -2409,7 +2409,7 @@ const doubled = computed(() => count.value * 2)
             .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "vue" && edge.line == 8 })
     );
     assert!(edges.iter().any(|edge| {
-        edge.kind == "CALLS" && edge.source == "sample.vue" && edge.target == "ref"
+        edge.kind == "CALLS" && edge.source == "sample.vue" && edge.target == "vue::ref"
     }));
     assert!(edges.iter().any(|edge| {
         edge.kind == "CALLS"
@@ -2461,7 +2461,10 @@ function selectUser(user: User) {
         edge.kind == "IMPORTS_FROM" && edge.target == "svelte/store" && edge.line == 2
     }));
     assert!(edges.iter().any(|edge| {
-        edge.kind == "CALLS" && edge.source == "sample.svelte" && edge.target == "writable"
+        edge.kind == "CALLS"
+            && edge.source == "sample.svelte"
+            && edge.target == "svelte/store::writable"
+            && edge.extra["external_package"] == "svelte"
     }));
     assert!(edges.iter().any(|edge| {
         edge.kind == "CALLS"
@@ -6500,4 +6503,181 @@ export const config: Record<string, Role> = {};
         type_reference_positions(&js_edges, "src/check.js::isRepo", repo),
         ["instanceof"]
     );
+}
+
+#[test]
+fn qualifies_external_package_symbols() {
+    let mut repo_root = std::env::temp_dir();
+    repo_root.push(format!(
+        "dagayn-parser-ts-external-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    let _ = std::fs::remove_dir_all(&repo_root);
+    std::fs::create_dir_all(repo_root.join("src/lib")).unwrap();
+    std::fs::write(
+        repo_root.join("tsconfig.json"),
+        br#"{ "compilerOptions": { "baseUrl": ".", "paths": { "@app/*": ["src/*"] } } }"#,
+    )
+    .unwrap();
+    for (path, body) in [
+        ("src/lib/util.ts", "export function util() {}\n"),
+        ("src/helper.ts", "export function helper() {}\n"),
+        (
+            "src/ClassComp.tsx",
+            "export class ClassComp { render() { return null; } }\n",
+        ),
+    ] {
+        std::fs::write(repo_root.join(path), body).unwrap();
+    }
+    let source = br#"import React, { useState as useLocalState, type FC } from "react";
+import * as fs from "node:fs";
+import { map } from "lodash/fp";
+import { Button, Form } from "antd";
+import { Injectable } from "@nestjs/common";
+import express from "express";
+import cors from "cors";
+import { z } from "zod";
+import { helper } from "./helper";
+import { util } from "@app/lib/util";
+import { missing } from "@app/lib/missing";
+import { gone } from "./gone";
+const lib = require("lib-cjs");
+const { pick } = require("lodash");
+
+@Injectable()
+export class Svc {}
+
+export const Label: FC = () => null;
+
+export function App() {
+  const [n] = useLocalState(0);
+  React.useEffect(() => {});
+  fs.readFile("x", () => {});
+  map(helper);
+  z.object({});
+  lib();
+  lib.run();
+  pick();
+  util();
+  missing();
+  gone();
+  const app = express();
+  app.use(cors);
+  app.get("/");
+  return <Form.Item><Button /></Form.Item>;
+}
+
+function shadow() {
+  const pick = () => 1;
+  pick();
+}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "src/App.tsx", source);
+    let from_app = |kind: &str| {
+        edges
+            .iter()
+            .filter(|edge| edge.kind == kind && edge.source == "src/App.tsx::App")
+            .map(|edge| (edge.line, edge.target.as_str(), &edge.extra))
+            .collect::<Vec<_>>()
+    };
+    let calls = from_app("CALLS");
+    let call_at = |line: i64| {
+        calls
+            .iter()
+            .filter(|(at, _, _)| *at == line)
+            .map(|(_, target, extra)| (*target, *extra))
+            .collect::<Vec<_>>()
+    };
+    let external = |line: i64, target: &str, package: &str| {
+        let found = call_at(line);
+        let (_, extra) = found
+            .iter()
+            .find(|(written, _)| *written == target)
+            .unwrap_or_else(|| panic!("line {line}: {target} not in {found:#?}"));
+        assert_eq!(extra["external"], true, "{target}");
+        assert_eq!(extra["external_package"], package, "{target}");
+    };
+    external(22, "react::useState", "react");
+    // A default import's members are the module's (CommonJS interop).
+    external(23, "react::useEffect", "react");
+    external(24, "node:fs::readFile", "node:fs");
+    // The target keeps the specifier as written; the package drops the subpath.
+    external(25, "lodash/fp::map", "lodash");
+    external(26, "zod::z.object", "zod");
+    external(27, "lib-cjs::default", "lib-cjs");
+    external(28, "lib-cjs::run", "lib-cjs");
+    external(29, "lodash::pick", "lodash");
+    external(33, "express::default", "express");
+    external(36, "antd::Form.Item", "antd");
+    external(36, "antd::Button", "antd");
+    // In-repo and unresolvable in-repo specifiers are never external.
+    for (line, target) in [(30, "src/lib/util.ts::util"), (31, "missing"), (32, "gone")] {
+        let found = call_at(line);
+        assert_eq!(found.len(), 1, "{found:#?}");
+        assert_eq!(found[0].0, target);
+        assert!(found[0].1.get("external").is_none(), "{found:#?}");
+    }
+    // A method on a value returned by an external call has no evidence of
+    // its type: the bare name stays, marked as an unknown receiver.
+    let get = call_at(35);
+    assert_eq!(get.len(), 1, "{get:#?}");
+    assert_eq!(get[0].0, "get");
+    assert_eq!(get[0].1["receiver_unknown"], true);
+    assert!(get[0].1.get("external").is_none());
+
+    let references = from_app("REFERENCES");
+    let reference = |target: &str| {
+        references
+            .iter()
+            .find(|(_, written, _)| *written == target)
+            .unwrap_or_else(|| panic!("{target} not in {references:#?}"))
+            .2
+    };
+    assert_eq!(reference("cors::default")["external_package"], "cors");
+    assert!(reference("src/helper.ts::helper").get("external").is_none());
+    let decorator = edges
+        .iter()
+        .find(|edge| edge.kind == "REFERENCES" && edge.source == "src/App.tsx::Svc")
+        .expect("decorator reference");
+    assert_eq!(decorator.target, "@nestjs/common::Injectable");
+    assert_eq!(decorator.extra["relationship_role"], "decorator");
+    assert_eq!(decorator.extra["external_package"], "@nestjs/common");
+    // External types stay out of the graph (no `react::FC` edge).
+    assert!(
+        edges.iter().all(|edge| !edge.target.ends_with("FC")),
+        "{edges:#?}"
+    );
+    // A local shadowing an imported name is not the import.
+    assert!(
+        edges
+            .iter()
+            .all(|edge| !(edge.source.ends_with("::shadow") && edge.kind == "CALLS")),
+        "{edges:#?}"
+    );
+
+    let test_source = br#"import { render } from "@testing-library/react";
+import { ClassComp } from "./ClassComp";
+test("renders", () => {
+  render(<ClassComp />);
+});
+"#;
+    let (_nodes, edges) =
+        parser.parse_file_in_repo(Some(&repo_root), "src/App.test.tsx", test_source);
+    let render = edges
+        .iter()
+        .find(|edge| edge.kind == "CALLS" && edge.line == 4 && edge.target.ends_with("render"))
+        .expect("render call");
+    assert_eq!(render.target, "@testing-library/react::render");
+    assert_eq!(render.extra["external_package"], "@testing-library/react");
+    let tested = edges
+        .iter()
+        .filter(|edge| edge.kind == "TESTED_BY")
+        .map(|edge| edge.source.as_str())
+        .collect::<Vec<_>>();
+    // An external package is never the code under test.
+    assert_eq!(tested, ["src/ClassComp.tsx::ClassComp"]);
+
+    let _ = std::fs::remove_dir_all(&repo_root);
 }

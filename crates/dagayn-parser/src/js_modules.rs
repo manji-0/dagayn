@@ -135,6 +135,9 @@ pub(super) struct JavaScriptParseContext<'a> {
     pub(super) test_file: bool,
     pub(super) defined_names: &'a HashSet<String>,
     pub(super) import_map: &'a JavaScriptImportMap,
+    /// Imported specifiers that name external packages -> package name
+    /// ([`collect_javascript_external_packages`]).
+    pub(super) external_packages: &'a HashMap<String, String>,
     /// Owner paths of object-container and namespace members (`api.get`,
     /// `api.nested.deep`, `Outer.helper`, `Outer.Inner`, `A.B.C.abc`).
     pub(super) member_paths: &'a HashSet<String>,
@@ -302,7 +305,134 @@ pub(super) fn resolve_javascript_call_target(
     let Some(binding) = context.import_map.get(name) else {
         return name.to_string();
     };
-    resolve_javascript_import_binding(name, binding, context).unwrap_or_else(|| name.to_string())
+    resolve_javascript_import_binding(name, binding, context)
+        .or_else(|| javascript_external_symbol(name, &[], context))
+        .unwrap_or_else(|| name.to_string())
+}
+
+/// The npm package a bare specifier names: `react`, `@scope/name` for
+/// `@scope/name/sub`, `lodash` for `lodash/fp`, `node:fs` for
+/// `node:fs/promises`. Relative and absolute paths, `#` subpath imports,
+/// `~` aliases, URLs, and malformed scopes (`@/x`) are not packages.
+pub(super) fn javascript_package_name(specifier: &str) -> Option<&str> {
+    if specifier.is_empty()
+        || specifier.starts_with(['.', '/', '#', '~'])
+        || specifier.contains("://")
+        || specifier.contains('\\')
+    {
+        return None;
+    }
+    let end = match specifier.strip_prefix('@') {
+        Some(scoped) => {
+            let (scope, rest) = scoped.split_once('/')?;
+            let name_len = rest.find('/').unwrap_or(rest.len());
+            if scope.is_empty() || name_len == 0 {
+                return None;
+            }
+            1 + scope.len() + 1 + name_len
+        }
+        None => specifier.find('/').unwrap_or(specifier.len()),
+    };
+    Some(&specifier[..end])
+}
+
+/// The imported specifiers of `importer` that name external packages, with
+/// their package names: a package-name specifier that resolves to no
+/// repository file and is not a tsconfig alias (an in-repo module that
+/// failed to resolve is not a package).
+pub(super) fn collect_javascript_external_packages(
+    import_map: &JavaScriptImportMap,
+    importer: &str,
+    repo_root: Option<&Path>,
+    caches: JavaScriptCaches<'_>,
+) -> HashMap<String, String> {
+    let mut packages = HashMap::new();
+    for binding in import_map.values() {
+        let module = binding.module.as_str();
+        if packages.contains_key(module) {
+            continue;
+        }
+        let Some(package) = javascript_package_name(module) else {
+            continue;
+        };
+        if resolve_javascript_module(module, importer, repo_root, caches).is_none()
+            && !javascript_is_repo_alias(module, importer, repo_root, caches)
+        {
+            packages.insert(module.to_string(), package.to_string());
+        }
+    }
+    packages
+}
+
+/// `pkg::path` for a use of the import binding `root` followed by `members`
+/// (`useState` -> `react::useState`, `fs.readFile` -> `node:fs::readFile`,
+/// `z.object` -> `zod::z.object`), keeping the specifier as written so the
+/// target matches the file's `IMPORTS_FROM` edge. A default or `require`
+/// binding used alone is `pkg::default`; its members are the module's own
+/// (CommonJS interop, like in-repo default imports). A namespace binding is
+/// not callable by itself.
+pub(super) fn javascript_external_symbol(
+    root: &str,
+    members: &[&str],
+    context: &JavaScriptParseContext<'_>,
+) -> Option<String> {
+    let binding = context.import_map.get(root)?;
+    if !context.external_packages.contains_key(&binding.module) {
+        return None;
+    }
+    let path = match &binding.imported {
+        JavaScriptImported::Named(name) => std::iter::once(name.as_str())
+            .chain(members.iter().copied())
+            .collect::<Vec<_>>()
+            .join("."),
+        JavaScriptImported::Default | JavaScriptImported::Require if members.is_empty() => {
+            "default".to_string()
+        }
+        JavaScriptImported::Namespace if members.is_empty() => return None,
+        _ => members.join("."),
+    };
+    Some(format!("{}::{path}", binding.module))
+}
+
+/// Whether `module` names a repository path through the nearest tsconfig:
+/// a `paths` pattern matches it (other than the catch-all `*`), or its first
+/// segment exists under `baseUrl`.
+fn javascript_is_repo_alias(
+    module: &str,
+    file_path: &str,
+    repo_root: Option<&Path>,
+    caches: JavaScriptCaches<'_>,
+) -> bool {
+    let Some((tsconfig_path, config)) =
+        find_javascript_tsconfig(file_path, repo_root, caches.tsconfig)
+    else {
+        return false;
+    };
+    let Some(options) = config.get("compilerOptions") else {
+        return false;
+    };
+    if options
+        .get("paths")
+        .and_then(Value::as_object)
+        .is_some_and(|paths| {
+            paths
+                .keys()
+                .any(|pattern| pattern != "*" && javascript_alias_match(pattern, module).is_some())
+        })
+    {
+        return true;
+    }
+    let Some(base_url) = options.get("baseUrl").and_then(Value::as_str) else {
+        return false;
+    };
+    let first = module.split('/').next().unwrap_or(module);
+    let candidate = tsconfig_path
+        .parent()
+        .unwrap_or_else(|| Path::new(""))
+        .join(base_url)
+        .join(first);
+    javascript_module_candidate_is_dir(&candidate, repo_root)
+        || probe_javascript_module_candidate(&candidate, repo_root).is_some()
 }
 
 /// Resolves a local import binding to the exporting declaration's QN.

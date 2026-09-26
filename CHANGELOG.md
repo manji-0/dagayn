@@ -118,6 +118,31 @@ All notable changes to `dagayn` are documented here.
   belongs to the node the binding becomes. The TypeScript parity fixture
   gains 5 more edges (395 to 400; +6.1% over both changes);
   `dagayn-vscode/` gains 99 (4,867 to 4,966; +6.9% over both).
+- JavaScript / TypeScript calls and references into external packages are
+  `pkg::symbol`: `useState` from `react` is `CALLS -> react::useState`,
+  `fs.readFile()` on `import * as fs from "node:fs"` is
+  `node:fs::readFile`, a default import or `require` binding called alone is
+  `pkg::default` (`express::default`), subpaths and scopes keep the
+  specifier as written (`lodash/fp::map`, `@testing-library/react::render`),
+  and JSX components and decorators follow the same rule
+  (`antd::Form.Item`, `@nestjs/common::Injectable`). The edges carry
+  `extra.external: true` and `extra.external_package` (the package name
+  without a subpath). Before, the bare name could be bound by
+  post-processing to an unrelated project symbol of the same name (a test's
+  `render` became `CALLS -> ClassComp.render`, and `TESTED_BY` marked that
+  method as tested); `::` targets are never bare-resolved, and they are
+  demoted to `LOW` because no node exists. A specifier counts as external
+  only when it is a package name that resolves to no file and matches no
+  tsconfig `paths` alias or `baseUrl` directory. Calls from tests into
+  packages no longer produce `TESTED_BY`, and dead-code analysis and the
+  `callers_of` / `inheritors_of` name fallbacks ignore external edges, so
+  `date-fns::format` no longer keeps a project `format` alive.
+  `callers_of("react::useState")` lists the package symbol's callers.
+  A method on a value returned by a package call (`app.get()` after
+  `const app = express()`) keeps its bare name, and external types still
+  produce no `REFERENCES` edge. The TypeScript parity fixture keeps 400
+  edges (14 change target); `dagayn-vscode/` turns 835 edges external and
+  loses 120 dangling `TESTED_BY` edges (4,942 to 4,824).
 - Graphs record the extractor versions they were parsed with (metadata
   `extractor_versions`, for example `javascript=1`). When the running parser's
   extractor is newer, `dagayn update` re-parses every indexed file that

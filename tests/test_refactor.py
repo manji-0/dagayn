@@ -2665,6 +2665,24 @@ class TestFindDeadCodeModuleScope:
         assert "Wheel" not in dead_names
         assert "Spare" in dead_names
 
+    def test_external_package_call_does_not_keep_a_same_named_symbol_alive(self, tmp_path):
+        """`format` from date-fns is not the project's `format`."""
+        util = tmp_path / "util.ts"
+        util.write_bytes(b"export function format() { return 1; }\n")
+        app = tmp_path / "app.ts"
+        app.write_bytes(
+            b'import { format } from "date-fns";\n'
+            b'import "./util";\n'
+            b"export function show() { return format(); }\n"
+        )
+        for path in (util, app):
+            self._store_parsed(path, path.read_bytes())
+
+        calls = [e for e in self.store.get_edges_by_source(f"{app}::show") if e.kind == "CALLS"]
+        assert [e.target_qualified for e in calls] == ["date-fns::format"]
+        dead_names = {d["name"] for d in find_dead_code(self.store)}
+        assert "format" in dead_names
+
 
 class TestApplyRefactorIdentifierBoundaries:
     """Edits must land on the recorded identifier, or be reported as skipped."""

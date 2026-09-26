@@ -369,6 +369,71 @@ class TestTestedBySync:
         store.close()
 
 
+class TestExternalPackageSymbols:
+    def test_external_render_is_not_bound_to_a_project_render(self, tmp_path):
+        """`render` from @testing-library/react never becomes `ClassComp.render`."""
+        from dagayn.incremental import full_build
+        from dagayn.postprocessing import run_post_processing
+
+        repo = tmp_path / "repo"
+        (repo / "src").mkdir(parents=True)
+        (repo / ".git").mkdir()
+        (repo / "src" / "ClassComp.tsx").write_text(
+            "export class ClassComp { render() { return null; } }\n", encoding="utf-8"
+        )
+        (repo / "src" / "App.test.tsx").write_text(
+            'import { render } from "@testing-library/react";\n'
+            'import { ClassComp } from "./ClassComp";\n'
+            'it("renders", () => {\n'
+            "  render(<ClassComp />);\n"
+            "});\n",
+            encoding="utf-8",
+        )
+        store = GraphStore(repo / ".dagayn" / "graph.db")
+        full_build(repo, store)
+        run_post_processing(store)
+        conn = store_conn(store)
+        test_qn = "src/App.test.tsx::it:renders@L3"
+        calls = {
+            row["target_qualified"]: row
+            for row in conn.execute(
+                "SELECT target_qualified, confidence_tier, extra FROM edges "
+                "WHERE kind='CALLS' AND source_qualified=?",
+                (test_qn,),
+            ).fetchall()
+        }
+        assert set(calls) == {"@testing-library/react::render", "src/ClassComp.tsx::ClassComp"}
+        external = calls["@testing-library/react::render"]
+        # External, unresolved in-repo: LOW, identified by `extra.external`.
+        assert external["confidence_tier"] == "LOW"
+        assert '"external_package":"@testing-library/react"' in external["extra"]
+        tested_by = {
+            row["source_qualified"]
+            for row in conn.execute(
+                "SELECT source_qualified FROM edges WHERE kind='TESTED_BY' AND target_qualified=?",
+                (test_qn,),
+            ).fetchall()
+        }
+        assert tested_by == {"src/ClassComp.tsx::ClassComp"}
+        store.close()
+
+        result = query_graph(
+            pattern="callers_of",
+            target="src/ClassComp.tsx::ClassComp.render",
+            repo_root=str(repo),
+        )
+        # The name fallback must not report the external call as a caller.
+        assert result["results"] == [], result
+        external_callers = query_graph(
+            pattern="callers_of",
+            target="@testing-library/react::render",
+            repo_root=str(repo),
+        )
+        assert external_callers["status"] == "ok", external_callers
+        assert external_callers["resolution"] == "external_package"
+        assert [item["qualified_name"] for item in external_callers["results"]] == [test_qn]
+
+
 class TestQueryGraphBareNameBinding:
     @pytest.fixture(autouse=True)
     def _setup_store(self, tmp_path):

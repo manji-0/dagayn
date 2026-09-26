@@ -1729,4 +1729,87 @@ mod tests {
         assert_eq!(target, "a.py::helper");
         let _ = std::fs::remove_file(path);
     }
+
+    #[test]
+    fn external_package_calls_keep_their_package_target() {
+        // `App.test.tsx` imports `ClassComp.tsx` (which declares
+        // `ClassComp.render`) and calls `render` from
+        // `@testing-library/react`. The extractor qualifies the external call,
+        // so bare-name resolution cannot steal it; only the bare call binds.
+        let path = temp_db("external-package");
+        let mut store = GraphStore::open(&path).expect("open");
+        store
+            .store_file_nodes_edges(
+                "src/ClassComp.tsx",
+                &[
+                    file_node("src/ClassComp.tsx"),
+                    class_node("ClassComp", "src/ClassComp.tsx"),
+                    method_node("render", "src/ClassComp.tsx", "ClassComp"),
+                ],
+                &[],
+                "",
+                0,
+            )
+            .expect("store component");
+        let test = "src/App.test.tsx::renders";
+        let file = "src/App.test.tsx";
+        let external = EdgeInput {
+            extra: json!({"external": true, "external_package": "@testing-library/react"}),
+            ..edge("CALLS", test, "@testing-library/react::render", file, 4)
+        };
+        store
+            .store_file_nodes_edges(
+                file,
+                &[file_node(file), test_node("renders", file)],
+                &[
+                    edge("IMPORTS_FROM", file, "@testing-library/react", file, 1),
+                    edge("IMPORTS_FROM", file, "src/ClassComp.tsx", file, 2),
+                    external,
+                    edge("CALLS", test, "render", file, 5),
+                ],
+                "",
+                0,
+            )
+            .expect("store test");
+        assert_eq!(store.resolve_bare_call_targets().unwrap(), 1);
+        store.demote_unresolved_endpoint_edges().unwrap();
+        let mut stmt = store
+            .conn
+            .prepare(
+                "SELECT line, target_qualified, confidence_tier, \
+                 json_extract(extra, '$.external_package') \
+                 FROM edges WHERE kind = 'CALLS' ORDER BY line",
+            )
+            .unwrap();
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            })
+            .unwrap()
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(
+            rows,
+            vec![
+                (
+                    4,
+                    "@testing-library/react::render".to_string(),
+                    "LOW".to_string(),
+                    Some("@testing-library/react".to_string()),
+                ),
+                (
+                    5,
+                    "src/ClassComp.tsx::ClassComp.render".to_string(),
+                    "MEDIUM".to_string(),
+                    None,
+                ),
+            ]
+        );
+        let _ = std::fs::remove_file(path);
+    }
 }

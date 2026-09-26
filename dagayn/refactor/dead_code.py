@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 from typing import Any, Optional
 
+from ..bare_name_resolution import is_external_package_edge
 from ..contracts.cross_artifact import (
     cross_artifact_role,
     edge_extra,
@@ -721,10 +722,12 @@ def _node_dead_code_evidence(
         all_bare = lookups.bare_calls_by_name.get(node.name, []) + lookups.suffix_calls_by_name.get(
             node.name, []
         )
+        # Calls into external packages (`date-fns::format`) only share the name.
         all_bare = [
             e
             for e in all_bare
-            if _is_plausible_caller(
+            if not is_external_package_edge(e)
+            and _is_plausible_caller(
                 e.file_path,
                 node.file_path,
                 node.name,

@@ -616,8 +616,14 @@ fn is_test_api_call(extra: &Value) -> bool {
     extra.get("test_api").and_then(Value::as_bool) == Some(true)
 }
 
+/// A call into an external package (`react::useState`, marked by the
+/// JavaScript extractor): never a symbol of this repository.
+fn is_external_call(extra: &Value) -> bool {
+    extra.get("external").and_then(Value::as_bool) == Some(true)
+}
+
 /// `TESTED_BY target -> test` for every `CALLS test -> target` made by a
-/// test node, except calls to assertion / mock APIs.
+/// test node, except calls to assertion / mock APIs and external packages.
 fn add_tested_by_edges(nodes: &[ParsedNode], edges: &mut Vec<ParsedEdge>) {
     let test_qnames = nodes
         .iter()
@@ -630,6 +636,7 @@ fn add_tested_by_edges(nodes: &[ParsedNode], edges: &mut Vec<ParsedEdge>) {
             edge.kind == "CALLS"
                 && test_qnames.contains(&edge.source)
                 && !is_test_api_call(&edge.extra)
+                && !is_external_call(&edge.extra)
         })
         .map(|edge| ParsedEdge {
             kind: crate::core::types::EdgeKind::TestedBy,
@@ -769,9 +776,11 @@ pub(super) fn resolve_rust_call_targets(
         .into_iter()
         .map(|mut edge| {
             // A member call whose receiver the extractor could not type
-            // (`res.json()`) must not bind to a same-named declaration.
+            // (`res.json()`) must not bind to a same-named declaration, nor
+            // may a call into an external package (`react::render`).
             if matches!(edge.kind, EdgeKind::Calls | EdgeKind::References)
                 && edge.extra["receiver_unknown"] != true
+                && !is_external_call(&edge.extra)
                 && let Some(target) = resolve_same_file_call_target(
                     file_path,
                     &edge.source,

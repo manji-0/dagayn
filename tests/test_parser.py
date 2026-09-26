@@ -1747,6 +1747,42 @@ class TestTypeRoleAndImplements:
         assert calls[8].endswith("single.js::config"), calls
         assert not any(e.kind == "CALLS" and e.target == "require" for e in edges), edges
 
+    def test_typescript_external_package_symbols(self, tmp_path):
+        (tmp_path / "helper.ts").write_text("export function helper() {}\n", encoding="utf-8")
+        src = (
+            'import { useState } from "react";\n'
+            'import * as fs from "node:fs";\n'
+            'import { render } from "@testing-library/react";\n'
+            'import express from "express";\n'
+            'import { helper } from "./helper";\n'
+            "export function main() {\n"
+            "  useState(0);\n"
+            '  fs.readFile("x");\n'
+            "  render(null);\n"
+            "  const app = express();\n"
+            '  app.get("/");\n'
+            "  helper();\n"
+            "}\n"
+        )
+        _, edges = self._parse(src, "ts", tmp_path)
+        calls = {e.line: e for e in edges if e.kind == "CALLS"}
+        expected = {
+            7: ("react::useState", "react"),
+            8: ("node:fs::readFile", "node:fs"),
+            9: ("@testing-library/react::render", "@testing-library/react"),
+            10: ("express::default", "express"),
+        }
+        for line, (target, package) in expected.items():
+            assert calls[line].target == target, calls[line]
+            assert calls[line].extra.get("external") is True, calls[line]
+            assert calls[line].extra.get("external_package") == package, calls[line]
+        # No evidence for the type of `app`: bare, unknown receiver.
+        assert calls[11].target == "get"
+        assert calls[11].extra.get("receiver_unknown") is True
+        assert "external" not in calls[11].extra
+        assert calls[12].target.endswith("helper.ts::helper")
+        assert "external" not in calls[12].extra
+
     def test_typescript_constructor_and_method_call_resolution(self, tmp_path):
         src = """
 interface Repo { find(): void; }

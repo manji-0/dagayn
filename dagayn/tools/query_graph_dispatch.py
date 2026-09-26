@@ -23,6 +23,7 @@ from .query_graph_support import (
     file_is_indexed,
     file_path_candidates,
     filter_bare_name_fallback_edges,
+    is_external_package_target,
     is_low_confidence_markdown_code_span,
     is_unresolved_import_target,
     looks_like_query_file_target,
@@ -67,6 +68,15 @@ def resolve_query_target(
     if not node:
         abs_target = str(state.root / state.target)
         node = state.store.get_node(abs_target)
+    if (
+        not node
+        and state.pattern == "callers_of"
+        and is_external_package_target(state.store, state.target)
+    ):
+        # `callers_of("react::useState")`: the callers of an external
+        # package symbol, which has edges but no node.
+        state.resolution = "external_package"
+        return None
     if not node and state.pattern == "file_summary" and looks_like_query_file_target(state.target):
         if not file_is_indexed(state.store, state.root, state.target):
             guidance = query_graph_guidance(

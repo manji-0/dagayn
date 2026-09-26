@@ -107,10 +107,11 @@ Nodes that are **not** created:
 - **Class expressions** take the name of the binding
   (`const Anon = class {}` gives `file::Anon`), because importers refer to the
   binding, not to the optional inner expression name.
-- **External package symbols** are not nodes. Edges that target a symbol
-  imported from an unresolved, non-relative specifier use `pkg::symbol`
-  (`react::useState`, `express::default`,
-  `@testing-library/react::render`). The `::` keeps these targets away from
+- **External package symbols** are not nodes. `CALLS` and `REFERENCES` to
+  a name imported from an external package use `<specifier>::<path>`
+  (`react::useState`, `express::default`, `node:fs::readFile`,
+  `@testing-library/react::render`) and carry `extra.external: true` and
+  `extra.external_package` (§7.6). The `::` keeps these targets away from
   the bare-name resolver, so they are never attached to an unrelated local
   symbol of the same name. Post-processing marks them LOW because no node
   exists.
@@ -203,8 +204,9 @@ Nodes that are **not** created:
 - **Assertion and mock APIs.** Calls whose callee chain starts with
   `expect`, `assert`, `vi`, `vitest`, `jest`, `sinon`, `chai`, `cy`, or
   `Cypress` keep their `CALLS` edge with `test_api: true`, and never produce
-  `TESTED_BY`. `TESTED_BY` is derived from every other `CALLS` edge whose
-  source is a `Test` node.
+  `TESTED_BY`. Calls into external packages (`extra.external`, §7.6) do not
+  either. `TESTED_BY` is derived from every other `CALLS` edge whose source
+  is a `Test` node.
 - **Resolved in post-processing.** A bare call target (`box.helper()` on an
   untyped local) gives a bare `TESTED_BY helper -> test`. When
   `resolve_bare_call_targets` binds the call (`src/classes.ts::Box.helper`,
@@ -348,7 +350,12 @@ order:
 A file wins over a directory with the same stem, and an implementation file
 wins over its `.d.ts`. Non-relative specifiers go through the nearest
 `tsconfig.json` / `tsconfig.app.json` `paths` (relative to `baseUrl`), using
-the same candidate list. Anything else is external.
+the same candidate list. A specifier that is a package name (`react`,
+`@scope/name`, `lodash/fp`, `node:fs`), resolves to no file, matches no
+`paths` pattern other than `*`, and whose first segment does not exist
+under `baseUrl` is external (§7.6). Anything else that fails to resolve
+(`./gone`, an alias whose file is missing) is an unresolved in-repo module:
+its names stay bare.
 
 ### 6.4 Confidence
 
@@ -357,7 +364,10 @@ the same candidate list. Anything else is external.
 - Bare names resolved in post-processing through import visibility are
   `MEDIUM`.
 - Targets without a node (`pkg::symbol`, unresolved names) become `LOW`
-  through `demote_unresolved_endpoint_edges`.
+  through `demote_unresolved_endpoint_edges`. There is no separate tier for
+  external packages: `LOW` says "no node in this graph", and
+  `extra.external: true` tells an external dependency apart from a dangling
+  in-repo name (§7.6).
 
 ## 7. Decisions
 
@@ -478,8 +488,9 @@ class, or namespace member). Builtin and global types (`string`, `Promise`,
 type parameters, mapped-type keys (`[K in keyof T]`), `infer U`, and names of
 function-local declarations produce no edge. This is a deliberate exception
 to §2's "unresolved stays bare": a bare type name could not be bound safely
-later and would only add LOW-confidence dangling edges. Qualifying external
-types as `pkg::Type` is left to #25. Self references
+later and would only add LOW-confidence dangling edges. External types
+stay without an edge as well, even though calls into packages became
+`pkg::symbol` (§7.6). Self references
 (`interface Tree { children: Tree[] }`) are dropped.
 
 **Analysis consumers.** The `strict_static` and `implementation` dependency
@@ -513,10 +524,93 @@ collide and break on rename.
 ### 7.6 External package symbols are `pkg::symbol`
 
 A bare `render` or `get` imported from a package used to be resolved by
-post-processing to an unrelated local method of the same name (a test's
-`render` attached to a component's `render` method). Qualifying with the
-package specifier keeps the dependency explicit and stops name-based
-misresolution. Planned (part 2/3, #25).
+post-processing to an unrelated local method of the same name: in the
+sample project, a test's `render` became `CALLS -> ClassComp.render`
+(`MEDIUM`), and its `TESTED_BY` marked that method as tested. Qualifying the
+name with the package keeps the dependency explicit and takes it out of
+every name-based resolution. Implemented (#25).
+
+**Which imports.** A binding from `import`, `require`, or
+`import x = require` whose specifier is external (§6.3): a package name that
+resolves to no file and is not a tsconfig alias. Relative specifiers that do
+not resolve and aliases whose file is missing are in-repo modules, so their
+names stay bare.
+
+**Target.** `<specifier>::<path>`, with the specifier as written so the
+target lines up with the file's `IMPORTS_FROM` edge:
+
+- named import: the exported name (`import { useState as useLocal }` gives
+  `react::useState`), and member chains keep the path
+  (`z.object()` from `zod` gives `zod::z.object`)
+- namespace import: the member path (`fs.readFile()` gives
+  `node:fs::readFile`, `path.posix.join()` gives `path::posix.join`); the
+  namespace alone is not callable and stays bare
+- default import and `require` binding: alone it is `pkg::default`
+  (`express()` gives `express::default`); its members are the module's own,
+  as for in-repo default imports (CommonJS interop), so `React.useEffect()`
+  and `import { useEffect }` both give `react::useEffect`
+- the same rule covers `CALLS` (calls, `new`, JSX `<Button />` /
+  `<Form.Item />`, class-heritage mixin calls), value `REFERENCES`
+  (`app.use(cors)` gives `cors::default`), and decorator `REFERENCES`
+  (`@nestjs/common::Injectable`). `INHERITS` / `IMPLEMENTS` keep the written
+  base name.
+- a value returned by an external call has no known type:
+  `const app = express(); app.get("/")` keeps the bare `get` with
+  `receiver_unknown: true` (§6.1.1). Guessing `express::default().get`
+  would need the package's typings.
+- a local that shadows an import (`const pick = ...; pick()`) is the local,
+  so it produces no edge.
+
+**Metadata.** These edges carry `extra.external: true` and
+`extra.external_package`, the package name without a subpath
+(`@testing-library/react`, `lodash` for `lodash/fp`, `node:fs`). Rust call
+targets (`serde_json::to_string`) already use the same `crate::path` shape
+without the flag; Python and Go keep bare names.
+
+**Consumers.**
+
+- Parse time: same-file resolution skips external edges, and a call from a
+  test into a package produces no `TESTED_BY` (an external package is never
+  the code under test).
+- Post-processing: `resolve_bare_call_targets` and
+  `load_bare_name_index` only consider targets without `::`, so external
+  targets are never re-bound. `demote_unresolved_endpoint_edges` makes them
+  `LOW` (§6.4).
+- Dead code and the query-time name fallback of `callers_of` /
+  `inheritors_of` ignore external edges, so `date-fns::format` no longer
+  keeps a project `format` alive or shows up as its caller.
+  `callers_of("react::useState")` lists the callers of the package symbol
+  (`resolution: "external_package"`).
+- Flows count a call whose target is not a node as external in the
+  criticality score, so a call that used to be misresolved to a local method
+  now counts as external. Risk scores and the risk index key on node QNs;
+  they lose only the callers and tests that misresolution had attached.
+- Impact radius walks edges by QN and never returns a non-node, as it
+  already did for bare names; the callers of one package symbol stay linked
+  through its target, as they were through the bare name.
+
+**Types stay without an edge.** External types (`FC` from `react`,
+`vscode.Uri`) produce no `REFERENCES` (§7.4). Type references exist to connect
+in-repo declarations for impact radius and dead code, and a package type
+connects nothing; `IMPORTS_FROM` already records the dependency. Measured
+with a `pkg::Type` variant, they would add 107 edges on `dagayn-vscode/`
+(102 of them `vscode::*`, +33% over its 320 in-repo type edges) and 1 on
+the TypeScript parity fixture, all `LOW`.
+
+**Measured impact.** The TypeScript parity fixture keeps 400 edges: 8
+`CALLS` and 6 decorator `REFERENCES` change target (`react::useState`,
+`express::Router`, `@nestjs/common::Get`, ...). On `dagayn-vscode/` (49
+TypeScript files) 833 `CALLS` and 2 `REFERENCES` become external (388
+`node:assert`, 237 `vscode`, 98 `node:path`, 67 `node:fs`, ...); `CALLS`
+grow by 2 (4,942 -> 4,824 edges in total, both built from the same copy) because a chained
+`d3.zoomIdentity.translate().scale().translate()` no longer merges its two
+bare `translate` calls, and 120 dangling `TESTED_BY` edges from tests into
+packages disappear. `MEDIUM` edges and flows do not change there, since no
+imported package name matched a project symbol. In the sample project the
+test's `render` is a global; with
+`import { render } from "@testing-library/react"` added, the call becomes
+`@testing-library/react::render` (`LOW`) and the `ClassComp.render` `CALLS`
+/ `TESTED_BY` edges are gone.
 
 ### 7.7 Decorators are metadata plus `REFERENCES`
 
@@ -684,8 +778,11 @@ QNs omit the `file::` prefix.
 | `new UserService()` imported from `./user.service` | `CALLS -> user.service.ts::UserService` | implemented (#5) |
 | JSX `<Button />` | `CALLS -> Button` | implemented (existing) |
 | JSX intrinsic `<div />` | no edge | implemented (existing) |
-| Express `app.get(...)` | never resolved to an unrelated object-literal method | implemented (#8); `express::...` qualification planned (part 2/3, #25) |
-| external `useState(0)` | `CALLS -> react::useState` | planned (part 2/3, #25) |
+| Express `app.get(...)` on `const app = express()` | never resolved to an unrelated object-literal method; bare `get` with `receiver_unknown` (the value's type is unknown); `express()` is `CALLS -> express::default` | implemented (#8, #25) |
+| external `useState(0)` | `CALLS -> react::useState` (`external`, `external_package: "react"`) | implemented (#25) |
+| external namespace / default members `fs.readFile()`, `React.useEffect()`, `z.object()` | `CALLS -> node:fs::readFile` / `react::useEffect` / `zod::z.object` | implemented (#25) |
+| `require("pkg")` bindings, subpaths `lodash/fp`, scoped packages | `CALLS -> pkg::default` / `lodash/fp::map` (`external_package: "lodash"`) / `@scope/name::x` | implemented (#25) |
+| external JSX `<Button />`, `<Form.Item />`, decorators `@Injectable()` | `CALLS -> antd::Form.Item`; `REFERENCES -> @nestjs/common::Injectable` | implemented (#25) |
 | tagged template | `CALLS -> tag` | implemented (existing) |
 | `require("./x")`, `import("./x")` | `IMPORTS_FROM` (`import_kind`); no `CALLS -> require` | implemented (#19) |
 | `const { a } = require("./x"); a()`, `const x = require("./x"); x.a()` | `CALLS -> x::a` | implemented (#19) |
@@ -729,7 +826,7 @@ QNs omit the `file::` prefix.
 | `ns.Type`, `Outer.Inner`, aliased / default / re-exported imports, namespace-local names | resolved to the declaring QN (§7.4) | implemented (#23) |
 | `typeof X` in a signature | `REFERENCES -> X` (`type_query`) | implemented (#23) |
 | a type repeated in several positions of one declaration | one edge, every position in `type_positions` | implemented (#23) |
-| builtin and global types, external packages, undeclared names, type parameters, `infer U`, mapped keys, self references | no edge | implemented (#23) |
+| builtin and global types, external packages, undeclared names, type parameters, `infer U`, mapped keys, self references | no edge (external types stay out after #25, §7.6) | implemented (#23, #25) |
 | body annotations `const u: User`, `x as User`, `<User>x`, `x satisfies Shape` | `REFERENCES outer -> User` (`variable_annotation`, `as`, `satisfies`) | implemented (#24) |
 | call / `new` type arguments `pick<UserId>()`, `new Repo<User>()` | `REFERENCES outer -> UserId` (`type_argument`); `new Repo` stays `CALLS` | implemented (#24) |
 | `x instanceof Repo` (TypeScript and JavaScript) | `REFERENCES outer -> Repo` (`instanceof`) | implemented (#24) |
@@ -754,6 +851,7 @@ QNs omit the `file::` prefix.
 | `*.test.tsx`, `*.spec.jsx`, `*.test.mjs`, `__tests__/`, `e2e/`, `*.cy.ts` | File `is_test` | implemented (#21) |
 | `TESTED_BY` for calls resolved in post-processing | follows the resolved `CALLS` target | implemented (#22) |
 | `TESTED_BY` to runner / assertion APIs (`expect`, `beforeEach`) | not emitted | implemented (#21) |
+| `TESTED_BY` to external packages (`render` from `@testing-library/react`) | not emitted; the `CALLS` edge stays | implemented (#25) |
 
 ### 10.9 Frameworks and entry points
 
