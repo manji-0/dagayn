@@ -76,30 +76,157 @@ fn julia_walk_children(
 ) {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        match child.kind() {
-            "module_definition" => {
-                if let Some(name) = julia_direct_child_text(child, context.source, &["identifier"])
-                {
-                    julia_emit_class(
-                        child,
+        julia_visit(
+            child,
+            context,
+            enclosing_class,
+            enclosing_func,
+            nodes,
+            edges,
+        );
+    }
+}
+
+/// Handles one node, then descends into it unless an arm consumed it.
+fn julia_visit(
+    child: tree_sitter::Node<'_>,
+    context: &JuliaParseContext<'_>,
+    enclosing_class: Option<&str>,
+    enclosing_func: Option<&str>,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    match child.kind() {
+        "module_definition" => {
+            if let Some(name) = julia_direct_child_text(child, context.source, &["identifier"]) {
+                julia_emit_class(
+                    child,
+                    context,
+                    JuliaClassSpec {
+                        name: &name,
+                        parent_name: None,
+                        extra: json!({"type_role": "class"}),
+                        contains_from_parent: true,
+                    },
+                    nodes,
+                    edges,
+                );
+                if let Some(block) = julia_direct_child(child, &["block"]) {
+                    julia_walk_children(block, context, Some(&name), None, nodes, edges);
+                }
+                return;
+            }
+        }
+        "using_statement" | "import_statement" => {
+            for target in julia_import_targets(child, context.source) {
+                edges.push(ParsedEdge {
+                    kind: crate::core::types::EdgeKind::ImportsFrom,
+                    source: context.file_path.to_string(),
+                    target,
+                    file_path: context.file_path.clone(),
+                    line: child.start_position().row as i64 + 1,
+                    extra: json!({}),
+                });
+            }
+            return;
+        }
+        "export_statement" | "public_statement" => {
+            julia_emit_symbol_references(child, context, enclosing_class, edges);
+            return;
+        }
+        "macrocall_expression"
+            if julia_handle_macrocall(
+                child,
+                context,
+                enclosing_class,
+                enclosing_func,
+                nodes,
+                edges,
+            ) =>
+        {
+            return;
+        }
+        "abstract_definition" | "struct_definition" => {
+            if let Some(name) = julia_type_name(child, context.source) {
+                let extra = if child.kind() == "abstract_definition" {
+                    json!({"type_role": "abstract_type", "is_abstract": true})
+                } else {
+                    json!({"type_role": "struct"})
+                };
+                julia_emit_class(
+                    child,
+                    context,
+                    JuliaClassSpec {
+                        name: &name,
+                        parent_name: enclosing_class,
+                        extra,
+                        contains_from_parent: true,
+                    },
+                    nodes,
+                    edges,
+                );
+                if child.kind() == "struct_definition" {
+                    julia_emit_inheritance(child, context, &name, enclosing_class, edges);
+                }
+                return;
+            }
+        }
+        "function_definition" | "macro_definition" => {
+            if let Some(name) = julia_function_name(child, context.source) {
+                let functor = julia_direct_child(child, &["signature"])
+                    .and_then(|signature| julia_first_descendant(signature, &["call_expression"]))
+                    .and_then(|call| julia_functor_type(call, context.source))
+                    .map(|ty| match enclosing_class {
+                        Some(module) => format!("{module}.{ty}"),
+                        None => ty,
+                    });
+                let parent = functor
+                    .clone()
+                    .or_else(|| julia_function_parent(enclosing_class, enclosing_func));
+                julia_emit_function(child, context, &name, parent.as_deref(), nodes, edges);
+                julia_emit_owner_reference(child, context, &name, parent.as_deref(), edges);
+                if let Some(block) = julia_direct_child(child, &["block"]) {
+                    julia_walk_children(
+                        block,
                         context,
-                        JuliaClassSpec {
-                            name: &name,
-                            parent_name: None,
-                            extra: json!({"type_role": "class"}),
-                            contains_from_parent: true,
-                        },
+                        functor.as_deref().or(enclosing_class),
+                        Some(&name),
                         nodes,
                         edges,
                     );
-                    if let Some(block) = julia_direct_child(child, &["block"]) {
-                        julia_walk_children(block, context, Some(&name), None, nodes, edges);
-                    }
-                    continue;
                 }
+                return;
             }
-            "using_statement" | "import_statement" => {
-                for target in julia_import_targets(child, context.source) {
+        }
+        "assignment"
+            if julia_handle_short_function(
+                child,
+                context,
+                enclosing_class,
+                enclosing_func,
+                nodes,
+                edges,
+            ) =>
+        {
+            return;
+        }
+        "call_expression" => {
+            if julia_is_signature_call(child) || julia_is_assignment_lhs_call(child) {
+                return;
+            }
+            if let Some(call_name) = julia_call_name(child, context.source) {
+                if call_name == "include"
+                    && let Some(target) = julia_first_string_arg(child, context.source)
+                {
+                    // `include` is relative to the including file.
+                    let target = resolve_import_path(
+                        &target,
+                        &context.file_path,
+                        context.repo_root,
+                        &[],
+                        false,
+                    )
+                    .unwrap_or(target);
                     edges.push(ParsedEdge {
                         kind: crate::core::types::EdgeKind::ImportsFrom,
                         source: context.file_path.to_string(),
@@ -109,126 +236,26 @@ fn julia_walk_children(
                         extra: json!({}),
                     });
                 }
-                continue;
-            }
-            "export_statement" | "public_statement" => {
-                julia_emit_symbol_references(child, context, enclosing_class, edges);
-                continue;
-            }
-            "macrocall_expression"
-                if julia_handle_macrocall(
+                julia_emit_call(
                     child,
                     context,
+                    &call_name,
                     enclosing_class,
                     enclosing_func,
-                    nodes,
                     edges,
-                ) =>
-            {
-                continue;
+                );
             }
-            "abstract_definition" | "struct_definition" => {
-                if let Some(name) = julia_type_name(child, context.source) {
-                    let extra = if child.kind() == "abstract_definition" {
-                        json!({"type_role": "abstract_type", "is_abstract": true})
-                    } else {
-                        json!({"type_role": "struct"})
-                    };
-                    julia_emit_class(
-                        child,
-                        context,
-                        JuliaClassSpec {
-                            name: &name,
-                            parent_name: enclosing_class,
-                            extra,
-                            contains_from_parent: false,
-                        },
-                        nodes,
-                        edges,
-                    );
-                    if child.kind() == "struct_definition" {
-                        julia_emit_inheritance(child, context, &name, enclosing_class, edges);
-                    }
-                    continue;
-                }
-            }
-            "function_definition" | "macro_definition" => {
-                if let Some(name) = julia_function_name(child, context.source) {
-                    let parent = julia_function_parent(enclosing_class, enclosing_func);
-                    julia_emit_function(child, context, &name, parent.as_deref(), nodes, edges);
-                    julia_emit_owner_reference(child, context, &name, parent.as_deref(), edges);
-                    if let Some(block) = julia_direct_child(child, &["block"]) {
-                        julia_walk_children(
-                            block,
-                            context,
-                            enclosing_class,
-                            Some(&name),
-                            nodes,
-                            edges,
-                        );
-                    }
-                    continue;
-                }
-            }
-            "assignment"
-                if julia_handle_short_function(
-                    child,
-                    context,
-                    enclosing_class,
-                    enclosing_func,
-                    nodes,
-                    edges,
-                ) =>
-            {
-                continue;
-            }
-            "call_expression" => {
-                if julia_is_signature_call(child) || julia_is_assignment_lhs_call(child) {
-                    continue;
-                }
-                if let Some(call_name) = julia_call_name(child, context.source) {
-                    if call_name == "include"
-                        && let Some(target) = julia_first_string_arg(child, context.source)
-                    {
-                        // `include` is relative to the including file.
-                        let target = resolve_import_path(
-                            &target,
-                            &context.file_path,
-                            context.repo_root,
-                            &[],
-                            false,
-                        )
-                        .unwrap_or(target);
-                        edges.push(ParsedEdge {
-                            kind: crate::core::types::EdgeKind::ImportsFrom,
-                            source: context.file_path.to_string(),
-                            target,
-                            file_path: context.file_path.clone(),
-                            line: child.start_position().row as i64 + 1,
-                            extra: json!({}),
-                        });
-                    }
-                    julia_emit_call(
-                        child,
-                        context,
-                        &call_name,
-                        enclosing_class,
-                        enclosing_func,
-                        edges,
-                    );
-                }
-            }
-            _ => {}
         }
-        julia_walk_children(
-            child,
-            context,
-            enclosing_class,
-            enclosing_func,
-            nodes,
-            edges,
-        );
+        _ => {}
     }
+    julia_walk_children(
+        child,
+        context,
+        enclosing_class,
+        enclosing_func,
+        nodes,
+        edges,
+    );
 }
 
 fn julia_handle_short_function(
@@ -257,7 +284,7 @@ fn julia_handle_short_function(
             }
             continue;
         }
-        julia_walk_children(child, context, enclosing_class, Some(&name), nodes, edges);
+        julia_visit(child, context, enclosing_class, Some(&name), nodes, edges);
     }
     true
 }
@@ -283,14 +310,17 @@ fn julia_handle_macrocall(
             true
         }
         _ => {
-            julia_emit_call(
-                node,
-                context,
-                &format!("@{macro_name}"),
-                enclosing_class,
-                enclosing_func,
-                edges,
-            );
+            // `@inline f(x) = ...` annotates a definition; it is not a call site.
+            if !julia_macro_wraps_definition(node) {
+                julia_emit_call(
+                    node,
+                    context,
+                    &format!("@{macro_name}"),
+                    enclosing_class,
+                    enclosing_func,
+                    edges,
+                );
+            }
             let mut cursor = node.walk();
             for child in node.children(&mut cursor) {
                 if child.kind() == "macro_argument_list" {
@@ -553,6 +583,24 @@ fn julia_emit_symbol_references(
     }
 }
 
+fn julia_macro_wraps_definition(node: tree_sitter::Node<'_>) -> bool {
+    let Some(arguments) = julia_direct_child(node, &["macro_argument_list"]) else {
+        return false;
+    };
+    let mut cursor = arguments.walk();
+    let Some(first) = arguments.named_children(&mut cursor).next() else {
+        return false;
+    };
+    match first.kind() {
+        "function_definition"
+        | "macro_definition"
+        | "struct_definition"
+        | "abstract_definition" => true,
+        "assignment" => julia_assignment_lhs_call(first).is_some(),
+        _ => false,
+    }
+}
+
 fn julia_emit_inheritance(
     node: tree_sitter::Node<'_>,
     context: &JuliaParseContext<'_>,
@@ -566,14 +614,25 @@ fn julia_emit_inheritance(
     let Some(binary) = julia_direct_child(type_head, &["binary_expression"]) else {
         return;
     };
-    let identifiers = julia_direct_child_texts(binary, context.source, &["identifier"]);
-    if identifiers.len() < 2 {
+    // `Pt{T} <: AbstractVector{T}`: either side may be parameterized.
+    let mut cursor = binary.walk();
+    let operands: Vec<_> = binary
+        .named_children(&mut cursor)
+        .filter(|child| child.kind() != "operator")
+        .collect();
+    let Some(supertype) = operands.get(1).and_then(|operand| match operand.kind() {
+        "identifier" => Some(node_text(*operand, context.source)),
+        "parametrized_type_expression" => {
+            julia_direct_child_text(*operand, context.source, &["identifier"])
+        }
+        _ => None,
+    }) else {
         return;
-    }
+    };
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Inherits,
         source: qualify(&context.file_path, name, enclosing_class),
-        target: identifiers[1].clone(),
+        target: supertype,
         file_path: context.file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({"relationship_role": "extends", "syntax_source": "struct_definition"}),
@@ -668,6 +727,23 @@ fn julia_function_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<Str
     let signature = julia_direct_child(node, &["signature"])?;
     let call = julia_first_descendant(signature, &["call_expression"])?;
     julia_call_name(call, source)
+        .or_else(|| julia_functor_type(call, source).map(|_| "operator()".to_string()))
+}
+
+/// The struct made callable by `function (p::Pt)(y)`.
+fn julia_functor_type(call: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let first = julia_first_named_child(call)?;
+    if first.kind() != "parenthesized_expression" {
+        return None;
+    }
+    let typed = julia_first_descendant(first, &["typed_expression"])?;
+    let mut cursor = typed.walk();
+    let ty = typed.named_children(&mut cursor).last()?;
+    match ty.kind() {
+        "identifier" => Some(node_text(ty, source)),
+        "parametrized_type_expression" => julia_direct_child_text(ty, source, &["identifier"]),
+        _ => None,
+    }
 }
 
 fn julia_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {

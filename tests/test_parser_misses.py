@@ -510,3 +510,33 @@ f <- function() 1
         assert ("Function", "k", None) in names
         assert ("Function", "kk", None) in names
         assert ("CALLS", "<f>::k", "<f>::f") in edges
+
+
+class TestJulia:
+    SOURCE = """\
+module Geo
+abstract type Shape end
+@inline fast(x) = helper(x)
+struct Pt{T} <: AbstractVector{T}
+    x::T
+end
+function (p::Pt)(y)
+    helper(y)
+end
+end
+"""
+
+    def test_short_function_body_calls(self, parse):
+        _, edges, _ = parse("m.jl", self.SOURCE)
+        assert ("CALLS", "<f>::Geo.fast", "helper") in edges
+        assert not any(e[2] == "@inline" for e in edges)
+
+    def test_parametrized_supertype_and_contains(self, parse):
+        _, edges, _ = parse("m.jl", self.SOURCE)
+        assert ("INHERITS", "<f>::Geo.Pt", "AbstractVector") in edges
+        assert ("CONTAINS", "<f>::Geo", "<f>::Geo.Shape") in edges
+
+    def test_functor_method(self, parse):
+        names, edges, _ = parse("m.jl", self.SOURCE)
+        assert ("Function", "operator()", "Geo.Pt") in names
+        assert ("CALLS", "<f>::Geo.Pt.operator()", "helper") in edges
