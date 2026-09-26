@@ -1225,37 +1225,75 @@ fn parse_rust_owned_file_inputs(
     )
 }
 
+/// Map `items` on the rayon pool, preserving their order.
+///
+/// Each chunk gets one parser, so its tree-sitter parsers and JavaScript module
+/// caches stay warm across the chunk; a few chunks per thread keep the threads
+/// busy when file sizes vary.
+fn par_map_with_parser<I, T, F>(items: Vec<I>, f: F) -> Vec<T>
+where
+    I: Send,
+    T: Send,
+    F: Fn(&mut dagayn_core::parser::RustOwnedParser, I) -> T + Sync,
+{
+    use rayon::prelude::*;
+
+    let chunk_len = items
+        .len()
+        .div_ceil(rayon::current_num_threads().max(1) * 4)
+        .max(1);
+    let mut chunks = Vec::new();
+    let mut items = items.into_iter().peekable();
+    while items.peek().is_some() {
+        chunks.push(items.by_ref().take(chunk_len).collect::<Vec<_>>());
+    }
+    chunks
+        .into_par_iter()
+        .map(|chunk| {
+            let mut parser = dagayn_core::parser::RustOwnedParser::new();
+            chunk
+                .into_iter()
+                .map(|item| f(&mut parser, item))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
+        .flatten()
+        .collect()
+}
+
 fn collect_rust_owned_file_batch(
     repo_root: &std::path::Path,
     file_paths: Vec<String>,
 ) -> RustFileBatchSummary {
+    let parsed = par_map_with_parser(file_paths, |parser, file_path| {
+        let full_path = repo_root.join(&file_path);
+        let source = match std::fs::read(&full_path) {
+            Ok(source) => source,
+            Err(err) => return Err((file_path, err.to_string())),
+        };
+        if !dagayn_core::parser::rust_parser_owns_source(&file_path, &source) {
+            return Err((file_path, "unsupported Rust parser path".to_string()));
+        }
+        let mtime_ns = file_mtime_ns(&full_path).unwrap_or(0);
+        let (nodes, edges) = parse_rust_owned_file_inputs(parser, repo_root, &file_path, &source);
+        Ok((file_path, nodes, edges, sha256_hex(&source), mtime_ns))
+    });
+
     let mut batch = Vec::new();
     let mut errors = Vec::new();
     let mut total_nodes = 0_usize;
     let mut total_edges = 0_usize;
-    let mut parser = dagayn_core::parser::RustOwnedParser::new();
-
-    for file_path in file_paths {
-        let full_path = repo_root.join(&file_path);
-        let source = match std::fs::read(&full_path) {
-            Ok(source) => source,
-            Err(err) => {
-                errors.push((file_path, err.to_string()));
-                continue;
+    for result in parsed {
+        match result {
+            Ok(item) => {
+                total_nodes += item.1.len();
+                total_edges += item.2.len();
+                batch.push(item);
             }
-        };
-        if !dagayn_core::parser::rust_parser_owns_source(&file_path, &source) {
-            errors.push((file_path, "unsupported Rust parser path".to_string()));
-            continue;
+            Err(error) => errors.push(error),
         }
-        let mtime_ns = file_mtime_ns(&full_path).unwrap_or(0);
-        let (nodes, edges) =
-            parse_rust_owned_file_inputs(&mut parser, repo_root, &file_path, &source);
-        total_nodes += nodes.len();
-        total_edges += edges.len();
-        batch.push((file_path, nodes, edges, sha256_hex(&source), mtime_ns));
     }
-
     (batch, total_nodes, total_edges, errors)
 }
 
@@ -1265,21 +1303,23 @@ fn collect_changed_rust_owned_file_batch(
     file_meta: &HashMap<String, (String, i64)>,
     mut cached: HashMap<String, CachedRustChangedFile>,
 ) -> RustChangedFileBatchSummary {
-    let mut batch = Vec::new();
-    let mut mtime_updates = Vec::new();
-    let mut errors = Vec::new();
-    let mut total_nodes = 0_usize;
-    let mut total_edges = 0_usize;
-    let mut parser = dagayn_core::parser::RustOwnedParser::new();
-
-    for file_path in file_paths {
-        let cached_entry = cached.remove(&file_path).and_then(|entry| {
+    let inputs = file_paths
+        .into_iter()
+        .map(|file_path| {
+            let entry = cached.remove(&file_path);
+            (file_path, entry)
+        })
+        .collect::<Vec<_>>();
+    let parsed = par_map_with_parser(inputs, |parser, (file_path, entry)| {
+        let mut mtime_updates = Vec::new();
+        let mut errors = Vec::new();
+        let cached_entry = entry.and_then(|entry| {
             file_mtime_ns(&repo_root.join(&file_path))
                 .ok()
                 .filter(|mtime_ns| *mtime_ns == entry.mtime_ns)
                 .map(|_| (entry.source, entry.file_hash, entry.mtime_ns))
         });
-        let Some((source, file_hash, mtime_ns)) = cached_entry.or_else(|| {
+        let item = match cached_entry.or_else(|| {
             changed_rust_owned_file_source(
                 repo_root,
                 &file_path,
@@ -1287,20 +1327,37 @@ fn collect_changed_rust_owned_file_batch(
                 &mut mtime_updates,
                 &mut errors,
             )
-        }) else {
-            continue;
+        }) {
+            Some((source, _, _))
+                if !dagayn_core::parser::rust_parser_owns_source(&file_path, &source) =>
+            {
+                errors.push((file_path, "unsupported Rust parser path".to_string()));
+                None
+            }
+            Some((source, file_hash, mtime_ns)) => {
+                let (nodes, edges) =
+                    parse_rust_owned_file_inputs(parser, repo_root, &file_path, &source);
+                Some((file_path, nodes, edges, file_hash, mtime_ns))
+            }
+            None => None,
         };
-        if !dagayn_core::parser::rust_parser_owns_source(&file_path, &source) {
-            errors.push((file_path, "unsupported Rust parser path".to_string()));
-            continue;
-        }
-        let (nodes, edges) =
-            parse_rust_owned_file_inputs(&mut parser, repo_root, &file_path, &source);
-        total_nodes += nodes.len();
-        total_edges += edges.len();
-        batch.push((file_path, nodes, edges, file_hash, mtime_ns));
-    }
+        (item, mtime_updates, errors)
+    });
 
+    let mut batch = Vec::new();
+    let mut mtime_updates = Vec::new();
+    let mut errors = Vec::new();
+    let mut total_nodes = 0_usize;
+    let mut total_edges = 0_usize;
+    for (item, item_mtime_updates, item_errors) in parsed {
+        if let Some(item) = item {
+            total_nodes += item.1.len();
+            total_edges += item.2.len();
+            batch.push(item);
+        }
+        mtime_updates.extend(item_mtime_updates);
+        errors.extend(item_errors);
+    }
     (batch, mtime_updates, total_nodes, total_edges, errors)
 }
 

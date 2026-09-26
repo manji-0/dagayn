@@ -17,6 +17,7 @@ extension-module = ["pyo3/extension-module"]
 [dependencies]
 dagayn-core = { path = "../dagayn-core" }
 pyo3.workspace = true
+rayon = "1.10"
 serde_json.workspace = true
 sha2.workspace = true
 

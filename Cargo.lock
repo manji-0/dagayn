@@ -273,6 +273,7 @@ version = "0.1.0"
 dependencies = [
  "dagayn-core",
  "pyo3",
+ "rayon",
  "serde_json",
  "sha2",
 ]

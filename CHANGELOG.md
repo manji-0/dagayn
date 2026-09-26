@@ -31,6 +31,19 @@ All notable changes to `dagayn` are documented here.
   over an existing graph. Each batch also stops deleting its FTS rows twice,
   and the FTS watermark (a full `count(*)` of the FTS table) is set once when
   the bulk load finishes instead of twice per batch.
+- FTS indexing reads each source file once instead of once per node. The
+  source excerpt for every node re-read and re-split its whole file, inside the
+  write transaction, so a file with K symbols was read K times; nodes are now
+  visited grouped by file and share one read. The excerpt also stops joining
+  the full line range before truncating to 4096 characters. A full build of
+  this repository (579 files, 12.8k nodes) drops from ~5.8 s to ~2.8 s.
+- Rust-owned files are parsed on all cores. `store_rust_owned_files` and the
+  incremental `store_changed_rust_owned_files` looped over each 500-file batch
+  on one thread with one parser (the Python process pool only ever saw the few
+  extensions Rust does not own). Batches now parse on the rayon pool with one
+  parser per chunk, keeping input order, so the stored graph is identical;
+  `RAYON_NUM_THREADS` caps the thread count. The full build above drops
+  further to ~1.8 s.
 
 ## 4.15.0 — 2026-09-25
 
