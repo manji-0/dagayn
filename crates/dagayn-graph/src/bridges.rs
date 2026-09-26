@@ -56,6 +56,11 @@ fn is_low_confidence_resolved_implicit_markdown_code_span(edge: &GraphEdge) -> b
 }
 
 /// True when a CROSS_ARTIFACT edge must not be treated as a hard claim.
+///
+/// This is the exact complement of [`is_reportable_bridge`] for
+/// CROSS_ARTIFACT edges: every bridge outside the reportable tiers (`LOW`,
+/// `MEDIUM`, `UNKNOWN`) is surfaced as a caveat, so none disappears from both
+/// the claim and the caveat output.
 pub(crate) fn is_low_confidence_bridge(edge: &GraphEdge) -> bool {
     if !is_cross_artifact(edge) {
         return false;
@@ -66,7 +71,7 @@ pub(crate) fn is_low_confidence_bridge(edge: &GraphEdge) -> bool {
     {
         return true;
     }
-    confidence_tier_of(edge) == "LOW"
+    !REPORTABLE_CONFIDENCE_TIERS.contains(&confidence_tier_of(edge))
 }
 
 /// True when a CROSS_ARTIFACT edge may expand impact/flows as a hard claim.
@@ -170,16 +175,39 @@ mod tests {
     }
 
     #[test]
-    fn low_and_medium_tiers_are_not_hard_claims() {
-        let low = bridge(ConfidenceTier::Low, "app.py::entry", json!({}));
-        assert!(!is_reportable_bridge(&low));
-        assert!(is_low_confidence_bridge(&low));
+    fn non_reportable_tiers_are_caveats() {
+        // MEDIUM and UNKNOWN are outside the reportable tiers, so they are
+        // caveats even without Markdown code-span evidence.
+        for tier in [
+            ConfidenceTier::Low,
+            ConfidenceTier::Medium,
+            ConfidenceTier::Unknown,
+        ] {
+            let edge = bridge(tier, "app.py::entry", json!({}));
+            assert!(!is_reportable_bridge(&edge), "{tier:?}");
+            assert!(is_low_confidence_bridge(&edge), "{tier:?}");
+        }
+    }
 
-        // MEDIUM is neither reportable nor, on its own, a caveat: it is outside
-        // the reportable tiers but does not match a low-confidence rule.
-        let medium = bridge(ConfidenceTier::Medium, "app.py::entry", json!({}));
-        assert!(!is_reportable_bridge(&medium));
-        assert!(!is_low_confidence_bridge(&medium));
+    #[test]
+    fn claim_and_caveat_partition_is_total() {
+        for tier in [
+            ConfidenceTier::Exact,
+            ConfidenceTier::Extracted,
+            ConfidenceTier::High,
+            ConfidenceTier::Medium,
+            ConfidenceTier::Low,
+            ConfidenceTier::Unknown,
+        ] {
+            for target in ["app.py::entry", "<unresolved:entry>"] {
+                let edge = bridge(tier, target, json!({}));
+                assert_ne!(
+                    is_reportable_bridge(&edge),
+                    is_low_confidence_bridge(&edge),
+                    "{tier:?} {target}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -249,11 +277,13 @@ mod tests {
         ];
         let (transitions, caveats) = collect_bridge_transitions(&edges);
         assert_eq!(transitions.len(), 1);
-        assert_eq!(caveats.len(), 1);
-        assert_eq!(
-            caveats[0]["reason_code"],
-            "low_confidence_cross_artifact_bridge"
+        assert_eq!(caveats.len(), 2);
+        assert!(
+            caveats
+                .iter()
+                .all(|item| item["reason_code"] == "low_confidence_cross_artifact_bridge")
         );
         assert_eq!(caveats[0]["bridge"]["target"], "app.py::other");
+        assert_eq!(caveats[1]["bridge"]["target"], "app.py::third");
     }
 }

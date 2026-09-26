@@ -87,7 +87,13 @@ def is_low_confidence_resolved_implicit_markdown_code_span(edge: Any) -> bool:
 
 
 def is_low_confidence_bridge(edge: Any) -> bool:
-    """True when a CROSS_ARTIFACT edge must not be treated as a hard claim."""
+    """True when a CROSS_ARTIFACT edge must not be treated as a hard claim.
+
+    This is the exact complement of :func:`is_reportable_bridge` for
+    CROSS_ARTIFACT edges: every bridge outside the reportable tiers (``LOW``,
+    ``MEDIUM``, ``UNKNOWN``, missing) is surfaced as a caveat, so none
+    disappears from both the claim and the caveat output.
+    """
     if not is_cross_artifact(edge):
         return False
     if is_unresolved_target(edge):
@@ -96,10 +102,7 @@ def is_low_confidence_bridge(edge: Any) -> bool:
         return True
     if is_low_confidence_resolved_implicit_markdown_code_span(edge):
         return True
-    tier = confidence_tier_of(edge)
-    if tier == "LOW" or not tier:
-        return True
-    return False
+    return confidence_tier_of(edge) not in REPORTABLE_CONFIDENCE_TIERS
 
 
 def is_reportable_bridge(edge: Any) -> bool:

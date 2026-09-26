@@ -16,6 +16,8 @@ from dagayn.changes import (
     _parse_unified_diff,
     analyze_changes,
     compute_risk_score,
+    identifier_tokens,
+    is_security_sensitive_identifier,
     map_changes_to_nodes,
     map_changes_with_attribution,
     parse_diff_ranges,
@@ -611,6 +613,20 @@ class TestChanges:
         normal_score = compute_risk_score(self.store, normal)
         secure_score = compute_risk_score(self.store, secure)
         assert secure_score > normal_score
+
+    def test_risk_score_security_keywords_ignore_mid_word_hits(self):
+        """``sign`` inside ``design``/``assign`` does not add the security boost."""
+        self._add_func("design_doc", path="a.py")
+        self._add_func("verify_signature", path="b.py")
+
+        design = self.store.get_node("a.py::design_doc")
+        signature = self.store.get_node("b.py::verify_signature")
+        assert design is not None
+        assert signature is not None
+
+        assert compute_risk_score(self.store, signature) == pytest.approx(
+            compute_risk_score(self.store, design) + 0.20
+        )
 
     def test_risk_score_with_callers(self):
         """Functions with many callers get a caller count bonus."""
@@ -1371,3 +1387,61 @@ class TestChanges:
             assert result["status"] == "ok"
             assert result["truncated"] is True
             assert len(result["changed_functions"]) < len(huge_functions)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (
+            "auth/views.py::HTTPServer.verifyToken_v2",
+            ["auth", "views", "py", "http", "server", "verify", "token", "v", "2"],
+        ),
+        ("OAuthClient", ["o", "auth", "client"]),
+        ("sha256Hash", ["sha", "256", "hash"]),
+        ("ABC", ["abc"]),
+        ("__", []),
+    ],
+)
+def test_identifier_tokens_split_case_acronyms_digits_and_separators(text, expected):
+    # Mirrors identifier_tokens_split_case_acronyms_digits_and_separators in
+    # crates/dagayn-graph/src/tests.rs.
+    assert identifier_tokens(text) == expected
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "verify_signature",
+        "password_hash",
+        "hashed_value",
+        "refreshTokens",
+        "OAuthClient",
+        "getHTTPResponse",
+        "authenticate_user",
+        "SqlBuilder",
+    ],
+)
+def test_security_keywords_match_token_starts(name):
+    assert is_security_sensitive_identifier(name)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "assign_role",
+        "design_doc",
+        "hashmap_get",
+        "HashMap",
+        "emit_signal",
+        "author_name",
+        "consignment",
+        "process_data",
+    ],
+)
+def test_security_keywords_skip_mid_word_and_excluded_tokens(name):
+    assert not is_security_sensitive_identifier(name)
+
+
+def test_security_keywords_tokenize_qualified_name_paths():
+    assert not is_security_sensitive_identifier("render", "design/page.py::render")
+    assert is_security_sensitive_identifier("render", "auth/page.py::render")

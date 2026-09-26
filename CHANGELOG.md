@@ -129,6 +129,43 @@ All notable changes to `dagayn` are documented here.
   git reports, `touch`, or `dagayn build`. The spec also notes that the
   uncapped verification still skips files whose mtime is unchanged.
 
+### Fixes
+
+- Security keywords in `review_priority_score` / `risk_score`, flow
+  criticality, and `risk_index` now match on identifier-token starts instead of
+  raw substrings. Names and qualified names split on separators, camelCase /
+  PascalCase, acronyms, and digits, so `sign` no longer hits `design` or
+  `assign` (or a `design/` directory), while `verify_signature`,
+  `password_hash`, and `refreshTokens` still count. Look-alike tokens such as
+  `hashmap` / `HashMap`, `signal`, and `author` are excluded explicitly.
+  Keywords glued behind other letters (`oauth`, `mysql`, `unauthorized`) are a
+  known miss unless another keyword token is present.
+- When dependent-file expansion for an incremental update hits the
+  500-file cap, the kept files are now deterministic: files fewer import hops
+  from the changed files come first, then paths in sorted order. The cut was
+  previously taken from an unordered set, so which dependents were re-parsed
+  could change from run to run.
+- Markdown code-span bridges that were resolved before implicit code spans
+  were capped at MEDIUM 0.4 are now re-tiered by the next post-processing run.
+  The resolver skipped any edge whose target was unchanged, so such bridges
+  kept HIGH 0.8 (and counted as hard `describes_symbol` claims) until their
+  Markdown file was re-parsed. It now also rewrites an edge whose stored
+  confidence, tier, or metadata differ from the computed ones; those rewrites
+  count as `markdown_artifact_refs_re_resolved`.
+- Impact and review output now account for every `CROSS_ARTIFACT` bridge next
+  to the changed nodes. A bridge outside the reportable tiers (`MEDIUM`,
+  `UNKNOWN`) without Markdown code-span evidence was neither expanded as a
+  claim nor listed in `low_confidence_bridges`, so it silently disappeared.
+  Any bridge that is not a reportable claim is now a caveat; `MEDIUM` bridges
+  still do not expand impact or flows.
+
+### Testing
+
+- `tests/test_embeddings.py` pins score parity, not only ranking parity,
+  between the native Rust `embedding_search`, the numpy matmul path, and the
+  pure-Python cosine loop: 300 seeded random 64-dimension vectors must score
+  within `1e-5` on a full scan and on a top-k cut.
+
 ## 4.15.0 — 2026-09-25
 
 ### Fixes
