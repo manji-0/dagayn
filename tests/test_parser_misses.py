@@ -452,3 +452,29 @@ sub main_fn { Foo::Bar->new(); }
         _, edges, _ = parse("m.pl", self.SOURCE)
         assert ("CALLS", "<f>::main_fn", "<f>::Foo::Bar.new") in edges
         assert ("CALLS", "<f>::Foo::Bar.new", "<f>::Foo::Bar.init") in edges
+
+
+class TestLua:
+    SOURCE = """\
+local M = {}
+local function priv() M.f(1) end
+function M.f(x) return x end
+M.h = function(y) priv() end
+local t = { cb = function() print("x") end }
+function a.b.c() priv() end
+"""
+
+    def test_assigned_and_table_field_functions(self, parse):
+        names, edges, _ = parse("m.lua", self.SOURCE)
+        assert ("Function", "h", "M") in names
+        assert ("Function", "cb", "t") in names
+        assert ("CALLS", "<f>::M.h", "<f>::priv") in edges
+
+    def test_nested_table_function_path(self, parse):
+        names, edges, _ = parse("m.lua", self.SOURCE)
+        assert ("Function", "c", "a.b") in names
+        assert ("CALLS", "<f>::a.b.c", "<f>::priv") in edges
+
+    def test_table_calls_resolve_through_table(self, parse):
+        _, edges, _ = parse("m.lua", self.SOURCE)
+        assert ("CALLS", "<f>::priv", "<f>::M.f") in edges

@@ -1885,7 +1885,7 @@ end
     assert!(edges.iter().any(|edge| {
         edge.kind == "CALLS"
             && edge.source == "sample.lua::Dog.fetch"
-            && edge.target == "sample.lua::speak"
+            && edge.target == "sample.lua::Animal.speak"
     }));
     assert!(edges.iter().any(|edge| {
         edge.kind == "CROSS_ARTIFACT"
