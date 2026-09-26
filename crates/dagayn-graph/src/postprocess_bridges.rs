@@ -542,6 +542,10 @@ impl GraphStore {
         let import_targets = import_targets_tx(&tx)?;
         let visibility = symbol_visibility(&tx)?;
         let index = load_bare_name_index(&tx, &["Class"])?;
+        // TypeScript `interface X extends Alias` / `class C implements Alias`
+        // may name an object-shaped type alias (a `Type` node). Classes are
+        // tried first so the alias index only adds resolutions.
+        let alias_index = load_bare_name_index(&tx, &["Type"])?;
         let edges = {
             let mut stmt = tx.prepare(
                 "SELECT id, source_qualified, target_qualified, file_path, extra \
@@ -566,9 +570,14 @@ impl GraphStore {
             }
             let candidates = index.get(&target_qualified).cloned().unwrap_or_default();
             let src_file = node_file_from_qualified(&source_qualified, &file_path);
-            if let Some(qualified) =
-                resolve_via_imports(&candidates, &src_file, &import_targets, &visibility)
-            {
+            let resolved_target =
+                resolve_via_imports(&candidates, &src_file, &import_targets, &visibility).or_else(
+                    || {
+                        let aliases = alias_index.get(&target_qualified)?;
+                        resolve_via_imports(aliases, &src_file, &import_targets, &visibility)
+                    },
+                );
+            if let Some(qualified) = resolved_target {
                 tx.execute(
                     "UPDATE edges SET target_qualified = ?, target_name = ?, \
                      confidence = ?, confidence_tier = ? WHERE id = ?",

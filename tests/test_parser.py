@@ -1357,6 +1357,27 @@ class TestTypeRoleAndImplements:
             for e in edges
         )
 
+    def test_typescript_type_alias_is_type_node(self, tmp_path):
+        src = (
+            "export type Props = { label: string };\n"
+            "export type Id = string | number;\n"
+            "export const enum Dir { Up }\n"
+        )
+        nodes, _ = self._parse(src, "ts", tmp_path)
+        props = next(n for n in nodes if n.name == "Props")
+        assert props.kind == "Type"
+        assert props.extra.get("type_role") == "alias"
+        assert props.extra.get("alias_form") == "object"
+        assert props.extra.get("container_role") == "data_container"
+        ident = next(n for n in nodes if n.name == "Id")
+        assert ident.kind == "Type"
+        assert ident.extra.get("alias_form") == "union"
+        assert "container_role" not in ident.extra
+        direction = next(n for n in nodes if n.name == "Dir")
+        assert direction.kind == "Class"
+        assert direction.extra.get("type_role") == "enum"
+        assert direction.extra.get("const_enum") is True
+
     def test_typescript_declaration_file_and_namespaces(self, tmp_path):
         src = (
             "declare function declaredFn(a: number): string;\n"

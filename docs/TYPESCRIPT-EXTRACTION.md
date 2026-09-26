@@ -64,8 +64,8 @@ separate extractors.
 | `export default class {}` (anonymous) | `Class` | `default` | owner path | `type_role` as above, `export_default: true`, `anonymous: true` |
 | `const X = class [Inner] {}` at module scope | `Class` | `X` (the binding) | owner path | `type_role: "class"`, `class_expression: true`, optional `expression_name: "Inner"` |
 | `interface I` | `Class` | `I` | owner path | `type_role: "interface"`, `is_abstract: true`, `is_contract: true` |
-| `type T = ...` | `Type` | `T` | owner path | `type_role: "alias"` (see §7.1) |
-| `enum E`, `const enum E`, `declare enum E` | `Class` | `E` | owner path | `type_role: "enum"`, `container_role: "data_container"`, `value_semantics: true` |
+| `type T = ...` | `Type` | `T` | owner path | `type_role: "alias"`, `alias_form` (`object`, `union`, `intersection`, `function`, `conditional`, `mapped`, `tuple`, `reference`, `primitive`, `literal`, `operator`, `other`); `object` also carries `container_role: "data_container"`, `value_semantics: true` (see §7.1) |
+| `enum E`, `const enum E`, `declare enum E` | `Class` | `E` | owner path | `type_role: "enum"`, `container_role: "data_container"`, `value_semantics: true`; `const_enum: true` for `const enum`; `ambient: true` when declared |
 | `namespace N`, `module N` | `Class` | segment name | owner path | `type_role: "namespace"`; `namespace A.B.C` yields nested `A`, `A.B`, `A.B.C` |
 | `declare module "x"`, `declare global` | `Class` | `x` / `global` | owner path | `type_role: "ambient_module"`, `ambient: true` |
 | module-scope `const X = { ... }` or `export default { ... }` with at least one function-valued member | `Class` | `X` / `default` | owner path | `type_role: "object"` (see §7.3) |
@@ -87,6 +87,8 @@ Nodes that are **not** created:
   handlers, local classes, local object literals); see §7.2
 - class fields whose value is not a function, index signatures, enum members,
   interface property / call / construct / index signatures
+- members of a type alias's object type (`type Props = { onClick(): void }`
+  gives only `Type Props`)
 - object literals passed as arguments or created inside function bodies
 
 ## 4. Qualified names
@@ -244,7 +246,10 @@ Type aliases become `Type` with `type_role: "alias"`, matching Python
 `type X = ...`, Rust `type`, and C# `using X = ...`. An alias is not nominal,
 is never called or subclassed, and is not an SAP-eligible role, so SAP numbers
 do not change. Object-shaped aliases (`type Props = { ... }`) additionally
-carry `container_role: "data_container"`. Planned (part 2/3, #13).
+carry `container_role: "data_container"`. Because the bare inheritance
+resolver indexes `Class` nodes, it falls back to `Type` nodes when no class
+matches, so `interface X extends Props` still resolves through imports.
+Implemented (#13).
 
 ### 7.2 Local declarations are not nodes
 
@@ -393,10 +398,11 @@ QNs omit the `file::` prefix.
 | interface `extends Repo, Logger, ns.X<T>` | one `INHERITS` per base (`extends`) | implemented (#4) |
 | method signature `find(): string;` | `Function Repo.find` (`is_abstract`) | implemented (existing) |
 | same-file interface merging | one `Class Repo` holding the members of both declarations | planned (part 2/3, #14) |
-| `type Props = { a: A }` | `Type Props` (`alias`, `data_container`) | planned (part 2/3, #13) |
-| `type U = A \| B` | `Type U` (`alias`) | planned (part 2/3, #13) |
+| `type Props = { a: A }` | `Type Props` (`alias`, `alias_form: "object"`, `data_container`) | implemented (#13) |
+| `type U = A \| B` | `Type U` (`alias`, `alias_form: "union"`) | implemented (#13) |
+| `interface X extends Props` (imported alias) | `INHERITS -> types.ts::Props` (MEDIUM) | implemented (#13) |
 | `enum Color {}` | `Class Color` (`enum`, `data_container`) | implemented (existing) |
-| `const enum`, `declare enum` | `Class` plus `const_enum` / `ambient` | planned (part 2/3, #13) |
+| `const enum`, `declare enum` | `Class` plus `const_enum` / `ambient` | implemented (#12, #13) |
 
 ### 10.3 Namespaces, ambient declarations, `.d.ts`
 

@@ -150,11 +150,17 @@ fn javascript_walk_node(
     edges: &mut Vec<ParsedEdge>,
 ) {
     match child.kind() {
+        "type_alias_declaration" => {
+            if let Some(name) = child.child_by_field_name("name") {
+                let name = node_text(name, context.source);
+                javascript_emit_type_alias(child, &name, context, owner_path, nodes, edges);
+                return;
+            }
+        }
         "class_declaration"
         | "abstract_class_declaration"
         | "class"
         | "interface_declaration"
-        | "type_alias_declaration"
         | "enum_declaration" => {
             if let Some(name) =
                 javascript_named_child(child, context.source, &["identifier", "type_identifier"])
@@ -1023,6 +1029,88 @@ fn javascript_member_owner(owner_path: Option<&str>, name: &str) -> String {
         .unwrap_or_else(|| name.to_string())
 }
 
+/// Emits `Type <name>` (`type_role: "alias"`, `alias_form`) for
+/// `type T = ...`. Object-shaped aliases are data containers. The right-hand
+/// side has no calls and its members are not nodes: an alias is neither
+/// nominal nor a container.
+fn javascript_emit_type_alias(
+    node: tree_sitter::Node<'_>,
+    name: &str,
+    context: &JavaScriptParseContext<'_>,
+    owner_path: Option<&str>,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let form = node
+        .child_by_field_name("value")
+        .map(javascript_alias_form)
+        .unwrap_or("other");
+    let mut extra = json!({"type_role": "alias", "alias_form": form});
+    if form == "object"
+        && let Some(map) = extra.as_object_mut()
+    {
+        map.insert("container_role".to_string(), json!("data_container"));
+        map.insert("value_semantics".to_string(), json!(true));
+    }
+    let line = node.start_position().row as i64 + 1;
+    javascript_push_node(
+        context,
+        nodes,
+        ParsedNode {
+            kind: crate::core::types::NodeKind::Type,
+            name: name.to_string(),
+            file_path: context.file_path.clone(),
+            line_start: line,
+            line_end: node.end_position().row as i64 + 1,
+            language: context.language.to_string(),
+            parent_name: owner_path.map(str::to_string),
+            params: None,
+            return_type: None,
+            modifiers: None,
+            is_test: false,
+            extra,
+        },
+    );
+    edges.push(ParsedEdge {
+        kind: crate::core::types::EdgeKind::Contains,
+        source: javascript_container_qn(context, owner_path),
+        target: qualify(&context.file_path, name, owner_path),
+        file_path: context.file_path.clone(),
+        line,
+        extra: json!({}),
+    });
+}
+
+/// Shape of a type alias right-hand side.
+fn javascript_alias_form(value: tree_sitter::Node<'_>) -> &'static str {
+    match value.kind() {
+        "object_type" => {
+            let mut cursor = value.walk();
+            let mapped = value.named_children(&mut cursor).any(|member| {
+                member.kind() == "index_signature"
+                    && member
+                        .named_children(&mut member.walk())
+                        .any(|part| part.kind() == "mapped_type_clause")
+            });
+            if mapped { "mapped" } else { "object" }
+        }
+        "union_type" => "union",
+        "intersection_type" => "intersection",
+        "function_type" | "constructor_type" => "function",
+        "conditional_type" => "conditional",
+        "tuple_type" | "array_type" | "readonly_type" => "tuple",
+        "type_identifier" | "nested_type_identifier" | "generic_type" => "reference",
+        "predefined_type" => "primitive",
+        "literal_type" | "template_literal_type" => "literal",
+        "index_type_query" | "lookup_type" | "type_query" => "operator",
+        "parenthesized_type" => value
+            .named_child(0)
+            .map(javascript_alias_form)
+            .unwrap_or("other"),
+        _ => "other",
+    }
+}
+
 fn javascript_container_qn(
     context: &JavaScriptParseContext<'_>,
     owner_path: Option<&str>,
@@ -1715,12 +1803,18 @@ fn javascript_class_extra(node: tree_sitter::Node<'_>, source: &[u8], name: &str
     let type_role = match node.kind() {
         "abstract_class_declaration" => "abstract_class",
         "interface_declaration" => "interface",
-        "type_alias_declaration" => "type_alias",
         "enum_declaration" => "enum",
         _ => "class",
     };
     let mut extra = json!({"type_role": type_role});
     if let Some(map) = extra.as_object_mut() {
+        if type_role == "enum"
+            && node
+                .children(&mut node.walk())
+                .any(|child| child.kind() == "const")
+        {
+            map.insert("const_enum".to_string(), json!(true));
+        }
         if type_role == "interface" {
             map.insert("is_abstract".to_string(), json!(true));
             map.insert("is_contract".to_string(), json!(true));
@@ -1739,7 +1833,7 @@ fn javascript_class_extra(node: tree_sitter::Node<'_>, source: &[u8], name: &str
 }
 
 fn javascript_is_type_only_container(type_role: &str) -> bool {
-    matches!(type_role, "type_alias" | "enum")
+    type_role == "enum"
 }
 
 fn javascript_is_data_model_class(node: tree_sitter::Node<'_>, source: &[u8], name: &str) -> bool {

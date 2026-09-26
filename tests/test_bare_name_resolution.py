@@ -251,6 +251,26 @@ class TestResolveBareInheritanceTargets:
         assert row["target_qualified"] == "base.py::Base"
         assert row["confidence_tier"] == "MEDIUM"
 
+    def test_resolves_extends_of_an_imported_type_alias(self, tmp_path):
+        """`interface X extends Alias` may name a TypeScript `Type` alias."""
+        store = GraphStore(tmp_path / "inherit_alias.db")
+        store.upsert_node(_node("File", "types.ts", "types.ts"))
+        store.upsert_node(_node("Type", "Props", "types.ts", type_role="alias"))
+        store.upsert_node(_node("File", "view.ts", "view.ts"))
+        store.upsert_node(_node("Class", "ViewProps", "view.ts", type_role="interface"))
+        store.upsert_edge(_edge("IMPORTS_FROM", "view.ts", "types.ts", "view.ts"))
+        store.upsert_edge(_edge("INHERITS", "view.ts::ViewProps", "Props", "view.ts"))
+        store.commit()
+
+        assert resolve_bare_inheritance_targets(store) == 1
+        row = (
+            store_conn(store)
+            .execute("SELECT target_qualified, confidence_tier FROM edges WHERE kind='INHERITS'")
+            .fetchone()
+        )
+        assert row["target_qualified"] == "types.ts::Props"
+        assert row["confidence_tier"] == "MEDIUM"
+
     def test_demotes_unresolved_ambiguous_inherits(self, tmp_path):
         store = GraphStore(tmp_path / "inherit_ambig.db")
         for pkg in ("a", "b"):

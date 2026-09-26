@@ -3267,7 +3267,7 @@ describe('Service', () => {
         })
         .collect::<Vec<_>>();
     assert!(node_names.contains(&("Class", "Shape", None)));
-    assert!(node_names.contains(&("Class", "UserPayload", None)));
+    assert!(node_names.contains(&("Type", "UserPayload", None)));
     assert!(node_names.contains(&("Class", "UserStatus", None)));
     assert!(node_names.contains(&("Class", "UserModel", None)));
     assert!(node_names.contains(&("Class", "CardProps", None)));
@@ -3287,16 +3287,17 @@ describe('Service', () => {
         "UpdateUserDto",
     ] {
         assert!(nodes.iter().any(|node| {
-            node.kind == "Class"
+            matches!(node.kind.as_str(), "Class" | "Type")
                 && node.name == name
                 && node.extra["container_role"] == "data_container"
                 && node.extra["value_semantics"] == true
         }));
     }
     assert!(nodes.iter().any(|node| {
-        node.kind == "Class"
+        node.kind == "Type"
             && node.name == "UserPayload"
-            && node.extra["type_role"] == "type_alias"
+            && node.extra["type_role"] == "alias"
+            && node.extra["alias_form"] == "object"
     }));
     assert!(nodes.iter().any(|node| {
         node.kind == "Class" && node.name == "UserStatus" && node.extra["type_role"] == "enum"
@@ -4879,4 +4880,78 @@ export as namespace MyLib;
     assert!(file.extra.get("declaration_file").is_none());
     let exported = nodes.iter().find(|node| node.name == "Exported").unwrap();
     assert!(exported.extra.get("ambient").is_none());
+}
+
+#[test]
+fn parses_typescript_type_aliases_and_enums() {
+    let source = br#"export type UserId = string;
+export type Shape = { kind: "circle"; r: number } | { kind: "sq"; s: number };
+export type Props = { label: string; onClick(): void };
+export type ReadonlyAll<T> = { readonly [K in keyof T]: T[K] };
+export type Unwrap<T> = T extends Promise<infer U> ? U : T;
+export type Handler = (req: Request) => Promise<Response>;
+export type Both = Props & Shape;
+export type Pair = [string, number];
+export type Named = Map<string, Props>;
+export type Key = keyof Props;
+export enum Color { Red, Green = "g" }
+export const enum Direction { Up = 1, Down }
+declare enum Ambient { A }
+namespace N { export type Inner = { a: 1 }; }
+function use(c: Color): Props { return {} as Props; }
+"#;
+    let (nodes, edges) = parse_javascript_like("types.ts", source, "typescript");
+    let alias = |name: &str| {
+        nodes
+            .iter()
+            .find(|node| node.name == name)
+            .unwrap_or_else(|| panic!("{name}: {nodes:?}"))
+    };
+    for (name, form) in [
+        ("UserId", "primitive"),
+        ("Shape", "union"),
+        ("Props", "object"),
+        ("ReadonlyAll", "mapped"),
+        ("Unwrap", "conditional"),
+        ("Handler", "function"),
+        ("Both", "intersection"),
+        ("Pair", "tuple"),
+        ("Named", "reference"),
+        ("Key", "operator"),
+    ] {
+        let node = alias(name);
+        assert_eq!(node.kind, "Type", "{name}");
+        assert_eq!(node.extra["type_role"], "alias", "{name}");
+        assert_eq!(node.extra["alias_form"], form, "{name}");
+        if form == "object" {
+            assert_eq!(node.extra["container_role"], "data_container", "{name}");
+        } else {
+            assert!(node.extra.get("container_role").is_none(), "{name}");
+        }
+    }
+    // Alias members are not nodes: an alias is not a container.
+    assert!(!nodes.iter().any(|node| node.name == "onClick"));
+    let inner = alias("Inner");
+    assert_eq!(inner.kind, "Type");
+    assert_eq!(inner.parent_name.as_deref(), Some("N"));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "CONTAINS"
+            && edge.source == "types.ts::N"
+            && edge.target == "types.ts::N.Inner"
+    }));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "CONTAINS" && edge.source == "types.ts" && edge.target == "types.ts::Props"
+    }));
+
+    let color = alias("Color");
+    assert_eq!(color.kind, "Class");
+    assert_eq!(color.extra["type_role"], "enum");
+    assert!(color.extra.get("const_enum").is_none());
+    let direction = alias("Direction");
+    assert_eq!(direction.extra["type_role"], "enum");
+    assert_eq!(direction.extra["const_enum"], true);
+    let ambient = alias("Ambient");
+    assert_eq!(ambient.extra["type_role"], "enum");
+    assert_eq!(ambient.extra["ambient"], true);
+    assert!(color.extra.get("ambient").is_none());
 }

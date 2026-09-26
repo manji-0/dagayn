@@ -44,6 +44,15 @@ All notable changes to `dagayn` are documented here.
   (`Outer.Inner::m`) resolves when the root is a same-file declaration.
   JavaScript / TypeScript class members now record the full owner path of
   their class in `parent_name`.
+- TypeScript type aliases are `Type` nodes (`type_role: "alias"`) with an
+  `alias_form` (`object`, `union`, `function`, `mapped`, ...); only
+  object-shaped aliases carry `container_role: "data_container"`. They were
+  `Class` nodes (`type_role: "type_alias"`) marked as data containers
+  whatever their shape, and method signatures of an alias's object type are
+  no longer `Function` nodes. `const enum` records `const_enum: true`.
+  Bare `INHERITS` / `IMPLEMENTS` resolution in post-processing falls back to
+  `Type` nodes when no class matches, so `interface X extends Props` still
+  resolves to an imported alias.
 - TypeScript namespaces and ambient declarations are modeled.
   `namespace Outer {}` / `module Legacy {}` are `Class` nodes
   (`type_role: "namespace"`), `namespace A.B.C {}` yields nested `A`, `A.B`,
