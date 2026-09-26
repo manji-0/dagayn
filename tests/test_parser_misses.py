@@ -182,3 +182,36 @@ class X : public ns::Base, public std::enable_shared_from_this<X>, private D {};
         assert ("Class", "Inner", "Outer") in names
         assert ("Function", "g", "Outer.Inner") in names
         assert ("CALLS", "<f>::Outer.Inner.g", "h") in edges
+
+
+class TestCSharp:
+    SOURCE = """\
+public class Foo {
+    public void M() {
+        int Local(int x) => Help(x);
+        Local(1);
+    }
+    public class Inner { void I() { ICall(); } }
+    public static Foo operator +(Foo a, Foo b) => Add(a, b);
+    public static implicit operator int(Foo f) => 0;
+    ~Foo() { Cleanup(); }
+}
+"""
+
+    def test_nested_types_use_dotted_scope(self, parse):
+        names, edges, _ = parse("Foo.cs", self.SOURCE)
+        assert ("Function", "I", "Foo.Inner") in names
+        assert ("CALLS", "<f>::Foo.Inner.I", "ICall") in edges
+
+    def test_operators_and_destructors_are_members(self, parse):
+        names, edges, _ = parse("Foo.cs", self.SOURCE)
+        assert ("Function", "operator+", "Foo") in names
+        assert ("Function", "operator int", "Foo") in names
+        assert ("Function", "~Foo", "Foo") in names
+        assert ("CALLS", "<f>::Foo.~Foo", "Cleanup") in edges
+
+    def test_local_functions_belong_to_their_method(self, parse):
+        names, edges, _ = parse("Foo.cs", self.SOURCE)
+        assert ("Function", "Local", "Foo.M") in names
+        assert ("CALLS", "<f>::Foo.M", "<f>::Foo.M.Local") in edges
+        assert ("CALLS", "<f>::Foo.M.Local", "Help") in edges

@@ -29,6 +29,9 @@ const CSHARP_FUNCTION_KINDS: &[&str] = &[
     "property_declaration",
     "indexer_declaration",
     "local_function_statement",
+    "operator_declaration",
+    "conversion_operator_declaration",
+    "destructor_declaration",
 ];
 
 pub(super) fn parse_csharp_with_parser(
@@ -115,14 +118,32 @@ fn csharp_walk_children(
                 csharp_emit_type(child, context, &name, enclosing_class, nodes, edges);
                 let snapshot = context.bindings.borrow().snapshot();
                 csharp_bind_type_scope(child, context);
-                csharp_walk_children(child, context, Some(&name), None, nodes, edges);
+                let path = match enclosing_class {
+                    Some(parent) => format!("{parent}.{name}"),
+                    None => name.clone(),
+                };
+                csharp_walk_children(child, context, Some(&path), None, nodes, edges);
                 context.bindings.borrow_mut().restore(snapshot);
                 continue;
             }
             kind if CSHARP_FUNCTION_KINDS.contains(&kind)
                 && let Some(name) = csharp_function_name(child, context.source) =>
             {
-                csharp_emit_function(child, context, &name, enclosing_class, nodes, edges);
+                // A local function belongs to the member that declares it, so
+                // `Foo.M.Local` cannot collide with a sibling member `Foo.Local`.
+                let local_owner = (kind == "local_function_statement")
+                    .then_some(enclosing_func)
+                    .flatten()
+                    .map(|func| match enclosing_class {
+                        Some(class) => format!("{class}.{func}"),
+                        None => func.to_string(),
+                    });
+                let owner = local_owner.as_deref().or(enclosing_class);
+                csharp_emit_function(child, context, &name, owner, nodes, edges);
+                let func_scope = match (local_owner.is_some(), enclosing_func) {
+                    (true, Some(func)) => format!("{func}.{name}"),
+                    _ => name.clone(),
+                };
                 let snapshot = context.bindings.borrow().snapshot();
                 if let Some(class_name) = enclosing_class {
                     context
@@ -130,7 +151,14 @@ fn csharp_walk_children(
                         .borrow_mut()
                         .bind_implicit_receivers(class_name);
                 }
-                csharp_walk_children(child, context, enclosing_class, Some(&name), nodes, edges);
+                csharp_walk_children(
+                    child,
+                    context,
+                    enclosing_class,
+                    Some(&func_scope),
+                    nodes,
+                    edges,
+                );
                 context.bindings.borrow_mut().restore(snapshot);
                 continue;
             }
@@ -546,10 +574,21 @@ fn csharp_emit_function(
 }
 
 fn csharp_function_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    if node.kind() == "indexer_declaration" {
-        return Some("this".to_string());
+    match node.kind() {
+        "indexer_declaration" => Some("this".to_string()),
+        "destructor_declaration" => {
+            csharp_declared_name(node, source).map(|name| format!("~{name}"))
+        }
+        "operator_declaration" => {
+            let operator = node.child_by_field_name("operator")?;
+            Some(format!("operator{}", node_text(operator, source).trim()))
+        }
+        "conversion_operator_declaration" => {
+            let target = csharp_field_text(node, source, "type")?;
+            Some(format!("operator {target}"))
+        }
+        _ => csharp_declared_name(node, source),
     }
-    csharp_declared_name(node, source)
 }
 
 fn csharp_function_is_abstract(
@@ -563,7 +602,8 @@ fn csharp_function_is_abstract(
     let Some(class_name) = enclosing_class else {
         return false;
     };
-    context.interface_names.contains(class_name)
+    let simple = class_name.rsplit('.').next().unwrap_or(class_name);
+    context.interface_names.contains(simple)
         && node.kind() == "method_declaration"
         && node.child_by_field_name("body").is_none()
 }
