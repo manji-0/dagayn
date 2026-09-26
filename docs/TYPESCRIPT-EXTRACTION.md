@@ -186,8 +186,9 @@ Imports are bound by `(module, exported name)`:
 |---|---|
 | `import { a } from "./m"` | `./m`, `a` |
 | `import { a as b } from "./m"` | local `b` -> `./m`, `a` |
-| `import X from "./m"` | `./m`, `default`; resolves to the symbol the module exports as default |
-| `import * as ns from "./m"` | `./m`, namespace; `<ns.C />` resolves to `m::C` |
+| `import X from "./m"` | `./m`, `default`; resolves to the symbol the module exports as default; `<X.C />` and `extends X.C` are read like namespace members (CommonJS interop) |
+| `import { default as X } from "./m"` | same as `import X from "./m"` |
+| `import * as ns from "./m"` | `./m`, namespace; `<ns.C />` and `extends ns.C` resolve to `m::C` |
 
 The export index of the target module maps exported names to declarations:
 local declarations, `export { a as b }`, `export { a } from`, `export * from`,
@@ -459,7 +460,8 @@ QNs omit the `file::` prefix.
 | tsconfig `baseUrl` without `paths` | resolved | planned (part 2/3, #27) |
 | `export { a as b }`, `export * from` | export index | implemented (existing) |
 | `export { x as default }`, `export default <decl>` | export index `default` | implemented (#9) |
-| local re-export of an import, `export * as ns from`, `export { default as x } from` | followed to the origin | planned (part 2/3, #18) |
+| `export { default as x } from "./b"` | followed to `b`'s default export | implemented (#9) |
+| local re-export of an import, `export * as ns from` | followed to the origin | planned (part 2/3, #18) |
 | `import fs = require("fs")`, `export =` | `IMPORTS_FROM`, export index default | planned (part 2/3, #18, #19) |
 
 ### 10.7 Type references

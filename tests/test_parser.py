@@ -1458,6 +1458,24 @@ class TestTypeRoleAndImplements:
             for e in edges
         )
 
+    def test_typescript_aliased_and_default_imports_bind_exported_names(self, tmp_path):
+        (tmp_path / "functions.ts").write_text("export function decl() {}\n", encoding="utf-8")
+        (tmp_path / "Button.tsx").write_text(
+            "export default function DefaultCard() { return <div />; }\n", encoding="utf-8"
+        )
+        consumer = tmp_path / "App.tsx"
+        consumer.write_text(
+            'import { decl as renamed } from "./functions";\n'
+            'import Card from "./Button";\n'
+            "export function App() { renamed(); return <Card />; }\n",
+            encoding="utf-8",
+        )
+        _, edges = self.parser.parse_file(consumer)
+        targets = {e.target for e in edges if e.kind == "CALLS"}
+        assert any(t.endswith("functions.ts::decl") for t in targets), targets
+        assert any(t.endswith("Button.tsx::DefaultCard") for t in targets), targets
+        assert not any(t.endswith("::renamed") or t.endswith("::Card") for t in targets)
+
     def test_typescript_constructor_and_method_call_resolution(self, tmp_path):
         src = """
 interface Repo { find(): void; }

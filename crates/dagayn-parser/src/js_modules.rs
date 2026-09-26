@@ -27,6 +27,12 @@ pub(super) struct JavaScriptExportIndex {
     star_exports: Vec<String>,
 }
 
+impl JavaScriptExportIndex {
+    fn has_default_export(&self) -> bool {
+        self.defined_names.contains("default") || self.named_exports.contains_key("default")
+    }
+}
+
 #[derive(Clone)]
 pub(super) enum JavaScriptExportTarget {
     Local(String),
@@ -36,13 +42,33 @@ pub(super) enum JavaScriptExportTarget {
     },
 }
 
+/// What an import binds a local name to: the exporting module and the
+/// export it names.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct JavaScriptImportBinding {
+    pub(super) module: String,
+    pub(super) imported: JavaScriptImported,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum JavaScriptImported {
+    /// `import { a }` / `import { a as b }`: the exported name `a`.
+    Named(String),
+    /// `import X from` / `import { default as X }`.
+    Default,
+    /// `import * as ns from`.
+    Namespace,
+}
+
+pub(super) type JavaScriptImportMap = HashMap<String, JavaScriptImportBinding>;
+
 pub(super) struct JavaScriptParseContext<'a> {
     pub(super) source: &'a [u8],
     pub(super) file_path: crate::core::types::FilePath,
     pub(super) language: &'static str,
     pub(super) test_file: bool,
     pub(super) defined_names: &'a HashSet<String>,
-    pub(super) import_map: &'a HashMap<String, String>,
+    pub(super) import_map: &'a JavaScriptImportMap,
     /// Owner paths of object-container members (`api.get`, `api.nested.deep`).
     pub(super) object_members: &'a HashSet<String>,
     pub(super) repo_root: Option<&'a Path>,
@@ -130,10 +156,70 @@ pub(super) fn resolve_javascript_call_target(
     if context.defined_names.contains(name) {
         return qualify(&context.file_path, name, None);
     }
-    let Some(module) = context.import_map.get(name) else {
+    let Some(binding) = context.import_map.get(name) else {
         return name.to_string();
     };
-    resolve_javascript_imported_symbol(name, module, context).unwrap_or_else(|| name.to_string())
+    resolve_javascript_import_binding(name, binding, context).unwrap_or_else(|| name.to_string())
+}
+
+/// Resolves a local import binding to the exporting declaration's QN.
+///
+/// Named imports look up the exported name (not the local alias). Default
+/// imports look up the module's `default` export; a module with no default
+/// export at all falls back to the importer's local name, which keeps
+/// bundler-interop code resolvable. Namespace bindings are not callable
+/// symbols and stay unresolved.
+pub(super) fn resolve_javascript_import_binding(
+    local_name: &str,
+    binding: &JavaScriptImportBinding,
+    context: &JavaScriptParseContext<'_>,
+) -> Option<String> {
+    match &binding.imported {
+        JavaScriptImported::Named(exported) => {
+            resolve_javascript_imported_symbol(exported, &binding.module, context)
+        }
+        JavaScriptImported::Default => {
+            let module_file = resolve_javascript_module(
+                &binding.module,
+                &context.file_path,
+                context.repo_root,
+                context.caches,
+            )?;
+            let mut seen = HashSet::new();
+            if let Some(target) = resolve_javascript_exported_symbol(
+                &module_file,
+                "default",
+                context.repo_root,
+                context.caches,
+                &mut seen,
+            ) {
+                return Some(target);
+            }
+            if javascript_export_index(&module_file, context.repo_root, context.caches)
+                .is_some_and(|index| !index.has_default_export())
+            {
+                return resolve_javascript_imported_symbol(local_name, &binding.module, context);
+            }
+            Some(qualify(&module_file, "default", None))
+        }
+        JavaScriptImported::Namespace => None,
+    }
+}
+
+/// `ns.member` where `ns` is a namespace (or default) import binding:
+/// the member exported by that module.
+pub(super) fn resolve_javascript_namespace_member(
+    root: &str,
+    member: &str,
+    context: &JavaScriptParseContext<'_>,
+) -> Option<String> {
+    let binding = context.import_map.get(root)?;
+    match binding.imported {
+        JavaScriptImported::Namespace | JavaScriptImported::Default => {
+            resolve_javascript_imported_symbol(member, &binding.module, context)
+        }
+        JavaScriptImported::Named(_) => None,
+    }
 }
 
 pub(super) fn resolve_javascript_imported_symbol(
@@ -246,6 +332,18 @@ fn javascript_export_index_uncached(
         if child.kind() != "export_statement" {
             continue;
         }
+        if let Some(target) = javascript_default_export_target(child, &source, &defined_names) {
+            match target {
+                JavaScriptDefaultExport::Anonymous => {
+                    defined_names.insert("default".to_string());
+                }
+                JavaScriptDefaultExport::Named(name) => {
+                    named_exports
+                        .insert("default".to_string(), JavaScriptExportTarget::Local(name));
+                }
+            }
+            continue;
+        }
         let (export_clause, target_module, has_star_export) =
             javascript_export_statement_parts(child, &source);
         if let Some(export_clause) = export_clause {
@@ -254,15 +352,17 @@ fn javascript_export_index_uncached(
                 if spec.kind() != "export_specifier" {
                     continue;
                 }
-                let names = javascript_named_descendants(
-                    spec,
-                    &source,
-                    &["identifier", "property_identifier"],
-                );
-                let Some(exported_name) = names.last() else {
+                let Some(original_name) = spec
+                    .child_by_field_name("name")
+                    .map(|name| javascript_module_export_name(name, &source))
+                else {
                     continue;
                 };
-                let original_name = names.first().unwrap_or(exported_name);
+                let exported_name = &spec
+                    .child_by_field_name("alias")
+                    .map(|alias| javascript_module_export_name(alias, &source))
+                    .unwrap_or_else(|| original_name.clone());
+                let original_name = &original_name;
                 if let Some(target_module) = target_module.as_deref() {
                     if let Some(resolved_module) =
                         resolve_javascript_module(target_module, module_file, repo_root, caches)
@@ -301,6 +401,63 @@ fn javascript_export_index_uncached(
         named_exports,
         star_exports,
     })
+}
+
+enum JavaScriptDefaultExport {
+    /// `export default function () {}` / `class {}` / `{ ... }` / `() => ...`:
+    /// the extractor names the node `default`.
+    Anonymous,
+    /// `export default function Page() {}` or `export default impl;`.
+    Named(String),
+}
+
+/// The target of an `export default` statement, if `node` is one.
+fn javascript_default_export_target(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    defined_names: &HashSet<String>,
+) -> Option<JavaScriptDefaultExport> {
+    let mut cursor = node.walk();
+    if !node
+        .children(&mut cursor)
+        .any(|child| child.kind() == "default")
+    {
+        return None;
+    }
+    if let Some(declaration) = node.child_by_field_name("declaration") {
+        return declaration
+            .child_by_field_name("name")
+            .map(|name| JavaScriptDefaultExport::Named(node_text(name, source)));
+    }
+    let value = node.child_by_field_name("value")?;
+    match value.kind() {
+        "identifier" => {
+            let name = node_text(value, source);
+            defined_names
+                .contains(&name)
+                .then_some(JavaScriptDefaultExport::Named(name))
+        }
+        "class" | "function_expression" | "function" | "generator_function" => Some(
+            value
+                .child_by_field_name("name")
+                .map(|name| JavaScriptDefaultExport::Named(node_text(name, source)))
+                .unwrap_or(JavaScriptDefaultExport::Anonymous),
+        ),
+        "arrow_function" | "object" | "as_expression" | "satisfies_expression" => {
+            Some(JavaScriptDefaultExport::Anonymous)
+        }
+        _ => None,
+    }
+}
+
+/// Text of an import/export specifier name: identifiers, the `default`
+/// keyword, or a string literal (`export { x as "y" }`).
+fn javascript_module_export_name(node: tree_sitter::Node<'_>, source: &[u8]) -> String {
+    if node.kind() == "string" {
+        decode_javascript_string_literal(node, source)
+    } else {
+        node_text(node, source)
+    }
 }
 
 fn new_javascript_module_parser(module_file: &str) -> Option<tree_sitter::Parser> {
@@ -347,7 +504,7 @@ fn javascript_export_statement_parts<'a>(
 pub(super) fn collect_javascript_import_map(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    import_map: &mut HashMap<String, String>,
+    import_map: &mut JavaScriptImportMap,
 ) {
     if node.kind() == "import_statement"
         && let Some(module) = javascript_import_targets(node, source).into_iter().next()
@@ -369,13 +526,20 @@ fn collect_javascript_import_clause_names(
     node: tree_sitter::Node<'_>,
     source: &[u8],
     module: &str,
-    import_map: &mut HashMap<String, String>,
+    import_map: &mut JavaScriptImportMap,
 ) {
+    let binding = |imported| JavaScriptImportBinding {
+        module: module.to_string(),
+        imported,
+    };
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         match child.kind() {
             "identifier" => {
-                import_map.insert(node_text(child, source), module.to_string());
+                import_map.insert(
+                    node_text(child, source),
+                    binding(JavaScriptImported::Default),
+                );
             }
             "namespace_import" => {
                 if let Some(name) = javascript_last_named_descendant(
@@ -383,7 +547,7 @@ fn collect_javascript_import_clause_names(
                     source,
                     &["identifier", "property_identifier"],
                 ) {
-                    import_map.insert(name, module.to_string());
+                    import_map.insert(name, binding(JavaScriptImported::Namespace));
                 }
             }
             "named_imports" => collect_javascript_named_imports(child, source, module, import_map),
@@ -396,18 +560,35 @@ fn collect_javascript_named_imports(
     node: tree_sitter::Node<'_>,
     source: &[u8],
     module: &str,
-    import_map: &mut HashMap<String, String>,
+    import_map: &mut JavaScriptImportMap,
 ) {
     let mut cursor = node.walk();
     for spec in node.children(&mut cursor) {
         if spec.kind() != "import_specifier" {
             continue;
         }
-        if let Some(name) =
-            javascript_last_named_descendant(spec, source, &["identifier", "property_identifier"])
-        {
-            import_map.insert(name, module.to_string());
-        }
+        let Some(imported) = spec
+            .child_by_field_name("name")
+            .map(|name| javascript_module_export_name(name, source))
+        else {
+            continue;
+        };
+        let local = spec
+            .child_by_field_name("alias")
+            .map(|alias| node_text(alias, source))
+            .unwrap_or_else(|| imported.clone());
+        let imported = if imported == "default" {
+            JavaScriptImported::Default
+        } else {
+            JavaScriptImported::Named(imported)
+        };
+        import_map.insert(
+            local,
+            JavaScriptImportBinding {
+                module: module.to_string(),
+                imported,
+            },
+        );
     }
 }
 
@@ -427,31 +608,6 @@ fn javascript_last_named_descendant(
         }
     }
     None
-}
-
-fn javascript_named_descendants(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-) -> Vec<String> {
-    let mut names = Vec::new();
-    collect_javascript_named_descendants(node, source, kinds, &mut names);
-    names
-}
-
-fn collect_javascript_named_descendants(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-    names: &mut Vec<String>,
-) {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if kinds.contains(&child.kind()) {
-            names.push(node_text(child, source));
-        }
-        collect_javascript_named_descendants(child, source, kinds, names);
-    }
 }
 
 fn javascript_variable_declarator_function_name(

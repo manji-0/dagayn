@@ -4203,6 +4203,115 @@ export function run() {
 }
 
 #[test]
+fn resolves_typescript_aliased_and_default_imports() {
+    let mut repo_root = std::env::temp_dir();
+    repo_root.push(format!(
+        "dagayn-parser-ts-default-import-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    let _ = std::fs::remove_dir_all(&repo_root);
+    std::fs::create_dir_all(repo_root.join("src")).unwrap();
+    for (path, body) in [
+        ("src/functions.ts", "export function decl() {}\n"),
+        (
+            "src/Button.tsx",
+            "export function Button() { return <b />; }\nexport default function DefaultCard() { return <div />; }\n",
+        ),
+        (
+            "src/default-arrow.ts",
+            "export default (x: number) => x * 2;\n",
+        ),
+        (
+            "src/default-anon-class.ts",
+            "export default class { hello() {} }\n",
+        ),
+        (
+            "src/default-ident.ts",
+            "function impl() {}\nexport default impl;\n",
+        ),
+        (
+            "src/default-alias.ts",
+            "function aliased() {}\nexport { aliased as default };\n",
+        ),
+        (
+            "src/default-alias-js.js",
+            "function aliasedJs() {}\nexport { aliasedJs as default };\n",
+        ),
+        (
+            "src/named-only.tsx",
+            "export function MarkdownMsg() { return <div />; }\n",
+        ),
+    ] {
+        std::fs::write(repo_root.join(path), body).unwrap();
+    }
+
+    let source = br#"import { decl as renamed } from "./functions";
+import Card from "./Button";
+import def from "./default-arrow";
+import Anon from "./default-anon-class";
+import impl2 from "./default-ident";
+import Aliased from "./default-alias";
+import AliasedJs from "./default-alias-js";
+import MarkdownMsg from "./named-only";
+import { default as Explicit } from "./default-ident";
+import * as UI from "./Button";
+
+export function App() {
+  renamed();
+  def(1);
+  new Anon();
+  impl2();
+  Aliased();
+  AliasedJs();
+  Explicit();
+  const refs = [renamed];
+  return <><Card /><MarkdownMsg /><UI.Button /></>;
+}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "src/App.tsx", source);
+    let calls = |target: &str| {
+        edges.iter().any(|edge| {
+            edge.kind == "CALLS" && edge.source == "src/App.tsx::App" && edge.target == target
+        })
+    };
+    for target in [
+        "src/functions.ts::decl",
+        "src/Button.tsx::DefaultCard",
+        "src/default-arrow.ts::default",
+        "src/default-anon-class.ts::default",
+        "src/default-ident.ts::impl",
+        "src/default-alias.ts::aliased",
+        "src/default-alias-js.js::aliasedJs",
+        "src/named-only.tsx::MarkdownMsg",
+        "src/Button.tsx::Button",
+    ] {
+        assert!(calls(target), "missing CALLS App -> {target}: {edges:?}");
+    }
+    for wrong in [
+        "src/functions.ts::renamed",
+        "src/Button.tsx::Card",
+        "src/default-arrow.ts::def",
+        "src/default-anon-class.ts::Anon",
+        "src/default-ident.ts::impl2",
+        "src/default-ident.ts::Explicit",
+    ] {
+        assert!(
+            !edges.iter().any(|edge| edge.target == wrong),
+            "unexpected target {wrong}"
+        );
+    }
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "REFERENCES"
+            && edge.source == "src/App.tsx::App"
+            && edge.target == "src/functions.ts::decl"
+    }));
+
+    let _ = std::fs::remove_dir_all(&repo_root);
+}
+
+#[test]
 fn resolves_typescript_barrel_reexports_to_origin() {
     let mut repo_root = std::env::temp_dir();
     repo_root.push(format!(

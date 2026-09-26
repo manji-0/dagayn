@@ -98,6 +98,19 @@ All notable changes to `dagayn` are documented here.
   `*_spec` are `Test` nodes only inside test files. A component such as
   `TestimonialCard` in `Testimonial.tsx` was a `Test`, which hid it from
   dead-code and flow analysis and produced spurious `TESTED_BY` edges.
+- JavaScript / TypeScript imports bind by module and exported name. An
+  aliased import `import { decl as renamed }` resolved calls to the
+  nonexistent `functions.ts::renamed`; it now resolves to
+  `functions.ts::decl`. A default import `import Card from "./Button"`
+  resolved to `Button.tsx::Card`; it now resolves to the module's default
+  export (`Button.tsx::DefaultCard`, or `m::default` for an anonymous
+  default), including `export default ident;` and
+  `export { x as default }` (also in JavaScript, whose grammar spells
+  `default` as a keyword token), and re-exports such as
+  `export { default as defB } from "./b"` follow to `b`'s default-exported
+  symbol. `import { default as X }` is a default import. A module with no default export still resolves by the local name
+  for bundler interop. `ns.X` member bases and JSX `<ns.X />` resolve only
+  through namespace or default imports, not through named imports.
 
 ### Performance
 

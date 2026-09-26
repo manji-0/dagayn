@@ -8,8 +8,8 @@ use super::js_modules::{
     JavaScriptCaches, JavaScriptParseContext, collect_javascript_defined_names,
     collect_javascript_import_map, collect_javascript_type_names, decode_javascript_string_literal,
     javascript_child_text, javascript_function_name, javascript_import_targets,
-    javascript_named_child, resolve_javascript_call_target, resolve_javascript_imported_symbol,
-    resolve_javascript_module,
+    javascript_named_child, resolve_javascript_call_target, resolve_javascript_module,
+    resolve_javascript_namespace_member,
 };
 use super::member_calls::MemberCallBindings;
 use super::parsers::*;
@@ -1323,11 +1323,8 @@ fn javascript_jsx_component_target(
 ) -> Option<String> {
     let (base_name, component_name) = javascript_jsx_component_reference(node, context.source)?;
     if let Some(base_name) = base_name {
-        if let Some(module) = context.import_map.get(&base_name) {
-            return resolve_javascript_imported_symbol(&component_name, module, context)
-                .or(Some(component_name));
-        }
-        return Some(component_name);
+        return resolve_javascript_namespace_member(&base_name, &component_name, context)
+            .or(Some(component_name));
     }
     Some(resolve_javascript_call_target(&component_name, context))
 }
@@ -1675,7 +1672,7 @@ fn javascript_type_base(
     }
 }
 
-/// `ns.Name` where `ns` is an imported module binding resolves to the
+/// `ns.Name` where `ns` is a namespace (or default) import resolves to the
 /// exporting module's QN; anything else stays unresolved.
 fn javascript_namespace_member_target(
     object: tree_sitter::Node<'_>,
@@ -1685,8 +1682,7 @@ fn javascript_namespace_member_target(
     if object.kind() != "identifier" {
         return None;
     }
-    let module = context.import_map.get(&node_text(object, context.source))?;
-    resolve_javascript_imported_symbol(name, module, context)
+    resolve_javascript_namespace_member(&node_text(object, context.source), name, context)
 }
 
 fn javascript_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
