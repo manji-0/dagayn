@@ -151,6 +151,12 @@ All notable changes to `dagayn` are documented here.
   known gap is now documented with its workarounds: `dagayn update` for files
   git reports, `touch`, or `dagayn build`. The spec also notes that the
   uncapped verification still skips files whose mtime is unchanged.
+- `docs/TYPESCRIPT-EXTRACTION.md` specifies the TypeScript / JavaScript
+  extraction model: node kinds and `extra` roles, qualified names with owner
+  paths, anonymous `default` exports, object-literal containers and
+  `pkg::symbol` targets, edge semantics, import and module-path resolution,
+  and a per-construct coverage matrix. Linked from `docs/INDEX.md` and
+  `docs/SCHEMA.md`.
 
 ### Fixes
 

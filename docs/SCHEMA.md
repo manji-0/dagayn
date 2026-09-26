@@ -51,6 +51,16 @@ symbol that exercises it. For example, `src/auth.py::login -> tests/test_auth.py
 
 The fork also stores confidence-related metadata and graph relationships used by higher-order analysis.
 
+## Language extraction models
+
+Each extractor maps its language onto the shared node and edge kinds above.
+TypeScript, TSX, JavaScript, and JSX (including Vue and Svelte script blocks)
+are specified in [TYPESCRIPT-EXTRACTION.md](./TYPESCRIPT-EXTRACTION.md): which
+declarations become `Class` / `Type` / `Function` nodes, how owner paths,
+anonymous `default` exports, object-literal containers, and external
+`pkg::symbol` targets appear in qualified names, and what `CALLS`,
+`REFERENCES`, `INHERITS`, and `IMPLEMENTS` mean for TypeScript code.
+
 ## Metadata
 
 <!-- derived-from ./ARCHITECTURE.md#storage-model -->
