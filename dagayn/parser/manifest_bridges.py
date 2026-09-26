@@ -18,8 +18,8 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Iterator
 
-from ..incremental_files import _load_ignore_patterns, _should_ignore
 from ._base.types import EdgeInfo, NodeInfo
+from .ignore import _load_ignore_patterns, _should_ignore
 
 logger = logging.getLogger(__name__)
 
