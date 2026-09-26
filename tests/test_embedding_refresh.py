@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from dagayn.embeddings_store import _encode_vector, get_embedding_status
-from dagayn.task_queue import _enqueue_scoped_embed_after_update
+from dagayn.tools.queue_worker import _enqueue_scoped_embed_after_update
 from dagayn.tools.sync_status import (
     embedding_needs_refresh,
     embedding_refresh_action,
@@ -131,7 +131,7 @@ class TestEnqueueAfterUpdate:
             captured.append({"repo": repo_root, **kwargs})
             return "added", 7
 
-        with patch("dagayn.task_queue.enqueue_embed_refresh", side_effect=_fake_enqueue):
+        with patch("dagayn.tools.queue_worker.enqueue_embed_refresh", side_effect=_fake_enqueue):
             note = _enqueue_scoped_embed_after_update(
                 tmp_path,
                 {
@@ -163,7 +163,7 @@ class TestEnqueueAfterUpdate:
             captured.append(kwargs)
             return "added", 3
 
-        with patch("dagayn.task_queue.enqueue_embed_refresh", side_effect=_fake_enqueue):
+        with patch("dagayn.tools.queue_worker.enqueue_embed_refresh", side_effect=_fake_enqueue):
             note = _enqueue_scoped_embed_after_update(tmp_path, {"changed_files": ["a.py"]})
 
         assert note is not None
@@ -180,7 +180,7 @@ class TestEnqueueAfterUpdate:
             provider="google:gemini-embedding-001#text=material",
         )
         (tmp_path / ".dagayn").mkdir(exist_ok=True)
-        with patch("dagayn.task_queue.enqueue_embed_refresh") as enqueue:
+        with patch("dagayn.tools.queue_worker.enqueue_embed_refresh") as enqueue:
             note = _enqueue_scoped_embed_after_update(tmp_path, {"changed_files": ["a.py"]})
         assert note is None
         enqueue.assert_not_called()

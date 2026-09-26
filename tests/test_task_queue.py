@@ -20,6 +20,7 @@ from typing import Any
 import pytest
 
 import dagayn.task_queue
+import dagayn.tools.queue_worker
 from dagayn.task_queue import (
     DEFAULT_EMBED_BUDGET_SECONDS,
     DEFAULT_PRIORITIES,
@@ -29,12 +30,11 @@ from dagayn.task_queue import (
     TASK_KINDS,
     TaskQueue,
     WorkerLock,
-    _requeue_unfinished_embedding,
     ensure_worker,
     queue_db_path,
-    run_worker,
     worker_lock_path,
 )
+from dagayn.tools.queue_worker import _requeue_unfinished_embedding, run_worker
 
 
 @pytest.fixture
@@ -364,7 +364,9 @@ class TestRunWorker:
 
     def test_executes_pending_tasks(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         calls: list[tuple[str, dict[str, Any]]] = []
-        monkeypatch.setattr("dagayn.task_queue._TASK_EXECUTORS", self._fake_executors(calls))
+        monkeypatch.setattr(
+            dagayn.tools.queue_worker, "_TASK_EXECUTORS", self._fake_executors(calls)
+        )
         queue = TaskQueue(queue_db_path(tmp_path))
         queue.enqueue("update")
         queue.enqueue("embed")
@@ -377,7 +379,7 @@ class TestRunWorker:
     def test_unknown_kind_is_parked_dead(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr("dagayn.task_queue._TASK_EXECUTORS", {})
+        monkeypatch.setattr(dagayn.tools.queue_worker, "_TASK_EXECUTORS", {})
         queue = TaskQueue(queue_db_path(tmp_path))
         queue._conn.execute(
             "INSERT INTO tasks (kind, state, created_at, updated_at)"
@@ -397,7 +399,7 @@ class TestRunWorker:
         def boom(task: dict[str, Any], repo_root: Path) -> str | None:
             raise RuntimeError("always fails")
 
-        monkeypatch.setattr("dagayn.task_queue._TASK_EXECUTORS", {"update": boom})
+        monkeypatch.setattr(dagayn.tools.queue_worker, "_TASK_EXECUTORS", {"update": boom})
         queue = TaskQueue(queue_db_path(tmp_path))
         queue.enqueue("update")
         queue.close()
@@ -421,8 +423,10 @@ class TestRunWorker:
         thread in the process, which made this test depend on what else the
         suite happened to be running.
         """
-        monkeypatch.setattr("dagayn.task_queue._TASK_EXECUTORS", {"update": self._always_fails})
-        monkeypatch.setattr("dagayn.task_queue.RETRY_BACKOFF_SECONDS", 0.05)
+        monkeypatch.setattr(
+            dagayn.tools.queue_worker, "_TASK_EXECUTORS", {"update": self._always_fails}
+        )
+        monkeypatch.setattr(dagayn.tools.queue_worker, "RETRY_BACKOFF_SECONDS", 0.05)
         queue = TaskQueue(queue_db_path(tmp_path))
         queue.enqueue("update")
         queue.close()
@@ -437,9 +441,11 @@ class TestRunWorker:
         assert elapsed >= 0.05 + 0.10
 
     def test_backoff_is_capped(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("dagayn.task_queue._TASK_EXECUTORS", {"update": self._always_fails})
-        monkeypatch.setattr("dagayn.task_queue.RETRY_BACKOFF_SECONDS", 5.0)
-        monkeypatch.setattr("dagayn.task_queue.MAX_RETRY_BACKOFF_SECONDS", 0.05)
+        monkeypatch.setattr(
+            dagayn.tools.queue_worker, "_TASK_EXECUTORS", {"update": self._always_fails}
+        )
+        monkeypatch.setattr(dagayn.tools.queue_worker, "RETRY_BACKOFF_SECONDS", 5.0)
+        monkeypatch.setattr(dagayn.tools.queue_worker, "MAX_RETRY_BACKOFF_SECONDS", 0.05)
         queue = TaskQueue(queue_db_path(tmp_path))
         queue.enqueue("update")
         queue.close()
@@ -467,9 +473,9 @@ class TestRunWorker:
             return None
 
         monkeypatch.setattr(
-            "dagayn.task_queue._TASK_EXECUTORS", {"update": flaky_update, "embed": embed}
+            "dagayn.tools.queue_worker._TASK_EXECUTORS", {"update": flaky_update, "embed": embed}
         )
-        monkeypatch.setattr("dagayn.task_queue.RETRY_BACKOFF_SECONDS", 0.3)
+        monkeypatch.setattr(dagayn.tools.queue_worker, "RETRY_BACKOFF_SECONDS", 0.3)
         queue = TaskQueue(queue_db_path(tmp_path))
         queue.enqueue("update")
         queue.enqueue("embed")
@@ -481,8 +487,10 @@ class TestRunWorker:
         assert calls == ["update", "embed", "update"]
 
     def test_backoff_can_be_disabled(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("dagayn.task_queue._TASK_EXECUTORS", {"update": self._always_fails})
-        monkeypatch.setattr("dagayn.task_queue.RETRY_BACKOFF_SECONDS", 5.0)
+        monkeypatch.setattr(
+            dagayn.tools.queue_worker, "_TASK_EXECUTORS", {"update": self._always_fails}
+        )
+        monkeypatch.setattr(dagayn.tools.queue_worker, "RETRY_BACKOFF_SECONDS", 5.0)
         queue = TaskQueue(queue_db_path(tmp_path))
         queue.enqueue("update")
         queue.close()
@@ -503,7 +511,7 @@ class TestRunWorker:
     def test_worker_releases_lock_on_exit(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr("dagayn.task_queue._TASK_EXECUTORS", self._fake_executors([]))
+        monkeypatch.setattr(dagayn.tools.queue_worker, "_TASK_EXECUTORS", self._fake_executors([]))
         run_worker(tmp_path, idle_seconds=0.2)
         probe = WorkerLock(worker_lock_path(tmp_path))
         assert probe.acquire() is True
@@ -596,7 +604,7 @@ class TestRequeueStale:
             calls.append(task["kind"])
             return None
 
-        monkeypatch.setattr("dagayn.task_queue._TASK_EXECUTORS", {"update": executor})
+        monkeypatch.setattr(dagayn.tools.queue_worker, "_TASK_EXECUTORS", {"update": executor})
         queue = TaskQueue(queue_db_path(tmp_path))
         queue.enqueue("update")
         queue.claim()  # the worker dies here (os._exit), leaving the row running
@@ -809,12 +817,12 @@ class TestEmbedTaskStructure:
 
         monkeypatch.setattr(build_tools, "build_or_update_graph", fake_build)
         monkeypatch.setattr(build_tools, "run_embedding_pass", fake_pass)
-        monkeypatch.setattr(dagayn.task_queue, "_stored_base", lambda _root: "HEAD")
+        monkeypatch.setattr(dagayn.tools.queue_worker, "_stored_base", lambda _root: "HEAD")
         monkeypatch.setattr(
             "dagayn.hook_guard.start_budget_watchdog", lambda *_args, **_kwargs: None
         )
         task = {"id": 1, "kind": "embed", "payload": {"files": ["a.py"], **payload}}
-        dagayn.task_queue._execute_embed(task, tmp_path)
+        dagayn.tools.queue_worker._execute_embed(task, tmp_path)
         return calls
 
     def test_update_derived_embed_skips_the_structural_update(
@@ -836,7 +844,7 @@ class TestEmbedTaskStructure:
             "dagayn.tools.sync_status.sidecar_embed_payload",
             lambda _db: {"local_embedding": "bge-m3"},
         )
-        note = dagayn.task_queue._enqueue_scoped_embed_after_update(
+        note = dagayn.tools.queue_worker._enqueue_scoped_embed_after_update(
             tmp_path, {"changed_files": ["a.py"], "dependent_files": []}
         )
         assert note is not None

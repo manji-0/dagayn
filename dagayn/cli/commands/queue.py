@@ -19,8 +19,8 @@ from ...task_queue import (
     TaskQueue,
     ensure_worker,
     queue_db_path,
-    run_worker,
 )
+from ...tools.queue_worker import run_worker
 from ._shared import _add_local_embedding_args
 
 
