@@ -382,3 +382,38 @@ class UserService extends Base implements Svc {
     def test_new_resolves_use_alias(self, parse):
         _, edges, _ = parse("m.php", self.SOURCE)
         assert ("CALLS", "<f>::UserService.run", "Post") in edges
+
+
+class TestRuby:
+    SOURCE = """\
+require 'json'
+module Outer
+  class Inner < Base
+    include Comparable
+    attr_accessor :name
+    def run
+      process(1)
+    end
+  end
+end
+class Outer::Other < Lib::Base; end
+"""
+
+    def test_nested_scopes(self, parse):
+        names, edges, nodes = parse("m.rb", self.SOURCE)
+        assert ("Function", "run", "Outer.Inner") in names
+        assert ("CONTAINS", "<f>::Outer", "<f>::Outer.Inner") in edges
+        outer = next(n for n in nodes if n.name == "Outer")
+        assert outer.extra["type_role"] == "module"
+
+    def test_superclass_and_mixins(self, parse):
+        names, edges, _ = parse("m.rb", self.SOURCE)
+        assert ("INHERITS", "<f>::Outer.Inner", "Base") in edges
+        assert ("INHERITS", "<f>::Outer.Inner", "Comparable") in edges
+        assert ("Class", "Other", None) in names
+        assert ("INHERITS", "<f>::Other", "Base") in edges
+
+    def test_declarative_calls_are_not_calls(self, parse):
+        _, edges, _ = parse("m.rb", self.SOURCE)
+        targets = {t for k, _, t in edges if k == "CALLS"}
+        assert not targets & {"require", "include", "attr_accessor"}

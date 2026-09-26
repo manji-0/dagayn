@@ -796,7 +796,7 @@ end
     assert!(nodes.iter().any(|node| {
         node.kind == "Function"
             && node.name == "save"
-            && node.parent_name.as_deref() == Some("UserRepository")
+            && node.parent_name.as_deref() == Some("Auth.UserRepository")
             && node.params.is_none()
     }));
     assert!(edges.iter().any(|edge| {
@@ -804,8 +804,8 @@ end
     }));
     assert!(edges.iter().any(|edge| {
         edge.kind == "CALLS"
-            && edge.source == "app.rb::UserRepository.create_user"
-            && edge.target == "app.rb::UserRepository.save"
+            && edge.source == "app.rb::Auth.UserRepository.create_user"
+            && edge.target == "app.rb::Auth.UserRepository.save"
     }));
     assert!(edges.iter().any(|edge| {
         edge.kind == "CROSS_ARTIFACT"

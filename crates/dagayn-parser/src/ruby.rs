@@ -60,8 +60,20 @@ fn ruby_walk_children(
         match child.kind() {
             "module" | "class" => {
                 if let Some(name) = ruby_class_name(child, source) {
-                    ruby_emit_class(child, file_path, &name, enclosing_class, nodes, edges);
-                    ruby_walk_children(child, source, file_path, Some(&name), None, nodes, edges);
+                    ruby_emit_class(
+                        child,
+                        source,
+                        file_path,
+                        &name,
+                        enclosing_class,
+                        nodes,
+                        edges,
+                    );
+                    let path = match enclosing_class {
+                        Some(parent) => format!("{parent}.{name}"),
+                        None => name.clone(),
+                    };
+                    ruby_walk_children(child, source, file_path, Some(&path), None, nodes, edges);
                     continue;
                 }
             }
@@ -106,6 +118,7 @@ fn ruby_walk_children(
 
 fn ruby_emit_class(
     node: tree_sitter::Node<'_>,
+    source: &[u8],
     file_path: &FilePath,
     name: &str,
     enclosing_class: Option<&str>,
@@ -124,16 +137,109 @@ fn ruby_emit_class(
         return_type: None,
         modifiers: None,
         is_test: false,
-        extra: json!({"type_role": "class"}),
+        extra: json!({"type_role": node.kind()}),
     });
+    let qualified = qualify(file_path, name, enclosing_class);
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Contains,
-        source: file_path.to_string(),
-        target: qualify(file_path, name, enclosing_class),
+        source: enclosing_class
+            .map(|parent| qualify(file_path, parent, None))
+            .unwrap_or_else(|| file_path.to_string()),
+        target: qualified.clone(),
         file_path: file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
+    if let Some(superclass) = ruby_direct_child(node, &["superclass"])
+        && let Some(target) = ruby_constant_name(superclass, source)
+    {
+        edges.push(ParsedEdge {
+            kind: crate::core::types::EdgeKind::Inherits,
+            source: qualified.clone(),
+            target,
+            file_path: file_path.clone(),
+            line: node.start_position().row as i64 + 1,
+            extra: json!({"relationship_role": "extends", "syntax_source": "superclass"}),
+        });
+    }
+    let Some(body) = ruby_direct_child(node, &["body_statement"]) else {
+        return;
+    };
+    let mut cursor = body.walk();
+    for statement in body.children(&mut cursor) {
+        if statement.kind() != "call" {
+            continue;
+        }
+        let Some(keyword) = ruby_call_name(statement, source) else {
+            continue;
+        };
+        if !matches!(keyword.as_str(), "include" | "extend" | "prepend") {
+            continue;
+        }
+        let Some(arguments) = ruby_direct_child(statement, &["argument_list"]) else {
+            continue;
+        };
+        let mut args = arguments.walk();
+        for argument in arguments.children(&mut args) {
+            if let Some(target) = ruby_constant_name(argument, source) {
+                edges.push(ParsedEdge {
+                    kind: crate::core::types::EdgeKind::Inherits,
+                    source: qualified.clone(),
+                    target,
+                    file_path: file_path.clone(),
+                    line: statement.start_position().row as i64 + 1,
+                    extra: json!({"relationship_role": "mixin", "syntax_source": keyword}),
+                });
+            }
+        }
+    }
+}
+
+fn ruby_direct_child<'a>(
+    node: tree_sitter::Node<'a>,
+    kinds: &[&str],
+) -> Option<tree_sitter::Node<'a>> {
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .find(|child| kinds.contains(&child.kind()))
+}
+
+/// The unqualified name of a `constant` or `A::B` scope resolution, looking
+/// through a wrapper such as `superclass`.
+fn ruby_constant_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    match node.kind() {
+        "constant" => Some(node_text(node, source).trim().to_string()),
+        "scope_resolution" => node
+            .child_by_field_name("name")
+            .map(|name| node_text(name, source).trim().to_string()),
+        "superclass" => {
+            let mut cursor = node.walk();
+            let inner = node
+                .children(&mut cursor)
+                .find(|child| matches!(child.kind(), "constant" | "scope_resolution"))?;
+            ruby_constant_name(inner, source)
+        }
+        _ => None,
+    }
+}
+
+/// Class-body DSL keywords that declare structure rather than call code.
+fn ruby_is_declarative_call(name: &str) -> bool {
+    matches!(
+        name,
+        "require"
+            | "require_relative"
+            | "include"
+            | "extend"
+            | "prepend"
+            | "attr_accessor"
+            | "attr_reader"
+            | "attr_writer"
+            | "private"
+            | "public"
+            | "protected"
+            | "module_function"
+    )
 }
 
 fn ruby_emit_function(
@@ -180,9 +286,11 @@ fn ruby_emit_call(
     edges: &mut Vec<ParsedEdge>,
 ) {
     let call_name = ruby_call_name(node, source);
-    let caller = enclosing_func
-        .map(|func| qualify(file_path, func, enclosing_class))
-        .unwrap_or_else(|| file_path.to_string());
+    let caller = match (enclosing_func, enclosing_class) {
+        (Some(func), _) => qualify(file_path, func, enclosing_class),
+        (None, Some(class)) => qualify(file_path, class, None),
+        (None, None) => file_path.to_string(),
+    };
     if let Some(call_name) = call_name {
         if (call_name == "require" || call_name == "require_relative")
             && let Some(target) = ruby_first_string_arg(node, source)
@@ -195,6 +303,9 @@ fn ruby_emit_call(
                 line: node.start_position().row as i64 + 1,
                 extra: json!({}),
             });
+        }
+        if ruby_is_declarative_call(&call_name) {
+            return;
         }
         edges.push(ParsedEdge {
             kind: crate::core::types::EdgeKind::Calls,
@@ -213,7 +324,8 @@ fn ruby_emit_call(
 }
 
 fn ruby_class_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    ruby_direct_child_text(node, source, &["constant"])
+    let name = node.child_by_field_name("name")?;
+    ruby_constant_name(name, source)
 }
 
 fn ruby_method_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
