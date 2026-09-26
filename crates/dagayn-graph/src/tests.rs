@@ -3550,3 +3550,60 @@ fn japanese_fts_quality_gates_hit_inflected_and_identifier_queries() {
 
     let _ = std::fs::remove_file(path);
 }
+
+#[test]
+fn identifier_tokens_split_case_acronyms_digits_and_separators() {
+    assert_eq!(
+        identifier_tokens("auth/views.py::HTTPServer.verifyToken_v2"),
+        vec![
+            "auth", "views", "py", "http", "server", "verify", "token", "v", "2"
+        ]
+    );
+    assert_eq!(
+        identifier_tokens("OAuthClient"),
+        vec!["o", "auth", "client"]
+    );
+    assert_eq!(identifier_tokens("sha256Hash"), vec!["sha", "256", "hash"]);
+    assert_eq!(identifier_tokens("ABC"), vec!["abc"]);
+    assert!(identifier_tokens("__").is_empty());
+}
+
+#[test]
+fn security_keywords_match_on_identifier_token_starts() {
+    let sensitive = |name: &str| is_security_sensitive_identifier(name, "");
+    // True positives: keyword at a token start, including inflections.
+    for name in [
+        "verify_signature",
+        "password_hash",
+        "hashed_value",
+        "refreshTokens",
+        "OAuthClient",
+        "getHTTPResponse",
+        "authenticate_user",
+        "SqlBuilder",
+    ] {
+        assert!(sensitive(name), "{name} should be security-sensitive");
+    }
+    // False positives removed: mid-word hits and excluded look-alikes.
+    for name in [
+        "assign_role",
+        "design_doc",
+        "hashmap_get",
+        "HashMap",
+        "emit_signal",
+        "author_name",
+        "consignment",
+        "process_data",
+    ] {
+        assert!(!sensitive(name), "{name} should not be security-sensitive");
+    }
+    // Qualified names are tokenized too: a `design/` directory is not `sign`.
+    assert!(!is_security_sensitive_identifier(
+        "render",
+        "design/page.py::render"
+    ));
+    assert!(is_security_sensitive_identifier(
+        "render",
+        "auth/page.py::render"
+    ));
+}

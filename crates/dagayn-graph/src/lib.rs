@@ -77,6 +77,126 @@ const SECURITY_KEYWORDS: &[&str] = &[
     "privilege",
 ];
 
+/// Identifier tokens that start with a security keyword but name ordinary,
+/// non-security concepts. Mirrors `SECURITY_KEYWORD_EXCLUDED_TOKENS` in
+/// `dagayn/constants.py`.
+const SECURITY_KEYWORD_EXCLUDED_TOKENS: &[&str] = &[
+    "hashmap",
+    "hashmaps",
+    "hashset",
+    "hashsets",
+    "hashtable",
+    "hashtables",
+    "signal",
+    "signals",
+    "signaled",
+    "signaling",
+    "signalled",
+    "signalling",
+    "significant",
+    "significance",
+    "significantly",
+    "signify",
+    "author",
+    "authors",
+    "authored",
+    "authoring",
+    "authorship",
+];
+
+/// Split an identifier or qualified name into lowercase word tokens.
+///
+/// Splits on every non-ASCII-alphanumeric character, on camelCase /
+/// PascalCase boundaries, on acronym boundaries (`HTTPServer` -> `http`,
+/// `server`), and between letters and digits (`sha256Hash` -> `sha`, `256`,
+/// `hash`). Mirrors `identifier_tokens` in `dagayn/changes.py`.
+pub(crate) fn identifier_tokens(text: &str) -> Vec<String> {
+    let chars: Vec<char> = text.chars().collect();
+    let n = chars.len();
+    let mut tokens = Vec::new();
+    let mut i = 0;
+    let collect = |from: usize, to: usize| -> String {
+        chars[from..to]
+            .iter()
+            .map(|c| c.to_ascii_lowercase())
+            .collect()
+    };
+    while i < n {
+        let c = chars[i];
+        if c.is_ascii_digit() {
+            let start = i;
+            while i < n && chars[i].is_ascii_digit() {
+                i += 1;
+            }
+            tokens.push(collect(start, i));
+        } else if c.is_ascii_lowercase() {
+            let start = i;
+            while i < n && chars[i].is_ascii_lowercase() {
+                i += 1;
+            }
+            tokens.push(collect(start, i));
+        } else if c.is_ascii_uppercase() {
+            let start = i;
+            let mut upper_end = i;
+            while upper_end < n && chars[upper_end].is_ascii_uppercase() {
+                upper_end += 1;
+            }
+            if upper_end < n && chars[upper_end].is_ascii_lowercase() {
+                // The last capital starts a PascalCase word; any capitals
+                // before it form an acronym token.
+                let word_start = upper_end - 1;
+                if word_start > start {
+                    tokens.push(collect(start, word_start));
+                }
+                let mut end = upper_end;
+                while end < n && chars[end].is_ascii_lowercase() {
+                    end += 1;
+                }
+                tokens.push(collect(word_start, end));
+                i = end;
+            } else {
+                tokens.push(collect(start, upper_end));
+                i = upper_end;
+            }
+        } else {
+            i += 1;
+        }
+    }
+    tokens
+}
+
+/// Return whether any identifier token of `texts` starts with one of
+/// `keywords`, skipping `SECURITY_KEYWORD_EXCLUDED_TOKENS` (as a single token
+/// or as a token joined with the following one, e.g. `Hash` + `Map`).
+///
+/// Matching at token starts keeps inflections (`tokens`, `hashed`,
+/// `signature`, `authenticate`) while dropping mid-word hits such as `design`
+/// or `assign` for `sign`. Mirrors `is_security_sensitive_identifier` in
+/// `dagayn/changes.py`.
+pub(crate) fn identifier_matches_keywords(texts: &[&str], keywords: &[&str]) -> bool {
+    texts.iter().any(|text| {
+        let tokens = identifier_tokens(text);
+        tokens.iter().enumerate().any(|(index, token)| {
+            if SECURITY_KEYWORD_EXCLUDED_TOKENS.contains(&token.as_str()) {
+                return false;
+            }
+            // `HashMap` splits into `hash` + `map`; treat the pair like the
+            // single excluded token `hashmap`.
+            if let Some(next) = tokens.get(index + 1)
+                && SECURITY_KEYWORD_EXCLUDED_TOKENS.contains(&format!("{token}{next}").as_str())
+            {
+                return false;
+            }
+            keywords.iter().any(|keyword| token.starts_with(keyword))
+        })
+    })
+}
+
+/// Security-keyword check shared by change risk and flow criticality.
+pub(crate) fn is_security_sensitive_identifier(name: &str, qualified_name: &str) -> bool {
+    identifier_matches_keywords(&[name, qualified_name], SECURITY_KEYWORDS)
+}
+
 const SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS nodes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

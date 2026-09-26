@@ -754,13 +754,7 @@ fn compute_criticality(graph: &TraceGraph, path_ids: &[i64], depth: i64) -> f64 
     let external_score = (external_count as f64 / 5.0).min(1.0);
     let security_hits = nodes
         .iter()
-        .filter(|node| {
-            let name = node.name.to_ascii_lowercase();
-            let qn = node.qualified_name.to_ascii_lowercase();
-            SECURITY_KEYWORDS
-                .iter()
-                .any(|keyword| name.contains(keyword) || qn.contains(keyword))
-        })
+        .filter(|node| is_security_sensitive_identifier(&node.name, &node.qualified_name))
         .count();
     let security_score = (security_hits as f64 / nodes.len() as f64).min(1.0);
     let tested_count = nodes

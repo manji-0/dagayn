@@ -357,6 +357,24 @@ class TestFlows:
         # The security flow should have a higher criticality.
         assert secure_flows[0]["criticality"] >= normal_flows[0]["criticality"]
 
+    def test_criticality_security_keywords_use_token_boundaries(self):
+        """``sign`` in ``assign``/``design`` must not count as security-sensitive."""
+        self._add_func("start", path="plain.py")
+        self._add_func("process", path="plain.py")
+        self._add_call("plain.py::start", "plain.py::process", "plain.py")
+
+        self._add_func("assign_role", path="roles.py")
+        self._add_func("design_doc", path="roles.py")
+        self._add_call("roles.py::assign_role", "roles.py::design_doc", "roles.py")
+
+        self._add_func("verify_signature", path="sig.py")
+        self._add_func("password_hash", path="sig.py")
+        self._add_call("sig.py::verify_signature", "sig.py::password_hash", "sig.py")
+
+        by_entry = {f["entry_point"]: f["criticality"] for f in trace_flows(self.store)}
+        assert by_entry["roles.py::assign_role"] == by_entry["plain.py::start"]
+        assert by_entry["sig.py::verify_signature"] > by_entry["plain.py::start"]
+
     def test_criticality_file_spread_boost(self):
         """Flows spanning more files score higher on file-spread."""
         # Single-file flow.

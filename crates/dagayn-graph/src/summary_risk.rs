@@ -63,6 +63,9 @@ impl GraphStore {
             "permission",
             "sql",
             "execute",
+            // Token-start matching no longer finds `crypt` inside these.
+            "encrypt",
+            "decrypt",
         ];
         let mut insert = tx.prepare(
             "INSERT OR REPLACE INTO risk_index \
@@ -74,10 +77,7 @@ impl GraphStore {
             let caller_count = *caller_counts.get(&qualified_name).unwrap_or(&0);
             let tested = *tested_counts.get(&qualified_name).unwrap_or(&0);
             let coverage = if tested > 0 { "tested" } else { "untested" };
-            let name_lower = name.to_lowercase();
-            let security_relevant = security_keywords
-                .iter()
-                .any(|keyword| name_lower.contains(keyword));
+            let security_relevant = identifier_matches_keywords(&[&name], &security_keywords);
             let mut risk = 0.0_f64;
             if caller_count > 10 {
                 risk += 0.3;

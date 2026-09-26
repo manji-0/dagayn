@@ -632,7 +632,8 @@ item has `claim`, `evidence`, `confidence`, `missingness`, `action`,
 `reason_codes`, and `counts`; `_hints.next_steps` is derived from those actions
 when guidance is available. `risk_score` remains as a compatibility alias for
 `review_priority_score`: it ranks review attention from flow participation,
-callers, test evidence, security keywords, and community crossing, and is not a
+callers, test evidence, security keywords (matched at identifier-token starts,
+so `design` does not count as `sign`), and community crossing, and is not a
 standalone changeability score. Recommended tests and documentation candidates
 keep their existing sections for compatibility, but now expose evidence type
 distinctions such as `authored`, `extracted`, and `heuristic_reachable`.

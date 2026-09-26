@@ -143,12 +143,7 @@ impl GraphStore {
 
         score += 0.30 - ((inputs.transitive_test_count as f64 / 5.0).min(1.0) * 0.25);
 
-        let name_lower = inputs.node.name.to_lowercase();
-        let qn_lower = inputs.node.qualified_name.to_lowercase();
-        if SECURITY_KEYWORDS
-            .iter()
-            .any(|keyword| name_lower.contains(keyword) || qn_lower.contains(keyword))
-        {
+        if is_security_sensitive_identifier(&inputs.node.name, &inputs.node.qualified_name) {
             score += 0.20;
         }
 

@@ -17,6 +17,7 @@ from pathlib import Path, PurePosixPath
 from typing import Callable, Literal, cast
 
 from . import jj_workspace
+from .constants import SECURITY_KEYWORD_EXCLUDED_TOKENS as _SECURITY_KEYWORD_EXCLUDED_TOKENS
 from .constants import SECURITY_KEYWORDS as _SECURITY_KEYWORDS
 from .contracts.state_types import (
     ChangeAnalysisResult,
@@ -822,6 +823,50 @@ def _dedupe_edges(edges: list[GraphEdge]) -> list[GraphEdge]:
 # ---------------------------------------------------------------------------
 
 
+_IDENTIFIER_TOKEN_RE = re.compile(r"[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+|[0-9]+")
+
+
+def identifier_tokens(text: str) -> list[str]:
+    """Split an identifier or qualified name into lowercase word tokens.
+
+    Splits on every non-ASCII-alphanumeric character (``_``, ``.``, ``/``,
+    ``::`` ...), on camelCase / PascalCase boundaries, on acronym boundaries
+    (``HTTPServer`` -> ``http``, ``server``), and between letters and digits
+    (``sha256Hash`` -> ``sha``, ``256``, ``hash``).  Mirrors
+    ``identifier_tokens`` in ``crates/dagayn-graph/src/lib.rs``.
+    """
+    return [token.lower() for token in _IDENTIFIER_TOKEN_RE.findall(text)]
+
+
+def is_security_sensitive_identifier(*texts: str) -> bool:
+    """Return whether any identifier token starts with a security keyword.
+
+    A keyword matches only at the start of an identifier token, so
+    inflections such as ``tokens``, ``hashed``, ``signature``, and
+    ``authenticate`` count while mid-word hits such as ``design`` / ``assign``
+    (``sign``) do not.  Tokens listed in
+    ``SECURITY_KEYWORD_EXCLUDED_TOKENS`` (``hashmap``, ``signal``, ``author``
+    ...) never match, whether written as one token or as a token joined with
+    the next one (``HashMap`` -> ``hash`` + ``map``).  Keywords glued behind
+    other letters in one token (``oauth``, ``mysql``, ``unauthorized``) are a
+    known miss unless the identifier also carries another keyword token.
+    """
+    for text in texts:
+        tokens = identifier_tokens(text)
+        for index, token in enumerate(tokens):
+            if token in _SECURITY_KEYWORD_EXCLUDED_TOKENS:
+                continue
+            # ``HashMap`` splits into ``hash`` + ``map``; treat the pair like
+            # the single excluded token ``hashmap``.
+            if index + 1 < len(tokens) and (
+                token + tokens[index + 1] in _SECURITY_KEYWORD_EXCLUDED_TOKENS
+            ):
+                continue
+            if any(token.startswith(keyword) for keyword in _SECURITY_KEYWORDS):
+                return True
+    return False
+
+
 def compute_risk_score(
     store: GraphStore,
     node: GraphNode,
@@ -842,7 +887,9 @@ def compute_risk_score(
       - Flow participation: 0.05 per flow membership, capped at 0.25
       - Community crossing: 0.05 per caller from a different community, capped at 0.15
       - Test coverage: 0.30 (untested) scaling down to 0.05 (5+ TESTED_BY edges)
-      - Security sensitivity: 0.20 if name matches security keywords
+      - Security sensitivity: 0.20 if an identifier token of the name or
+        qualified name starts with a security keyword (see
+        :func:`is_security_sensitive_identifier`)
       - Caller count: callers / 20, capped at 0.10
 
     Optional pre-fetched arguments let :func:`analyze_changes` issue a
@@ -889,9 +936,7 @@ def compute_risk_score(
     score += 0.30 - (min(transitive_test_count / 5.0, 1.0) * 0.25)
 
     # --- Security sensitivity ---
-    name_lower = node.name.lower()
-    qn_lower = node.qualified_name.lower()
-    if any(kw in name_lower or kw in qn_lower for kw in _SECURITY_KEYWORDS):
+    if is_security_sensitive_identifier(node.name, node.qualified_name):
         score += 0.20
 
     # --- Caller count (cap 0.10) ---

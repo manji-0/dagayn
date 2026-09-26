@@ -129,6 +129,18 @@ All notable changes to `dagayn` are documented here.
   git reports, `touch`, or `dagayn build`. The spec also notes that the
   uncapped verification still skips files whose mtime is unchanged.
 
+### Fixes
+
+- Security keywords in `review_priority_score` / `risk_score`, flow
+  criticality, and `risk_index` now match on identifier-token starts instead of
+  raw substrings. Names and qualified names split on separators, camelCase /
+  PascalCase, acronyms, and digits, so `sign` no longer hits `design` or
+  `assign` (or a `design/` directory), while `verify_signature`,
+  `password_hash`, and `refreshTokens` still count. Look-alike tokens such as
+  `hashmap` / `HashMap`, `signal`, and `author` are excluded explicitly.
+  Keywords glued behind other letters (`oauth`, `mysql`, `unauthorized`) are a
+  known miss unless another keyword token is present.
+
 ## 4.15.0 — 2026-09-25
 
 ### Fixes
