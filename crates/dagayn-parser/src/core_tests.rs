@@ -372,6 +372,51 @@ output "bucket_arn" {
 }
 
 #[test]
+fn terraform_string_literals_are_not_references() {
+    let source = br#"resource "aws_s3_bucket" "logs" {}
+
+locals {
+  greeting = "hello"
+}
+
+resource "aws_instance" "web" {
+  instance_type = "t3.micro"
+  filename      = "handler.zip"
+  bucket_id     = "${aws_s3_bucket.logs.id}"
+  user_data     = "bucket=${aws_s3_bucket.logs.arn} file=handler.zip ${var.prefix}.example"
+  script        = <<-EOT
+    echo config.json app.main
+    echo ${local.greeting}
+  EOT
+}
+"#;
+    let (_nodes, edges) = parse_terraform("main.tf", source);
+    let targets = edges
+        .iter()
+        .filter(|edge| {
+            edge.kind == EdgeKind::References && edge.source == "main.tf::resource.aws_instance.web"
+        })
+        .map(|edge| edge.target.as_str())
+        .collect::<HashSet<_>>();
+    for literal in [
+        "resource.t3.micro",
+        "resource.handler.zip",
+        "resource.prefix.example",
+        "resource.config.json",
+        "resource.app.main",
+    ] {
+        assert!(
+            !targets.contains(literal),
+            "string literal text leaked as {literal}: {targets:?}"
+        );
+    }
+    assert!(targets.contains("main.tf::resource.aws_s3_bucket.logs"));
+    assert!(targets.contains("var.prefix"));
+    assert!(targets.contains("main.tf::local.greeting"));
+    assert_eq!(targets.len(), 3, "unexpected targets: {targets:?}");
+}
+
+#[test]
 fn extracts_terraform_code_bridges() {
     let source = br#"
 resource "null_resource" "bootstrap" {

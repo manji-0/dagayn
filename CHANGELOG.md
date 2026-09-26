@@ -173,6 +173,11 @@ All notable changes to `dagayn` are documented here.
   bare name (`resource.aws_s3_bucket.logs`). The bare source matched no node,
   so unresolved-endpoint demotion marked every Terraform reference and call
   edge `LOW` confidence, even between blocks of the same file.
+- Terraform string and heredoc literals no longer produce `REFERENCES` edges.
+  The whole quoted template was matched against the reference pattern, so
+  values such as `"t3.micro"` or `"handler.zip"` became references to
+  `resource.t3.micro` and `resource.handler.zip`. Only `${ ... }`
+  interpolations are scanned now.
 
 ## 4.15.0 — 2026-09-25
 
