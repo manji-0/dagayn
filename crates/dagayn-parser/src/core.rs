@@ -43,6 +43,8 @@ mod js_members;
 mod js_modules;
 #[path = "js_sfc.rs"]
 mod js_sfc;
+#[path = "js_tests.rs"]
+mod js_tests;
 #[path = "julia.rs"]
 mod julia;
 #[path = "kotlin.rs"]
@@ -606,6 +608,14 @@ pub fn parse_swift(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<Pars
     swift::parse_swift_with_parser(file_path, source, parser.as_mut())
 }
 
+/// A `CALLS` edge to an assertion or mock API (`extra.test_api`), which
+/// never makes its target "tested by" the calling test.
+fn is_test_api_call(extra: &Value) -> bool {
+    extra.get("test_api").and_then(Value::as_bool) == Some(true)
+}
+
+/// `TESTED_BY target -> test` for every `CALLS test -> target` made by a
+/// test node, except calls to assertion / mock APIs.
 fn add_tested_by_edges(nodes: &[ParsedNode], edges: &mut Vec<ParsedEdge>) {
     let test_qnames = nodes
         .iter()
@@ -614,7 +624,11 @@ fn add_tested_by_edges(nodes: &[ParsedNode], edges: &mut Vec<ParsedEdge>) {
         .collect::<HashSet<_>>();
     let tested_by = edges
         .iter()
-        .filter(|edge| edge.kind == "CALLS" && test_qnames.contains(&edge.source))
+        .filter(|edge| {
+            edge.kind == "CALLS"
+                && test_qnames.contains(&edge.source)
+                && !is_test_api_call(&edge.extra)
+        })
         .map(|edge| ParsedEdge {
             kind: crate::core::types::EdgeKind::TestedBy,
             source: edge.target.clone(),

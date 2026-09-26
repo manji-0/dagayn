@@ -1521,6 +1521,31 @@ class TestTypeRoleAndImplements:
         assert card.kind == "Function"
         assert card.is_test is False
 
+    def test_typescript_test_each_and_tsx_test_files(self, tmp_path):
+        path = tmp_path / "App.test.tsx"
+        path.write_text(
+            'import { add } from "./add";\n'
+            'describe("add", () => {\n'
+            "  beforeEach(() => add(0, 0));\n"
+            '  test.each([[1, 2]])("adds %i", (a, b) => {\n'
+            "    expect(add(a, b)).toBe(3);\n"
+            "  });\n"
+            "});\n",
+            encoding="utf-8",
+        )
+        nodes, edges = self.parser.parse_file(path)
+        assert nodes[0].kind == "File" and nodes[0].is_test is True
+        tests = {n.name: n for n in nodes if n.kind == "Test"}
+        assert set(tests) == {"describe:add@L2", "test:adds %i@L4"}
+        each = tests["test:adds %i@L4"]
+        assert (each.line_start, each.line_end) == (4, 6)
+        assert each.extra.get("test_modifiers") == ["each"]
+        qn = f"{path}::test:adds %i@L4"
+        assert any(e.kind == "CALLS" and e.source == qn and e.target.endswith("add") for e in edges)
+        tested_by_sources = {e.source for e in edges if e.kind == "TESTED_BY"}
+        assert not tested_by_sources & {"expect", "toBe", "beforeEach", "each"}
+        assert not any(e.target == "beforeEach" for e in edges)
+
     def test_typescript_anonymous_default_export_is_named_default(self, tmp_path):
         src = "export default function () { helper(); }\nfunction helper() {}\n"
         nodes, edges = self._parse(src, "ts", tmp_path)

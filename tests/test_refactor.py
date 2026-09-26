@@ -28,7 +28,7 @@ from dagayn.refactor.concerns import (
     comment_line_count,
     function_concern_profile,
 )
-from dagayn.refactor.dead_code import _source_line, find_dead_code
+from dagayn.refactor.dead_code import _is_test_file, _source_line, find_dead_code
 
 
 class TestFunctionConcernProfile:
@@ -2833,3 +2833,20 @@ class TestRefactorToolWithNativeBackend:
 
         assert result["status"] == "ok", result
         assert result["edits"]
+
+
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [
+        ("src/App.test.tsx", True),
+        ("src/app.spec.mts", True),
+        ("src/app.test.cjs", True),
+        ("cypress/e2e/login.cy.ts", True),
+        ("src/__tests__/util.ts", True),
+        ("src/latest.ts", False),
+        ("src/contest.tsx", False),
+    ],
+)
+def test_dead_code_test_file_pattern_covers_javascript_variants(path, expected):
+    """Dead-code test exclusion matches the parser's JS / TS test-file rules."""
+    assert _is_test_file(path) is expected

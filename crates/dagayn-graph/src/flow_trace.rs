@@ -606,7 +606,7 @@ fn is_entry_kind(node: &GraphNode) -> bool {
     node.kind == "Function" || node.kind == "Test"
 }
 
-fn is_test_file(file_path: &str) -> bool {
+pub(crate) fn is_test_file(file_path: &str) -> bool {
     test_file_re().is_match(file_path)
 }
 
@@ -774,10 +774,8 @@ fn compute_criticality(graph: &TraceGraph, path_ids: &[i64], depth: i64) -> f64 
 fn test_file_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(
-            r"([\\/]__tests__[\\/]|\.spec\.[jt]sx?$|\.test\.[jt]sx?$|[\\/]test_[^/\\]*\.py$)",
-        )
-        .expect("test file regex")
+        Regex::new(r"([\\/]__tests__[\\/]|\.(spec|test|cy)\.[cm]?[jt]sx?$|[\\/]test_[^/\\]*\.py$)")
+            .expect("test file regex")
     })
 }
 

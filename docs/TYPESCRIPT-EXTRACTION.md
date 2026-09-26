@@ -81,7 +81,7 @@ separate extractors.
 | interface method signature | `Function` | `m` | interface owner path | `is_abstract: true` |
 | any declaration inside `declare ...`, `declare module` / `declare global`, or a `.d.ts` / `.d.mts` / `.d.cts` file | (as above) | | | `ambient: true`; the `.d.ts` File node has `declaration_file: true`, and `export as namespace X` records `umd_global: "X"` on it |
 | object-container member (`get() {}`, `k: () => {}`, `k: function () {}`) | `Function` | member name | container owner path | |
-| test-runner call (`describe`, `it`, `test`) in a test file | `Test` | `it:description@L6` | owner path | synthetic; `describe` blocks are not part of the owner path |
+| test-runner call in a test file (§5.4) | `Test` | `it:description@L6` | owner path | synthetic; `describe` blocks are not part of the owner path; `test_modifiers` (`only`, `skip`, `each`, ...) |
 
 Nodes that are **not** created:
 
@@ -113,7 +113,8 @@ Nodes that are **not** created:
   the bare-name resolver, so they are never attached to an unrelated local
   symbol of the same name. Post-processing marks them LOW because no node
   exists.
-- **Synthetic tests** keep the existing `runner:description@Lline` form.
+- **Synthetic tests** keep the existing `runner:description@Lline` form
+  (§5.4).
 
 ## 5. Edges
 
@@ -139,7 +140,8 @@ Nodes that are **not** created:
 | method / function-valued field decorator argument, parameter decorator | the decorated member |
 | class heritage expression (`extends Mixin(Base)`) | the class |
 | module scope, including IIFEs | the File |
-| test-runner callback | the synthetic `Test` node |
+| test-runner callback, including `.each` tables | the synthetic `Test` node |
+| hook callback (`beforeEach`, `afterAll`, Playwright `test.beforeEach`), `test.step` body | the enclosing `describe` `Test`, or the File at module scope |
 
 ### 5.2 Call kinds
 
@@ -153,6 +155,55 @@ Nodes that are **not** created:
   flows follow the component tree. Lowercase intrinsic elements (`<div />`)
   are ignored.
 - **Tagged templates** (``tag`x` ``) are `CALLS` edges to `tag`.
+
+### 5.4 Tests
+
+- **Test files.** A JavaScript or TypeScript file is a test file (File
+  `is_test: true`) when any of these holds:
+  - it matches the shared rules used by every language (`test/`, `tests/`,
+    a leading `test_`)
+  - its name ends in `.test.<ext>`, `.spec.<ext>`, or Cypress `.cy.<ext>`,
+    where `<ext>` is `js`, `jsx`, `ts`, `tsx`, `mjs`, `cjs`, `mts`, or `cts`
+  - a directory on its path is `__tests__`, `e2e`, `e2e-tests` /
+    `e2e_tests`, or `cypress`
+  The flow-tracing and dead-code test-file patterns
+  (`crates/dagayn-graph/src/flow_trace.rs`, `dagayn/refactor/dead_code.py`)
+  accept the same suffixes.
+- **Test declarations.** Only inside test files, a call whose callee chain
+  starts with a runner name is a synthetic `Test` node:
+  - runners: `describe`, `it`, `test`, `suite`, `specify`, Jasmine
+    `fdescribe` / `xdescribe` / `fit` / `xit`, and Mocha `context` (only
+    with a literal title, and not when the file defines `context`)
+  - chained modifiers: `only`, `skip`, `todo`, `concurrent`, `sequential`,
+    `shuffle`, `fails`, `failing`, `fixme`, `slow`, `serial`, `parallel`;
+    they are recorded in source order as `extra.test_modifiers`
+  - Playwright `test.describe(...)` (and `test.describe.only(...)`) is a
+    `describe` test; the name uses the last runner in the chain
+  - table and conditional factories `each`, `for`, `skipIf`, `runIf`:
+    `test.each(table)("adds %i", fn)` and
+    ``it.each`a | b`("adds $a", fn)`` are one test named after the outer
+    call's title, spanning the whole outer call. The inner
+    `test.each(table)` call is not a node.
+- **Names** are `runner:title@Lline`, where `title` is the first argument:
+  a string or template literal, or an identifier / member expression
+  (`describe(UserService, fn)` gives `describe:UserService@L3`). Without a
+  title the name is `runner@Lline`. A call with neither a literal title nor
+  a function argument (Playwright `test.skip()` or
+  `test.skip(isMobile, "reason")` inside a test body) is not a
+  declaration.
+- **Nesting.** A nested test is `CONTAINS`ed by the enclosing `describe`
+  test (or the File at module scope). The owner path stays that of the
+  surrounding declarations, so `describe` titles never enter QNs.
+- **Other runner APIs** (hooks `beforeEach` / `afterEach` / `beforeAll` /
+  `afterAll` / `before` / `after`, `test.step`, `test.use`,
+  `test.describe.configure`, `test.extend`, and the factory call itself)
+  get no node and no edge; the calls inside their callbacks belong to the
+  enclosing node (§5.1).
+- **Assertion and mock APIs.** Calls whose callee chain starts with
+  `expect`, `assert`, `vi`, `vitest`, `jest`, `sinon`, `chai`, `cy`, or
+  `Cypress` keep their `CALLS` edge with `test_api: true`, and never produce
+  `TESTED_BY`. `TESTED_BY` is derived from every other `CALLS` edge whose
+  source is a `Test` node.
 
 ### 5.3 Inheritance
 
@@ -597,12 +648,16 @@ QNs omit the `file::` prefix.
 | Construct | Expected | Status |
 |---|---|---|
 | `describe` / `it` / `test` | synthetic `Test`, `CALLS`, `TESTED_BY` | implemented (existing) |
+| `suite` / `specify` / `context` / `fit` / `xit` / `fdescribe` / `xdescribe` | synthetic `Test` | implemented (#21) |
+| `.only` / `.skip` / `.todo` / `.concurrent` | synthetic `Test` with `test_modifiers` | implemented (#21) |
+| Playwright `test.describe`, `test.describe.only` | `Test describe:title@L1` | implemented (#21) |
+| hooks, `test.step`, Playwright `test.skip()` in a body | no node and no edge; callback calls go to the enclosing test | implemented (#21) |
 | `function TestimonialCard()` in a non-test file | `Function` | implemented (#6) |
 | `function TestHelper()` in a test file | `Test` | implemented (existing; kept by #6) |
-| `test.each(...)("name", fn)` | `Test test:name@L9` covering the outer call | planned (part 2/3, #21) |
-| `*.test.tsx`, `*.spec.jsx`, `__tests__/`, `*.cy.ts` | File `is_test` | planned (part 2/3, #21) |
+| `test.each(...)("name", fn)`, tagged-template `.each` | `Test test:name@L9` covering the outer call | implemented (#21) |
+| `*.test.tsx`, `*.spec.jsx`, `*.test.mjs`, `__tests__/`, `e2e/`, `*.cy.ts` | File `is_test` | implemented (#21) |
 | `TESTED_BY` for calls resolved in post-processing | follows the resolved `CALLS` target | planned (part 2/3, #22) |
-| `TESTED_BY` to runner / assertion APIs (`expect`, `beforeEach`) | not emitted | planned (part 2/3, #21) |
+| `TESTED_BY` to runner / assertion APIs (`expect`, `beforeEach`) | not emitted | implemented (#21) |
 
 ### 10.9 Frameworks and entry points
 

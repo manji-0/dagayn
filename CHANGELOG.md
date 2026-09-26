@@ -127,6 +127,24 @@ All notable changes to `dagayn` are documented here.
   slugs follow GitHub rules for closing hashes and inline links.
 - Markdown link extraction skips inline code spans and fenced code blocks, so
   documented link examples no longer create dangling `IMPORTS_FROM` edges.
+- JavaScript / TypeScript test detection covers more files and runner
+  forms. Test files now include `*.test.*` / `*.spec.*` / Cypress `*.cy.*`
+  with any JS / TS extension (`.tsx`, `.jsx`, `.mjs`, `.cjs`, `.mts`,
+  `.cts`), `__tests__/`, `e2e/`, and `cypress/` directories (before,
+  `App.test.tsx` was not a test file and its `it(...)` calls were `CALLS
+  File -> it`); the flow and dead-code test-file patterns accept the same
+  suffixes. `test.each(table)("adds %i", fn)` and tagged-template `.each`
+  are one `Test test:adds %i@L9` spanning the outer call, and their bodies'
+  calls belong to it (before, `test@L9` covered only the inner call and the
+  body was attributed to the `describe`). `suite`, `specify`, `context`,
+  `fit` / `xit`, `fdescribe` / `xdescribe`, Playwright `test.describe.only`,
+  and identifier titles (`describe(UserService, fn)`) are recognized, and
+  chained modifiers are recorded as `extra.test_modifiers`. Hooks
+  (`beforeEach`, `afterAll`, `test.beforeEach`), `test.step`, and
+  Playwright `test.skip()` inside a body are no longer `CALLS` / `TESTED_BY`
+  targets or `Test` nodes; assertion and mock calls (`expect(...).toBe()`,
+  `vi.fn()`, `jest.mock()`, `cy.get()`) keep their `CALLS` edge with
+  `test_api: true` but no longer produce `TESTED_BY` edges.
 - `.cjs` files are parsed as JavaScript and `.mts` / `.cts` files as
   TypeScript; `.d.mts` / `.d.cts` are declaration files like `.d.ts`
   (`declaration_file: true`, every node `ambient`). Before, these files were

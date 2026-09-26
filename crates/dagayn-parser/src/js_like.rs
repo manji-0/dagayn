@@ -19,11 +19,15 @@ use super::js_modules::{
     resolve_javascript_call_target, resolve_javascript_import_path_in, resolve_javascript_module,
     resolve_javascript_namespace_member,
 };
+use super::js_tests::{
+    JavaScriptTestCall, is_javascript_test_file, is_test_runner_name, javascript_is_test_api_call,
+    javascript_test_call, javascript_test_title,
+};
 use super::member_calls::MemberCallBindings;
 use super::parsers::*;
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{
-    ends_with_ascii_ignore_case, is_test_file, line_count, node_text, starts_with_ascii_ignore_case,
+    ends_with_ascii_ignore_case, line_count, node_text, starts_with_ascii_ignore_case,
 };
 use super::{add_tested_by_edges, qualify, resolve_rust_call_targets};
 
@@ -2378,63 +2382,29 @@ fn javascript_emit_call(
         javascript_emit_super_call(node, context, owner_path, enclosing_func, edges);
         return false;
     }
+    if context.test_file {
+        match javascript_test_call(node, context.source, context.defined_names) {
+            Some(JavaScriptTestCall::Test { runner, modifiers }) => {
+                javascript_emit_test(
+                    node,
+                    context,
+                    owner_path,
+                    enclosing_func,
+                    (&runner, modifiers),
+                    nodes,
+                    edges,
+                );
+                return true;
+            }
+            // Hooks, `test.step`, the `test.each(table)` factory: no node
+            // and no edge; their callbacks belong to the enclosing node.
+            Some(JavaScriptTestCall::RunnerApi) => return false,
+            None => {}
+        }
+    }
     let Some(call_name) = javascript_call_name(node, context.source) else {
         return false;
     };
-    let effective_call_name = if context.test_file && !is_test_runner_name(&call_name) {
-        javascript_base_test_runner_name(node, context.source).unwrap_or_else(|| call_name.clone())
-    } else {
-        call_name.clone()
-    };
-    if context.test_file && is_test_runner_name(&effective_call_name) {
-        let line = node.start_position().row as i64 + 1;
-        let synthetic_name = match javascript_first_string_arg(node, context.source) {
-            Some(description) if !description.is_empty() => {
-                format!("{effective_call_name}:{description}@L{line}")
-            }
-            _ => format!("{effective_call_name}@L{line}"),
-        };
-        let qualified = qualify(&context.file_path, &synthetic_name, owner_path);
-        javascript_push_node(
-            context,
-            nodes,
-            node,
-            ParsedNode {
-                kind: crate::core::types::NodeKind::Test,
-                name: synthetic_name.clone(),
-                file_path: context.file_path.clone(),
-                line_start: line,
-                line_end: node.end_position().row as i64 + 1,
-                language: context.language.to_string(),
-                parent_name: owner_path.map(str::to_string),
-                params: None,
-                return_type: None,
-                modifiers: None,
-                is_test: true,
-                extra: json!({}),
-            },
-        );
-        let container = enclosing_func
-            .map(|func| qualify(&context.file_path, func, owner_path))
-            .unwrap_or_else(|| context.file_path.to_string());
-        edges.push(ParsedEdge {
-            kind: crate::core::types::EdgeKind::Contains,
-            source: container,
-            target: qualified,
-            file_path: context.file_path.clone(),
-            line,
-            extra: json!({}),
-        });
-        javascript_walk_children(
-            node,
-            context,
-            owner_path,
-            Some(&synthetic_name),
-            nodes,
-            edges,
-        );
-        return true;
-    }
 
     if javascript_callee_node(node).is_some_and(|callee| {
         callee.kind() == "identifier"
@@ -2446,13 +2416,20 @@ fn javascript_emit_call(
     let caller = enclosing_func
         .map(|func| qualify(&context.file_path, func, owner_path))
         .unwrap_or_else(|| context.file_path.to_string());
-    let (target, extra) = javascript_member_call_target(node, context, owner_path, &call_name)
+    let (target, mut extra) = javascript_member_call_target(node, context, owner_path, &call_name)
         .unwrap_or_else(|| {
             (
                 resolve_javascript_call_target(&call_name, context),
                 json!({}),
             )
         });
+    if context.test_file
+        && javascript_is_test_api_call(node, context.source)
+        && let Some(map) = extra.as_object_mut()
+    {
+        // Assertion / mock APIs are not the code under test.
+        map.insert("test_api".to_string(), json!(true));
+    }
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Calls,
         source: caller.clone(),
@@ -2465,6 +2442,71 @@ fn javascript_emit_call(
         edges.push(edge);
     }
     false
+}
+
+/// A synthetic `Test` node for a test-runner call: `runner:title@Lline`
+/// (`runner@Lline` without a title), spanning the whole call, so for
+/// `test.each(table)("title", fn)` the outer call. It is contained by the
+/// enclosing test (`describe`) or the File, and the calls in its callbacks
+/// and table belong to it.
+fn javascript_emit_test(
+    node: tree_sitter::Node<'_>,
+    context: &JavaScriptParseContext<'_>,
+    owner_path: Option<&str>,
+    enclosing_func: Option<&str>,
+    (runner, modifiers): (&str, Vec<String>),
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let line = node.start_position().row as i64 + 1;
+    let synthetic_name = match javascript_test_title(node, context.source) {
+        Some(title) => format!("{runner}:{title}@L{line}"),
+        None => format!("{runner}@L{line}"),
+    };
+    let qualified = qualify(&context.file_path, &synthetic_name, owner_path);
+    let extra = if modifiers.is_empty() {
+        json!({})
+    } else {
+        json!({"test_modifiers": modifiers})
+    };
+    javascript_push_node(
+        context,
+        nodes,
+        node,
+        ParsedNode {
+            kind: crate::core::types::NodeKind::Test,
+            name: synthetic_name.clone(),
+            file_path: context.file_path.clone(),
+            line_start: line,
+            line_end: node.end_position().row as i64 + 1,
+            language: context.language.to_string(),
+            parent_name: owner_path.map(str::to_string),
+            params: None,
+            return_type: None,
+            modifiers: None,
+            is_test: true,
+            extra,
+        },
+    );
+    let container = enclosing_func
+        .map(|func| qualify(&context.file_path, func, owner_path))
+        .unwrap_or_else(|| context.file_path.to_string());
+    edges.push(ParsedEdge {
+        kind: crate::core::types::EdgeKind::Contains,
+        source: container,
+        target: qualified,
+        file_path: context.file_path.clone(),
+        line,
+        extra: json!({}),
+    });
+    javascript_walk_children(
+        node,
+        context,
+        owner_path,
+        Some(&synthetic_name),
+        nodes,
+        edges,
+    );
 }
 
 /// `super(...)` in a constructor: `CALLS` to the base class
@@ -3429,39 +3471,6 @@ fn javascript_last_identifier_child(node: tree_sitter::Node<'_>, source: &[u8]) 
         .map(|child| node_text(child, source))
 }
 
-fn javascript_base_test_runner_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let callee = javascript_callee_node(node)?;
-    if callee.kind() != "member_expression" {
-        return None;
-    }
-    let rightmost = javascript_rightmost_identifier(callee, source)?;
-    if !matches!(
-        rightmost.as_str(),
-        "only" | "skip" | "each" | "todo" | "concurrent"
-    ) {
-        return None;
-    }
-    let mut cursor = callee.walk();
-    for child in callee.children(&mut cursor) {
-        if child.kind() == "identifier" {
-            return Some(node_text(child, source));
-        }
-        if child.kind() == "member_expression" {
-            let mut inner = child.walk();
-            for sub in child.children(&mut inner) {
-                if sub.kind() == "identifier" {
-                    return Some(node_text(sub, source));
-                }
-            }
-        }
-    }
-    None
-}
-
-fn is_test_runner_name(name: &str) -> bool {
-    matches!(name, "describe" | "it" | "test")
-}
-
 fn is_javascript_function_value(kind: &str) -> bool {
     matches!(
         kind,
@@ -3487,14 +3496,6 @@ fn is_javascript_declaration_file(file_path: &FilePath) -> bool {
     [".d.ts", ".d.mts", ".d.cts"]
         .iter()
         .any(|suffix| ends_with_ascii_ignore_case(file_path, suffix))
-}
-
-fn is_javascript_test_file(file_path: &FilePath) -> bool {
-    is_test_file(file_path)
-        || ends_with_ascii_ignore_case(file_path, ".test.ts")
-        || ends_with_ascii_ignore_case(file_path, ".spec.ts")
-        || ends_with_ascii_ignore_case(file_path, ".test.js")
-        || ends_with_ascii_ignore_case(file_path, ".spec.js")
 }
 
 fn javascript_should_skip_value_reference(name: &str) -> bool {
