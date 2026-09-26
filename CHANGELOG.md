@@ -15,6 +15,15 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- Parser misses fixed across Python, Rust, Go, Java, C/C++, C#, Kotlin, Scala,
+  Swift, Dart, PHP, Ruby, Perl, Lua, R, Julia, Elixir, GDScript,
+  Bash, Terraform, and Markdown: nested types keep dotted scopes and
+  parent-sourced `CONTAINS` edges, missing definition forms (constructors,
+  operators, guarded/short-form functions, objects, traits, extensions) are
+  emitted, inheritance clauses produce `INHERITS`, and call resolution no
+  longer binds foreign receivers or dynamic commands to local symbols.
+  Terraform ignores for/dynamic iterators as resource references, and Markdown
+  slugs follow GitHub rules for closing hashes and inline links.
 - Markdown link extraction skips inline code spans and fenced code blocks, so
   documented link examples no longer create dangling `IMPORTS_FROM` edges.
 

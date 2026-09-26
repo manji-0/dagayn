@@ -545,36 +545,6 @@ fn lua_direct_child_text(
     lua_direct_child(node, kinds).map(|child| node_text(child, source))
 }
 
-fn lua_direct_child_texts(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if kinds.contains(&child.kind()) {
-            out.push(node_text(child, source));
-        }
-    }
-    out
-}
-
-fn lua_last_direct_child_text(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kind: &str,
-) -> Option<String> {
-    let mut found = None;
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == kind {
-            found = Some(node_text(child, source));
-        }
-    }
-    found
-}
-
 fn lua_first_descendant_text(
     node: tree_sitter::Node<'_>,
     source: &[u8],
