@@ -1,6 +1,7 @@
 {
 "edges":[
 {"confidence":1.0,"confidence_tier":"EXTRACTED","extra":{},"file_path":"comp.jsx","kind":"CALLS","line":2,"source":"comp.jsx::JsxComp","target":"thing.jsx::Thing"},
+{"confidence":1.0,"confidence_tier":"EXTRACTED","extra":{},"file_path":"conf.cjs","kind":"CALLS","line":2,"source":"conf.cjs","target":"helpers.js::helper"},
 {"confidence":1.0,"confidence_tier":"EXTRACTED","extra":{},"file_path":"esm.mjs","kind":"CALLS","line":2,"source":"esm.mjs::esmFn","target":"helpers.js::helper"},
 {"confidence":1.0,"confidence_tier":"EXTRACTED","extra":{},"file_path":"legacy.js","kind":"CALLS","line":5,"source":"legacy.js::Legacy","target":"helpers.js::helper"},
 {"confidence":1.0,"confidence_tier":"EXTRACTED","extra":{},"file_path":"legacy.js","kind":"CALLS","line":6,"source":"legacy.js::Legacy.make","target":"legacy.js::Legacy"},
@@ -23,6 +24,7 @@
 {"confidence":1.0,"confidence_tier":"EXTRACTED","extra":{},"file_path":"types.js","kind":"CONTAINS","line":8,"source":"types.js::obj","target":"types.js::obj.m"},
 {"confidence":1.0,"confidence_tier":"EXTRACTED","extra":{},"file_path":"types.js","kind":"CONTAINS","line":8,"source":"types.js::obj","target":"types.js::obj.n"},
 {"confidence":1.0,"confidence_tier":"EXTRACTED","extra":{},"file_path":"comp.jsx","kind":"IMPORTS_FROM","line":1,"source":"comp.jsx","target":"thing.jsx"},
+{"confidence":1.0,"confidence_tier":"EXTRACTED","extra":{"import_kind":"require"},"file_path":"conf.cjs","kind":"IMPORTS_FROM","line":1,"source":"conf.cjs","target":"helpers.js"},
 {"confidence":1.0,"confidence_tier":"EXTRACTED","extra":{},"file_path":"esm.mjs","kind":"IMPORTS_FROM","line":1,"source":"esm.mjs","target":"helpers.js"},
 {"confidence":1.0,"confidence_tier":"EXTRACTED","extra":{"import_kind":"require"},"file_path":"legacy.js","kind":"IMPORTS_FROM","line":2,"source":"legacy.js","target":"helpers.js"},
 {"confidence":1.0,"confidence_tier":"EXTRACTED","extra":{"import_kind":"require"},"file_path":"legacy.js","kind":"IMPORTS_FROM","line":3,"source":"legacy.js","target":"helpers.js"},
@@ -36,6 +38,7 @@
 {"community_id":null,"extra":{},"file_hash":"2cbe8bdff0e24302f658954671554e2d145fd84dcf16d2c64474731ba23827dc","file_path":"comp.jsx","is_test":false,"kind":"File","language":"javascript","line_end":4,"line_start":1,"modifiers":null,"name":"comp.jsx","params":null,"parent_name":null,"qualified_name":"comp.jsx","return_type":null,"signature":null},
 {"community_id":null,"extra":{"exported":true},"file_hash":"2cbe8bdff0e24302f658954671554e2d145fd84dcf16d2c64474731ba23827dc","file_path":"comp.jsx","is_test":false,"kind":"Function","language":"javascript","line_end":3,"line_start":3,"modifiers":null,"name":"Arrow","params":"()","parent_name":null,"qualified_name":"comp.jsx::Arrow","return_type":null,"signature":null},
 {"community_id":null,"extra":{"exported":true},"file_hash":"2cbe8bdff0e24302f658954671554e2d145fd84dcf16d2c64474731ba23827dc","file_path":"comp.jsx","is_test":false,"kind":"Function","language":"javascript","line_end":2,"line_start":2,"modifiers":null,"name":"JsxComp","params":"()","parent_name":null,"qualified_name":"comp.jsx::JsxComp","return_type":null,"signature":null},
+{"community_id":null,"extra":{},"file_hash":"f2370de2df850dd97511c9ce0a79a9fd4c6bbc21f40ed93da6a68acfc1d6eea1","file_path":"conf.cjs","is_test":false,"kind":"File","language":"javascript","line_end":3,"line_start":1,"modifiers":null,"name":"conf.cjs","params":null,"parent_name":null,"qualified_name":"conf.cjs","return_type":null,"signature":null},
 {"community_id":null,"extra":{},"file_hash":"b2ef2b9a55911d5b2320915fe790cd65bd81cdde63ea91ee5eb60050479f7248","file_path":"esm.mjs","is_test":false,"kind":"File","language":"javascript","line_end":4,"line_start":1,"modifiers":null,"name":"esm.mjs","params":null,"parent_name":null,"qualified_name":"esm.mjs","return_type":null,"signature":null},
 {"community_id":null,"extra":{"export_default":true,"exported":true,"type_role":"class"},"file_hash":"b2ef2b9a55911d5b2320915fe790cd65bd81cdde63ea91ee5eb60050479f7248","file_path":"esm.mjs","is_test":false,"kind":"Class","language":"javascript","line_end":3,"line_start":3,"modifiers":null,"name":"EsmDefault","params":null,"parent_name":null,"qualified_name":"esm.mjs::EsmDefault","return_type":null,"signature":null},
 {"community_id":null,"extra":{"exported":true},"file_hash":"b2ef2b9a55911d5b2320915fe790cd65bd81cdde63ea91ee5eb60050479f7248","file_path":"esm.mjs","is_test":false,"kind":"Function","language":"javascript","line_end":2,"line_start":2,"modifiers":null,"name":"esmFn","params":"()","parent_name":null,"qualified_name":"esm.mjs::esmFn","return_type":null,"signature":null},

@@ -31,6 +31,9 @@ EXTENSION_TO_LANGUAGE: dict[str, str] = {
     ".dart": "dart",
     ".r": "r",  # .lower() in detect_language handles .R → .r
     ".mjs": "javascript",
+    ".cjs": "javascript",
+    ".mts": "typescript",  # .d.mts / .d.cts are declaration files, like .d.ts
+    ".cts": "typescript",
     ".astro": "typescript",
     ".pl": "perl",
     ".pm": "perl",

@@ -217,7 +217,7 @@ dagayn install --mode remote-embedding --provider minimax
 
 グラフストア、パーサ、FTS、フロー、後処理はネイティブ Rust 拡張（`dagayn._core`）で動きます。フォールバックする Python グラフエンジンはありません。`DAGAYN_BACKEND=python` は拒否されます。ハイブリッド検索のランキングと manifest-bridge 抽出は Python に残っています。
 
-パーサ対象は Markdown、Terraform、Rust、Python/ノートブック、Bash、Go、Java、Ruby、C#、PHP、Kotlin、Swift、Scala、Dart、Lua、C / C ヘッダ / Perl XS、C++、Objective-C、Elixir、GDScript、R、Julia、Perl、Vue、Svelte、Zig、PowerShell、対応スクリプト言語の shebang 付き拡張子なしファイル、および中核の JavaScript / JSX / TypeScript / TSX / Astro です:
+パーサ対象は Markdown、Terraform、Rust、Python/ノートブック、Bash、Go、Java、Ruby、C#、PHP、Kotlin、Swift、Scala、Dart、Lua、C / C ヘッダ / Perl XS、C++、Objective-C、Elixir、GDScript、R、Julia、Perl、Vue、Svelte、Zig、PowerShell、対応スクリプト言語の shebang 付き拡張子なしファイル、および中核の JavaScript / JSX (`.js`, `.jsx`, `.mjs`, `.cjs`) / TypeScript (`.ts`, `.mts`, `.cts`, and `.d.ts` / `.d.mts` / `.d.cts`) / TSX / Astro です:
 
 ```bash
 dagayn build

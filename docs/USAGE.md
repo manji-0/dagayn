@@ -162,7 +162,7 @@ Parsers cover Markdown, Terraform, Rust, Python/notebooks, Bash, Go, Java,
 Ruby, C#, PHP, Kotlin, Swift, Scala, Dart, Lua, C / C headers /
 Perl XS, C++, Objective-C, Elixir, GDScript, R, Julia, Perl, Vue, Svelte, Zig,
 PowerShell, extensionless shebang scripts for supported scripting languages,
-and core JavaScript / JSX / TypeScript / TSX / Astro files:
+and core JavaScript / JSX (`.js`, `.jsx`, `.mjs`, `.cjs`) / TypeScript (`.ts`, `.mts`, `.cts`, and `.d.ts` / `.d.mts` / `.d.cts`) / TSX / Astro files:
 
 ```bash
 dagayn build

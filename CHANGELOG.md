@@ -127,6 +127,13 @@ All notable changes to `dagayn` are documented here.
   slugs follow GitHub rules for closing hashes and inline links.
 - Markdown link extraction skips inline code spans and fenced code blocks, so
   documented link examples no longer create dangling `IMPORTS_FROM` edges.
+- `.cjs` files are parsed as JavaScript and `.mts` / `.cts` files as
+  TypeScript; `.d.mts` / `.d.cts` are declaration files like `.d.ts`
+  (`declaration_file: true`, every node `ambient`). Before, these files were
+  skipped by `dagayn build` / `update`, so imports that resolved to them (for
+  example `./util.mjs` backed by `util.mts`, or `./conf.cjs`) pointed at files
+  with no nodes. The extensions are added to both the Rust and Python
+  language tables and to the file-target suffix lists.
 - JavaScript / TypeScript `require("./m")`, dynamic `import("./m")`, and
   TypeScript `import x = require("./m")` with a string-literal specifier are
   `IMPORTS_FROM` edges (`extra.import_kind`: `"require"`, `"dynamic"`,

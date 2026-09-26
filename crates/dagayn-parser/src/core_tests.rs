@@ -5242,6 +5242,131 @@ export as namespace MyLib;
 }
 
 #[test]
+fn parses_cjs_mts_cts_and_declaration_variants() {
+    for (path, language) in [
+        ("conf.cjs", "javascript"),
+        ("CONF.CJS", "javascript"),
+        ("util.mts", "typescript"),
+        ("legacy.cts", "typescript"),
+        ("types.d.mts", "typescript"),
+        ("types.d.cts", "typescript"),
+    ] {
+        assert_eq!(detect_language(Path::new(path)), Some(language), "{path}");
+        assert!(rust_parser_owns_path(path), "{path}");
+    }
+
+    let mut repo_root = std::env::temp_dir();
+    repo_root.push(format!(
+        "dagayn-parser-cjs-mts-cts-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    let _ = std::fs::remove_dir_all(&repo_root);
+    std::fs::create_dir_all(repo_root.join("src")).unwrap();
+    let files = [
+        (
+            "src/conf.cjs",
+            "function helper() {}\nmodule.exports = { helper };\n",
+        ),
+        (
+            "src/util.mts",
+            "export function utilFn(x: number): number { return x; }\n",
+        ),
+        (
+            "src/legacy.cts",
+            "import conf = require(\"./conf.cjs\");\nexport function legacy(): void { conf.helper(); }\n",
+        ),
+        (
+            "src/types.d.mts",
+            "export declare function declaredM(a: number): string;\n",
+        ),
+        (
+            "src/types.d.cts",
+            "export declare function declaredC(a: number): string;\n",
+        ),
+        (
+            "src/app.mts",
+            "import { utilFn } from \"./util.mjs\";\nimport { legacy } from \"./legacy.cjs\";\nexport function main(): void {\n  utilFn(1);\n  legacy();\n}\n",
+        ),
+    ];
+    for (path, body) in files {
+        std::fs::write(repo_root.join(path), body).unwrap();
+    }
+    let mut collected = collect_parseable_files(&repo_root, None);
+    collected.sort();
+    let mut expected = files
+        .iter()
+        .map(|(path, _)| path.to_string())
+        .collect::<Vec<_>>();
+    expected.sort();
+    assert_eq!(collected, expected);
+
+    let mut parser = RustOwnedParser::new();
+    let mut parse = |path: &str| {
+        let source = std::fs::read(repo_root.join(path)).unwrap();
+        parser.parse_file_in_repo(Some(&repo_root), path, &source)
+    };
+    for (path, name, language) in [
+        ("src/conf.cjs", "helper", "javascript"),
+        ("src/util.mts", "utilFn", "typescript"),
+        ("src/legacy.cts", "legacy", "typescript"),
+        ("src/types.d.mts", "declaredM", "typescript"),
+        ("src/types.d.cts", "declaredC", "typescript"),
+    ] {
+        let (nodes, _) = parse(path);
+        let node = nodes
+            .iter()
+            .find(|node| node.kind == "Function" && node.name == name)
+            .unwrap_or_else(|| panic!("{path}: {nodes:?}"));
+        assert_eq!(node.language, language, "{path}");
+        let file = nodes.iter().find(|node| node.kind == "File").unwrap();
+        let declaration = path.contains(".d.");
+        assert_eq!(
+            file.extra.get("declaration_file").is_some(),
+            declaration,
+            "{path}"
+        );
+        assert_eq!(
+            node.extra.get("ambient").is_some(),
+            declaration,
+            "{path}: {node:?}"
+        );
+    }
+
+    let (_, edges) = parse("src/legacy.cts");
+    assert!(
+        edges
+            .iter()
+            .any(|edge| edge.kind == "IMPORTS_FROM" && edge.target == "src/conf.cjs")
+    );
+    assert!(edges.iter().any(|edge| edge.kind == "CALLS"
+        && edge.source == "src/legacy.cts::legacy"
+        && edge.target == "src/conf.cjs::helper"));
+
+    let (_, edges) = parse("src/app.mts");
+    let mut imports = edges
+        .iter()
+        .filter(|edge| edge.kind == "IMPORTS_FROM")
+        .map(|edge| edge.target.as_str())
+        .collect::<Vec<_>>();
+    imports.sort_unstable();
+    assert_eq!(imports, vec!["src/legacy.cts", "src/util.mts"], "{edges:?}");
+    let mut calls = edges
+        .iter()
+        .filter(|edge| edge.kind == "CALLS" && edge.source == "src/app.mts::main")
+        .map(|edge| edge.target.as_str())
+        .collect::<Vec<_>>();
+    calls.sort_unstable();
+    assert_eq!(
+        calls,
+        vec!["src/legacy.cts::legacy", "src/util.mts::utilFn"],
+        "{edges:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&repo_root);
+}
+
+#[test]
 fn parses_typescript_type_aliases_and_enums() {
     let source = br#"export type UserId = string;
 export type Shape = { kind: "circle"; r: number } | { kind: "sq"; s: number };

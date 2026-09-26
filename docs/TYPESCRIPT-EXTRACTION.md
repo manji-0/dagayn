@@ -20,10 +20,9 @@ TODO `#N`) implements; until then the parser may still emit the older output.
 
 | Input | Grammar | Notes |
 |---|---|---|
-| `.ts`, `.d.ts` | tree-sitter-typescript (`typescript`) | |
+| `.ts`, `.mts`, `.cts`, `.d.ts`, `.d.mts`, `.d.cts` | tree-sitter-typescript (`typescript`) | language `typescript`; `.d.mts` / `.d.cts` are declaration files like `.d.ts` |
 | `.tsx` | tree-sitter-typescript (`tsx`) | JSX enabled |
-| `.js`, `.jsx`, `.mjs` | tree-sitter-javascript | JSX enabled for all JavaScript files |
-| `.cjs`, `.mts`, `.cts`, `.d.mts`, `.d.cts` | JavaScript / TypeScript | parsed: planned (part 2/3, #20); already used as import-resolution candidates |
+| `.js`, `.jsx`, `.mjs`, `.cjs` | tree-sitter-javascript | language `javascript`; JSX enabled for all JavaScript files |
 | Vue / Svelte `<script>` blocks | TypeScript or JavaScript | `js_sfc.rs` hands each block to the same extractor and shifts line numbers |
 
 JavaScript and TypeScript share one extraction path. Grammar differences
@@ -280,8 +279,8 @@ Relative specifiers are resolved against the importing file by trying, in
 order:
 
 1. the path as written, if it is a file
-2. runtime-to-source extension mapping: `.js` -> `.ts` / `.tsx`,
-   `.jsx` -> `.tsx`, `.mjs` -> `.mts`, `.cjs` -> `.cts`
+2. runtime-to-source extension mapping: `.js` -> `.ts` / `.tsx` / `.d.ts`,
+   `.jsx` -> `.tsx`, `.mjs` -> `.mts` / `.d.mts`, `.cjs` -> `.cts` / `.d.cts`
 3. the path with `.ts`, `.tsx`, `.d.ts`, `.js`, `.jsx`, `.mjs`, `.cjs`,
    `.mts`, `.cts`, `.vue` appended, so `./user.service` finds
    `user.service.ts`
@@ -507,6 +506,7 @@ QNs omit the `file::` prefix.
 | `declare function f(): void;` | `Function f` (`ambient`, `declaration_only`, no `is_abstract`) | implemented (#12) |
 | `declare class D { m(): void; }` | `Function D.m` (`ambient`, `declaration_only`, no `is_abstract`) | implemented (#12) |
 | `.d.ts` file | File `declaration_file: true`; every node `ambient` | implemented (#12) |
+| `.d.mts` / `.d.cts` file | parsed like `.d.ts` | implemented (#20) |
 | `export as namespace MyLib` | File `umd_global: "MyLib"` | implemented (#12) |
 | `declare module "./x"` augmentation | `IMPORTS_FROM` (`augmentation`) | deferred |
 
@@ -565,6 +565,7 @@ QNs omit the `file::` prefix.
 | `./esm-compat.js` backed by `.ts` | `IMPORTS_FROM -> esm-compat.ts` | implemented (existing; kept by #5) |
 | `./types` backed by `types.d.ts` | `IMPORTS_FROM -> types.d.ts` | implemented (#5) |
 | `./util.mjs` backed by `.mts`, `./conf` backed by `.cjs` | resolved | implemented (#5) |
+| `.cjs`, `.mts`, `.cts` files themselves | parsed (JavaScript / TypeScript), so their declarations are nodes and imports of them resolve to those nodes | implemented (#20) |
 | `./lib` directory | `IMPORTS_FROM -> lib/index.ts` | implemented (existing) |
 | tsconfig `paths` | resolved | implemented (existing) |
 | tsconfig `baseUrl` without `paths` | resolved | planned (part 2/3, #27) |
@@ -639,9 +640,8 @@ or otherwise changes the nodes and edges produced for unchanged source.
 
 ### 11.1 Parity snapshots
 
-`tests/fixtures/parity/typescript/` (TS, TSX, `.d.ts`, plus `.mts` / `.cts`
-files that are not parsed yet) and `tests/fixtures/parity/javascript/` (JS,
-JSX, `.mjs`, `.cjs`) are built by `tests/test_parity_export.py` and
+`tests/fixtures/parity/typescript/` (TS, TSX, `.d.ts`, `.mts`, `.cts`) and
+`tests/fixtures/parity/javascript/` (JS, JSX, `.mjs`, `.cjs`) are built by `tests/test_parity_export.py` and
 `tests/test_rust_backend_parity.py` and compared with
 `tests/fixtures/parity/__snapshots__/{typescript,javascript}.json`. These
 snapshots hold one node or edge per line, so an extractor change shows up as a

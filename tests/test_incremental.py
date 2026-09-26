@@ -915,6 +915,59 @@ class TestExtractorVersions:
         finally:
             store.close()
 
+    def test_full_build_parses_cjs_mts_cts_files(self, tmp_path):
+        """`.cjs` / `.mts` / `.cts` / `.d.mts` / `.d.cts` are parsed and linked."""
+        (tmp_path / ".git").mkdir()
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "conf.cjs").write_text("function helper() {}\nmodule.exports = { helper };\n")
+        (src / "util.mts").write_text("export function utilFn(x: number): number { return x; }\n")
+        (src / "legacy.cts").write_text(
+            'import conf = require("./conf.cjs");\n'
+            "export function legacy(): void { conf.helper(); }\n"
+        )
+        (src / "types.d.mts").write_text("export declare function declaredM(): void;\n")
+        (src / "types.d.cts").write_text("export declare function declaredC(): void;\n")
+        (src / "app.mts").write_text(
+            'import { utilFn } from "./util.mjs";\n'
+            'import { legacy } from "./legacy.cjs";\n'
+            "export function main(): void {\n  utilFn(1);\n  legacy();\n}\n"
+        )
+        store = GraphStore(tmp_path / "graph.db")
+        try:
+            full_build(tmp_path, store)
+            for rel, name, language in (
+                ("src/conf.cjs", "helper", "javascript"),
+                ("src/util.mts", "utilFn", "typescript"),
+                ("src/legacy.cts", "legacy", "typescript"),
+                ("src/types.d.mts", "declaredM", "typescript"),
+                ("src/types.d.cts", "declaredC", "typescript"),
+                ("src/app.mts", "main", "typescript"),
+            ):
+                nodes = {node.name: node for node in store.get_nodes_by_file(rel)}
+                assert name in nodes, (rel, sorted(nodes))
+                assert nodes[name].language == language, rel
+            main_calls = {
+                edge.target_qualified
+                for edge in store.get_edges_by_source("src/app.mts::main")
+                if edge.kind == "CALLS"
+            }
+            assert main_calls == {"src/util.mts::utilFn", "src/legacy.cts::legacy"}, main_calls
+            imports = {
+                edge.target_qualified
+                for edge in store.get_edges_by_source("src/app.mts")
+                if edge.kind == "IMPORTS_FROM"
+            }
+            assert imports == {"src/util.mts", "src/legacy.cts"}, imports
+            legacy_calls = {
+                edge.target_qualified
+                for edge in store.get_edges_by_source("src/legacy.cts::legacy")
+                if edge.kind == "CALLS"
+            }
+            assert legacy_calls == {"src/conf.cjs::helper"}, legacy_calls
+        finally:
+            store.close()
+
 
 class TestIncrementalUpdate:
     def test_incremental_with_no_changes(self, tmp_path):

@@ -1101,8 +1101,6 @@ fn new_javascript_module_parser(module_file: &str) -> Option<tree_sitter::Parser
     if ends_with_ascii_ignore_case(module_file, ".tsx") {
         return new_tsx_parser();
     }
-    // `.mts` / `.cts` / `.cjs` are read here for export lookups even before
-    // they are parsed as graph files themselves.
     if ends_with_ascii_ignore_case(module_file, ".ts")
         || ends_with_ascii_ignore_case(module_file, ".mts")
         || ends_with_ascii_ignore_case(module_file, ".cts")

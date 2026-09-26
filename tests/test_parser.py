@@ -25,6 +25,12 @@ class TestCodeParser:
     def test_detect_language_unknown(self):
         assert self.parser.detect_language(Path("foo.txt")) is None
 
+    def test_detect_language_mts_cts_cjs(self):
+        assert self.parser.detect_language(Path("conf.cjs")) == "javascript"
+        assert self.parser.detect_language(Path("CONF.CJS")) == "javascript"
+        for name in ("util.mts", "legacy.cts", "types.d.mts", "types.d.cts"):
+            assert self.parser.detect_language(Path(name)) == "typescript", name
+
     # --- Shebang detection for extension-less Unix scripts (#237) ---
 
     def _write_shebang_file(self, tmp_path: Path, name: str, content: str) -> Path:

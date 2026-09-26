@@ -35,7 +35,11 @@ fn looks_like_file_target(target: &str) -> bool {
         ".tfvars",
         ".rs",
         ".js",
+        ".mjs",
+        ".cjs",
         ".ts",
+        ".mts",
+        ".cts",
         ".tsx",
         ".jsx",
         ".java",
@@ -85,8 +89,9 @@ fn terraform_module_matches_file(module: &str, file_path: &str) -> bool {
 /// Import targets that are not file paths, keyed by the file that can be
 /// reached through them. Mirrors `dagayn.bare_name_resolution`.
 const NAMESPACE_FILE_SUFFIXES: &[&str] = &[
-    ".c", ".cpp", ".cs", ".dart", ".go", ".h", ".hpp", ".java", ".jl", ".js", ".json", ".jsx",
-    ".kt", ".md", ".php", ".py", ".rb", ".rs", ".scala", ".swift", ".tf", ".ts", ".tsx",
+    ".c", ".cjs", ".cpp", ".cs", ".cts", ".dart", ".go", ".h", ".hpp", ".java", ".jl", ".js",
+    ".json", ".jsx", ".kt", ".md", ".mjs", ".mts", ".php", ".py", ".rb", ".rs", ".scala", ".swift",
+    ".tf", ".ts", ".tsx",
 ];
 
 fn normalize_namespace(value: &str) -> String {
