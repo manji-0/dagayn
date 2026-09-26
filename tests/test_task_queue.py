@@ -274,6 +274,31 @@ class TestInspection:
         assert queue.clear() == 2
         assert queue.claim() is None
 
+    def test_queue_db_without_not_before_is_migrated(self, tmp_path: Path) -> None:
+        import sqlite3
+
+        db = tmp_path / "task_queue.db"
+        conn = sqlite3.connect(db)
+        conn.execute(
+            "CREATE TABLE tasks (id INTEGER PRIMARY KEY, kind TEXT NOT NULL,"
+            " priority INTEGER NOT NULL DEFAULT 0, payload TEXT NOT NULL DEFAULT '{}',"
+            " state TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0,"
+            " created_at TEXT NOT NULL, updated_at TEXT NOT NULL, last_error TEXT)"
+        )
+        conn.execute(
+            "INSERT INTO tasks (kind, created_at, updated_at) VALUES ('update', 'now', 'now')"
+        )
+        conn.commit()
+        conn.close()
+
+        q = TaskQueue(db)
+        try:
+            task = q.claim()
+            assert task is not None
+            assert task["kind"] == "update"
+        finally:
+            q.close()
+
     def test_persistence_across_handles(self, tmp_path: Path) -> None:
         db = tmp_path / "task_queue.db"
         q1 = TaskQueue(db)
@@ -425,6 +450,35 @@ class TestRunWorker:
 
         # Uncapped this would wait 5s then 10s.
         assert elapsed < 1.0
+
+    def test_other_tasks_run_while_a_retry_backs_off(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls: list[str] = []
+
+        def flaky_update(task: dict[str, Any], repo_root: Path) -> str | None:
+            calls.append("update")
+            if task["attempts"] == 1:
+                raise RuntimeError("lock held")
+            return None
+
+        def embed(task: dict[str, Any], repo_root: Path) -> str | None:
+            calls.append("embed")
+            return None
+
+        monkeypatch.setattr(
+            "dagayn.task_queue._TASK_EXECUTORS", {"update": flaky_update, "embed": embed}
+        )
+        monkeypatch.setattr("dagayn.task_queue.RETRY_BACKOFF_SECONDS", 0.3)
+        queue = TaskQueue(queue_db_path(tmp_path))
+        queue.enqueue("update")
+        queue.enqueue("embed")
+        queue.close()
+
+        assert run_worker(tmp_path, idle_seconds=0.0) == 3
+        # The update outranks the embed, so only a lane that stays open during
+        # the backoff runs the embed before the retry.
+        assert calls == ["update", "embed", "update"]
 
     def test_backoff_can_be_disabled(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr("dagayn.task_queue._TASK_EXECUTORS", {"update": self._always_fails})

@@ -75,6 +75,11 @@ All notable changes to `dagayn` are documented here.
   is handed to `incremental_update`, which used to resolve it again. Filtering
   removed paths down to indexed files also queries just those paths instead of
   loading every file's metadata.
+- A queue retry no longer stalls the worker. The backoff before a failed task's
+  retry (up to 10 s) was a `sleep` on the single worker lane, so an
+  edit-triggered update queued meanwhile waited it out too. The retry is now
+  requeued with a `not_before` time, other tasks are claimed in the meantime,
+  and the worker still stays alive until the retry is due.
 
 ## 4.15.0 — 2026-09-25
 

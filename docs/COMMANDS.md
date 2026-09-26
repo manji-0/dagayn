@@ -121,7 +121,8 @@ serial lane, so kinds carry a default priority (`update` 10, `embed` and
 queued before it; `--priority` overrides this. A task already running is not
 preempted, so an update enqueued mid-`embed` waits for it (bounded by the
 embed budget). A failing task is retried up to 3 times, waiting 1s longer per
-attempt spent, before it is parked `dead`. A worker that died mid-task (budget
+attempt spent, before it is parked `dead`; other queued tasks run while a
+retry waits. A worker that died mid-task (budget
 watchdog, crash) leaves its task `running`; the next worker requeues it, or
 parks it `dead` when its attempts are already spent. `dagayn queue status`
 shows pending/running/dead counts and the last 10 log entries (`--json` for

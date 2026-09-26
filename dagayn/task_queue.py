@@ -107,7 +107,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     attempts INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    last_error TEXT
+    last_error TEXT,
+    not_before REAL NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS task_log (
     id INTEGER PRIMARY KEY,
@@ -171,6 +172,9 @@ class TaskQueue:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA busy_timeout=5000")
         self._conn.executescript(_SCHEMA)
+        columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(tasks)")}
+        if "not_before" not in columns:
+            self._conn.execute("ALTER TABLE tasks ADD COLUMN not_before REAL NOT NULL DEFAULT 0")
         self._conn.commit()
 
     # ------------------------------------------------------------------
@@ -242,17 +246,24 @@ class TaskQueue:
         ~120 times per idle minute and make hooks wait behind an empty poll.
         The read is only a fast path: the transaction below re-selects, so a
         task appearing in between is picked up on the next poll rather than
-        claimed twice.
+        claimed twice. A task still inside its retry backoff (``not_before`` in
+        the future) is not claimable yet, so other work runs in the meantime.
         """
+        now = time.time()
         if (
-            self._conn.execute("SELECT 1 FROM tasks WHERE state = 'pending' LIMIT 1").fetchone()
+            self._conn.execute(
+                "SELECT 1 FROM tasks WHERE state = 'pending' AND not_before <= ? LIMIT 1",
+                (now,),
+            ).fetchone()
             is None
         ):
             return None
         self._conn.execute("BEGIN IMMEDIATE")
         try:
             row = self._conn.execute(
-                "SELECT * FROM tasks WHERE state = 'pending' ORDER BY priority DESC, id ASC LIMIT 1"
+                "SELECT * FROM tasks WHERE state = 'pending' AND not_before <= ?"
+                " ORDER BY priority DESC, id ASC LIMIT 1",
+                (now,),
             ).fetchone()
             if row is None:
                 self._conn.rollback()
@@ -278,11 +289,19 @@ class TaskQueue:
         self._conn.execute("DELETE FROM tasks WHERE id = ? AND state = 'running'", (task["id"],))
         self._conn.commit()
 
-    def fail(self, task: dict[str, Any], error: str, *, fatal: bool = False) -> bool:
+    def fail(
+        self,
+        task: dict[str, Any],
+        error: str,
+        *,
+        fatal: bool = False,
+        retry_delay: float = 0.0,
+    ) -> bool:
         """Record a failure. Returns True when the task went back to pending.
 
         ``fatal=True`` parks the task as dead immediately (no retry) — for
-        failures that cannot possibly succeed on re-run.
+        failures that cannot possibly succeed on re-run. A retried task is not
+        claimable for ``retry_delay`` seconds.
         """
         if fatal or task["attempts"] >= MAX_ATTEMPTS:
             self._log(task["id"], task["kind"], "dead", error)
@@ -294,11 +313,21 @@ class TaskQueue:
             return False
         self._log(task["id"], task["kind"], "retry", error)
         self._conn.execute(
-            "UPDATE tasks SET state = 'pending', last_error = ?, updated_at = ? WHERE id = ?",
-            (error, _now(), task["id"]),
+            "UPDATE tasks SET state = 'pending', last_error = ?, updated_at = ?, not_before = ?"
+            " WHERE id = ?",
+            (error, _now(), time.time() + max(0.0, retry_delay), task["id"]),
         )
         self._conn.commit()
         return True
+
+    def next_due_in(self) -> float | None:
+        """Seconds until the earliest pending task is claimable; ``None`` when none is pending."""
+        row = self._conn.execute(
+            "SELECT MIN(not_before) FROM tasks WHERE state = 'pending'"
+        ).fetchone()
+        if row is None or row[0] is None:
+            return None
+        return max(0.0, float(row[0]) - time.time())
 
     # ------------------------------------------------------------------
     # Inspection / maintenance
@@ -857,6 +886,13 @@ def run_worker(
         while True:
             task = queue.claim()
             if task is None:
+                due_in = queue.next_due_in()
+                if due_in is not None:
+                    # Only retries in backoff are left: waiting them out is
+                    # not idleness, so the idle window must not end the worker.
+                    idle_since = None
+                    time.sleep(min(0.5, max(0.01, due_in)))
+                    continue
                 if idle_since is None:
                     idle_since = time.monotonic()
                 elif time.monotonic() - idle_since >= idle_seconds:
@@ -876,16 +912,15 @@ def run_worker(
             except Exception as exc:  # noqa: BLE001 - one bad task must not kill the worker
                 logger.exception("queue task %s failed", task["kind"])
                 note = f"failed: {type(exc).__name__}: {exc}"
-                if queue.fail(task, note) and retry_backoff:
-                    # Back off before the retry is claimable again. This parks
-                    # the whole lane, which is the point: the usual transient
-                    # cause is something else holding a lock we need.
-                    time.sleep(
-                        min(
-                            MAX_RETRY_BACKOFF_SECONDS,
-                            RETRY_BACKOFF_SECONDS * task["attempts"],
-                        )
-                    )
+                # The retry waits out its backoff (the usual transient cause is
+                # something else holding a lock it needs); other queued kinds
+                # are claimable meanwhile instead of sleeping behind it.
+                delay = (
+                    min(MAX_RETRY_BACKOFF_SECONDS, RETRY_BACKOFF_SECONDS * task["attempts"])
+                    if retry_backoff
+                    else 0.0
+                )
+                queue.fail(task, note, retry_delay=delay)
             else:
                 queue.complete(task, note)
             executed += 1
