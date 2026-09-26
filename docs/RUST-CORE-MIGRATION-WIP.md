@@ -616,8 +616,9 @@ Parser migration progress:
 - `.astro` files now route through the Rust-owned TypeScript parser, matching
   the existing Python dispatch contract.
 - Zig grammar sources are now pinned through the same provisioning path. The
-  Rust-owned parser routes `.zig` files through tree-sitter-zig while preserving
-  the current Python File-node-only graph contract.
+  Rust-owned parser routes `.zig` files through tree-sitter-zig. Zig started
+  File-node-only and now has a structural parser (containers, functions, tests,
+  imports, calls); see `docs/USAGE.md`.
 - PowerShell grammar sources are now pinned through the same provisioning path.
   The Rust-owned parser routes `.ps1`, `.psm1`, and `.psd1` files through
   tree-sitter-powershell while preserving the current Python File-node-only

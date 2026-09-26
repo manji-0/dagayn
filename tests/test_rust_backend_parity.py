@@ -636,7 +636,7 @@ function getTitle() { return title }
 
 
 def test_rust_owned_zig_parser_matches_python_parser(tmp_path):
-    """Zig stays on the current Python File-node-only parser contract."""
+    """The Python entry point and the Rust batch API agree on Zig output."""
     try:
         from dagayn._core import parse_rust_owned_files_compact_json
     except ImportError as exc:

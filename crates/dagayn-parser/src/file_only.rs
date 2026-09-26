@@ -3,14 +3,6 @@ use serde_json::json;
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{is_test_file, line_count};
 
-pub(super) fn parse_zig_with_parser(
-    file_path: &str,
-    source: &[u8],
-    parser: Option<&mut tree_sitter::Parser>,
-) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    parse_tree_sitter_file_only_with_parser(file_path, source, "zig", parser)
-}
-
 pub(super) fn parse_powershell_with_parser(
     file_path: &str,
     source: &[u8],

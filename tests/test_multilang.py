@@ -1642,3 +1642,71 @@ class TestMixedMonorepoBuild(_TempRepoBuildMixin):
             and "constrained-by" in row["extra"]
             for row in depends
         )
+
+
+class TestZigParsing:
+    def setup_method(self):
+        self.parser = CodeParser()
+        self.path = FIXTURES / "zig_pkg" / "sample.zig"
+        self.nodes, self.edges = self.parser.parse_file(self.path)
+        self.qual = f"{self.path}::"
+
+    def _names(self, kind):
+        return {(n.name, n.parent_name) for n in self.nodes if n.kind == kind}
+
+    def test_detects_language(self):
+        assert self.parser.detect_language(Path("build.zig")) == "zig"
+        assert all(n.language == "zig" for n in self.nodes)
+
+    def test_containers_with_roles(self):
+        roles = {n.name: n.extra.get("type_role") for n in self.nodes if n.kind == "Class"}
+        assert roles["Point"] == "struct"
+        assert roles["Origin"] == "struct"
+        assert roles["Color"] == "enum"
+        assert roles["Shape"] == "union"
+        assert roles["ParseError"] == "error_set"
+
+    def test_methods_and_nested_containers(self):
+        functions = self._names("Function")
+        assert ("init", "Point") in functions
+        assert ("manhattan", "Point") in functions
+        assert ("get", "Point.Origin") in functions
+        assert ("isRed", "Color") in functions
+        assert ("main", None) in functions
+        assert ("puts", None) in functions
+
+    def test_type_function_methods(self):
+        assert ("push", "Stack") in self._names("Function")
+        stack = next(n for n in self.nodes if n.name == "Stack")
+        assert stack.extra.get("type_role") == "type_function"
+
+    def test_pub_modifier(self):
+        point = next(n for n in self.nodes if n.name == "Point" and n.kind == "Class")
+        axis = next(n for n in self.nodes if n.name == "axis")
+        assert point.modifiers == "pub"
+        assert axis.modifiers is None
+
+    def test_tests(self):
+        tests = self._names("Test")
+        assert ("manhattan distance", None) in tests
+        assert ("test main", None) in tests
+
+    def test_imports(self):
+        targets = {e.target for e in self.edges if e.kind == "IMPORTS_FROM"}
+        assert "std" in targets
+        assert any(t.endswith("zig_pkg/util.zig") for t in targets)
+
+    def test_calls_resolve_within_file(self):
+        calls = {(e.source, e.target) for e in self.edges if e.kind == "CALLS"}
+        q = self.qual
+        assert (f"{q}Point.manhattan", f"{q}Point.axis") in calls
+        assert (f"{q}Point.Origin.get", f"{q}Point.init") in calls
+        assert (f"{q}main", f"{q}Point.init") in calls
+        assert (f"{q}main", "std.debug.print") in calls
+        assert (f"{q}Point.manhattan", "util.abs") in calls
+
+    def test_tested_by(self):
+        tested = {(e.source, e.target) for e in self.edges if e.kind == "TESTED_BY"}
+        q = self.qual
+        assert (f"{q}Point.init", f"{q}manhattan distance") in tested
+        assert (f"{q}main", f"{q}test main") in tested

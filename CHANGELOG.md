@@ -4,6 +4,14 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Added
+
+- First-class Zig parsing: containers (struct/enum/union/opaque/error sets,
+  including nested and type-function containers), functions with modifiers,
+  named/doc/anonymous tests with `TESTED_BY` edges, `@import` file
+  dependencies, and scope-aware call resolution. Previously `.zig` files
+  produced only a File node.
+
 ### Removed
 
 - Luau (`.luau`) and Solidity (`.sol`) support: their parsers, pinned

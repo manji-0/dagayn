@@ -171,6 +171,14 @@ dagayn update
 
 Source checkouts without `dagayn._core` fail clearly.
 
+Zig is parsed structurally: `struct` / `enum` / `union` / `opaque` / error-set
+declarations become Class nodes (with `type_role`), nested and type-function
+containers keep dotted parents (`Point.Origin`, `Stack.push`), functions carry
+`pub` / `extern` / `export` modifiers, `test "name"` and doctest `test decl`
+blocks become Test nodes with `TESTED_BY` edges, `@import("x.zig")` resolves to
+the imported file, and calls such as `Point.init(...)` or `self.axis(...)`
+resolve to same-file declarations. PowerShell is still File-node-only.
+
 ## Review changes
 
 <!-- constrained-by ./ARCHITECTURE.md#pipeline-overview -->

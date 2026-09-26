@@ -35,6 +35,7 @@ _PRODUCTION_LANGUAGES = frozenset(
         "dart",
         "lua",
         "julia",
+        "zig",
         "r",
         "elixir",
         "vue",
