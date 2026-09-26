@@ -21,10 +21,8 @@ unsafe extern "C" {
     fn tree_sitter_php() -> *const ();
     fn tree_sitter_kotlin() -> *const ();
     fn tree_sitter_scala() -> *const ();
-    fn tree_sitter_solidity() -> *const ();
     fn tree_sitter_dart() -> *const ();
     fn tree_sitter_lua() -> *const ();
-    fn tree_sitter_luau() -> *const ();
     fn tree_sitter_c() -> *const ();
     fn tree_sitter_cpp() -> *const ();
     fn tree_sitter_objc() -> *const ();
@@ -55,10 +53,8 @@ pub const CSHARP_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitte
 pub const PHP_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_php) };
 pub const KOTLIN_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_kotlin) };
 pub const SCALA_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_scala) };
-pub const SOLIDITY_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_solidity) };
 pub const DART_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_dart) };
 pub const LUA_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_lua) };
-pub const LUAU_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_luau) };
 pub const C_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_c) };
 pub const CPP_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_cpp) };
 pub const OBJC_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_objc) };
@@ -142,20 +138,12 @@ pub fn scala_language() -> tree_sitter::Language {
     SCALA_LANGUAGE.into()
 }
 
-pub fn solidity_language() -> tree_sitter::Language {
-    SOLIDITY_LANGUAGE.into()
-}
-
 pub fn dart_language() -> tree_sitter::Language {
     DART_LANGUAGE.into()
 }
 
 pub fn lua_language() -> tree_sitter::Language {
     LUA_LANGUAGE.into()
-}
-
-pub fn luau_language() -> tree_sitter::Language {
-    LUAU_LANGUAGE.into()
 }
 
 pub fn c_language() -> tree_sitter::Language {
@@ -404,18 +392,6 @@ mod tests {
     }
 
     #[test]
-    fn loads_solidity_language() {
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&solidity_language())
-            .expect("load pinned Solidity grammar");
-        let tree = parser
-            .parse("contract Vault { function stake() external {} }\n", None)
-            .expect("parse Solidity");
-        assert!(!tree.root_node().has_error());
-    }
-
-    #[test]
     fn loads_dart_language() {
         let mut parser = tree_sitter::Parser::new();
         parser
@@ -436,18 +412,6 @@ mod tests {
         let tree = parser
             .parse("function greet(name)\n  print(name)\nend\n", None)
             .expect("parse Lua");
-        assert!(!tree.root_node().has_error());
-    }
-
-    #[test]
-    fn loads_luau_language() {
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&luau_language())
-            .expect("load pinned Luau grammar");
-        let tree = parser
-            .parse("type Callback = (input: string) -> string\n", None)
-            .expect("parse Luau");
         assert!(!tree.root_node().has_error());
     }
 

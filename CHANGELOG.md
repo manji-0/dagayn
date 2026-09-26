@@ -4,6 +4,12 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Removed
+
+- Luau (`.luau`) and Solidity (`.sol`) support: their parsers, pinned
+  tree-sitter grammars, and fixtures are gone. Such files are no longer
+  parsed into the graph.
+
 ### Changed
 
 - Package dependency cycles are gone (ADP violations 12 → 0). Internal import

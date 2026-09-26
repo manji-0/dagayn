@@ -175,18 +175,6 @@ pub(super) fn new_scala_parser() -> Option<tree_sitter::Parser> {
     }
 }
 
-pub(super) fn new_solidity_parser() -> Option<tree_sitter::Parser> {
-    let mut parser = tree_sitter::Parser::new();
-    if parser
-        .set_language(&dagayn_grammars::solidity_language())
-        .is_ok()
-    {
-        Some(parser)
-    } else {
-        None
-    }
-}
-
 pub(super) fn new_dart_parser() -> Option<tree_sitter::Parser> {
     let mut parser = tree_sitter::Parser::new();
     if parser
@@ -203,18 +191,6 @@ pub(super) fn new_lua_parser() -> Option<tree_sitter::Parser> {
     let mut parser = tree_sitter::Parser::new();
     if parser
         .set_language(&dagayn_grammars::lua_language())
-        .is_ok()
-    {
-        Some(parser)
-    } else {
-        None
-    }
-}
-
-pub(super) fn new_luau_parser() -> Option<tree_sitter::Parser> {
-    let mut parser = tree_sitter::Parser::new();
-    if parser
-        .set_language(&dagayn_grammars::luau_language())
         .is_ok()
     {
         Some(parser)

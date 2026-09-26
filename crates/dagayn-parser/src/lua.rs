@@ -14,14 +14,6 @@ pub(super) fn parse_lua_with_parser(
     parse_lua_like_with_parser(file_path, source, "lua", parser)
 }
 
-pub(super) fn parse_luau_with_parser(
-    file_path: &str,
-    source: &[u8],
-    parser: Option<&mut tree_sitter::Parser>,
-) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    parse_lua_like_with_parser(file_path, source, "luau", parser)
-}
-
 fn parse_lua_like_with_parser(
     file_path: &str,
     source: &[u8],
@@ -127,12 +119,6 @@ fn lua_walk_children(
                 }
                 lua_emit_call(child, context, enclosing_class, enclosing_func, edges);
             }
-            "type_definition" if context.language == "luau" => {
-                if let Some(name) = lua_direct_child_text(child, context.source, &["identifier"]) {
-                    lua_emit_type(child, context, &name, nodes, edges);
-                    continue;
-                }
-            }
             _ => {}
         }
         lua_walk_children(
@@ -234,38 +220,6 @@ fn lua_emit_function(
         source: enclosing_class
             .map(|class| qualify(&context.file_path, class, None))
             .unwrap_or_else(|| context.file_path.to_string()),
-        target: qualified,
-        file_path: context.file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
-}
-
-fn lua_emit_type(
-    node: tree_sitter::Node<'_>,
-    context: &LuaParseContext<'_>,
-    name: &str,
-    nodes: &mut Vec<ParsedNode>,
-    edges: &mut Vec<ParsedEdge>,
-) {
-    let qualified = qualify(&context.file_path, name, None);
-    nodes.push(ParsedNode {
-        kind: crate::core::types::NodeKind::Class,
-        name: name.to_string(),
-        file_path: context.file_path.clone(),
-        line_start: node.start_position().row as i64 + 1,
-        line_end: node.end_position().row as i64 + 1,
-        language: context.language.to_string(),
-        parent_name: None,
-        params: None,
-        return_type: None,
-        modifiers: None,
-        is_test: false,
-        extra: json!({"type_role": "class"}),
-    });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: context.file_path.to_string(),
         target: qualified,
         file_path: context.file_path.clone(),
         line: node.start_position().row as i64 + 1,

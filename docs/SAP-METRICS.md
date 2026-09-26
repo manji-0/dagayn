@@ -118,7 +118,6 @@ Per language, as the parsers currently emit roles:
 | TypeScript / JavaScript | interfaces | classes | type aliases, enums |
 | Swift | protocols | classes, actors, extensions | structs, enums |
 | Dart | `abstract` classes | other classes, mixins | enums |
-| Solidity | interfaces | contracts and other declarations | structs, enums |
 | PHP | interfaces | other classes | none |
 | Julia | `abstract type` declared outside a module | modules | `struct`; any declaration inside a module (nested) |
 | Ruby, Perl, Lua, GDScript, C/C++ | none | classes | none |

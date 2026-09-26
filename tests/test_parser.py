@@ -2242,12 +2242,6 @@ class TestBridgeExpansion:
         assert e is not None
         assert e.extra["bridge_kind"] == "ffi"
 
-    def test_luau_alias_emits_same_patterns(self):
-        lua_edges = self._bridges("sample_bridge_lua.lua")
-        lua_sigs = {e.extra.get("evidence_source") for e in lua_edges}
-        # Luau reuses Lua patterns; confirm the pattern set is non-empty
-        assert len(lua_sigs) >= 3
-
     # --- Julia ---
 
     def test_julia_file_io_open(self):

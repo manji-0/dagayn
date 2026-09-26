@@ -381,18 +381,7 @@ fn terraform_defined_name(block: &TerraformBlock) -> Option<String> {
 }
 
 fn terraform_kind_for_block(block: &TerraformBlock) -> &str {
-    match block.kind.as_str() {
-        "terraform" => "terraform",
-        "provider" => "provider",
-        "variable" => "variable",
-        "module" => "module",
-        "data" => "data",
-        "resource" => "resource",
-        "ephemeral" => "ephemeral",
-        "output" => "output",
-        "check" => "check",
-        other => other,
-    }
+    block.kind.as_str()
 }
 
 struct TerraformNodeSpec<'a> {

@@ -27,7 +27,6 @@ EXTENSION_TO_LANGUAGE: dict[str, str] = {
     ".swift": "swift",
     ".php": "php",
     ".scala": "scala",
-    ".sol": "solidity",
     ".vue": "vue",
     ".dart": "dart",
     ".r": "r",  # .lower() in detect_language handles .R → .r
@@ -38,7 +37,6 @@ EXTENSION_TO_LANGUAGE: dict[str, str] = {
     ".t": "perl",
     ".xs": "c",  # Perl XS: parsed as C to capture functions/structs/includes
     ".lua": "lua",
-    ".luau": "luau",
     ".m": "objc",  # Objective-C (.h still maps to C; .mm defers to C++ for simplicity)
     ".sh": "bash",
     ".bash": "bash",
