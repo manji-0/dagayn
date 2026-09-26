@@ -113,6 +113,14 @@ All notable changes to `dagayn` are documented here.
   `HIGH`, and bare-symbol directives resolve to `HIGH` or stay `LOW`. A new
   section states the claim/caveat rule impact radius uses: a bridge expands
   impact only at `EXACT`/`HIGH`/`EXTRACTED` with no `<unresolved:` endpoint.
+- `docs/SAP-METRICS.md` no longer says the package scope is the Python
+  importable package root or the Java declared package, or that the edge set
+  is fixed. SAP scopes are the parent directory for every language, and
+  `dependency_profile` selects the edge set (`strict_static` by default;
+  `implementation`, `infra_dataflow`, and `artifact_trace` add `CALLS`,
+  `REFERENCES`, and reportable `CROSS_ARTIFACT`). The spec now lists which
+  type roles count toward `Nt`/`Na` per language (for example Rust and Go
+  structs and enums are excluded) and when a scope is SAP-inapplicable.
 
 ## 4.15.0 — 2026-09-25
 

@@ -14,8 +14,15 @@ Reference formulas
   I = Ce / (Ca + Ce)   (0 if Ca + Ce = 0)
   D = |A + I - 1|
 
+Scope key: the file's parent directory for every language ("<root>" for
+repo-root files); ``scope_kind="file"`` uses the file path instead.
 Default artifact scope: code (Markdown documentation nodes are excluded)
-Default edges: IMPORTS_FROM + DEPENDS_ON + INHERITS + IMPLEMENTS (fixed)
+Default edges (``dependency_profile="strict_static"``): IMPORTS_FROM +
+DEPENDS_ON + INHERITS + IMPLEMENTS. Other profiles add CALLS
+(``implementation``), REFERENCES (``infra_dataflow``), or reportable
+CROSS_ARTIFACT bridges (``artifact_trace``); see ``dependency_profiles.py``.
+Nt/Na count only top-level ``Class`` nodes whose ``type_role`` is in
+``_ELIGIBLE_ROLES``, so structs, enums, records, and aliases are excluded.
 INHERITS/IMPLEMENTS targets are resolved first by qualified name, then by
 bare name when exactly one in-repo node has that name (stdlib names drop out
 naturally when they have no matching node).
