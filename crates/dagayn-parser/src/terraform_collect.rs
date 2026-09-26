@@ -500,7 +500,7 @@ fn collect_terraform_reference_nodes(
     // recursion below reaches them as ordinary `expression` nodes.
     if node.kind() == "expression"
         && let Some(segments) = terraform_traversal_segments(node, source)
-        && !segments.first().is_some_and(|root| bound.contains(root))
+        && segments.first().is_none_or(|root| !bound.contains(root))
         && let Some(target) = terraform_reference_from_segments(&segments)
     {
         references.push(target);
@@ -526,9 +526,9 @@ fn terraform_local_bindings(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<S
             .collect(),
         "block" => {
             let children = node.children(&mut cursor).collect::<Vec<_>>();
-            if !children
+            if children
                 .first()
-                .is_some_and(|first| node_text(*first, source) == "dynamic")
+                .is_none_or(|first| node_text(*first, source) != "dynamic")
             {
                 return Vec::new();
             }
