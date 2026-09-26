@@ -50,6 +50,13 @@ All notable changes to `dagayn` are documented here.
   graph, so the cost grew with the number of stale flows times the graph size.
   The nodes that can reach the change are now computed once from the changed
   side, and each stale flow is a set lookup.
+- Impact radius expands each node once. The recursive CTE deduplicated
+  `(node, depth)` pairs, so a node reached at several depths was expanded again
+  for each, and the whole CTE ran twice (count, then page). A level-by-level
+  expansion into a node-keyed temp table keeps each node's shortest depth and
+  serves both. On this repository the traversal for 40 sampled files takes
+  0.15 s instead of 0.39 s at depth 2, and 0.67 s instead of 1.79 s at depth 3,
+  with identical results.
 
 ## 4.15.0 — 2026-09-25
 

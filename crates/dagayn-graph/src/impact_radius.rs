@@ -58,44 +58,21 @@ impl GraphStore {
              DELETE FROM _impact_seeds;",
         )?;
         self.insert_impact_seeds(&seed_list)?;
-
-        let cte_sql = format!(
-            "WITH RECURSIVE impacted(node_qn, depth) AS ( \
-                 SELECT qn, 0 FROM _impact_seeds \
-                 UNION \
-                 SELECT e.target_qualified, i.depth + 1 \
-                 FROM impacted i \
-                 JOIN edges e ON e.source_qualified = i.node_qn \
-                 WHERE i.depth < ? AND {REPORTABLE_BRIDGE_SQL} \
-                 UNION \
-                 SELECT e.source_qualified, i.depth + 1 \
-                 FROM impacted i \
-                 JOIN edges e ON e.target_qualified = i.node_qn \
-                 WHERE i.depth < ? AND {REPORTABLE_BRIDGE_SQL} \
-             ), \
-             aggregated AS ( \
-                 SELECT node_qn, MIN(depth) AS min_depth FROM impacted GROUP BY node_qn \
-             )"
-        );
+        self.expand_impact_levels(max_depth)?;
 
         let total_impacted: i64 = self.conn.query_row(
-            &format!(
-                "{cte_sql} SELECT COUNT(*) FROM aggregated \
-                 WHERE node_qn NOT IN (SELECT qn FROM _impact_seeds)"
-            ),
-            params![max_depth, max_depth],
+            "SELECT COUNT(*) FROM _impact_visited WHERE depth > 0",
+            [],
             |row| row.get(0),
         )?;
 
         let mut depth_by_qn = Vec::new();
         {
-            let sql = format!(
-                "{cte_sql} SELECT node_qn, min_depth FROM aggregated \
-                 WHERE node_qn NOT IN (SELECT qn FROM _impact_seeds) \
-                 ORDER BY min_depth, node_qn LIMIT ?"
-            );
-            let mut stmt = self.conn.prepare(&sql)?;
-            let rows = stmt.query_map(params![max_depth, max_depth, max_nodes], |row| {
+            let mut stmt = self.conn.prepare(
+                "SELECT qn, depth FROM _impact_visited WHERE depth > 0 \
+                 ORDER BY depth, qn LIMIT ?",
+            )?;
+            let rows = stmt.query_map(params![max_nodes], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
             })?;
             for row in rows {
@@ -167,6 +144,40 @@ impl GraphStore {
         })
     }
 
+    /// Breadth-first expansion from `_impact_seeds` into `_impact_visited`.
+    ///
+    /// Keyed on the node alone, so `INSERT OR IGNORE` keeps each node's first
+    /// (shortest) depth and a node is expanded once. The recursive CTE this
+    /// replaces deduplicated `(node, depth)` pairs, re-expanding a node for
+    /// every depth it was reached at, and had to run twice (count, then page).
+    fn expand_impact_levels(&self, max_depth: i64) -> Result<()> {
+        self.conn.execute_batch(
+            "CREATE TEMP TABLE IF NOT EXISTS _impact_visited \
+                 (qn TEXT PRIMARY KEY, depth INTEGER NOT NULL); \
+             CREATE INDEX IF NOT EXISTS temp._impact_visited_depth \
+                 ON _impact_visited(depth); \
+             DELETE FROM _impact_visited; \
+             INSERT INTO _impact_visited (qn, depth) SELECT qn, 0 FROM _impact_seeds;",
+        )?;
+        let sql = format!(
+            "INSERT OR IGNORE INTO _impact_visited (qn, depth) \
+             SELECT e.target_qualified, ?1 + 1 FROM _impact_visited v \
+             JOIN edges e ON e.source_qualified = v.qn \
+             WHERE v.depth = ?1 AND {REPORTABLE_BRIDGE_SQL} \
+             UNION \
+             SELECT e.source_qualified, ?1 + 1 FROM _impact_visited v \
+             JOIN edges e ON e.target_qualified = v.qn \
+             WHERE v.depth = ?1 AND {REPORTABLE_BRIDGE_SQL}"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        for depth in 0..max_depth.max(0) {
+            if stmt.execute([depth])? == 0 {
+                break;
+            }
+        }
+        Ok(())
+    }
+
     fn insert_impact_seeds(&self, qns: &[String]) -> Result<()> {
         for chunk in qns.chunks(450) {
             let placeholders = std::iter::repeat_n("(?)", chunk.len())
@@ -208,5 +219,140 @@ impl GraphStore {
             }
         }
         Ok(caveats)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn function(name: &str, file_path: &str) -> NodeInput {
+        NodeInput {
+            kind: "Function".to_string(),
+            name: name.to_string(),
+            file_path: file_path.to_string(),
+            line_start: 1,
+            line_end: 2,
+            language: "python".to_string(),
+            parent_name: None,
+            params: None,
+            return_type: None,
+            modifiers: None,
+            is_test: false,
+            extra: Value::Object(Default::default()),
+        }
+    }
+
+    fn edge(kind: &str, source: &str, target: &str, extra: Value) -> EdgeInput {
+        EdgeInput {
+            kind: kind.to_string(),
+            source: source.to_string(),
+            target: target.to_string(),
+            file_path: source.split("::").next().unwrap_or_default().to_string(),
+            line: 1,
+            extra,
+        }
+    }
+
+    fn store() -> GraphStore {
+        let mut store = GraphStore::open(":memory:").expect("open graph store");
+        let calls = |source: &str, target: &str| {
+            edge("CALLS", source, target, Value::Object(Default::default()))
+        };
+        let batch = vec![
+            (
+                "s.py".to_string(),
+                vec![function("f", "s.py")],
+                vec![
+                    calls("s.py::f", "b.py::b"),
+                    edge(
+                        "CROSS_ARTIFACT",
+                        "s.py::f",
+                        "z.py::z",
+                        json!({"confidence": 0.2, "confidence_tier": "low"}),
+                    ),
+                ],
+                "s".to_string(),
+                0,
+            ),
+            (
+                "a.py".to_string(),
+                vec![function("a", "a.py")],
+                vec![calls("a.py::a", "s.py::f"), calls("a.py::a", "c.py::c")],
+                "a".to_string(),
+                0,
+            ),
+            (
+                "b.py".to_string(),
+                vec![function("b", "b.py")],
+                vec![calls("b.py::b", "c.py::c")],
+                "b".to_string(),
+                0,
+            ),
+            (
+                "c.py".to_string(),
+                vec![function("c", "c.py")],
+                vec![calls("c.py::c", "d.py::d")],
+                "c".to_string(),
+                0,
+            ),
+            (
+                "d.py".to_string(),
+                vec![function("d", "d.py")],
+                Vec::new(),
+                "d".to_string(),
+                0,
+            ),
+            (
+                "z.py".to_string(),
+                vec![function("z", "z.py")],
+                Vec::new(),
+                "z".to_string(),
+                0,
+            ),
+        ];
+        store.store_file_batch(&batch).expect("store fixture graph");
+        store
+    }
+
+    fn depths(radius: &ImpactRadius) -> Vec<String> {
+        radius
+            .impacted_nodes
+            .iter()
+            .map(|node| node.qualified_name.clone())
+            .collect()
+    }
+
+    #[test]
+    fn impact_radius_keeps_shortest_depth_and_skips_low_confidence_bridges() {
+        let store = store();
+        let radius = store
+            .get_impact_radius(&["s.py".to_string()], 2, 50)
+            .expect("impact radius");
+
+        // a and b are one hop away; c is reachable at depth 2 through both.
+        // d is three hops away and z only through a low-confidence bridge.
+        assert_eq!(depths(&radius), vec!["a.py::a", "b.py::b", "c.py::c"]);
+        assert_eq!(radius.total_impacted, 3);
+        assert!(!radius.truncated);
+        assert_eq!(radius.impacted_files, vec!["a.py", "b.py", "c.py"]);
+        assert_eq!(radius.low_confidence_bridges.len(), 1);
+
+        let deeper = store
+            .get_impact_radius(&["s.py".to_string()], 3, 50)
+            .expect("deeper impact radius");
+        assert_eq!(deeper.total_impacted, 4);
+        assert_eq!(depths(&deeper).last().map(String::as_str), Some("d.py::d"));
+    }
+
+    #[test]
+    fn impact_radius_pages_by_depth_then_name() {
+        let store = store();
+        let radius = store
+            .get_impact_radius(&["s.py".to_string()], 2, 2)
+            .expect("impact radius");
+        assert_eq!(depths(&radius), vec!["a.py::a", "b.py::b"]);
+        assert_eq!(radius.total_impacted, 3);
+        assert!(radius.truncated);
     }
 }
