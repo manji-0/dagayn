@@ -121,21 +121,14 @@ pub(super) fn parse_javascript_like_interned(
 fn javascript_walk_children(
     node: tree_sitter::Node<'_>,
     context: &JavaScriptParseContext<'_>,
-    enclosing_class: Option<&str>,
+    owner_path: Option<&str>,
     enclosing_func: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        javascript_walk_node(
-            child,
-            context,
-            enclosing_class,
-            enclosing_func,
-            nodes,
-            edges,
-        );
+        javascript_walk_node(child, context, owner_path, enclosing_func, nodes, edges);
     }
 }
 
@@ -143,7 +136,7 @@ fn javascript_walk_children(
 fn javascript_walk_node(
     child: tree_sitter::Node<'_>,
     context: &JavaScriptParseContext<'_>,
-    enclosing_class: Option<&str>,
+    owner_path: Option<&str>,
     enclosing_func: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
@@ -163,7 +156,7 @@ fn javascript_walk_node(
                     &name,
                     json!({}),
                     context,
-                    enclosing_class,
+                    owner_path,
                     nodes,
                     edges,
                 );
@@ -173,7 +166,7 @@ fn javascript_walk_node(
                 javascript_walk_unbound_class(
                     child,
                     context,
-                    enclosing_class,
+                    owner_path,
                     enclosing_func,
                     nodes,
                     edges,
@@ -190,14 +183,7 @@ fn javascript_walk_node(
             // container (function-local, argument, deeper nesting): nothing
             // can name it, so its calls stay with the enclosing node.
             if let Some(body) = child.child_by_field_name("body") {
-                javascript_walk_children(
-                    body,
-                    context,
-                    enclosing_class,
-                    enclosing_func,
-                    nodes,
-                    edges,
-                );
+                javascript_walk_children(body, context, owner_path, enclosing_func, nodes, edges);
             }
             return;
         }
@@ -208,41 +194,28 @@ fn javascript_walk_node(
         | "abstract_method_signature"
         | "function_signature"
         | "arrow_function"
-            if javascript_emit_function_node(child, context, enclosing_class, nodes, edges) =>
+            if javascript_emit_function_node(child, context, owner_path, nodes, edges) =>
         {
             if let Some(name) = javascript_function_name(child, context.source) {
                 let snapshot = context.bindings.borrow().snapshot();
-                if let Some(class_name) = enclosing_class {
+                if let Some(class_name) = owner_path {
                     context
                         .bindings
                         .borrow_mut()
                         .bind_implicit_receivers(class_name);
                 }
-                javascript_walk_children(
-                    child,
-                    context,
-                    enclosing_class,
-                    Some(&name),
-                    nodes,
-                    edges,
-                );
+                javascript_walk_children(child, context, owner_path, Some(&name), nodes, edges);
                 context.bindings.borrow_mut().restore(snapshot);
             }
             return;
         }
         "lexical_declaration" | "variable_declaration"
-            if javascript_emit_variable_functions(
-                child,
-                context,
-                enclosing_class,
-                nodes,
-                edges,
-            ) =>
+            if javascript_emit_variable_functions(child, context, owner_path, nodes, edges) =>
         {
             return;
         }
         "public_field_definition"
-            if javascript_emit_field_function(child, context, enclosing_class, nodes, edges) =>
+            if javascript_emit_field_function(child, context, owner_path, nodes, edges) =>
         {
             return;
         }
@@ -270,7 +243,7 @@ fn javascript_walk_node(
             if javascript_emit_default_export(
                 child,
                 context,
-                enclosing_class,
+                owner_path,
                 enclosing_func,
                 nodes,
                 edges,
@@ -279,50 +252,24 @@ fn javascript_walk_node(
             }
         }
         "call_expression" | "new_expression"
-            if javascript_emit_call(
-                child,
-                context,
-                enclosing_class,
-                enclosing_func,
-                nodes,
-                edges,
-            ) =>
+            if javascript_emit_call(child, context, owner_path, enclosing_func, nodes, edges) =>
         {
             return;
         }
         "class_heritage" | "extends_type_clause" => return,
         "jsx_opening_element" | "jsx_self_closing_element" => {
-            javascript_emit_jsx_component_call(
-                child,
-                context,
-                enclosing_class,
-                enclosing_func,
-                edges,
-            );
+            javascript_emit_jsx_component_call(child, context, owner_path, enclosing_func, edges);
         }
         "pair"
         | "assignment_expression"
         | "array"
         | "arguments"
         | "shorthand_property_identifier" => {
-            javascript_emit_value_references(
-                child,
-                context,
-                enclosing_class,
-                enclosing_func,
-                edges,
-            );
+            javascript_emit_value_references(child, context, owner_path, enclosing_func, edges);
         }
         _ => {}
     }
-    javascript_walk_children(
-        child,
-        context,
-        enclosing_class,
-        enclosing_func,
-        nodes,
-        edges,
-    );
+    javascript_walk_children(child, context, owner_path, enclosing_func, nodes, edges);
     javascript_bind_declarator(child, context);
     javascript_bind_assignment(child, context);
 }
@@ -371,14 +318,37 @@ fn javascript_object_key_name(key: tree_sitter::Node<'_>, source: &[u8]) -> Opti
     }
 }
 
+/// Deepest object-literal nesting modeled as containers
+/// (`api.a.b.c` is depth 3); deeper objects are walked without nodes.
+const JAVASCRIPT_MAX_OBJECT_CONTAINER_DEPTH: usize = 6;
+
 /// Function-valued members of `object`, plus (when `allow_nested`) nested
-/// objects that themselves have function-valued members. One nesting level
-/// is modeled; deeper objects are walked without nodes.
+/// objects that have function-valued members at some depth below them, up to
+/// [`JAVASCRIPT_MAX_OBJECT_CONTAINER_DEPTH`].
 fn javascript_object_members<'tree>(
     object: tree_sitter::Node<'tree>,
     source: &[u8],
     allow_nested: bool,
 ) -> Vec<JavaScriptObjectMember<'tree>> {
+    javascript_object_members_at(
+        object,
+        source,
+        if allow_nested {
+            JAVASCRIPT_MAX_OBJECT_CONTAINER_DEPTH
+        } else {
+            1
+        },
+    )
+}
+
+/// Members of `object` when containers may nest `depth` more levels (1: this
+/// object only).
+fn javascript_object_members_at<'tree>(
+    object: tree_sitter::Node<'tree>,
+    source: &[u8],
+    depth: usize,
+) -> Vec<JavaScriptObjectMember<'tree>> {
+    let allow_nested = depth > 1;
     let mut members = Vec::new();
     let mut cursor = object.walk();
     for member in object.named_children(&mut cursor) {
@@ -412,7 +382,7 @@ fn javascript_object_members<'tree>(
                     });
                 } else if allow_nested
                     && let Some(nested) = javascript_unwrap_object(value)
-                    && !javascript_object_members(nested, source, false).is_empty()
+                    && !javascript_object_members_at(nested, source, depth - 1).is_empty()
                 {
                     members.push(JavaScriptObjectMember::Container {
                         name,
@@ -504,7 +474,13 @@ pub(super) fn collect_javascript_object_members(
             _ => statement,
         };
         for (name, object) in javascript_module_object_containers(statement, source) {
-            collect_javascript_object_member_paths(object, source, &name, true, &mut paths);
+            collect_javascript_object_member_paths(
+                object,
+                source,
+                &name,
+                JAVASCRIPT_MAX_OBJECT_CONTAINER_DEPTH,
+                &mut paths,
+            );
         }
     }
     paths
@@ -514,17 +490,17 @@ fn collect_javascript_object_member_paths(
     object: tree_sitter::Node<'_>,
     source: &[u8],
     owner: &str,
-    allow_nested: bool,
+    depth: usize,
     paths: &mut HashSet<String>,
 ) {
-    for member in javascript_object_members(object, source, allow_nested) {
+    for member in javascript_object_members_at(object, source, depth) {
         match member {
             JavaScriptObjectMember::Function { name, .. } => {
                 paths.insert(format!("{owner}.{name}"));
             }
             JavaScriptObjectMember::Container { name, object, .. } => {
                 let path = format!("{owner}.{name}");
-                collect_javascript_object_member_paths(object, source, &path, false, paths);
+                collect_javascript_object_member_paths(object, source, &path, depth - 1, paths);
                 paths.insert(path);
             }
         }
@@ -541,9 +517,9 @@ fn javascript_emit_object_container(
     object: tree_sitter::Node<'_>,
     name: &str,
     additions: Value,
-    allow_nested: bool,
+    depth: usize,
     context: &JavaScriptParseContext<'_>,
-    enclosing_class: Option<&str>,
+    owner_path: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
@@ -558,7 +534,7 @@ fn javascript_emit_object_container(
         line_start: declaration.start_position().row as i64 + 1,
         line_end: declaration.end_position().row as i64 + 1,
         language: context.language.to_string(),
-        parent_name: enclosing_class.map(str::to_string),
+        parent_name: owner_path.map(str::to_string),
         params: None,
         return_type: None,
         modifiers: None,
@@ -567,17 +543,15 @@ fn javascript_emit_object_container(
     });
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Contains,
-        source: javascript_container_qn(context, enclosing_class),
-        target: qualify(&context.file_path, name, enclosing_class),
+        source: javascript_container_qn(context, owner_path),
+        target: qualify(&context.file_path, name, owner_path),
         file_path: context.file_path.clone(),
         line: declaration.start_position().row as i64 + 1,
         extra: json!({}),
     });
-    let owner = enclosing_class
-        .map(|parent| format!("{parent}.{name}"))
-        .unwrap_or_else(|| name.to_string());
+    let owner = javascript_member_owner(owner_path, name);
     let mut handled = HashSet::new();
-    for member in javascript_object_members(object, context.source, allow_nested) {
+    for member in javascript_object_members_at(object, context.source, depth) {
         match member {
             JavaScriptObjectMember::Function {
                 name,
@@ -607,7 +581,7 @@ fn javascript_emit_object_container(
                     object,
                     &name,
                     json!({}),
-                    false,
+                    depth - 1,
                     context,
                     Some(&owner),
                     nodes,
@@ -649,11 +623,11 @@ fn javascript_emit_class_node(
     name: &str,
     additions: Value,
     context: &JavaScriptParseContext<'_>,
-    enclosing_class: Option<&str>,
+    owner_path: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let qualified = qualify(&context.file_path, name, enclosing_class);
+    let qualified = qualify(&context.file_path, name, owner_path);
     let mut extra = javascript_class_extra(node, context.source, name);
     if let (Some(map), Value::Object(additions)) = (extra.as_object_mut(), additions) {
         map.extend(additions);
@@ -665,7 +639,7 @@ fn javascript_emit_class_node(
         line_start: node.start_position().row as i64 + 1,
         line_end: node.end_position().row as i64 + 1,
         language: context.language.to_string(),
-        parent_name: enclosing_class.map(str::to_string),
+        parent_name: owner_path.map(str::to_string),
         params: None,
         return_type: None,
         modifiers: None,
@@ -674,21 +648,30 @@ fn javascript_emit_class_node(
     });
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Contains,
-        source: javascript_container_qn(context, enclosing_class),
+        source: javascript_container_qn(context, owner_path),
         target: qualified.clone(),
         file_path: context.file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
     emit_javascript_inheritance_edges(node, context, &qualified, edges);
-    javascript_walk_children(node, context, Some(name), None, nodes, edges);
+    let member_owner = javascript_member_owner(owner_path, name);
+    javascript_walk_children(node, context, Some(&member_owner), None, nodes, edges);
+}
+
+/// Owner path of the members of container `name` declared under
+/// `owner_path` (`Outer` + `Inner` -> `Outer.Inner`).
+fn javascript_member_owner(owner_path: Option<&str>, name: &str) -> String {
+    owner_path
+        .map(|parent| format!("{parent}.{name}"))
+        .unwrap_or_else(|| name.to_string())
 }
 
 fn javascript_container_qn(
     context: &JavaScriptParseContext<'_>,
-    enclosing_class: Option<&str>,
+    owner_path: Option<&str>,
 ) -> String {
-    enclosing_class
+    owner_path
         .map(|class_name| qualify(&context.file_path, class_name, None))
         .unwrap_or_else(|| context.file_path.to_string())
 }
@@ -702,7 +685,7 @@ fn javascript_container_qn(
 fn javascript_walk_unbound_class(
     node: tree_sitter::Node<'_>,
     context: &JavaScriptParseContext<'_>,
-    enclosing_class: Option<&str>,
+    owner_path: Option<&str>,
     enclosing_func: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
@@ -718,7 +701,7 @@ fn javascript_walk_unbound_class(
                     javascript_walk_children(
                         member_body,
                         context,
-                        enclosing_class,
+                        owner_path,
                         enclosing_func,
                         nodes,
                         edges,
@@ -731,7 +714,7 @@ fn javascript_walk_unbound_class(
                         javascript_walk_children(
                             value,
                             context,
-                            enclosing_class,
+                            owner_path,
                             enclosing_func,
                             nodes,
                             edges,
@@ -740,7 +723,7 @@ fn javascript_walk_unbound_class(
                     Some(_) => javascript_walk_children(
                         member,
                         context,
-                        enclosing_class,
+                        owner_path,
                         enclosing_func,
                         nodes,
                         edges,
@@ -748,14 +731,9 @@ fn javascript_walk_unbound_class(
                     None => {}
                 }
             }
-            "class_static_block" => javascript_walk_children(
-                member,
-                context,
-                enclosing_class,
-                enclosing_func,
-                nodes,
-                edges,
-            ),
+            "class_static_block" => {
+                javascript_walk_children(member, context, owner_path, enclosing_func, nodes, edges)
+            }
             _ => {}
         }
     }
@@ -770,7 +748,7 @@ fn javascript_walk_unbound_class(
 fn javascript_emit_default_export(
     node: tree_sitter::Node<'_>,
     context: &JavaScriptParseContext<'_>,
-    enclosing_class: Option<&str>,
+    owner_path: Option<&str>,
     enclosing_func: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
@@ -784,7 +762,7 @@ fn javascript_emit_default_export(
     }
     if let Some(declaration) = node.child_by_field_name("declaration") {
         let first_new = nodes.len();
-        javascript_walk_children(node, context, enclosing_class, enclosing_func, nodes, edges);
+        javascript_walk_children(node, context, owner_path, enclosing_func, nodes, edges);
         let line = declaration.start_position().row as i64 + 1;
         if let Some(declared) = nodes.get_mut(first_new)
             && declared.line_start == line
@@ -806,9 +784,9 @@ fn javascript_emit_default_export(
             object,
             &name,
             json!({"export_default": true, "anonymous": true}),
-            true,
+            JAVASCRIPT_MAX_OBJECT_CONTAINER_DEPTH,
             context,
-            enclosing_class,
+            owner_path,
             nodes,
             edges,
         );
@@ -826,15 +804,7 @@ fn javascript_emit_default_export(
                     json!({"export_default": true, "anonymous": true}),
                 ),
             };
-            javascript_emit_class_node(
-                value,
-                &name,
-                additions,
-                context,
-                enclosing_class,
-                nodes,
-                edges,
-            );
+            javascript_emit_class_node(value, &name, additions, context, owner_path, nodes, edges);
             true
         }
         kind if is_javascript_function_value(kind) => {
@@ -849,14 +819,7 @@ fn javascript_emit_default_export(
                 ),
             };
             javascript_emit_bound_function(
-                node,
-                value,
-                &name,
-                extra,
-                context,
-                enclosing_class,
-                nodes,
-                edges,
+                node, value, &name, extra, context, owner_path, nodes, edges,
             );
             true
         }
@@ -874,12 +837,12 @@ fn javascript_emit_bound_function(
     name: &str,
     extra: Value,
     context: &JavaScriptParseContext<'_>,
-    enclosing_class: Option<&str>,
+    owner_path: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
     let is_test = is_javascript_test_function(name, &context.file_path);
-    let qualified = qualify(&context.file_path, name, enclosing_class);
+    let qualified = qualify(&context.file_path, name, owner_path);
     nodes.push(ParsedNode {
         kind: if is_test {
             crate::core::types::NodeKind::Test
@@ -891,7 +854,7 @@ fn javascript_emit_bound_function(
         line_start: declaration.start_position().row as i64 + 1,
         line_end: declaration.end_position().row as i64 + 1,
         language: context.language.to_string(),
-        parent_name: enclosing_class.map(str::to_string),
+        parent_name: owner_path.map(str::to_string),
         params: javascript_child_text(function_node, context.source, "formal_parameters"),
         return_type: javascript_child_text(function_node, context.source, "type_annotation"),
         modifiers: None,
@@ -900,36 +863,27 @@ fn javascript_emit_bound_function(
     });
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Contains,
-        source: javascript_container_qn(context, enclosing_class),
+        source: javascript_container_qn(context, owner_path),
         target: qualified,
         file_path: context.file_path.clone(),
         line: declaration.start_position().row as i64 + 1,
         extra: json!({}),
     });
     let snapshot = context.bindings.borrow().snapshot();
-    // `this.m()` binds through `Owner::m`, which only single-segment owners
-    // can express.
-    if let Some(class_name) = enclosing_class.filter(|owner| !owner.contains('.')) {
+    if let Some(class_name) = owner_path {
         context
             .bindings
             .borrow_mut()
             .bind_implicit_receivers(class_name);
     }
-    javascript_walk_children(
-        function_node,
-        context,
-        enclosing_class,
-        Some(name),
-        nodes,
-        edges,
-    );
+    javascript_walk_children(function_node, context, owner_path, Some(name), nodes, edges);
     context.bindings.borrow_mut().restore(snapshot);
 }
 
 fn javascript_emit_function_node(
     node: tree_sitter::Node<'_>,
     context: &JavaScriptParseContext<'_>,
-    enclosing_class: Option<&str>,
+    owner_path: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) -> bool {
@@ -937,7 +891,7 @@ fn javascript_emit_function_node(
         return false;
     };
     let is_test = is_javascript_test_function(&name, &context.file_path);
-    let qualified = qualify(&context.file_path, &name, enclosing_class);
+    let qualified = qualify(&context.file_path, &name, owner_path);
     nodes.push(ParsedNode {
         kind: if is_test {
             crate::core::types::NodeKind::Test
@@ -949,7 +903,7 @@ fn javascript_emit_function_node(
         line_start: node.start_position().row as i64 + 1,
         line_end: node.end_position().row as i64 + 1,
         language: context.language.to_string(),
-        parent_name: enclosing_class.map(str::to_string),
+        parent_name: owner_path.map(str::to_string),
         params: if node.kind() == "arrow_function" {
             None
         } else {
@@ -967,7 +921,7 @@ fn javascript_emit_function_node(
             json!({})
         },
     });
-    let container = enclosing_class
+    let container = owner_path
         .map(|name| qualify(&context.file_path, name, None))
         .unwrap_or_else(|| context.file_path.to_string());
     edges.push(ParsedEdge {
@@ -984,7 +938,7 @@ fn javascript_emit_function_node(
 fn javascript_emit_variable_functions(
     node: tree_sitter::Node<'_>,
     context: &JavaScriptParseContext<'_>,
-    enclosing_class: Option<&str>,
+    owner_path: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) -> bool {
@@ -1005,9 +959,9 @@ fn javascript_emit_variable_functions(
                 *object,
                 name,
                 json!({}),
-                true,
+                JAVASCRIPT_MAX_OBJECT_CONTAINER_DEPTH,
                 context,
-                enclosing_class,
+                owner_path,
                 nodes,
                 edges,
             );
@@ -1040,13 +994,7 @@ fn javascript_emit_variable_functions(
                 );
             }
             javascript_emit_class_node(
-                class_node,
-                name,
-                additions,
-                context,
-                enclosing_class,
-                nodes,
-                edges,
+                class_node, name, additions, context, owner_path, nodes, edges,
             );
             handled = true;
             continue;
@@ -1055,7 +1003,7 @@ fn javascript_emit_variable_functions(
             continue;
         };
         let is_test = is_javascript_test_function(&name, &context.file_path);
-        let qualified = qualify(&context.file_path, &name, enclosing_class);
+        let qualified = qualify(&context.file_path, &name, owner_path);
         nodes.push(ParsedNode {
             kind: if is_test {
                 crate::core::types::NodeKind::Test
@@ -1067,14 +1015,14 @@ fn javascript_emit_variable_functions(
             line_start: node.start_position().row as i64 + 1,
             line_end: node.end_position().row as i64 + 1,
             language: context.language.to_string(),
-            parent_name: enclosing_class.map(str::to_string),
+            parent_name: owner_path.map(str::to_string),
             params: javascript_child_text(function_node, context.source, "formal_parameters"),
             return_type: javascript_child_text(function_node, context.source, "type_annotation"),
             modifiers: None,
             is_test,
             extra: json!({}),
         });
-        let container = enclosing_class
+        let container = owner_path
             .map(|class_name| qualify(&context.file_path, class_name, None))
             .unwrap_or_else(|| context.file_path.to_string());
         edges.push(ParsedEdge {
@@ -1086,7 +1034,7 @@ fn javascript_emit_variable_functions(
             extra: json!({}),
         });
         let snapshot = context.bindings.borrow().snapshot();
-        if let Some(class_name) = enclosing_class {
+        if let Some(class_name) = owner_path {
             context
                 .bindings
                 .borrow_mut()
@@ -1095,7 +1043,7 @@ fn javascript_emit_variable_functions(
         javascript_walk_children(
             function_node,
             context,
-            enclosing_class,
+            owner_path,
             Some(&name),
             nodes,
             edges,
@@ -1109,7 +1057,7 @@ fn javascript_emit_variable_functions(
 fn javascript_emit_field_function(
     node: tree_sitter::Node<'_>,
     context: &JavaScriptParseContext<'_>,
-    enclosing_class: Option<&str>,
+    owner_path: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) -> bool {
@@ -1127,7 +1075,7 @@ fn javascript_emit_field_function(
         return false;
     };
     let is_test = is_javascript_test_function(&name, &context.file_path);
-    let qualified = qualify(&context.file_path, &name, enclosing_class);
+    let qualified = qualify(&context.file_path, &name, owner_path);
     nodes.push(ParsedNode {
         kind: if is_test {
             crate::core::types::NodeKind::Test
@@ -1139,14 +1087,14 @@ fn javascript_emit_field_function(
         line_start: node.start_position().row as i64 + 1,
         line_end: node.end_position().row as i64 + 1,
         language: context.language.to_string(),
-        parent_name: enclosing_class.map(str::to_string),
+        parent_name: owner_path.map(str::to_string),
         params: javascript_child_text(function_node, context.source, "formal_parameters"),
         return_type: javascript_child_text(function_node, context.source, "type_annotation"),
         modifiers: None,
         is_test,
         extra: json!({}),
     });
-    let container = enclosing_class
+    let container = owner_path
         .map(|class_name| qualify(&context.file_path, class_name, None))
         .unwrap_or_else(|| context.file_path.to_string());
     edges.push(ParsedEdge {
@@ -1158,7 +1106,7 @@ fn javascript_emit_field_function(
         extra: json!({}),
     });
     let snapshot = context.bindings.borrow().snapshot();
-    if let Some(class_name) = enclosing_class {
+    if let Some(class_name) = owner_path {
         context
             .bindings
             .borrow_mut()
@@ -1167,7 +1115,7 @@ fn javascript_emit_field_function(
     javascript_walk_children(
         function_node,
         context,
-        enclosing_class,
+        owner_path,
         Some(&name),
         nodes,
         edges,
@@ -1179,7 +1127,7 @@ fn javascript_emit_field_function(
 fn javascript_emit_call(
     node: tree_sitter::Node<'_>,
     context: &JavaScriptParseContext<'_>,
-    enclosing_class: Option<&str>,
+    owner_path: Option<&str>,
     enclosing_func: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
@@ -1200,7 +1148,7 @@ fn javascript_emit_call(
             }
             _ => format!("{effective_call_name}@L{line}"),
         };
-        let qualified = qualify(&context.file_path, &synthetic_name, enclosing_class);
+        let qualified = qualify(&context.file_path, &synthetic_name, owner_path);
         nodes.push(ParsedNode {
             kind: crate::core::types::NodeKind::Test,
             name: synthetic_name.clone(),
@@ -1208,7 +1156,7 @@ fn javascript_emit_call(
             line_start: line,
             line_end: node.end_position().row as i64 + 1,
             language: context.language.to_string(),
-            parent_name: enclosing_class.map(str::to_string),
+            parent_name: owner_path.map(str::to_string),
             params: None,
             return_type: None,
             modifiers: None,
@@ -1216,7 +1164,7 @@ fn javascript_emit_call(
             extra: json!({}),
         });
         let container = enclosing_func
-            .map(|func| qualify(&context.file_path, func, enclosing_class))
+            .map(|func| qualify(&context.file_path, func, owner_path))
             .unwrap_or_else(|| context.file_path.to_string());
         edges.push(ParsedEdge {
             kind: crate::core::types::EdgeKind::Contains,
@@ -1229,7 +1177,7 @@ fn javascript_emit_call(
         javascript_walk_children(
             node,
             context,
-            enclosing_class,
+            owner_path,
             Some(&synthetic_name),
             nodes,
             edges,
@@ -1238,9 +1186,9 @@ fn javascript_emit_call(
     }
 
     let caller = enclosing_func
-        .map(|func| qualify(&context.file_path, func, enclosing_class))
+        .map(|func| qualify(&context.file_path, func, owner_path))
         .unwrap_or_else(|| context.file_path.to_string());
-    let target = javascript_bound_member_target(node, context, enclosing_class)
+    let target = javascript_bound_member_target(node, context, owner_path)
         .unwrap_or_else(|| resolve_javascript_call_target(&call_name, context));
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Calls,
@@ -1259,12 +1207,12 @@ fn javascript_emit_call(
 fn javascript_emit_value_references(
     node: tree_sitter::Node<'_>,
     context: &JavaScriptParseContext<'_>,
-    enclosing_class: Option<&str>,
+    owner_path: Option<&str>,
     enclosing_func: Option<&str>,
     edges: &mut Vec<ParsedEdge>,
 ) {
     let caller = enclosing_func
-        .map(|func| qualify(&context.file_path, func, enclosing_class))
+        .map(|func| qualify(&context.file_path, func, owner_path))
         .unwrap_or_else(|| context.file_path.to_string());
     match node.kind() {
         "pair" => {
@@ -1297,7 +1245,7 @@ fn javascript_emit_value_references(
 fn javascript_emit_jsx_component_call(
     node: tree_sitter::Node<'_>,
     context: &JavaScriptParseContext<'_>,
-    enclosing_class: Option<&str>,
+    owner_path: Option<&str>,
     enclosing_func: Option<&str>,
     edges: &mut Vec<ParsedEdge>,
 ) {
@@ -1305,7 +1253,7 @@ fn javascript_emit_jsx_component_call(
         return;
     };
     let caller = enclosing_func
-        .map(|func| qualify(&context.file_path, func, enclosing_class))
+        .map(|func| qualify(&context.file_path, func, owner_path))
         .unwrap_or_else(|| context.file_path.to_string());
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Calls,
@@ -1697,13 +1645,13 @@ fn javascript_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<St
 fn javascript_bound_member_target(
     node: tree_sitter::Node<'_>,
     context: &JavaScriptParseContext<'_>,
-    enclosing_class: Option<&str>,
+    owner_path: Option<&str>,
 ) -> Option<String> {
     let callee = javascript_callee_node(node)?;
     if callee.kind() != "member_expression" {
         return None;
     }
-    if let Some(target) = javascript_object_member_target(callee, context, enclosing_class) {
+    if let Some(target) = javascript_object_member_target(callee, context, owner_path) {
         return Some(target);
     }
     let method = javascript_rightmost_identifier(callee, context.source)?;
@@ -1717,13 +1665,13 @@ fn javascript_bound_member_target(
 fn javascript_object_member_target(
     callee: tree_sitter::Node<'_>,
     context: &JavaScriptParseContext<'_>,
-    enclosing_class: Option<&str>,
+    owner_path: Option<&str>,
 ) -> Option<String> {
     if context.object_members.is_empty() {
         return None;
     }
     if let (Some(owner), Some(object), Some(property)) = (
-        enclosing_class,
+        owner_path,
         callee.child_by_field_name("object"),
         callee.child_by_field_name("property"),
     ) && object.kind() == "this"

@@ -4564,3 +4564,133 @@ fn parses_rust_owned_files_as_one_compact_batch() {
 
     let _ = std::fs::remove_dir_all(&repo_root);
 }
+
+#[test]
+fn parses_typescript_nested_object_containers() {
+    let source = br#"export const api = {
+  a: {
+    b: {
+      c() { return helper(); },
+      d: () => this_is_not_bound(),
+    },
+    e() { return 1; },
+  },
+  top() { return api.a.b.c(); },
+  data: { plain: 1, deeper: { value: 2 } },
+};
+function helper() { return 0; }
+export function use() { api.a.b.c(); api.a.e(); }
+"#;
+    for (file, language) in [("api.ts", "typescript"), ("api.js", "javascript")] {
+        let (nodes, edges) = parse_javascript_like(file, source, language);
+        let has_node = |kind: &str, name: &str, parent: Option<&str>| {
+            nodes.iter().any(|node| {
+                node.kind == kind && node.name == name && node.parent_name.as_deref() == parent
+            })
+        };
+        let qn = |name: &str| format!("{file}::{name}");
+        assert!(has_node("Class", "api", None), "{file}: {nodes:?}");
+        assert!(has_node("Class", "a", Some("api")), "{file}");
+        assert!(has_node("Class", "b", Some("api.a")), "{file}");
+        assert!(has_node("Function", "c", Some("api.a.b")), "{file}");
+        assert!(has_node("Function", "d", Some("api.a.b")), "{file}");
+        assert!(has_node("Function", "e", Some("api.a")), "{file}");
+        // Objects without function-valued members anywhere below are data.
+        assert!(
+            !nodes
+                .iter()
+                .any(|node| matches!(node.name.as_str(), "data" | "deeper" | "plain")),
+            "{file}"
+        );
+        for (source, target) in [
+            (qn("api"), qn("api.a")),
+            (qn("api.a"), qn("api.a.b")),
+            (qn("api.a.b"), qn("api.a.b.c")),
+            (qn("api.a"), qn("api.a.e")),
+        ] {
+            assert!(
+                edges.iter().any(|edge| {
+                    edge.kind == "CONTAINS" && edge.source == source && edge.target == target
+                }),
+                "{file}: CONTAINS {source} -> {target}"
+            );
+        }
+        for (source, target) in [
+            (qn("use"), qn("api.a.b.c")),
+            (qn("use"), qn("api.a.e")),
+            (qn("api.top"), qn("api.a.b.c")),
+            (qn("api.a.b.c"), qn("helper")),
+        ] {
+            assert!(
+                edges.iter().any(|edge| {
+                    edge.kind == "CALLS" && edge.source == source && edge.target == target
+                }),
+                "{file}: CALLS {source} -> {target}: {edges:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn resolves_calls_scoped_to_dotted_owner_paths() {
+    let file = "ns.ts";
+    let node = |kind: NodeKind, name: &str, parent: Option<&str>| ParsedNode {
+        kind,
+        name: name.to_string(),
+        file_path: FilePath::new(file),
+        line_start: 1,
+        line_end: 1,
+        language: "typescript".to_string(),
+        parent_name: parent.map(str::to_string),
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: json!({}),
+    };
+    let call = |source: &str, target: &str| ParsedEdge {
+        kind: EdgeKind::Calls,
+        source: source.to_string(),
+        target: target.to_string(),
+        file_path: FilePath::new(file),
+        line: 1,
+        extra: json!({}),
+    };
+    let nodes = vec![
+        node(NodeKind::Class, "Outer", None),
+        node(NodeKind::Class, "Inner", Some("Outer")),
+        node(NodeKind::Function, "run", Some("Outer.Inner")),
+        node(NodeKind::Function, "help", Some("Outer.Inner")),
+        node(NodeKind::Class, "Other", None),
+        node(NodeKind::Function, "help", Some("Other")),
+        node(NodeKind::Function, "shared", Some("Other")),
+        node(NodeKind::Function, "shared", Some("Outer")),
+    ];
+    let edges = resolve_rust_call_targets(
+        &nodes,
+        vec![
+            // `this.help()` bound to the owner path.
+            call("ns.ts::Outer.Inner.run", "Outer.Inner::help"),
+            // A bare `help` prefers the caller's own owner path.
+            call("ns.ts::Outer.Inner.run", "help"),
+            // Not a same-file owner: left alone.
+            call("ns.ts::Outer.Inner.run", "lib/util.ts::help"),
+            // Nearest enclosing owner that declares it.
+            call("ns.ts::Outer.Inner.run", "shared"),
+        ],
+        file,
+    );
+    let targets = edges
+        .iter()
+        .map(|edge| edge.target.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        targets,
+        [
+            "ns.ts::Outer.Inner.help",
+            "ns.ts::Outer.Inner.help",
+            "lib/util.ts::help",
+            "ns.ts::Outer.shared"
+        ]
+    );
+}

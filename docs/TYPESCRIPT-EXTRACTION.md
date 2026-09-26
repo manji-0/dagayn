@@ -174,8 +174,10 @@ Nodes that are **not** created:
 ### 6.1 Same file
 
 A bare target that names a same-file declaration becomes that declaration's
-QN. When several members share the name, the member of the caller's own class
-wins. Receivers bound by `const x = new X()` or an annotation `x: X` rewrite
+QN. When several members share the name, the member of the caller's nearest
+owner wins (`Outer.Inner.run` tries `Outer.Inner`, then `Outer`). A receiver
+bound to an owner path (`this` inside `Outer.Inner`) resolves `this.m()`
+through `Outer.Inner::m` (implemented, #11). Receivers bound by `const x = new X()` or an annotation `x: X` rewrite
 `x.m()` to `X.m`.
 
 ### 6.2 Imports
@@ -260,8 +262,10 @@ flattens nested functions today; TypeScript deliberately differs. Planned
 were not nodes at all, and a full build resolved Express's `app.get(...)` to
 the flattened `get`. A container is created only when the object has at least
 one function-valued member; `as const`, `satisfies T`, and parentheses are
-unwrapped. One nesting level is modeled (`api.nested` becomes a container for
-`api.nested.deep`). Container members are reachable only through the
+unwrapped. Nested objects become containers when they hold a function-valued
+member at some depth below them, up to six levels (`api.a.b.c` gives
+`Class api.a`, `Class api.a.b`, and `Function api.a.b.c`); data-only nested
+objects are not nodes. Container members are reachable only through the
 container: same-file `api.get()`, `api.nested.deep()`, and `this.m()` inside
 a member bind to the member, but a bare `get` never does, neither in the
 parser's same-file fallback nor in post-processing's bare-name resolution.
@@ -417,7 +421,8 @@ QNs omit the `file::` prefix.
 | nested `function inner() {}` inside a function | no node; calls attributed to the outer function | planned (part 2/3, #15) |
 | local `const handle = () => ...` inside a function | no node; calls attributed to the outer function | planned (part 2/3, #15) |
 | `export const api = { get() {}, post: () => {}, put: function () {} }` | `Class api` (`object`), `Function api.get` / `api.post` / `api.put` | implemented (#8) |
-| `api = { nested: { deep() {} } }` | `Class api.nested`, `Function api.nested.deep` | implemented (#8, one level) |
+| `api = { nested: { deep() {} } }` | `Class api.nested`, `Function api.nested.deep` | implemented (#8) |
+| `api = { a: { b: { c() {} } } }` | `Class api.a`, `Class api.a.b`, `Function api.a.b.c`; `api.a.b.c()` resolves | implemented (#11, up to six levels) |
 | object literal inside a function body or passed as an argument | no node; its methods are not flattened to the top level, and their calls belong to the enclosing node | implemented (#8) |
 | `export const Memo = React.memo(function X() {})` | `Function Memo` (`wrapped_by`) | planned (part 2/3, #26) |
 | inline callbacks `items.map(x => f(x))` | no node; `CALLS outer -> f` | implemented (existing) |

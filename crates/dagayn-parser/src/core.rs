@@ -801,6 +801,10 @@ fn resolve_same_file_call_target(
     pick_method_for_caller(file_path, caller, &methods)
 }
 
+/// Rewrites `Type::method` (a receiver bound to a same-file type) to the
+/// method's QN. `Type` may be a dotted owner path (`Outer.Inner::m`) when its
+/// root segment is a same-file top-level declaration; anything else with a
+/// dot or a slash is a file path (`lib/util.ts::m`) and is left alone.
 fn resolve_type_scoped_call(
     file_path: &str,
     target: &str,
@@ -810,8 +814,20 @@ fn resolve_type_scoped_call(
         return None;
     }
     let (type_name, method) = target.rsplit_once("::")?;
-    if type_name.is_empty() || method.is_empty() || type_name.contains("::") {
+    if type_name.is_empty()
+        || method.is_empty()
+        || type_name.contains("::")
+        || type_name.contains('/')
+    {
         return None;
+    }
+    if let Some((root, _)) = type_name.split_once('.') {
+        let root_is_local_container = symbols
+            .get(root)
+            .is_some_and(|candidates| candidates.iter().any(|(parent, _)| parent.is_none()));
+        if !root_is_local_container {
+            return None;
+        }
     }
     symbols.get(method).and_then(|candidates| {
         candidates
@@ -826,6 +842,7 @@ fn pick_method_for_caller(
     caller: &str,
     methods: &[&(Option<String>, String)],
 ) -> Option<String> {
+    // Nearest owner first: `Outer.Inner.run` tries `Outer.Inner`, then `Outer`.
     for parent in caller_scopes(file_path, caller) {
         if let Some((_, qualified)) = methods
             .iter()

@@ -34,6 +34,16 @@ All notable changes to `dagayn` are documented here.
   literals inside functions or arguments are no longer top-level nodes;
   their calls stay with the enclosing node. Dead-code analysis skips
   `object`, `namespace`, and `ambient_module` containers.
+- Object-literal containers nest: a nested object that holds a
+  function-valued member at any depth (up to six levels) is a container, so
+  `const api = { a: { b: { c() {} } } }` yields `Class api.a`,
+  `Class api.a.b`, and `Function api.a.b.c`, and `api.a.b.c()` resolves.
+  Same-file call resolution handles dotted owner paths for every language:
+  a bare call prefers the member of the caller's nearest owner
+  (`Outer.Inner`, then `Outer`), and a receiver bound to a dotted owner
+  (`Outer.Inner::m`) resolves when the root is a same-file declaration.
+  JavaScript / TypeScript class members now record the full owner path of
+  their class in `parent_name`.
 - Graphs record the extractor versions they were parsed with (metadata
   `extractor_versions`, for example `javascript=1`). When the running parser's
   extractor is newer, `dagayn update` re-parses every indexed file that
