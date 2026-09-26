@@ -4694,3 +4694,189 @@ fn resolves_calls_scoped_to_dotted_owner_paths() {
         ]
     );
 }
+
+#[test]
+fn parses_typescript_namespaces_and_ambient_modules() {
+    let source = br#"export namespace Outer {
+  export const x = 1;
+  export function helper(): number { return x; }
+  export class Inner {
+    run() { helper(); }
+  }
+  export namespace Deep {
+    export function deepFn() {}
+  }
+  export const api = { get() { return helper(); } };
+}
+namespace Outer {
+  export function more() { return helper(); }
+}
+namespace A.B.C {
+  export function abc() {}
+}
+module Legacy {
+  export function old() {}
+}
+declare module "external-lib" {
+  export function ext(): void;
+  export interface ExtOptions { a: number }
+}
+declare global {
+  interface Window { myGlobal: string }
+  function globalFn(): void;
+}
+declare namespace NS {
+  function nsFn(): void;
+}
+declare function declaredFn(a: number): string;
+declare class DeclaredClass { method(): void; }
+export function useNs() {
+  Outer.helper();
+  const inner = new Outer.Inner();
+  inner.run();
+  A.B.C.abc();
+  Outer.Deep.deepFn();
+  Outer.api.get();
+}
+"#;
+    let file = "ns.ts";
+    let (nodes, edges) = parse_javascript_like(file, source, "typescript");
+    let find = |kind: &str, name: &str, parent: Option<&str>| {
+        nodes.iter().find(|node| {
+            node.kind == kind && node.name == name && node.parent_name.as_deref() == parent
+        })
+    };
+    let qn = |name: &str| format!("{file}::{name}");
+    for (name, parent, role) in [
+        ("Outer", None, "namespace"),
+        ("Deep", Some("Outer"), "namespace"),
+        ("A", None, "namespace"),
+        ("B", Some("A"), "namespace"),
+        ("C", Some("A.B"), "namespace"),
+        ("Legacy", None, "namespace"),
+        ("external-lib", None, "ambient_module"),
+        ("global", None, "ambient_module"),
+        ("NS", None, "namespace"),
+    ] {
+        let node = find("Class", name, parent).unwrap_or_else(|| panic!("{name}: {nodes:?}"));
+        assert_eq!(node.extra["type_role"], role, "{name}");
+    }
+    // One QN, one node: `namespace Outer` is declared twice.
+    assert_eq!(
+        nodes
+            .iter()
+            .filter(|node| node.kind == "Class" && node.name == "Outer")
+            .count(),
+        1
+    );
+    for (name, parent) in [
+        ("helper", Some("Outer")),
+        ("more", Some("Outer")),
+        ("deepFn", Some("Outer.Deep")),
+        ("abc", Some("A.B.C")),
+        ("old", Some("Legacy")),
+        ("ext", Some("external-lib")),
+        ("globalFn", Some("global")),
+        ("nsFn", Some("NS")),
+        ("run", Some("Outer.Inner")),
+        ("get", Some("Outer.api")),
+    ] {
+        assert!(
+            find("Function", name, parent).is_some(),
+            "{name}: {nodes:?}"
+        );
+        assert!(
+            find("Function", name, None).is_none(),
+            "{name} is not top-level"
+        );
+    }
+    for (name, parent) in [
+        ("Inner", Some("Outer")),
+        ("ExtOptions", Some("external-lib")),
+        ("Window", Some("global")),
+        ("api", Some("Outer")),
+    ] {
+        assert!(find("Class", name, parent).is_some(), "{name}: {nodes:?}");
+    }
+    for name in ["ext", "globalFn", "nsFn"] {
+        let node = nodes.iter().find(|node| node.name == name).unwrap();
+        assert_eq!(node.extra["ambient"], true, "{name}");
+    }
+    for name in ["external-lib", "global", "NS", "DeclaredClass"] {
+        let node = nodes.iter().find(|node| node.name == name).unwrap();
+        assert_eq!(node.extra["ambient"], true, "{name}");
+    }
+    assert!(
+        find("Class", "Outer", None)
+            .unwrap()
+            .extra
+            .get("ambient")
+            .is_none()
+    );
+    let declared = find("Function", "declaredFn", None).unwrap();
+    assert_eq!(declared.extra["ambient"], true);
+    assert_eq!(declared.extra["declaration_only"], true);
+    assert!(declared.extra.get("is_abstract").is_none(), "{declared:?}");
+    let method = find("Function", "method", Some("DeclaredClass")).unwrap();
+    assert!(method.extra.get("is_abstract").is_none(), "{method:?}");
+    assert_eq!(method.extra["declaration_only"], true);
+    for (source, target) in [
+        (qn("Outer"), qn("Outer.helper")),
+        (qn("Outer"), qn("Outer.Deep")),
+        (qn("Outer.Deep"), qn("Outer.Deep.deepFn")),
+        (qn("Outer"), qn("Outer.Inner")),
+        (qn("Outer.Inner"), qn("Outer.Inner.run")),
+        (qn("A"), qn("A.B")),
+        (qn("A.B"), qn("A.B.C")),
+        (qn("A.B.C"), qn("A.B.C.abc")),
+        (file.to_string(), qn("Outer")),
+        (qn("global"), qn("global.Window")),
+    ] {
+        assert!(
+            edges.iter().any(|edge| {
+                edge.kind == "CONTAINS" && edge.source == source && edge.target == target
+            }),
+            "CONTAINS {source} -> {target}"
+        );
+    }
+    for (source, target) in [
+        (qn("Outer.Inner.run"), qn("Outer.helper")),
+        (qn("Outer.more"), qn("Outer.helper")),
+        (qn("Outer.api.get"), qn("Outer.helper")),
+        (qn("useNs"), qn("Outer.helper")),
+        (qn("useNs"), qn("Outer.Inner")),
+        (qn("useNs"), qn("Outer.Inner.run")),
+        (qn("useNs"), qn("A.B.C.abc")),
+        (qn("useNs"), qn("Outer.Deep.deepFn")),
+        (qn("useNs"), qn("Outer.api.get")),
+    ] {
+        assert!(
+            edges.iter().any(|edge| {
+                edge.kind == "CALLS" && edge.source == source && edge.target == target
+            }),
+            "CALLS {source} -> {target}: {edges:?}"
+        );
+    }
+}
+
+#[test]
+fn marks_typescript_declaration_files() {
+    let source = br#"declare function declaredFn(a: number): string;
+export interface Exported { e: 1 }
+export declare function exportedDeclared(): void;
+export as namespace MyLib;
+"#;
+    let (nodes, _) = parse_javascript_like("types/lib.d.ts", source, "typescript");
+    let file = nodes.iter().find(|node| node.kind == "File").unwrap();
+    assert_eq!(file.extra["declaration_file"], true);
+    assert_eq!(file.extra["umd_global"], "MyLib");
+    for name in ["declaredFn", "Exported", "exportedDeclared"] {
+        let node = nodes.iter().find(|node| node.name == name).unwrap();
+        assert_eq!(node.extra["ambient"], true, "{name}");
+    }
+    let (nodes, _) = parse_javascript_like("src/lib.ts", source, "typescript");
+    let file = nodes.iter().find(|node| node.kind == "File").unwrap();
+    assert!(file.extra.get("declaration_file").is_none());
+    let exported = nodes.iter().find(|node| node.name == "Exported").unwrap();
+    assert!(exported.extra.get("ambient").is_none());
+}

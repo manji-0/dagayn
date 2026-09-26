@@ -69,13 +69,15 @@ separate extractors.
 | `namespace N`, `module N` | `Class` | segment name | owner path | `type_role: "namespace"`; `namespace A.B.C` yields nested `A`, `A.B`, `A.B.C` |
 | `declare module "x"`, `declare global` | `Class` | `x` / `global` | owner path | `type_role: "ambient_module"`, `ambient: true` |
 | module-scope `const X = { ... }` or `export default { ... }` with at least one function-valued member | `Class` | `X` / `default` | owner path | `type_role: "object"` (see §7.3) |
-| `function f`, `function* f`, `async function* f`, `declare function f` | `Function` | `f` | owner path | |
+| `function f`, `function* f`, `async function* f` | `Function` | `f` | owner path | |
+| `declare function f(): T;`, a bodiless method of a `declare class` | `Function` | `f` | owner path | `declaration_only: true` (never `is_abstract`) |
 | module-scope `const f = () => {}` / `function () {}` / `function* () {}` | `Function` | `f` (the binding) | owner path | |
 | `export default function () {}`, `export default () => ...` (anonymous) | `Function` | `default` | owner path | `export_default: true`, `anonymous: true` |
 | named default export `export default function Page() {}` | `Function` | `Page` | owner path | `export_default: true` |
 | method, getter/setter, `#private` method, function-valued class field | `Function` | member name | class owner path | getter/setter pairs: `member_role: "accessor"` |
 | `abstract m()`, `abstract get x()` | `Function` | `m` / `x` | class owner path | `is_abstract: true` |
 | interface method signature | `Function` | `m` | interface owner path | `is_abstract: true` |
+| any declaration inside `declare ...`, `declare module` / `declare global`, or a `.d.ts` / `.d.mts` / `.d.cts` file | (as above) | | | `ambient: true`; the `.d.ts` File node has `declaration_file: true`, and `export as namespace X` records `umd_global: "X"` on it |
 | object-container member (`get() {}`, `k: () => {}`, `k: function () {}`) | `Function` | member name | container owner path | |
 | test-runner call (`describe`, `it`, `test`) in a test file | `Test` | `it:description@L6` | owner path | synthetic; `describe` blocks are not part of the owner path |
 
@@ -400,12 +402,22 @@ QNs omit the `file::` prefix.
 
 | Construct | Expected | Status |
 |---|---|---|
-| `namespace Outer { export function helper() {} }` | `Class Outer` (`namespace`), `Function Outer.helper` | planned (part 2/3, #11, #12) |
-| `namespace A.B.C {}` | nested `A`, `A.B`, `A.B.C` | planned (part 2/3, #11, #12) |
-| `declare module "external-lib" {}` | `Class external-lib` (`ambient_module`) | planned (part 2/3, #12) |
-| `declare global {}` | `Class global` (`ambient_module`) | planned (part 2/3, #12) |
-| `declare function f(): void;` | `Function f` (`ambient`, no `is_abstract`) | planned (part 2/3, #12) |
-| `.d.ts` file | File `declaration_file: true` | planned (part 2/3, #12) |
+| `namespace Outer { export function helper() {} }` | `Class Outer` (`namespace`), `Function Outer.helper` | implemented (#11, #12) |
+| `namespace A.B.C {}` | nested `A`, `A.B`, `A.B.C` | implemented (#11, #12) |
+| `module Legacy {}` | `Class Legacy` (`namespace`) | implemented (#12) |
+| `namespace Outer {}` declared twice in one file | one `Class Outer` holding both bodies' members | implemented (#12) |
+| class / object container inside a namespace | `Class Outer.Inner`, `Function Outer.Inner.run`, `Function Outer.api.get` | implemented (#12) |
+| same-file `Outer.helper()`, `A.B.C.abc()`, `new Outer.Inner()`, `x.run()` on `x = new Outer.Inner()` | `CALLS -> Outer.helper` / `A.B.C.abc` / `Outer.Inner` / `Outer.Inner.run` | implemented (#12) |
+| bare `helper()` inside `Outer.Inner.run` | `CALLS -> Outer.helper` (nearest owner) | implemented (#11, #12) |
+| `import { Outer } from "./ns"; Outer.helper()` | `CALLS -> ns.ts::Outer.helper` | planned (part 2/3, #17) |
+| `declare module "external-lib" {}` | `Class external-lib` (`ambient_module`, `ambient`), members `external-lib.ext` | implemented (#12) |
+| `declare global {}` | `Class global` (`ambient_module`, `ambient`), members `global.Window` | implemented (#12) |
+| `declare namespace NS {}` | `Class NS` (`namespace`, `ambient`) | implemented (#12) |
+| `declare function f(): void;` | `Function f` (`ambient`, `declaration_only`, no `is_abstract`) | implemented (#12) |
+| `declare class D { m(): void; }` | `Function D.m` (`ambient`, `declaration_only`, no `is_abstract`) | implemented (#12) |
+| `.d.ts` file | File `declaration_file: true`; every node `ambient` | implemented (#12) |
+| `export as namespace MyLib` | File `umd_global: "MyLib"` | implemented (#12) |
+| `declare module "./x"` augmentation | `IMPORTS_FROM` (`augmentation`) | deferred |
 
 ### 10.4 Functions and object literals
 

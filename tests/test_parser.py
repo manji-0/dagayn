@@ -1357,6 +1357,31 @@ class TestTypeRoleAndImplements:
             for e in edges
         )
 
+    def test_typescript_declaration_file_and_namespaces(self, tmp_path):
+        src = (
+            "declare function declaredFn(a: number): string;\n"
+            "declare namespace NS { function nsFn(): void; }\n"
+            "export as namespace MyLib;\n"
+        )
+        p = tmp_path / "lib.d.ts"
+        p.write_text(src, encoding="utf-8")
+        nodes, edges = self.parser.parse_file(p)
+        file_node = next(n for n in nodes if n.kind == "File")
+        assert file_node.extra.get("declaration_file") is True
+        assert file_node.extra.get("umd_global") == "MyLib"
+        declared = next(n for n in nodes if n.name == "declaredFn")
+        assert declared.extra.get("ambient") is True
+        assert declared.extra.get("declaration_only") is True
+        assert "is_abstract" not in declared.extra
+        ns = next(n for n in nodes if n.name == "NS")
+        assert ns.kind == "Class"
+        assert ns.extra.get("type_role") == "namespace"
+        assert any(n.name == "nsFn" and n.parent_name == "NS" for n in nodes)
+
+        nodes, _ = self._parse("namespace Outer { export function helper() {} }\n", "ts", tmp_path)
+        assert any(n.name == "helper" and n.parent_name == "Outer" for n in nodes)
+        assert not any(n.name == "helper" and n.parent_name is None for n in nodes)
+
     def test_javascript_generator_declarations(self, tmp_path):
         src = "function* gen() { yield 1; }\nasync function* agen() { yield* gen(); }\n"
         for language in ("js", "ts"):

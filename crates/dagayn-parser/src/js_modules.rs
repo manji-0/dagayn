@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -69,8 +69,16 @@ pub(super) struct JavaScriptParseContext<'a> {
     pub(super) test_file: bool,
     pub(super) defined_names: &'a HashSet<String>,
     pub(super) import_map: &'a JavaScriptImportMap,
-    /// Owner paths of object-container members (`api.get`, `api.nested.deep`).
-    pub(super) object_members: &'a HashSet<String>,
+    /// Owner paths of object-container and namespace members (`api.get`,
+    /// `api.nested.deep`, `Outer.helper`, `Outer.Inner`, `A.B.C.abc`).
+    pub(super) member_paths: &'a HashSet<String>,
+    /// Owner paths of namespaces and ambient modules (`Outer`, `A.B`,
+    /// `global`): containers whose members do not see a `this`.
+    pub(super) namespace_paths: &'a HashSet<String>,
+    /// `.d.ts` / `.d.mts` / `.d.cts`: every declaration is ambient.
+    pub(super) declaration_file: bool,
+    /// Nesting depth of `declare ...` / ambient-module bodies being walked.
+    pub(super) ambient_depth: Cell<usize>,
     pub(super) repo_root: Option<&'a Path>,
     pub(super) caches: JavaScriptCaches<'a>,
     pub(super) bindings: RefCell<MemberCallBindings>,
@@ -91,6 +99,28 @@ pub(super) fn collect_javascript_defined_names(
             if let Some(name) = javascript_function_name(node, source) {
                 names.insert(name);
             }
+        }
+        // `namespace Outer {}` defines `Outer`; its members are reachable
+        // only as `Outer.x`, so the body is not a source of module names.
+        "internal_module" | "module" => {
+            if let Some(name) = node.child_by_field_name("name") {
+                let root = match name.kind() {
+                    "nested_identifier" => javascript_leftmost_segment(name, source),
+                    "identifier" => Some(node_text(name, source)),
+                    _ => None,
+                };
+                if let Some(root) = root {
+                    names.insert(root);
+                }
+            }
+            return;
+        }
+        "ambient_declaration"
+            if node
+                .children(&mut node.walk())
+                .any(|child| child.kind() == "global") =>
+        {
+            return;
         }
         "lexical_declaration" | "variable_declaration" => {
             let mut cursor = node.walk();
@@ -134,6 +164,17 @@ pub(super) fn collect_javascript_type_names(
     for child in node.children(&mut cursor) {
         collect_javascript_type_names(child, source, names);
     }
+}
+
+/// First segment of `A.B.C` (a `nested_identifier`).
+fn javascript_leftmost_segment(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut current = node;
+    while matches!(current.kind(), "nested_identifier" | "member_expression") {
+        current = current
+            .child_by_field_name("object")
+            .or_else(|| current.named_child(0))?;
+    }
+    (current.kind() == "identifier").then(|| node_text(current, source))
 }
 
 /// Name under which a class-like declaration is reachable: the declared

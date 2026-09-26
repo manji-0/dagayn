@@ -832,6 +832,30 @@ class TestFindDeadCode:
             assert f"/repo/src/api.ts::{name}" not in dead_qnames
         assert "/repo/src/api.ts::Unused" in dead_qnames
 
+    def test_find_dead_code_excludes_ambient_declarations(self):
+        """`declare function` / `declare class` implementations live elsewhere."""
+        for name, extra in (
+            ("declaredFn", {"ambient": True, "declaration_only": True}),
+            ("localFn", {}),
+        ):
+            self.store.upsert_node(
+                NodeInfo(
+                    kind="Function",
+                    name=name,
+                    file_path="/repo/src/decls.ts",
+                    line_start=1,
+                    line_end=1,
+                    language="typescript",
+                    extra=extra,
+                )
+            )
+        self.store.commit()
+
+        dead_qnames = {d["qualified_name"] for d in find_dead_code(self.store)}
+
+        assert "/repo/src/decls.ts::declaredFn" not in dead_qnames
+        assert "/repo/src/decls.ts::localFn" in dead_qnames
+
     def test_find_dead_code_excludes_value_containers(self):
         """Value/data containers are data model assets, not dead-code candidates."""
         cases = [

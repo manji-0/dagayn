@@ -829,12 +829,25 @@ fn resolve_type_scoped_call(
             return None;
         }
     }
-    symbols.get(method).and_then(|candidates| {
-        candidates
-            .iter()
-            .find(|(parent, _)| parent.as_deref() == Some(type_name))
-            .map(|(_, qualified)| qualified.clone())
-    })
+    let candidates = symbols.get(method)?;
+    if let Some((_, qualified)) = candidates
+        .iter()
+        .find(|(parent, _)| parent.as_deref() == Some(type_name))
+    {
+        return Some(qualified.clone());
+    }
+    // A bare type bound inside a namespace (`new Inner()` in `Outer`) owns the
+    // method as `Outer.Inner`; accept a unique owner ending in `.Type`.
+    let suffix = format!(".{type_name}");
+    let mut nested = candidates.iter().filter(|(parent, _)| {
+        parent
+            .as_deref()
+            .is_some_and(|parent| parent.ends_with(&suffix))
+    });
+    match (nested.next(), nested.next()) {
+        (Some((_, qualified)), None) => Some(qualified.clone()),
+        _ => None,
+    }
 }
 
 fn pick_method_for_caller(

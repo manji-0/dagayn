@@ -233,6 +233,12 @@ def _is_structural_type_node(node: Any) -> bool:
     return False
 
 
+def _is_ambient_declaration(node: Any) -> bool:
+    """TypeScript ``declare`` declarations describe code that lives elsewhere."""
+    extra = node.extra if isinstance(node.extra, dict) else {}
+    return bool(extra.get("ambient"))
+
+
 def _is_scope_container_node(node: Any) -> bool:
     if node.kind != "Class":
         return False
@@ -337,7 +343,9 @@ def _survives_dead_code_node_filters(
         return False
     if node.language == "rust" and node.parent_name and "tests" in node.parent_name.split("::"):
         return False
-    if node.file_path.endswith(".d.ts"):
+    if node.file_path.endswith((".d.ts", ".d.mts", ".d.cts")):
+        return False
+    if _is_ambient_declaration(node):
         return False
     if node.name.startswith("__") and node.name.endswith("__"):
         return False

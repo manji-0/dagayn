@@ -37,6 +37,13 @@ impl MemberCallBindings {
         }
     }
 
+    /// Binds `var` to a same-file owner path the caller already verified
+    /// (`Outer.Inner` for `new Outer.Inner()`), bypassing the bare type-name
+    /// check.
+    pub(super) fn bind_path(&mut self, var: impl Into<String>, owner_path: impl Into<String>) {
+        self.bindings.insert(var.into(), owner_path.into());
+    }
+
     pub(super) fn bind_implicit_receivers(&mut self, type_name: &str) {
         if type_name.is_empty() {
             return;

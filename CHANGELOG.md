@@ -44,6 +44,20 @@ All notable changes to `dagayn` are documented here.
   (`Outer.Inner::m`) resolves when the root is a same-file declaration.
   JavaScript / TypeScript class members now record the full owner path of
   their class in `parent_name`.
+- TypeScript namespaces and ambient declarations are modeled.
+  `namespace Outer {}` / `module Legacy {}` are `Class` nodes
+  (`type_role: "namespace"`), `namespace A.B.C {}` yields nested `A`, `A.B`,
+  `A.B.C`, and a namespace declared twice in a file is one node; their
+  members (functions, classes, object containers, nested namespaces) live
+  under the owner path (`Outer.helper`, `Outer.Inner.run`,
+  `Outer.Deep.deepFn`) instead of being flattened to the top level, and
+  same-file `Outer.helper()`, `A.B.C.abc()`, and `new Outer.Inner()` resolve.
+  `declare module "x" {}` and `declare global {}` are
+  `type_role: "ambient_module"` (`global.Window`). Declarations inside
+  `declare ...`, ambient modules, and `.d.ts` / `.d.mts` / `.d.cts` files
+  carry `ambient: true`; `.d.ts` File nodes carry `declaration_file: true`
+  and `export as namespace X` records `umd_global: "X"`. Dead-code analysis
+  skips ambient declarations and `.d.mts` / `.d.cts` files.
 - Graphs record the extractor versions they were parsed with (metadata
   `extractor_versions`, for example `javascript=1`). When the running parser's
   extractor is newer, `dagayn update` re-parses every indexed file that
@@ -84,6 +98,11 @@ All notable changes to `dagayn` are documented here.
   slugs follow GitHub rules for closing hashes and inline links.
 - Markdown link extraction skips inline code spans and fenced code blocks, so
   documented link examples no longer create dangling `IMPORTS_FROM` edges.
+- TypeScript bodiless declarations that are not contracts —
+  `declare function f(): T;`, function overload signatures, and methods of
+  a `declare class` or class overload signatures — carry
+  `declaration_only: true` instead of `is_abstract: true`. Interface method
+  signatures and `abstract` members keep `is_abstract`.
 - TypeScript `abstract class` and `declare abstract class` declarations are
   `Class` nodes (`type_role: "abstract_class"`, `is_abstract: true`), and
   their `abstract` methods and accessors are `Function` nodes marked
