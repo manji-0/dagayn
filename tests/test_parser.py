@@ -1332,6 +1332,31 @@ class TestTypeRoleAndImplements:
         assert iface is not None
         assert iface.extra.get("type_role") == "interface"
 
+    def test_typescript_abstract_class_role(self, tmp_path):
+        src = (
+            "export abstract class Shape {\n"
+            "  abstract area(): number;\n"
+            "  describe() { return this.area(); }\n"
+            "}\n"
+        )
+        nodes, edges = self._parse(src, "ts", tmp_path)
+        shape = next((n for n in nodes if n.name == "Shape"), None)
+        assert shape is not None
+        assert shape.kind == "Class"
+        assert shape.extra.get("type_role") == "abstract_class"
+        assert shape.extra.get("is_abstract") is True
+        area = next((n for n in nodes if n.name == "area"), None)
+        assert area is not None
+        assert area.parent_name == "Shape"
+        assert area.extra.get("is_abstract") is True
+        assert any(n.name == "describe" and n.parent_name == "Shape" for n in nodes)
+        assert any(
+            e.kind == "CALLS"
+            and e.source.endswith("::Shape.describe")
+            and e.target.endswith("::Shape.area")
+            for e in edges
+        )
+
     def test_typescript_implements_edge(self, tmp_path):
         src = "interface IBar {} class Foo implements IBar {}"
         _, edges = self._parse(src, "ts", tmp_path)

@@ -128,6 +128,7 @@ fn javascript_walk_children(
     for child in node.children(&mut cursor) {
         match child.kind() {
             "class_declaration"
+            | "abstract_class_declaration"
             | "class"
             | "interface_declaration"
             | "type_alias_declaration"
@@ -168,6 +169,7 @@ fn javascript_walk_children(
             "function_declaration"
             | "method_definition"
             | "method_signature"
+            | "abstract_method_signature"
             | "function_signature"
             | "arrow_function"
                 if javascript_emit_function_node(child, context, enclosing_class, nodes, edges) =>
@@ -317,7 +319,10 @@ fn javascript_emit_function_node(
         return_type: javascript_child_text(node, context.source, "type_annotation"),
         modifiers: None,
         is_test,
-        extra: if matches!(node.kind(), "method_signature" | "function_signature") {
+        extra: if matches!(
+            node.kind(),
+            "method_signature" | "abstract_method_signature" | "function_signature"
+        ) {
             json!({"is_abstract": true})
         } else {
             json!({})
@@ -697,6 +702,7 @@ fn javascript_emit_reference_if_known(
 
 fn javascript_class_extra(node: tree_sitter::Node<'_>, source: &[u8]) -> Value {
     let type_role = match node.kind() {
+        "abstract_class_declaration" => "abstract_class",
         "interface_declaration" => "interface",
         "type_alias_declaration" => "type_alias",
         "enum_declaration" => "enum",
@@ -707,6 +713,9 @@ fn javascript_class_extra(node: tree_sitter::Node<'_>, source: &[u8]) -> Value {
         if type_role == "interface" {
             map.insert("is_abstract".to_string(), json!(true));
             map.insert("is_contract".to_string(), json!(true));
+        }
+        if type_role == "abstract_class" {
+            map.insert("is_abstract".to_string(), json!(true));
         }
         if javascript_is_type_only_container(type_role)
             || javascript_is_data_model_class(node, source)

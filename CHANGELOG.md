@@ -40,6 +40,14 @@ All notable changes to `dagayn` are documented here.
   slugs follow GitHub rules for closing hashes and inline links.
 - Markdown link extraction skips inline code spans and fenced code blocks, so
   documented link examples no longer create dangling `IMPORTS_FROM` edges.
+- TypeScript `abstract class` and `declare abstract class` declarations are
+  `Class` nodes (`type_role: "abstract_class"`, `is_abstract: true`), and
+  their `abstract` methods and accessors are `Function` nodes marked
+  `is_abstract`. Before, the class had no node, its concrete methods became
+  top-level functions, `this.m()` inside them resolved to a same-named method
+  of another class, and SAP undercounted abstractness. Rebuild existing
+  graphs with `dagayn build --force-full-build` to drop the old top-level
+  method names.
 
 ### Performance
 

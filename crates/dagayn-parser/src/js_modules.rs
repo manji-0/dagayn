@@ -54,7 +54,7 @@ pub(super) fn collect_javascript_defined_names(
     names: &mut HashSet<String>,
 ) {
     match node.kind() {
-        "class_declaration" | "class" | "interface_declaration" => {
+        "class_declaration" | "abstract_class_declaration" | "class" | "interface_declaration" => {
             if let Some(name) =
                 javascript_named_child(node, source, &["identifier", "type_identifier"])
             {
@@ -93,6 +93,7 @@ pub(super) fn collect_javascript_type_names(
 ) {
     match node.kind() {
         "class_declaration"
+        | "abstract_class_declaration"
         | "class"
         | "interface_declaration"
         | "type_alias_declaration"

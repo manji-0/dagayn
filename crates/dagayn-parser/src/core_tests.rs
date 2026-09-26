@@ -3350,6 +3350,113 @@ describe('Service', () => {
 }
 
 #[test]
+fn parses_typescript_abstract_classes() {
+    let source = br#"export abstract class AbstractShape {
+  abstract area(): number;
+  abstract get label(): string;
+  protected abstract readonly sides: number;
+  describe(): string {
+    return this.label + this.area();
+  }
+}
+
+abstract class B {}
+
+export default class DefaultShape extends AbstractShape {
+  area(): number {
+    return 1;
+  }
+  get label(): string {
+    return "shape";
+  }
+}
+"#;
+    let (nodes, edges) = parse_javascript_like("shapes.ts", source, "typescript");
+    for name in ["AbstractShape", "B"] {
+        assert!(
+            nodes.iter().any(|node| {
+                node.kind == "Class"
+                    && node.name == name
+                    && node.parent_name.is_none()
+                    && node.extra["type_role"] == "abstract_class"
+                    && node.extra["is_abstract"] == true
+            }),
+            "{name}: {nodes:?}"
+        );
+    }
+    for name in ["area", "label"] {
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Function"
+                && node.name == name
+                && node.parent_name.as_deref() == Some("AbstractShape")
+                && node.extra["is_abstract"] == true
+        }));
+    }
+    assert!(nodes.iter().any(|node| {
+        node.kind == "Function"
+            && node.name == "describe"
+            && node.parent_name.as_deref() == Some("AbstractShape")
+            && node.extra.get("is_abstract").is_none()
+    }));
+    assert!(
+        !nodes
+            .iter()
+            .any(|node| node.name == "describe" && node.parent_name.is_none())
+    );
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "CONTAINS"
+            && edge.source == "shapes.ts::AbstractShape"
+            && edge.target == "shapes.ts::AbstractShape.area"
+    }));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "CALLS"
+            && edge.source == "shapes.ts::AbstractShape.describe"
+            && edge.target == "shapes.ts::AbstractShape.area"
+    }));
+    assert!(!edges.iter().any(|edge| {
+        edge.kind == "CALLS"
+            && edge.source == "shapes.ts::AbstractShape.describe"
+            && edge.target == "shapes.ts::DefaultShape.area"
+    }));
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "INHERITS"
+            && edge.source == "shapes.ts::DefaultShape"
+            && edge.target == "AbstractShape"
+    }));
+}
+
+#[test]
+fn parses_typescript_declared_abstract_classes() {
+    let source = br#"declare abstract class DeclaredAbstract {
+  abstract m(): void;
+}
+export declare abstract class ExportedAbstract {
+  abstract run(): void;
+}
+"#;
+    let (nodes, edges) = parse_javascript_like("ambient.d.ts", source, "typescript");
+    for (class_name, method) in [("DeclaredAbstract", "m"), ("ExportedAbstract", "run")] {
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Class"
+                && node.name == class_name
+                && node.extra["type_role"] == "abstract_class"
+                && node.extra["is_abstract"] == true
+        }));
+        assert!(nodes.iter().any(|node| {
+            node.kind == "Function"
+                && node.name == method
+                && node.parent_name.as_deref() == Some(class_name)
+                && node.extra["is_abstract"] == true
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CONTAINS"
+                && edge.source == "ambient.d.ts"
+                && edge.target == format!("ambient.d.ts::{class_name}")
+        }));
+    }
+}
+
+#[test]
 fn parses_typescript_constructors_reexports_and_interface_methods() {
     let source = br#"
 export { Repo } from "./other";
