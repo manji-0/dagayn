@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use serde_json::json;
@@ -60,16 +60,20 @@ fn parse_c_like_with_parser(
         extra: json!({}),
     }];
     let mut edges = Vec::new();
-    let context = CParseContext {
-        source,
-        file_path: file_path.clone(),
-        language,
-        repo_root,
-    };
-
     if let Some(parser) = parser
         && let Some(tree) = parser.parse(source, None)
     {
+        let mut class_paths = HashSet::new();
+        if language == "cpp" {
+            c_collect_class_paths(tree.root_node(), source, None, &mut class_paths);
+        }
+        let context = CParseContext {
+            source,
+            file_path: file_path.clone(),
+            language,
+            repo_root,
+            class_paths,
+        };
         c_walk_children(
             tree.root_node(),
             &context,
@@ -91,6 +95,70 @@ struct CParseContext<'a> {
     file_path: FilePath,
     language: &'a str,
     repo_root: Option<&'a Path>,
+    /// Dotted paths of C++ classes defined in this file (`Outer.Inner`).
+    class_paths: HashSet<String>,
+}
+
+fn c_collect_class_paths(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    parent: Option<&str>,
+    paths: &mut HashSet<String>,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "function_definition" => continue,
+            "struct_specifier" | "class_specifier" | "union_specifier" => {
+                if let Some(name) = c_type_name(child, source) {
+                    let path = c_scope_join(parent, &name);
+                    c_collect_class_paths(child, source, Some(&path), paths);
+                    paths.insert(path);
+                    continue;
+                }
+            }
+            _ => {}
+        }
+        c_collect_class_paths(child, source, parent, paths);
+    }
+}
+
+fn c_scope_join(parent: Option<&str>, name: &str) -> String {
+    match parent {
+        Some(parent) => format!("{parent}.{name}"),
+        None => name.to_string(),
+    }
+}
+
+/// Maps an out-of-line scope such as `ns::Outer::Inner` or `V<T>` to the
+/// dotted class path used for in-class definitions. The longest suffix that
+/// names a class defined in this file wins; otherwise the innermost segment.
+fn c_owner_from_scope(scope: &str, class_paths: &HashSet<String>) -> String {
+    let mut segments = Vec::new();
+    let mut depth = 0usize;
+    let mut current = String::new();
+    let mut chars = scope.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '<' => depth += 1,
+            '>' => depth = depth.saturating_sub(1),
+            ':' if depth == 0 && chars.peek() == Some(&':') => {
+                chars.next();
+                segments.push(std::mem::take(&mut current));
+            }
+            _ if depth == 0 && !ch.is_whitespace() => current.push(ch),
+            _ => {}
+        }
+    }
+    segments.push(current);
+    segments.retain(|segment| !segment.is_empty());
+    for start in 0..segments.len() {
+        let candidate = segments[start..].join(".");
+        if class_paths.contains(&candidate) {
+            return candidate;
+        }
+    }
+    segments.last().cloned().unwrap_or_default()
 }
 
 fn c_walk_children(
@@ -121,10 +189,16 @@ fn c_walk_children(
                 if enclosing_func.is_none() =>
             {
                 if let Some(name) = c_type_name(child, context.source) {
-                    c_emit_type(child, context, &name, nodes, edges);
-                    c_emit_inheritance(child, context, &name, edges);
+                    let parent = if context.language == "cpp" {
+                        enclosing_class
+                    } else {
+                        None
+                    };
+                    c_emit_type(child, context, &name, parent, nodes, edges);
+                    let path = c_scope_join(parent, &name);
+                    c_emit_inheritance(child, context, &path, edges);
                     if context.language == "cpp" {
-                        c_walk_children(child, context, Some(&name), enclosing_func, nodes, edges);
+                        c_walk_children(child, context, Some(&path), enclosing_func, nodes, edges);
                     }
                     continue;
                 }
@@ -136,7 +210,7 @@ fn c_walk_children(
                 if context.language == "objc" && enclosing_func.is_none() =>
             {
                 if let Some(name) = c_direct_child_text(child, context.source, &["identifier"]) {
-                    c_emit_type(child, context, &name, nodes, edges);
+                    c_emit_type(child, context, &name, None, nodes, edges);
                     if child.kind() == "class_implementation" {
                         c_walk_children(child, context, Some(&name), None, nodes, edges);
                     }
@@ -147,6 +221,7 @@ fn c_walk_children(
                 if let Some((name, scope)) = c_function_name(child, context.source) {
                     // An out-of-line `Widget::draw` belongs to Widget, so it
                     // qualifies the same way an in-class definition would.
+                    let scope = scope.map(|scope| c_owner_from_scope(&scope, &context.class_paths));
                     let owner = scope.as_deref().or(enclosing_class);
                     c_emit_function(child, context, &name, owner, nodes, edges);
                     c_walk_children(child, context, owner, Some(&name), nodes, edges);
@@ -183,10 +258,11 @@ fn c_emit_type(
     node: tree_sitter::Node<'_>,
     context: &CParseContext<'_>,
     name: &str,
+    parent: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let qualified = qualify(&context.file_path, name, None);
+    let qualified = qualify(&context.file_path, name, parent);
     nodes.push(ParsedNode {
         kind: crate::core::types::NodeKind::Class,
         name: name.to_string(),
@@ -194,7 +270,7 @@ fn c_emit_type(
         line_start: node.start_position().row as i64 + 1,
         line_end: node.end_position().row as i64 + 1,
         language: context.language.to_string(),
-        parent_name: None,
+        parent_name: parent.map(str::to_string),
         params: None,
         return_type: None,
         modifiers: None,
@@ -203,7 +279,9 @@ fn c_emit_type(
     });
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Contains,
-        source: context.file_path.to_string(),
+        source: parent
+            .map(|parent| qualify(&context.file_path, parent, None))
+            .unwrap_or_else(|| context.file_path.to_string()),
         target: qualified,
         file_path: context.file_path.clone(),
         line: node.start_position().row as i64 + 1,
@@ -290,21 +368,37 @@ fn c_emit_inheritance(
     let Some(base_clause) = c_direct_child(node, &["base_class_clause"]) else {
         return;
     };
-    let Some(base) = c_last_descendant_text(base_clause, context.source, &["type_identifier"])
-    else {
-        return;
-    };
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Inherits,
-        source: qualify(&context.file_path, name, None),
-        target: base,
-        file_path: context.file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({
-            "relationship_role": "extends",
-            "syntax_source": "class_specifier",
-        }),
-    });
+    let mut cursor = base_clause.walk();
+    for base in base_clause.named_children(&mut cursor) {
+        let base = match base.kind() {
+            "template_type" => match base.child_by_field_name("name") {
+                Some(name) => name,
+                None => continue,
+            },
+            "type_identifier" | "qualified_identifier" => base,
+            _ => continue,
+        };
+        let text = node_text(base, context.source);
+        let Some(target) = text
+            .rsplit("::")
+            .map(str::trim)
+            .find(|segment| !segment.is_empty())
+            .map(|segment| segment.split('<').next().unwrap_or(segment).to_string())
+        else {
+            continue;
+        };
+        edges.push(ParsedEdge {
+            kind: crate::core::types::EdgeKind::Inherits,
+            source: qualify(&context.file_path, name, None),
+            target,
+            file_path: context.file_path.clone(),
+            line: node.start_position().row as i64 + 1,
+            extra: json!({
+                "relationship_role": "extends",
+                "syntax_source": "class_specifier",
+            }),
+        });
+    }
 }
 
 fn c_call_signature(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
@@ -390,12 +484,17 @@ fn c_declarator_name(
             (!name.is_empty()).then_some((name, None))
         }
         "qualified_identifier" => {
-            // `A::B::method` should belong to `B`, so an inner scope wins.
+            // `A::B::method` nests as `A :: (B :: method)`; keep the full
+            // `A::B` scope so the owner can be matched against class paths.
             let scope = node
                 .child_by_field_name("scope")
                 .map(|scope| node_text(scope, source).trim().to_string());
             let (name, inner_scope) = c_declarator_name(node.child_by_field_name("name")?, source)?;
-            Some((name, inner_scope.or(scope)))
+            let scope = match (scope, inner_scope) {
+                (Some(outer), Some(inner)) => Some(format!("{outer}::{inner}")),
+                (outer, inner) => inner.or(outer),
+            };
+            Some((name, scope))
         }
         "template_function" | "template_method" => {
             c_declarator_name(node.child_by_field_name("name")?, source)

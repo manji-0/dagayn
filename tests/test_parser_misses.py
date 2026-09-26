@@ -157,3 +157,28 @@ public class Outer {
         names, edges, _ = parse("Outer.java", self.SOURCE)
         assert ("Function", "Point", "Outer.Point") in names
         assert ("CALLS", "<f>::Outer.Point.Point", "check") in edges
+
+
+class TestCpp:
+    SOURCE = """\
+namespace ns { class A { void f(); }; }
+void ns::A::f() {}
+template <typename T> class V { void push(T); };
+template <typename T> void V<T>::push(T x) { grow(); }
+struct Outer { struct Inner { void g(); }; };
+void Outer::Inner::g() { h(); }
+class X : public ns::Base, public std::enable_shared_from_this<X>, private D {};
+"""
+
+    def test_all_base_classes_are_emitted(self, parse):
+        _, edges, _ = parse("m.cpp", self.SOURCE)
+        bases = {t for k, s, t in edges if k == "INHERITS" and s == "<f>::X"}
+        assert bases == {"Base", "enable_shared_from_this", "D"}
+
+    def test_out_of_line_scopes_match_class_paths(self, parse):
+        names, edges, _ = parse("m.cpp", self.SOURCE)
+        assert ("Function", "f", "A") in names
+        assert ("Function", "push", "V") in names
+        assert ("Class", "Inner", "Outer") in names
+        assert ("Function", "g", "Outer.Inner") in names
+        assert ("CALLS", "<f>::Outer.Inner.g", "h") in edges
