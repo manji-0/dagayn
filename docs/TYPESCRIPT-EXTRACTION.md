@@ -122,7 +122,7 @@ Nodes that are **not** created:
 |---|---|---|---|
 | `CONTAINS` | nearest existing container QN (File, Class, namespace, object container) | child QN | |
 | `CALLS` | the node that owns the call site (§5.1) | resolved QN, `pkg::symbol`, or a bare name | includes `new X()`, `super(...)`, JSX elements, tagged templates |
-| `IMPORTS_FROM` | File | resolved repo-relative file, or the raw specifier for external modules | static `import` and `export ... from`; `require`, dynamic `import()`, and `import x = require()` are planned (part 2/3, #19) |
+| `IMPORTS_FROM` | File | resolved repo-relative file, or the raw specifier for external modules | static `import` and `export ... from`; `require("./m")` (`import_kind: "require"`, at any depth), dynamic `import("./m")` (`import_kind: "dynamic"`), and TypeScript `import x = require("./m")` (`import_kind: "import_equals"`) with a string-literal specifier; static imports carry no `import_kind` |
 | `REFERENCES` (value) | owning node | function or class used as a value | object `pair` values, shorthand properties, array elements, call arguments, assignment right-hand sides |
 | `REFERENCES` (type) | owning node | type QN | `relationship_role: "type_reference"` or `"type_query"` (§7.4) |
 | `REFERENCES` (decorator) | decorated node | decorator function | `relationship_role: "decorator"` (§7.7) |
@@ -227,6 +227,18 @@ Imports are bound by `(module, exported name)`:
 | `import X from "./m"` | `./m`, `default`; resolves to the symbol the module exports as default; `<X.C />` and `extends X.C` are read like namespace members (CommonJS interop) |
 | `import { default as X } from "./m"` | same as `import X from "./m"` |
 | `import * as ns from "./m"` | `./m`, namespace; `<ns.C />` and `extends ns.C` resolve to `m::C` |
+| `const m = require("./m")`, TypeScript `import m = require("./m")` | `./m`, what `require` returns: the CommonJS value (`module.exports`, `export =`) of a module that has one, otherwise its namespace; `m.a()` and `m()` (for `module.exports = fn`) resolve |
+| `const { a, b: c } = require("./m")` | `a` -> `./m`, `a`; local `c` -> `./m`, `b` |
+| `const c = require("./m").b` | local `c` -> `./m`, `b` |
+
+`require` bindings are read at module scope only (`const` / `let` / `var`,
+including `export const`); a `require` inside a function still emits
+`IMPORTS_FROM`, but its binding is a local of the function. A `require` that
+the file shadows (a declaration, import, or local named `require`) is an
+ordinary call. `require(expr)` and `import(expr)` with a non-literal
+specifier emit no edge, and `require` never gets a `CALLS` edge.
+`require.resolve(...)` is not an import. `await import("./m")` bindings are
+not read.
 
 The export index of the target module maps exported names to declarations:
 local declarations, `export { a as b }`, `export { a } from`, `export * from`,
@@ -252,7 +264,7 @@ Re-exports are followed to the origin:
   binds to neither.
 
 CommonJS exports in `.js`, `.jsx`, and `.cjs` files feed the same index, for
-ES imports of CommonJS modules and for `require` bindings (#19): top-level
+ES imports of CommonJS modules and for `require` bindings: top-level
 `module.exports = { a, b: fn, c() {} }` exports `a`, `b` (-> `fn`), and `c`;
 `module.exports.x = V` and `exports.x = V` export `x` (-> `V` when it is an
 identifier); a `require("./m")` value is `m`'s module object. The exports
@@ -393,7 +405,7 @@ the two lists are identical. Implemented (#16).
 | generators | `function*` / `async function*` declarations and generator methods are nodes in both languages |
 | JSX | `.js`, `.jsx`, and `.mjs` parse with JSX; component calls behave as in TSX |
 | test naming | `Test*` / `test_*` / `*_test` / `*_spec` names mark `Test` nodes only inside test files |
-| CommonJS | `module.exports` and `exports.x` feed the export index (§6.2, #18); `require` bindings are planned (part 2/3, #19) |
+| CommonJS | `module.exports` and `exports.x` feed the export index (§6.2, #18); `require("./m")` is `IMPORTS_FROM` and module-scope `require` bindings resolve through the index (§6.2, #19) |
 | types | JavaScript has no type syntax; JSDoc types are out of scope |
 
 ## 9. Out of scope
@@ -541,7 +553,8 @@ QNs omit the `file::` prefix.
 | Express `app.get(...)` | never resolved to an unrelated object-literal method | implemented (#8); `express::...` qualification planned (part 2/3, #25) |
 | external `useState(0)` | `CALLS -> react::useState` | planned (part 2/3, #25) |
 | tagged template | `CALLS -> tag` | implemented (existing) |
-| `require("./x")`, `import("./x")` | `IMPORTS_FROM` (`import_kind`); no `CALLS -> require` | planned (part 2/3, #19) |
+| `require("./x")`, `import("./x")` | `IMPORTS_FROM` (`import_kind`); no `CALLS -> require` | implemented (#19) |
+| `const { a } = require("./x"); a()`, `const x = require("./x"); x.a()` | `CALLS -> x::a` | implemented (#19) |
 
 ### 10.6 Imports, exports, module resolution
 
@@ -563,7 +576,8 @@ QNs omit the `file::` prefix.
 | a name exported by two `export *` sources | ambiguous, bound to neither; an explicit export wins | implemented (#18) |
 | `module.exports = { a, b: fn }`, `module.exports.x =`, `exports.x =` | export index (named exports, exports object as `default`) | implemented (#18) |
 | `export =` | export index default | implemented (#18) |
-| `import fs = require("fs")` | `IMPORTS_FROM` | planned (part 2/3, #19) |
+| `import fs = require("fs")` | `IMPORTS_FROM` (`import_kind: "import_equals"`); `fs.f()` resolves for repo modules | implemented (#19) |
+| `import A = B.C` (alias of a namespace member) | not read | out of scope |
 
 ### 10.7 Type references
 

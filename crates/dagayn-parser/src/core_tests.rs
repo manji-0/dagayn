@@ -4585,6 +4585,169 @@ export function main() {
 }
 
 #[test]
+fn parses_javascript_commonjs_and_dynamic_imports() {
+    let mut repo_root = std::env::temp_dir();
+    repo_root.push(format!(
+        "dagayn-parser-js-require-imports-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    let _ = std::fs::remove_dir_all(&repo_root);
+    std::fs::create_dir_all(repo_root.join("src")).unwrap();
+    for (path, body) in [
+        (
+            "src/helpers.js",
+            "function helper() {}\nfunction other() {}\nmodule.exports = { helper, renamed: other };\n",
+        ),
+        (
+            "src/single.js",
+            "function config() {}\nmodule.exports = config;\n",
+        ),
+        (
+            "src/esm.ts",
+            "export function esmFn() {}\nexport default function main() {}\n",
+        ),
+        ("src/inner.js", "exports.inner = function () {};\n"),
+        ("src/lazy.js", "export function lazy() {}\n"),
+        (
+            "src/typed.ts",
+            "function typedMain() {}\nexport = typedMain;\n",
+        ),
+    ] {
+        std::fs::write(repo_root.join(path), body).unwrap();
+    }
+
+    let source = br#"const helpers = require("./helpers");
+const { helper, renamed: alias } = require("./helpers");
+const cfg = require("./single");
+const esm = require("./esm");
+const picked = require("./helpers").renamed;
+const path = require("path");
+const dynamicName = "./lazy";
+function main() {
+  helpers.renamed();
+  helper();
+  alias();
+  cfg();
+  esm.esmFn();
+  picked();
+  const inner = require("./inner");
+  import("./lazy");
+  require(dynamicName);
+  import(dynamicName);
+  require.resolve("./lazy");
+}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "src/app.js", source);
+    let import_at = |line: i64| {
+        edges
+            .iter()
+            .filter(|edge| edge.kind == "IMPORTS_FROM" && edge.line == line)
+            .map(|edge| {
+                assert_eq!(edge.source, "src/app.js");
+                (
+                    edge.target.as_str(),
+                    edge.extra
+                        .get("import_kind")
+                        .and_then(|kind| kind.as_str())
+                        .unwrap_or(""),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    for (line, target, kind) in [
+        (1, "src/helpers.js", "require"),
+        (2, "src/helpers.js", "require"),
+        (3, "src/single.js", "require"),
+        (4, "src/esm.ts", "require"),
+        (5, "src/helpers.js", "require"),
+        (6, "path", "require"),
+        (15, "src/inner.js", "require"),
+        (16, "src/lazy.js", "dynamic"),
+    ] {
+        assert_eq!(
+            import_at(line),
+            vec![(target, kind)],
+            "line {line}: {edges:?}"
+        );
+    }
+    for line in [17, 18, 19] {
+        assert!(import_at(line).is_empty(), "line {line}: {edges:?}");
+    }
+    assert!(
+        !edges.iter().any(
+            |edge| edge.kind == "CALLS" && matches!(edge.target.as_str(), "require" | "import")
+        ),
+        "{edges:?}"
+    );
+
+    let call_at = |line: i64| {
+        edges
+            .iter()
+            .find(|edge| {
+                edge.kind == "CALLS" && edge.source == "src/app.js::main" && edge.line == line
+            })
+            .map(|edge| edge.target.as_str())
+    };
+    for (line, target) in [
+        (9, "src/helpers.js::other"),
+        (10, "src/helpers.js::helper"),
+        (11, "src/helpers.js::other"),
+        (12, "src/single.js::config"),
+        (13, "src/esm.ts::esmFn"),
+        (14, "src/helpers.js::other"),
+    ] {
+        assert_eq!(call_at(line), Some(target), "line {line}: {edges:?}");
+    }
+
+    let ts_source = br#"import lib = require("./helpers");
+import typed = require("./typed");
+import fs = require("fs");
+export function run() {
+  lib.helper();
+  typed();
+}
+"#;
+    let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "src/run.ts", ts_source);
+    let imports = edges
+        .iter()
+        .filter(|edge| edge.kind == "IMPORTS_FROM")
+        .map(|edge| {
+            (
+                edge.line,
+                edge.target.as_str(),
+                edge.extra.get("import_kind").and_then(|kind| kind.as_str()),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        imports,
+        vec![
+            (1, "src/helpers.js", Some("import_equals")),
+            (2, "src/typed.ts", Some("import_equals")),
+            (3, "fs", Some("import_equals")),
+        ],
+        "{edges:?}"
+    );
+    let calls = edges
+        .iter()
+        .filter(|edge| edge.kind == "CALLS" && edge.source == "src/run.ts::run")
+        .map(|edge| (edge.line, edge.target.as_str()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        calls,
+        vec![
+            (5, "src/helpers.js::helper"),
+            (6, "src/typed.ts::typedMain")
+        ],
+        "{edges:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&repo_root);
+}
+
+#[test]
 fn parses_tsx_jsx_component_calls() {
     let mut repo_root = std::env::temp_dir();
     repo_root.push(format!(

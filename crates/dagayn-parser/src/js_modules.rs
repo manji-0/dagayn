@@ -33,6 +33,9 @@ pub(super) struct JavaScriptExportIndex {
     declaration_file: bool,
     named_exports: HashMap<String, JavaScriptExportTarget>,
     star_exports: Vec<String>,
+    /// The module assigns `module.exports` / `exports.x` (CommonJS) or has a
+    /// TypeScript `export =`: `require` returns its `default`.
+    commonjs_value: bool,
     /// Class / interface shapes declared in the module, for member calls on
     /// receivers of an imported type.
     pub(super) class_table: Arc<JavaScriptClassTable>,
@@ -107,6 +110,11 @@ pub(super) enum JavaScriptImported {
     Default,
     /// `import * as ns from`.
     Namespace,
+    /// `const x = require("./m")` / `import x = require("./m")`: what
+    /// `require` returns, the module's CommonJS value (`module.exports`,
+    /// TypeScript `export =`) when it has one, otherwise its ES module
+    /// namespace object.
+    Require,
 }
 
 pub(super) type JavaScriptImportMap = HashMap<String, JavaScriptImportBinding>;
@@ -338,6 +346,16 @@ fn resolve_javascript_import_binding_target_in(
         JavaScriptImported::Named(exported) => exported.as_str(),
         JavaScriptImported::Default => "default",
         JavaScriptImported::Namespace => {
+            return Some(JavaScriptExportResolution::Namespace(module_file));
+        }
+        JavaScriptImported::Require => {
+            if javascript_export_index(&module_file, repo_root, caches)
+                .is_some_and(|index| index.commonjs_value)
+                && let Some(target) =
+                    resolve_javascript_export(&module_file, "default", repo_root, caches, seen)
+            {
+                return Some(target);
+            }
             return Some(JavaScriptExportResolution::Namespace(module_file));
         }
     };
@@ -648,6 +666,7 @@ fn javascript_export_index_uncached(
     let mut named_exports = HashMap::new();
     let mut star_exports = Vec::new();
     let mut exported_declarations = HashSet::new();
+    let mut commonjs_value = false;
     let resolve =
         |specifier: &str| resolve_javascript_module(specifier, module_file, repo_root, caches);
 
@@ -655,7 +674,7 @@ fn javascript_export_index_uncached(
     for child in root.children(&mut cursor) {
         if javascript_is_commonjs_module_file(module_file) && child.kind() == "expression_statement"
         {
-            collect_javascript_commonjs_export(
+            commonjs_value |= collect_javascript_commonjs_export(
                 child,
                 &source,
                 module_file,
@@ -670,6 +689,10 @@ fn javascript_export_index_uncached(
         if let Some(target) =
             javascript_default_export_target(child, &source, &defined_names, &import_map)
         {
+            // TypeScript `export = main;`
+            commonjs_value |= child
+                .children(&mut child.walk())
+                .any(|token| token.kind() == "=");
             match target {
                 JavaScriptDefaultExport::Anonymous => {
                     defined_names.insert("default".to_string());
@@ -733,6 +756,7 @@ fn javascript_export_index_uncached(
         declaration_file: javascript_is_declaration_file(module_file),
         named_exports,
         star_exports,
+        commonjs_value,
         class_table: Arc::new(collect_javascript_class_table(root, &source)),
         member_paths: Arc::new(
             super::js_like::collect_javascript_member_paths(root, &source).members,
@@ -866,24 +890,25 @@ fn collect_javascript_declaration_names(
 ///
 /// A `require("./m")` value is `m`'s module object. Other values (function
 /// expressions, calls) keep the exported name itself as the target.
+/// Returns whether the statement is a CommonJS export.
 fn collect_javascript_commonjs_export(
     statement: tree_sitter::Node<'_>,
     source: &[u8],
     module_file: &str,
     resolve: &dyn Fn(&str) -> Option<String>,
     named_exports: &mut HashMap<String, JavaScriptExportTarget>,
-) {
+) -> bool {
     let Some(assignment) = statement
         .named_child(0)
         .filter(|node| node.kind() == "assignment_expression")
     else {
-        return;
+        return false;
     };
     let (Some(left), Some(right)) = (
         assignment.child_by_field_name("left"),
         assignment.child_by_field_name("right"),
     ) else {
-        return;
+        return false;
     };
     let self_namespace = || JavaScriptExportTarget::Namespace(module_file.to_string());
     if javascript_is_module_exports(left, source) {
@@ -893,10 +918,10 @@ fn collect_javascript_commonjs_export(
         } else if let Some(target) = javascript_commonjs_value_target(right, source, resolve) {
             named_exports.insert("default".to_string(), target);
         }
-        return;
+        return true;
     }
     let Some(name) = javascript_commonjs_export_property(left, source) else {
-        return;
+        return false;
     };
     let target = javascript_commonjs_value_target(right, source, resolve)
         .unwrap_or_else(|| JavaScriptExportTarget::Local(name.clone()));
@@ -904,6 +929,7 @@ fn collect_javascript_commonjs_export(
     named_exports
         .entry("default".to_string())
         .or_insert_with(self_namespace);
+    true
 }
 
 fn collect_javascript_commonjs_object_exports(
@@ -984,21 +1010,72 @@ fn javascript_commonjs_value_target(
     match value.kind() {
         "identifier" => Some(JavaScriptExportTarget::Local(node_text(value, source))),
         "call_expression" => {
-            let function = value.child_by_field_name("function")?;
-            if function.kind() != "identifier" || node_text(function, source) != "require" {
-                return None;
-            }
-            let arguments = value.child_by_field_name("arguments")?;
-            let mut cursor = arguments.walk();
-            let specifier = arguments
-                .named_children(&mut cursor)
-                .next()
-                .filter(|argument| argument.kind() == "string")?;
-            let module = resolve(&decode_javascript_string_literal(specifier, source))?;
+            let specifier = javascript_require_specifier(value, source)?;
+            let module = resolve(&specifier)?;
             Some(JavaScriptExportTarget::Namespace(module))
         }
         _ => None,
     }
+}
+
+/// `"./m"` of `require("./m")`: a call of the bare identifier `require`
+/// whose first argument is a string literal. Whether `require` is shadowed
+/// is the caller's concern.
+pub(super) fn javascript_require_specifier(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> Option<String> {
+    let function = node.child_by_field_name("function")?;
+    if node.kind() != "call_expression"
+        || function.kind() != "identifier"
+        || node_text(function, source) != "require"
+    {
+        return None;
+    }
+    javascript_first_string_argument(node, source)
+}
+
+/// `"./m"` of a dynamic `import("./m")` with a string literal.
+pub(super) fn javascript_dynamic_import_specifier(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> Option<String> {
+    let function = node.child_by_field_name("function")?;
+    if node.kind() != "call_expression" || function.kind() != "import" {
+        return None;
+    }
+    javascript_first_string_argument(node, source)
+}
+
+fn javascript_first_string_argument(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let arguments = node.child_by_field_name("arguments")?;
+    let mut cursor = arguments.walk();
+    let specifier = arguments
+        .named_children(&mut cursor)
+        .next()
+        .filter(|argument| argument.kind() == "string")?;
+    let specifier = decode_javascript_string_literal(specifier, source);
+    (!specifier.is_empty()).then_some(specifier)
+}
+
+/// `import x = require("./m")`: the local name and the specifier.
+pub(super) fn javascript_import_equals(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> Option<(String, String)> {
+    if node.kind() != "import_statement" {
+        return None;
+    }
+    let mut cursor = node.walk();
+    let clause = node
+        .named_children(&mut cursor)
+        .find(|child| child.kind() == "import_require_clause")?;
+    let mut cursor = clause.walk();
+    let children = clause.named_children(&mut cursor).collect::<Vec<_>>();
+    let local = children.iter().find(|child| child.kind() == "identifier")?;
+    let specifier = children.iter().find(|child| child.kind() == "string")?;
+    let specifier = decode_javascript_string_literal(*specifier, source);
+    (!specifier.is_empty()).then(|| (node_text(*local, source), specifier))
 }
 
 /// A static object key: `a`, `"a"`, `'a'`.
@@ -1088,6 +1165,18 @@ pub(super) fn collect_javascript_import_map(
     source: &[u8],
     import_map: &mut JavaScriptImportMap,
 ) {
+    if let Some((local, module)) = javascript_import_equals(node, source) {
+        import_map.insert(
+            local,
+            JavaScriptImportBinding {
+                module,
+                imported: JavaScriptImported::Require,
+            },
+        );
+    }
+    if node.kind() == "variable_declarator" && javascript_is_module_scope_declarator(node) {
+        collect_javascript_require_bindings(node, source, import_map);
+    }
     if node.kind() == "import_statement"
         && let Some(module) = javascript_import_targets(node, source).into_iter().next()
     {
@@ -1101,6 +1190,106 @@ pub(super) fn collect_javascript_import_map(
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         collect_javascript_import_map(child, source, import_map);
+    }
+}
+
+/// A declarator of a `const` / `let` / `var` statement at module scope
+/// (`export const` included).
+fn javascript_is_module_scope_declarator(node: tree_sitter::Node<'_>) -> bool {
+    let Some(mut statement) = node.parent().filter(|parent| {
+        matches!(
+            parent.kind(),
+            "lexical_declaration" | "variable_declaration"
+        )
+    }) else {
+        return false;
+    };
+    if let Some(parent) = statement
+        .parent()
+        .filter(|parent| parent.kind() == "export_statement")
+    {
+        statement = parent;
+    }
+    statement
+        .parent()
+        .is_some_and(|parent| parent.kind() == "program")
+}
+
+/// Module-scope `require` bindings:
+///
+/// - `const m = require("./m")` binds `m` to what `require` returns
+/// - `const { a, b: c } = require("./m")` binds `a` / `c` to the exports
+///   `a` / `b`
+/// - `const a = require("./m").b` binds `a` to the export `b`
+fn collect_javascript_require_bindings(
+    declarator: tree_sitter::Node<'_>,
+    source: &[u8],
+    import_map: &mut JavaScriptImportMap,
+) {
+    let (Some(name), Some(value)) = (
+        declarator.child_by_field_name("name"),
+        declarator.child_by_field_name("value"),
+    ) else {
+        return;
+    };
+    let (module, member) = match value.kind() {
+        "call_expression" => (javascript_require_specifier(value, source), None),
+        "member_expression" => {
+            let property = value
+                .child_by_field_name("property")
+                .filter(|property| property.kind() == "property_identifier");
+            let module = value
+                .child_by_field_name("object")
+                .and_then(|object| javascript_require_specifier(object, source));
+            match property {
+                Some(property) => (module, Some(node_text(property, source))),
+                None => (None, None),
+            }
+        }
+        _ => (None, None),
+    };
+    let Some(module) = module else {
+        return;
+    };
+    let mut bind = |local: String, imported| {
+        import_map.insert(
+            local,
+            JavaScriptImportBinding {
+                module: module.clone(),
+                imported,
+            },
+        );
+    };
+    match (name.kind(), member) {
+        ("identifier", Some(member)) => {
+            bind(node_text(name, source), JavaScriptImported::Named(member));
+        }
+        ("identifier", None) => bind(node_text(name, source), JavaScriptImported::Require),
+        ("object_pattern", None) => {
+            let mut cursor = name.walk();
+            for property in name.named_children(&mut cursor) {
+                match property.kind() {
+                    "shorthand_property_identifier_pattern" => {
+                        let local = node_text(property, source);
+                        bind(local.clone(), JavaScriptImported::Named(local));
+                    }
+                    "pair_pattern" => {
+                        let key = property
+                            .child_by_field_name("key")
+                            .and_then(|key| javascript_property_key_name(key, source));
+                        let local = property
+                            .child_by_field_name("value")
+                            .filter(|value| value.kind() == "identifier")
+                            .map(|value| node_text(value, source));
+                        if let (Some(key), Some(local)) = (key, local) {
+                            bind(local, JavaScriptImported::Named(key));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        _ => {}
     }
 }
 

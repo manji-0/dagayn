@@ -13,8 +13,9 @@ use super::js_members::{
 use super::js_modules::{
     JavaScriptCaches, JavaScriptExportResolution, JavaScriptParseContext,
     collect_javascript_defined_names, collect_javascript_import_map, collect_javascript_type_names,
-    decode_javascript_string_literal, javascript_child_text, javascript_function_name,
-    javascript_import_targets, javascript_module_index, javascript_named_child,
+    decode_javascript_string_literal, javascript_child_text, javascript_dynamic_import_specifier,
+    javascript_function_name, javascript_import_equals, javascript_import_targets,
+    javascript_module_index, javascript_named_child, javascript_require_specifier,
     resolve_javascript_call_target, resolve_javascript_import_path_in, resolve_javascript_module,
     resolve_javascript_namespace_member,
 };
@@ -557,23 +558,12 @@ fn javascript_walk_node(
         }
         "import_statement" | "export_statement" => {
             for target in javascript_import_targets(child, context.source) {
-                let resolved = resolve_javascript_module(
-                    &target,
-                    &context.file_path,
-                    context.repo_root,
-                    context.caches,
-                )
-                .unwrap_or(target);
-                edges.push(ParsedEdge {
-                    kind: crate::core::types::EdgeKind::ImportsFrom,
-                    source: context.file_path.to_string(),
-                    target: resolved,
-                    file_path: context.file_path.clone(),
-                    line: child.start_position().row as i64 + 1,
-                    extra: json!({}),
-                });
+                javascript_push_import(child, &target, None, context, edges);
             }
             if child.kind() == "import_statement" {
+                if let Some((_, target)) = javascript_import_equals(child, context.source) {
+                    javascript_push_import(child, &target, Some("import_equals"), context, edges);
+                }
                 return;
             }
             if let Some(global) = javascript_umd_global_name(child, context.source) {
@@ -594,6 +584,17 @@ fn javascript_walk_node(
                 edges,
             ) {
                 return;
+            }
+        }
+        // `require("./m")` / `import("./m")`: a dependency of the file, not a
+        // call; a non-literal specifier emits nothing, but its arguments
+        // still run.
+        "call_expression" if javascript_is_module_call(child, context) => {
+            if let Some(target) = javascript_require_specifier(child, context.source) {
+                javascript_push_import(child, &target, Some("require"), context, edges);
+            } else if let Some(target) = javascript_dynamic_import_specifier(child, context.source)
+            {
+                javascript_push_import(child, &target, Some("dynamic"), context, edges);
             }
         }
         "call_expression" | "new_expression"
@@ -636,6 +637,54 @@ fn javascript_walk_node(
     javascript_walk_children(child, context, owner_path, enclosing_func, nodes, edges);
     javascript_bind_declarator(child, context);
     javascript_bind_assignment(child, context);
+}
+
+/// An `IMPORTS_FROM` edge from the file to the module `specifier` names
+/// (resolved to a repo file when possible, the raw specifier otherwise).
+/// `import_kind` marks imports other than static `import` / `export from`.
+fn javascript_push_import(
+    node: tree_sitter::Node<'_>,
+    specifier: &str,
+    import_kind: Option<&str>,
+    context: &JavaScriptParseContext<'_>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let target = resolve_javascript_module(
+        specifier,
+        &context.file_path,
+        context.repo_root,
+        context.caches,
+    )
+    .unwrap_or_else(|| specifier.to_string());
+    edges.push(ParsedEdge {
+        kind: crate::core::types::EdgeKind::ImportsFrom,
+        source: context.file_path.to_string(),
+        target,
+        file_path: context.file_path.clone(),
+        line: node.start_position().row as i64 + 1,
+        extra: import_kind.map_or_else(|| json!({}), |kind| json!({ "import_kind": kind })),
+    });
+}
+
+/// A call of the CommonJS `require` (not shadowed by a declaration, an
+/// import, or a local of this file) or a dynamic `import(...)`.
+fn javascript_is_module_call(
+    node: tree_sitter::Node<'_>,
+    context: &JavaScriptParseContext<'_>,
+) -> bool {
+    let Some(function) = node.child_by_field_name("function") else {
+        return false;
+    };
+    match function.kind() {
+        "import" => true,
+        "identifier" => {
+            node_text(function, context.source) == "require"
+                && !context.defined_names.contains("require")
+                && !context.import_map.contains_key("require")
+                && !javascript_is_local_name(context, "require")
+        }
+        _ => false,
+    }
 }
 
 /// A function-valued or nested-container member of an object literal.

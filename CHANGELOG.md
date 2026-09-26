@@ -127,6 +127,16 @@ All notable changes to `dagayn` are documented here.
   slugs follow GitHub rules for closing hashes and inline links.
 - Markdown link extraction skips inline code spans and fenced code blocks, so
   documented link examples no longer create dangling `IMPORTS_FROM` edges.
+- JavaScript / TypeScript `require("./m")`, dynamic `import("./m")`, and
+  TypeScript `import x = require("./m")` with a string-literal specifier are
+  `IMPORTS_FROM` edges (`extra.import_kind`: `"require"`, `"dynamic"`,
+  `"import_equals"`), including a `require` inside a function; before, they
+  produced a `CALLS -> require` edge or nothing. Module-scope `const m =
+  require("./m")`, `const { a, b: c } = require("./m")`, `const c =
+  require("./m").b`, and `import m = require("./m")` bind like ES imports,
+  so `m.a()`, `a()`, `c()`, and `m()` (for `module.exports = fn` or `export =
+  fn`) resolve through the target's CommonJS or ES exports. Non-literal
+  specifiers emit no edge, and `require` no longer gets `CALLS` edges.
 - JavaScript / TypeScript imports through barrels resolve to the origin in
   more cases. A local re-export of an import (`import { a } from "./a";
   export { a as b }`, `export default importedName`) follows the import

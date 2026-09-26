@@ -1604,6 +1604,50 @@ class TestTypeRoleAndImplements:
         assert by_line[8].endswith("helpers.js::other"), by_line
         assert by_line[9].endswith("helpers.js::other"), by_line
 
+    def test_javascript_require_imports(self, tmp_path):
+        (tmp_path / "helpers.js").write_text(
+            "function helper() {}\nfunction other() {}\n"
+            "module.exports = { helper, renamed: other };\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "single.js").write_text(
+            "function config() {}\nmodule.exports = config;\n", encoding="utf-8"
+        )
+        (tmp_path / "lazy.js").write_text("export function lazy() {}\n", encoding="utf-8")
+        consumer = tmp_path / "app.js"
+        consumer.write_text(
+            'const helpers = require("./helpers");\n'
+            'const { helper, renamed: alias } = require("./helpers");\n'
+            'const cfg = require("./single");\n'
+            "function main(name) {\n"
+            "  helpers.renamed();\n  helper();\n  alias();\n  cfg();\n"
+            '  import("./lazy");\n  require(name);\n'
+            "}\n",
+            encoding="utf-8",
+        )
+        _, edges = self.parser.parse_file(consumer)
+        imports = {
+            (e.line, e.target, e.extra.get("import_kind"))
+            for e in edges
+            if e.kind == "IMPORTS_FROM"
+        }
+        assert {(line, kind) for line, _, kind in imports} == {
+            (1, "require"),
+            (2, "require"),
+            (3, "require"),
+            (9, "dynamic"),
+        }, imports
+        by_line = {line: target for line, target, _ in imports}
+        assert by_line[1].endswith("helpers.js"), imports
+        assert by_line[3].endswith("single.js"), imports
+        assert by_line[9].endswith("lazy.js"), imports
+        calls = {e.line: e.target for e in edges if e.kind == "CALLS"}
+        assert calls[5].endswith("helpers.js::other"), calls
+        assert calls[6].endswith("helpers.js::helper"), calls
+        assert calls[7].endswith("helpers.js::other"), calls
+        assert calls[8].endswith("single.js::config"), calls
+        assert not any(e.kind == "CALLS" and e.target == "require" for e in edges), edges
+
     def test_typescript_constructor_and_method_call_resolution(self, tmp_path):
         src = """
 interface Repo { find(): void; }
