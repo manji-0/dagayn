@@ -243,6 +243,23 @@ impl GraphStore {
         Ok(())
     }
 
+    /// Drop indexes another index already covers.
+    ///
+    /// `idx_edges_source` / `idx_edges_target` are prefixes of the `_kind`
+    /// composites, `idx_nodes_qualified` duplicates the UNIQUE constraint's
+    /// index, and `idx_edges_composite` only served `upsert_edge`'s lookup,
+    /// which `idx_edges_source_kind` narrows to one source's edges anyway.
+    /// Every edge insert maintained all of them.
+    pub(crate) fn migrate_v17(&self) -> Result<()> {
+        self.conn.execute_batch(
+            "DROP INDEX IF EXISTS idx_edges_source; \
+             DROP INDEX IF EXISTS idx_edges_target; \
+             DROP INDEX IF EXISTS idx_nodes_qualified; \
+             DROP INDEX IF EXISTS idx_edges_composite;",
+        )?;
+        Ok(())
+    }
+
     pub(crate) fn ensure_edge_target_name_column(&self) -> Result<()> {
         if !has_column(&self.conn, "edges", "target_name")? {
             self.conn.execute(

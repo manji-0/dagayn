@@ -9,7 +9,7 @@ use serde_json::value::RawValue;
 use serde_json::{Value, json};
 use thiserror::Error;
 
-const LATEST_VERSION: i64 = 16;
+const LATEST_VERSION: i64 = 17;
 const MAX_INSERT_PARAMS: usize = 30_000;
 const NODE_INSERT_PARAM_COUNT: usize = 16;
 const EDGE_INSERT_PARAM_COUNT: usize = 10;
@@ -25,24 +25,12 @@ const WRITE_INDEXES: &[(&str, &str)] = &[
         "CREATE INDEX IF NOT EXISTS idx_nodes_kind ON nodes(kind)",
     ),
     (
-        "idx_nodes_qualified",
-        "CREATE INDEX IF NOT EXISTS idx_nodes_qualified ON nodes(qualified_name)",
-    ),
-    (
         "idx_nodes_parent_name",
         "CREATE INDEX IF NOT EXISTS idx_nodes_parent_name ON nodes(parent_name, name)",
     ),
     (
         "idx_nodes_community",
         "CREATE INDEX IF NOT EXISTS idx_nodes_community ON nodes(community_id)",
-    ),
-    (
-        "idx_edges_source",
-        "CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_qualified)",
-    ),
-    (
-        "idx_edges_target",
-        "CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_qualified)",
     ),
     (
         "idx_edges_kind",
@@ -55,10 +43,6 @@ const WRITE_INDEXES: &[(&str, &str)] = &[
     (
         "idx_edges_source_kind",
         "CREATE INDEX IF NOT EXISTS idx_edges_source_kind ON edges(source_qualified, kind)",
-    ),
-    (
-        "idx_edges_composite",
-        "CREATE INDEX IF NOT EXISTS idx_edges_composite ON edges(kind, source_qualified, target_qualified, file_path, line)",
     ),
     (
         "idx_edges_target_name_kind",
@@ -157,10 +141,7 @@ CREATE TABLE IF NOT EXISTS bridge_scores (
 
 CREATE INDEX IF NOT EXISTS idx_nodes_file ON nodes(file_path);
 CREATE INDEX IF NOT EXISTS idx_nodes_kind ON nodes(kind);
-CREATE INDEX IF NOT EXISTS idx_nodes_qualified ON nodes(qualified_name);
 CREATE INDEX IF NOT EXISTS idx_nodes_parent_name ON nodes(parent_name, name);
-CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_qualified);
-CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_qualified);
 CREATE INDEX IF NOT EXISTS idx_edges_kind ON edges(kind);
 CREATE INDEX IF NOT EXISTS idx_edges_target_kind ON edges(target_qualified, kind);
 CREATE INDEX IF NOT EXISTS idx_edges_source_kind ON edges(source_qualified, kind);

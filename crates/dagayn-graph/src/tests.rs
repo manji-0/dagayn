@@ -1269,6 +1269,54 @@ fn stores_compact_json_batch() {
 }
 
 #[test]
+fn migration_v17_drops_covered_indexes() {
+    const COVERED: [&str; 4] = [
+        "idx_edges_source",
+        "idx_edges_target",
+        "idx_nodes_qualified",
+        "idx_edges_composite",
+    ];
+    let index_exists = |store: &GraphStore, name: &str| -> bool {
+        store
+            .conn
+            .query_row(
+                "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?",
+                [name],
+                |_| Ok(()),
+            )
+            .optional()
+            .unwrap()
+            .is_some()
+    };
+    let path = temp_db("migration-v17");
+    {
+        let store = GraphStore::open(&path).expect("open graph store");
+        for name in COVERED {
+            assert!(!index_exists(&store, name), "{name} on a fresh graph");
+        }
+        store
+            .conn
+            .execute_batch(
+                "CREATE INDEX idx_edges_source ON edges(source_qualified);
+                 CREATE INDEX idx_edges_target ON edges(target_qualified);
+                 CREATE INDEX idx_nodes_qualified ON nodes(qualified_name);
+                 CREATE INDEX idx_edges_composite
+                     ON edges(kind, source_qualified, target_qualified, file_path, line);",
+            )
+            .unwrap();
+        store.set_metadata("schema_version", "16").unwrap();
+    }
+    let store = GraphStore::open(&path).expect("reopen graph store");
+    assert_eq!(store.schema_version().unwrap(), LATEST_VERSION);
+    for name in COVERED {
+        assert!(!index_exists(&store, name), "{name} survived v17");
+    }
+    assert!(index_exists(&store, "idx_edges_source_kind"));
+    assert!(index_exists(&store, "idx_edges_target_kind"));
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn source_excerpt_cache_matches_per_node_reads() {
     use crate::helpers::{SourceCache, read_node_source_excerpt};
 
@@ -1342,14 +1390,14 @@ fn bulk_load_keeps_file_path_indexes_and_sets_fts_watermark_on_finish() {
     let during = index_names(&store);
     assert!(during.contains(&"idx_nodes_file".to_string()));
     assert!(during.contains(&"idx_edges_file".to_string()));
-    assert!(!during.contains(&"idx_edges_source".to_string()));
+    assert!(!during.contains(&"idx_edges_source_kind".to_string()));
 
     // Re-storing the same file must replace, not duplicate, its FTS rows.
     store.store_file_batch_json(batch).unwrap();
     store.store_file_batch_json(batch).unwrap();
     store.finish_bulk_load().unwrap();
 
-    assert!(index_names(&store).contains(&"idx_edges_source".to_string()));
+    assert!(index_names(&store).contains(&"idx_edges_source_kind".to_string()));
     let fts_rows: i64 = store
         .conn
         .query_row("SELECT count(*) FROM nodes_fts", [], |row| row.get(0))

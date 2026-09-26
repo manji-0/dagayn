@@ -57,6 +57,13 @@ All notable changes to `dagayn` are documented here.
   serves both. On this repository the traversal for 40 sampled files takes
   0.15 s instead of 0.39 s at depth 2, and 0.67 s instead of 1.79 s at depth 3,
   with identical results.
+- Schema v17 drops four indexes another index already covers:
+  `idx_edges_source` and `idx_edges_target` (prefixes of the `_kind`
+  composites), `idx_nodes_qualified` (duplicate of the `UNIQUE` constraint's
+  index), and `idx_edges_composite` (used only by `upsert_edge`, whose lookup
+  `idx_edges_source_kind` serves). Every edge insert maintained all four. A
+  vacuumed graph of this repository shrinks from 96.1 MB to 74.8 MB; query plans
+  switch to the remaining indexes.
 
 ## 4.15.0 — 2026-09-25
 

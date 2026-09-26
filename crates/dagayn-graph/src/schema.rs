@@ -27,6 +27,7 @@ impl GraphStore {
                     14 => self.migrate_v14()?,
                     15 => self.migrate_v15()?,
                     16 => self.migrate_v16()?,
+                    17 => self.migrate_v17()?,
                     _ => {}
                 }
                 self.set_metadata("schema_version", &version.to_string())?;

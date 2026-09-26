@@ -6,6 +6,6 @@ exposes the current version so tools can compare against a built database.
 
 from __future__ import annotations
 
-LATEST_VERSION = 16
+LATEST_VERSION = 17
 
 __all__ = ["LATEST_VERSION"]
