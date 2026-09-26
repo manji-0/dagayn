@@ -1441,6 +1441,23 @@ class TestTypeRoleAndImplements:
         assert anon.extra.get("class_expression") is True
         assert any(n.name == "run" and n.parent_name == "Anon" for n in nodes)
 
+    def test_typescript_object_literal_container(self, tmp_path):
+        src = (
+            "export const api = { get() { return 1; }, post: () => 2, value: 3 };\n"
+            "export function use() { return api.get(); }\n"
+        )
+        nodes, edges = self._parse(src, "ts", tmp_path)
+        api = next(n for n in nodes if n.name == "api")
+        assert api.kind == "Class"
+        assert api.extra.get("type_role") == "object"
+        members = {n.name for n in nodes if n.kind == "Function" and n.parent_name == "api"}
+        assert members == {"get", "post"}
+        assert not any(n.name == "get" and n.parent_name is None for n in nodes)
+        assert any(
+            e.kind == "CALLS" and e.source.endswith("::use") and e.target.endswith("::api.get")
+            for e in edges
+        )
+
     def test_typescript_constructor_and_method_call_resolution(self, tmp_path):
         src = """
 interface Repo { find(): void; }

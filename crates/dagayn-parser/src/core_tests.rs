@@ -3811,6 +3811,150 @@ function helper() {}
 }
 
 #[test]
+fn parses_typescript_object_literal_containers() {
+    let source = br#"export const api = {
+  get(id: string) { return this.put() + fetchIt(id); },
+  post: () => fetchIt("p"),
+  put: function () { return 1; },
+  "quoted": () => 2,
+  nested: { deep() { fetchIt("d"); } },
+  value: 3,
+  fetchIt,
+};
+const cfg = { a: 1 } as const;
+const routes = { list() { return fetchIt("l"); } } satisfies Routes;
+function fetchIt(id: string) { return id; }
+function useLocal() {
+  const local = { m() { fetchIt("m"); } };
+  register({ n() { fetchIt("n"); } });
+  return local;
+}
+"#;
+    for (file, language) in [("api.ts", "typescript"), ("api.js", "javascript")] {
+        let source = if language == "javascript" {
+            String::from_utf8_lossy(source)
+                .replace("(id: string)", "(id)")
+                .replace(" satisfies Routes", "")
+                .replace(" as const", "")
+                .into_bytes()
+        } else {
+            source.to_vec()
+        };
+        let (nodes, edges) = parse_javascript_like(file, &source, language);
+        let has_node = |kind: &str, name: &str, parent: Option<&str>| {
+            nodes.iter().any(|node| {
+                node.kind == kind && node.name == name && node.parent_name.as_deref() == parent
+            })
+        };
+        let qn = |name: &str| format!("{file}::{name}");
+        assert!(
+            nodes.iter().any(|node| {
+                node.kind == "Class" && node.name == "api" && node.extra["type_role"] == "object"
+            }),
+            "{file}: {nodes:?}"
+        );
+        for member in ["get", "post", "put", "quoted"] {
+            assert!(
+                has_node("Function", member, Some("api")),
+                "{file}: api.{member}"
+            );
+        }
+        assert!(has_node("Class", "nested", Some("api")));
+        assert!(has_node("Function", "deep", Some("api.nested")));
+        assert!(has_node("Class", "routes", None));
+        assert!(has_node("Function", "list", Some("routes")));
+        assert!(
+            !nodes
+                .iter()
+                .any(|node| node.name == "cfg" || node.name == "value")
+        );
+        for name in ["get", "deep", "m", "n", "list"] {
+            assert!(
+                !has_node("Function", name, None),
+                "{file}: {name} must not be top-level"
+            );
+        }
+        assert!(
+            !nodes
+                .iter()
+                .any(|node| node.name == "m" || node.name == "n")
+        );
+        for (source, target) in [
+            (file.to_string(), qn("api")),
+            (qn("api"), qn("api.get")),
+            (qn("api"), qn("api.nested")),
+            (qn("api.nested"), qn("api.nested.deep")),
+        ] {
+            assert!(
+                edges.iter().any(|edge| {
+                    edge.kind == "CONTAINS" && edge.source == source && edge.target == target
+                }),
+                "{file}: CONTAINS {source} -> {target}"
+            );
+        }
+        for caller in [
+            "api.get",
+            "api.post",
+            "api.nested.deep",
+            "routes.list",
+            "useLocal",
+        ] {
+            assert!(
+                edges.iter().any(|edge| {
+                    edge.kind == "CALLS"
+                        && edge.source == qn(caller)
+                        && edge.target == qn("fetchIt")
+                }),
+                "{file}: CALLS {caller} -> fetchIt: {edges:?}"
+            );
+        }
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "REFERENCES" && edge.source == file && edge.target == qn("fetchIt")
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "CALLS" && edge.source == qn("api.get") && edge.target == qn("api.put")
+        }));
+    }
+}
+
+#[test]
+fn does_not_resolve_unrelated_member_calls_to_object_methods() {
+    let source = br#"import express from "express";
+const app = express();
+export const api = {
+  get() { return 1; },
+  nested: { deep() { return 2; } },
+};
+app.get("/users", (req, res) => res.json([]));
+export function useApi() {
+  api.get();
+  api.nested.deep();
+  api.missing();
+}
+"#;
+    let (_nodes, edges) = parse_javascript_like("server.ts", source, "typescript");
+    assert!(
+        !edges.iter().any(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == "server.ts"
+                && (edge.target == "server.ts::get" || edge.target == "server.ts::api.get")
+        }),
+        "{edges:?}"
+    );
+    for target in ["server.ts::api.get", "server.ts::api.nested.deep"] {
+        assert!(
+            edges.iter().any(|edge| {
+                edge.kind == "CALLS" && edge.source == "server.ts::useApi" && edge.target == target
+            }),
+            "missing CALLS useApi -> {target}: {edges:?}"
+        );
+    }
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "CALLS" && edge.source == "server.ts::useApi" && edge.target == "missing"
+    }));
+}
+
+#[test]
 fn parses_typescript_constructors_reexports_and_interface_methods() {
     let source = br#"
 export { Repo } from "./other";

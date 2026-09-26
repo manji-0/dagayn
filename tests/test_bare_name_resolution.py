@@ -197,6 +197,39 @@ class TestResolveBareCallTargets:
         assert row["target_qualified"] == "a.py::helper"
         assert row["confidence_tier"] == "MEDIUM"
 
+    def test_object_literal_members_are_not_bare_call_candidates(self, tmp_path):
+        """`const api = { get() {} }` members are reachable only as `api.get`.
+
+        Express's `app.get(...)` in a file that imports the module must not
+        bind to `api.get` just because the member is named `get`.
+        """
+        store = GraphStore(tmp_path / "object_members.db")
+        store.upsert_node(_node("File", "functions.ts", "functions.ts"))
+        store.upsert_node(_node("Class", "api", "functions.ts", type_role="object"))
+        store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="get",
+                file_path="functions.ts",
+                line_start=1,
+                line_end=2,
+                language="typescript",
+                parent_name="api",
+            )
+        )
+        store.upsert_node(_node("File", "express.ts", "express.ts"))
+        store.upsert_edge(_edge("IMPORTS_FROM", "express.ts", "functions.ts", "express.ts"))
+        store.upsert_edge(_edge("CALLS", "express.ts", "get", "express.ts"))
+        store.commit()
+
+        assert resolve_bare_call_targets(store) == 0
+        row = (
+            store_conn(store)
+            .execute("SELECT target_qualified FROM edges WHERE kind='CALLS'")
+            .fetchone()
+        )
+        assert row["target_qualified"] == "get"
+
 
 class TestResolveBareInheritanceTargets:
     def test_resolves_inherits_via_import(self, tmp_path):

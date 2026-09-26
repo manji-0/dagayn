@@ -21,6 +21,19 @@ All notable changes to `dagayn` are documented here.
   with members under `X`, and `new X()` / `x.m()` bind to it. Members of
   unbound class expressions (for example a mixin's `return class extends
   Base { ... }`) are no longer flattened into top-level functions.
+- Module-scope object literals with function-valued members are containers:
+  `export const api = { get() {}, post: () => {}, put: function () {} }` is
+  `Class api` (`type_role: "object"`) holding `api.get`, `api.post`, and
+  `api.put`, with one nested level (`api.nested.deep`); `as const`,
+  `satisfies`, and `export default { ... }` are covered. Before, `get` was a
+  top-level function, `post` / `put` had no node, and a full build resolved
+  Express's `app.get(...)` to that flattened `get`. Container members are
+  never bare-name candidates (same-file fallback or post-processing
+  `resolve_bare_call_targets`); `api.get()`, `api.nested.deep()`, and
+  `this.m()` inside a member resolve to the member. Methods of object
+  literals inside functions or arguments are no longer top-level nodes;
+  their calls stay with the enclosing node. Dead-code analysis skips
+  `object`, `namespace`, and `ambient_module` containers.
 
 ### Removed
 

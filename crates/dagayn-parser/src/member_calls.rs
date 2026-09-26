@@ -47,6 +47,10 @@ impl MemberCallBindings {
         }
     }
 
+    pub(super) fn is_bound(&self, receiver: &str) -> bool {
+        self.bindings.contains_key(receiver)
+    }
+
     pub(super) fn resolve_member(&self, receiver: &str, method: &str) -> Option<String> {
         let type_name = self.bindings.get(receiver)?;
         Some(format!("{type_name}::{method}"))

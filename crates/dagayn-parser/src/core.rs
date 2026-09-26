@@ -718,6 +718,16 @@ pub(super) fn resolve_rust_call_targets(
     file_path: &str,
 ) -> Vec<ParsedEdge> {
     let mut symbols = HashMap::<String, Vec<(Option<String>, String)>>::new();
+    // JavaScript object-literal containers (`const api = { get() {} }`):
+    // their members are reachable only as `api.get`, never by a bare name.
+    let object_owners = nodes
+        .iter()
+        .filter(|node| node.kind == NodeKind::Class && node.extra["type_role"] == "object")
+        .map(|node| match node.parent_name.as_deref() {
+            Some(parent) => format!("{parent}.{}", node.name),
+            None => node.name.clone(),
+        })
+        .collect::<HashSet<_>>();
     for node in nodes {
         if !matches!(
             node.kind,
@@ -738,8 +748,13 @@ pub(super) fn resolve_rust_call_targets(
         .into_iter()
         .map(|mut edge| {
             if matches!(edge.kind, EdgeKind::Calls | EdgeKind::References)
-                && let Some(target) =
-                    resolve_same_file_call_target(file_path, &edge.source, &edge.target, &symbols)
+                && let Some(target) = resolve_same_file_call_target(
+                    file_path,
+                    &edge.source,
+                    &edge.target,
+                    &symbols,
+                    &object_owners,
+                )
             {
                 edge.target = target;
             }
@@ -753,6 +768,7 @@ fn resolve_same_file_call_target(
     caller: &str,
     target: &str,
     symbols: &HashMap<String, Vec<(Option<String>, String)>>,
+    object_owners: &HashSet<String>,
 ) -> Option<String> {
     if let Some(resolved) = resolve_type_scoped_call(file_path, target, symbols) {
         return Some(resolved);
@@ -762,7 +778,11 @@ fn resolve_same_file_call_target(
     let top_level = candidates.iter().find(|(parent, _)| parent.is_none());
     let methods = candidates
         .iter()
-        .filter(|(parent, _)| parent.is_some())
+        .filter(|(parent, _)| {
+            parent
+                .as_deref()
+                .is_some_and(|parent| !object_owners.contains(parent))
+        })
         .collect::<Vec<_>>();
     if target.contains("::") {
         // Keep `file::helper` for a real top-level symbol. Rewrite `file::find`

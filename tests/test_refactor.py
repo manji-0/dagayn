@@ -799,6 +799,39 @@ class TestFindDeadCode:
         assert "/repo/src/events.jl::BaseEvent" not in dead_qnames
         assert "/repo/src/worker.py::ConcreteWorker" in dead_qnames
 
+    def test_find_dead_code_excludes_scope_containers(self):
+        """Object-literal containers and namespaces group members; not dead code."""
+        for name, role in (("api", "object"), ("Outer", "namespace"), ("ext", "ambient_module")):
+            self.store.upsert_node(
+                NodeInfo(
+                    kind="Class",
+                    name=name,
+                    file_path="/repo/src/api.ts",
+                    line_start=1,
+                    line_end=5,
+                    language="typescript",
+                    extra={"type_role": role},
+                )
+            )
+        self.store.upsert_node(
+            NodeInfo(
+                kind="Class",
+                name="Unused",
+                file_path="/repo/src/api.ts",
+                line_start=6,
+                line_end=9,
+                language="typescript",
+                extra={"type_role": "class"},
+            )
+        )
+        self.store.commit()
+
+        dead_qnames = {d["qualified_name"] for d in find_dead_code(self.store)}
+
+        for name in ("api", "Outer", "ext"):
+            assert f"/repo/src/api.ts::{name}" not in dead_qnames
+        assert "/repo/src/api.ts::Unused" in dead_qnames
+
     def test_find_dead_code_excludes_value_containers(self):
         """Value/data containers are data model assets, not dead-code candidates."""
         cases = [

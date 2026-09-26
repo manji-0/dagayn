@@ -62,6 +62,9 @@ _STRUCTURAL_CLASS_ROLES = frozenset(
     {"interface", "trait", "abstract_class", "abstract_type", "implementation"}
 )
 _VALUE_CONTAINER_CLASS_ROLES = frozenset({"struct", "enum", "record"})
+# Scope containers group members (TypeScript namespaces and ambient modules,
+# JavaScript object-literal containers); they are not deletion targets.
+_SCOPE_CONTAINER_CLASS_ROLES = frozenset({"object", "namespace", "ambient_module"})
 _VALUE_CONTAINER_DERIVE_TRAITS = frozenset({"Serialize", "Deserialize"})
 
 # Configuration / manifest languages are not executable deletion targets.
@@ -230,6 +233,13 @@ def _is_structural_type_node(node: Any) -> bool:
     return False
 
 
+def _is_scope_container_node(node: Any) -> bool:
+    if node.kind != "Class":
+        return False
+    extra = node.extra if isinstance(node.extra, dict) else {}
+    return extra.get("type_role") in _SCOPE_CONTAINER_CLASS_ROLES
+
+
 def _has_value_container_metadata(extra: DeadPayload) -> bool:
     if extra.get("container_role") == "data_container":
         return True
@@ -340,6 +350,8 @@ def _survives_dead_code_node_filters(
     if node.kind == "Class" and has_framework_decorator(node):
         return False
     if _is_structural_type_node(node):
+        return False
+    if _is_scope_container_node(node):
         return False
     if _is_value_container_type_node(node):
         return False

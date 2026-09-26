@@ -94,6 +94,7 @@ pub(super) fn parse_javascript_like_interned(
         collect_javascript_type_names(root, source, &mut type_names);
         let mut import_map = HashMap::new();
         collect_javascript_import_map(root, source, &mut import_map);
+        let object_members = collect_javascript_object_members(root, source);
         let context = JavaScriptParseContext {
             source,
             file_path: file_path.clone(),
@@ -101,6 +102,7 @@ pub(super) fn parse_javascript_like_interned(
             test_file,
             defined_names: &defined_names,
             import_map: &import_map,
+            object_members: &object_members,
             repo_root,
             caches,
             bindings: RefCell::new(MemberCallBindings::with_types(type_names)),
@@ -126,162 +128,7 @@ fn javascript_walk_children(
 ) {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        match child.kind() {
-            "class_declaration"
-            | "abstract_class_declaration"
-            | "class"
-            | "interface_declaration"
-            | "type_alias_declaration"
-            | "enum_declaration" => {
-                if let Some(name) = javascript_named_child(
-                    child,
-                    context.source,
-                    &["identifier", "type_identifier"],
-                ) {
-                    javascript_emit_class_node(
-                        child,
-                        &name,
-                        json!({}),
-                        context,
-                        enclosing_class,
-                        nodes,
-                        edges,
-                    );
-                    continue;
-                }
-                if child.kind() == "class" {
-                    javascript_walk_unbound_class(
-                        child,
-                        context,
-                        enclosing_class,
-                        enclosing_func,
-                        nodes,
-                        edges,
-                    );
-                    continue;
-                }
-            }
-            "function_declaration"
-            | "generator_function_declaration"
-            | "method_definition"
-            | "method_signature"
-            | "abstract_method_signature"
-            | "function_signature"
-            | "arrow_function"
-                if javascript_emit_function_node(child, context, enclosing_class, nodes, edges) =>
-            {
-                if let Some(name) = javascript_function_name(child, context.source) {
-                    let snapshot = context.bindings.borrow().snapshot();
-                    if let Some(class_name) = enclosing_class {
-                        context
-                            .bindings
-                            .borrow_mut()
-                            .bind_implicit_receivers(class_name);
-                    }
-                    javascript_walk_children(
-                        child,
-                        context,
-                        enclosing_class,
-                        Some(&name),
-                        nodes,
-                        edges,
-                    );
-                    context.bindings.borrow_mut().restore(snapshot);
-                }
-                continue;
-            }
-            "lexical_declaration" | "variable_declaration"
-                if javascript_emit_variable_functions(
-                    child,
-                    context,
-                    enclosing_class,
-                    nodes,
-                    edges,
-                ) =>
-            {
-                continue;
-            }
-            "public_field_definition"
-                if javascript_emit_field_function(
-                    child,
-                    context,
-                    enclosing_class,
-                    nodes,
-                    edges,
-                ) =>
-            {
-                continue;
-            }
-            "import_statement" | "export_statement" => {
-                for target in javascript_import_targets(child, context.source) {
-                    let resolved = resolve_javascript_module(
-                        &target,
-                        &context.file_path,
-                        context.repo_root,
-                        context.caches,
-                    )
-                    .unwrap_or(target);
-                    edges.push(ParsedEdge {
-                        kind: crate::core::types::EdgeKind::ImportsFrom,
-                        source: context.file_path.to_string(),
-                        target: resolved,
-                        file_path: context.file_path.clone(),
-                        line: child.start_position().row as i64 + 1,
-                        extra: json!({}),
-                    });
-                }
-                if child.kind() == "import_statement" {
-                    continue;
-                }
-                if javascript_emit_default_export(
-                    child,
-                    context,
-                    enclosing_class,
-                    enclosing_func,
-                    nodes,
-                    edges,
-                ) {
-                    continue;
-                }
-            }
-            "call_expression" | "new_expression"
-                if javascript_emit_call(
-                    child,
-                    context,
-                    enclosing_class,
-                    enclosing_func,
-                    nodes,
-                    edges,
-                ) =>
-            {
-                continue;
-            }
-            "class_heritage" | "extends_type_clause" => continue,
-            "jsx_opening_element" | "jsx_self_closing_element" => {
-                javascript_emit_jsx_component_call(
-                    child,
-                    context,
-                    enclosing_class,
-                    enclosing_func,
-                    edges,
-                );
-            }
-            "pair"
-            | "assignment_expression"
-            | "array"
-            | "arguments"
-            | "shorthand_property_identifier" => {
-                javascript_emit_value_references(
-                    child,
-                    context,
-                    enclosing_class,
-                    enclosing_func,
-                    edges,
-                );
-            }
-            _ => {}
-        }
-        javascript_walk_children(
+        javascript_walk_node(
             child,
             context,
             enclosing_class,
@@ -289,8 +136,508 @@ fn javascript_walk_children(
             nodes,
             edges,
         );
-        javascript_bind_declarator(child, context);
-        javascript_bind_assignment(child, context);
+    }
+}
+
+/// Extracts one syntax node and, unless an arm consumes it, its subtree.
+fn javascript_walk_node(
+    child: tree_sitter::Node<'_>,
+    context: &JavaScriptParseContext<'_>,
+    enclosing_class: Option<&str>,
+    enclosing_func: Option<&str>,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    match child.kind() {
+        "class_declaration"
+        | "abstract_class_declaration"
+        | "class"
+        | "interface_declaration"
+        | "type_alias_declaration"
+        | "enum_declaration" => {
+            if let Some(name) =
+                javascript_named_child(child, context.source, &["identifier", "type_identifier"])
+            {
+                javascript_emit_class_node(
+                    child,
+                    &name,
+                    json!({}),
+                    context,
+                    enclosing_class,
+                    nodes,
+                    edges,
+                );
+                return;
+            }
+            if child.kind() == "class" {
+                javascript_walk_unbound_class(
+                    child,
+                    context,
+                    enclosing_class,
+                    enclosing_func,
+                    nodes,
+                    edges,
+                );
+                return;
+            }
+        }
+        "method_definition"
+            if child
+                .parent()
+                .is_some_and(|parent| parent.kind() == "object") =>
+        {
+            // A method of an object literal that is not a module-scope
+            // container (function-local, argument, deeper nesting): nothing
+            // can name it, so its calls stay with the enclosing node.
+            if let Some(body) = child.child_by_field_name("body") {
+                javascript_walk_children(
+                    body,
+                    context,
+                    enclosing_class,
+                    enclosing_func,
+                    nodes,
+                    edges,
+                );
+            }
+            return;
+        }
+        "function_declaration"
+        | "generator_function_declaration"
+        | "method_definition"
+        | "method_signature"
+        | "abstract_method_signature"
+        | "function_signature"
+        | "arrow_function"
+            if javascript_emit_function_node(child, context, enclosing_class, nodes, edges) =>
+        {
+            if let Some(name) = javascript_function_name(child, context.source) {
+                let snapshot = context.bindings.borrow().snapshot();
+                if let Some(class_name) = enclosing_class {
+                    context
+                        .bindings
+                        .borrow_mut()
+                        .bind_implicit_receivers(class_name);
+                }
+                javascript_walk_children(
+                    child,
+                    context,
+                    enclosing_class,
+                    Some(&name),
+                    nodes,
+                    edges,
+                );
+                context.bindings.borrow_mut().restore(snapshot);
+            }
+            return;
+        }
+        "lexical_declaration" | "variable_declaration"
+            if javascript_emit_variable_functions(
+                child,
+                context,
+                enclosing_class,
+                nodes,
+                edges,
+            ) =>
+        {
+            return;
+        }
+        "public_field_definition"
+            if javascript_emit_field_function(child, context, enclosing_class, nodes, edges) =>
+        {
+            return;
+        }
+        "import_statement" | "export_statement" => {
+            for target in javascript_import_targets(child, context.source) {
+                let resolved = resolve_javascript_module(
+                    &target,
+                    &context.file_path,
+                    context.repo_root,
+                    context.caches,
+                )
+                .unwrap_or(target);
+                edges.push(ParsedEdge {
+                    kind: crate::core::types::EdgeKind::ImportsFrom,
+                    source: context.file_path.to_string(),
+                    target: resolved,
+                    file_path: context.file_path.clone(),
+                    line: child.start_position().row as i64 + 1,
+                    extra: json!({}),
+                });
+            }
+            if child.kind() == "import_statement" {
+                return;
+            }
+            if javascript_emit_default_export(
+                child,
+                context,
+                enclosing_class,
+                enclosing_func,
+                nodes,
+                edges,
+            ) {
+                return;
+            }
+        }
+        "call_expression" | "new_expression"
+            if javascript_emit_call(
+                child,
+                context,
+                enclosing_class,
+                enclosing_func,
+                nodes,
+                edges,
+            ) =>
+        {
+            return;
+        }
+        "class_heritage" | "extends_type_clause" => return,
+        "jsx_opening_element" | "jsx_self_closing_element" => {
+            javascript_emit_jsx_component_call(
+                child,
+                context,
+                enclosing_class,
+                enclosing_func,
+                edges,
+            );
+        }
+        "pair"
+        | "assignment_expression"
+        | "array"
+        | "arguments"
+        | "shorthand_property_identifier" => {
+            javascript_emit_value_references(
+                child,
+                context,
+                enclosing_class,
+                enclosing_func,
+                edges,
+            );
+        }
+        _ => {}
+    }
+    javascript_walk_children(
+        child,
+        context,
+        enclosing_class,
+        enclosing_func,
+        nodes,
+        edges,
+    );
+    javascript_bind_declarator(child, context);
+    javascript_bind_assignment(child, context);
+}
+
+/// A function-valued or nested-container member of an object literal.
+enum JavaScriptObjectMember<'tree> {
+    /// `k() {}`, `k: () => {}`, `k: function () {}`; `value` is the
+    /// function literal (the method itself for `method_definition`).
+    Function {
+        name: String,
+        member: tree_sitter::Node<'tree>,
+        value: tree_sitter::Node<'tree>,
+    },
+    /// `k: { ... }` whose object has function-valued members of its own.
+    Container {
+        name: String,
+        member: tree_sitter::Node<'tree>,
+        object: tree_sitter::Node<'tree>,
+    },
+}
+
+/// Strips `( ... )`, `as T` / `as const`, and `satisfies T` around an object
+/// literal.
+fn javascript_unwrap_object(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
+    let mut current = node;
+    loop {
+        match current.kind() {
+            "object" => return Some(current),
+            "parenthesized_expression" | "as_expression" | "satisfies_expression" => {
+                current = current.named_child(0)?;
+            }
+            _ => return None,
+        }
+    }
+}
+
+fn javascript_object_key_name(key: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    match key.kind() {
+        "property_identifier" | "identifier" | "private_property_identifier" => {
+            Some(node_text(key, source))
+        }
+        "string" => {
+            Some(decode_javascript_string_literal(key, source)).filter(|name| !name.is_empty())
+        }
+        _ => None,
+    }
+}
+
+/// Function-valued members of `object`, plus (when `allow_nested`) nested
+/// objects that themselves have function-valued members. One nesting level
+/// is modeled; deeper objects are walked without nodes.
+fn javascript_object_members<'tree>(
+    object: tree_sitter::Node<'tree>,
+    source: &[u8],
+    allow_nested: bool,
+) -> Vec<JavaScriptObjectMember<'tree>> {
+    let mut members = Vec::new();
+    let mut cursor = object.walk();
+    for member in object.named_children(&mut cursor) {
+        match member.kind() {
+            "method_definition" => {
+                if let Some(name) = member
+                    .child_by_field_name("name")
+                    .and_then(|key| javascript_object_key_name(key, source))
+                {
+                    members.push(JavaScriptObjectMember::Function {
+                        name,
+                        member,
+                        value: member,
+                    });
+                }
+            }
+            "pair" => {
+                let (Some(name), Some(value)) = (
+                    member
+                        .child_by_field_name("key")
+                        .and_then(|key| javascript_object_key_name(key, source)),
+                    member.child_by_field_name("value"),
+                ) else {
+                    continue;
+                };
+                if is_javascript_function_value(value.kind()) {
+                    members.push(JavaScriptObjectMember::Function {
+                        name,
+                        member,
+                        value,
+                    });
+                } else if allow_nested
+                    && let Some(nested) = javascript_unwrap_object(value)
+                    && !javascript_object_members(nested, source, false).is_empty()
+                {
+                    members.push(JavaScriptObjectMember::Container {
+                        name,
+                        member,
+                        object: nested,
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+    members
+}
+
+/// Module-scope declarations only: a `program` child, or the declaration of
+/// a top-level `export` statement.
+fn javascript_is_module_scope(node: tree_sitter::Node<'_>) -> bool {
+    match node.parent() {
+        Some(parent) if parent.kind() == "program" => true,
+        Some(parent) if parent.kind() == "export_statement" => parent
+            .parent()
+            .is_some_and(|grandparent| grandparent.kind() == "program"),
+        _ => false,
+    }
+}
+
+/// Module-scope object containers: `(binding name, object literal)` for
+/// `const X = { ... }` and `("default", object)` for `export default { ... }`.
+fn javascript_module_object_containers<'tree>(
+    statement: tree_sitter::Node<'tree>,
+    source: &[u8],
+) -> Vec<(String, tree_sitter::Node<'tree>)> {
+    let mut containers = Vec::new();
+    match statement.kind() {
+        "lexical_declaration" | "variable_declaration" if javascript_is_module_scope(statement) => {
+            let mut cursor = statement.walk();
+            for declarator in statement.named_children(&mut cursor) {
+                if declarator.kind() != "variable_declarator" {
+                    continue;
+                }
+                let (Some(name), Some(object)) = (
+                    declarator
+                        .child_by_field_name("name")
+                        .filter(|name| name.kind() == "identifier"),
+                    declarator
+                        .child_by_field_name("value")
+                        .and_then(javascript_unwrap_object),
+                ) else {
+                    continue;
+                };
+                if !javascript_object_members(object, source, true).is_empty() {
+                    containers.push((node_text(name, source), object));
+                }
+            }
+        }
+        "export_statement" if javascript_is_module_scope(statement) => {
+            let mut cursor = statement.walk();
+            let is_default = statement
+                .children(&mut cursor)
+                .any(|child| child.kind() == "default");
+            if let Some(object) = statement
+                .child_by_field_name("value")
+                .and_then(javascript_unwrap_object)
+                .filter(|_| is_default)
+                .filter(|object| !javascript_object_members(*object, source, true).is_empty())
+            {
+                containers.push(("default".to_string(), object));
+            }
+        }
+        _ => {}
+    }
+    containers
+}
+
+/// Owner paths of every object-container member in the file
+/// (`api.get`, `api.nested`, `api.nested.deep`), used to bind
+/// `api.nested.deep()` before any node exists.
+pub(super) fn collect_javascript_object_members(
+    root: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> HashSet<String> {
+    let mut paths = HashSet::new();
+    let mut cursor = root.walk();
+    for statement in root.named_children(&mut cursor) {
+        let statement = match statement.kind() {
+            "export_statement" => statement
+                .child_by_field_name("declaration")
+                .unwrap_or(statement),
+            _ => statement,
+        };
+        for (name, object) in javascript_module_object_containers(statement, source) {
+            collect_javascript_object_member_paths(object, source, &name, true, &mut paths);
+        }
+    }
+    paths
+}
+
+fn collect_javascript_object_member_paths(
+    object: tree_sitter::Node<'_>,
+    source: &[u8],
+    owner: &str,
+    allow_nested: bool,
+    paths: &mut HashSet<String>,
+) {
+    for member in javascript_object_members(object, source, allow_nested) {
+        match member {
+            JavaScriptObjectMember::Function { name, .. } => {
+                paths.insert(format!("{owner}.{name}"));
+            }
+            JavaScriptObjectMember::Container { name, object, .. } => {
+                let path = format!("{owner}.{name}");
+                collect_javascript_object_member_paths(object, source, &path, false, paths);
+                paths.insert(path);
+            }
+        }
+    }
+}
+
+/// Emits `Class <name>` (`type_role: "object"`) for an object literal and
+/// its function-valued members under the container's owner path. Other
+/// members (data, shorthand references, deeper objects) are walked for
+/// edges with the container's own caller, without creating nodes.
+#[allow(clippy::too_many_arguments)]
+fn javascript_emit_object_container(
+    declaration: tree_sitter::Node<'_>,
+    object: tree_sitter::Node<'_>,
+    name: &str,
+    additions: Value,
+    allow_nested: bool,
+    context: &JavaScriptParseContext<'_>,
+    enclosing_class: Option<&str>,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let mut extra = json!({"type_role": "object"});
+    if let (Some(map), Value::Object(additions)) = (extra.as_object_mut(), additions) {
+        map.extend(additions);
+    }
+    nodes.push(ParsedNode {
+        kind: crate::core::types::NodeKind::Class,
+        name: name.to_string(),
+        file_path: context.file_path.clone(),
+        line_start: declaration.start_position().row as i64 + 1,
+        line_end: declaration.end_position().row as i64 + 1,
+        language: context.language.to_string(),
+        parent_name: enclosing_class.map(str::to_string),
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra,
+    });
+    edges.push(ParsedEdge {
+        kind: crate::core::types::EdgeKind::Contains,
+        source: javascript_container_qn(context, enclosing_class),
+        target: qualify(&context.file_path, name, enclosing_class),
+        file_path: context.file_path.clone(),
+        line: declaration.start_position().row as i64 + 1,
+        extra: json!({}),
+    });
+    let owner = enclosing_class
+        .map(|parent| format!("{parent}.{name}"))
+        .unwrap_or_else(|| name.to_string());
+    let mut handled = HashSet::new();
+    for member in javascript_object_members(object, context.source, allow_nested) {
+        match member {
+            JavaScriptObjectMember::Function {
+                name,
+                member,
+                value,
+            } => {
+                handled.insert(member.id());
+                javascript_emit_bound_function(
+                    member,
+                    value,
+                    &name,
+                    json!({}),
+                    context,
+                    Some(&owner),
+                    nodes,
+                    edges,
+                );
+            }
+            JavaScriptObjectMember::Container {
+                name,
+                member,
+                object,
+            } => {
+                handled.insert(member.id());
+                javascript_emit_object_container(
+                    member,
+                    object,
+                    &name,
+                    json!({}),
+                    false,
+                    context,
+                    Some(&owner),
+                    nodes,
+                    edges,
+                );
+            }
+        }
+    }
+    let mut cursor = object.walk();
+    for member in object.named_children(&mut cursor) {
+        if !handled.contains(&member.id()) {
+            javascript_walk_node(member, context, None, None, nodes, edges);
+        }
+    }
+}
+
+/// Whether `node` is `declarator` or one of the wrappers between the
+/// declarator and its object literal (`as`, `satisfies`, parentheses).
+fn javascript_declarator_owns(
+    declarator: tree_sitter::Node<'_>,
+    mut node: tree_sitter::Node<'_>,
+) -> bool {
+    loop {
+        if node.id() == declarator.id() {
+            return true;
+        }
+        match node.parent() {
+            Some(parent) => node = parent,
+            None => return false,
+        }
     }
 }
 
@@ -450,6 +797,23 @@ fn javascript_emit_default_export(
     let Some(value) = node.child_by_field_name("value") else {
         return false;
     };
+    if let Some((name, object)) = javascript_module_object_containers(node, context.source)
+        .into_iter()
+        .next()
+    {
+        javascript_emit_object_container(
+            node,
+            object,
+            &name,
+            json!({"export_default": true, "anonymous": true}),
+            true,
+            context,
+            enclosing_class,
+            nodes,
+            edges,
+        );
+        return true;
+    }
     match value.kind() {
         "class" => {
             let (name, additions) = match value.child_by_field_name("name") {
@@ -543,7 +907,9 @@ fn javascript_emit_bound_function(
         extra: json!({}),
     });
     let snapshot = context.bindings.borrow().snapshot();
-    if let Some(class_name) = enclosing_class {
+    // `this.m()` binds through `Owner::m`, which only single-segment owners
+    // can express.
+    if let Some(class_name) = enclosing_class.filter(|owner| !owner.contains('.')) {
         context
             .bindings
             .borrow_mut()
@@ -623,9 +989,29 @@ fn javascript_emit_variable_functions(
     edges: &mut Vec<ParsedEdge>,
 ) -> bool {
     let mut handled = false;
+    let containers = javascript_module_object_containers(node, context.source);
     let mut cursor = node.walk();
     for declarator in node.children(&mut cursor) {
         if declarator.kind() != "variable_declarator" {
+            continue;
+        }
+        if let Some((name, object)) = containers.iter().find(|(_, object)| {
+            object
+                .parent()
+                .is_some_and(|parent| javascript_declarator_owns(declarator, parent))
+        }) {
+            javascript_emit_object_container(
+                node,
+                *object,
+                name,
+                json!({}),
+                true,
+                context,
+                enclosing_class,
+                nodes,
+                edges,
+            );
+            handled = true;
             continue;
         }
         let mut name = None;
@@ -854,7 +1240,7 @@ fn javascript_emit_call(
     let caller = enclosing_func
         .map(|func| qualify(&context.file_path, func, enclosing_class))
         .unwrap_or_else(|| context.file_path.to_string());
-    let target = javascript_bound_member_target(node, context)
+    let target = javascript_bound_member_target(node, context, enclosing_class)
         .unwrap_or_else(|| resolve_javascript_call_target(&call_name, context));
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Calls,
@@ -1315,14 +1701,65 @@ fn javascript_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<St
 fn javascript_bound_member_target(
     node: tree_sitter::Node<'_>,
     context: &JavaScriptParseContext<'_>,
+    enclosing_class: Option<&str>,
 ) -> Option<String> {
     let callee = javascript_callee_node(node)?;
     if callee.kind() != "member_expression" {
         return None;
     }
+    if let Some(target) = javascript_object_member_target(callee, context, enclosing_class) {
+        return Some(target);
+    }
     let method = javascript_rightmost_identifier(callee, context.source)?;
     let receiver = javascript_leftmost_identifier(callee, context.source)?;
     context.bindings.borrow().resolve_member(&receiver, &method)
+}
+
+/// `api.get()` / `api.nested.deep()` where `api` is a same-file object
+/// container and the member exists, and `this.m()` inside a container
+/// member when the container has `m`.
+fn javascript_object_member_target(
+    callee: tree_sitter::Node<'_>,
+    context: &JavaScriptParseContext<'_>,
+    enclosing_class: Option<&str>,
+) -> Option<String> {
+    if context.object_members.is_empty() {
+        return None;
+    }
+    if let (Some(owner), Some(object), Some(property)) = (
+        enclosing_class,
+        callee.child_by_field_name("object"),
+        callee.child_by_field_name("property"),
+    ) && object.kind() == "this"
+    {
+        let method = node_text(property, context.source);
+        return context
+            .object_members
+            .contains(&format!("{owner}.{method}"))
+            .then(|| qualify(&context.file_path, &method, Some(owner)));
+    }
+    let path = javascript_member_path(callee, context.source)?;
+    let (owner, method) = path.rsplit_once('.')?;
+    let root = owner.split('.').next()?;
+    if context.bindings.borrow().is_bound(root) || !context.object_members.contains(&path) {
+        return None;
+    }
+    Some(qualify(&context.file_path, method, Some(owner)))
+}
+
+/// Dotted text of a pure identifier member chain (`a.b.c`), or `None` when
+/// any segment is computed, a call, `this`, and so on.
+fn javascript_member_path(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    match node.kind() {
+        "identifier" => Some(node_text(node, source)),
+        "member_expression" => {
+            let object = javascript_member_path(node.child_by_field_name("object")?, source)?;
+            let property = node.child_by_field_name("property")?;
+            (property.kind() == "property_identifier")
+                .then(|| format!("{object}.{}", node_text(property, source)))
+        }
+        _ => None,
+    }
 }
 
 fn javascript_bind_declarator(node: tree_sitter::Node<'_>, context: &JavaScriptParseContext<'_>) {

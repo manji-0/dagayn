@@ -43,6 +43,8 @@ pub(super) struct JavaScriptParseContext<'a> {
     pub(super) test_file: bool,
     pub(super) defined_names: &'a HashSet<String>,
     pub(super) import_map: &'a HashMap<String, String>,
+    /// Owner paths of object-container members (`api.get`, `api.nested.deep`).
+    pub(super) object_members: &'a HashSet<String>,
     pub(super) repo_root: Option<&'a Path>,
     pub(super) caches: JavaScriptCaches<'a>,
     pub(super) bindings: RefCell<MemberCallBindings>,

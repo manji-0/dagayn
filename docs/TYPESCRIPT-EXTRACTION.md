@@ -260,8 +260,12 @@ were not nodes at all, and a full build resolved Express's `app.get(...)` to
 the flattened `get`. A container is created only when the object has at least
 one function-valued member; `as const`, `satisfies T`, and parentheses are
 unwrapped. One nesting level is modeled (`api.nested` becomes a container for
-`api.nested.deep`). Dead-code analysis excludes `object`, `namespace`, and
-`ambient_module` containers from its candidates.
+`api.nested.deep`). Container members are reachable only through the
+container: same-file `api.get()`, `api.nested.deep()`, and `this.m()` inside
+a member bind to the member, but a bare `get` never does, neither in the
+parser's same-file fallback nor in post-processing's bare-name resolution.
+Dead-code analysis excludes `object`, `namespace`, and `ambient_module`
+containers from its candidates.
 
 ### 7.4 Type references are `REFERENCES` everywhere
 

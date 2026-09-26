@@ -319,7 +319,18 @@ fn load_bare_name_index(
     let placeholders = std::iter::repeat_n("?", kinds.len())
         .collect::<Vec<_>>()
         .join(",");
-    let sql = format!("SELECT name, qualified_name FROM nodes WHERE kind IN ({placeholders})");
+    // Members of JavaScript object-literal containers (`const api = { get() {} }`,
+    // `type_role: "object"`) are reachable only through the container
+    // (`api.get()`), so a bare `get` call elsewhere must never bind to them.
+    let sql = format!(
+        "SELECT n.name, n.qualified_name FROM nodes n \
+         WHERE n.kind IN ({placeholders}) \
+           AND NOT (n.parent_name IS NOT NULL AND EXISTS ( \
+               SELECT 1 FROM nodes p \
+               WHERE p.qualified_name = n.file_path || '::' || n.parent_name \
+                 AND p.kind = 'Class' \
+                 AND json_extract(p.extra, '$.type_role') = 'object'))"
+    );
     let mut stmt = tx.prepare(&sql)?;
     let rows = stmt.query_map(rusqlite::params_from_iter(kinds), |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
