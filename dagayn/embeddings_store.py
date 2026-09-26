@@ -774,6 +774,7 @@ class EmbeddingStore:
         apply_wal_size_limit(self._conn)
         self._conn.executescript(_EMBEDDINGS_SCHEMA)
         _ensure_embeddings_schema(self._conn)
+        self._dimension_counts: dict[tuple[str, int], tuple[tuple[str, int], int]] = {}
         self.last_orphans_removed = 0
         #: Nodes still needing embedding after the last :meth:`embed_nodes` call.
         #: Non-zero only when a ``slice_seconds`` budget cut the pass short.
@@ -1296,10 +1297,29 @@ class EmbeddingStore:
                 "SELECT COUNT(*) FROM embeddings WHERE provider = ?",
                 (provider_name,),
             ).fetchone()[0]
-        return self._conn.execute(
-            "SELECT COUNT(*) FROM embeddings WHERE provider = ? AND length(vector) = ?",
-            (provider_name, _vector_byte_length(dimension)),
-        ).fetchone()[0]
+        # ``length(vector)`` is not in any index, so this count scans the whole
+        # table (~12 ms for 12k 1024-dim rows) and search health asks for it on
+        # every query. It only changes when the embeddings generation does.
+        key = (provider_name, dimension)
+        version = self._embeddings_version()
+        cached = self._dimension_counts.get(key)
+        if version is not None and cached is not None and cached[0] == version:
+            return cached[1]
+        count = int(
+            self._conn.execute(
+                "SELECT COUNT(*) FROM embeddings WHERE provider = ? AND length(vector) = ?",
+                (provider_name, _vector_byte_length(dimension)),
+            ).fetchone()[0]
+        )
+        if version is not None:
+            self._dimension_counts[key] = (version, count)
+        return count
+
+    def _embeddings_version(self) -> tuple[str, int] | None:
+        row = self._conn.execute(
+            "SELECT epoch, generation FROM embeddings_generation WHERE id = 1"
+        ).fetchone()
+        return (str(row[0]), int(row[1])) if row else None
 
     def stored_vector_dimension(self) -> int | None:
         """Return the dimension of the first stored vector for this provider, if any."""

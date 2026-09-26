@@ -674,6 +674,45 @@ class TestEmbeddingStore:
             )
             store.close()
 
+    def test_dimension_count_is_memoized_per_generation(self, tmp_path):
+        db = tmp_path / "embeddings.db"
+
+        class FakeProvider:
+            name = "fake"
+            preferred_batch_size = 1
+
+            def embed(self, texts):
+                return [[1.0] for _ in texts]
+
+            def embed_query(self, text):
+                return [1.0]
+
+            @property
+            def dimension(self):
+                return 1
+
+        def insert(conn, name):
+            conn.execute(
+                "INSERT INTO embeddings (qualified_name, vector, text_hash, provider)"
+                " VALUES (?, ?, 'h', 'fake')",
+                (name, _encode_vector([1.0])),
+            )
+
+        with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+            store = EmbeddingStore(db)
+            conn = store_conn(store)
+            insert(conn, "file.py::a")
+            assert store.count_provider(dimension=1) == 1
+
+            # A row slipped in without bumping the generation is not seen...
+            conn.execute("DROP TRIGGER embeddings_generation_insert")
+            insert(conn, "file.py::b")
+            assert store.count_provider(dimension=1) == 1
+            # ... until the generation moves.
+            conn.execute("UPDATE embeddings_generation SET generation = generation + 1")
+            assert store.count_provider(dimension=1) == 2
+            store.close()
+
     def test_remove_orphans_deletes_only_current_provider_rows(self, tmp_path):
         db = tmp_path / "embeddings.db"
 

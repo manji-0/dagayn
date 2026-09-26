@@ -886,11 +886,22 @@ def hybrid_search(
     query_tokens = _query_tokens(query)
     rerank_intent = _query_rerank_intent(query, query_tokens)
     embedding_text_mode = _embedding_text_mode_for_intent(rerank_intent)
-    embedding_health: SearchPayload = {}
 
     merged: list[tuple[int, float]] = []
     keyword_mode = False
     mode = "empty"
+
+    # One vector search serves every widening pass: the scan costs the same for
+    # any k, so each pass takes a prefix instead of scanning (and re-checking
+    # embedding health) again.
+    all_emb_results, embedding_health = _embedding_search_with_health(
+        store,
+        query,
+        limit=limit * (max_fetch_multiplier if kind else fetch_multiplier),
+        model=model,
+        provider=provider,
+        text_mode=embedding_text_mode,
+    )
 
     while fetch_multiplier <= max_fetch_multiplier:
         fetch_limit = limit * fetch_multiplier
@@ -944,15 +955,7 @@ def hybrid_search(
                 fts_health = {**fts_health, "status": "stale", "dropped_ghost_rows": dropped}
             fts_results = [(nid, score) for nid, score in fts_results if nid in valid_ids]
 
-        # Try embedding search
-        emb_results, embedding_health = _embedding_search_with_health(
-            store,
-            query,
-            limit=fetch_limit,
-            model=model,
-            provider=provider,
-            text_mode=embedding_text_mode,
-        )
+        emb_results = all_emb_results[:fetch_limit]
 
         keyword_mode = False
         if fts_results or emb_results:

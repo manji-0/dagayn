@@ -64,6 +64,12 @@ All notable changes to `dagayn` are documented here.
   `idx_edges_source_kind` serves). Every edge insert maintained all four. A
   vacuumed graph of this repository shrinks from 96.1 MB to 74.8 MB; query plans
   switch to the remaining indexes.
+- Semantic search health no longer scans the embeddings table on every query.
+  Counting vectors of the query's dimension filters on `length(vector)`, which
+  no index covers, so each search read the whole table (~12 ms for 12k BGE-M3
+  vectors). The count is now memoized per embeddings generation. With a `kind`
+  filter, the search also runs the vector arm once, sized for the widest pass,
+  instead of once per widening pass.
 
 ## 4.15.0 — 2026-09-25
 

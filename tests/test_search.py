@@ -1496,3 +1496,45 @@ class TestCachedEmbeddingStore:
         assert second is first
         assert isinstance(first, EmbeddingStore)
         assert len(_emb_cache) == 1
+
+
+def test_kind_widening_runs_one_embedding_search():
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    store = GraphStore(tmp.name)
+    try:
+        function_id = store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="handler",
+                file_path="app.py",
+                line_start=1,
+                line_end=2,
+                language="python",
+            ),
+            file_hash="h",
+        )
+        store = _PatchableStore(store)
+        store_conn(store).commit()
+        fts_limits: list[int] = []
+
+        def fts_query(query, limit):
+            fts_limits.append(limit)
+            return FtsQueryResult(hits=[(function_id, 0.5)], match_mode="and")
+
+        with (
+            patch.object(store, "fts_query", side_effect=fts_query),
+            patch(
+                "dagayn.search._embedding_search_with_health",
+                return_value=([(function_id, 0.9)], {"status": "available"}),
+            ) as embedding_search,
+        ):
+            hybrid_search(store, "handler", kind="Class", limit=5)
+
+        # No Class hit, so the FTS arm widens 12x -> 24x -> 48x ...
+        assert fts_limits == [60, 120, 240]
+        # ... while one vector search, sized for the widest pass, serves all three.
+        assert embedding_search.call_count == 1
+        assert embedding_search.call_args.kwargs["limit"] == 240
+    finally:
+        store.close()
+        Path(tmp.name).unlink(missing_ok=True)
