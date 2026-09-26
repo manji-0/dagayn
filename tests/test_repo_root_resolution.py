@@ -163,7 +163,7 @@ class TestRepoContext:
         assert "_repo" not in attach_repo_context({"status": "ok"})
 
     def test_mcp_wrapper_attaches_repo_to_responses(self, tmp_path, monkeypatch):
-        from dagayn import main
+        from dagayn.server import main
         from dagayn.tools import _common
 
         repo = _git_repo(tmp_path / "wrapped")
@@ -177,7 +177,7 @@ class TestRepoContext:
         assert payload["_repo"]["repo_root"] == str(repo)
 
     def test_mcp_wrapper_does_not_leak_a_previous_repo(self, tmp_path, monkeypatch):
-        from dagayn import main
+        from dagayn.server import main
         from dagayn.tools import _common
 
         repo = _git_repo(tmp_path / "stale")

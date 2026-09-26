@@ -3,7 +3,7 @@ from __future__ import annotations
 import inspect
 from typing import cast
 
-from dagayn import main as crg_main
+from dagayn.server import main as crg_main
 from dagayn.dependency_profiles import DependencyProfile
 from dagayn.state_types import ArchitectureAnalysisMode
 from dagayn.tools import architecture_analysis

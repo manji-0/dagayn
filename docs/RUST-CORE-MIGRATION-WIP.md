@@ -713,7 +713,7 @@ Parity acceptance: canonical JSON for all fixtures matches Python output exactly
 ### Phase 4: Python compatibility shell
 
 Delivered, then the leftover Python engine was deleted. `dagayn/cli.py`,
-`dagayn/main.py`, and `dagayn/tools/` still call the public `GraphStore` /
+`dagayn/server/main.py`, and `dagayn/tools/` still call the public `GraphStore` /
 flow / community / search / post-process APIs; those modules require
 `dagayn._core`.
 

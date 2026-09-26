@@ -177,7 +177,7 @@ class TestPromptsStayOnDefaultSurface:
     _MCP_TOOL_SPAN = re.compile(r"`([a-z][a-z0-9_]*_tool)(?:`|\()")
 
     def test_prompt_mcp_invocations_are_default_surface_tools(self):
-        from dagayn.main import _DEFAULT_MCP_TOOL_NAMES
+        from dagayn.server.main import _DEFAULT_MCP_TOOL_NAMES
 
         prompts = [
             review_changes_prompt(),

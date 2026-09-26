@@ -126,7 +126,7 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
     """Start the MCP server, optionally managing a local embedding server."""
     import os
 
-    from ...main import main as serve_main
+    from ...server.main import main as serve_main
 
     if args.port is not None and not args.http:
         serve_parser.error("--port requires --http")

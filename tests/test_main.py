@@ -15,7 +15,7 @@ import typing
 
 import pytest
 
-from dagayn import main as crg_main
+from dagayn.server import main as crg_main
 
 SPLIT_ARCHITECTURE_TOOL_NAMES = {
     "get_architecture_overview_tool",

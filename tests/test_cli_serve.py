@@ -61,7 +61,7 @@ def test_serve_local_embedding_sets_search_default_to_openai(monkeypatch):
         "dagayn.local_embeddings.local_embedding_server",
         lambda *_args, **_kwargs: FakeContext(),
     )
-    monkeypatch.setattr("dagayn.main.main", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setattr("dagayn.server.main.main", lambda **kwargs: calls.append(kwargs))
     monkeypatch.setenv("CRG_OPENAI_MODEL", "old-model")
 
     parser = _parser()
@@ -103,7 +103,7 @@ def test_serve_bare_local_embedding_uses_bge_sidecar(monkeypatch):
         def __exit__(self, *_args):
             return None
 
-    monkeypatch.setattr("dagayn.main.main", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setattr("dagayn.server.main.main", lambda **kwargs: calls.append(kwargs))
     monkeypatch.setattr(
         "dagayn.local_embeddings.local_embedding_server",
         lambda *_args, **_kwargs: FakeContext(),
@@ -121,7 +121,7 @@ def test_serve_bare_local_embedding_uses_bge_sidecar(monkeypatch):
 
 def test_serve_remote_embedding_sets_search_default(monkeypatch):
     calls: list[dict] = []
-    monkeypatch.setattr("dagayn.main.main", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setattr("dagayn.server.main.main", lambda **kwargs: calls.append(kwargs))
 
     parser = _parser()
     args = parser.parse_args(["serve", "--remote-embedding", "google"])
@@ -186,7 +186,7 @@ def test_serve_infers_local_embedding_from_existing_graph(monkeypatch, tmp_path)
         return FakeContext()
 
     monkeypatch.setattr("dagayn.local_embeddings.local_embedding_server", fake_server)
-    monkeypatch.setattr("dagayn.main.main", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setattr("dagayn.server.main.main", lambda **kwargs: calls.append(kwargs))
 
     parser = _parser()
     args = parser.parse_args(["serve", "--repo", str(repo)])
@@ -263,7 +263,7 @@ def test_serve_infers_bge_local_embedding_from_existing_graph(monkeypatch, tmp_p
         return FakeContext()
 
     monkeypatch.setattr("dagayn.local_embeddings.local_embedding_server", fake_server)
-    monkeypatch.setattr("dagayn.main.main", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setattr("dagayn.server.main.main", lambda **kwargs: calls.append(kwargs))
 
     parser = _parser()
     args = parser.parse_args(["serve", "--repo", str(repo)])
@@ -284,7 +284,7 @@ def test_serve_without_repo_does_not_pin_the_first_window(monkeypatch, tmp_path)
     other = tmp_path / "other-checkout"
     (other / ".git").mkdir(parents=True)
     monkeypatch.chdir(other)
-    monkeypatch.setattr("dagayn.main.main", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setattr("dagayn.server.main.main", lambda **kwargs: calls.append(kwargs))
     monkeypatch.setattr(
         "dagayn.cli.commands.serve._inherit_worktree_graph",
         lambda repo: inherited.append(repo),
@@ -300,7 +300,7 @@ def test_serve_without_repo_does_not_pin_the_first_window(monkeypatch, tmp_path)
 
 def test_serve_placeholder_repo_is_not_a_pin(monkeypatch):
     calls: list[dict] = []
-    monkeypatch.setattr("dagayn.main.main", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setattr("dagayn.server.main.main", lambda **kwargs: calls.append(kwargs))
     monkeypatch.setattr("dagayn.cli.commands.serve._inherit_worktree_graph", lambda *_a: None)
 
     parser = _parser()

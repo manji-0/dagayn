@@ -15,8 +15,8 @@ import sys
 from importlib import import_module
 from typing import Any, Literal, Optional
 
-from . import _python314_compat
-from .prompts import (
+from .. import _python314_compat
+from ..prompts import (
     PromptMessage,
     architecture_map_prompt,
     debug_issue_prompt,
@@ -24,8 +24,8 @@ from .prompts import (
     pre_merge_check_prompt,
     review_changes_prompt,
 )
-from .state_types import RefactorMode, TraversalMode
-from .tools._common import ToolPayload
+from ..state_types import RefactorMode, TraversalMode
+from ..tools._common import ToolPayload
 
 type ComponentPayload = dict[str, object]
 
@@ -150,7 +150,7 @@ def _resolve_repo_root(repo_root: Optional[str]) -> Optional[str]:
     so ``serve --repo <X>`` had no effect for the other 21 tools. See: #222
     follow-up.
     """
-    from .incremental import is_unresolved_path_placeholder
+    from ..incremental import is_unresolved_path_placeholder
 
     if repo_root and is_unresolved_path_placeholder(repo_root):
         repo_root = None
@@ -211,7 +211,7 @@ def _tool(name: str) -> Any:
     impl = getattr(import_module("dagayn.tools"), name)
 
     def wrapped(*args: Any, **kwargs: Any) -> Any:
-        from .tools._common import (
+        from ..tools._common import (
             _db_path_for_repo,
             attach_repo_context,
             handle_tool_runtime_error,
@@ -1139,7 +1139,7 @@ def _apply_tool_filter(tools: str | None = None) -> None:
         dagayn serve --tools all
     """
 
-    from .tool_surface import set_active_tool_surface
+    from ..tool_surface import set_active_tool_surface
 
     allowed = _resolve_tool_allow_list(tools=tools)
     # ``None`` means the full registered surface is exposed.
