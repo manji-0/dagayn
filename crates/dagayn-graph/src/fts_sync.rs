@@ -91,6 +91,7 @@ pub(crate) fn delete_fts_for_file_paths_tx(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build_node_fts_values(
+    sources: &mut SourceCache,
     repo_root: Option<&Path>,
     kind: &str,
     name: &str,
@@ -106,7 +107,8 @@ pub(crate) fn build_node_fts_values(
         .and_then(Value::as_str)
         .unwrap_or("");
     let identifier_tokens = identifier_search_text([name, qualified_name, file_path, display_name]);
-    let source_excerpt = read_node_source_excerpt(repo_root, kind, file_path, line_start, line_end);
+    let source_excerpt =
+        read_node_source_excerpt(sources, repo_root, kind, file_path, line_start, line_end);
     let structured_description = structured_code_reference_text(
         kind,
         name,
@@ -173,6 +175,7 @@ pub(crate) fn insert_fts_for_file_paths_tx(
         )?;
     }
     let mut indexed = 0_i64;
+    let mut sources = SourceCache::default();
     for chunk in file_paths.chunks(450) {
         if chunk.is_empty() {
             continue;
@@ -182,7 +185,8 @@ pub(crate) fn insert_fts_for_file_paths_tx(
             .join(",");
         let sql = format!(
             "SELECT rowid AS node_rowid, kind, name, qualified_name, file_path, line_start, \
-             line_end, signature, extra FROM nodes WHERE file_path IN ({placeholders})"
+             line_end, signature, extra FROM nodes WHERE file_path IN ({placeholders}) \
+             ORDER BY file_path"
         );
         let mut stmt = tx.prepare(&sql)?;
         let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
@@ -213,6 +217,7 @@ pub(crate) fn insert_fts_for_file_paths_tx(
             let extra = parse_json_column(extra_raw)?;
             let (name, qualified_name, file_path, signature, identifier_tokens, doc_text) =
                 build_node_fts_values(
+                    &mut sources,
                     repo_root,
                     &kind,
                     &name,
@@ -264,11 +269,13 @@ pub(crate) fn upsert_fts_for_node_ids_tx(
         )?;
     }
     let mut indexed = 0_i64;
+    let mut sources = SourceCache::default();
     for chunk in node_ids.chunks(450) {
         let placeholders = placeholder_list(chunk.len());
         let sql = format!(
             "SELECT rowid AS node_rowid, kind, name, qualified_name, file_path, line_start, \
-             line_end, signature, extra FROM nodes WHERE rowid IN ({placeholders})"
+             line_end, signature, extra FROM nodes WHERE rowid IN ({placeholders}) \
+             ORDER BY file_path"
         );
         let mut stmt = tx.prepare(&sql)?;
         let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
@@ -299,6 +306,7 @@ pub(crate) fn upsert_fts_for_node_ids_tx(
             let extra = parse_json_column(extra_raw)?;
             let (name, qualified_name, file_path, signature, identifier_tokens, doc_text) =
                 build_node_fts_values(
+                    &mut sources,
                     repo_root,
                     &kind,
                     &name,
@@ -370,9 +378,10 @@ pub(crate) fn rebuild_fts_index_tx(conn: &Connection, repo_root: Option<&Path>) 
     let count = {
         let mut stmt = tx.prepare(
             "SELECT rowid AS node_rowid, kind, name, qualified_name, file_path, line_start, line_end, \
-             signature, extra FROM nodes",
+             signature, extra FROM nodes ORDER BY file_path",
         )?;
         let mut count = 0_i64;
+        let mut sources = SourceCache::default();
         let rows = stmt.query_map([], |row| {
             Ok((
                 row.get::<_, i64>("node_rowid")?,
@@ -401,6 +410,7 @@ pub(crate) fn rebuild_fts_index_tx(conn: &Connection, repo_root: Option<&Path>) 
             let extra = parse_json_column(extra_raw)?;
             let (name, qualified_name, file_path, signature, identifier_tokens, doc_text) =
                 build_node_fts_values(
+                    &mut sources,
                     repo_root,
                     &kind,
                     &name,

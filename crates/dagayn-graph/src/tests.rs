@@ -1269,6 +1269,53 @@ fn stores_compact_json_batch() {
 }
 
 #[test]
+fn source_excerpt_cache_matches_per_node_reads() {
+    use crate::helpers::{SourceCache, read_node_source_excerpt};
+
+    let dir = std::env::temp_dir().join(format!("dagayn-excerpt-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("a.py"),
+        "def one():\n    return 1\n\ndef two():\n    return 2\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("doc.md"),
+        "# Top\nintro\n## Sub\nbody\n# Next\nmore\n",
+    )
+    .unwrap();
+    let wide = "é".repeat(3000);
+    std::fs::write(dir.join("wide.txt"), format!("{wide}\n{wide}\n")).unwrap();
+
+    let mut cache = SourceCache::default();
+    let mut excerpt = |kind: &str, file: &str, start: i64, end: i64| {
+        read_node_source_excerpt(&mut cache, Some(&dir), kind, file, Some(start), Some(end))
+    };
+    assert_eq!(
+        excerpt("Function", "a.py", 1, 2),
+        "def one():\n    return 1"
+    );
+    assert_eq!(
+        excerpt("Function", "a.py", 4, 5),
+        "def two():\n    return 2"
+    );
+    assert_eq!(
+        excerpt("DocSection", "doc.md", 1, 1),
+        "# Top\nintro\n## Sub\nbody"
+    );
+    assert_eq!(excerpt("DocSection", "doc.md", 3, 3), "## Sub\nbody");
+    // Back to a file read earlier: the cache must reload it, not reuse doc.md.
+    assert_eq!(excerpt("Function", "a.py", 99, 99), "    return 2");
+    // Truncation counts characters, not bytes, and spans the line separator.
+    let truncated = excerpt("File", "wide.txt", 1, 2);
+    assert_eq!(truncated.chars().count(), 4096);
+    assert_eq!(truncated, format!("{wide}\n{}", "é".repeat(1095)));
+    assert_eq!(excerpt("Function", "missing.py", 1, 1), "");
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
 fn bulk_load_keeps_file_path_indexes_and_sets_fts_watermark_on_finish() {
     let path = temp_db("bulk-load-file-indexes");
     let mut store = GraphStore::open(&path).expect("open graph store");

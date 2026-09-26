@@ -1149,7 +1149,44 @@ pub(crate) fn push_identifier_parts(chunk: &str, tokens: &mut Vec<String>) {
     }
 }
 
+const SOURCE_EXCERPT_MAX_CHARS: usize = 4096;
+
+/// The most recently read source file, split into lines.
+///
+/// FTS rows are built node by node, and a file with K nodes used to be read
+/// and split K times. Callers that visit nodes grouped by file keep one cache
+/// across the loop so each file is read once.
+#[derive(Default)]
+pub(crate) struct SourceCache {
+    path: Option<PathBuf>,
+    text: String,
+    lines: Vec<std::ops::Range<usize>>,
+}
+
+impl SourceCache {
+    fn lines_of(&mut self, path: PathBuf) -> Vec<&str> {
+        if self.path.as_ref() != Some(&path) {
+            self.text = std::fs::read_to_string(&path).unwrap_or_default();
+            let base = self.text.as_ptr() as usize;
+            self.lines = self
+                .text
+                .lines()
+                .map(|line| {
+                    let start = line.as_ptr() as usize - base;
+                    start..start + line.len()
+                })
+                .collect();
+            self.path = Some(path);
+        }
+        self.lines
+            .iter()
+            .map(|range| &self.text[range.clone()])
+            .collect()
+    }
+}
+
 pub(crate) fn read_node_source_excerpt(
+    cache: &mut SourceCache,
     repo_root: Option<&Path>,
     kind: &str,
     file_path: &str,
@@ -1163,10 +1200,7 @@ pub(crate) fn read_node_source_excerpt(
         };
         path = root.join(path);
     }
-    let Ok(text) = std::fs::read_to_string(path) else {
-        return String::new();
-    };
-    let lines = text.lines().collect::<Vec<_>>();
+    let lines = cache.lines_of(path);
     if lines.is_empty() {
         return String::new();
     }
@@ -1188,7 +1222,23 @@ pub(crate) fn read_node_source_excerpt(
             }
         }
     }
-    lines[start..end].join("\n").chars().take(4096).collect()
+    let mut excerpt = String::new();
+    let mut chars = 0_usize;
+    for (idx, line) in lines[start..end].iter().enumerate() {
+        if idx > 0 {
+            excerpt.push('\n');
+            chars += 1;
+        }
+        excerpt.push_str(line);
+        chars += line.chars().count();
+        if chars >= SOURCE_EXCERPT_MAX_CHARS {
+            break;
+        }
+    }
+    if chars > SOURCE_EXCERPT_MAX_CHARS {
+        excerpt = excerpt.chars().take(SOURCE_EXCERPT_MAX_CHARS).collect();
+    }
+    excerpt
 }
 
 pub(crate) fn markdown_heading_level(line: &str) -> Option<usize> {
