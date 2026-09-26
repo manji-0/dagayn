@@ -13,7 +13,7 @@ import re
 from pathlib import Path
 from typing import Optional, TypedDict, cast
 
-from .state_types import JsonValue
+from .contracts.state_types import JsonValue
 
 logger = logging.getLogger(__name__)
 

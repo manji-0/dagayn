@@ -5,6 +5,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from dagayn.contracts.state_types import BuildResult, PostprocessResult
 from dagayn.graph import GraphStore
 from dagayn.incremental import full_build
 from dagayn.parser import EdgeInfo, NodeInfo
@@ -13,7 +14,6 @@ from dagayn.postprocessing import (
     _resolve_markdown_artifact_refs,
     run_post_processing,
 )
-from dagayn.state_types import BuildResult, PostprocessResult
 from tests.store_sql import store_conn
 
 

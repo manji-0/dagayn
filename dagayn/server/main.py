@@ -15,7 +15,8 @@ import sys
 from importlib import import_module
 from typing import Any, Literal, Optional
 
-from .. import _python314_compat
+from ..contracts import _python314_compat
+from ..contracts.state_types import RefactorMode, TraversalMode
 from ..prompts import (
     PromptMessage,
     architecture_map_prompt,
@@ -24,7 +25,6 @@ from ..prompts import (
     pre_merge_check_prompt,
     review_changes_prompt,
 )
-from ..state_types import RefactorMode, TraversalMode
 from ..tools._common import ToolPayload
 
 type ComponentPayload = dict[str, object]

@@ -15,6 +15,13 @@ from importlib.metadata import version as pkg_version
 from pathlib import Path
 from typing import Any, TypedDict, cast
 
+from ..contracts.state_types import (
+    AnswerabilityRecord,
+    MissingnessRecord,
+    seal_answerability_summary,
+    seal_guidance_item,
+    seal_missingness_item,
+)
 from ..graph import GraphStore
 from ..graph.sqlite_errors import (
     close_live_stores_for,
@@ -27,13 +34,6 @@ from ..incremental import (
     get_db_path,
 )
 from ..paths import ALLOW_WIDE_ROOT_ENV, recorded_repo_root, same_repo_path, unsafe_root_reason
-from ..state_types import (
-    AnswerabilityRecord,
-    MissingnessRecord,
-    seal_answerability_summary,
-    seal_guidance_item,
-    seal_missingness_item,
-)
 from ..write_lock import (
     DEFAULT_READ_LOCK_TIMEOUT,
     WriteLockUnavailableError,

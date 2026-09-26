@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from dagayn.state_types import (
+from dagayn.contracts.state_types import (
     AnswerabilitySummary,
     ArchitectureCommunityRequest,
     ChangeAnalysisResult,

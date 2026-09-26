@@ -5,10 +5,10 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from ..contracts.state_types import MissingnessRecord, seal_missingness_item
 from ..graph import GraphStore
 from ..paths import db_path_for
 from ..search import SearchResult, hybrid_search
-from ..state_types import MissingnessRecord, seal_missingness_item
 from ..write_lock import graph_read_lock
 from ._common import ToolPayload, handle_tool_runtime_error, make_response
 

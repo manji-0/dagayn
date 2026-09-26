@@ -11,7 +11,7 @@ from ..bare_name_resolution import (
     looks_like_file_target,
     node_file_from_qualified,
 )
-from ..cross_artifact import is_low_confidence_unresolved_markdown_code_span
+from ..contracts.cross_artifact import is_low_confidence_unresolved_markdown_code_span
 from ..graph import node_to_dict
 from ._common import make_guidance_item
 

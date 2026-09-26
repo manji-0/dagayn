@@ -7,21 +7,21 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from ..cross_artifact import (
+from ..contracts.cross_artifact import (
     is_low_confidence_unresolved_markdown_code_span,
 )
-from ..embeddings import EmbeddingStore
-from ..graph import GraphNode, _sanitize_name, edge_to_dict, node_to_dict
-from ..hints import generate_hints, get_session
-from ..incremental import get_changed_files, get_db_path, get_staged_and_unstaged
-from ..search import embedding_health_available, hybrid_search
-from ..state_types import (
+from ..contracts.state_types import (
     MissingnessRecord,
     TraversalEntry,
     TraversalMode,
     seal_missingness_item,
     seal_reachability_info,
 )
+from ..embeddings import EmbeddingStore
+from ..graph import GraphNode, _sanitize_name, edge_to_dict, node_to_dict
+from ..hints import generate_hints, get_session
+from ..incremental import get_changed_files, get_db_path, get_staged_and_unstaged
+from ..search import embedding_health_available, hybrid_search
 from ._common import (
     _BUILTIN_CALL_NAMES,
     _db_path_for_repo,

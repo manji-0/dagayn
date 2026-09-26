@@ -9,12 +9,12 @@ from unittest.mock import patch
 
 import pytest
 
+from dagayn.contracts.state_types import BuildResult
 from dagayn.eval.reporter import (
     generate_full_report,
     generate_markdown_report,
     generate_readme_tables,
 )
-from dagayn.state_types import BuildResult
 
 try:
     import yaml as _yaml  # noqa: F401
@@ -1110,9 +1110,9 @@ def test_query_performance_skips_embeddings_and_records_p95(tmp_path):
 
 
 def test_scale_performance_emits_four_axes(monkeypatch, tmp_path):
+    from dagayn.contracts.state_types import BuildResult
     from dagayn.eval.benchmarks import scale_performance
     from dagayn.eval.runner import BENCHMARK_REGISTRY
-    from dagayn.state_types import BuildResult
 
     assert "scale_performance" in BENCHMARK_REGISTRY
     assert "query_performance" in BENCHMARK_REGISTRY

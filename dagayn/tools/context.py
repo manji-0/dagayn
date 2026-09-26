@@ -9,8 +9,8 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from ..contracts.state_types import AnswerabilityRecord
 from ..paths import get_db_path
-from ..state_types import AnswerabilityRecord
 from ._common import (
     ToolPayload,
     _db_path_for_repo,

@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch  # noqa: F401 – patch used in tests
 
 import pytest
 
+from dagayn.contracts.state_types import BuildResult
 from dagayn.graph import GraphStore
 from dagayn.incremental import (
     _is_binary,
@@ -31,7 +32,6 @@ from dagayn.incremental import (
     watch,
 )
 from dagayn.parser import EdgeInfo, NodeInfo
-from dagayn.state_types import BuildResult
 
 
 class TestFindRepoRoot:

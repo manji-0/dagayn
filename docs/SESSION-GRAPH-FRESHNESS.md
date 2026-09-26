@@ -61,7 +61,7 @@ requires `session prepare` / `worktree sync` / MCP auto_prepare enqueue
 
 <!-- constrained-by ./COMMANDS.md#git-worktrees -->
 
-Authority: `GraphSyncState` in `dagayn/state_types.py` (a Pydantic
+Authority: `GraphSyncState` in `dagayn/contracts/state_types.py` (a Pydantic
 discriminated union on `state`) plus `assess_graph_sync` / `sync_state` /
 `is_structure_ready` / `needs_structure_prepare` / `needs_mcp_auto_prepare` in
 `dagayn/tools/sync_status.py`.

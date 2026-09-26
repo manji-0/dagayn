@@ -9,7 +9,7 @@ Freshness is a state, not a pile of booleans, and it is decided in two tiers:
   ``worktree_ahead`` when the graph already describes them (an edit hook
   indexed them), ``commit_synced`` when the tree is clean.
 
-``unbuilt`` precedes both tiers. See :data:`~dagayn.state_types.GraphSyncState`
+``unbuilt`` precedes both tiers. See :data:`~dagayn.contracts.state_types.GraphSyncState`
 for the discriminated union and ``docs/SESSION-GRAPH-FRESHNESS.md`` for how
 each state maps onto the lifecycle use cases.
 """
@@ -22,13 +22,13 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal, TypedDict, cast
 
+from ..contracts.state_types import GraphSyncStateName, seal_graph_sync_state
 from ..incremental import (
     GIT_BACKED_VCS,
     _git_branch_info,
     detect_vcs,
     get_changed_file_sources,
 )
-from ..state_types import GraphSyncStateName, seal_graph_sync_state
 
 logger = logging.getLogger(__name__)
 
@@ -290,7 +290,7 @@ def assess_graph_sync(
 ) -> SyncPayload:
     """Return the graph sync state for *repo_root* relative to its working tree.
 
-    The payload is a sealed :data:`~dagayn.state_types.GraphSyncState`: a
+    The payload is a sealed :data:`~dagayn.contracts.state_types.GraphSyncState`: a
     ``state`` discriminator plus the evidence behind it. ``status`` carries the
     legacy 4-value name for older consumers.
     """

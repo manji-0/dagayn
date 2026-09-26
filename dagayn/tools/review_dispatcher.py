@@ -6,14 +6,14 @@ from typing import Literal, cast
 
 from pydantic import ValidationError
 
-from ..hints import generate_hints, get_session
-from ..state_types import (
+from ..contracts.state_types import (
     ReviewMode,
     format_validation_error,
     parse_review_request,
     seal_dispatcher_error,
     seal_dispatcher_ok,
 )
+from ..hints import generate_hints, get_session
 from ._common import ToolPayload, attach_answerability
 from .query import get_impact_radius
 from .review import detect_changes_func, get_review_context

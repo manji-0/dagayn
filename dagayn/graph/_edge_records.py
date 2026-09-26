@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
-from dagayn.state_types import ConfidenceTier, normalize_confidence_tier
+from dagayn.contracts.state_types import ConfidenceTier, normalize_confidence_tier
 
 if TYPE_CHECKING:
     from dagayn.parser._base.types import EdgeInfo

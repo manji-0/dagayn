@@ -13,6 +13,7 @@ import time
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Optional, cast
 
+from .contracts.state_types import BuildResult
 from .graph import GraphStore
 from .incremental_files import (
     _MAX_DEPENDENT_FILES,
@@ -31,7 +32,6 @@ from .incremental_files import (
 from .parser import CodeParser
 from .parser._base.types import EdgeInfo, NodeInfo
 from .parser.dispatch import detect_language as _detect_parser_language
-from .state_types import BuildResult
 from .worktree import is_gitignored
 
 _IGNORE_SCOPE_NAMES = frozenset({".gitignore", ".dagaynignore"})

@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, cast
 
+from .contracts.state_types import EmbeddingStatusRecord, seal_embedding_status
 from .embeddings_providers import (
     EmbeddingProvider,
     _embedding_provider_key,
@@ -30,7 +31,6 @@ from .embeddings_text import (
 )
 from .graph import GraphNode, GraphStore
 from .sqlite_tuning import apply_wal_size_limit
-from .state_types import EmbeddingStatusRecord, seal_embedding_status
 
 _EMBED_PROVIDER_ERRORS = (OSError, RuntimeError, ValueError, TypeError, sqlite3.Error)
 

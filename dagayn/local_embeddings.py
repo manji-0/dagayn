@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import IO, Literal
 from urllib.parse import urlparse
 
-from .state_types import LocalEmbeddingProbeStatus
+from .contracts.state_types import LocalEmbeddingProbeStatus
 
 LocalEmbeddingLevel = Literal["bge-m3", "low"]
 LocalEmbeddingRuntime = Literal["llama"]

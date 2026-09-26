@@ -6,6 +6,7 @@ import json
 import tempfile
 from pathlib import Path, PurePosixPath
 
+from dagayn.contracts.state_types import PostprocessResult
 from dagayn.graph import GraphStore
 from dagayn.incremental import full_build
 from dagayn.parser._base.types import NodeInfo
@@ -15,7 +16,6 @@ from dagayn.parser.manifest_bridges import (
     discover_manifest_bridges,
 )
 from dagayn.postprocessing import _apply_manifest_bridges, run_post_processing
-from dagayn.state_types import PostprocessResult
 from tests.store_sql import store_conn
 
 FIXTURES = Path(__file__).parent / "fixtures" / "cross_artifact_manifest"

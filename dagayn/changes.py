@@ -18,12 +18,7 @@ from typing import Callable, Literal, cast
 
 from . import jj_workspace
 from .constants import SECURITY_KEYWORDS as _SECURITY_KEYWORDS
-from .coverage import build_scan_state, has_coverage_evidence
-from .flows import get_affected_flows
-from .graph import GraphEdge, GraphNode, GraphStore, _sanitize_name, edge_to_dict, node_to_dict
-from .parser import CodeParser
-from .parser._base.types import EdgeInfo, NodeInfo
-from .state_types import (
+from .contracts.state_types import (
     ChangeAnalysisResult,
     ChangeAttribution,
     ChangeEdgeRecord,
@@ -33,6 +28,11 @@ from .state_types import (
     ChangeTestGap,
     ChangeTestGapEvidence,
 )
+from .coverage import build_scan_state, has_coverage_evidence
+from .flows import get_affected_flows
+from .graph import GraphEdge, GraphNode, GraphStore, _sanitize_name, edge_to_dict, node_to_dict
+from .parser import CodeParser
+from .parser._base.types import EdgeInfo, NodeInfo
 
 logger = logging.getLogger(__name__)
 

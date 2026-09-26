@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, TypedDict
 
-from dagayn.bridge_types import BridgeMissingnessRecord, BridgeTransitionRecord
-from dagayn.state_types import ConfidenceTier, GraphExtra
+from dagayn.contracts.bridge_types import BridgeMissingnessRecord, BridgeTransitionRecord
+from dagayn.contracts.state_types import ConfidenceTier, GraphExtra
 
 
 @dataclass

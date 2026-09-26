@@ -1,6 +1,6 @@
 //! CROSS_ARTIFACT bridge classification.
 //!
-//! Port of `dagayn.cross_artifact`: reportable bridges expand impact as hard
+//! Port of `dagayn.contracts.cross_artifact`: reportable bridges expand impact as hard
 //! structural claims, low-confidence bridges are surfaced as caveats instead.
 
 use crate::*;

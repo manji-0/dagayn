@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 from typing import Any, Optional
 
-from ..cross_artifact import (
+from ..contracts.cross_artifact import (
     cross_artifact_role,
     edge_extra,
     is_cross_artifact,

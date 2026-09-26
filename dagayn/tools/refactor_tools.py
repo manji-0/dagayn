@@ -9,10 +9,7 @@ from typing import Any, Literal, overload
 
 from pydantic import ValidationError
 
-from ..hints import generate_hints, get_session
-from ..incremental import find_project_root
-from ..stability_policy import component_stability_profiles, scope_key_for_file
-from ..state_types import (
+from ..contracts.state_types import (
     RefactorMode,
     format_validation_error,
     parse_refactor_request,
@@ -20,6 +17,9 @@ from ..state_types import (
     seal_refactor_not_found,
     seal_refactor_ok,
 )
+from ..hints import generate_hints, get_session
+from ..incremental import find_project_root
+from ..stability_policy import component_stability_profiles, scope_key_for_file
 from ._common import (
     _error_response,
     _get_store,

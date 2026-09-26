@@ -11,8 +11,8 @@ import logging
 from collections.abc import Mapping, Sequence
 from typing import Any, Callable, Optional, TypedDict, cast
 
+from .contracts.state_types import AffectedFlowsResult, ChangeFlowRecord
 from .graph import GraphEdge, GraphNode, GraphStore
-from .state_types import AffectedFlowsResult, ChangeFlowRecord
 
 
 class FlowStepRecord(TypedDict, total=False):
@@ -298,7 +298,7 @@ def _annotate_flow_step_resolution(flow: Any) -> Any:
 
 def _annotate_flow_dict_bridges(store: GraphStore, flow: Any) -> Any:
     """Mark bridge arrivals on a flow dict returned by the native store."""
-    from .cross_artifact import annotate_flow_steps_with_bridges
+    from .contracts.cross_artifact import annotate_flow_steps_with_bridges
 
     steps = list(flow.get("steps") or [])
     path_qns = {

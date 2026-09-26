@@ -34,7 +34,7 @@ uv run pytest --tb=short -q
 Type checking runs on Pyrefly, whose Pydantic integration (>= 0.33.0) applies
 Pydantic model semantics — `BaseModel`, `Field`, `ConfigDict`, and
 `pydantic_settings.BaseSettings` — statically, so schema violations in
-`dagayn/state_types.py` and the tool dispatchers surface as type errors.
+`dagayn/contracts/state_types.py` and the tool dispatchers surface as type errors.
 
 `uv sync --extra dev` builds the PyO3 extension (`dagayn._core`) and vendors
 pinned Tree-sitter grammars. The first build fetches grammars over the network.

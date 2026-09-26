@@ -8,22 +8,22 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, cast
 
-from ..bridge_types import BridgeTransitionRecord
-from ..coverage import infer_tests_for_node, is_test_file_path
-from ..cross_artifact import (
+from ..contracts.bridge_types import BridgeTransitionRecord
+from ..contracts.cross_artifact import (
     bridge_transition_dict,
     is_low_confidence_bridge,
     is_reportable_bridge,
 )
-from ..cross_artifact import (
+from ..contracts.cross_artifact import (
     cross_artifact_role as _shared_cross_artifact_role,
 )
-from ..cross_artifact import (
+from ..contracts.cross_artifact import (
     is_low_confidence_unresolved_markdown_code_span as _shared_low_conf_code_span,
 )
+from ..contracts.state_types import ChangeAnalysisResult
+from ..coverage import infer_tests_for_node, is_test_file_path
 from ..graph.types import GraphNode, ImpactRadiusResult
 from ..stability_policy import component_stability_profiles, scope_key_for_file
-from ..state_types import ChangeAnalysisResult
 from ._common import make_guidance_item
 
 logger = logging.getLogger(__name__)

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import NamedTuple, Optional
 
-from ...state_types import GraphExtra
+from ...contracts.state_types import GraphExtra
 
 
 class CellInfo(NamedTuple):

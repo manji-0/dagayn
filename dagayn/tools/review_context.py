@@ -6,9 +6,9 @@ import logging
 from collections.abc import Mapping
 from typing import Any, cast
 
+from ..contracts.state_types import seal_missingness_item
 from ..graph import GraphNode, edge_to_dict, node_to_dict
 from ..incremental import get_changed_file_sources, get_staged_and_unstaged
-from ..state_types import seal_missingness_item
 from ._common import (
     _get_store,
     apply_output_budget,

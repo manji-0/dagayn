@@ -6,7 +6,7 @@ from typing import Literal, Optional
 
 from .._scope import ArtifactScope
 from ..architecture import compute_sdp_metrics, find_adp_violations, find_sdp_violations
-from ..dependency_profiles import DependencyProfile, validate_dependency_profile
+from ..contracts.dependency_profiles import DependencyProfile, validate_dependency_profile
 from ._common import ToolPayload, _error_response, _get_store, make_response
 
 

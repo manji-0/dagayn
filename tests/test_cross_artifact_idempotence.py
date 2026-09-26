@@ -10,10 +10,10 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
+from dagayn.contracts.state_types import PostprocessResult
 from dagayn.graph import GraphStore
 from dagayn.parser.types import EdgeInfo, NodeInfo
 from dagayn.postprocessing import _resolve_markdown_artifact_refs
-from dagayn.state_types import PostprocessResult
 from tests.store_sql import store_conn
 
 

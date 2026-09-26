@@ -14,12 +14,12 @@ from typing import Any, Callable, cast
 
 from pydantic import ValidationError
 
-from .graph import GraphStore
-from .state_types import (
+from .contracts.state_types import (
     MarkdownArtifactResolution,
     PostprocessResult,
     build_markdown_artifact_resolution,
 )
+from .graph import GraphStore
 
 logger = logging.getLogger(__name__)
 

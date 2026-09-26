@@ -17,7 +17,7 @@ from typing import Callable, TypedDict, cast
 
 from ._scope import ArtifactScope, node_matches_artifact_scope
 from .communities import CommunityMetricsPayload
-from .cross_artifact import is_reportable_bridge
+from .contracts.cross_artifact import is_reportable_bridge
 from .entry_point_heuristics import has_framework_decorator, matches_entry_name
 from .graph import GraphEdge, GraphNode, GraphStore, _sanitize_name
 from .graph.sqlite_errors import borrowed_sqlite_connection

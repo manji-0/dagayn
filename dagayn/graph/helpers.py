@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dagayn.state_types import ChangeEdgeRecord, ChangeNodeRecord
+from dagayn.contracts.state_types import ChangeEdgeRecord, ChangeNodeRecord
 
 from .types import GraphEdge, GraphNode
 

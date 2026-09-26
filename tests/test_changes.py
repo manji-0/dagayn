@@ -24,11 +24,11 @@ from dagayn.changes import (
     parse_git_diff_ranges,
     resolve_git_renames,
 )
+from dagayn.contracts.state_types import ChangeAnalysisResult
 from dagayn.flows import store_flows, trace_flows
 from dagayn.graph import GraphStore
 from dagayn.graph.types import ImpactRadiusResult
 from dagayn.parser import EdgeInfo, NodeInfo
-from dagayn.state_types import ChangeAnalysisResult
 from tests.store_sql import store_conn
 
 

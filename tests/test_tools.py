@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
+from dagayn.contracts.state_types import BuildResult, ChangeAnalysisResult
 from dagayn.graph import GraphStore, _sanitize_name, node_to_dict
 from dagayn.parser import EdgeInfo, NodeInfo
-from dagayn.state_types import BuildResult, ChangeAnalysisResult
 from dagayn.tools import (
     get_affected_flows_func,
     get_architecture_overview_func,

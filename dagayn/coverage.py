@@ -6,8 +6,8 @@ import re
 from pathlib import Path
 from typing import Any, Callable, TypedDict
 
+from .contracts.state_types import ChangeNodeRecord
 from .graph import GraphEdge, GraphNode, node_to_dict
-from .state_types import ChangeNodeRecord
 
 _TEST_FILE_PARTS = ("/tests/", "/test/", "/__tests__/")
 _TEST_FILE_SUFFIXES = (

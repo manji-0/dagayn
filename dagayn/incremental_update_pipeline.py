@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
 
+from .contracts.state_types import BuildResult
 from .graph import GraphStore
 from .incremental_files import (
     _dedupe_preserve_order,
@@ -21,7 +22,6 @@ from .incremental_files import (
 )
 from .parser import CodeParser
 from .parser._base.types import EdgeInfo, NodeInfo
-from .state_types import BuildResult
 
 logger = logging.getLogger(__name__)
 

@@ -3,9 +3,9 @@ from __future__ import annotations
 import inspect
 from typing import cast
 
+from dagayn.contracts.dependency_profiles import DependencyProfile
+from dagayn.contracts.state_types import ArchitectureAnalysisMode
 from dagayn.server import main as crg_main
-from dagayn.dependency_profiles import DependencyProfile
-from dagayn.state_types import ArchitectureAnalysisMode
 from dagayn.tools import architecture_analysis
 
 

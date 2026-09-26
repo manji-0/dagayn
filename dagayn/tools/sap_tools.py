@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import Literal, Optional
 
 from .._scope import ArtifactScope
-from ..dependency_profiles import DependencyProfile, validate_dependency_profile
+from ..contracts.dependency_profiles import DependencyProfile, validate_dependency_profile
 from ..sap import compute_sap_metrics, find_sap_violations
 from ._common import ToolPayload, _error_response, _get_store, apply_output_budget, make_response
 

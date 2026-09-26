@@ -6,15 +6,15 @@ from typing import Literal, cast
 
 from pydantic import ValidationError
 
-from ..dependency_profiles import DependencyProfile
-from ..hints import generate_hints, get_session
-from ..state_types import (
+from ..contracts.dependency_profiles import DependencyProfile
+from ..contracts.state_types import (
     ArchitectureAnalysisMode,
     format_validation_error,
     parse_architecture_analysis_request,
     seal_dispatcher_error,
     seal_dispatcher_ok,
 )
+from ..hints import generate_hints, get_session
 from ._common import ToolPayload, attach_answerability
 from .analysis_tools import (
     get_bridge_nodes_func,

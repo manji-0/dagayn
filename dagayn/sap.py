@@ -28,7 +28,7 @@ from collections import defaultdict
 from typing import Any, Iterable, Literal, Optional, TypedDict
 
 from ._scope import ArtifactScope, build_node_scope_maps
-from .dependency_profiles import (
+from .contracts.dependency_profiles import (
     DependencyProfile,
     edge_matches_dependency_profile,
     validate_dependency_profile,

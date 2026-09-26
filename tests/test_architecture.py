@@ -6,7 +6,7 @@ from typing import cast
 
 import pytest
 
-from dagayn.dependency_profiles import DependencyProfile
+from dagayn.contracts.dependency_profiles import DependencyProfile
 from dagayn.graph import GraphStore
 from dagayn.parser import EdgeInfo, NodeInfo
 

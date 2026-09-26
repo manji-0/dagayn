@@ -4,8 +4,8 @@ import inspect
 import subprocess
 from typing import cast
 
+from dagayn.contracts.state_types import ReviewMode
 from dagayn.server import main as crg_main
-from dagayn.state_types import ReviewMode
 from dagayn.tools import architecture_analysis, flow_dispatcher, review_dispatcher
 
 

@@ -11,10 +11,10 @@ from ..changes import (  # noqa: F401
     parse_diff_result,
     parse_git_diff_ranges,
 )
+from ..contracts.state_types import seal_missingness_item
 from ..coverage import infer_tests_for_node
 from ..hints import generate_hints, get_session
 from ..incremental import get_changed_file_sources, get_staged_and_unstaged
-from ..state_types import seal_missingness_item
 from ._common import (
     ToolPayload,
     _error_response,

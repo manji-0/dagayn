@@ -11,9 +11,9 @@ import time
 from pathlib import Path
 from typing import Any, Callable, cast
 
+from ..contracts.state_types import BuildResult, build_result_payload
 from ..incremental import full_build, incremental_update
 from ..paths import get_db_path
-from ..state_types import BuildResult, build_result_payload
 from ..write_lock import WriteLockUnavailableError, graph_write_lock
 from ._common import _evict_store_cache, _get_store, _validate_repo_root
 

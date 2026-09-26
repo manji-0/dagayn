@@ -9,9 +9,9 @@ import uuid
 from pathlib import Path
 from typing import Any, Optional
 
+from ..contracts.state_types import seal_missingness_item
 from ..graph import GraphStore, _sanitize_name
 from ..graph.types import GraphEdge
-from ..state_types import seal_missingness_item
 from .pending import _cleanup_expired, _pending_refactors, _refactor_lock
 
 logger = logging.getLogger(__name__)
