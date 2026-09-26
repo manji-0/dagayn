@@ -86,8 +86,8 @@ which leaves HEAD matching and the tree clean, so neither the commit tier nor a
 dirty-only check would notice. That case is `worktree_behind` with
 `worktree_dirty: false`.
 
-Verification is a `stat`-only first pass (a rewritten file always moves its
-mtime) and hashes bytes only for files whose mtime moved; on this repository the
+Verification is a `stat`-only first pass and hashes bytes only for files whose
+mtime moved (plus dirty files the graph has never indexed); on this repository the
 whole diff tier costs ~5 ms against ~90 ms of git subprocess calls in the same
 assessment. Dirty files go through the incremental pipeline's own filters
 (`_filter_incremental_candidates` / `_classify_python_changed_files`), so a file
@@ -103,7 +103,30 @@ The assessment then reports `content_verified: false` plus
 here and `commit_synced` would otherwise mean "git reports a clean tree" while
 implying "the graph's content was checked against it". Session prepare passes
 `max_hash_candidates=None` to verify everything: it is the caller that can
-afford the cost and is about to re-index anyway.
+afford the cost and is about to re-index anyway. A graph seeded from another
+checkout also gets uncapped verification until it has been verified once,
+because the parent's stored mtimes would otherwise always exceed the cap. "Verify everything" still means every file whose mtime moved:
+removing the cap does not re-hash files whose mtime is unchanged.
+
+**Known gap: rewrites that keep the stored mtime.** Pass 1 treats an equal
+mtime as proof the bytes are unchanged, so a rewrite that leaves a file's
+`st_mtime_ns` equal to the value stored at index time is never hashed and the
+assessment can report `commit_synced` or `worktree_ahead` for content the graph
+does not have. That happens when a tool sets the mtime explicitly (`cp -p`,
+`rsync -a`, `tar x`, `touch -r`) to exactly the stored value, or when two writes
+land in one timestamp tick on a coarse-granularity filesystem.
+`_classify_python_changed_files` in `dagayn/incremental_build.py` documents the
+same hazard. The update pipeline is not affected for files git reports: it calls
+that helper with `trust_mtime=False`, and the Rust-owned classifier
+(`changed_rust_owned_file_source` in `crates/dagayn-py/src/lib.rs`) has no mtime
+short-circuit, so both hash those files regardless. Workarounds:
+
+- `dagayn update` re-hashes every file git reports as changed, so it picks up a
+  preserved-mtime rewrite that differs from the diff base. Session prepare does
+  not run for `worktree_ahead`, so run the update by hand.
+- `touch <file>` moves the mtime so the next assessment hashes it.
+- `dagayn build` re-parses every file without consulting mtimes; use it when the
+  rewritten bytes equal HEAD (clean tree), which no git diff can surface.
 
 `pending_files` is fed back into the update as `extra_files`
 (`incremental_update`). Without that the state is a fixed point its own

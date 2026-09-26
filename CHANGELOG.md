@@ -121,6 +121,13 @@ All notable changes to `dagayn` are documented here.
   `REFERENCES`, and reportable `CROSS_ARTIFACT`). The spec now lists which
   type roles count toward `Nt`/`Na` per language (for example Rust and Go
   structs and enums are excluded) and when a scope is SAP-inapplicable.
+- `docs/SESSION-GRAPH-FRESHNESS.md` no longer says a rewritten file always
+  moves its mtime. The freshness check hashes only files whose mtime changed,
+  so a rewrite that keeps the stored mtime (`cp -p`, `rsync -a`, `tar x`, or
+  two writes in one coarse timestamp tick) can be reported as fresh. The
+  known gap is now documented with its workarounds: `dagayn update` for files
+  git reports, `touch`, or `dagayn build`. The spec also notes that the
+  uncapped verification still skips files whose mtime is unchanged.
 
 ## 4.15.0 — 2026-09-25
 
