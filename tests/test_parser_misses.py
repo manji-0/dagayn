@@ -575,3 +575,26 @@ end
         assert ("CALLS", "<f>::MyApp.Accounts.Helper.fmt", "trim") in edges
         assert ("IMPORTS_FROM", "<f>", "MyApp.Repo") in edges
         assert ("IMPORTS_FROM", "<f>", "MyApp.User") in edges
+
+
+class TestGDScript:
+    SOURCE = """\
+extends "res://base/actor.gd"
+const Bullet = preload("res://bullet.gd")
+
+class Inner extends Node:
+    class Deep extends Sprite2D:
+        func run():
+            pass
+"""
+
+    def test_path_extends_and_preload(self, parse):
+        _, edges, _ = parse("m.gd", self.SOURCE)
+        assert ("IMPORTS_FROM", "<f>", "res://base/actor.gd") in edges
+        assert ("IMPORTS_FROM", "<f>", "res://bullet.gd") in edges
+
+    def test_inner_class_inheritance(self, parse):
+        names, edges, _ = parse("m.gd", self.SOURCE)
+        assert ("INHERITS", "<f>::Inner", "Node") in edges
+        assert ("INHERITS", "<f>::Inner.Deep", "Sprite2D") in edges
+        assert ("Function", "run", "Inner.Deep") in names
