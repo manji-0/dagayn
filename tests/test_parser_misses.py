@@ -101,3 +101,26 @@ fn main() { inner::deep(); }
         _, edges, _ = parse("lib.rs", self.SOURCE)
         assert ("CALLS", "<f>::inner.deep", "<f>::top") in edges
         assert ("CALLS", "<f>::E.go", "<f>::E.helper") in edges
+
+
+class TestGo:
+    SOURCE = """\
+package main
+
+type Box[T any] struct{ v T }
+
+func (b *Box[T]) Set(v T) { helper() }
+func (Box[T]) Get() T { var z T; return z }
+
+func helper() {}
+"""
+
+    def test_generic_receiver_uses_type_name(self, parse):
+        names, edges, _ = parse("m.go", self.SOURCE)
+        assert ("Function", "Set", "Box") in names
+        assert ("Function", "Get", "Box") in names
+        assert ("CONTAINS", "<f>::Box", "<f>::Box.Set") in edges
+
+    def test_method_calls_use_qualified_caller(self, parse):
+        _, edges, _ = parse("m.go", self.SOURCE)
+        assert ("CALLS", "<f>::Box.Set", "<f>::helper") in edges
