@@ -145,6 +145,13 @@ All notable changes to `dagayn` are documented here.
   from the changed files come first, then paths in sorted order. The cut was
   previously taken from an unordered set, so which dependents were re-parsed
   could change from run to run.
+- Markdown code-span bridges that were resolved before implicit code spans
+  were capped at MEDIUM 0.4 are now re-tiered by the next post-processing run.
+  The resolver skipped any edge whose target was unchanged, so such bridges
+  kept HIGH 0.8 (and counted as hard `describes_symbol` claims) until their
+  Markdown file was re-parsed. It now also rewrites an edge whose stored
+  confidence, tier, or metadata differ from the computed ones; those rewrites
+  count as `markdown_artifact_refs_re_resolved`.
 
 ## 4.15.0 — 2026-09-25
 

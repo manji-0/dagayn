@@ -15,6 +15,20 @@ enum MarkdownArtifactResolution {
     StillUnresolved,
 }
 
+/// Confidence columns as currently stored on an edge row.
+struct StoredConfidence {
+    confidence: Option<f64>,
+    tier: Option<String>,
+}
+
+impl StoredConfidence {
+    fn matches(&self, confidence: f64, tier: &str) -> bool {
+        self.confidence
+            .is_some_and(|stored| (stored - confidence).abs() < 1e-9)
+            && self.tier.as_deref() == Some(tier)
+    }
+}
+
 fn markdown_artifact_resolution(
     current_target: &str,
     symbol: &str,
@@ -84,7 +98,7 @@ impl GraphStore {
         let tx = write_tx(&mut self.conn)?;
         let rows = {
             let mut stmt = tx.prepare(
-                "SELECT id, target_qualified, extra FROM edges \
+                "SELECT id, target_qualified, extra, confidence, confidence_tier FROM edges \
                  WHERE kind='CROSS_ARTIFACT' \
                    AND (extra LIKE '%original_symbol_name%' \
                         OR extra LIKE '%unresolved_target_name%')",
@@ -95,6 +109,10 @@ impl GraphStore {
                     row.get::<_, i64>(0)?,
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
+                    StoredConfidence {
+                        confidence: row.get::<_, Option<f64>>(3)?,
+                        tier: row.get::<_, Option<String>>(4)?,
+                    },
                 ))
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?
@@ -106,7 +124,7 @@ impl GraphStore {
         let mut still_unresolved = 0_i64;
         let mut edge_data = Vec::new();
         let mut symbols = HashSet::new();
-        for (edge_id, current_target, raw_extra) in rows {
+        for (edge_id, current_target, raw_extra, stored) in rows {
             let Ok(mut extra) = serde_json::from_str::<Value>(&raw_extra) else {
                 continue;
             };
@@ -138,7 +156,7 @@ impl GraphStore {
                 Value::String(sym.clone()),
             );
             symbols.insert(sym.clone());
-            edge_data.push((edge_id, current_target, raw_extra, sym, extra));
+            edge_data.push((edge_id, current_target, raw_extra, stored, sym, extra));
         }
 
         let mut matches_by_symbol = HashMap::<String, Vec<(String, Option<String>)>>::new();
@@ -169,7 +187,7 @@ impl GraphStore {
             }
         }
 
-        for (edge_id, current_target, raw_extra, sym, extra) in edge_data {
+        for (edge_id, current_target, raw_extra, stored, sym, extra) in edge_data {
             let matches = matches_by_symbol
                 .get(&sym)
                 .map(Vec::as_slice)
@@ -187,9 +205,6 @@ impl GraphStore {
                     extra,
                     re_resolved: was_previously_resolved,
                 }) => {
-                    if current_target == target && !raw_extra.contains("unresolved_target_name") {
-                        continue;
-                    }
                     let confidence = extra
                         .get("confidence")
                         .and_then(Value::as_f64)
@@ -198,6 +213,16 @@ impl GraphStore {
                         .get("confidence_tier")
                         .and_then(Value::as_str)
                         .unwrap_or(ConfidenceTier::High.as_str());
+                    // Skip only when nothing would change. An edge resolved
+                    // before implicit code spans were capped at MEDIUM keeps
+                    // its target but still needs its HIGH tier rewritten.
+                    if current_target == target
+                        && !raw_extra.contains("unresolved_target_name")
+                        && stored.matches(confidence, tier)
+                        && serde_json::from_str::<Value>(&raw_extra).ok().as_ref() == Some(&extra)
+                    {
+                        continue;
+                    }
                     tx.execute(
                         "UPDATE edges \
                          SET target_qualified = ?, target_name = ?, extra = ?, \
