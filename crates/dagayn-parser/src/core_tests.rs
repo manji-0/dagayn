@@ -1511,7 +1511,9 @@ fun createUser(repo: UserRepository) {
 "#;
     let (nodes, edges) = parse_kotlin("sample.kt", source);
     assert!(nodes.iter().any(|node| {
-        node.kind == "Class" && node.name == "UserRepository" && node.extra["type_role"] == "class"
+        node.kind == "Class"
+            && node.name == "UserRepository"
+            && node.extra["type_role"] == "interface"
     }));
     assert!(nodes.iter().any(|node| {
         node.kind == "Class"
@@ -1532,9 +1534,9 @@ fun createUser(repo: UserRepository) {
             && edge.target == "java.nio.file.Files"
     }));
     assert!(edges.iter().any(|edge| {
-        edge.kind == "INHERITS"
+        edge.kind == "IMPLEMENTS"
             && edge.source == "sample.kt::InMemoryRepo"
-            && edge.target == "InMemoryRepo"
+            && edge.target == "UserRepository"
     }));
     assert!(edges.iter().any(|edge| {
         edge.kind == "CALLS"

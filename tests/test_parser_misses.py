@@ -215,3 +215,37 @@ public class Foo {
         assert ("Function", "Local", "Foo.M") in names
         assert ("CALLS", "<f>::Foo.M", "<f>::Foo.M.Local") in edges
         assert ("CALLS", "<f>::Foo.M.Local", "Help") in edges
+
+
+class TestKotlin:
+    SOURCE = """\
+interface Iface { fun d() }
+open class Base(a: Int)
+class Foo(val a: Int) : Base(a), Iface {
+    init { initCall() }
+    constructor(s: String) : this(1) { secCall() }
+    inner class In { fun im() { icall() } }
+    override fun d() {}
+}
+object Singleton : Iface { fun s() { scall() } }
+"""
+
+    def test_supertypes_come_from_delegation_specifiers(self, parse):
+        _, edges, _ = parse("m.kt", self.SOURCE)
+        assert ("INHERITS", "<f>::Foo", "Base") in edges
+        assert ("IMPLEMENTS", "<f>::Foo", "Iface") in edges
+        assert ("INHERITS", "<f>::Foo", "Foo") not in edges
+
+    def test_objects_and_interfaces_have_roles(self, parse):
+        names, edges, nodes = parse("m.kt", self.SOURCE)
+        roles = {n.name: n.extra.get("type_role") for n in nodes if n.kind == "Class"}
+        assert roles["Singleton"] == "object"
+        assert roles["Iface"] == "interface"
+        assert ("CALLS", "<f>::Singleton.s", "scall") in edges
+
+    def test_initializers_and_nested_classes(self, parse):
+        names, edges, _ = parse("m.kt", self.SOURCE)
+        assert ("CALLS", "<f>::Foo", "initCall") in edges
+        assert ("CALLS", "<f>::Foo.constructor", "secCall") in edges
+        assert ("Function", "im", "Foo.In") in names
+        assert ("CONTAINS", "<f>::Foo", "<f>::Foo.In") in edges
