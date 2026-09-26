@@ -103,6 +103,57 @@ class TestFlows:
         # Even though get_users is called by someone, its decorator marks it.
         assert "get_users" in ep_names
 
+    def test_detect_entry_points_nestjs_and_angular_decorators(self):
+        """NestJS handlers and Angular host listeners stay entry points when called."""
+        for name, decorators in (
+            ("findAll", ["Get"]),
+            ("create", ["Post", "UseGuards"]),
+            ("onUserCreated", ["EventPattern"]),
+            ("nightly", ["Cron"]),
+            ("onClick", ["HostListener"]),
+            ("lowercase_get", ["get"]),
+        ):
+            self._add_func(
+                name,
+                path="users.controller.ts",
+                parent="UsersController",
+                extra={"decorators": decorators},
+            )
+            self._add_func(f"call_{name}", path="users.controller.ts")
+            self._add_call(
+                f"users.controller.ts::call_{name}",
+                f"users.controller.ts::UsersController.{name}",
+                path="users.controller.ts",
+            )
+
+        ep_names = {ep.name for ep in detect_entry_points(self.store)}
+
+        for name in ("findAll", "create", "onUserCreated", "nightly", "onClick"):
+            assert name in ep_names, name
+        # Exact, case-sensitive: Python-style lowercase decorators do not match.
+        assert "lowercase_get" not in ep_names
+
+    def test_framework_decorator_patterns_match_the_native_list(self):
+        """`entry_point_heuristics` and `flow_trace.rs` must list the same patterns."""
+        import re
+
+        from dagayn.entry_point_heuristics import _FRAMEWORK_DECORATOR_PATTERNS
+
+        source = (
+            Path(__file__).resolve().parent.parent
+            / "crates"
+            / "dagayn-graph"
+            / "src"
+            / "flow_trace.rs"
+        ).read_text(encoding="utf-8")
+        body = source.split("fn decorator_res()", 1)[1].split(".into_iter()", 1)[0]
+        native = re.findall(r'r"((?:[^"\\]|\\.)*)"', body)
+        python = [
+            ("(?i)" if pattern.flags & re.IGNORECASE else "") + pattern.pattern
+            for pattern in _FRAMEWORK_DECORATOR_PATTERNS
+        ]
+        assert native == python
+
     def test_detect_entry_points_name_pattern(self):
         """Functions matching name patterns (main, test_*, on_*) are entry points."""
         self._add_func("main")

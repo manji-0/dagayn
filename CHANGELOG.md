@@ -44,6 +44,21 @@ All notable changes to `dagayn` are documented here.
   (`Outer.Inner::m`) resolves when the root is a same-file declaration.
   JavaScript / TypeScript class members now record the full owner path of
   their class in `parent_name`.
+- TypeScript / JavaScript decorators are metadata and references. Classes,
+  methods, and function-valued fields record `extra.decorators` (callee
+  names, as for Python: `["Controller"]`, `["ng.Component"]`), a class
+  lists its non-function fields' decorators in `member_decorators`, and each
+  decorator is `REFERENCES decorated -> decorator`
+  (`relationship_role: "decorator"`) instead of a `CALLS` edge from the file;
+  calls in decorator arguments belong to the decorated node (the class for
+  class and field decorators). NestJS handlers (`@Get`, `@Post`, `@Put`,
+  `@Delete`, `@Patch`, `@Options`, `@Head`, `@All`, `@MessagePattern`,
+  `@EventPattern`, `@Cron`, `@Interval`, `@Timeout`, `@OnEvent`,
+  `@Process`, `@Processor`, `@SubscribeMessage`, `@WebSocketGateway`) and
+  Angular `@HostListener` methods are flow entry points even when called,
+  and decorated NestJS / Angular classes and handlers are not dead-code
+  candidates. `@Entity()`-style decorators on exported classes now mark
+  them as data containers.
 - JavaScript / TypeScript nodes fill the `modifiers` column (`static`,
   `async`, `*`, `get`, `set`, `readonly`, `public` / `private` /
   `protected`, `override`, `declare`, `abstract`, `accessor`) and mark

@@ -5224,3 +5224,113 @@ function register(value: unknown) { return value; }
         );
     }
 }
+
+#[test]
+fn parses_typescript_decorators_metadata() {
+    let source = br#"import { Controller, Get, UseGuards, Injectable } from "@nestjs/common";
+import * as ng from "@angular/core";
+@sealed
+@Injectable({ providedIn: "root", factory: makeFactory() })
+export class Decorated {
+  @Input() title = "";
+  @Output() changed = makeEmitter();
+  @HostListener("click", ["$event"])
+  onClick(@Inject(TOKEN) e: Event) { track(); }
+  @Get(":id") @UseGuards(AuthGuard) find() {}
+  @Debounce(300) handler = () => track();
+}
+@ng.Component({ selector: "app-root" })
+class NgRoot {}
+function sealed(ctor: Function) {}
+function makeFactory() { return 1; }
+function makeEmitter() { return 2; }
+function track() {}
+function Debounce(ms: number) { return (target: unknown) => target; }
+"#;
+    let file = "dec.ts";
+    let (nodes, edges) = parse_javascript_like(file, source, "typescript");
+    let find = |name: &str, parent: Option<&str>| {
+        nodes
+            .iter()
+            .find(|node| node.name == name && node.parent_name.as_deref() == parent)
+            .unwrap_or_else(|| panic!("{name}: {nodes:?}"))
+    };
+    let qn = |name: &str| format!("{file}::{name}");
+    let decorated = find("Decorated", None);
+    assert_eq!(
+        decorated.extra["decorators"],
+        json!(["sealed", "Injectable"])
+    );
+    assert_eq!(
+        decorated.extra["member_decorators"],
+        json!(["Input", "Output"])
+    );
+    assert_eq!(
+        find("onClick", Some("Decorated")).extra["decorators"],
+        json!(["HostListener"])
+    );
+    assert_eq!(
+        find("find", Some("Decorated")).extra["decorators"],
+        json!(["Get", "UseGuards"])
+    );
+    assert_eq!(
+        find("handler", Some("Decorated")).extra["decorators"],
+        json!(["Debounce"])
+    );
+    assert_eq!(
+        find("NgRoot", None).extra["decorators"],
+        json!(["ng.Component"])
+    );
+    let references = |source: &str, target_suffix: &str| {
+        edges.iter().any(|edge| {
+            edge.kind == "REFERENCES"
+                && edge.source == source
+                && edge.target.ends_with(target_suffix)
+                && edge.extra["relationship_role"] == "decorator"
+        })
+    };
+    assert!(references(&qn("Decorated"), &qn("sealed")), "{edges:?}");
+    assert!(references(&qn("Decorated"), "Injectable"));
+    assert!(references(&qn("Decorated"), "Input"));
+    assert!(references(&qn("Decorated.onClick"), "HostListener"));
+    assert!(references(&qn("Decorated.onClick"), "Inject"));
+    assert!(references(&qn("Decorated.find"), "Get"));
+    assert!(references(&qn("Decorated.find"), "UseGuards"));
+    assert!(references(&qn("Decorated.handler"), &qn("Debounce")));
+    assert!(references(&qn("NgRoot"), "Component"));
+    // Decorators are not CALLS; calls in their arguments belong to the
+    // decorated node.
+    for decorator in [
+        "sealed",
+        "Injectable",
+        "Input",
+        "HostListener",
+        "Get",
+        "UseGuards",
+        "Inject",
+        "Debounce",
+        "Component",
+    ] {
+        assert!(
+            !edges
+                .iter()
+                .any(|edge| edge.kind == "CALLS" && edge.target.ends_with(decorator)),
+            "{decorator}: {edges:?}"
+        );
+    }
+    let calls = |source: &str, target: &str| {
+        edges
+            .iter()
+            .any(|edge| edge.kind == "CALLS" && edge.source == source && edge.target == target)
+    };
+    assert!(calls(&qn("Decorated"), &qn("makeFactory")), "{edges:?}");
+    assert!(calls(&qn("Decorated"), &qn("makeEmitter")));
+    assert!(calls(&qn("Decorated.onClick"), &qn("track")));
+    assert!(calls(&qn("Decorated.handler"), &qn("track")));
+    assert!(
+        !edges
+            .iter()
+            .any(|edge| edge.source == file && edge.kind == "CALLS"),
+        "{edges:?}"
+    );
+}

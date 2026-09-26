@@ -803,6 +803,10 @@ fn decorator_res() -> &'static [Regex] {
             r"(?i)(Scheduled|EventListener|Bean|Configuration)",
             r"(?i)(Component|Injectable|Controller|Module|Guard|Pipe)",
             r"(?i)(Subscribe|Mutation|Query|Resolver)",
+            // Keep in sync with dagayn/entry_point_heuristics.py
+            // (tests/test_flows.py compares the two lists).
+            r"^(Get|Post|Put|Delete|Patch|Options|Head|All)$",
+            r"^(MessagePattern|EventPattern|Cron|Interval|Timeout|OnEvent|Process|Processor|SubscribeMessage|WebSocketGateway|HostListener)$",
             r"(app|router)\.(get|post|put|delete|patch|use|all)\b",
             r"(?i)@(Override|OnLifecycleEvent|Composable)",
             r"(?i)(HiltViewModel|AndroidEntryPoint|Inject)",

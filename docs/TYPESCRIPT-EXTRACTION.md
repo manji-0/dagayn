@@ -136,7 +136,8 @@ Nodes that are **not** created:
 | Call site | Source of the `CALLS` edge |
 |---|---|
 | function or method body, including nested closures and callbacks | that function or method |
-| class field initializer, static block, class or member decorator argument | the class |
+| class field initializer, static block, class decorator argument, non-function field decorator argument | the class |
+| method / function-valued field decorator argument, parameter decorator | the decorated member |
 | class heritage expression (`extends Mixin(Base)`) | the class |
 | module scope, including IIFEs | the File |
 | test-runner callback | the synthetic `Test` node |
@@ -323,7 +324,10 @@ Decorated classes and members record `extra.decorators` (callee names, the
 format Python uses), which enables framework entry-point detection and
 dead-code exclusion for NestJS and Angular. The decorator itself becomes
 `REFERENCES decorated -> decorator` (`relationship_role: "decorator"`) instead
-of a `CALLS` edge from the File. Planned (part 2/3, #16).
+of a `CALLS` edge from the File. The entry-point decorator patterns live in
+both `dagayn/entry_point_heuristics.py` and
+`crates/dagayn-graph/src/flow_trace.rs`; `tests/test_flows.py` checks that
+the two lists are identical. Implemented (#16).
 
 ## 8. JavaScript parity
 
@@ -381,7 +385,9 @@ QNs omit the `file::` prefix.
 | `implements Repo, Logger` | two `IMPLEMENTS` | implemented (existing) |
 | `implements Service<string>, ns.Marker` | `IMPLEMENTS -> Service`, `-> Marker` | implemented (#4) |
 | `export default class extends Base {}` | `Class default`, `INHERITS default -> Base` | implemented (#4, #7) |
-| class / member decorators | `decorators` metadata, `REFERENCES -> decorator` | planned (part 2/3, #16) |
+| class / member decorators | `decorators: ["Injectable"]` on the class, method, or function-valued field (callee names, as Python records them; `ns.Dec` stays dotted); non-function field decorators in the class's `member_decorators`; `REFERENCES decorated -> decorator` (`relationship_role: "decorator"`), no `CALLS` | implemented (#16) |
+| parameter decorators `m(@Inject(T) x)` | `REFERENCES m -> Inject` (`decorator`); not in `decorators` metadata | implemented (#16) |
+| `@Entity()` / `@ObjectType()` on an exported class | `container_role: "data_container"` | implemented (#16) |
 | `constructor(private repo: Repo)` | `Function Box.constructor`; `this.repo` bound to `Repo` | node implemented (existing); binding planned (part 2/3, #17) |
 | `super(repo)` | `CALLS Box.constructor -> Base` | planned (part 2/3, #17) |
 | field initializer `svc = new UserService()`, `static {}` block, `[Symbol.iterator]() {}` body | `CALLS Class -> UserService` (the class is the caller) | implemented (#15) |
@@ -528,7 +534,8 @@ QNs omit the `file::` prefix.
 
 | Construct | Expected | Status |
 |---|---|---|
-| NestJS `@Controller` / `@Get`, Angular `@Component` | decorator metadata; framework entry points | planned (part 2/3, #16) |
+| NestJS `@Controller` / `@Get`, Angular `@Component` | decorator metadata; framework entry points (flow tracing and dead code) even when called | implemented (#16) |
+| NestJS `@Post` / `@MessagePattern` / `@EventPattern` / `@Cron` / `@Interval` / `@Timeout` / `@OnEvent` / `@Process` / `@Processor` / `@SubscribeMessage` / `@WebSocketGateway`, Angular `@HostListener` | entry points (exact, case-sensitive names) | implemented (#16) |
 | Next.js `route.ts` `GET` / `POST`, `page.tsx` default | uncalled `Function` nodes (entry points) | implemented (existing); anonymous defaults by #7 |
 | Express / Fastify inline route handlers | synthetic route-handler nodes | deferred |
 | React components and hooks | `Function` nodes, JSX `CALLS` | implemented (existing) |

@@ -41,6 +41,14 @@ _FRAMEWORK_DECORATOR_PATTERNS: list[re.Pattern[str]] = [
     # JS/TS frameworks
     re.compile(r"(Component|Injectable|Controller|Module|Guard|Pipe)", re.IGNORECASE),
     re.compile(r"(Subscribe|Mutation|Query|Resolver)", re.IGNORECASE),
+    # NestJS route handlers and message / schedule / queue handlers, Angular
+    # host listeners. Exact, case-sensitive names so Python's lowercase
+    # decorators (``@get``) never match.
+    re.compile(r"^(Get|Post|Put|Delete|Patch|Options|Head|All)$"),
+    re.compile(
+        r"^(MessagePattern|EventPattern|Cron|Interval|Timeout|OnEvent|Process|Processor"
+        r"|SubscribeMessage|WebSocketGateway|HostListener)$"
+    ),
     # Express / Koa / Hono route handlers
     re.compile(r"(app|router)\.(get|post|put|delete|patch|use|all)\b"),
     # Android lifecycle

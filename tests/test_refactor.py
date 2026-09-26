@@ -832,6 +832,40 @@ class TestFindDeadCode:
             assert f"/repo/src/api.ts::{name}" not in dead_qnames
         assert "/repo/src/api.ts::Unused" in dead_qnames
 
+    def test_find_dead_code_excludes_nestjs_decorated_classes_and_handlers(self):
+        """`@Controller` classes and `@Get` handlers are wired by the framework."""
+        for kind, name, parent, extra in (
+            (
+                "Class",
+                "UsersController",
+                None,
+                {"type_role": "class", "decorators": ["Controller"]},
+            ),
+            ("Function", "findAll", "UsersController", {"decorators": ["Get"]}),
+            ("Class", "Plain", None, {"type_role": "class"}),
+            ("Function", "unused", "Plain", {}),
+        ):
+            self.store.upsert_node(
+                NodeInfo(
+                    kind=kind,
+                    name=name,
+                    file_path="/repo/src/users.controller.ts",
+                    line_start=1,
+                    line_end=3,
+                    language="typescript",
+                    parent_name=parent,
+                    extra=extra,
+                )
+            )
+        self.store.commit()
+
+        dead_qnames = {d["qualified_name"] for d in find_dead_code(self.store)}
+
+        prefix = "/repo/src/users.controller.ts::"
+        assert f"{prefix}UsersController" not in dead_qnames
+        assert f"{prefix}UsersController.findAll" not in dead_qnames
+        assert f"{prefix}Plain.unused" in dead_qnames
+
     def test_find_dead_code_excludes_ambient_declarations(self):
         """`declare function` / `declare class` implementations live elsewhere."""
         for name, extra in (
