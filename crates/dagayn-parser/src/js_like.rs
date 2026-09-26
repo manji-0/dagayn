@@ -1304,12 +1304,18 @@ fn is_javascript_function_value(kind: &str) -> bool {
     )
 }
 
+/// Name-based test detection for declared functions.
+///
+/// The `Test*` / `test_*` / `*_test` / `*_spec` heuristics apply only inside
+/// test files: production code routinely has names such as
+/// `TestimonialCard` or `TestModeBanner`.
 fn is_javascript_test_function(name: &str, file_path: &FilePath) -> bool {
-    starts_with_ascii_ignore_case(name, "test_")
-        || name.starts_with("Test")
-        || name.ends_with("_test")
-        || name.ends_with("_spec")
-        || (is_javascript_test_file(file_path) && is_test_runner_name(name))
+    is_javascript_test_file(file_path)
+        && (starts_with_ascii_ignore_case(name, "test_")
+            || name.starts_with("Test")
+            || name.ends_with("_test")
+            || name.ends_with("_spec")
+            || is_test_runner_name(name))
 }
 
 fn is_javascript_test_file(file_path: &FilePath) -> bool {

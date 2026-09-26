@@ -3631,6 +3631,48 @@ class Mixed extends Mixin(Base) {
 }
 
 #[test]
+fn does_not_mark_test_prefixed_components_as_tests() {
+    let source = br#"export function TestimonialCard() {
+  return <div />;
+}
+export const TestBadge = () => <span />;
+function test_helper() {}
+class Tester {
+  TestMode = () => test_helper();
+}
+"#;
+    let (nodes, _edges) = parse_javascript_like("src/components/Testimonial.tsx", source, "tsx");
+    for name in ["TestimonialCard", "TestBadge", "test_helper", "TestMode"] {
+        assert!(
+            nodes
+                .iter()
+                .any(|node| { node.kind == "Function" && node.name == name && !node.is_test }),
+            "{name} should be a plain Function: {nodes:?}"
+        );
+    }
+    assert!(!nodes.iter().any(|node| node.kind == "Test"));
+
+    let test_source = br#"function TestHelper() {}
+function test_setup() {}
+function helper() {}
+"#;
+    let (nodes, _edges) = parse_javascript_like("src/card.test.ts", test_source, "typescript");
+    for name in ["TestHelper", "test_setup"] {
+        assert!(
+            nodes
+                .iter()
+                .any(|node| node.kind == "Test" && node.name == name && node.is_test),
+            "{name} should stay a Test in a test file: {nodes:?}"
+        );
+    }
+    assert!(
+        nodes
+            .iter()
+            .any(|node| node.kind == "Function" && node.name == "helper")
+    );
+}
+
+#[test]
 fn parses_typescript_constructors_reexports_and_interface_methods() {
     let source = br#"
 export { Repo } from "./other";

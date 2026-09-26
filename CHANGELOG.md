@@ -71,6 +71,10 @@ All notable changes to `dagayn` are documented here.
   sources, then `.ts`, `.tsx`, `.d.ts`, `.js`, `.jsx`, `.mjs`, `.cjs`,
   `.mts`, `.cts`, `.vue` appended, then `index.*`. `.mts`, `.cts`, and
   `.cjs` modules are read for export lookups.
+- JavaScript / TypeScript functions named `Test*`, `test_*`, `*_test`, or
+  `*_spec` are `Test` nodes only inside test files. A component such as
+  `TestimonialCard` in `Testimonial.tsx` was a `Test`, which hid it from
+  dead-code and flow analysis and produced spurious `TESTED_BY` edges.
 
 ### Performance
 

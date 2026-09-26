@@ -1414,6 +1414,14 @@ class TestTypeRoleAndImplements:
             e.kind == "CALLS" and e.target.endswith("user.service.ts::UserService") for e in edges
         )
 
+    def test_typescript_test_prefixed_component_is_not_a_test(self, tmp_path):
+        path = tmp_path / "Testimonial.tsx"
+        path.write_text("export function TestimonialCard() { return <div />; }\n", encoding="utf-8")
+        nodes, _ = self.parser.parse_file(path)
+        card = next(n for n in nodes if n.name == "TestimonialCard")
+        assert card.kind == "Function"
+        assert card.is_test is False
+
     def test_typescript_constructor_and_method_call_resolution(self, tmp_path):
         src = """
 interface Repo { find(): void; }
