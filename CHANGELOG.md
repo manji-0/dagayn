@@ -4,6 +4,15 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Changed
+
+- Package dependency cycles are gone (ADP violations 12 → 0). Internal import
+  paths moved: `dagayn.main` → `dagayn.server.main`; `state_types`,
+  `bridge_types`, `cross_artifact`, and `dependency_profiles` →
+  `dagayn.contracts.*`; queue task execution and `run_worker` →
+  `dagayn.tools.queue_worker`; ignore-pattern helpers →
+  `dagayn.parser.ignore` (still re-exported from `dagayn.incremental_files`).
+
 ### Fixed
 
 - Markdown link extraction skips inline code spans and fenced code blocks, so
