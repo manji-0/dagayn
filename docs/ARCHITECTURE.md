@@ -84,12 +84,12 @@ Optional post-processing layers add:
 
 ## Hybrid search
 
-`semantic_search_nodes` runs two ranked retrieval arms in parallel and merges them with Reciprocal Rank Fusion (RRF, k=10):
+`semantic_search_nodes` runs two ranked retrieval arms one after the other and merges them with Reciprocal Rank Fusion (RRF, k=10). `hybrid_search` (`dagayn/search.py`) runs the FTS arm first, then the embedding arm, then fuses whichever lists came back non-empty:
 
 1. **FTS5 BM25** — full-text search over the `nodes_fts` virtual table (porter + unicode61 tokenizer, with Japanese source/document text pre-segmented before insertion). Always available. The index stores symbol names, qualified names, paths, signatures, generated identifier tokens (for example `OpenAIEmbeddingProvider` → `open ai embedding provider`), structured code-reference text, and bounded source/document text such as docstrings and Markdown section bodies. On the native store, Japanese kana / CJK / Hangul is indexed as Lindera IPADIC morphemes (plus dictionary base forms) *and* overlapping CJK bigrams; queries keep content morphemes and drop particles, auxiliaries, and light verbs such as `する`, so an inflected query like `検索する` AND-matches `検索を行う` instead of falling through to OR or missing entirely. ASCII spans stay intact so mixed queries such as `GraphStoreで自然言語検索` still hit. If dictionary load fails at runtime, covering (non-overlapping) bigrams with the same stop list still run. CJK identifier names also land in `identifier_tokens` (BM25 weight 5), not only `doc_text`. The Python store still uses optional MeCab-compatible wakati when those packages are installed, with the same ASCII-preserving bigram fallback. The query is fired once as a whole, then re-fired once per identifier-shaped token (snake_case / PascalCase / camelCase) extracted from natural-language phrasing so a query like `"tests for embed_graph"` still hits the `embed_graph` symbol directly.
 2. **Cosine similarity** — vector search over the embedding store. Available only when embeddings have been built.
 
-The RRF constant is 10 (rather than the textbook 60) so the resulting `score` field spreads over ~0.05-0.2 instead of being compressed into 0.015-0.016. The constant is a calibration knob for how strongly top ranks dominate. A positive `k` preserves the order of a single ranked list, but multi-list fusion can reorder items when another arm contributes additional evidence.
+The RRF constant is 10 (rather than the textbook 60) so the resulting `score` field spreads over ~0.05-0.2 instead of being compressed into 0.015-0.016. The constant is a calibration knob for how strongly top ranks dominate. A positive `k` preserves the order of a single ranked list, but multi-list fusion can reorder items when another arm contributes additional evidence. A smaller `k` favours items near the top of one arm; a larger `k` favours items that several arms return. With k=10, an item at rank 1 of one arm outranks an item that both arms return only at rank 21 (1/11 vs 2/31); with k=60 the order flips (1/61 vs 2/81).
 
 Results are post-processed with:
 - **Kind boost** — query heuristic: PascalCase → 1.5× for classes/types; snake_case → 1.5× for functions; dotted path → 2.0× for qualified names.
@@ -97,7 +97,14 @@ Results are post-processed with:
 - **Intent rerank** — queries are classified with lightweight token heuristics. Exact identifier-like queries keep FTS/name matching dominant. Purpose-style prose uses the `material` embedding text because names and adjacent comments usually carry intent. Process-pattern prose uses the `narrative` embedding text because static source and graph facts expose operations such as calls, reads, writes, returns, loops, merges, searches, and rebuilds. Documentation queries favor Markdown sections. Top-ranked FTS or embedding hits get a small confidence boost so a strong single-arm signal is not lost in RRF.
 - **Test deboost** — 0.6× for nodes detected as test code (`is_test=True`). Tests cluster textually next to the functions they exercise and would otherwise crowd out the source on semantic queries. Tests remain visible (deboost, not filter) and the deboost is skipped for explicit test/coverage queries.
 
-Fallback chain: hybrid → FTS-only (no embeddings) → embedding-only (FTS index corrupt) → LIKE keyword (FTS index absent).
+Fallback chain, decided from which arms returned hits:
+
+- `hybrid` — both the FTS arm and the embedding arm returned hits.
+- `fts_only` — FTS returned hits and the embedding arm returned none. `embedding_health.status` says why, for example `missing_vectors`, `provider_mismatch`, `dimension_mismatch`, `provider_unavailable`, or `search_failed_recent`.
+- `embedding_only` — the FTS arm returned no hits (the query raised, for example on a corrupt index, or simply matched nothing) and the embedding arm returned hits.
+- `keyword_fallback` — neither arm returned hits, so a `LIKE` keyword query over the nodes table runs instead. If that also finds nothing, the response mode is `empty`.
+
+When no FTS query matched in AND mode and at least one matched only after relaxing to OR, the `LIKE` keyword results are also fused into the hybrid or FTS-only list as a third RRF input. With a `kind` filter, the whole sequence re-runs with a larger fetch limit until enough nodes of that kind come back or the fetch cap is reached.
 
 The `search_mode` field in the response reports which path ran: `"hybrid"`, `"fts_only"`, `"embedding_only"`, or `"keyword_fallback"`. Per-result `source` tags each hit as `"fts"`, `"embedding"`, `"both"`, or `"keyword"`. Per-result `is_test` reports whether the node was detected as test code.
 

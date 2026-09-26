@@ -95,6 +95,40 @@ All notable changes to `dagayn` are documented here.
   requeued with a `not_before` time, other tasks are claimed in the meantime,
   and the worker still stays alive until the retry is due.
 
+### Documentation
+
+- The `rrf_merge` docstring no longer claims that result order is invariant
+  under any positive `k`. That holds only for a single list. When FTS and
+  embedding results are fused, a smaller `k` favours items at the top of one
+  arm and a larger `k` favours items that both arms return, so `k=10` can
+  order results differently from the textbook 60.
+- `docs/ARCHITECTURE.md` no longer says hybrid search runs its two arms in
+  parallel. `hybrid_search` runs the FTS arm, then the embedding arm, and the
+  fallback chain (`hybrid` → `fts_only` → `embedding_only` →
+  `keyword_fallback`) is now described by which arms returned hits.
+- `docs/CROSS-ARTIFACT-EDGES-WIP.md` no longer says resolved Markdown code
+  spans become `HIGH` 0.8. A uniquely resolved code span is `MEDIUM` 0.4 and
+  is reported as an impact caveat; unmatched or ambiguous code spans are
+  deleted. Explicit `dagayn:` directives with a path or section target are
+  `HIGH`, and bare-symbol directives resolve to `HIGH` or stay `LOW`. A new
+  section states the claim/caveat rule impact radius uses: a bridge expands
+  impact only at `EXACT`/`HIGH`/`EXTRACTED` with no `<unresolved:` endpoint.
+- `docs/SAP-METRICS.md` no longer says the package scope is the Python
+  importable package root or the Java declared package, or that the edge set
+  is fixed. SAP scopes are the parent directory for every language, and
+  `dependency_profile` selects the edge set (`strict_static` by default;
+  `implementation`, `infra_dataflow`, and `artifact_trace` add `CALLS`,
+  `REFERENCES`, and reportable `CROSS_ARTIFACT`). The spec now lists which
+  type roles count toward `Nt`/`Na` per language (for example Rust and Go
+  structs and enums are excluded) and when a scope is SAP-inapplicable.
+- `docs/SESSION-GRAPH-FRESHNESS.md` no longer says a rewritten file always
+  moves its mtime. The freshness check hashes only files whose mtime changed,
+  so a rewrite that keeps the stored mtime (`cp -p`, `rsync -a`, `tar x`, or
+  two writes in one coarse timestamp tick) can be reported as fresh. The
+  known gap is now documented with its workarounds: `dagayn update` for files
+  git reports, `touch`, or `dagayn build`. The spec also notes that the
+  uncapped verification still skips files whose mtime is unchanged.
+
 ## 4.15.0 — 2026-09-25
 
 ### Fixes

@@ -150,8 +150,12 @@ def _classify_diff_tier(
     ``git checkout --``). HEAD still matches and git reports a clean tree, so
     neither the commit tier nor a dirty-only diff tier would notice.
 
-    The first pass is ``stat`` only — a rewritten file always moves its mtime —
-    and bytes are hashed just for the files whose mtime moved. Reuses the
+    The first pass is ``stat`` only, and bytes are hashed just for the files
+    whose mtime moved (plus dirty files the graph has never indexed). An equal
+    mtime is trusted, so a rewrite that keeps the stored mtime (``cp -p``,
+    ``rsync -a``, ``tar x``, or two writes in one coarse filesystem tick) is
+    reported as fresh; see the known gap in docs/SESSION-GRAPH-FRESHNESS.md.
+    ``dagayn update`` re-hashes git-reported files regardless. Reuses the
     incremental pipeline's own filters so a file dagayn would never parse
     (ignored, binary, unsupported language) cannot pin the state to
     ``worktree_behind`` forever.
