@@ -100,6 +100,7 @@ pub(super) fn parse_javascript_like_interned(
         let mut import_map = HashMap::new();
         collect_javascript_import_map(root, source, &mut import_map);
         let scopes = collect_javascript_member_paths(root, source);
+        let exported_names = collect_javascript_local_exports(root, source);
         let context = JavaScriptParseContext {
             source,
             file_path: file_path.clone(),
@@ -109,6 +110,7 @@ pub(super) fn parse_javascript_like_interned(
             import_map: &import_map,
             member_paths: &scopes.members,
             namespace_paths: &scopes.namespaces,
+            exported_names: &exported_names,
             declaration_file,
             ambient_depth: Cell::new(0),
             repo_root,
@@ -116,6 +118,7 @@ pub(super) fn parse_javascript_like_interned(
             bindings: RefCell::new(MemberCallBindings::with_types(type_names)),
         };
         javascript_walk_children(root, &context, None, None, &mut nodes, &mut edges);
+        javascript_collapse_duplicate_nodes(&mut nodes, &mut edges);
         let mut edges = resolve_rust_call_targets(&nodes, edges, file_path);
         if test_file {
             add_tested_by_edges(&nodes, &mut edges);
@@ -124,6 +127,137 @@ pub(super) fn parse_javascript_like_interned(
     }
 
     (nodes, edges)
+}
+
+/// One QN, one node: collapses overload signatures into their
+/// implementation (`overloads: n`), getter / setter pairs into one accessor
+/// (`accessors: ["get", "set"]`), and same-file declaration merging
+/// (`interface Repo` twice, `function f` + `namespace f`) into one node
+/// (`merged_declarations: n`), then drops the duplicate `CONTAINS` edges.
+/// The graph store keeps only the last write for a QN, so without this the
+/// surviving node depended on declaration order.
+fn javascript_collapse_duplicate_nodes(nodes: &mut Vec<ParsedNode>, edges: &mut Vec<ParsedEdge>) {
+    let mut groups: HashMap<String, Vec<usize>> = HashMap::new();
+    for (index, node) in nodes.iter().enumerate() {
+        if node.kind == crate::core::types::NodeKind::File {
+            continue;
+        }
+        groups
+            .entry(qualify(
+                &node.file_path,
+                &node.name,
+                node.parent_name.as_deref(),
+            ))
+            .or_default()
+            .push(index);
+    }
+    let mut drop = HashSet::new();
+    for indexes in groups.values().filter(|indexes| indexes.len() > 1) {
+        let primary = *indexes
+            .iter()
+            .min_by_key(|index| (javascript_merge_rank(&nodes[**index]), **index))
+            .expect("non-empty group");
+        let members = indexes
+            .iter()
+            .map(|index| &nodes[*index])
+            .collect::<Vec<_>>();
+        let line_start = members
+            .iter()
+            .map(|node| node.line_start)
+            .min()
+            .unwrap_or(0);
+        let line_end = members.iter().map(|node| node.line_end).max().unwrap_or(0);
+        let all_functions = members
+            .iter()
+            .all(|node| node.kind == crate::core::types::NodeKind::Function);
+        let accessors = members
+            .iter()
+            .filter_map(|node| node.extra.get("accessors").and_then(Value::as_array))
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        let signatures = members
+            .iter()
+            .filter(|node| javascript_is_bodiless(node))
+            .count();
+        let has_body = members.iter().any(|node| !javascript_is_bodiless(node));
+        let modifiers = javascript_merged_modifiers(&members);
+        let node = &mut nodes[primary];
+        let Some(extra) = node.extra.as_object_mut() else {
+            continue;
+        };
+        if all_functions && !accessors.is_empty() {
+            let mut kinds = accessors;
+            kinds.sort();
+            kinds.dedup();
+            extra.insert("member_role".to_string(), json!("accessor"));
+            extra.insert("accessors".to_string(), json!(kinds));
+            node.line_start = line_start;
+            node.line_end = line_end;
+            node.modifiers = modifiers;
+        } else if all_functions && signatures > 0 {
+            extra.insert("overloads".to_string(), json!(signatures));
+            if has_body {
+                extra.remove("declaration_only");
+                extra.remove("is_abstract");
+            }
+            node.line_start = line_start;
+            node.line_end = line_end;
+        } else {
+            extra.insert("merged_declarations".to_string(), json!(indexes.len()));
+        }
+        drop.extend(indexes.iter().copied().filter(|index| *index != primary));
+    }
+    if drop.is_empty() {
+        return;
+    }
+    let mut index = 0;
+    nodes.retain(|_| {
+        let keep = !drop.contains(&index);
+        index += 1;
+        keep
+    });
+    let mut seen = HashSet::new();
+    edges.retain(|edge| {
+        edge.kind != crate::core::types::EdgeKind::Contains
+            || seen.insert((edge.source.clone(), edge.target.clone()))
+    });
+}
+
+/// Which declaration of a merged QN survives: implementations and concrete
+/// types before signatures, interfaces, and namespaces.
+fn javascript_merge_rank(node: &ParsedNode) -> u8 {
+    let role = node.extra.get("type_role").and_then(Value::as_str);
+    match node.kind {
+        crate::core::types::NodeKind::Class => match role {
+            Some("namespace" | "ambient_module") => 4,
+            Some("interface") => 3,
+            _ => 0,
+        },
+        crate::core::types::NodeKind::Function if javascript_is_bodiless(node) => 2,
+        crate::core::types::NodeKind::Type => 1,
+        _ => 0,
+    }
+}
+
+fn javascript_is_bodiless(node: &ParsedNode) -> bool {
+    node.kind == crate::core::types::NodeKind::Function
+        && (node.extra.get("declaration_only") == Some(&json!(true))
+            || node.extra.get("is_abstract") == Some(&json!(true)))
+}
+
+/// Union of accessor modifiers (`get` and `set` sides) in first-seen order.
+fn javascript_merged_modifiers(members: &[&ParsedNode]) -> Option<String> {
+    let mut merged: Vec<&str> = Vec::new();
+    for member in members {
+        for modifier in member.modifiers.as_deref().unwrap_or("").split_whitespace() {
+            if !merged.contains(&modifier) {
+                merged.push(modifier);
+            }
+        }
+    }
+    (!merged.is_empty()).then(|| merged.join(" "))
 }
 
 fn javascript_walk_children(
@@ -247,16 +381,16 @@ fn javascript_walk_node(
         | "method_signature"
         | "abstract_method_signature"
         | "function_signature"
-        | "arrow_function"
-            if javascript_emit_function_node(child, context, owner_path, nodes, edges) =>
-        {
-            if let Some(name) = javascript_function_name(child, context.source) {
+        | "arrow_function" => {
+            if let Some(name) =
+                javascript_emit_function_node(child, context, owner_path, nodes, edges)
+            {
                 let snapshot = context.bindings.borrow().snapshot();
                 javascript_bind_this(context, owner_path);
                 javascript_walk_children(child, context, owner_path, Some(&name), nodes, edges);
                 context.bindings.borrow_mut().restore(snapshot);
+                return;
             }
-            return;
         }
         "lexical_declaration" | "variable_declaration"
             if javascript_emit_variable_functions(child, context, owner_path, nodes, edges) =>
@@ -365,15 +499,7 @@ fn javascript_unwrap_object(node: tree_sitter::Node<'_>) -> Option<tree_sitter::
 }
 
 fn javascript_object_key_name(key: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    match key.kind() {
-        "property_identifier" | "identifier" | "private_property_identifier" => {
-            Some(node_text(key, source))
-        }
-        "string" => {
-            Some(decode_javascript_string_literal(key, source)).filter(|name| !name.is_empty())
-        }
-        _ => None,
-    }
+    javascript_property_name(key, source)
 }
 
 /// Deepest object-literal nesting modeled as containers
@@ -530,6 +656,36 @@ fn javascript_module_object_containers<'tree>(
         _ => {}
     }
     containers
+}
+
+/// Local names exported by `export { a, b as c }` (without `from`).
+fn collect_javascript_local_exports(root: tree_sitter::Node<'_>, source: &[u8]) -> HashSet<String> {
+    let mut names = HashSet::new();
+    let mut cursor = root.walk();
+    for statement in root.named_children(&mut cursor) {
+        let mut probe = statement.walk();
+        let reexport = statement
+            .children(&mut probe)
+            .any(|child| child.kind() == "string");
+        if statement.kind() != "export_statement" || reexport {
+            continue;
+        }
+        let mut statement_cursor = statement.walk();
+        for clause in statement.named_children(&mut statement_cursor) {
+            if clause.kind() != "export_clause" {
+                continue;
+            }
+            let mut clause_cursor = clause.walk();
+            for spec in clause.named_children(&mut clause_cursor) {
+                if spec.kind() == "export_specifier"
+                    && let Some(name) = spec.child_by_field_name("name")
+                {
+                    names.insert(node_text(name, source));
+                }
+            }
+        }
+    }
+    names
 }
 
 /// Member paths found before the walk.
@@ -771,6 +927,7 @@ fn javascript_emit_namespace_body(
             javascript_push_node(
                 context,
                 nodes,
+                node,
                 ParsedNode {
                     kind: crate::core::types::NodeKind::Class,
                     name: segment.clone(),
@@ -815,19 +972,53 @@ fn javascript_umd_global_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Opt
         .map(|child| node_text(*child, source))
 }
 
-/// Pushes a node, marking it `ambient` inside `declare` / ambient-module
-/// bodies and in declaration files.
+/// Pushes a node for the declaration `syntax`, marking it `ambient` inside
+/// `declare` / ambient-module bodies and in declaration files, and
+/// `exported` when the declaration is exported from its module or
+/// namespace (`export ...` or a local `export { name }`).
 fn javascript_push_node(
     context: &JavaScriptParseContext<'_>,
     nodes: &mut Vec<ParsedNode>,
+    syntax: tree_sitter::Node<'_>,
     mut node: ParsedNode,
 ) {
-    if (context.declaration_file || context.ambient_depth.get() > 0)
-        && let Some(map) = node.extra.as_object_mut()
-    {
-        map.insert("ambient".to_string(), json!(true));
+    let exported = javascript_declaration_is_exported(syntax)
+        || (node.parent_name.is_none() && context.exported_names.contains(&node.name));
+    if let Some(map) = node.extra.as_object_mut() {
+        if context.declaration_file || context.ambient_depth.get() > 0 {
+            map.insert("ambient".to_string(), json!(true));
+        }
+        if exported && node.kind != crate::core::types::NodeKind::Test {
+            map.insert("exported".to_string(), json!(true));
+        }
     }
     nodes.push(node);
+}
+
+/// Whether `syntax` is the declaration of an `export` statement, looking
+/// through the wrappers between a declaration and its statement
+/// (`export const x = ...`, `export declare function f()`).
+fn javascript_declaration_is_exported(syntax: tree_sitter::Node<'_>) -> bool {
+    if syntax.kind() == "export_statement" {
+        return true;
+    }
+    let mut current = syntax;
+    loop {
+        let Some(parent) = current.parent() else {
+            return false;
+        };
+        match parent.kind() {
+            "export_statement" => return true,
+            "variable_declarator"
+            | "lexical_declaration"
+            | "variable_declaration"
+            | "ambient_declaration"
+            | "parenthesized_expression"
+            | "as_expression"
+            | "satisfies_expression" => current = parent,
+            _ => return false,
+        }
+    }
 }
 
 /// Binds `this` / `self` to the owner when members of that owner see one
@@ -884,6 +1075,7 @@ fn javascript_emit_object_container(
     javascript_push_node(
         context,
         nodes,
+        declaration,
         ParsedNode {
             kind: crate::core::types::NodeKind::Class,
             name: name.to_string(),
@@ -993,6 +1185,7 @@ fn javascript_emit_class_node(
     javascript_push_node(
         context,
         nodes,
+        node,
         ParsedNode {
             kind: crate::core::types::NodeKind::Class,
             name: name.to_string(),
@@ -1003,7 +1196,7 @@ fn javascript_emit_class_node(
             parent_name: owner_path.map(str::to_string),
             params: None,
             return_type: None,
-            modifiers: None,
+            modifiers: javascript_modifiers(&[node]),
             is_test: false,
             extra,
         },
@@ -1056,6 +1249,7 @@ fn javascript_emit_type_alias(
     javascript_push_node(
         context,
         nodes,
+        node,
         ParsedNode {
             kind: crate::core::types::NodeKind::Type,
             name: name.to_string(),
@@ -1290,6 +1484,7 @@ fn javascript_emit_bound_function(
     javascript_push_node(
         context,
         nodes,
+        declaration,
         ParsedNode {
             kind: if is_test {
                 crate::core::types::NodeKind::Test
@@ -1304,7 +1499,7 @@ fn javascript_emit_bound_function(
             parent_name: owner_path.map(str::to_string),
             params: javascript_child_text(function_node, context.source, "formal_parameters"),
             return_type: javascript_child_text(function_node, context.source, "type_annotation"),
-            modifiers: None,
+            modifiers: javascript_modifiers(&[declaration, function_node]),
             is_test,
             extra,
         },
@@ -1329,15 +1524,21 @@ fn javascript_emit_function_node(
     owner_path: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
-) -> bool {
-    let Some(name) = javascript_function_name(node, context.source) else {
-        return false;
-    };
+) -> Option<String> {
+    let name = javascript_member_name(node, context.source)?;
     let is_test = is_javascript_test_function(&name, &context.file_path);
     let qualified = qualify(&context.file_path, &name, owner_path);
+    let mut extra = javascript_signature_extra(node);
+    if let Some(accessor) = javascript_accessor_kind(node)
+        && let Some(map) = extra.as_object_mut()
+    {
+        map.insert("member_role".to_string(), json!("accessor"));
+        map.insert("accessors".to_string(), json!([accessor]));
+    }
     javascript_push_node(
         context,
         nodes,
+        node,
         ParsedNode {
             kind: if is_test {
                 crate::core::types::NodeKind::Test
@@ -1356,9 +1557,9 @@ fn javascript_emit_function_node(
                 javascript_child_text(node, context.source, "formal_parameters")
             },
             return_type: javascript_child_text(node, context.source, "type_annotation"),
-            modifiers: None,
+            modifiers: javascript_modifiers(&[node]),
             is_test,
-            extra: javascript_signature_extra(node),
+            extra,
         },
     );
     let container = owner_path
@@ -1372,7 +1573,111 @@ fn javascript_emit_function_node(
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
-    true
+    Some(name)
+}
+
+/// Name of a function-like declaration or class / object member:
+/// identifiers, `#private` names, string and number literal keys, and
+/// computed keys holding a literal (`["computed"]() {}`). Other computed
+/// keys (`[Symbol.iterator]`) have no static name.
+fn javascript_member_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    match node.kind() {
+        "method_definition"
+        | "method_signature"
+        | "abstract_method_signature"
+        | "public_field_definition"
+        | "field_definition" => node
+            .child_by_field_name("name")
+            .or_else(|| node.child_by_field_name("property"))
+            .and_then(|key| javascript_property_name(key, source)),
+        _ => javascript_function_name(node, source),
+    }
+}
+
+/// Static name of a property key.
+fn javascript_property_name(key: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    match key.kind() {
+        "property_identifier"
+        | "identifier"
+        | "private_property_identifier"
+        | "type_identifier" => Some(node_text(key, source)),
+        "string" => {
+            Some(decode_javascript_string_literal(key, source)).filter(|name| !name.is_empty())
+        }
+        "number" => Some(node_text(key, source)),
+        "computed_property_name" => {
+            let inner = key.named_child(0)?;
+            match inner.kind() {
+                "string" | "number" => javascript_property_name(inner, source),
+                "template_string"
+                    if inner.named_child_count() == 0
+                        || (inner.named_child_count() == 1
+                            && inner
+                                .named_child(0)
+                                .is_some_and(|part| part.kind() == "string_fragment")) =>
+                {
+                    Some(decode_javascript_string_literal(inner, source))
+                        .filter(|name| !name.is_empty())
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// `get` / `set` for accessor members.
+fn javascript_accessor_kind(node: tree_sitter::Node<'_>) -> Option<&'static str> {
+    if !matches!(
+        node.kind(),
+        "method_definition" | "method_signature" | "abstract_method_signature"
+    ) {
+        return None;
+    }
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .find_map(|child| match child.kind() {
+            "get" => Some("get"),
+            "set" => Some("set"),
+            _ => None,
+        })
+}
+
+/// Space-separated declaration modifiers in source order (`static`,
+/// `async`, `*`, `get`, `set`, `readonly`, `public` / `private` /
+/// `protected`, `override`, `declare`, `abstract`, `accessor`), read from
+/// the direct children of `parts` (a declaration and, for bound functions,
+/// its function literal).
+fn javascript_modifiers(parts: &[tree_sitter::Node<'_>]) -> Option<String> {
+    let mut modifiers: Vec<&'static str> = Vec::new();
+    for part in parts {
+        let mut cursor = part.walk();
+        for child in part.children(&mut cursor) {
+            let modifier = match child.kind() {
+                "static" => "static",
+                "async" => "async",
+                "*" => "*",
+                "get" => "get",
+                "set" => "set",
+                "readonly" => "readonly",
+                "override_modifier" => "override",
+                "declare" => "declare",
+                "abstract" => "abstract",
+                "accessor" => "accessor",
+                "accessibility_modifier" => match child.child(0).map(|token| token.kind()) {
+                    Some("public") => "public",
+                    Some("private") => "private",
+                    Some("protected") => "protected",
+                    _ => continue,
+                },
+                _ => continue,
+            };
+            if !modifiers.contains(&modifier) {
+                modifiers.push(modifier);
+            }
+        }
+    }
+    (!modifiers.is_empty()).then(|| modifiers.join(" "))
 }
 
 /// `is_abstract` for contract members (interface method signatures,
@@ -1469,6 +1774,7 @@ fn javascript_emit_variable_functions(
         javascript_push_node(
             context,
             nodes,
+            node,
             ParsedNode {
                 kind: if is_test {
                     crate::core::types::NodeKind::Test
@@ -1487,7 +1793,7 @@ fn javascript_emit_variable_functions(
                     context.source,
                     "type_annotation",
                 ),
-                modifiers: None,
+                modifiers: javascript_modifiers(&[function_node]),
                 is_test,
                 extra: json!({}),
             },
@@ -1526,16 +1832,10 @@ fn javascript_emit_field_function(
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) -> bool {
-    let mut name = None;
-    let mut function_node = None;
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == "property_identifier" && name.is_none() {
-            name = Some(node_text(child, context.source));
-        } else if is_javascript_function_value(child.kind()) {
-            function_node = Some(child);
-        }
-    }
+    let name = javascript_member_name(node, context.source);
+    let function_node = node
+        .child_by_field_name("value")
+        .filter(|value| is_javascript_function_value(value.kind()));
     let (Some(name), Some(function_node)) = (name, function_node) else {
         return false;
     };
@@ -1544,6 +1844,7 @@ fn javascript_emit_field_function(
     javascript_push_node(
         context,
         nodes,
+        node,
         ParsedNode {
             kind: if is_test {
                 crate::core::types::NodeKind::Test
@@ -1558,7 +1859,7 @@ fn javascript_emit_field_function(
             parent_name: owner_path.map(str::to_string),
             params: javascript_child_text(function_node, context.source, "formal_parameters"),
             return_type: javascript_child_text(function_node, context.source, "type_annotation"),
-            modifiers: None,
+            modifiers: javascript_modifiers(&[node, function_node]),
             is_test,
             extra: json!({}),
         },
@@ -1616,6 +1917,7 @@ fn javascript_emit_call(
         javascript_push_node(
             context,
             nodes,
+            node,
             ParsedNode {
                 kind: crate::core::types::NodeKind::Test,
                 name: synthetic_name.clone(),
@@ -2305,7 +2607,10 @@ fn javascript_rightmost_identifier(node: tree_sitter::Node<'_>, source: &[u8]) -
     for child in children.into_iter().rev() {
         if matches!(
             child.kind(),
-            "identifier" | "property_identifier" | "type_identifier"
+            "identifier"
+                | "property_identifier"
+                | "type_identifier"
+                | "private_property_identifier"
         ) {
             return Some(node_text(child, source));
         }

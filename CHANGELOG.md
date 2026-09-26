@@ -44,6 +44,11 @@ All notable changes to `dagayn` are documented here.
   (`Outer.Inner::m`) resolves when the root is a same-file declaration.
   JavaScript / TypeScript class members now record the full owner path of
   their class in `parent_name`.
+- JavaScript / TypeScript nodes fill the `modifiers` column (`static`,
+  `async`, `*`, `get`, `set`, `readonly`, `public` / `private` /
+  `protected`, `override`, `declare`, `abstract`, `accessor`) and mark
+  exported declarations with `extra.exported: true` (`export ...` and local
+  `export { name }` clauses).
 - TypeScript type aliases are `Type` nodes (`type_role: "alias"`) with an
   `alias_form` (`object`, `union`, `function`, `mapped`, ...); only
   object-shaped aliases carry `container_role: "data_container"`. They were
@@ -107,6 +112,18 @@ All notable changes to `dagayn` are documented here.
   slugs follow GitHub rules for closing hashes and inline links.
 - Markdown link extraction skips inline code spans and fenced code blocks, so
   documented link examples no longer create dangling `IMPORTS_FROM` edges.
+- JavaScript / TypeScript emit one node per qualified name. Function and
+  method overloads collapse into the implementation (`overloads: n`,
+  spanning the signatures), getter / setter pairs into one accessor
+  (`member_role: "accessor"`, `accessors: ["get", "set"]`), and same-file
+  declaration merging (`interface Repo` twice, `function f` +
+  `namespace f`) into one node (`merged_declarations: n`). Before, the graph
+  kept whichever duplicate was written last (the setter, the last overload
+  signature, or the second interface body).
+- `#private` methods and fields, string / number literal member names
+  (`"quoted-name"() {}`, `42() {}`), and literal computed names
+  (`["computed"]() {}`) are nodes, and `this.#privateMethod()` resolves.
+  They had no node, so their calls were attributed to the file.
 - TypeScript bodiless declarations that are not contracts —
   `declare function f(): T;`, function overload signatures, and methods of
   a `declare class` or class overload signatures — carry

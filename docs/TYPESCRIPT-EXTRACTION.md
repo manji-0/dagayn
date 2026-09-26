@@ -44,7 +44,10 @@ separate extractors.
    nearest container that exists as a node.
 3. **One QN, one node.** The parser never emits two nodes with the same QN
    (the graph store keeps only the last write). Overloads, getter/setter pairs,
-   and same-file declaration merging collapse into one node.
+   and same-file declaration merging collapse into one node
+   (`javascript_collapse_duplicate_nodes`): the implementation, class, or
+   enum survives over signatures, interfaces, and namespaces, and records
+   `overloads`, `accessors`, or `merged_declarations`.
 4. **Reuse the shared vocabulary.** No new `NodeKind` or `EdgeKind` values.
    TypeScript-specific facts go into `extra` keys that other languages already
    use (`type_role`, `is_abstract`, `is_contract`, `decorators`, `member_role`,
@@ -74,7 +77,7 @@ separate extractors.
 | module-scope `const f = () => {}` / `function () {}` / `function* () {}` | `Function` | `f` (the binding) | owner path | |
 | `export default function () {}`, `export default () => ...` (anonymous) | `Function` | `default` | owner path | `export_default: true`, `anonymous: true` |
 | named default export `export default function Page() {}` | `Function` | `Page` | owner path | `export_default: true` |
-| method, getter/setter, `#private` method, function-valued class field | `Function` | member name | class owner path | getter/setter pairs: `member_role: "accessor"` |
+| method, getter/setter, `#private` method, function-valued class field | `Function` | member name (`#x`, string / number literal and literal computed keys included) | class owner path | getter/setter: `member_role: "accessor"`, `accessors`; overloads: `overloads: n` |
 | `abstract m()`, `abstract get x()` | `Function` | `m` / `x` | class owner path | `is_abstract: true` |
 | interface method signature | `Function` | `m` | interface owner path | `is_abstract: true` |
 | any declaration inside `declare ...`, `declare module` / `declare global`, or a `.d.ts` / `.d.mts` / `.d.cts` file | (as above) | | | `ambient: true`; the `.d.ts` File node has `declaration_file: true`, and `export as namespace X` records `umd_global: "X"` on it |
@@ -381,10 +384,15 @@ QNs omit the `file::` prefix.
 | function-valued field `handler = () => this.helper()` | `Function Box.handler`, `CALLS -> Box.helper` | implemented (existing) for TS; JS planned (part 2/3, #26) |
 | `static create()`, `async load()` | `Function Box.create` / `Box.load` | implemented (existing) |
 | generator method `*items()` | `Function Box.items` | implemented (existing; covered by #3 tests) |
-| `get value()` + `set value(v)` | one `Function Box.value` (`member_role: "accessor"`) | planned (part 2/3, #14) |
-| overloads `m(a: string); m(a: number); m(a) {}` | one `Function Box.m` | planned (part 2/3, #14) |
-| `#privateMethod() {}` | `Function Box.#privateMethod` | planned (part 2/3, #14) |
-| computed member names | string-literal names only | deferred |
+| `get value()` + `set value(v)` | one `Function Box.value` (`member_role: "accessor"`, `accessors: ["get", "set"]`), spanning both | implemented (#14) |
+| overloads `m(a: string); m(a: number); m(a) {}` | one `Function Box.m` (`overloads: 2`), spanning the signatures and the implementation, no `declaration_only` | implemented (#14) |
+| function overloads, `declare function` overloads | one `Function f` (`overloads: n`; `declaration_only` kept when there is no implementation) | implemented (#14) |
+| `#privateMethod() {}`, `#handler = () => ...`, `this.#privateMethod()` | `Function Box.#privateMethod` / `Box.#handler`, `CALLS -> Box.#privateMethod` | implemented (#14) |
+| `"quoted-name"() {}`, `42() {}`, `["computed"]() {}` | `Function Box.quoted-name` / `Box.42` / `Box.computed` | implemented (#14) |
+| other computed member names (`[Symbol.iterator]()`) | no node | deferred |
+| `function f` + `namespace f`, `class C` + `interface C`, `enum E` + `namespace E` | one node (the function / class / enum), `merged_declarations: 2` | implemented (#14) |
+| declaration modifiers | `modifiers` column: `static`, `async`, `*`, `get`, `set`, `readonly`, `public` / `private` / `protected`, `override`, `declare`, `abstract`, `accessor` (space-separated, source order) | implemented (#14) |
+| `export ...` / `export { local }` | `exported: true` on the declaration (module or namespace scope) | implemented (#14) |
 | `this.helper()` (same class) | `CALLS -> Box.helper` | implemented (existing) |
 | `this.helper()` (inherited) | `CALLS -> Base.helper` (MEDIUM) | planned (part 2/3, #17) |
 | `this.repo.find()` | `CALLS -> interfaces.ts::Repo.find` | planned (part 2/3, #17) |
@@ -397,7 +405,7 @@ QNs omit the `file::` prefix.
 | `interface Repo {}` | `Class Repo` (`interface`, `is_abstract`, `is_contract`) | implemented (existing) |
 | interface `extends Repo, Logger, ns.X<T>` | one `INHERITS` per base (`extends`) | implemented (#4) |
 | method signature `find(): string;` | `Function Repo.find` (`is_abstract`) | implemented (existing) |
-| same-file interface merging | one `Class Repo` holding the members of both declarations | planned (part 2/3, #14) |
+| same-file interface merging | one `Class Repo` (`merged_declarations: 2`) holding the members of both declarations | implemented (#14) |
 | `type Props = { a: A }` | `Type Props` (`alias`, `alias_form: "object"`, `data_container`) | implemented (#13) |
 | `type U = A \| B` | `Type U` (`alias`, `alias_form: "union"`) | implemented (#13) |
 | `interface X extends Props` (imported alias) | `INHERITS -> types.ts::Props` (MEDIUM) | implemented (#13) |

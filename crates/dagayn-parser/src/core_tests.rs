@@ -4955,3 +4955,155 @@ function use(c: Color): Props { return {} as Props; }
     assert_eq!(ambient.extra["ambient"], true);
     assert!(color.extra.get("ambient").is_none());
 }
+
+#[test]
+fn collapses_typescript_overloads_accessors_and_merged_interfaces() {
+    let source = br#"export function over(a: string): string;
+export function over(a: number): number;
+export function over(a: any): any { return helper(a); }
+declare function sig(a: string): void;
+declare function sig(a: number): void;
+export interface Repo { find(id: string): string; }
+export interface Repo { save(item: string): void; }
+export class Box {
+  static count = 0;
+  #secret = 1;
+  #handler = () => this.#privateMethod();
+  protected override async load(): Promise<void> {}
+  static *items() {}
+  get value(): number { return this.#secret; }
+  set value(v: number) { this.#secret = v; }
+  #privateMethod(): void { helper(1); }
+  ["computed"](): void { helper(2); }
+  42(): void {}
+  "quoted-name"(): void {}
+  m(a: string): string;
+  m(a: number): number;
+  m(a: any): any { return a; }
+}
+export abstract class Shape { protected abstract get label(): string; }
+export function buildLabel() {}
+export namespace buildLabel { export const suffix = ""; }
+function helper(x: unknown) { return x; }
+const local = 1;
+export { local };
+"#;
+    let file = "over.ts";
+    let (nodes, edges) = parse_javascript_like(file, source, "typescript");
+    let qn = |node: &ParsedNode| qualify(file, &node.name, node.parent_name.as_deref());
+    let mut seen = HashSet::new();
+    for node in &nodes {
+        assert!(
+            seen.insert(qn(node)),
+            "duplicate QN {}: {nodes:?}",
+            qn(node)
+        );
+    }
+    let find = |name: &str, parent: Option<&str>| {
+        nodes
+            .iter()
+            .find(|node| node.name == name && node.parent_name.as_deref() == parent)
+            .unwrap_or_else(|| panic!("{name}: {nodes:?}"))
+    };
+    let over = find("over", None);
+    assert_eq!(over.extra["overloads"], 2);
+    assert_eq!(over.line_start, 1);
+    assert_eq!(over.line_end, 3);
+    assert!(over.extra.get("declaration_only").is_none(), "{over:?}");
+    assert!(over.extra.get("is_abstract").is_none());
+    assert_eq!(over.extra["exported"], true);
+    let sig = find("sig", None);
+    assert_eq!(sig.extra["overloads"], 2);
+    assert_eq!(sig.extra["declaration_only"], true);
+    let m = find("m", Some("Box"));
+    assert_eq!(m.extra["overloads"], 2);
+    assert!(m.extra.get("declaration_only").is_none());
+
+    let repo = find("Repo", None);
+    assert_eq!(repo.extra["merged_declarations"], 2);
+    assert_eq!(repo.extra["type_role"], "interface");
+    assert!(
+        nodes
+            .iter()
+            .any(|node| node.name == "find" && node.parent_name.as_deref() == Some("Repo"))
+    );
+    assert!(
+        nodes
+            .iter()
+            .any(|node| node.name == "save" && node.parent_name.as_deref() == Some("Repo"))
+    );
+
+    let value = find("value", Some("Box"));
+    assert_eq!(value.extra["member_role"], "accessor");
+    assert_eq!(value.extra["accessors"], json!(["get", "set"]));
+    let label = find("label", Some("Shape"));
+    assert_eq!(label.extra["member_role"], "accessor");
+    assert_eq!(label.extra["is_abstract"], true);
+    assert_eq!(label.modifiers.as_deref(), Some("protected abstract get"));
+
+    for name in [
+        "#privateMethod",
+        "#handler",
+        "computed",
+        "42",
+        "quoted-name",
+        "items",
+        "load",
+    ] {
+        assert!(
+            nodes.iter().any(|node| node.kind == "Function"
+                && node.name == name
+                && node.parent_name.as_deref() == Some("Box")),
+            "{name}: {nodes:?}"
+        );
+    }
+    assert_eq!(
+        find("load", Some("Box")).modifiers.as_deref(),
+        Some("protected override async")
+    );
+    assert_eq!(
+        find("items", Some("Box")).modifiers.as_deref(),
+        Some("static *")
+    );
+    assert_eq!(
+        find("value", Some("Box")).modifiers.as_deref(),
+        Some("get set")
+    );
+
+    // `function` + `namespace` merging keeps the function.
+    let build = find("buildLabel", None);
+    assert_eq!(build.kind, "Function");
+    assert_eq!(build.extra["merged_declarations"], 2);
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "CONTAINS" && edge.source == "over.ts" && edge.target == "over.ts::buildLabel"
+    }));
+
+    assert_eq!(find("Box", None).extra["exported"], true);
+    assert!(find("helper", None).extra.get("exported").is_none());
+    assert!(find("load", Some("Box")).extra.get("exported").is_none());
+
+    for (source, target) in [
+        ("over.ts::Box.#privateMethod", "over.ts::helper"),
+        ("over.ts::Box.computed", "over.ts::helper"),
+        ("over.ts::Box.#handler", "over.ts::Box.#privateMethod"),
+        ("over.ts::over", "over.ts::helper"),
+    ] {
+        assert!(
+            edges
+                .iter()
+                .any(|edge| edge.kind == "CALLS" && edge.source == source && edge.target == target),
+            "CALLS {source} -> {target}: {edges:?}"
+        );
+    }
+    let contains = edges
+        .iter()
+        .filter(|edge| edge.kind == "CONTAINS")
+        .map(|edge| (edge.source.as_str(), edge.target.as_str()))
+        .collect::<Vec<_>>();
+    let unique = contains.iter().collect::<HashSet<_>>();
+    assert_eq!(
+        contains.len(),
+        unique.len(),
+        "duplicate CONTAINS: {contains:?}"
+    );
+}

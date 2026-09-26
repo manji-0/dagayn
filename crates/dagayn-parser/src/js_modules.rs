@@ -75,6 +75,8 @@ pub(super) struct JavaScriptParseContext<'a> {
     /// Owner paths of namespaces and ambient modules (`Outer`, `A.B`,
     /// `global`): containers whose members do not see a `this`.
     pub(super) namespace_paths: &'a HashSet<String>,
+    /// Local names exported by a module-level `export { name }` clause.
+    pub(super) exported_names: &'a HashSet<String>,
     /// `.d.ts` / `.d.mts` / `.d.cts`: every declaration is ambient.
     pub(super) declaration_file: bool,
     /// Nesting depth of `declare ...` / ambient-module bodies being walked.
