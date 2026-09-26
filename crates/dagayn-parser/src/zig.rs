@@ -122,11 +122,7 @@ fn zig_visit(
                 return;
             }
         }
-        "VarDecl" => {
-            if zig_handle_var_decl(node, context, scope, nodes, edges) {
-                return;
-            }
-        }
+        "VarDecl" if zig_handle_var_decl(node, context, scope, nodes, edges) => return,
         "TestDecl" => {
             zig_handle_test(node, context, scope, nodes, edges);
             return;
