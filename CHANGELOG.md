@@ -4,6 +4,8 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+## 5.0.0 — 2026-09-27
+
 ### Added
 
 - First-class Zig parsing: containers (struct/enum/union/opaque/error sets,
@@ -374,6 +376,56 @@ All notable changes to `dagayn` are documented here.
   for bundler interop. `ns.X` member bases and JSX `<ns.X />` resolve only
   through namespace or default imports, not through named imports.
 
+- Security keywords in `review_priority_score` / `risk_score`, flow
+  criticality, and `risk_index` now match on identifier-token starts instead of
+  raw substrings. Names and qualified names split on separators, camelCase /
+  PascalCase, acronyms, and digits, so `sign` no longer hits `design` or
+  `assign` (or a `design/` directory), while `verify_signature`,
+  `password_hash`, and `refreshTokens` still count. Look-alike tokens such as
+  `hashmap` / `HashMap`, `signal`, and `author` are excluded explicitly.
+  Keywords glued behind other letters (`oauth`, `mysql`, `unauthorized`) are a
+  known miss unless another keyword token is present.
+- When dependent-file expansion for an incremental update hits the
+  500-file cap, the kept files are now deterministic: files fewer import hops
+  from the changed files come first, then paths in sorted order. The cut was
+  previously taken from an unordered set, so which dependents were re-parsed
+  could change from run to run.
+- Markdown code-span bridges that were resolved before implicit code spans
+  were capped at MEDIUM 0.4 are now re-tiered by the next post-processing run.
+  The resolver skipped any edge whose target was unchanged, so such bridges
+  kept HIGH 0.8 (and counted as hard `describes_symbol` claims) until their
+  Markdown file was re-parsed. It now also rewrites an edge whose stored
+  confidence, tier, or metadata differ from the computed ones; those rewrites
+  count as `markdown_artifact_refs_re_resolved`.
+- Impact and review output now account for every `CROSS_ARTIFACT` bridge next
+  to the changed nodes. A bridge outside the reportable tiers (`MEDIUM`,
+  `UNKNOWN`) without Markdown code-span evidence was neither expanded as a
+  claim nor listed in `low_confidence_bridges`, so it silently disappeared.
+  Any bridge that is not a reportable claim is now a caveat; `MEDIUM` bridges
+  still do not expand impact or flows.
+
+- Terraform `REFERENCES` and `CALLS` edges now start from the block's
+  qualified node (`infra/main.tf::resource.aws_s3_bucket.logs`) instead of its
+  bare name (`resource.aws_s3_bucket.logs`). The bare source matched no node,
+  so unresolved-endpoint demotion marked every Terraform reference and call
+  edge `LOW` confidence, even between blocks of the same file.
+- Terraform string and heredoc literals no longer produce `REFERENCES` edges.
+  The whole quoted template was matched against the reference pattern, so
+  values such as `"t3.micro"` or `"handler.zip"` became references to
+  `resource.t3.micro` and `resource.handler.zip`. Only `${ ... }`
+  interpolations are scanned now.
+- Terraform references to blocks declared in another file of the same module
+  resolve to that block. `var.region` in `main.tf` used to stay a bare target
+  when `variable "region"` lived in `variables.tf`, because the parser only
+  qualifies names defined in the file it parses. A new post-processing step
+  binds bare Terraform `REFERENCES` targets to the unique Terraform node of
+  that name in the same directory (`HIGH` confidence); ambiguous names and
+  names declared only in other directories stay bare. The step reports
+  `terraform_module_references_resolved`.
+- The README Terraform block table (and its translations) lists `check`
+  blocks as `Class` nodes, matching the parser since production `check`
+  blocks stopped being classified as tests; it still said `Test`.
+
 ### Performance
 
 - An incremental update no longer opens every file in the repository to decide
@@ -491,36 +543,6 @@ All notable changes to `dagayn` are documented here.
   and a per-construct coverage matrix. Linked from `docs/INDEX.md` and
   `docs/SCHEMA.md`.
 
-### Fixes
-
-- Security keywords in `review_priority_score` / `risk_score`, flow
-  criticality, and `risk_index` now match on identifier-token starts instead of
-  raw substrings. Names and qualified names split on separators, camelCase /
-  PascalCase, acronyms, and digits, so `sign` no longer hits `design` or
-  `assign` (or a `design/` directory), while `verify_signature`,
-  `password_hash`, and `refreshTokens` still count. Look-alike tokens such as
-  `hashmap` / `HashMap`, `signal`, and `author` are excluded explicitly.
-  Keywords glued behind other letters (`oauth`, `mysql`, `unauthorized`) are a
-  known miss unless another keyword token is present.
-- When dependent-file expansion for an incremental update hits the
-  500-file cap, the kept files are now deterministic: files fewer import hops
-  from the changed files come first, then paths in sorted order. The cut was
-  previously taken from an unordered set, so which dependents were re-parsed
-  could change from run to run.
-- Markdown code-span bridges that were resolved before implicit code spans
-  were capped at MEDIUM 0.4 are now re-tiered by the next post-processing run.
-  The resolver skipped any edge whose target was unchanged, so such bridges
-  kept HIGH 0.8 (and counted as hard `describes_symbol` claims) until their
-  Markdown file was re-parsed. It now also rewrites an edge whose stored
-  confidence, tier, or metadata differ from the computed ones; those rewrites
-  count as `markdown_artifact_refs_re_resolved`.
-- Impact and review output now account for every `CROSS_ARTIFACT` bridge next
-  to the changed nodes. A bridge outside the reportable tiers (`MEDIUM`,
-  `UNKNOWN`) without Markdown code-span evidence was neither expanded as a
-  claim nor listed in `low_confidence_bridges`, so it silently disappeared.
-  Any bridge that is not a reportable claim is now a caveat; `MEDIUM` bridges
-  still do not expand impact or flows.
-
 ### Testing
 
 - `tests/test_embeddings.py` pins score parity, not only ranking parity,
@@ -532,30 +554,6 @@ All notable changes to `dagayn` are documented here.
   with snapshots that hold one node / edge per line
   (`tools/parity_export.py --entity-lines`), so extractor changes are
   reviewed as snapshot diffs.
-
-### Fixes
-
-- Terraform `REFERENCES` and `CALLS` edges now start from the block's
-  qualified node (`infra/main.tf::resource.aws_s3_bucket.logs`) instead of its
-  bare name (`resource.aws_s3_bucket.logs`). The bare source matched no node,
-  so unresolved-endpoint demotion marked every Terraform reference and call
-  edge `LOW` confidence, even between blocks of the same file.
-- Terraform string and heredoc literals no longer produce `REFERENCES` edges.
-  The whole quoted template was matched against the reference pattern, so
-  values such as `"t3.micro"` or `"handler.zip"` became references to
-  `resource.t3.micro` and `resource.handler.zip`. Only `${ ... }`
-  interpolations are scanned now.
-- Terraform references to blocks declared in another file of the same module
-  resolve to that block. `var.region` in `main.tf` used to stay a bare target
-  when `variable "region"` lived in `variables.tf`, because the parser only
-  qualifies names defined in the file it parses. A new post-processing step
-  binds bare Terraform `REFERENCES` targets to the unique Terraform node of
-  that name in the same directory (`HIGH` confidence); ambiguous names and
-  names declared only in other directories stay bare. The step reports
-  `terraform_module_references_resolved`.
-- The README Terraform block table (and its translations) lists `check`
-  blocks as `Class` nodes, matching the parser since production `check`
-  blocks stopped being classified as tests; it still said `Test`.
 
 ## 4.15.0 — 2026-09-25
 
