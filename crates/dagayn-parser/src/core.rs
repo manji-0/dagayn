@@ -37,6 +37,8 @@ mod go;
 mod java;
 #[path = "js_like.rs"]
 mod js_like;
+#[path = "js_members.rs"]
+mod js_members;
 #[path = "js_modules.rs"]
 mod js_modules;
 #[path = "js_sfc.rs"]
@@ -750,7 +752,10 @@ pub(super) fn resolve_rust_call_targets(
     edges
         .into_iter()
         .map(|mut edge| {
+            // A member call whose receiver the extractor could not type
+            // (`res.json()`) must not bind to a same-named declaration.
             if matches!(edge.kind, EdgeKind::Calls | EdgeKind::References)
+                && edge.extra["receiver_unknown"] != true
                 && let Some(target) = resolve_same_file_call_target(
                     file_path,
                     &edge.source,

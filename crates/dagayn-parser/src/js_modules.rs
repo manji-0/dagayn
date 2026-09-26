@@ -1,9 +1,11 @@
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use serde_json::Value;
 
+use super::js_members::{JavaScriptClassTable, collect_javascript_class_table};
 use super::member_calls::MemberCallBindings;
 use super::parsers::{new_javascript_parser, new_tsx_parser, new_typescript_parser};
 use super::qualify;
@@ -25,6 +27,15 @@ pub(super) struct JavaScriptExportIndex {
     defined_names: HashSet<String>,
     named_exports: HashMap<String, JavaScriptExportTarget>,
     star_exports: Vec<String>,
+    /// Class / interface shapes declared in the module, for member calls on
+    /// receivers of an imported type.
+    pub(super) class_table: Arc<JavaScriptClassTable>,
+    /// Object-container and namespace member paths of the module
+    /// (`api.get`, `Outer.helper`).
+    pub(super) member_paths: Arc<HashSet<String>>,
+    /// The module's own imports, to resolve type names written in it (the
+    /// base of an imported class, the type of its fields).
+    pub(super) import_map: Arc<JavaScriptImportMap>,
 }
 
 impl JavaScriptExportIndex {
@@ -75,6 +86,8 @@ pub(super) struct JavaScriptParseContext<'a> {
     /// Owner paths of namespaces and ambient modules (`Outer`, `A.B`,
     /// `global`): containers whose members do not see a `this`.
     pub(super) namespace_paths: &'a HashSet<String>,
+    /// Class / interface shapes declared in this file.
+    pub(super) class_table: &'a JavaScriptClassTable,
     /// Local names exported by a module-level `export { name }` clause.
     pub(super) exported_names: &'a HashSet<String>,
     /// `.d.ts` / `.d.mts` / `.d.cts`: every declaration is ambient.
@@ -242,36 +255,52 @@ pub(super) fn resolve_javascript_import_binding(
     binding: &JavaScriptImportBinding,
     context: &JavaScriptParseContext<'_>,
 ) -> Option<String> {
-    match &binding.imported {
-        JavaScriptImported::Named(exported) => {
-            resolve_javascript_imported_symbol(exported, &binding.module, context)
-        }
-        JavaScriptImported::Default => {
-            let module_file = resolve_javascript_module(
-                &binding.module,
-                &context.file_path,
-                context.repo_root,
-                context.caches,
-            )?;
-            let mut seen = HashSet::new();
-            if let Some(target) = resolve_javascript_exported_symbol(
-                &module_file,
-                "default",
-                context.repo_root,
-                context.caches,
-                &mut seen,
-            ) {
-                return Some(target);
-            }
-            if javascript_export_index(&module_file, context.repo_root, context.caches)
-                .is_some_and(|index| !index.has_default_export())
-            {
-                return resolve_javascript_imported_symbol(local_name, &binding.module, context);
-            }
-            Some(qualify(&module_file, "default", None))
-        }
-        JavaScriptImported::Namespace => None,
+    resolve_javascript_import_binding_in(
+        &context.file_path,
+        local_name,
+        binding,
+        context.repo_root,
+        context.caches,
+    )
+}
+
+/// [`resolve_javascript_import_binding`] for an import written in
+/// `importer` (any module, not only the file being parsed).
+pub(super) fn resolve_javascript_import_binding_in(
+    importer: &str,
+    local_name: &str,
+    binding: &JavaScriptImportBinding,
+    repo_root: Option<&Path>,
+    caches: JavaScriptCaches<'_>,
+) -> Option<String> {
+    let symbol = match &binding.imported {
+        JavaScriptImported::Named(exported) => exported.as_str(),
+        JavaScriptImported::Default => "default",
+        JavaScriptImported::Namespace => return None,
+    };
+    let module_file = resolve_javascript_module(&binding.module, importer, repo_root, caches)?;
+    let mut seen = HashSet::new();
+    if let Some(target) =
+        resolve_javascript_exported_symbol(&module_file, symbol, repo_root, caches, &mut seen)
+    {
+        return Some(target);
     }
+    if binding.imported == JavaScriptImported::Default {
+        if javascript_export_index(&module_file, repo_root, caches)
+            .is_some_and(|index| !index.has_default_export())
+        {
+            return resolve_javascript_exported_symbol(
+                &module_file,
+                local_name,
+                repo_root,
+                caches,
+                &mut HashSet::new(),
+            )
+            .or_else(|| Some(qualify(&module_file, local_name, None)));
+        }
+        return Some(qualify(&module_file, "default", None));
+    }
+    Some(qualify(&module_file, symbol, None))
 }
 
 /// `ns.member` where `ns` is a namespace (or default) import binding:
@@ -358,6 +387,34 @@ fn resolve_javascript_exported_symbol(
     None
 }
 
+/// The export index of a resolved module file (cached).
+pub(super) fn javascript_module_index(
+    module_file: &str,
+    context: &JavaScriptParseContext<'_>,
+) -> Option<JavaScriptExportIndex> {
+    javascript_export_index(module_file, context.repo_root, context.caches)
+}
+
+/// `member` of the module that a namespace or default import in `importer`
+/// names (`ns.Base` -> `lib/base.ts::Base`).
+pub(super) fn resolve_javascript_module_member_in(
+    importer: &str,
+    binding: &JavaScriptImportBinding,
+    member: &str,
+    context: &JavaScriptParseContext<'_>,
+) -> Option<String> {
+    let module_file =
+        resolve_javascript_module(&binding.module, importer, context.repo_root, context.caches)?;
+    resolve_javascript_exported_symbol(
+        &module_file,
+        member,
+        context.repo_root,
+        context.caches,
+        &mut HashSet::new(),
+    )
+    .or_else(|| Some(qualify(&module_file, member, None)))
+}
+
 fn javascript_export_index(
     module_file: &str,
     repo_root: Option<&Path>,
@@ -392,6 +449,8 @@ fn javascript_export_index_uncached(
 
     let mut defined_names = HashSet::new();
     collect_javascript_defined_names(root, &source, &mut defined_names);
+    let mut import_map = JavaScriptImportMap::new();
+    collect_javascript_import_map(root, &source, &mut import_map);
     let mut named_exports = HashMap::new();
     let mut star_exports = Vec::new();
 
@@ -468,6 +527,11 @@ fn javascript_export_index_uncached(
         defined_names,
         named_exports,
         star_exports,
+        class_table: Arc::new(collect_javascript_class_table(root, &source)),
+        member_paths: Arc::new(
+            super::js_like::collect_javascript_member_paths(root, &source).members,
+        ),
+        import_map: Arc::new(import_map),
     })
 }
 

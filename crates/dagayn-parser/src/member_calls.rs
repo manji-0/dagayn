@@ -58,8 +58,18 @@ impl MemberCallBindings {
         self.bindings.contains_key(receiver)
     }
 
+    /// The type bound to `var`: a same-file owner path, or a `file::path`
+    /// QN for a type declared in another module.
+    pub(super) fn bound_type(&self, var: &str) -> Option<&str> {
+        self.bindings.get(var).map(String::as_str)
+    }
+
     pub(super) fn resolve_member(&self, receiver: &str, method: &str) -> Option<String> {
         let type_name = self.bindings.get(receiver)?;
+        // A type of another module is resolved by the extractor itself.
+        if type_name.contains("::") {
+            return None;
+        }
         Some(format!("{type_name}::{method}"))
     }
 

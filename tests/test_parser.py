@@ -1382,6 +1382,28 @@ class TestTypeRoleAndImplements:
             assert ("Svc", "makeDep") in calls
             assert ("Svc", "log") in calls
 
+    def test_typescript_member_calls_bind_with_evidence(self, tmp_path):
+        src = (
+            "export class UsersService { findAll() { return []; } }\n"
+            "export class UsersController {\n"
+            "  constructor(private readonly users: UsersService) {}\n"
+            "  findAll() { return this.users.findAll(); }\n"
+            "  send(res: any) { return res.json(); }\n"
+            "}\n"
+            "function json() {}\n"
+        )
+        _, edges = self._parse(src, "ts", tmp_path)
+        calls = {
+            (e.source.split("::")[-1], e.target.split("::")[-1]): e
+            for e in edges
+            if e.kind == "CALLS"
+        }
+        assert ("UsersController.findAll", "UsersService.findAll") in calls
+        assert ("UsersController.findAll", "UsersController.findAll") not in calls
+        unknown = calls[("UsersController.send", "json")]
+        assert unknown.target == "json"
+        assert unknown.extra.get("receiver_unknown") is True
+
     def test_typescript_type_alias_is_type_node(self, tmp_path):
         src = (
             "export type Props = { label: string };\n"

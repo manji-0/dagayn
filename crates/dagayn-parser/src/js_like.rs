@@ -4,11 +4,18 @@ use std::path::Path;
 
 use serde_json::{Value, json};
 
+use super::js_members::{
+    JavaScriptTypeRef, annotation_type_name, collect_javascript_class_table,
+    javascript_base_member, javascript_receiver_type, javascript_resolved_base,
+    javascript_this_type, javascript_type_member, javascript_written_bases,
+    resolve_javascript_type_name,
+};
 use super::js_modules::{
-    JavaScriptCaches, JavaScriptParseContext, collect_javascript_defined_names,
+    JavaScriptCaches, JavaScriptImported, JavaScriptParseContext, collect_javascript_defined_names,
     collect_javascript_import_map, collect_javascript_type_names, decode_javascript_string_literal,
     javascript_child_text, javascript_function_name, javascript_import_targets,
-    javascript_named_child, resolve_javascript_call_target, resolve_javascript_module,
+    javascript_module_index, javascript_named_child, resolve_javascript_call_target,
+    resolve_javascript_import_binding, resolve_javascript_module,
     resolve_javascript_namespace_member,
 };
 use super::member_calls::MemberCallBindings;
@@ -101,6 +108,7 @@ pub(super) fn parse_javascript_like_interned(
         collect_javascript_import_map(root, source, &mut import_map);
         let scopes = collect_javascript_member_paths(root, source);
         let exported_names = collect_javascript_local_exports(root, source);
+        let class_table = collect_javascript_class_table(root, source);
         let context = JavaScriptParseContext {
             source,
             file_path: file_path.clone(),
@@ -110,6 +118,7 @@ pub(super) fn parse_javascript_like_interned(
             import_map: &import_map,
             member_paths: &scopes.members,
             namespace_paths: &scopes.namespaces,
+            class_table: &class_table,
             exported_names: &exported_names,
             declaration_file,
             ambient_depth: Cell::new(0),
@@ -274,6 +283,7 @@ fn javascript_walk_function_body(
 ) {
     let snapshot = context.bindings.borrow().snapshot();
     javascript_bind_this(context, owner_path);
+    javascript_bind_parameters(function_node, context);
     let locals = collect_javascript_local_declarations(function_node, context.source);
     let scoped = !locals.is_empty();
     if scoped {
@@ -2003,7 +2013,7 @@ fn javascript_insert_decorator_names(
 /// identifiers, `#private` names, string and number literal keys, and
 /// computed keys holding a literal (`["computed"]() {}`). Other computed
 /// keys (`[Symbol.iterator]`) have no static name.
-fn javascript_member_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+pub(super) fn javascript_member_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     match node.kind() {
         "method_definition"
         | "method_signature"
@@ -2313,6 +2323,12 @@ fn javascript_emit_call(
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) -> bool {
+    if node.kind() == "call_expression"
+        && javascript_callee_node(node).is_some_and(|callee| callee.kind() == "super")
+    {
+        javascript_emit_super_call(node, context, owner_path, enclosing_func, edges);
+        return false;
+    }
     let Some(call_name) = javascript_call_name(node, context.source) else {
         return false;
     };
@@ -2381,20 +2397,60 @@ fn javascript_emit_call(
     let caller = enclosing_func
         .map(|func| qualify(&context.file_path, func, owner_path))
         .unwrap_or_else(|| context.file_path.to_string());
-    let target = javascript_bound_member_target(node, context, owner_path)
-        .unwrap_or_else(|| resolve_javascript_call_target(&call_name, context));
+    let (target, extra) = javascript_member_call_target(node, context, owner_path, &call_name)
+        .unwrap_or_else(|| {
+            (
+                resolve_javascript_call_target(&call_name, context),
+                json!({}),
+            )
+        });
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Calls,
         source: caller.clone(),
         target,
         file_path: context.file_path.clone(),
         line: node.start_position().row as i64 + 1,
-        extra: json!({}),
+        extra,
     });
     if let Some(edge) = javascript_bridge_edge(node, context, &caller) {
         edges.push(edge);
     }
     false
+}
+
+/// `super(...)` in a constructor: `CALLS` to the base class
+/// (`call_kind: "super"`), as `new Base()` would be. An unresolved base
+/// (an external package) keeps its rightmost written name.
+fn javascript_emit_super_call(
+    node: tree_sitter::Node<'_>,
+    context: &JavaScriptParseContext<'_>,
+    owner_path: Option<&str>,
+    enclosing_func: Option<&str>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let Some(this) = javascript_this_type(context) else {
+        return;
+    };
+    let target = match javascript_resolved_base(context, &this) {
+        Some(base) => format!("{}::{}", base.file, base.path),
+        None => {
+            let Some(base) = javascript_written_bases(context, &this).into_iter().next() else {
+                return;
+            };
+            base.rsplit('.').next().unwrap_or(&base).to_string()
+        }
+    };
+    let caller = enclosing_func
+        .map(|func| qualify(&context.file_path, func, owner_path))
+        .unwrap_or_else(|| context.file_path.to_string());
+    edges.push(ParsedEdge {
+        kind: crate::core::types::EdgeKind::Calls,
+        source: caller,
+        target,
+        file_path: context.file_path.clone(),
+        line: node.start_position().row as i64 + 1,
+        extra: json!({"call_kind": "super"}),
+    });
 }
 
 fn javascript_emit_value_references(
@@ -2844,21 +2900,123 @@ fn javascript_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<St
     }
 }
 
-fn javascript_bound_member_target(
+/// Target of a member call (`recv.m()`) and the edge metadata it carries,
+/// or `None` when the callee is not a member expression.
+///
+/// The receiver is bound only with evidence: a same-file object container or
+/// namespace, a namespace / named import (`fns.decl()`, `Outer.helper()`),
+/// or a receiver whose class is known (`this`, `super`, a typed field or
+/// variable, a class named directly). A member found on a base is `MEDIUM`.
+/// Anything else keeps the bare member name with `receiver_unknown: true`,
+/// which same-file resolution leaves alone, so `res.json()` never becomes an
+/// unrelated `json` and `this.users.findAll()` never the caller itself.
+fn javascript_member_call_target(
     node: tree_sitter::Node<'_>,
     context: &JavaScriptParseContext<'_>,
     owner_path: Option<&str>,
-) -> Option<String> {
+    call_name: &str,
+) -> Option<(String, Value)> {
     let callee = javascript_callee_node(node)?;
     if callee.kind() != "member_expression" {
         return None;
     }
-    if let Some(target) = javascript_object_member_target(callee, context, owner_path) {
-        return Some(target);
+    if let Some(target) = javascript_object_member_target(callee, context, owner_path)
+        .or_else(|| javascript_imported_member_target(callee, context))
+    {
+        return Some((target, json!({})));
     }
-    let method = javascript_rightmost_identifier(callee, context.source)?;
-    let receiver = javascript_leftmost_identifier(callee, context.source)?;
-    context.bindings.borrow().resolve_member(&receiver, &method)
+    let unknown = Some((call_name.to_string(), json!({"receiver_unknown": true})));
+    let (Some(object), Some(property)) = (
+        callee.child_by_field_name("object"),
+        callee.child_by_field_name("property"),
+    ) else {
+        return unknown;
+    };
+    if !matches!(
+        property.kind(),
+        "property_identifier" | "private_property_identifier"
+    ) {
+        return unknown;
+    }
+    let method = node_text(property, context.source);
+    let found = if object.kind() == "super" {
+        javascript_this_type(context)
+            .and_then(|this| javascript_base_member(context, &this, &method))
+    } else {
+        javascript_receiver_type(context, object)
+            .and_then(|ty| javascript_type_member(context, &ty, &method))
+    };
+    if let Some(found) = found {
+        let extra = if found.inherited {
+            json!({"confidence": 0.6, "confidence_tier": "MEDIUM"})
+        } else {
+            json!({})
+        };
+        return Some((found.qualified, extra));
+    }
+    // A variable bound to a same-file type that does not declare the member
+    // (an enum, a type alias, a class inheriting from outside) keeps the
+    // `Type::m` form for same-file resolution.
+    if object.kind() == "identifier"
+        && let Some(target) = context
+            .bindings
+            .borrow()
+            .resolve_member(&node_text(object, context.source), &method)
+    {
+        return Some((target, json!({})));
+    }
+    unknown
+}
+
+/// `fns.decl()` / `fns.api.get()` through a namespace import, and
+/// `Outer.helper()` / `Outer.Deep.deepFn()` / `api.get()` through a named or
+/// default import of a namespace or object container.
+fn javascript_imported_member_target(
+    callee: tree_sitter::Node<'_>,
+    context: &JavaScriptParseContext<'_>,
+) -> Option<String> {
+    let path = javascript_member_path(callee, context.source)?;
+    let (owner, method) = path.rsplit_once('.')?;
+    let (root, rest) = match owner.split_once('.') {
+        Some((root, rest)) => (root, Some(rest)),
+        None => (owner, None),
+    };
+    if context.bindings.borrow().is_bound(root) || javascript_is_local_name(context, root) {
+        return None;
+    }
+    let binding = context.import_map.get(root)?;
+    let (container, rest) = match (&binding.imported, rest) {
+        (JavaScriptImported::Namespace, None) => {
+            return resolve_javascript_namespace_member(root, method, context);
+        }
+        (JavaScriptImported::Namespace, Some(rest)) => {
+            let (first, tail) = match rest.split_once('.') {
+                Some((first, tail)) => (first, Some(tail)),
+                None => (rest, None),
+            };
+            (
+                resolve_javascript_namespace_member(root, first, context)?,
+                tail,
+            )
+        }
+        (_, rest) => (
+            resolve_javascript_import_binding(root, binding, context)?,
+            rest,
+        ),
+    };
+    let container = JavaScriptTypeRef::from_qualified(&container)?;
+    let owner = match rest {
+        Some(rest) => format!("{}.{rest}", container.path),
+        None => container.path,
+    };
+    let member_path = format!("{owner}.{method}");
+    let known = if container.file == context.file_path.as_str() {
+        context.member_paths.contains(&member_path)
+    } else {
+        javascript_module_index(&container.file, context)
+            .is_some_and(|index| index.member_paths.contains(&member_path))
+    };
+    known.then(|| qualify(&container.file, method, Some(&owner)))
 }
 
 /// `api.get()` / `api.nested.deep()` where `api` is a same-file object
@@ -2896,7 +3054,7 @@ fn javascript_object_member_target(
 
 /// Dotted text of a pure identifier member chain (`a.b.c`), or `None` when
 /// any segment is computed, a call, `this`, and so on.
-fn javascript_member_path(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+pub(super) fn javascript_member_path(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     match node.kind() {
         "identifier" => Some(node_text(node, source)),
         "member_expression" => {
@@ -2923,11 +3081,7 @@ fn javascript_bind_declarator(node: tree_sitter::Node<'_>, context: &JavaScriptP
                 ident = Some(node_text(child, context.source));
             }
             "type_annotation" => {
-                annotated = javascript_named_child(
-                    child,
-                    context.source,
-                    &["identifier", "type_identifier"],
-                );
+                annotated = annotation_type_name(child, context.source);
             }
             "new_expression" | "call_expression" => {
                 value = Some(child);
@@ -2945,7 +3099,54 @@ fn javascript_bind_declarator(node: tree_sitter::Node<'_>, context: &JavaScriptP
         return;
     }
     if let Some(type_name) = annotated {
-        context.bindings.borrow_mut().bind(ident, type_name);
+        javascript_bind_type_name(context, ident, &type_name);
+    }
+}
+
+/// Binds `ident` to the type written as `type_name`: a class or interface of
+/// this file (by owner path) or of another module (by its `file::path`
+/// QN); other same-file types (enums, aliases) by name as before.
+fn javascript_bind_type_name(context: &JavaScriptParseContext<'_>, ident: String, type_name: &str) {
+    match resolve_javascript_type_name(context, context.file_path.as_str(), type_name) {
+        Some(ty) if ty.file == context.file_path.as_str() => {
+            context.bindings.borrow_mut().bind_path(ident, ty.path);
+        }
+        Some(ty) => {
+            let qualified = format!("{}::{}", ty.file, ty.path);
+            context.bindings.borrow_mut().bind_path(ident, qualified);
+        }
+        None => context.bindings.borrow_mut().bind(ident, type_name),
+    }
+}
+
+/// Binds the typed parameters of a function (`run(r: Repo)`,
+/// `constructor(private repo: Repo)`) for the calls in its body.
+fn javascript_bind_parameters(
+    function_node: tree_sitter::Node<'_>,
+    context: &JavaScriptParseContext<'_>,
+) {
+    let Some(parameters) = function_node.child_by_field_name("parameters") else {
+        return;
+    };
+    let mut cursor = parameters.walk();
+    for parameter in parameters.named_children(&mut cursor) {
+        if !matches!(
+            parameter.kind(),
+            "required_parameter" | "optional_parameter"
+        ) {
+            continue;
+        }
+        let (Some(pattern), Some(type_name)) = (
+            parameter
+                .child_by_field_name("pattern")
+                .filter(|pattern| pattern.kind() == "identifier"),
+            parameter
+                .child_by_field_name("type")
+                .and_then(|annotation| annotation_type_name(annotation, context.source)),
+        ) else {
+            continue;
+        };
+        javascript_bind_type_name(context, node_text(pattern, context.source), &type_name);
     }
 }
 
@@ -2980,8 +3181,8 @@ fn javascript_bind_receiver(
     ident: String,
     type_name: String,
 ) {
-    if type_name.contains('.') {
-        // Only produced for verified same-file member paths.
+    if type_name.contains('.') || type_name.contains("::") {
+        // Only produced for verified member paths and imported classes.
         context.bindings.borrow_mut().bind_path(ident, type_name);
     } else {
         context.bindings.borrow_mut().bind(ident, type_name);
@@ -3002,11 +3203,19 @@ fn javascript_inferred_constructor(
         return Some(path);
     }
     let call_name = javascript_call_name(node, context.source)?;
-    context
+    if let Some(type_name) = context
         .bindings
         .borrow()
         .constructor_type(&call_name)
         .map(str::to_string)
+    {
+        return Some(type_name);
+    }
+    // `new DefaultShape()` / `new ns.Repo()` of an imported class.
+    let callee = javascript_callee_node(node).filter(|_| node.kind() == "new_expression")?;
+    let path = javascript_member_path(callee, context.source)?;
+    let ty = resolve_javascript_type_name(context, context.file_path.as_str(), &path)?;
+    (ty.file != context.file_path.as_str()).then(|| format!("{}::{}", ty.file, ty.path))
 }
 
 fn javascript_callee_node(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {

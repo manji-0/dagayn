@@ -127,6 +127,21 @@ All notable changes to `dagayn` are documented here.
   slugs follow GitHub rules for closing hashes and inline links.
 - Markdown link extraction skips inline code spans and fenced code blocks, so
   documented link examples no longer create dangling `IMPORTS_FROM` edges.
+- JavaScript / TypeScript member calls bind only with evidence about the
+  receiver. `this.repo.find()` resolves through the field's declared type
+  (parameter properties such as `constructor(private repo: Repo)`, field
+  annotations, `repo = new Repo()`, and JavaScript `this.repo = new Repo()`
+  in the constructor), including classes and interfaces imported from other
+  modules; typed parameters (`run(r: Repo)`), `new X().m()`, static calls
+  (`Box.create()`), namespace imports (`fns.decl()`, `fns.api.get()`), and
+  imported namespaces (`Outer.helper()`) resolve to the declaring module.
+  Members inherited from a base (`this.helper()`, `super.m()`) resolve to the
+  base's member with `MEDIUM` confidence, and `super(...)` is a `CALLS` edge
+  to the base class (`call_kind: "super"`). Any other receiver keeps the bare
+  member name with `receiver_unknown: true`: before, `res.json()` bound to an
+  unrelated same-file `json`, a NestJS `this.users.findAll()` resolved to
+  the calling `findAll` itself (a self-loop), and `this.repo.find()` could
+  bind to the first same-file class declaring `find`.
 - JavaScript / TypeScript declarations local to a function body (nested
   functions, `const handle = () => ...`, local classes, interfaces, type
   aliases, enums) are no longer nodes: their calls are attributed to the

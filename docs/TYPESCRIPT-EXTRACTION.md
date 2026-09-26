@@ -147,8 +147,9 @@ Nodes that are **not** created:
 - **`new X()`** is a `CALLS` edge to the class `X` (not to its constructor),
   as with Python's `X()`. Every class has a node even without an explicit
   constructor, and "this code uses class X" is the useful impact granularity.
-- **`super(...)`** is a `CALLS` edge to the resolved base class (planned,
-  part 2/3, #17).
+- **`super(...)`** is a `CALLS` edge from the constructor to the resolved
+  base class (`call_kind: "super"`); an unresolved base keeps its rightmost
+  written name (implemented, #17).
 - **JSX** `<Comp />` and `<UI.Comp />` are `CALLS` edges to the component, so
   flows follow the component tree. Lowercase intrinsic elements (`<div />`)
   are ignored.
@@ -187,6 +188,33 @@ owner wins (`Outer.Inner.run` tries `Outer.Inner`, then `Outer`). A receiver
 bound to an owner path (`this` inside `Outer.Inner`) resolves `this.m()`
 through `Outer.Inner::m` (implemented, #11). Receivers bound by `const x = new X()` or an annotation `x: X` rewrite
 `x.m()` to `X.m`.
+
+#### 6.1.1 Member calls
+
+A member call `recv.m()` binds only with evidence about the receiver
+(implemented, #17):
+
+- a same-file object container or namespace (`api.get()`, `Outer.helper()`)
+- a namespace import (`fns.decl()`, `fns.api.get()`) or a named / default
+  import of a namespace or object container (`Outer.Deep.deepFn()`)
+- a receiver whose class or interface is known, in this file or imported:
+  `this`; a class named directly (`Box.create()`, `ns.Box.create()`); a
+  variable bound by `new X()`, a `x: X` annotation, or a typed parameter;
+  `new X().m()`; a field of a known class with a declared type (parameter
+  properties `constructor(private repo: Repo)`, field annotations
+  `repo: Repo`, `repo = new Repo()`, and JavaScript
+  `this.repo = new Repo()` in the constructor), so `this.repo.find()` is
+  `Repo.find`
+- `super.m()`: the nearest base declaring `m`
+
+The member is looked up on the type, then on its bases (nearest first, up to
+eight levels, across files through each module's imports); a member found
+on a base (`this.helper()` inherited, `super.m()`) is `MEDIUM`
+(`confidence: 0.6`). Merged declarations (`interface Repo` twice) are one
+shape. Any other receiver (`res.json()`, an untyped `this.users`, a known
+class without that member) keeps the bare member name with
+`receiver_unknown: true`, and same-file resolution leaves such edges alone:
+they never bind to the first same-named method or to the caller itself.
 
 ### 6.2 Imports
 
@@ -388,8 +416,8 @@ QNs omit the `file::` prefix.
 | class / member decorators | `decorators: ["Injectable"]` on the class, method, or function-valued field (callee names, as Python records them; `ns.Dec` stays dotted); non-function field decorators in the class's `member_decorators`; `REFERENCES decorated -> decorator` (`relationship_role: "decorator"`), no `CALLS` | implemented (#16) |
 | parameter decorators `m(@Inject(T) x)` | `REFERENCES m -> Inject` (`decorator`); not in `decorators` metadata | implemented (#16) |
 | `@Entity()` / `@ObjectType()` on an exported class | `container_role: "data_container"` | implemented (#16) |
-| `constructor(private repo: Repo)` | `Function Box.constructor`; `this.repo` bound to `Repo` | node implemented (existing); binding planned (part 2/3, #17) |
-| `super(repo)` | `CALLS Box.constructor -> Base` | planned (part 2/3, #17) |
+| `constructor(private repo: Repo)` | `Function Box.constructor`; `this.repo` bound to `Repo` | node implemented (existing); binding implemented (#17) |
+| `super(repo)` | `CALLS Box.constructor -> Base` (`call_kind: "super"`) | implemented (#17) |
 | field initializer `svc = new UserService()`, `static {}` block, `[Symbol.iterator]() {}` body | `CALLS Class -> UserService` (the class is the caller) | implemented (#15) |
 | function-valued field `handler = () => this.helper()` | `Function Box.handler`, `CALLS -> Box.helper` | implemented (existing) for TS; JS planned (part 2/3, #26) |
 | `static create()`, `async load()` | `Function Box.create` / `Box.load` | implemented (existing) |
@@ -404,9 +432,9 @@ QNs omit the `file::` prefix.
 | declaration modifiers | `modifiers` column: `static`, `async`, `*`, `get`, `set`, `readonly`, `public` / `private` / `protected`, `override`, `declare`, `abstract`, `accessor` (space-separated, source order) | implemented (#14) |
 | `export ...` / `export { local }` | `exported: true` on the declaration (module or namespace scope) | implemented (#14) |
 | `this.helper()` (same class) | `CALLS -> Box.helper` | implemented (existing) |
-| `this.helper()` (inherited) | `CALLS -> Base.helper` (MEDIUM) | planned (part 2/3, #17) |
-| `this.repo.find()` | `CALLS -> interfaces.ts::Repo.find` | planned (part 2/3, #17) |
-| `super.m()` | `CALLS -> Base.m` | planned (part 2/3, #17) |
+| `this.helper()` (inherited) | `CALLS -> Base.helper` (MEDIUM) | implemented (#17) |
+| `this.repo.find()` | `CALLS -> interfaces.ts::Repo.find` | implemented (#17) |
+| `super.m()` | `CALLS -> Base.m` (MEDIUM) | implemented (#17) |
 
 ### 10.2 Interfaces, type aliases, enums
 
@@ -433,7 +461,7 @@ QNs omit the `file::` prefix.
 | class / object container inside a namespace | `Class Outer.Inner`, `Function Outer.Inner.run`, `Function Outer.api.get` | implemented (#12) |
 | same-file `Outer.helper()`, `A.B.C.abc()`, `new Outer.Inner()`, `x.run()` on `x = new Outer.Inner()` | `CALLS -> Outer.helper` / `A.B.C.abc` / `Outer.Inner` / `Outer.Inner.run` | implemented (#12) |
 | bare `helper()` inside `Outer.Inner.run` | `CALLS -> Outer.helper` (nearest owner) | implemented (#11, #12) |
-| `import { Outer } from "./ns"; Outer.helper()` | `CALLS -> ns.ts::Outer.helper` | planned (part 2/3, #17) |
+| `import { Outer } from "./ns"; Outer.helper()` | `CALLS -> ns.ts::Outer.helper` | implemented (#17) |
 | `declare module "external-lib" {}` | `Class external-lib` (`ambient_module`, `ambient`), members `external-lib.ext` | implemented (#12) |
 | `declare global {}` | `Class global` (`ambient_module`, `ambient`), members `global.Window` | implemented (#12) |
 | `declare namespace NS {}` | `Class NS` (`namespace`, `ambient`) | implemented (#12) |
@@ -473,12 +501,12 @@ QNs omit the `file::` prefix.
 | aliased import `import { decl as renamed }` | `CALLS -> functions.ts::decl` | implemented (#9) |
 | default import `import Card from "./Button"` | `CALLS -> Button.tsx::DefaultCard` (the default-exported symbol) | implemented (#9) |
 | default import of an anonymous default | `CALLS -> m.ts::default` | implemented (#7, #9) |
-| namespace import `fns.decl()` | `CALLS -> functions.ts::decl` | planned (part 2/3, #17) |
+| namespace import `fns.decl()` | `CALLS -> functions.ts::decl` | implemented (#17) |
 | namespace import JSX `<UI.Button />` | `CALLS -> Button.tsx::Button` | implemented (existing) |
-| static member `Box.create()` | `CALLS -> classes.ts::Box.create` | planned (part 2/3, #17) |
+| static member `Box.create()` | `CALLS -> classes.ts::Box.create` | implemented (#17) |
 | `const s = new Store(); s.find()` (same-file type) | `CALLS -> Store.find` | implemented (existing) |
-| receiver of an imported type | `CALLS -> classes.ts::DefaultShape.area` | planned (part 2/3, #17) |
-| unknown receiver `res.json()` | stays bare, never the first same-named method | planned (part 2/3, #17) |
+| receiver of an imported type | `CALLS -> classes.ts::DefaultShape.area` | implemented (#17) |
+| unknown receiver `res.json()` | stays bare (`receiver_unknown: true`), never the first same-named method | implemented (#17) |
 | `new Box()` | `CALLS -> Box` | implemented (existing) |
 | `new UserService()` imported from `./user.service` | `CALLS -> user.service.ts::UserService` | implemented (#5) |
 | JSX `<Button />` | `CALLS -> Button` | implemented (existing) |
