@@ -211,6 +211,14 @@ All notable changes to `dagayn` are documented here.
   slugs follow GitHub rules for closing hashes and inline links.
 - Markdown link extraction skips inline code spans and fenced code blocks, so
   documented link examples no longer create dangling `IMPORTS_FROM` edges.
+- TypeScript method signatures inside type literals are no longer nodes.
+  `function f(p: { m(): void })` created a top-level `Function f.ts::m`
+  (merged into `overloads: 2` when the overloads repeated the literal),
+  `interface I { p: { inner(): void } }` created `I.inner`, and parameter,
+  return, variable, and callback types did the same. Only the direct
+  members of an `interface` body are method nodes; `type T = { m(): void }`
+  keeps giving `Type T` alone. The types named inside a literal remain
+  `REFERENCES` from the owning declaration.
 - `TESTED_BY` edges now follow the `CALLS` edges that post-processing's
   bare-name resolution binds. Parsers derive `TESTED_BY target -> test`
   from each call a test makes, so a bare call target (for example a

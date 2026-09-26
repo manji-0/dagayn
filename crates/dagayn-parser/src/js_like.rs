@@ -605,6 +605,19 @@ fn javascript_walk_syntax_node(
             }
             return;
         }
+        // A method signature of a type literal (`p: { m(): void }`,
+        // `x: { a: { b(): T } }`) is part of a type, not a member: interface
+        // members sit in `interface_body`, and a type's references were
+        // collected from its outermost node.
+        "method_signature"
+            if context.type_depth.get() > 0
+                || child
+                    .parent()
+                    .is_some_and(|parent| parent.kind() == "object_type") =>
+        {
+            javascript_walk_children(child, context, owner_path, enclosing_func, nodes, edges);
+            return;
+        }
         "function_declaration"
         | "generator_function_declaration"
         | "method_definition"

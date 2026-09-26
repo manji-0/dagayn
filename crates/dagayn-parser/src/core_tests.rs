@@ -6992,3 +6992,85 @@ export function app() { getUser(); fmt(); useState(); }
 
     let _ = std::fs::remove_dir_all(&repo_root);
 }
+
+#[test]
+fn does_not_turn_type_literal_method_signatures_into_nodes() {
+    let repo_root = write_type_reference_repo("type-literal-methods");
+    std::fs::write(
+        repo_root.join("repo.ts"),
+        "export interface Repo { find(): void }\n",
+    )
+    .unwrap();
+    let source = r#"import { Repo } from "./repo";
+function f(p: { m(): void }): void;
+function f(p: { m(): void; n(x: Repo): Repo }, q?: number): void;
+function f(p: any, q?: any) {}
+interface I {
+  p: { inner(): void; deep: { d(): Repo } };
+  m(): void;
+  cb: (x: { z(): void }) => void;
+}
+type T = { tm(): void; nested: { k(): Repo } };
+class C {
+  field: { handler(): void } = { handler() {} };
+  method(opts: { run(): Repo }): { done(): void } { return { done() {} }; }
+}
+export const g = (o: { w(): void }) => o.w();
+declare function h(x: { y(): void }): void;
+let v: { lm(): void } = { lm() {} };
+function body() { const local: { bm(): Repo } = { bm: () => ({} as Repo) }; return local; }
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "a.ts", source.as_bytes());
+    let names = nodes
+        .iter()
+        .filter(|node| node.kind != "File")
+        .map(|node| match &node.parent_name {
+            Some(parent) => format!("{parent}.{}", node.name),
+            None => node.name.clone(),
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    // `v` is a module-scope object container (`= { lm() {} }`), not a type.
+    let expected = [
+        "C", "C.method", "I", "I.m", "T", "body", "f", "g", "h", "v", "v.lm",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(names, expected, "{nodes:?}");
+    let f = nodes.iter().find(|node| node.name == "f").unwrap();
+    assert_eq!(f.extra["overloads"], 2, "{f:?}");
+    let interface_method = nodes
+        .iter()
+        .find(|node| node.name == "m" && node.parent_name.as_deref() == Some("I"))
+        .unwrap();
+    assert_eq!(interface_method.extra["is_abstract"], true);
+    // The types named inside the literals still belong to the declaration.
+    for (source, position) in [
+        ("a.ts::f", "parameter"),
+        ("a.ts::I", "field"),
+        ("a.ts::T", "type_alias"),
+        ("a.ts::C.method", "parameter"),
+        ("a.ts::body", "variable_annotation"),
+    ] {
+        assert!(
+            type_reference_positions(&edges, source, "repo.ts::Repo")
+                .iter()
+                .any(|found| found == position),
+            "{source} {position}: {edges:?}"
+        );
+    }
+    let qualified = names
+        .iter()
+        .map(|name| format!("a.ts::{name}"))
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(
+        edges
+            .iter()
+            .filter(|edge| edge.kind == "CONTAINS")
+            .all(|edge| qualified.contains(&edge.target)),
+        "{edges:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&repo_root);
+}

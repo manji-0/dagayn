@@ -16,6 +16,8 @@ The coverage matrix at the end records, per construct, whether the behavior is
 implemented and which change delivers it. Rows marked
 `planned (part 2/3, #N)` describe the target model that a later change (track
 TODO `#N`) implements; until then the parser may still emit the older output.
+Since #28 no row is planned: every row is implemented, deferred (not
+scheduled), or out of scope (§9).
 
 ## 1. Scope
 
@@ -94,6 +96,12 @@ Nodes that are **not** created:
   interface property / call / construct / index signatures
 - members of a type alias's object type (`type Props = { onClick(): void }`
   gives only `Type Props`)
+- method signatures of any other type literal: parameter, return, property,
+  variable, and type-argument types (`function f(p: { m(): void })`,
+  `interface I { p: { inner(): void } }`, `let v: { lm(): void }`). Only
+  the direct members of an `interface` body are nodes (`I.m` for
+  `interface I { m(): void }`); the types named inside a literal are
+  `REFERENCES` from the declaration that owns the type (§7.4)
 - object literals passed as arguments or created inside function bodies
 
 ## 4. Qualified names
@@ -771,6 +779,8 @@ QNs omit the `file::` prefix.
 | `interface Repo {}` | `Class Repo` (`interface`, `is_abstract`, `is_contract`) | implemented (existing) |
 | interface `extends Repo, Logger, ns.X<T>` | one `INHERITS` per base (`extends`) | implemented (#4) |
 | method signature `find(): string;` | `Function Repo.find` (`is_abstract`) | implemented (existing) |
+| method signature inside a type literal: `f(p: { m(): void })`, `interface I { p: { inner(): void } }`, `cb: (x: { z(): void }) => void`, `let v: { lm(): void }` | no node (before: `f.ts::m` with `overloads`, `I.inner`); `REFERENCES` for the types inside stay with `f` / `I` | implemented (#28) |
+| `type T = { m(): void }` | `Type T` only; members are not nodes | implemented (#13; kept by #28) |
 | same-file interface merging | one `Class Repo` (`merged_declarations: 2`) holding the members of both declarations | implemented (#14) |
 | `type Props = { a: A }` | `Type Props` (`alias`, `alias_form: "object"`, `data_container`) | implemented (#13) |
 | `type U = A \| B` | `Type U` (`alias`, `alias_form: "union"`) | implemented (#13) |
