@@ -1357,6 +1357,31 @@ class TestTypeRoleAndImplements:
             for e in edges
         )
 
+    def test_typescript_local_declarations_are_not_nodes(self, tmp_path):
+        src = (
+            "function log(v: unknown) { return v; }\n"
+            "export function App() {\n"
+            "  const handle = () => log(1);\n"
+            "  function inner() { return log(2); }\n"
+            "  return inner() + handle();\n"
+            "}\n"
+            "export class Svc { dep = makeDep(); static { log(3); } }\n"
+            "function makeDep() { return 1; }\n"
+        )
+        for language in ("ts", "js"):
+            nodes, edges = self._parse(src.replace(": unknown", ""), language, tmp_path)
+            names = {n.name for n in nodes}
+            assert "handle" not in names and "inner" not in names
+            calls = {
+                (e.source.split("::")[-1], e.target.split("::")[-1])
+                for e in edges
+                if e.kind == "CALLS"
+            }
+            assert ("App", "log") in calls
+            assert ("App", "inner") not in calls and ("App", "handle") not in calls
+            assert ("Svc", "makeDep") in calls
+            assert ("Svc", "log") in calls
+
     def test_typescript_type_alias_is_type_node(self, tmp_path):
         src = (
             "export type Props = { label: string };\n"

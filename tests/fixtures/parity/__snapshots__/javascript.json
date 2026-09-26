@@ -2,10 +2,10 @@
 "edges":[
 {"confidence":1.0,"confidence_tier":"EXTRACTED","extra":{},"file_path":"comp.jsx","kind":"CALLS","line":2,"source":"comp.jsx::JsxComp","target":"thing.jsx::Thing"},
 {"confidence":1.0,"confidence_tier":"EXTRACTED","extra":{},"file_path":"esm.mjs","kind":"CALLS","line":2,"source":"esm.mjs::esmFn","target":"helpers.js::helper"},
-{"confidence":1.0,"confidence_tier":"EXTRACTED","extra":{},"file_path":"legacy.js","kind":"CALLS","line":5,"source":"legacy.js","target":"helper"},
 {"confidence":1.0,"confidence_tier":"EXTRACTED","extra":{},"file_path":"legacy.js","kind":"CALLS","line":1,"source":"legacy.js","target":"require"},
 {"confidence":1.0,"confidence_tier":"EXTRACTED","extra":{},"file_path":"legacy.js","kind":"CALLS","line":2,"source":"legacy.js","target":"require"},
 {"confidence":1.0,"confidence_tier":"EXTRACTED","extra":{},"file_path":"legacy.js","kind":"CALLS","line":3,"source":"legacy.js","target":"require"},
+{"confidence":1.0,"confidence_tier":"EXTRACTED","extra":{},"file_path":"legacy.js","kind":"CALLS","line":5,"source":"legacy.js::Legacy","target":"helper"},
 {"confidence":1.0,"confidence_tier":"EXTRACTED","extra":{},"file_path":"legacy.js","kind":"CALLS","line":6,"source":"legacy.js::Legacy.make","target":"legacy.js::Legacy"},
 {"confidence":1.0,"confidence_tier":"EXTRACTED","extra":{},"file_path":"legacy.js","kind":"CALLS","line":7,"source":"legacy.js::Legacy.run","target":"handle"},
 {"confidence":1.0,"confidence_tier":"EXTRACTED","extra":{},"file_path":"legacy.js","kind":"CALLS","line":7,"source":"legacy.js::Legacy.run","target":"other"},

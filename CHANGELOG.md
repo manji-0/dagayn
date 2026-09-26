@@ -112,6 +112,17 @@ All notable changes to `dagayn` are documented here.
   slugs follow GitHub rules for closing hashes and inline links.
 - Markdown link extraction skips inline code spans and fenced code blocks, so
   documented link examples no longer create dangling `IMPORTS_FROM` edges.
+- JavaScript / TypeScript declarations local to a function body (nested
+  functions, `const handle = () => ...`, local classes, interfaces, type
+  aliases, enums) are no longer nodes: their calls are attributed to the
+  enclosing function, and calls of the locals themselves are not edges.
+  Before, a nested function became a top-level node (`file::nested`), so
+  the calls it made left the enclosing function's flow and same-named
+  handlers of different components collided on one QN. An unparenthesized
+  arrow parameter (`items.map(x => f(x))`) no longer produces a `Function x`.
+  Class-level code — field initializers (`svc = new UserService()`),
+  `static {}` blocks, and members without a static name — is attributed to
+  the class instead of the file.
 - JavaScript / TypeScript emit one node per qualified name. Function and
   method overloads collapse into the implementation (`overloads: n`,
   spanning the signatures), getter / setter pairs into one accessor

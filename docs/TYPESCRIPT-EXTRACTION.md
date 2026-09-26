@@ -258,11 +258,15 @@ Implemented (#13).
 
 Nested functions, local arrow handlers, and local classes inside a function
 body are not nodes; their calls are attributed to the enclosing function
-(§5.1). In React and callback-heavy code these locals are numerous, collide by
+(§5.1), and calls of the local declarations themselves (`inner()`,
+`new Local()`, `<Local />`) are not edges, because the target has no node and
+a bare name could otherwise be resolved to an unrelated symbol. Local
+declarations are also left out of the file's defined-name and type-name
+indexes. In React and callback-heavy code these locals are numerous, collide by
 name across functions (many components define `handleClick`), and otherwise
 show up as false flow entry points because nothing calls them by name. Python
-flattens nested functions today; TypeScript deliberately differs. Planned
-(part 2/3, #15).
+flattens nested functions today; TypeScript deliberately differs.
+Implemented (#15).
 
 ### 7.3 Module-scope object literals are containers
 
@@ -380,7 +384,7 @@ QNs omit the `file::` prefix.
 | class / member decorators | `decorators` metadata, `REFERENCES -> decorator` | planned (part 2/3, #16) |
 | `constructor(private repo: Repo)` | `Function Box.constructor`; `this.repo` bound to `Repo` | node implemented (existing); binding planned (part 2/3, #17) |
 | `super(repo)` | `CALLS Box.constructor -> Base` | planned (part 2/3, #17) |
-| field initializer `svc = new UserService()` | `CALLS Class -> UserService` | planned (part 2/3, #15) |
+| field initializer `svc = new UserService()`, `static {}` block, `[Symbol.iterator]() {}` body | `CALLS Class -> UserService` (the class is the caller) | implemented (#15) |
 | function-valued field `handler = () => this.helper()` | `Function Box.handler`, `CALLS -> Box.helper` | implemented (existing) for TS; JS planned (part 2/3, #26) |
 | `static create()`, `async load()` | `Function Box.create` / `Box.load` | implemented (existing) |
 | generator method `*items()` | `Function Box.items` | implemented (existing; covered by #3 tests) |
@@ -444,8 +448,9 @@ QNs omit the `file::` prefix.
 | `export default () => 1` | `Function default` | implemented (#7) |
 | `export default impl;` | no node; export index `default -> impl` | implemented (#9) |
 | IIFE at module scope | calls attributed to the File | implemented (existing) |
-| nested `function inner() {}` inside a function | no node; calls attributed to the outer function | planned (part 2/3, #15) |
-| local `const handle = () => ...` inside a function | no node; calls attributed to the outer function | planned (part 2/3, #15) |
+| nested `function inner() {}` inside a function | no node; calls attributed to the outer function; `inner()` itself is not a `CALLS` edge | implemented (#15) |
+| local `const handle = () => ...`, local classes, interfaces, type aliases, enums | no node; calls attributed to the outer function | implemented (#15) |
+| `items.map(x => f(x))` (unparenthesized parameter) | no node named `x`; `CALLS outer -> f` | implemented (#15) |
 | `export const api = { get() {}, post: () => {}, put: function () {} }` | `Class api` (`object`), `Function api.get` / `api.post` / `api.put` | implemented (#8) |
 | `api = { nested: { deep() {} } }` | `Class api.nested`, `Function api.nested.deep` | implemented (#8) |
 | `api = { a: { b: { c() {} } } }` | `Class api.a`, `Class api.a.b`, `Function api.a.b.c`; `api.a.b.c()` resolves | implemented (#11, up to six levels) |

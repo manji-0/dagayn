@@ -113,6 +113,7 @@ pub(super) fn parse_javascript_like_interned(
             exported_names: &exported_names,
             declaration_file,
             ambient_depth: Cell::new(0),
+            local_scopes: RefCell::new(Vec::new()),
             repo_root,
             caches,
             bindings: RefCell::new(MemberCallBindings::with_types(type_names)),
@@ -260,6 +261,115 @@ fn javascript_merged_modifiers(members: &[&ParsedNode]) -> Option<String> {
     (!merged.is_empty()).then(|| merged.join(" "))
 }
 
+/// Walks a function-like node's body with `name` as the caller: binds
+/// `this` to the owner and scopes the function's local declarations so
+/// calls to them stay internal.
+fn javascript_walk_function_body(
+    function_node: tree_sitter::Node<'_>,
+    context: &JavaScriptParseContext<'_>,
+    owner_path: Option<&str>,
+    name: &str,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let snapshot = context.bindings.borrow().snapshot();
+    javascript_bind_this(context, owner_path);
+    let locals = collect_javascript_local_declarations(function_node, context.source);
+    let scoped = !locals.is_empty();
+    if scoped {
+        context.local_scopes.borrow_mut().push(locals);
+    }
+    javascript_walk_children(function_node, context, owner_path, Some(name), nodes, edges);
+    if scoped {
+        context.local_scopes.borrow_mut().pop();
+    }
+    context.bindings.borrow_mut().restore(snapshot);
+}
+
+/// Walks class-level code (a field initializer, static block, or a member
+/// without a static name) with the class as the caller.
+fn javascript_walk_class_level(
+    node: tree_sitter::Node<'_>,
+    context: &JavaScriptParseContext<'_>,
+    owner_path: Option<&str>,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let Some(class_path) = owner_path else {
+        return;
+    };
+    let (parent, class_name) = match class_path.rsplit_once('.') {
+        Some((parent, class_name)) => (Some(parent), class_name),
+        None => (None, class_path),
+    };
+    let snapshot = context.bindings.borrow().snapshot();
+    javascript_bind_this(context, Some(class_path));
+    let locals = collect_javascript_local_declarations(node, context.source);
+    let scoped = !locals.is_empty();
+    if scoped {
+        context.local_scopes.borrow_mut().push(locals);
+    }
+    javascript_walk_children(node, context, parent, Some(class_name), nodes, edges);
+    if scoped {
+        context.local_scopes.borrow_mut().pop();
+    }
+    context.bindings.borrow_mut().restore(snapshot);
+}
+
+/// Names declared inside `node`'s body (nested functions, classes, and
+/// `const f = () => ...` / `const C = class {}` bindings), at any depth.
+fn collect_javascript_local_declarations(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> HashSet<String> {
+    let mut names = HashSet::new();
+    let body = node.child_by_field_name("body").unwrap_or(node);
+    collect_javascript_local_declarations_into(body, source, &mut names);
+    names
+}
+
+fn collect_javascript_local_declarations_into(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    names: &mut HashSet<String>,
+) {
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        match child.kind() {
+            "function_declaration"
+            | "generator_function_declaration"
+            | "class_declaration"
+            | "abstract_class_declaration" => {
+                if let Some(name) = child.child_by_field_name("name") {
+                    names.insert(node_text(name, source));
+                }
+            }
+            "variable_declarator" => {
+                if let (Some(name), Some(value)) = (
+                    child
+                        .child_by_field_name("name")
+                        .filter(|name| name.kind() == "identifier"),
+                    child.child_by_field_name("value"),
+                ) && (is_javascript_function_value(value.kind()) || value.kind() == "class")
+                {
+                    names.insert(node_text(name, source));
+                }
+            }
+            _ => {}
+        }
+        collect_javascript_local_declarations_into(child, source, names);
+    }
+}
+
+/// Whether `name` is a declaration local to the function being walked.
+fn javascript_is_local_name(context: &JavaScriptParseContext<'_>, name: &str) -> bool {
+    context
+        .local_scopes
+        .borrow()
+        .iter()
+        .any(|scope| scope.contains(name))
+}
+
 fn javascript_walk_children(
     node: tree_sitter::Node<'_>,
     context: &JavaScriptParseContext<'_>,
@@ -283,7 +393,21 @@ fn javascript_walk_node(
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
+    // Inside a function body, declarations are locals: not nodes, and their
+    // calls belong to the enclosing function.
+    let in_function = enclosing_func.is_some();
     match child.kind() {
+        "type_alias_declaration" | "interface_declaration" | "enum_declaration" if in_function => {
+            return;
+        }
+        "class_declaration" | "abstract_class_declaration" | "class" if in_function => {
+            javascript_walk_unbound_class(child, context, owner_path, enclosing_func, nodes, edges);
+            return;
+        }
+        "function_declaration" | "generator_function_declaration" if in_function => {
+            javascript_walk_children(child, context, owner_path, enclosing_func, nodes, edges);
+            return;
+        }
         "type_alias_declaration" => {
             if let Some(name) = child.child_by_field_name("name") {
                 let name = node_text(name, context.source);
@@ -380,26 +504,45 @@ fn javascript_walk_node(
         | "method_definition"
         | "method_signature"
         | "abstract_method_signature"
-        | "function_signature"
-        | "arrow_function" => {
+        | "function_signature" => {
             if let Some(name) =
                 javascript_emit_function_node(child, context, owner_path, nodes, edges)
             {
-                let snapshot = context.bindings.borrow().snapshot();
-                javascript_bind_this(context, owner_path);
-                javascript_walk_children(child, context, owner_path, Some(&name), nodes, edges);
-                context.bindings.borrow_mut().restore(snapshot);
+                javascript_walk_function_body(child, context, owner_path, &name, nodes, edges);
+                return;
+            }
+            if child.kind() == "method_definition"
+                && !in_function
+                && child
+                    .parent()
+                    .is_some_and(|parent| parent.kind() == "class_body")
+            {
+                // `[Symbol.iterator]() {}`: no static name, class-level code.
+                javascript_walk_class_level(child, context, owner_path, nodes, edges);
                 return;
             }
         }
         "lexical_declaration" | "variable_declaration"
-            if javascript_emit_variable_functions(child, context, owner_path, nodes, edges) =>
+            if !in_function
+                && javascript_emit_variable_functions(child, context, owner_path, nodes, edges) =>
         {
             return;
         }
         "public_field_definition"
             if javascript_emit_field_function(child, context, owner_path, nodes, edges) =>
         {
+            return;
+        }
+        // Field initializers, static blocks, and members without a static
+        // name run as class-level code: their calls belong to the class.
+        "public_field_definition" | "field_definition" | "class_static_block"
+            if !in_function
+                && owner_path.is_some()
+                && child
+                    .parent()
+                    .is_some_and(|parent| parent.kind() == "class_body") =>
+        {
+            javascript_walk_class_level(child, context, owner_path, nodes, edges);
             return;
         }
         "import_statement" | "export_statement" => {
@@ -1512,10 +1655,7 @@ fn javascript_emit_bound_function(
         line: declaration.start_position().row as i64 + 1,
         extra: json!({}),
     });
-    let snapshot = context.bindings.borrow().snapshot();
-    javascript_bind_this(context, owner_path);
-    javascript_walk_children(function_node, context, owner_path, Some(name), nodes, edges);
-    context.bindings.borrow_mut().restore(snapshot);
+    javascript_walk_function_body(function_node, context, owner_path, name, nodes, edges);
 }
 
 fn javascript_emit_function_node(
@@ -1809,17 +1949,7 @@ fn javascript_emit_variable_functions(
             line: node.start_position().row as i64 + 1,
             extra: json!({}),
         });
-        let snapshot = context.bindings.borrow().snapshot();
-        javascript_bind_this(context, owner_path);
-        javascript_walk_children(
-            function_node,
-            context,
-            owner_path,
-            Some(&name),
-            nodes,
-            edges,
-        );
-        context.bindings.borrow_mut().restore(snapshot);
+        javascript_walk_function_body(function_node, context, owner_path, &name, nodes, edges);
         handled = true;
     }
     handled
@@ -1875,17 +2005,7 @@ fn javascript_emit_field_function(
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
-    let snapshot = context.bindings.borrow().snapshot();
-    javascript_bind_this(context, owner_path);
-    javascript_walk_children(
-        function_node,
-        context,
-        owner_path,
-        Some(&name),
-        nodes,
-        edges,
-    );
-    context.bindings.borrow_mut().restore(snapshot);
+    javascript_walk_function_body(function_node, context, owner_path, &name, nodes, edges);
     true
 }
 
@@ -1955,6 +2075,13 @@ fn javascript_emit_call(
         return true;
     }
 
+    if javascript_callee_node(node).is_some_and(|callee| {
+        callee.kind() == "identifier"
+            && javascript_is_local_name(context, &node_text(callee, context.source))
+    }) {
+        // A call of a local declaration stays inside the enclosing function.
+        return false;
+    }
     let caller = enclosing_func
         .map(|func| qualify(&context.file_path, func, owner_path))
         .unwrap_or_else(|| context.file_path.to_string());
@@ -2040,6 +2167,9 @@ fn javascript_jsx_component_target(
     context: &JavaScriptParseContext<'_>,
 ) -> Option<String> {
     let (base_name, component_name) = javascript_jsx_component_reference(node, context.source)?;
+    if base_name.is_none() && javascript_is_local_name(context, &component_name) {
+        return None;
+    }
     if let Some(base_name) = base_name {
         return resolve_javascript_namespace_member(&base_name, &component_name, context)
             .or(Some(component_name));

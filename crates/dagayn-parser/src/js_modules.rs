@@ -81,6 +81,9 @@ pub(super) struct JavaScriptParseContext<'a> {
     pub(super) declaration_file: bool,
     /// Nesting depth of `declare ...` / ambient-module bodies being walked.
     pub(super) ambient_depth: Cell<usize>,
+    /// Local declarations of the function bodies being walked, innermost
+    /// last; calls of these names stay internal to the function.
+    pub(super) local_scopes: RefCell<Vec<HashSet<String>>>,
     pub(super) repo_root: Option<&'a Path>,
     pub(super) caches: JavaScriptCaches<'a>,
     pub(super) bindings: RefCell<MemberCallBindings>,
@@ -138,10 +141,29 @@ pub(super) fn collect_javascript_defined_names(
         }
         _ => {}
     }
+    if javascript_is_function_scope(node) {
+        // Declarations inside function bodies are locals, not module names.
+        return;
+    }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         collect_javascript_defined_names(child, source, names);
     }
+}
+
+/// Function-like nodes whose bodies hold local declarations.
+pub(super) fn javascript_is_function_scope(node: tree_sitter::Node<'_>) -> bool {
+    matches!(
+        node.kind(),
+        "function_declaration"
+            | "generator_function_declaration"
+            | "function_expression"
+            | "function"
+            | "generator_function"
+            | "arrow_function"
+            | "method_definition"
+            | "class_static_block"
+    )
 }
 
 pub(super) fn collect_javascript_type_names(
@@ -161,6 +183,9 @@ pub(super) fn collect_javascript_type_names(
             }
         }
         _ => {}
+    }
+    if javascript_is_function_scope(node) {
+        return;
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {

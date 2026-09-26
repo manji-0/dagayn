@@ -5107,3 +5107,120 @@ export { local };
         "duplicate CONTAINS: {contains:?}"
     );
 }
+
+#[test]
+fn attributes_local_declarations_to_enclosing_function() {
+    let source = br#"import { UserService } from "./user.service";
+function log(value: unknown) { return value; }
+function nested() { return 0; }
+export function App() {
+  const handle = () => log("click");
+  function inner() { return log("inner"); }
+  class Local { run() { log("local"); } }
+  interface Shape { a: number }
+  type Alias = { b: string };
+  const obj = { m() { log("m"); } };
+  items.map(x => log(x));
+  handle();
+  inner();
+  new Local().run();
+  return nested();
+}
+export function outer() {
+  function nested() { return log("shadow"); }
+  return nested();
+}
+export class Caller {
+  private svc = new UserService();
+  static registry = register(Caller);
+  handler = () => log("handler");
+  static { log("static"); }
+  [Symbol.iterator]() { return log("iter"); }
+  method() {
+    const local = () => this.helper();
+    local();
+  }
+  helper() {}
+}
+function register(value: unknown) { return value; }
+"#;
+    for (file, language) in [("app.ts", "typescript"), ("app.js", "javascript")] {
+        let source = if language == "javascript" {
+            String::from_utf8_lossy(source)
+                .replace("(value: unknown)", "(value)")
+                .replace("  interface Shape { a: number }\n", "")
+                .replace("  type Alias = { b: string };\n", "")
+                .replace("private svc", "svc")
+                .into_bytes()
+        } else {
+            source.to_vec()
+        };
+        let (nodes, edges) = parse_javascript_like(file, &source, language);
+        let qn = |name: &str| format!("{file}::{name}");
+        for local in [
+            "handle", "inner", "Local", "Shape", "Alias", "obj", "m", "x", "local", "run",
+        ] {
+            assert!(
+                !nodes.iter().any(|node| node.name == local),
+                "{file}: {local} is local: {nodes:?}"
+            );
+        }
+        // Only the top-level `nested` exists; `outer`'s local one is not a node.
+        assert_eq!(
+            nodes.iter().filter(|node| node.name == "nested").count(),
+            1,
+            "{file}"
+        );
+        let calls = |source: &str, target: &str| {
+            edges
+                .iter()
+                .any(|edge| edge.kind == "CALLS" && edge.source == source && edge.target == target)
+        };
+        for message in ["click", "inner", "local", "m"] {
+            let _ = message;
+        }
+        assert!(calls(&qn("App"), &qn("log")), "{file}: {edges:?}");
+        assert!(calls(&qn("App"), &qn("nested")), "{file}");
+        assert!(calls(&qn("outer"), &qn("log")), "{file}");
+        // Calls of local declarations are internal to the function.
+        for local in ["handle", "inner", "Local", "nested"] {
+            assert!(
+                !edges.iter().any(|edge| edge.kind == "CALLS"
+                    && edge.source == qn("outer")
+                    && edge.target.ends_with(local)),
+                "{file}: outer -> {local}"
+            );
+        }
+        for local in ["handle", "inner", "Local"] {
+            assert!(
+                !edges.iter().any(|edge| edge.kind == "CALLS"
+                    && edge.source == qn("App")
+                    && (edge.target == local || edge.target == qn(local))),
+                "{file}: App -> {local}: {edges:?}"
+            );
+        }
+        // Class-level code is attributed to the class.
+        assert!(
+            calls(&qn("Caller"), "user.service::UserService")
+                || edges.iter().any(|edge| edge.kind == "CALLS"
+                    && edge.source == qn("Caller")
+                    && edge.target.ends_with("UserService")),
+            "{file}: {edges:?}"
+        );
+        assert!(calls(&qn("Caller"), &qn("register")), "{file}");
+        assert!(calls(&qn("Caller"), &qn("log")), "{file}");
+        assert!(
+            calls(&qn("Caller.method"), &qn("Caller.helper")),
+            "{file}: {edges:?}"
+        );
+        if language == "typescript" {
+            assert!(calls(&qn("Caller.handler"), &qn("log")), "{file}");
+        }
+        assert!(
+            !edges.iter().any(|edge| edge.kind == "CALLS"
+                && edge.source == file
+                && edge.target == qn("log")),
+            "{file}: no file-sourced log calls: {edges:?}"
+        );
+    }
+}
