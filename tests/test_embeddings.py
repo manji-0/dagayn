@@ -2894,6 +2894,82 @@ class TestVectorDimensionIdentity:
         assert python_hits == [("file.py::a", pytest.approx(1.0))]
         assert "file.py::b" not in {qn for qn, _ in python_hits}
 
+    def test_search_backends_agree_on_scores(self, tmp_path):
+        """Rust, numpy, and pure-Python cosine scores match, not just rankings."""
+        import random
+
+        import dagayn.embeddings as emb
+        import dagayn.embeddings_store as emb_store
+
+        try:
+            from dagayn import _core
+        except ImportError:
+            pytest.skip("native embedding search extension unavailable")
+
+        rng = random.Random(20260926)
+        dim = 64
+        count = 300
+        rows = [
+            (f"file.py::n{i}", [rng.uniform(-1.0, 1.0) for _ in range(dim)]) for i in range(count)
+        ]
+        query = [rng.uniform(-1.0, 1.0) for _ in range(dim)]
+        db = tmp_path / "parity.db"
+        provider = "fake"
+        conn = sqlite3.connect(str(db))
+        conn.row_factory = sqlite3.Row
+        conn.executescript(
+            """
+            CREATE TABLE embeddings (
+                qualified_name TEXT NOT NULL,
+                vector BLOB NOT NULL,
+                text_hash TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                PRIMARY KEY (qualified_name, provider)
+            );
+            """
+        )
+        conn.executemany(
+            "INSERT INTO embeddings (qualified_name, vector, text_hash, provider) "
+            "VALUES (?, ?, ?, ?)",
+            [(qn, _encode_vector(vec), f"h{i}", provider) for i, (qn, vec) in enumerate(rows)],
+        )
+        conn.commit()
+
+        try:
+            python_full = dict(emb_store._python_loop_search(conn, provider, query, limit=count))
+            rust_full = dict(_core.embedding_search(db, provider, query, count))
+            assert len(python_full) == len(rust_full) == count
+            for qn, score in python_full.items():
+                assert rust_full[qn] == pytest.approx(score, abs=1e-5), qn
+
+            # Top-k (limit < n) keeps the same score profile. Compare sorted
+            # scores rather than names so near-ties cannot flake the test.
+            k = 25
+            python_top = [
+                score for _, score in emb_store._python_loop_search(conn, provider, query, limit=k)
+            ]
+            rust_top = [score for _, score in _core.embedding_search(db, provider, query, k)]
+            assert rust_top == pytest.approx(python_top, abs=1e-5)
+
+            pytest.importorskip("numpy")
+            if not emb._NUMPY_AVAILABLE:
+                pytest.skip("numpy fast path is optional")
+            emb._np_vec_cache.clear()
+            numpy_full = dict(
+                emb_store._numpy_matmul_search(db, conn, provider, query, limit=count)
+            )
+            assert len(numpy_full) == count
+            for qn, score in python_full.items():
+                assert numpy_full[qn] == pytest.approx(score, abs=1e-5), qn
+                assert numpy_full[qn] == pytest.approx(rust_full[qn], abs=1e-5), qn
+            numpy_top = [
+                score
+                for _, score in emb_store._numpy_matmul_search(db, conn, provider, query, limit=k)
+            ]
+            assert numpy_top == pytest.approx(python_top, abs=1e-5)
+        finally:
+            conn.close()
+
     def test_openai_dimension_change_partitions_provider_name(self):
         p4 = OpenAIEmbeddingProvider(
             api_key="k",

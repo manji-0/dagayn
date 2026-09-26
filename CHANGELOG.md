@@ -159,6 +159,13 @@ All notable changes to `dagayn` are documented here.
   Any bridge that is not a reportable claim is now a caveat; `MEDIUM` bridges
   still do not expand impact or flows.
 
+### Testing
+
+- `tests/test_embeddings.py` pins score parity, not only ranking parity,
+  between the native Rust `embedding_search`, the numpy matmul path, and the
+  pure-Python cosine loop: 300 seeded random 64-dimension vectors must score
+  within `1e-5` on a full scan and on a top-k cut.
+
 ## 4.15.0 — 2026-09-25
 
 ### Fixes
