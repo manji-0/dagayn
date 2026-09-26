@@ -1,5 +1,5 @@
-<!-- constrained-by ./SCHEMA.md#edge-kinds -->
-<!-- constrained-by ./CROSS-ARTIFACT-EDGES-WIP.md#documentation-bridges -->
+<!-- constrained-by ./SCHEMA.md#edges -->
+<!-- constrained-by ./CROSS-ARTIFACT-EDGES-WIP.md#documentation-bridge-semantics -->
 
 # Markdown Authoring
 

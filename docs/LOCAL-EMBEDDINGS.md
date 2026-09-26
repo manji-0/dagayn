@@ -136,7 +136,7 @@ curl http://127.0.0.1:18081/v1/embeddings \
 
 ## Build And Update
 
-<!-- derived-from #setup -->
+<!-- derived-from #qwen-sidecar-setup -->
 
 Run a full build with the default BGE-M3 llama.cpp sidecar:
 
@@ -320,7 +320,7 @@ local embedding no longer requires or installs a Python ML stack.
 
 ## Troubleshooting
 
-<!-- derived-from #manual-check -->
+<!-- derived-from #qwen-manual-check -->
 
 - `Could not find 'llama-server'`: install `llama.cpp` or pass
   `--local-embedding-bin /path/to/llama-server`.
