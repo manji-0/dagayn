@@ -42,19 +42,29 @@
 >
 > ### Bridge family 2 — Markdown → code symbol references
 >
-> - `_extract_markdown_code_spans` (`dagayn/parser/languages/markdown.py` / Rust `markdown.rs`) scans inline backtick spans, filters by identifier-shape regex, emits `CROSS_ARTIFACT` edges with `relationship_role=describes_symbol`, `bridge_kind=documentation`, `evidence_kind=markdown_code_span`
+> - `extract_markdown_code_spans` (`crates/dagayn-parser/src/markdown.rs`) scans inline backtick spans, filters by identifier-shape regex, emits `CROSS_ARTIFACT` edges with `relationship_role=describes_symbol`, `bridge_kind=documentation`, `evidence_kind=markdown_code_span`, `evidence_source=code_span`
 > - Source = the deepest enclosing Markdown section (or File node when no section precedes the span)
-> - Parser phase emits unresolved candidates (`target=<unresolved:{name}>`, `confidence_tier=LOW`, `extra.original_symbol_name=<raw symbol>`)
-> - `_resolve_markdown_artifact_refs` (`dagayn/postprocessing.py`) runs on every postprocess call (full build and incremental alike). For each Markdown code-span CROSS_ARTIFACT edge carrying `original_symbol_name`, it consults the current nodes table and keeps the edge only when it resolves to a unique non-Markdown qualified name (confidence HIGH 0.8). Unmatched or ambiguous code-span candidates are deleted so general prose vocabulary does not enter graph data or analysis summaries as unresolved references.
+> - Parser phase emits unresolved candidates (`target=<unresolved:{name}>`, `confidence_tier=LOW`, `confidence=0.2`, `extra.original_symbol_name=<raw symbol>`)
+> - `_resolve_markdown_artifact_refs` (`dagayn/postprocessing.py`, delegating to `GraphStore::resolve_markdown_artifact_refs` in `crates/dagayn-graph/src/search_markdown.rs`) runs on every postprocess call (full build and incremental alike). For each Markdown CROSS_ARTIFACT edge carrying `original_symbol_name`, it looks the symbol up by `name` among non-Markdown nodes. An implicit code span that matches exactly one node is kept and pointed at it with `confidence_tier=MEDIUM` (`confidence=0.4`). A code span is a low-intent mention, so the resolved edge is still a caveat, not an impact claim (see [Confidence tiers and impact claims](#confidence-tiers-and-impact-claims)). Unmatched or ambiguous code-span candidates are deleted, including edges that resolved on an earlier run, so general prose vocabulary does not enter graph data or analysis summaries as unresolved references.
 > - Parser tests + resolver tests (`TestMarkdownArtifactResolver` in `tests/test_postprocessing.py`) + idempotence integration tests (`tests/test_cross_artifact_idempotence.py`)
-> - **Limitation:** fenced code blocks not processed (too noisy for v1); low-intent code → doc inference is persisted only when it resolves uniquely, otherwise use explicit directives for durable dependencies
+> - **Limitation:** fenced code blocks not processed (too noisy for v1); low-intent code → doc inference is persisted only when it resolves uniquely, and even then only as a caveat. Use explicit directives for dependencies that should expand impact.
 >
 > ### Bridge family 3 — explicit documentation directives
 >
 > - Markdown comments such as `<!-- dagayn: implemented-by services/auth.py::refresh_token -->` emit high-confidence `CROSS_ARTIFACT` edges from the enclosing Markdown section.
 > - Python and Terraform line comments such as `# dagayn: implements docs/auth-spec.md#Token Refresh` emit `CROSS_ARTIFACT` edges from the nearest enclosing or following implementation node.
 > - Supported roles include `implemented_by`, `implements_contract`, `explained_by`, `has_runbook`, `problem_described_by`, `discussed_by`, `discusses_artifact`, and `raises_issue_for`.
+> - Tier by target form (`crates/dagayn-parser/src/documentation_directives.rs`): a `path::symbol`, `path#section`, `#section`, file path, or URL target is `HIGH` (`confidence=0.8`) at parse time. A bare symbol name is stored as `<unresolved:{name}>` at `LOW` (`0.2`). Postprocess resolves it like a code span: exactly one non-Markdown match makes it `HIGH` (`0.8`); zero or several matches keep it (or put it back) at `<unresolved:{name}>` / `LOW` instead of deleting it.
 > - `query_graph` exposes `docs_for` and `implementations_of` patterns so agents can follow inverse labels without materializing duplicate inverse edges.
+>
+> ### Confidence tiers and impact claims
+>
+> Impact radius splits `CROSS_ARTIFACT` edges into claims and caveats.
+>
+> - **Claim:** `REPORTABLE_BRIDGE_SQL` in `crates/dagayn-graph/src/impact_radius.rs` lets the recursive impact CTE cross a `CROSS_ARTIFACT` edge only when its `confidence_tier` is `EXACT`, `HIGH`, or `EXTRACTED` (a NULL tier counts as `EXTRACTED`) and neither endpoint starts with `<unresolved:`. Crossed edges appear in `bridge_transitions`.
+> - **Caveat:** `low_confidence_bridges` lists `CROSS_ARTIFACT` edges touching a changed node that `is_low_confidence_bridge` (`crates/dagayn-graph/src/bridges.rs`, mirrored in `dagayn/cross_artifact.py`) flags: an `<unresolved:` target, a `LOW` tier, or a resolved implicit code span at `MEDIUM`. Each caveat carries `reason_code=low_confidence_cross_artifact_bridge`, and the other side is not reported as impacted.
+>
+> For Markdown bridges this means: resolved directives (`HIGH`) expand impact; resolved code spans (`MEDIUM`) and unresolved directives (`LOW`) are caveats only; unresolved or ambiguous code spans are not stored.
 >
 > ### Bridge family 4 — Terraform → application code
 >
@@ -381,8 +391,9 @@ Recommended stored roles:
 - `discusses_artifact` — explicit prose discussion of an artifact
 - `raises_issue_for` — explicit problem statement about an artifact
 
-`describes_symbol` should remain broad and low-confidence unless postprocessing
-resolves it uniquely.  Higher-intent relations such as `implemented_by`,
+`describes_symbol` should remain broad and low-confidence. Postprocessing keeps
+it only when it resolves uniquely, and then at `MEDIUM`, which impact analysis
+reports as a caveat rather than a claim.  Higher-intent relations such as `implemented_by`,
 `discusses_artifact`, and `raises_issue_for` should use explicit directives so
 ordinary backticks do not create review obligations accidentally.
 

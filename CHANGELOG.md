@@ -106,6 +106,13 @@ All notable changes to `dagayn` are documented here.
   parallel. `hybrid_search` runs the FTS arm, then the embedding arm, and the
   fallback chain (`hybrid` → `fts_only` → `embedding_only` →
   `keyword_fallback`) is now described by which arms returned hits.
+- `docs/CROSS-ARTIFACT-EDGES-WIP.md` no longer says resolved Markdown code
+  spans become `HIGH` 0.8. A uniquely resolved code span is `MEDIUM` 0.4 and
+  is reported as an impact caveat; unmatched or ambiguous code spans are
+  deleted. Explicit `dagayn:` directives with a path or section target are
+  `HIGH`, and bare-symbol directives resolve to `HIGH` or stay `LOW`. A new
+  section states the claim/caveat rule impact radius uses: a bridge expands
+  impact only at `EXACT`/`HIGH`/`EXTRACTED` with no `<unresolved:` endpoint.
 
 ## 4.15.0 — 2026-09-25
 
