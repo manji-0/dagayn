@@ -24,6 +24,13 @@ All notable changes to `dagayn` are documented here.
   `embeddings_generation` counter; a moved mtime with an unchanged generation
   reuses the matrix, and a real change drops the old matrix before loading the
   new one so the two are no longer resident together.
+- Bulk loads (full builds and large updates) keep `idx_nodes_file` and
+  `idx_edges_file`. Every batch deletes and re-indexes its files by
+  `file_path`, so dropping those two made each batch scan the whole `nodes`
+  and `edges` tables — quadratic in the number of batches on a `dagayn build`
+  over an existing graph. Each batch also stops deleting its FTS rows twice,
+  and the FTS watermark (a full `count(*)` of the FTS table) is set once when
+  the bulk load finishes instead of twice per batch.
 
 ## 4.15.0 — 2026-09-25
 

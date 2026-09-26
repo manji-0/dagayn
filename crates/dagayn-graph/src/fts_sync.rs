@@ -144,6 +144,24 @@ pub(crate) fn sync_fts_for_file_paths_tx(
     if file_paths.is_empty() {
         return Ok(0);
     }
+    delete_fts_for_file_paths_tx(tx, file_paths)?;
+    let indexed = insert_fts_for_file_paths_tx(tx, file_paths, repo_root)?;
+    set_fts_watermark_tx(tx, None)?;
+    Ok(indexed)
+}
+
+/// Index the current nodes of `file_paths`, assuming they have no FTS rows yet.
+///
+/// For callers that just replaced those files' nodes (their old rows went with
+/// the old node ids); the watermark is left to the caller.
+pub(crate) fn insert_fts_for_file_paths_tx(
+    tx: &Transaction<'_>,
+    file_paths: &[String],
+    repo_root: Option<&Path>,
+) -> Result<i64> {
+    if file_paths.is_empty() {
+        return Ok(0);
+    }
     if !table_exists(tx, "nodes_fts")? {
         tx.execute_batch(
             r#"
@@ -154,7 +172,6 @@ pub(crate) fn sync_fts_for_file_paths_tx(
             "#,
         )?;
     }
-    delete_fts_for_file_paths_tx(tx, file_paths)?;
     let mut indexed = 0_i64;
     for chunk in file_paths.chunks(450) {
         if chunk.is_empty() {
@@ -221,7 +238,6 @@ pub(crate) fn sync_fts_for_file_paths_tx(
             indexed += 1;
         }
     }
-    set_fts_watermark_tx(tx, None)?;
     Ok(indexed)
 }
 

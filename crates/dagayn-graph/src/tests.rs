@@ -1226,6 +1226,7 @@ fn stores_file_batch_edge_metadata_once_per_call_site() {
             0,
         )],
         false,
+        false,
     )
     .unwrap();
     tx.commit().unwrap();
@@ -1268,6 +1269,56 @@ fn stores_compact_json_batch() {
 }
 
 #[test]
+fn bulk_load_keeps_file_path_indexes_and_sets_fts_watermark_on_finish() {
+    let path = temp_db("bulk-load-file-indexes");
+    let mut store = GraphStore::open(&path).expect("open graph store");
+    let batch = r#"[
+        ["app.py",
+         [["File","app.py","app.py",1,4,"python",null,null,null,null,false,{}],
+          ["Function","run","app.py",2,4,"python",null,null,null,null,false,{}]],
+         [["CALLS","app.py::run","app.py::helper","app.py",3,{}]],
+         "hash",
+         1]
+    ]"#;
+
+    store.begin_bulk_load().unwrap();
+    let index_names = |store: &GraphStore| -> Vec<String> {
+        let mut stmt = store
+            .conn
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'index'")
+            .unwrap();
+        stmt.query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<std::result::Result<_, _>>()
+            .unwrap()
+    };
+    let during = index_names(&store);
+    assert!(during.contains(&"idx_nodes_file".to_string()));
+    assert!(during.contains(&"idx_edges_file".to_string()));
+    assert!(!during.contains(&"idx_edges_source".to_string()));
+
+    // Re-storing the same file must replace, not duplicate, its FTS rows.
+    store.store_file_batch_json(batch).unwrap();
+    store.store_file_batch_json(batch).unwrap();
+    store.finish_bulk_load().unwrap();
+
+    assert!(index_names(&store).contains(&"idx_edges_source".to_string()));
+    let fts_rows: i64 = store
+        .conn
+        .query_row("SELECT count(*) FROM nodes_fts", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(fts_rows, 2);
+    assert_eq!(
+        store
+            .get_metadata(crate::fts_sync::FTS_COUNT_KEY)
+            .unwrap()
+            .as_deref(),
+        Some("2")
+    );
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn stores_compact_json_batch_edge_metadata() {
     let path = temp_db("json-batch-edge-meta");
     let mut store = GraphStore::open(&path).expect("open graph store");
@@ -1297,7 +1348,7 @@ fn stores_compact_json_batch_edge_metadata() {
     )
     .unwrap();
     let tx = write_tx(&mut store.conn).unwrap();
-    store_raw_compact_file_batch_tx(&tx, &compact, false).unwrap();
+    store_raw_compact_file_batch_tx(&tx, &compact, false, false).unwrap();
     tx.commit().unwrap();
 
     let edges = store.get_edges_by_source("app.py::caller").unwrap();

@@ -16,11 +16,10 @@ const EDGE_INSERT_PARAM_COUNT: usize = 10;
 const NODE_INSERT_ROWS: usize = MAX_INSERT_PARAMS / NODE_INSERT_PARAM_COUNT;
 const EDGE_INSERT_ROWS: usize = MAX_INSERT_PARAMS / EDGE_INSERT_PARAM_COUNT;
 const SUSPEND_INDEX_FILE_THRESHOLD: usize = 64;
+/// Indexes dropped for the duration of a bulk load. `idx_nodes_file` and
+/// `idx_edges_file` are deliberately absent: every batch deletes and re-reads
+/// its files by `file_path`, and without them each batch scans both tables.
 const WRITE_INDEXES: &[(&str, &str)] = &[
-    (
-        "idx_nodes_file",
-        "CREATE INDEX IF NOT EXISTS idx_nodes_file ON nodes(file_path)",
-    ),
     (
         "idx_nodes_kind",
         "CREATE INDEX IF NOT EXISTS idx_nodes_kind ON nodes(kind)",
@@ -56,10 +55,6 @@ const WRITE_INDEXES: &[(&str, &str)] = &[
     (
         "idx_edges_source_kind",
         "CREATE INDEX IF NOT EXISTS idx_edges_source_kind ON edges(source_qualified, kind)",
-    ),
-    (
-        "idx_edges_file",
-        "CREATE INDEX IF NOT EXISTS idx_edges_file ON edges(file_path)",
     ),
     (
         "idx_edges_composite",

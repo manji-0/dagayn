@@ -81,6 +81,14 @@ pub(crate) fn remove_file_data_tx(tx: &Transaction<'_>, file_path: &str) -> Resu
 }
 
 pub(crate) fn remove_files_data_tx(tx: &Transaction<'_>, file_paths: &[String]) -> Result<()> {
+    remove_files_rows_tx(tx, file_paths)?;
+    crate::fts_sync::set_fts_watermark_tx(tx, None)?;
+    Ok(())
+}
+
+/// [`remove_files_data_tx`] without the FTS watermark, which counts the whole
+/// FTS table and is left to callers that write more rows afterwards.
+fn remove_files_rows_tx(tx: &Transaction<'_>, file_paths: &[String]) -> Result<()> {
     crate::fts_sync::delete_fts_for_file_paths_tx(tx, file_paths)?;
     for chunk in file_paths.chunks(450) {
         if chunk.is_empty() {
@@ -99,7 +107,6 @@ pub(crate) fn remove_files_data_tx(tx: &Transaction<'_>, file_paths: &[String]) 
         let nodes_sql = format!("DELETE FROM nodes WHERE file_path IN ({placeholders})");
         tx.execute(&nodes_sql, rusqlite::params_from_iter(chunk))?;
     }
-    crate::fts_sync::set_fts_watermark_tx(tx, None)?;
     Ok(())
 }
 
@@ -629,9 +636,14 @@ pub(crate) fn community_json_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Resu
     }))
 }
 
+/// Index the batch's freshly inserted nodes. Their files' old FTS rows were
+/// removed with the old nodes, so there is nothing to delete first.
+/// `defer_watermark` skips the full FTS count for bulk loads, which set it
+/// once when they finish.
 pub(crate) fn sync_fts_after_file_batch_tx(
     tx: &Transaction<'_>,
     file_paths: &[String],
+    defer_watermark: bool,
 ) -> Result<()> {
     let repo_root = tx
         .query_row(
@@ -640,11 +652,14 @@ pub(crate) fn sync_fts_after_file_batch_tx(
             |row| row.get::<_, String>(0),
         )
         .optional()?;
-    crate::fts_sync::sync_fts_for_file_paths_tx(
+    crate::fts_sync::insert_fts_for_file_paths_tx(
         tx,
         file_paths,
         repo_root.as_deref().map(Path::new),
     )?;
+    if !defer_watermark {
+        crate::fts_sync::set_fts_watermark_tx(tx, None)?;
+    }
     Ok(())
 }
 
@@ -652,6 +667,7 @@ pub(crate) fn store_file_batch_tx(
     tx: &Transaction<'_>,
     batch: &[FileBatchItem],
     suspend_indexes: bool,
+    defer_fts_watermark: bool,
 ) -> Result<()> {
     let now = now_seconds()?;
     let suspend_indexes = suspend_indexes && should_suspend_write_indexes(tx, batch.len())?;
@@ -662,7 +678,7 @@ pub(crate) fn store_file_batch_tx(
         .iter()
         .map(|(file_path, _, _, _, _)| file_path.clone())
         .collect::<Vec<_>>();
-    remove_files_data_tx(tx, &file_paths)?;
+    remove_files_rows_tx(tx, &file_paths)?;
 
     let mut seen_edges = HashSet::new();
     let mut node_params =
@@ -753,7 +769,7 @@ pub(crate) fn store_file_batch_tx(
     if suspend_indexes {
         create_graph_write_indexes(tx)?;
     }
-    sync_fts_after_file_batch_tx(tx, &file_paths)?;
+    sync_fts_after_file_batch_tx(tx, &file_paths, defer_fts_watermark)?;
     Ok(())
 }
 
@@ -761,6 +777,7 @@ pub(crate) fn store_raw_compact_file_batch_tx(
     tx: &Transaction<'_>,
     batch: &[RawCompactFileBatchItem],
     suspend_indexes: bool,
+    defer_fts_watermark: bool,
 ) -> Result<()> {
     let now = now_seconds()?;
     let suspend_indexes = suspend_indexes && should_suspend_write_indexes(tx, batch.len())?;
@@ -771,7 +788,7 @@ pub(crate) fn store_raw_compact_file_batch_tx(
         .iter()
         .map(|(file_path, _, _, _, _)| file_path.clone())
         .collect::<Vec<_>>();
-    remove_files_data_tx(tx, &file_paths)?;
+    remove_files_rows_tx(tx, &file_paths)?;
 
     let mut seen_edges = HashSet::new();
     let mut node_params =
@@ -864,7 +881,7 @@ pub(crate) fn store_raw_compact_file_batch_tx(
     if suspend_indexes {
         create_graph_write_indexes(tx)?;
     }
-    sync_fts_after_file_batch_tx(tx, &file_paths)?;
+    sync_fts_after_file_batch_tx(tx, &file_paths, defer_fts_watermark)?;
     Ok(())
 }
 

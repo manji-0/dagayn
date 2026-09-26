@@ -20,18 +20,18 @@ impl GraphStore {
     }
 
     pub fn store_file_batch(&mut self, batch: &[FileBatchItem]) -> Result<()> {
-        let suspend_indexes = !self.bulk_load_indexes_suspended;
+        let bulk = self.bulk_load_indexes_suspended;
         let tx = write_tx(&mut self.conn)?;
-        store_file_batch_tx(&tx, batch, suspend_indexes)?;
+        store_file_batch_tx(&tx, batch, !bulk, bulk)?;
         tx.commit()?;
         Ok(())
     }
 
     pub fn store_file_batch_json(&mut self, batch_json: &str) -> Result<()> {
         let compact: Vec<RawCompactFileBatchItem> = serde_json::from_str(batch_json)?;
-        let suspend_indexes = !self.bulk_load_indexes_suspended;
+        let bulk = self.bulk_load_indexes_suspended;
         let tx = write_tx(&mut self.conn)?;
-        store_raw_compact_file_batch_tx(&tx, &compact, suspend_indexes)?;
+        store_raw_compact_file_batch_tx(&tx, &compact, !bulk, bulk)?;
         tx.commit()?;
         Ok(())
     }
@@ -53,6 +53,7 @@ impl GraphStore {
         }
         let tx = write_tx(&mut self.conn)?;
         create_graph_write_indexes(&tx)?;
+        crate::fts_sync::set_fts_watermark_tx(&tx, None)?;
         tx.commit()?;
         self.bulk_load_indexes_suspended = false;
         Ok(())
