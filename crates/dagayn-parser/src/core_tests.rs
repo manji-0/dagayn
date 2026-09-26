@@ -2479,15 +2479,15 @@ sub bark {
     assert!(
         edges
             .iter()
-            .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "use strict;" })
+            .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "File::Basename" })
     );
     assert!(edges.iter().any(|edge| {
-        edge.kind == "CALLS" && edge.source == "sample.pl::new" && edge.target == "bless"
+        edge.kind == "CALLS" && edge.source == "sample.pl::Animal.new" && edge.target == "bless"
     }));
     assert!(edges.iter().any(|edge| {
         edge.kind == "CALLS"
-            && edge.source == "sample.pl::bark"
-            && edge.target == "sample.pl::speak"
+            && edge.source == "sample.pl::Dog.bark"
+            && edge.target == "sample.pl::Animal.speak"
     }));
 
     let bridge_source = br#"sub run_command {

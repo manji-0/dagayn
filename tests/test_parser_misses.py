@@ -417,3 +417,38 @@ class Outer::Other < Lib::Base; end
         _, edges, _ = parse("m.rb", self.SOURCE)
         targets = {t for k, _, t in edges if k == "CALLS"}
         assert not targets & {"require", "include", "attr_accessor"}
+
+
+class TestPerl:
+    SOURCE = """\
+package Foo::Bar;
+use strict;
+use parent -norequire, 'Base::Thing';
+use List::Util qw(max);
+our @ISA = ('Other');
+sub new { my $self = bless {}, shift; $self->init; return $self; }
+sub init { max(1, 2); }
+package Baz {
+    sub run { init(); }
+}
+package main;
+sub main_fn { Foo::Bar->new(); }
+"""
+
+    def test_subs_are_qualified_by_package(self, parse):
+        names, _, _ = parse("m.pl", self.SOURCE)
+        assert ("Function", "new", "Foo::Bar") in names
+        assert ("Function", "run", "Baz") in names
+        assert ("Function", "main_fn", None) in names
+
+    def test_imports_and_inheritance(self, parse):
+        _, edges, _ = parse("m.pl", self.SOURCE)
+        imports = {t for k, _, t in edges if k == "IMPORTS_FROM"}
+        assert imports == {"List::Util"}
+        assert ("INHERITS", "<f>::Foo::Bar", "Base::Thing") in edges
+        assert ("INHERITS", "<f>::Foo::Bar", "Other") in edges
+
+    def test_class_method_calls_resolve(self, parse):
+        _, edges, _ = parse("m.pl", self.SOURCE)
+        assert ("CALLS", "<f>::main_fn", "<f>::Foo::Bar.new") in edges
+        assert ("CALLS", "<f>::Foo::Bar.new", "<f>::Foo::Bar.init") in edges

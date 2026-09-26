@@ -965,7 +965,7 @@ class TestPerlParsing:
         calls = [e for e in self.edges if e.kind == "CALLS"]
         targets = {e.target for e in calls}
         assert any(
-            t == "speak" or t.endswith("::speak") for t in targets
+            t == "speak" or t.endswith(("::speak", ".speak")) for t in targets
         )  # $self->speak() — method_call_expression
         assert "bless" in targets  # ambiguous_function_call_expression
 

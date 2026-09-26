@@ -36,7 +36,14 @@ pub(super) fn parse_perl_with_parser(
     if let Some(parser) = parser
         && let Some(tree) = parser.parse(source, None)
     {
-        perl_walk_children(tree.root_node(), &context, None, &mut nodes, &mut edges);
+        perl_walk_children(
+            tree.root_node(),
+            &context,
+            None,
+            None,
+            &mut nodes,
+            &mut edges,
+        );
         let mut edges = resolve_perl_call_targets(&nodes, edges, &file_path);
         add_tested_by_edges(&nodes, &mut edges);
         return (nodes, edges);
@@ -50,39 +57,62 @@ struct PerlParseContext<'a> {
     file_path: FilePath,
 }
 
+/// Walks `node`, tracking the current package. A `package X;` statement
+/// switches the package for the rest of its enclosing block, while
+/// `package X { ... }` scopes it to the block. `main` is the default package
+/// and is left unqualified.
 fn perl_walk_children(
     node: tree_sitter::Node<'_>,
     context: &PerlParseContext<'_>,
+    package: Option<&str>,
     enclosing_func: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
+    let mut current: Option<String> = package.map(str::to_string);
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
+        let package = current.as_deref();
         match child.kind() {
-            "use_statement" | "require_expression" if enclosing_func.is_none() => {
-                edges.push(ParsedEdge {
-                    kind: crate::core::types::EdgeKind::ImportsFrom,
-                    source: context.file_path.to_string(),
-                    target: node_text(child, context.source),
-                    file_path: context.file_path.clone(),
-                    line: child.start_position().row as i64 + 1,
-                    extra: json!({}),
-                });
+            "use_statement" if enclosing_func.is_none() => {
+                perl_emit_use(child, context, package, edges);
+                continue;
+            }
+            "require_expression" if enclosing_func.is_none() => {
+                if let Some(target) =
+                    perl_direct_child_text(child, context.source, &["bareword", "package"])
+                {
+                    perl_push_import(child, context, target, edges);
+                }
                 continue;
             }
             "package_statement" | "class_statement" | "role_statement" => {
                 if let Some(name) = perl_package_name(child, context.source) {
-                    perl_emit_class(child, context, &name, nodes, edges);
+                    let scoped = (name != "main").then_some(name.as_str());
+                    if let Some(name) = scoped {
+                        perl_emit_class(child, context, name, nodes, edges);
+                    }
+                    if let Some(block) = perl_direct_child(child, &["block"]) {
+                        perl_walk_children(block, context, scoped, enclosing_func, nodes, edges);
+                    } else {
+                        current = scoped.map(str::to_string);
+                    }
                 }
                 continue;
             }
             "subroutine_declaration_statement" | "method_declaration_statement" => {
                 if let Some(name) = perl_subroutine_name(child, context.source) {
-                    perl_emit_function(child, context, &name, nodes, edges);
-                    perl_walk_children(child, context, Some(&name), nodes, edges);
+                    perl_emit_function(child, context, &name, package, nodes, edges);
+                    let scope = match package {
+                        Some(package) => format!("{package}.{name}"),
+                        None => name.clone(),
+                    };
+                    perl_walk_children(child, context, package, Some(&scope), nodes, edges);
                 }
                 continue;
+            }
+            "assignment_expression" if enclosing_func.is_none() => {
+                perl_emit_isa_assignment(child, context, package, edges);
             }
             "function_call_expression"
             | "ambiguous_function_call_expression"
@@ -94,8 +124,127 @@ fn perl_walk_children(
             }
             _ => {}
         }
-        perl_walk_children(child, context, enclosing_func, nodes, edges);
+        perl_walk_children(child, context, package, enclosing_func, nodes, edges);
     }
+}
+
+const PERL_PRAGMAS: &[&str] = &[
+    "strict",
+    "warnings",
+    "utf8",
+    "feature",
+    "lib",
+    "constant",
+    "vars",
+    "integer",
+    "overload",
+    "version",
+    "experimental",
+    "diagnostics",
+    "bytes",
+    "locale",
+    "open",
+];
+
+fn perl_push_import(
+    node: tree_sitter::Node<'_>,
+    context: &PerlParseContext<'_>,
+    target: String,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    edges.push(ParsedEdge {
+        kind: crate::core::types::EdgeKind::ImportsFrom,
+        source: context.file_path.to_string(),
+        target,
+        file_path: context.file_path.clone(),
+        line: node.start_position().row as i64 + 1,
+        extra: json!({}),
+    });
+}
+
+/// `use Module ...` imports the module; `use parent`/`use base` declare
+/// superclasses of the current package instead.
+fn perl_emit_use(
+    node: tree_sitter::Node<'_>,
+    context: &PerlParseContext<'_>,
+    package: Option<&str>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let Some(module) = perl_direct_child_text(node, context.source, &["package"]) else {
+        return;
+    };
+    if matches!(module.as_str(), "parent" | "base") {
+        let bases = perl_string_values(node, context.source);
+        perl_emit_inherits(node, context, package, bases, module.as_str(), edges);
+        return;
+    }
+    if PERL_PRAGMAS.contains(&module.as_str()) {
+        return;
+    }
+    perl_push_import(node, context, module, edges);
+}
+
+fn perl_emit_isa_assignment(
+    node: tree_sitter::Node<'_>,
+    context: &PerlParseContext<'_>,
+    package: Option<&str>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let Some(left) = node.child(0) else {
+        return;
+    };
+    if perl_first_descendant_text(left, context.source, &["varname"]).as_deref() != Some("ISA") {
+        return;
+    }
+    let bases = perl_string_values(node, context.source);
+    perl_emit_inherits(node, context, package, bases, "@ISA", edges);
+}
+
+fn perl_emit_inherits(
+    node: tree_sitter::Node<'_>,
+    context: &PerlParseContext<'_>,
+    package: Option<&str>,
+    bases: Vec<String>,
+    evidence: &str,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let Some(package) = package else {
+        return;
+    };
+    for base in bases {
+        edges.push(ParsedEdge {
+            kind: crate::core::types::EdgeKind::Inherits,
+            source: qualify(&context.file_path, package, None),
+            target: base,
+            file_path: context.file_path.clone(),
+            line: node.start_position().row as i64 + 1,
+            extra: json!({"relationship_role": "extends", "syntax_source": evidence}),
+        });
+    }
+}
+
+/// Every string literal or `qw(...)` word under `node`.
+fn perl_string_values(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
+    let mut values = Vec::new();
+    let mut stack = vec![node];
+    while let Some(current) = stack.pop() {
+        match current.kind() {
+            "string_literal" | "interpolated_string_literal" => {
+                values.extend(perl_string_text(current, source));
+            }
+            "quoted_word_list" => {
+                let text = perl_first_descendant_text(current, source, &["string_content"])
+                    .unwrap_or_default();
+                values.extend(text.split_whitespace().map(str::to_string));
+            }
+            _ => {
+                let mut cursor = current.walk();
+                let children: Vec<_> = current.children(&mut cursor).collect();
+                stack.extend(children.into_iter().rev());
+            }
+        }
+    }
+    values
 }
 
 fn perl_emit_class(
@@ -134,11 +283,12 @@ fn perl_emit_function(
     node: tree_sitter::Node<'_>,
     context: &PerlParseContext<'_>,
     name: &str,
+    package: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
     let is_test = is_test_function(name, &context.file_path, node, context.source);
-    let qualified = qualify(&context.file_path, name, None);
+    let qualified = qualify(&context.file_path, name, package);
     nodes.push(ParsedNode {
         kind: if is_test {
             crate::core::types::NodeKind::Test
@@ -150,7 +300,7 @@ fn perl_emit_function(
         line_start: node.start_position().row as i64 + 1,
         line_end: node.end_position().row as i64 + 1,
         language: "perl".to_string(),
-        parent_name: None,
+        parent_name: package.map(str::to_string),
         params: None,
         return_type: None,
         modifiers: None,
@@ -159,7 +309,9 @@ fn perl_emit_function(
     });
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Contains,
-        source: context.file_path.to_string(),
+        source: package
+            .map(|package| qualify(&context.file_path, package, None))
+            .unwrap_or_else(|| context.file_path.to_string()),
         target: qualified,
         file_path: context.file_path.clone(),
         line: node.start_position().row as i64 + 1,
@@ -246,7 +398,12 @@ fn perl_subroutine_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<St
 
 fn perl_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     if node.kind() == "method_call_expression" {
-        return perl_direct_child_text(node, source, &["method", "bareword", "identifier"]);
+        let method = perl_direct_child_text(node, source, &["method"])?;
+        // `Class->method` names its package; `$obj->method` does not.
+        return Some(match perl_direct_child_text(node, source, &["bareword"]) {
+            Some(class) => format!("{class}::{method}"),
+            None => method,
+        });
     }
     perl_direct_child_text(node, source, &["function", "bareword", "identifier"])
 }
@@ -321,23 +478,45 @@ fn resolve_perl_call_targets(
     edges: Vec<ParsedEdge>,
     file_path: &FilePath,
 ) -> Vec<ParsedEdge> {
-    let symbols = nodes
+    // `Pkg::name` -> qualified node, plus bare names grouped by package.
+    let mut by_path = HashMap::<String, String>::new();
+    let mut by_name = HashMap::<String, Vec<(Option<String>, String)>>::new();
+    for node in nodes
         .iter()
         .filter(|node| matches!(node.kind.as_str(), "Function" | "Test"))
-        .fold(HashMap::<String, String>::new(), |mut symbols, node| {
-            symbols
-                .entry(node.name.clone())
-                .or_insert_with(|| qualify(file_path, &node.name, None));
-            symbols
-        });
+    {
+        let qualified = qualify(file_path, &node.name, node.parent_name.as_deref());
+        if let Some(package) = node.parent_name.as_deref() {
+            by_path
+                .entry(format!("{package}::{}", node.name))
+                .or_insert_with(|| qualified.clone());
+        }
+        by_name
+            .entry(node.name.clone())
+            .or_default()
+            .push((node.parent_name.clone(), qualified));
+    }
+    let prefix = format!("{file_path}::");
     edges
         .into_iter()
         .map(|mut edge| {
-            if edge.kind == "CALLS"
-                && !edge.target.contains("::")
-                && let Some(target) = symbols.get(&edge.target)
-            {
+            if edge.kind != "CALLS" {
+                return edge;
+            }
+            if let Some(target) = by_path.get(&edge.target) {
                 edge.target = target.clone();
+            } else if !edge.target.contains("::")
+                && let Some(candidates) = by_name.get(&edge.target)
+            {
+                let caller_package = edge
+                    .source
+                    .strip_prefix(&prefix)
+                    .and_then(|rest| rest.rsplit_once('.').map(|(package, _)| package));
+                let chosen = candidates
+                    .iter()
+                    .find(|(package, _)| package.as_deref() == caller_package)
+                    .unwrap_or(&candidates[0]);
+                edge.target = chosen.1.clone();
             }
             edge
         })
