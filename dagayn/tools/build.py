@@ -846,15 +846,22 @@ def build_or_update_graph(
             )
         else:
             from dagayn.communities import count_affected_communities
-            from dagayn.incremental import get_changed_files
+            from dagayn.incremental import get_changed_file_sources
 
             pre_affected_communities = 0
-            preview_changed = get_changed_files(root, base)
+            change_file_sources = get_changed_file_sources(root, base)
+            preview_changed = list(change_file_sources.get("files", []))
             if extra_files:
                 preview_changed = list(dict.fromkeys([*preview_changed, *extra_files]))
             if preview_changed:
                 pre_affected_communities = count_affected_communities(store, preview_changed)
-            build_result = incremental_update(root, store, base=base, extra_files=extra_files)
+            build_result = incremental_update(
+                root,
+                store,
+                base=base,
+                extra_files=extra_files,
+                change_file_sources=change_file_sources,
+            )
             if build_result.files_updated == 0:
                 build_result.status = "ok"
                 build_result.build_type = "incremental"

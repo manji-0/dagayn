@@ -92,6 +92,7 @@ def prepare_incremental_update(
     base: str = "HEAD~1",
     changed_files: list[str] | None = None,
     extra_files: list[str] | None = None,
+    change_file_sources: dict[str, list[str]] | None = None,
 ) -> IncrementalUpdateState | BuildResult:
     """Resolve changed files and return state, or an early no-op result."""
     from .incremental_build import (
@@ -104,10 +105,13 @@ def prepare_incremental_update(
     store.set_metadata("repo_root", str(repo_root))
     ignore_patterns = _load_ignore_patterns(repo_root)
 
-    change_file_sources: dict[str, list[str]]
     diff_covers_graph = False
     if changed_files is None:
-        change_file_sources = _changed_file_sources(repo_root, base)
+        change_file_sources = (
+            dict(change_file_sources)
+            if change_file_sources is not None
+            else _changed_file_sources(repo_root, base)
+        )
         changed_files = change_file_sources["files"]
         diff_covers_graph = _diff_covers_graph_commit(repo_root, store, base)
     else:
@@ -474,6 +478,7 @@ def execute_incremental_update(
     base: str = "HEAD~1",
     changed_files: list[str] | None = None,
     extra_files: list[str] | None = None,
+    change_file_sources: dict[str, list[str]] | None = None,
 ) -> BuildResult:
     """Run the incremental update pipeline."""
     prepared = prepare_incremental_update(
@@ -482,6 +487,7 @@ def execute_incremental_update(
         base=base,
         changed_files=changed_files,
         extra_files=extra_files,
+        change_file_sources=change_file_sources,
     )
     if isinstance(prepared, BuildResult):
         return prepared

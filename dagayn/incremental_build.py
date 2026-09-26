@@ -251,11 +251,11 @@ def _indexed_only(store: GraphStore, rel_paths: list[str]) -> list[str]:
     """Restrict *rel_paths* to files the graph actually holds nodes for."""
     if not rel_paths:
         return []
-    getter = getattr(store, "get_file_meta_map", None)
+    getter = getattr(store, "get_file_meta_for_files", None)
     if not callable(getter):
         return rel_paths
     try:
-        meta_map = cast(Callable[[], dict[str, Any]], getter)() or {}
+        meta_map = cast(Callable[[list[str]], dict[str, Any]], getter)(rel_paths) or {}
         indexed = set(meta_map)
     except Exception:  # noqa: BLE001 — fall back to the unfiltered list
         return rel_paths
@@ -968,8 +968,13 @@ def incremental_update(
     base: str = "HEAD~1",
     changed_files: list[str] | None = None,
     extra_files: list[str] | None = None,
+    change_file_sources: dict[str, list[str]] | None = None,
 ) -> BuildResult:
     """Incremental update: re-parse changed + dependent files only.
+
+    *change_file_sources* is a ``get_changed_file_sources(repo_root, base)``
+    result the caller already has, so the git diff and status are not run a
+    second time. It is ignored when *changed_files* is given.
 
     *extra_files* are re-indexed on top of whatever the git diff reports. A
     file whose on-disk content matches ``base`` cannot appear in that diff, so
@@ -986,6 +991,7 @@ def incremental_update(
         base=base,
         changed_files=changed_files,
         extra_files=extra_files,
+        change_file_sources=change_file_sources,
     )
 
 

@@ -633,6 +633,24 @@ def test_incremental_update_removes_newly_ignored_indexed_file(git_repo: Path) -
         Path(db_path).unlink(missing_ok=True)
 
 
+def test_build_or_update_graph_resolves_changed_files_once(git_repo: Path) -> None:
+    from unittest.mock import patch
+
+    import dagayn.incremental_files as files
+    from dagayn.tools.build import build_or_update_graph
+
+    build_or_update_graph(full_rebuild=True, repo_root=str(git_repo), postprocess="none")
+    (git_repo / "hello.py").write_text("def greet():\n    return 'hi'\n", encoding="utf-8")
+    with patch(
+        "dagayn.incremental_files._get_git_diff_files", wraps=files._get_git_diff_files
+    ) as git_diff:
+        result = build_or_update_graph(
+            full_rebuild=False, repo_root=str(git_repo), base="HEAD", postprocess="none"
+        )
+    assert git_diff.call_count == 1
+    assert "hello.py" in result["changed_files"]
+
+
 def test_incremental_update_scope_does_not_walk_every_file(git_repo: Path) -> None:
     from unittest.mock import patch
 

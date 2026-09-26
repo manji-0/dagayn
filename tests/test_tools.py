@@ -2007,7 +2007,10 @@ class TestBuildPostprocess:
 
         with (
             patch("dagayn.tools.build.incremental_update", return_value=update_result),
-            patch("dagayn.incremental.get_changed_files", return_value=["a.py"]),
+            patch(
+                "dagayn.incremental.get_changed_file_sources",
+                return_value={"files": ["a.py"]},
+            ),
             patch("dagayn.tools.build._run_postprocess", return_value=[]),
             patch("dagayn.tools.build._run_local_embedding", return_value=embed_result) as run,
         ):

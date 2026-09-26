@@ -70,6 +70,11 @@ All notable changes to `dagayn` are documented here.
   vectors). The count is now memoized per embeddings generation. With a `kind`
   filter, the search also runs the vector arm once, sized for the widest pass,
   instead of once per widening pass.
+- An incremental `build_or_update_graph` runs `git diff` and `git status` once
+  instead of twice: the change list it resolves to count affected communities
+  is handed to `incremental_update`, which used to resolve it again. Filtering
+  removed paths down to indexed files also queries just those paths instead of
+  loading every file's metadata.
 
 ## 4.15.0 — 2026-09-25
 
