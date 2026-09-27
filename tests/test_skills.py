@@ -13,6 +13,7 @@ import yaml
 import dagayn.skills as _skills_module
 from dagayn.hook_guard import DEFAULT_HOOK_BUDGET_SECONDS
 from dagayn.skills import (
+    _CLAUDE_MD_SECTION,
     _CLAUDE_MD_SECTION_HEADING,
     _CLAUDE_MD_SECTION_MARKER,
     _MARKDOWN_POLICY_HEADING,
@@ -1691,6 +1692,29 @@ class TestInjectPlatformInstructionsFiltering:
         content = agents_md.read_text()
         assert content.count(_CLAUDE_MD_SECTION_MARKER) == 1
         assert _MARKDOWN_POLICY_MARKER in content
+
+    def test_stale_sections_are_refreshed_in_place(self, tmp_path):
+        rules = tmp_path / ".cursorrules"
+        rules.write_text(
+            "# Project rules\n\nKeep this.\n\n"
+            f"{_CLAUDE_MD_SECTION_MARKER}\n## MCP Tools: dagayn\n\n### Old\n\nstale text\n\n"
+            f"{_MARKDOWN_POLICY_MARKER}\n{_MARKDOWN_POLICY_HEADING}\n\nold policy\n\n"
+            "## Team notes\n\nKeep this too.\n"
+        )
+
+        updated = inject_platform_instructions(tmp_path, target="cursor")
+
+        content = rules.read_text()
+        assert ".cursorrules" in updated
+        assert content.startswith("# Project rules\n\nKeep this.\n\n")
+        assert content.endswith("\n\n## Team notes\n\nKeep this too.\n")
+        assert "stale text" not in content
+        assert "old policy" not in content
+        assert _CLAUDE_MD_SECTION.strip() in content
+        assert content.count(_CLAUDE_MD_SECTION_MARKER) == 1
+        assert content.count(_MARKDOWN_POLICY_MARKER) == 1
+        assert inject_platform_instructions(tmp_path, target="cursor") == []
+        assert rules.read_text() == content
 
     def test_idempotent_with_both_sections(self, tmp_path):
         inject_platform_instructions(tmp_path, target="windsurf")
