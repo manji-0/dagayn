@@ -49,6 +49,16 @@ def detect_adp_violations_func(
     )
     total = len(violations)
     truncated = total > top_n
+    next_tool_suggestions = [
+        'review_tool mode="impact" -- check blast radius of a cyclic module',
+        "query_graph_tool imports_of -- trace what a module imports",
+        'architecture_analysis_tool mode="sdp_violations" -- check stability direction',
+    ]
+    if truncated:
+        next_tool_suggestions.insert(
+            0,
+            f'architecture_analysis_tool mode="adp_violations" top_n={total} -- list every cycle',
+        )
     return make_response(
         "ok",
         f"Found {total} ADP violation(s) at {granularity} level "
@@ -60,11 +70,7 @@ def detect_adp_violations_func(
         granularity=granularity,
         artifact_scope=artifact_scope,
         dependency_profile=dependency_profile,
-        next_tool_suggestions=[
-            'review_tool mode="impact" -- check blast radius of a cyclic module',
-            "query_graph_tool imports_of -- trace what a module imports",
-            'architecture_analysis_tool mode="sdp_violations" -- check stability direction',
-        ],
+        next_tool_suggestions=next_tool_suggestions,
     )
 
 

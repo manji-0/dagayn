@@ -80,6 +80,38 @@ _EXPLORE_TASK_KEYWORDS = (
     "オンボーディング",
 )
 
+_LOOKUP_ROUTES: tuple[tuple[tuple[str, ...], str, str], ...] = (
+    (
+        ("import cycle", "dependency cycle", "circular", "cyclic", "循環", "閉路"),
+        "architecture_analysis_tool",
+        'architecture_analysis_tool mode="adp_violations"; if truncated, rerun with top_n=count.',
+    ),
+    (
+        ("tests for", "which tests", "test coverage", "テスト関数", "テストメソッド"),
+        "query_graph_tool",
+        'query_graph_tool pattern="tests_for" target=<name>.',
+    ),
+    (
+        ("caller", "who calls", "call site", "呼び出し", "呼んで"),
+        "query_graph_tool",
+        'query_graph_tool pattern="callers_of" target=<name>.',
+    ),
+    (
+        (
+            "importer",
+            "imported by",
+            "import して",
+            "importして",
+            "depends on",
+            "dependents",
+            "依存している",
+        ),
+        "query_graph_tool",
+        'query_graph_tool pattern="importers_of" target=<file>; repeat per result if transitive.',
+    ),
+)
+_LOOKUP_WHY = "Concrete relationship question; one direct query answers it."
+
 _REVIEW_TOOL_SUGGESTIONS = ["review_tool", "flow_tool", "query_graph_tool"]
 _DEBUG_TOOL_SUGGESTIONS = ["semantic_search_nodes_tool", "query_graph_tool", "flow_tool"]
 _FEATURE_TOOL_SUGGESTIONS = ["semantic_search_nodes_tool", "query_graph_tool", "review_tool"]
@@ -217,12 +249,31 @@ def _task_mentions(task: str, keywords: tuple[str, ...]) -> bool:
     return any(keyword.casefold() in task_folded for keyword in keywords)
 
 
+def _lookup_route(task: str) -> tuple[str, str] | None:
+    """Return ``(tool, recommended_action)`` for a concrete relationship question."""
+    for keywords, tool, action in _LOOKUP_ROUTES:
+        if _task_mentions(task, keywords):
+            return tool, action
+    return None
+
+
+def _workflow_guidance(task: str, workflow: str) -> dict[str, str]:
+    """Return the recommended action, rationale, and confidence for *task*."""
+    route = _lookup_route(task) if workflow == "lookup" else None
+    if route is not None:
+        return {"recommended_action": route[1], "why": _LOOKUP_WHY, "confidence": "high"}
+    return _WORKFLOW_GUIDANCE[workflow]
+
+
 def _suggest_tools_for_task(task: str) -> list[str]:
     """Choose next MCP tool suggestions from a natural-language task."""
     from ..tool_surface import filter_tool_names
 
     workflow = _workflow_for_task(task)
-    if workflow == "review":
+    route = _lookup_route(task) if workflow == "lookup" else None
+    if route is not None:
+        names = list(dict.fromkeys([route[0], "query_graph_tool", "semantic_search_nodes_tool"]))
+    elif workflow == "review":
         names = list(_REVIEW_TOOL_SUGGESTIONS)
     elif workflow == "debug":
         names = list(_DEBUG_TOOL_SUGGESTIONS)
@@ -239,6 +290,8 @@ def _suggest_tools_for_task(task: str) -> list[str]:
 
 def _workflow_for_task(task: str) -> str:
     """Classify a natural-language task into a coarse workflow."""
+    if _lookup_route(task) is not None:
+        return "lookup"
     if _task_mentions(task, _REVIEW_TASK_KEYWORDS):
         return "review"
     if _task_mentions(task, _DEBUG_TASK_KEYWORDS):
@@ -403,7 +456,7 @@ def _get_minimal_context_body(
         # points stay cheap even when the default base has a large diff.
         workflow = _workflow_for_task(task)
         suggestions = _suggest_tools_for_task(task)
-        guidance = _WORKFLOW_GUIDANCE[workflow]
+        guidance = _workflow_guidance(task, workflow)
 
         # 3. Risk from explicitly provided changed files
         risk = "unknown"

@@ -2847,6 +2847,37 @@ class TestGetMinimalContext:
 
         assert expected_tool in result["next_tool_suggestions"]
 
+    @pytest.mark.parametrize(
+        ("task", "expected_tool", "expected_call"),
+        [
+            ("who calls _get_store", "query_graph_tool", 'pattern="callers_of"'),
+            ("関数 foo を呼び出している関数を挙げる", "query_graph_tool", 'pattern="callers_of"'),
+            ("foo を呼び出しているテスト関数", "query_graph_tool", 'pattern="tests_for"'),
+            ("changes.py を import しているファイル", "query_graph_tool", 'pattern="importers_of"'),
+            ("docs/USAGE.md に依存している Markdown", "query_graph_tool", 'pattern="importers_of"'),
+            (
+                "ディレクトリ単位の import の循環依存",
+                "architecture_analysis_tool",
+                "adp_violations",
+            ),
+        ],
+    )
+    def test_task_routing_concrete_lookup(self, task, expected_tool, expected_call):
+        from dagayn.tools.context import (
+            _suggest_tools_for_task,
+            _workflow_for_task,
+            _workflow_guidance,
+        )
+
+        assert _workflow_for_task(task) == "lookup"
+        assert _suggest_tools_for_task(task)[0] == expected_tool
+        assert expected_call in _workflow_guidance(task, "lookup")["recommended_action"]
+
+    def test_task_routing_lookup_ignores_lookalike_words(self):
+        from dagayn.tools.context import _workflow_for_task
+
+        assert _workflow_for_task("review important lifecycle changes") == "review"
+
     def test_task_routing_returns_structured_workflow_guidance(self):
         from dagayn.tools.context import get_minimal_context
 

@@ -36,6 +36,20 @@ QUERY_PATTERNS = {
     ),
 }
 
+_TRANSITIVE_FILE_PATTERNS = frozenset({"importers_of", "imports_of"})
+_RELATIONSHIP_ANSWER_PATTERNS = frozenset(
+    {
+        "callers_of",
+        "callees_of",
+        "tests_for",
+        "inheritors_of",
+        "children_of",
+        "docs_for",
+        "implementations_of",
+        "bridges_from",
+    }
+)
+
 _DOC_TO_ARTIFACT_ROLES = {
     "implemented_by": "implements_contract",
     "describes_symbol": "described_by",
@@ -188,6 +202,22 @@ def exactness_action(
                 "suggestion": (
                     "inspect callers_of/callees_of after reading the live span; "
                     "Read the file only for surrounding context or edits"
+                ),
+            }
+        if result_count and pattern in _TRANSITIVE_FILE_PATTERNS:
+            return {
+                "tool": "query_graph_tool",
+                "suggestion": (
+                    f"results answer the direct {pattern} question; repeat {pattern} "
+                    "on each result file for the transitive closure"
+                ),
+            }
+        if result_count and pattern in _RELATIONSHIP_ANSWER_PATTERNS:
+            return {
+                "tool": "query_graph_tool",
+                "suggestion": (
+                    "results answer the relationship question when results_complete "
+                    'is true; fetch pattern="source_of" only for a body you must read'
                 ),
             }
         return {
