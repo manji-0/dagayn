@@ -454,6 +454,7 @@ def query_graph_tool(
     target: str,
     repo_root: Optional[str] = None,
     detail_level: str = "standard",
+    depth: int = 1,
 ) -> ToolPayload:
     """Run a predefined graph query to explore code relationships.
 
@@ -476,12 +477,15 @@ def query_graph_tool(
         target: Node name, qualified name, or file path to query.
         repo_root: Repository root path. Auto-detected if omitted.
         detail_level: "standard" for full output, "minimal" for compact summary. Default: standard.
+        depth: For callers_of and importers_of, hops to follow (1 to 6) so a
+            transitive answer comes back in one call. Default: 1 (direct only).
     """
     return _tool("query_graph")(
         pattern=pattern,
         target=target,
         repo_root=_resolve_repo_root(repo_root),
         detail_level=detail_level,
+        depth=depth,
     )
 
 
