@@ -1266,6 +1266,52 @@ class TestModuleScopeCalls:
         targets = {e.target for e in imports}
         assert str((pkg / "__init__.py").resolve()) in targets
 
+    def test_python_from_package_import_submodule_targets_submodule(self, tmp_path):
+        """from . import tools  →  pkg/tools.py when tools is a submodule"""
+        pkg = tmp_path / "pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("")
+        (pkg / "tools.py").write_text("")
+        caller = pkg / "main.py"
+        caller.write_text("def f():\n    from . import tools\n")
+        _, edges = self.parser.parse_file(caller)
+        targets = {e.target for e in edges if e.kind == "IMPORTS_FROM"}
+        assert targets == {str((pkg / "tools.py").resolve())}
+
+    def test_python_from_package_import_mixed_names(self, tmp_path):
+        """from . import tools, helper  →  pkg/tools.py and pkg/__init__.py"""
+        pkg = tmp_path / "pkg"
+        (pkg / "sub").mkdir(parents=True)
+        (pkg / "__init__.py").write_text("")
+        (pkg / "sub" / "__init__.py").write_text("")
+        caller = pkg / "main.py"
+        caller.write_text("from . import sub, helper\n")
+        _, edges = self.parser.parse_file(caller)
+        targets = {e.target for e in edges if e.kind == "IMPORTS_FROM"}
+        assert targets == {
+            str((pkg / "__init__.py").resolve()),
+            str((pkg / "sub" / "__init__.py").resolve()),
+        }
+
+    def test_python_absolute_from_package_import_submodule(self, tmp_path):
+        """from mypkg import utils as u  →  mypkg/utils.py"""
+        pkg = tmp_path / "mypkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("")
+        (pkg / "utils.py").write_text("")
+        caller = tmp_path / "main.py"
+        caller.write_text("from mypkg import utils as u\n")
+        _, edges = self.parser.parse_file(caller)
+        targets = {e.target for e in edges if e.kind == "IMPORTS_FROM"}
+        assert targets == {str((pkg / "utils.py").resolve())}
+
+    def test_python_from_external_package_import_keeps_module(self, tmp_path):
+        caller = tmp_path / "main.py"
+        caller.write_text("from os import path\n")
+        _, edges = self.parser.parse_file(caller)
+        targets = {e.target for e in edges if e.kind == "IMPORTS_FROM"}
+        assert targets == {"os"}
+
     def test_python_relative_import_nested_module(self, tmp_path):
         """from .tools.build import f  →  pkg/tools/build.py"""
         pkg = tmp_path / "pkg"

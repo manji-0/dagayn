@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Callable, cast
 
@@ -106,14 +107,23 @@ def is_unresolved_import_target(store: Any, target: str, root: Path) -> bool:
     return len(store.get_nodes_by_file(abs_target)) == 0
 
 
+_HIGH_CONFIDENCE_TIERS = frozenset({"EXACT", "EXTRACTED", "HIGH"})
+
+
 def query_zero_result_fields(
     *,
     results: list[dict],
     unresolved_targets: list[str],
+    edges: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     if results:
+        # A result set is only as reliable as its weakest edge.
+        high = bool(edges) and all(
+            str(edge.get("confidence_tier") or "").upper() in _HIGH_CONFIDENCE_TIERS
+            for edge in edges
+        )
         return {
-            "confidence": "medium",
+            "confidence": "high" if high else "medium",
             "zero_result_reason": None,
         }
     if unresolved_targets:

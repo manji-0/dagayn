@@ -51,8 +51,26 @@ symbol that exercises it. For example, `src/auth.py::login -> tests/test_auth.py
 Parsers derive them from the test's `CALLS` edges (same file and line), so a
 bare call target first gives a bare `TESTED_BY` source. When post-processing's
 bare-name resolution binds the call, the `TESTED_BY` edge takes the same
-qualified target and confidence (`MEDIUM`); a bare edge whose call is still
-unresolved stays bare.
+qualified target and confidence; a bare edge whose call is still unresolved
+stays bare.
+
+Bare-name resolution binds a `CALLS`, `INHERITS`, or `IMPLEMENTS` target only
+when exactly one candidate is visible to the source file, and grades the edge
+by that visibility:
+
+- `HIGH` (`0.9`): a top-level function or class in the same file or in a file
+  the source imports directly.
+- `MEDIUM` (`0.6`): a method, whose receiver type is unknown, or a symbol the
+  source reaches only through a shared or imported namespace or through its
+  class declaration (a C++ header).
+
+`query_graph_tool` reports `confidence: "high"` when every returned edge is
+`EXACT`, `EXTRACTED`, or `HIGH`, and `"medium"` otherwise.
+
+Python `from pkg import name` records an `IMPORTS_FROM` edge to `pkg/name.py`
+(or `pkg/name/__init__.py`) when `name` is a submodule, the same as
+`import pkg.name`. It points at `pkg/__init__.py` only for names that are not
+submodules and for `*`.
 
 The fork also stores confidence-related metadata and graph relationships used by higher-order analysis.
 

@@ -1520,6 +1520,34 @@ def _instruction_section_aliases(marker: str) -> tuple[str, ...]:
     return ()
 
 
+def _refresh_instruction_section(content: str, marker: str, section: str) -> str:
+    """Replace the managed section that starts at *marker* with *section*.
+
+    The managed section runs to the next dagayn marker, the next level-2
+    heading after its own heading, or the end of the file. Blank lines that
+    separated it from the following content are kept.
+    """
+    start = content.index(marker)
+    lines = content[start:].splitlines(keepends=True)
+    offset = start + len(lines[0])
+    end = len(content)
+    heading_seen = False
+    for line in lines[1:]:
+        stripped = line.strip()
+        if stripped in (_CLAUDE_MD_SECTION_MARKER, _MARKDOWN_POLICY_MARKER):
+            end = offset
+            break
+        if line.startswith("## "):
+            if heading_seen:
+                end = offset
+                break
+            heading_seen = True
+        offset += len(line)
+    old = content[start:end]
+    trailing = old[len(old.rstrip("\n")) :] or "\n"
+    return content[:start] + section.rstrip("\n") + trailing + content[end:]
+
+
 def _has_instruction_section(content: str, marker: str) -> bool:
     """Return True when content already has a dagayn section, marker or not."""
     return marker in content or any(
@@ -1666,10 +1694,11 @@ def _inject_instructions(
     *,
     errors: list[str] | None = None,
 ) -> bool:
-    """Append an instruction section to a file if not already present.
+    """Append an instruction section to a file, or refresh a stale one.
 
-    Idempotent: checks if the marker is already present before appending.
-    Creates the file if it doesn't exist.
+    Idempotent: a marked section that already matches *section* is left alone;
+    a marked section with older text is replaced in place. Creates the file if
+    it doesn't exist.
 
     Returns True if the file was modified.
     """
@@ -1679,8 +1708,13 @@ def _inject_instructions(
             existing = file_path.read_text(encoding="utf-8", errors="replace")
 
         if marker in existing:
-            logger.info("%s already contains instructions, skipping.", file_path.name)
-            return False
+            refreshed = _refresh_instruction_section(existing, marker, section)
+            if refreshed == existing:
+                logger.info("%s already contains instructions, skipping.", file_path.name)
+                return False
+            write_text_atomic(file_path, refreshed, encoding="utf-8")
+            logger.info("Refreshed dagayn instructions in %s", file_path)
+            return True
 
         for marker_heading in _instruction_section_aliases(marker):
             if marker_heading in existing:

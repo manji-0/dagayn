@@ -34,6 +34,8 @@ from .query_graph_support import (
     result_evidence_type,
 )
 
+_NAME_RESOLUTION_SEARCH_LIMIT = 200
+
 
 @dataclass
 class QueryGraphState:
@@ -112,8 +114,17 @@ def resolve_query_target(
                 "_hints": guidance_actions_to_hints(guidance),
             }
     elif not node and not looks_like_query_file_target(state.target):
-        candidates = state.store.search_nodes(state.target, limit=5)
-        if len(candidates) == 1:
+        # FTS ranking does not put exact name matches first, so a bare name
+        # shared with many similarly named helpers would never reach the top 5.
+        search_hits = state.store.search_nodes(state.target, limit=_NAME_RESOLUTION_SEARCH_LIMIT)
+        exact_name_hits = [hit for hit in search_hits if hit.name == state.target]
+        candidates = exact_name_hits[:5] if exact_name_hits else search_hits[:5]
+        if len(exact_name_hits) == 1:
+            node = exact_name_hits[0]
+            state.resolved_target = node.qualified_name
+            state.target = state.resolved_target
+            state.resolution = "exact_name"
+        elif len(candidates) == 1:
             node = candidates[0]
             state.resolved_target = node.qualified_name
             state.target = state.resolved_target
@@ -515,18 +526,19 @@ def build_query_graph_response(
     missingness: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     summary = f"Found {len(state.results)} result(s) for {state.pattern}('{state.target}')"
-    exact_count = 1 if state.resolution == "exact" and state.node is not None else 0
+    exact_count = 1 if state.resolution in {"exact", "exact_name"} and state.node is not None else 0
     resolution_payload: dict[str, Any] = {
         "resolution": state.resolution,
         "exact_match_count": exact_count,
     }
     if state.resolved_target is not None:
         resolution_payload["resolved_target"] = state.resolved_target
-    if state.resolution == "fuzzy":
+    if state.resolution in {"fuzzy", "exact_name"}:
         resolution_payload["original_target"] = state.original_target
     zero_result_fields = query_zero_result_fields(
         results=state.results,
         unresolved_targets=state.unresolved_targets,
+        edges=state.edges_out,
     )
     guidance = query_graph_guidance(
         pattern=state.pattern,
@@ -562,6 +574,7 @@ def build_query_graph_response(
             **resolution_payload,
             "answerability": answerability,
             "results": minimal_results,
+            "results_complete": len(minimal_results) == len(state.results),
             "guidance": guidance,
             "_hints": guidance_actions_to_hints(guidance),
         }
@@ -586,4 +599,6 @@ def build_query_graph_response(
         "_hints": guidance_actions_to_hints(guidance),
     }
     apply_output_budget(payload, budget_tokens=8000, list_priorities=["results", "edges"])
+    truncation = payload.get("_truncation")
+    payload["results_complete"] = not (isinstance(truncation, dict) and "results" in truncation)
     return _attach_source_of_coverage(payload, state, missingness)

@@ -4,6 +4,24 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Fixed
+
+- `query_graph_tool` resolves a bare name that exactly one node carries
+  (`resolution="exact_name"`) instead of returning `ambiguous` with only
+  look-alike fuzzy candidates, and reports `results_complete` separately
+  from `truncated`.
+- A truncated `adp_violations` result suggests rerunning with `top_n` set to
+  the total count.
+- `dagayn install` refreshes an out-of-date marked instruction section in
+  place instead of leaving the first installed text forever.
+- Python `from pkg import sub` records its `IMPORTS_FROM` edge to the
+  submodule file instead of `pkg/__init__.py`, so `importers_of` on the
+  submodule finds it.
+- Bare-name resolution marks a unique top-level symbol in the same or a
+  directly imported file `HIGH` (`0.9`) instead of `MEDIUM`; methods and
+  namespace-only matches stay `MEDIUM`. `query_graph_tool` reports
+  `confidence: "high"` when every returned edge is `HIGH` or better.
+
 ## 5.0.0 — 2026-09-27
 
 ### Added
