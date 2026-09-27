@@ -1620,7 +1620,8 @@ scanning cannot.
 - **Code review**: `review_tool(mode="changes")` first; use its `analysis_summary` before
   calling drill-down tools
 - **Finding relationships**: `query_graph_tool` with
-  callers_of/callees_of/imports_of/tests_for/source_of
+  callers_of/callees_of/imports_of/tests_for/source_of; pass `depth` to
+  callers_of/importers_of for a transitive chain in one call
 - **Architecture questions**: `architecture_analysis_tool(mode="overview")`
   first; use `architecture_health` and the Architecture Analysis skill before
   choosing a drill-down mode

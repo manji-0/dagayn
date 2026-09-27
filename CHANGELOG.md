@@ -4,6 +4,26 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Added
+
+- `query_graph_tool` `callers_of` and `importers_of` accept `depth` (1 to 6)
+  and return the transitive chain in one call. Rows past hop 1 carry `depth`
+  and `via`; `reachability` reports truncation and `depth_limit_reached`.
+  Agents no longer need one `importers_of` call per discovered file (11 to 14
+  calls per question in the Composer 2.5 replication of the practice1
+  experiment).
+
+### Changed
+
+- **Breaking:** `query_graph_tool` `detail_level="standard"` returns one row
+  per related node, with edge lines folded into `lines` and the edge's
+  `confidence_tier`, and omits `edges`, `_hints`, and the `answerability`
+  counts. On this repository, `callers_of("dagayn/tools/query.py::query_graph")`
+  drops from 25.6k to 9.9k characters and
+  `importers_of("dagayn/tools/__init__.py")` from 5.8k to 2.2k. `minimal` returns every row within a
+  4,000-token budget instead of the first 5. The previous `standard` shape is
+  `detail_level="full"`. `imports_of` rows gain the import `line`.
+
 ### Fixed
 
 - `query_graph_tool` resolves a bare name that exactly one node carries

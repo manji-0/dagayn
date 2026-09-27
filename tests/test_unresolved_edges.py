@@ -60,6 +60,7 @@ def test_callees_of_reports_unresolved_targets(monkeypatch: pytest.MonkeyPatch, 
         pattern="callees_of",
         target="/repo/app.py::run",
         repo_root=str(root),
+        detail_level="full",
     )
 
     assert result["status"] == "ok"
@@ -104,7 +105,9 @@ def test_imports_of_flags_unresolved_import_target(
     )
 
     assert result["status"] == "ok"
-    assert result["results"] == [{"import_target": "/repo/missing_module.py", "unresolved": True}]
+    assert result["results"] == [
+        {"import_target": "/repo/missing_module.py", "line": 1, "unresolved": True}
+    ]
     assert result["unresolved_count"] == 1
     assert result["unresolved_targets"] == ["/repo/missing_module.py"]
 

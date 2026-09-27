@@ -38,6 +38,8 @@ from ._common import (
     recover_corrupt_graph,
 )
 from .query_graph_dispatch import (
+    MAX_QUERY_DEPTH,
+    TRANSITIVE_PATTERNS,
     QueryGraphState,
     build_query_graph_response,
     execute_query_pattern,
@@ -428,6 +430,7 @@ def query_graph(
     target: str,
     repo_root: str | None = None,
     detail_level: str = "standard",
+    depth: int = 1,
     *,
     _corrupt_retried: bool = False,
 ) -> dict[str, Any]:
@@ -439,7 +442,14 @@ def query_graph(
                  tests_for, inheritors_of, file_summary, source_of.
         target: The node name, qualified name, or file path to query about.
         repo_root: Repository root path. Auto-detected if omitted.
-        detail_level: "standard" (full output) or "minimal" (summary only).
+        detail_level: "standard" (default): one row per related node, with
+                      edge lines and confidence folded into the row.
+                      "minimal": the same rows with fewer fields and no
+                      guidance. "full": one row per edge plus ``edges``,
+                      full ``answerability``, and ``_hints``.
+        depth: Hops to follow for callers_of and importers_of (1 to 6). Rows
+               past hop 1 carry ``depth`` and ``via``; ``reachability`` says
+               whether the walk was complete or hit the depth limit.
 
     Returns:
         Matching nodes and edges for the query.
@@ -454,6 +464,16 @@ def query_graph(
                 "status": "error",
                 "error": (f"Unknown pattern '{pattern}'. Available: {list(QUERY_PATTERNS.keys())}"),
             }
+        if depth != 1 and pattern not in TRANSITIVE_PATTERNS:
+            return {
+                "status": "error",
+                "error": (
+                    f"depth applies only to {sorted(TRANSITIVE_PATTERNS)}; "
+                    f"'{pattern}' returns direct relationships only."
+                ),
+            }
+        if depth < 1:
+            return {"status": "error", "error": f"depth must be 1 or more, got {depth}."}
 
         # For callers_of, skip common builtins early (bare names only)
         # "Who calls .map()?" returns hundreds of useless hits.
@@ -477,6 +497,7 @@ def query_graph(
             pattern=pattern,
             original_target=target,
             target=target,
+            depth=min(depth, MAX_QUERY_DEPTH),
         )
         early_response = resolve_query_target(
             state,
@@ -505,6 +526,7 @@ def query_graph(
                 target,
                 repo_root,
                 detail_level,
+                depth,
                 _corrupt_retried=True,
             )
         return handle_tool_runtime_error(

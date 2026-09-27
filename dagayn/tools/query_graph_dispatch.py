@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..contracts.state_types import seal_reachability_info
 from ..coverage import infer_tests_for_node
 from ..graph import edge_to_dict, node_to_dict
 from ._common import apply_output_budget, guidance_actions_to_hints
@@ -36,6 +37,12 @@ from .query_graph_support import (
 
 _NAME_RESOLUTION_SEARCH_LIMIT = 200
 
+#: Patterns whose relationship chains, so ``depth > 1`` has a meaning.
+TRANSITIVE_PATTERNS = frozenset({"callers_of", "importers_of"})
+MAX_QUERY_DEPTH = 6
+#: Rows collected past hop 1 before the walk stops and reports truncation.
+_TRANSITIVE_ROW_LIMIT = 500
+
 
 @dataclass
 class QueryGraphState:
@@ -44,12 +51,14 @@ class QueryGraphState:
     pattern: str
     original_target: str
     target: str
+    depth: int = 1
     node: Any | None = None
     resolution: str = "exact"
     resolved_target: str | None = None
     results: list[dict[str, Any]] = field(default_factory=list)
     edges_out: list[dict[str, Any]] = field(default_factory=list)
     unresolved_targets: list[str] = field(default_factory=list)
+    reachability: dict[str, Any] | None = None
 
     @property
     def qualified_name(self) -> str:
@@ -188,11 +197,7 @@ def resolve_query_target(
 def _pattern_callers_of(state: QueryGraphState) -> None:
     qn = state.qualified_name
     call_edges = [edge for edge in state.store.get_edges_by_target(qn) if edge.kind == "CALLS"]
-    caller_nodes, caller_unresolved = node_dicts_for_edges(
-        state.store, call_edges, qualified_attr="source_qualified"
-    )
-    state.results.extend(caller_nodes)
-    merge_unresolved_targets(state.unresolved_targets, caller_unresolved)
+    state.results.extend(_caller_rows(state, call_edges))
     state.edges_out.extend(edge_to_dict(edge) for edge in call_edges)
     if not state.results and state.node is not None:
         fallback_edges = filter_bare_name_fallback_edges(
@@ -200,25 +205,122 @@ def _pattern_callers_of(state: QueryGraphState) -> None:
             state.store.search_edges_by_target_name(state.node.name),
             state.node,
         )
-        fallback_nodes, fallback_unresolved = node_dicts_for_edges(
-            state.store,
-            fallback_edges,
-            qualified_attr="source_qualified",
-        )
-        state.results.extend(fallback_nodes)
-        merge_unresolved_targets(state.unresolved_targets, fallback_unresolved)
+        state.results.extend(_caller_rows(state, fallback_edges))
         state.edges_out.extend(edge_to_dict(edge) for edge in fallback_edges)
         annotate_bare_name_edges(state.edges_out)
+    if state.depth > 1:
+        _expand_transitive(
+            state,
+            [row["qualified_name"] for row in state.results],
+            edge_kind="CALLS",
+            next_key=lambda edge: edge.source_qualified,
+            rows_for_edges=_caller_rows,
+        )
+
+
+def _edge_rows(
+    state: QueryGraphState, edges: list[Any], *, qualified_attr: str
+) -> list[dict[str, Any]]:
+    """Node rows for edge endpoints, each carrying the edge's line and tier."""
+    if not edges:
+        return []
+    nodes_by_qn = state.store.get_nodes_by_qualified_names(
+        [getattr(edge, qualified_attr) for edge in edges]
+    )
+    rows: list[dict[str, Any]] = []
+    unresolved: list[str] = []
+    for edge in edges:
+        node = nodes_by_qn.get(getattr(edge, qualified_attr))
+        if node is None:
+            unresolved.append(getattr(edge, qualified_attr))
+            continue
+        row = node_to_dict(node)
+        row["line"] = edge.line
+        if "::" in str(edge.target_qualified):
+            row["confidence_tier"] = edge.confidence_tier
+        else:
+            row["confidence_tier"] = "MEDIUM"
+            row["match"] = "bare_name"
+        rows.append(row)
+    merge_unresolved_targets(state.unresolved_targets, unresolved)
+    return rows
+
+
+def _caller_rows(state: QueryGraphState, edges: list[Any]) -> list[dict[str, Any]]:
+    return _edge_rows(state, edges, qualified_attr="source_qualified")
+
+
+def _importer_rows(state: QueryGraphState, edges: list[Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "importer": edge.source_qualified,
+            "file": edge.file_path,
+            "line": edge.line,
+            "confidence_tier": edge.confidence_tier,
+        }
+        for edge in edges
+    ]
+
+
+def _expand_transitive(
+    state: QueryGraphState,
+    first_hop: list[str],
+    *,
+    edge_kind: str,
+    next_key: Callable[[Any], str],
+    rows_for_edges: Callable[[QueryGraphState, list[Any]], list[dict[str, Any]]],
+) -> None:
+    """Extend hop-1 rows breadth-first up to ``state.depth`` hops.
+
+    Rows past hop 1 carry ``depth`` and ``via`` (the node they reach the
+    previous hop through); each node appears once, at its shortest hop. Later
+    hops follow resolved edges only, without hop 1's bare-name fallback.
+    """
+    for row in state.results:
+        row["depth"] = 1
+    seen = {state.qualified_name, *first_hop}
+    frontier = list(dict.fromkeys(first_hop))
+    hop = 2
+    added = 0
+    truncated = False
+    while frontier and hop <= state.depth and not truncated:
+        _, incoming = state.store.get_edges_by_endpoints(frontier)
+        layer: list[Any] = []
+        for via in frontier:
+            for edge in incoming.get(via, []):
+                key = next_key(edge)
+                if edge.kind != edge_kind or key in seen:
+                    continue
+                seen.add(key)
+                layer.append(edge)
+        if added + len(layer) > _TRANSITIVE_ROW_LIMIT:
+            layer = layer[: _TRANSITIVE_ROW_LIMIT - added]
+            truncated = True
+        rows = rows_for_edges(state, layer)
+        vias = {next_key(edge): edge.target_qualified for edge in layer}
+        for row in rows:
+            row["depth"] = hop
+            row["via"] = vias.get(row.get("qualified_name") or row.get("file", ""), "")
+        state.results.extend(rows)
+        state.edges_out.extend(edge_to_dict(edge) for edge in layer)
+        added += len(layer)
+        frontier = [next_key(edge) for edge in layer]
+        hop += 1
+    state.reachability = seal_reachability_info(
+        {
+            "state": "truncated" if truncated else "complete",
+            "truncated": truncated,
+            "max_depth": state.depth,
+            "nodes_visited": len(seen) - 1,
+            "depth_limit_reached": bool(frontier) and not truncated,
+        }
+    )
 
 
 def _pattern_callees_of(state: QueryGraphState) -> None:
     qn = state.qualified_name
     call_edges = [edge for edge in state.store.get_edges_by_source(qn) if edge.kind == "CALLS"]
-    callee_nodes, callee_unresolved = node_dicts_for_edges(
-        state.store, call_edges, qualified_attr="target_qualified"
-    )
-    state.results.extend(callee_nodes)
-    merge_unresolved_targets(state.unresolved_targets, callee_unresolved)
+    state.results.extend(_edge_rows(state, call_edges, qualified_attr="target_qualified"))
     state.edges_out.extend(edge_to_dict(edge) for edge in call_edges)
 
 
@@ -229,6 +331,7 @@ def _pattern_imports_of(state: QueryGraphState) -> None:
             state.results.append(
                 {
                     "import_target": edge.target_qualified,
+                    "line": edge.line,
                     "unresolved": is_unresolved_import_target(
                         state.store,
                         edge.target_qualified,
@@ -247,13 +350,16 @@ def _pattern_importers_of(state: QueryGraphState) -> None:
     )
     for edge in state.store.get_edges_by_target(abs_target):
         if edge.kind == "IMPORTS_FROM":
-            state.results.append(
-                {
-                    "importer": edge.source_qualified,
-                    "file": edge.file_path,
-                }
-            )
+            state.results.extend(_importer_rows(state, [edge]))
             state.edges_out.append(edge_to_dict(edge))
+    if state.depth > 1:
+        _expand_transitive(
+            state,
+            [row["file"] for row in state.results],
+            edge_kind="IMPORTS_FROM",
+            next_key=lambda edge: edge.file_path,
+            rows_for_edges=_importer_rows,
+        )
 
 
 def _pattern_docs_for(state: QueryGraphState) -> None:
@@ -361,11 +467,7 @@ def _pattern_inheritors_of(state: QueryGraphState) -> None:
         for edge in state.store.get_edges_by_target(qn)
         if edge.kind in ("INHERITS", "IMPLEMENTS")
     ]
-    inheritor_nodes, inheritor_unresolved = node_dicts_for_edges(
-        state.store, inherit_edges, qualified_attr="source_qualified"
-    )
-    state.results.extend(inheritor_nodes)
-    merge_unresolved_targets(state.unresolved_targets, inheritor_unresolved)
+    state.results.extend(_edge_rows(state, inherit_edges, qualified_attr="source_qualified"))
     state.edges_out.extend(edge_to_dict(edge) for edge in inherit_edges)
     if not state.results and state.node is not None:
         fallback_edges = []
@@ -377,13 +479,7 @@ def _pattern_inheritors_of(state: QueryGraphState) -> None:
                     state.node,
                 )
             )
-        fallback_nodes, fallback_unresolved = node_dicts_for_edges(
-            state.store,
-            fallback_edges,
-            qualified_attr="source_qualified",
-        )
-        state.results.extend(fallback_nodes)
-        merge_unresolved_targets(state.unresolved_targets, fallback_unresolved)
+        state.results.extend(_edge_rows(state, fallback_edges, qualified_attr="source_qualified"))
         state.edges_out.extend(edge_to_dict(edge) for edge in fallback_edges)
         annotate_bare_name_edges(state.edges_out)
 
@@ -455,6 +551,15 @@ _QUERY_MINIMAL_FIELDS = (
     "signature",
     "span_line_start",
     "span_line_end",
+    "importer",
+    "import_target",
+    "unresolved",
+    "lines",
+    "line",
+    "match",
+    "confidence_tier",
+    "depth",
+    "via",
 )
 
 
@@ -526,6 +631,13 @@ def build_query_graph_response(
     missingness: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     summary = f"Found {len(state.results)} result(s) for {state.pattern}('{state.target}')"
+    if state.depth > 1:
+        summary += f" within {state.depth} hops"
+    transitive_payload: dict[str, Any] = (
+        {"depth": state.depth, "reachability": state.reachability}
+        if state.reachability is not None
+        else {}
+    )
     exact_count = 1 if state.resolution in {"exact", "exact_name"} and state.node is not None else 0
     resolution_payload: dict[str, Any] = {
         "resolution": state.resolution,
@@ -553,52 +665,101 @@ def build_query_graph_response(
         pattern=state.pattern,
     )
 
-    if detail_level == "minimal":
-        minimal_results = [
-            {k: result[k] for k in _QUERY_MINIMAL_FIELDS if k in result}
-            for result in state.results[:5]
-        ]
-        for item in minimal_results:
-            item["evidence_type"] = result_evidence_type(item)
-        payload = {
-            "status": "ok",
-            "pattern": state.pattern,
-            "target": state.target,
-            "description": QUERY_PATTERNS[state.pattern],
-            "summary": summary,
-            "result_count": len(state.results),
-            "unresolved_count": len(state.unresolved_targets),
-            "unresolved_targets": state.unresolved_targets,
-            **zero_result_fields,
-            "next_action": next_action,
-            **resolution_payload,
-            "answerability": answerability,
-            "results": minimal_results,
-            "results_complete": len(minimal_results) == len(state.results),
-            "guidance": guidance,
-            "_hints": guidance_actions_to_hints(guidance),
-        }
-        return _attach_source_of_coverage(payload, state, missingness)
-
-    payload = {
+    common = {
         "status": "ok",
         "pattern": state.pattern,
         "target": state.target,
-        "description": QUERY_PATTERNS[state.pattern],
-        "summary": summary,
-        "result_count": len(state.results),
         "unresolved_count": len(state.unresolved_targets),
         "unresolved_targets": state.unresolved_targets,
         **zero_result_fields,
         "next_action": next_action,
         **resolution_payload,
-        "answerability": answerability,
-        "results": state.results,
-        "edges": state.edges_out,
-        "guidance": guidance,
-        "_hints": guidance_actions_to_hints(guidance),
+        **transitive_payload,
     }
-    apply_output_budget(payload, budget_tokens=8000, list_priorities=["results", "edges"])
+
+    if detail_level == "full":
+        payload = {
+            **common,
+            "description": QUERY_PATTERNS[state.pattern],
+            "summary": summary,
+            "result_count": len(state.results),
+            "answerability": answerability,
+            "results": state.results,
+            "edges": state.edges_out,
+            "guidance": guidance,
+            "_hints": guidance_actions_to_hints(guidance),
+        }
+        return _finish_payload(payload, state, missingness, budget_tokens=8000)
+
+    minimal = detail_level == "minimal"
+    rows = [_compact_row(result, with_evidence=minimal) for result in state.results]
+    if state.pattern in _MERGED_ROW_PATTERNS:
+        rows = _merge_rows(rows)
+    if minimal:
+        rows = [{k: row[k] for k in _QUERY_MINIMAL_FIELDS if k in row} for row in rows]
+    payload = {
+        **common,
+        "summary": summary.replace(f"Found {len(state.results)} ", f"Found {len(rows)} ", 1),
+        "result_count": len(rows),
+        "answerability": {
+            key: answerability[key] for key in _COMPACT_ANSWERABILITY if key in answerability
+        },
+        "results": rows,
+    }
+    if not minimal:
+        payload["guidance"] = guidance
+    return _finish_payload(payload, state, missingness, budget_tokens=4000 if minimal else 8000)
+
+
+def _finish_payload(
+    payload: dict[str, Any],
+    state: QueryGraphState,
+    missingness: Sequence[Mapping[str, Any]],
+    *,
+    budget_tokens: int,
+) -> dict[str, Any]:
+    apply_output_budget(payload, budget_tokens=budget_tokens, list_priorities=["results", "edges"])
     truncation = payload.get("_truncation")
     payload["results_complete"] = not (isinstance(truncation, dict) and "results" in truncation)
     return _attach_source_of_coverage(payload, state, missingness)
+
+
+_COMPACT_ANSWERABILITY = ("status", "score", "reason_codes")
+#: Patterns whose rows are one per edge; compact levels merge rows for the
+#: same endpoint and list the edge lines.
+_MERGED_ROW_PATTERNS = frozenset({"callers_of", "callees_of", "inheritors_of", "importers_of"})
+_COMPACT_DROPPED_FIELDS = frozenset({"id", "language"})
+_COMPACT_DEFAULTS: dict[str, Any] = {"parent_name": None, "is_test": False}
+
+
+def _compact_row(row: Mapping[str, Any], *, with_evidence: bool) -> dict[str, Any]:
+    """Drop fields an agent can read off ``qualified_name`` or that hold defaults."""
+    out = {
+        key: value
+        for key, value in row.items()
+        if key not in _COMPACT_DROPPED_FIELDS
+        and not (key in _COMPACT_DEFAULTS and value == _COMPACT_DEFAULTS[key])
+    }
+    if with_evidence:
+        out["evidence_type"] = result_evidence_type(dict(row))
+    file_path = out.get("file_path")
+    if file_path and str(out.get("qualified_name") or "").startswith(str(file_path)):
+        del out["file_path"]
+    if "importer" in out and out["importer"] == out.get("file"):
+        del out["importer"]
+    return out
+
+
+def _merge_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        key = str(row.get("qualified_name") or f"{row.get('importer', '')}|{row.get('file', '')}")
+        line = row.get("line")
+        existing = merged.get(key)
+        if existing is None:
+            first = {k: v for k, v in row.items() if k != "line"}
+            first["lines"] = [line] if line is not None else []
+            merged[key] = first
+        elif line is not None and line not in existing["lines"]:
+            existing["lines"].append(line)
+    return list(merged.values())
