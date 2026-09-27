@@ -39,14 +39,19 @@ the selected embedding mode so exploration chooses the right search strategy.
 
 ### Steps
 
-1. Run `get_minimal_context_tool(task="<what you need to understand>")` to see graph
+1. For a broad question, run
+   `get_minimal_context_tool(task="<what you need to understand>")` to see graph
    freshness, risk, major communities, and suggested next tools. If
    `graph_health.status` is `empty` (or `ensure_graph_tool` is the first
    next-tool hint), call `ensure_graph_tool()` and re-orient before exploration.
+   For a concrete relationship question (callers, tests, importers, cycles),
+   skip to the direct call in step 2.
 2. Pick **one** next move from the Decision Model — do not run the whole ladder:
    - Unknown / fuzzy / process language → `semantic_search_nodes_tool`, then a
      concrete `qualified_name`.
    - Known entity + relationship → `query_graph_tool` with the narrowest pattern.
+     Transitive importers or doc dependents → repeat `importers_of` per result.
+     Dependency cycles → `architecture_analysis_tool(mode="adp_violations")`.
    - Review risk / blast radius → `review_tool(mode="changes")` and read
      `analysis_summary` first.
    - Architecture / structural risk only →
@@ -55,18 +60,22 @@ the selected embedding mode so exploration chooses the right search strategy.
      drill-down mode selection.
    - Reachable-set flow → `flow_tool(mode="list", detail_level="minimal")`, then
      `flow_tool(mode="get")` only after choosing a concrete flow name.
-3. After you have a concrete node, use `query_graph_tool(pattern="source_of")`
-   for the live span, then `callers_of`, `callees_of`, `imports_of`, `docs_for`,
-   or `implementations_of` to verify relationships. Prefer these over raw
-   traversal.
-4. Fall back to `rg`/file reads when `source_of` is truncated, stale, or
-   unreadable, or when you need surrounding context or to edit.
+3. If the question was the relationship itself, answer from the result when
+   `status="ok"`, `resolution` is `exact` or `exact_name`, and
+   `results_complete` is true. Do not re-derive it with `rg`.
+4. When you need a body, use `query_graph_tool(pattern="source_of")` for the
+   live span, then `callers_of`, `callees_of`, `imports_of`, `docs_for`, or
+   `implementations_of` for neighbors. Prefer these over raw traversal.
+5. Fall back to `rg`/file reads only for a flagged item: an ambiguous,
+   not-found, zero-result, or incomplete result; dynamic imports, reflection,
+   or generated code the static graph cannot see; a truncated, stale, or
+   unreadable `source_of`; or surrounding context and edits.
 
 ### Tips
 
-- Start from `get_minimal_context_tool`, then follow the Decision Model. Do not
-  open with architecture overview unless the question is about structure or
-  health.
+- Start broad questions from `get_minimal_context_tool`, then follow the
+  Decision Model. Do not open with architecture overview unless the question is
+  about structure or health.
 - Use `children_of` on a file to see all its functions and classes.
 - After an exact `qualified_name`, call `source_of` instead of reading the
   whole file. Read the file only for imports, sibling helpers, or edits.
@@ -90,7 +99,8 @@ the selected embedding mode so exploration chooses the right search strategy.
   discovery and `query_graph_tool` for relationship verification; raw traversal
   is a follow-up for a bounded neighborhood.
 - Treat graph output as evidence: cite counts, thresholds, reason codes, and
-  truncation flags when making architectural claims.
+  truncation flags when making architectural claims. Relationship results are
+  static extraction facts; heuristic rankings are leads.
 
 ## CLI Fallback
 
@@ -108,7 +118,8 @@ dagayn tool query_graph_tool --arg pattern='"implementations_of"' --arg target='
 ```
 
 ## Token Efficiency Rules
-- ALWAYS start with `get_minimal_context_tool(task="<your task>")` before any other graph tool.
+- Start broad tasks with `get_minimal_context_tool(task="<your task>")`; a concrete
+  relationship question can open with its direct query.
 - If the graph was empty, count tool calls **after** `ensure_graph_tool` returns.
 - Use `detail_level="minimal"` on all calls. Only escalate to "standard" when minimal is insufficient.
 - Target: complete any explore task in ≤5 tool calls and ≤800 total output tokens

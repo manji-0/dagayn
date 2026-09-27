@@ -1520,6 +1520,34 @@ def _instruction_section_aliases(marker: str) -> tuple[str, ...]:
     return ()
 
 
+def _refresh_instruction_section(content: str, marker: str, section: str) -> str:
+    """Replace the managed section that starts at *marker* with *section*.
+
+    The managed section runs to the next dagayn marker, the next level-2
+    heading after its own heading, or the end of the file. Blank lines that
+    separated it from the following content are kept.
+    """
+    start = content.index(marker)
+    lines = content[start:].splitlines(keepends=True)
+    offset = start + len(lines[0])
+    end = len(content)
+    heading_seen = False
+    for line in lines[1:]:
+        stripped = line.strip()
+        if stripped in (_CLAUDE_MD_SECTION_MARKER, _MARKDOWN_POLICY_MARKER):
+            end = offset
+            break
+        if line.startswith("## "):
+            if heading_seen:
+                end = offset
+                break
+            heading_seen = True
+        offset += len(line)
+    old = content[start:end]
+    trailing = old[len(old.rstrip("\n")) :] or "\n"
+    return content[:start] + section.rstrip("\n") + trailing + content[end:]
+
+
 def _has_instruction_section(content: str, marker: str) -> bool:
     """Return True when content already has a dagayn section, marker or not."""
     return marker in content or any(
@@ -1586,20 +1614,64 @@ scanning cannot.
 
 ### When to use graph tools FIRST
 
-- **Any new task**: `get_minimal_context_tool` for graph freshness, risk, and next-tool hints
+- **Broad task** (review, onboarding, unfamiliar area): `get_minimal_context_tool`
+  for graph freshness, risk, and next-tool hints
+- **Concrete relationship question**: call the direct tool from the table below
+  first; `get_minimal_context_tool` is optional
 - **Exploring code**: `semantic_search_nodes_tool` or `query_graph_tool` instead of Grep
 - **Understanding impact**: `review_tool(mode="impact")` instead of manually tracing imports
 - **Code review**: `review_tool(mode="changes")` first; use its `analysis_summary` before
   calling drill-down tools
-- **Finding relationships**: `query_graph_tool` with
-  callers_of/callees_of/imports_of/tests_for/source_of
-- **Architecture questions**: `architecture_analysis_tool(mode="overview")`
+- **Open-ended architecture questions**: `architecture_analysis_tool(mode="overview")`
   first; use `architecture_health` and the Architecture Analysis skill before
   choosing a drill-down mode
 
-Fall back to Grep/Glob/Read **only** when the graph result is missing, stale,
-ambiguous, truncated, or `source_of` cannot supply the span. Do not re-read a
-whole file just to inspect a function the graph already located.
+### Direct answers
+
+- **Who calls `X`?** `query_graph_tool(pattern="callers_of", target="X")`
+- **Which tests exercise `X`?** `query_graph_tool(pattern="tests_for", target="X")`
+- **Which files import file `F`?** `query_graph_tool(pattern="importers_of", target="F")`;
+  repeat per result for the transitive closure
+- **Which docs depend on `doc.md` via directives?** the same `importers_of`
+  call on `doc.md`, repeated per result
+- **Are there import/dependency cycles?**
+  `architecture_analysis_tool(mode="adp_violations")`; raise `top_n` to
+  `count` when `truncated`
+- **What does `X` contain or look like?** `query_graph_tool` with
+  `pattern="children_of"` or `pattern="source_of"`
+
+A bare name such as `X` resolves when exactly one node carries it
+(`resolution="exact_name"`); on `status="ambiguous"`, pick a qualified name
+from `candidates`.
+
+### When a graph answer is enough
+
+Answer from the graph result without re-deriving it with Grep/Read when all of
+these hold:
+
+- `status` is `ok` and `resolution` is `exact` or `exact_name`
+- `results_complete` is true (or `truncated` is false)
+- `sync.state` from `get_minimal_context_tool`, if you called it, is not
+  `unbuilt` or `commit_drift`
+
+Graph-wide `missingness` codes about flows or communities (`missing_flows`,
+`stale_derived_structures`) do not weaken callers, tests, imports, or cycle
+answers.
+
+Verify with Grep/Read only when a trigger applies, and then check only the
+flagged item:
+
+- `ambiguous`, `not_found`, or zero results (read `zero_result_reason`)
+- `results_complete` is false, or the file you care about changed after the
+  last graph update
+- the question depends on something static extraction cannot see: dynamic
+  imports (`importlib`, string dispatch), reflection, generated code, or a
+  definition that differs from the graph's (for example, whether an implicit
+  package `__init__.py` import counts)
+- the output is a heuristic ranking (hubs, bridges, risk, dead code, refactor
+  suggestions) that you are about to act on
+
+Do not re-read a whole file just to inspect a function the graph already located.
 
 ### Tool surface
 
@@ -1612,7 +1684,7 @@ advanced/maintenance tools.
 
 | Tool | Use when |
 | ------ | ---------- |
-| `get_minimal_context_tool` | Start here: graph freshness, risk, communities, next tools |
+| `get_minimal_context_tool` | Broad tasks: graph freshness, risk, communities, next tools |
 | `ensure_graph_tool` | Empty or missing graph; safe bootstrap without embeddings |
 | `review_tool` | Primary change review and review drill-down dispatcher |
 | `flow_tool` | Reachable-set flow lists and BFS membership (not call sequences) |
@@ -1631,7 +1703,10 @@ advanced/maintenance tools.
 
 ### How to judge analysis output
 
-- Treat graph insights as **evidence-ranked leads**, not automatic truth.
+- Relationship results (callers, tests, importers, cycles) are static extraction
+  facts: use them as the answer unless a verification trigger above applies.
+- Heuristic insights (hub/bridge scores, risk, knowledge gaps, dead code,
+  refactor suggestions) are **evidence-ranked leads**, not automatic truth.
 - Prefer outputs that expose metrics, thresholds, counts, reason codes, and
   `truncated`/`total` fields; mention those numbers when making recommendations.
 - Check test coverage with `query_graph_tool` pattern=\"tests_for\" before claiming a
@@ -1643,15 +1718,19 @@ advanced/maintenance tools.
 
 ### Workflow
 
-1. Start with `get_minimal_context_tool(task=...)`.
+1. For a concrete relationship question, make the direct call from
+   "Direct answers" and stop when "When a graph answer is enough" holds.
+   Otherwise start with `get_minimal_context_tool(task=...)`.
 2. Use the suggested next tool or a targeted query.
 3. For reviews, use `review_tool(mode=\"changes\")` and read `analysis_summary`
    first. Call `review_tool(mode=\"context\")`, `review_tool(mode=\"affected_flows\")`,
    `review_tool(mode=\"impact\")`, or `query_graph_tool` only when the summary points there.
-4. For architecture work, use
+4. For open-ended architecture work, use
    `architecture_analysis_tool(mode=\"overview\", detail_level=\"minimal\")`
    and read `architecture_health` first. Use the Architecture Analysis skill to
-   choose drill-down modes only when the health summary identifies a concrete risk.
+   choose drill-down modes when the health summary identifies a concrete risk.
+   A specific architecture question (cycles, stability direction) goes straight
+   to its mode.
 5. For refactors, use `refactor_tool(mode=\"suggest\")` first, then preview
    renames with `refactor_tool(mode=\"rename\")`. Apply with
    `apply_refactor_tool` in the same `dagayn serve` MCP session
@@ -1666,10 +1745,11 @@ def _inject_instructions(
     *,
     errors: list[str] | None = None,
 ) -> bool:
-    """Append an instruction section to a file if not already present.
+    """Append an instruction section to a file, or refresh a stale one.
 
-    Idempotent: checks if the marker is already present before appending.
-    Creates the file if it doesn't exist.
+    Idempotent: a marked section that already matches *section* is left alone;
+    a marked section with older text is replaced in place. Creates the file if
+    it doesn't exist.
 
     Returns True if the file was modified.
     """
@@ -1679,8 +1759,13 @@ def _inject_instructions(
             existing = file_path.read_text(encoding="utf-8", errors="replace")
 
         if marker in existing:
-            logger.info("%s already contains instructions, skipping.", file_path.name)
-            return False
+            refreshed = _refresh_instruction_section(existing, marker, section)
+            if refreshed == existing:
+                logger.info("%s already contains instructions, skipping.", file_path.name)
+                return False
+            write_text_atomic(file_path, refreshed, encoding="utf-8")
+            logger.info("Refreshed dagayn instructions in %s", file_path)
+            return True
 
         for marker_heading in _instruction_section_aliases(marker):
             if marker_heading in existing:

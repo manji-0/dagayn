@@ -6,8 +6,10 @@ description: Evaluate architecture signals through the unified dagayn dispatcher
 ## Architecture Analysis
 
 Use `architecture_analysis_tool` as the single MCP entry point for architecture
-evaluation. Start broad, then drill down only when the overview or a concrete
-question points to a signal.
+evaluation. Start broad for open-ended questions, then drill down only when the
+overview points to a signal. A specific question goes straight to its mode:
+dependency cycles → `mode="adp_violations"`, stability direction →
+`mode="sdp_violations"`.
 
 ### Steps
 
@@ -15,9 +17,12 @@ question points to a signal.
    freshness, risk, and suggested next tools. If `graph_health.status` is
    `empty` (or `ensure_graph_tool` is the first next-tool hint), call
    `ensure_graph_tool()` and re-orient before architecture analysis.
-2. Run `architecture_analysis_tool(mode="overview", detail_level="minimal")`.
+2. For an open-ended question, run
+   `architecture_analysis_tool(mode="overview", detail_level="minimal")`.
    Read `architecture_health.reason_codes`, counts, examples, and
-   `drill_downs`.
+   `drill_downs`. For a specific question, skip to its mode in step 3. When a
+   violation list is `truncated`, rerun with `top_n` set to `count` before
+   claiming it is complete.
 3. Choose one follow-up mode only when there is a specific question:
    - `communities`: boundaries, large clusters, cohesion, coupling shape
    - `community`: one community's metadata or member sample
@@ -46,13 +51,15 @@ question points to a signal.
 
 ### Evidence Rules
 
-- Treat architecture signals as leads, not proof of a design bug.
+- Treat architecture signals as leads, not proof of a design bug. A cycle list
+  from `adp_violations` is extracted structure: report it as found, filtered to
+  the scope asked, and spot-check only a cycle whose edge you doubt.
 - Cite counts, thresholds, reason codes, `total`, `truncated`, and approximation
   metadata when making claims.
 - Prefer `detail_level="minimal"` and small `top_n` values first. Increase only
   when the result is too narrow to answer the question.
-- Keep the path from broad to narrow: overview first, metric mode second,
-  relationship query or `source_of` third.
+- For open-ended questions, keep the path from broad to narrow: overview
+  first, metric mode second, relationship query or `source_of` third.
 - Verify behavior with `query_graph_tool(pattern="source_of")` before turning
   graph structure into a correctness or refactor recommendation. Read the file
   only when that span is truncated, stale, or neighbors are required.
@@ -81,9 +88,11 @@ dagayn tool query_graph_tool --arg pattern='"implementations_of"' --arg target='
 
 ## Token Efficiency Rules
 
-- ALWAYS start with `get_minimal_context_tool(task="<your task>")`.
+- Start with `get_minimal_context_tool(task="<your task>")` unless the question
+  names one mode.
 - If the graph was empty, count tool calls **after** `ensure_graph_tool` returns.
 - Use `architecture_analysis_tool(mode="overview", detail_level="minimal")`
-  before any architecture drill-down mode.
+  before drill-down modes for open-ended questions; a specific question can
+  call its mode directly.
 - Target: answer architecture questions in ≤5 tool calls after ensure unless a
   concrete source verification step requires more.
