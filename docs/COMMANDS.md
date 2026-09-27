@@ -739,6 +739,15 @@ For `query_graph_tool`, missing targets use the same consumer contract as empty
 relationship results: `status="not_found"`, `result_count=0`, `results=[]`,
 `zero_result_reason="target_not_found_in_graph"`, `next_action`,
 `answerability`, and `missingness`.
+A bare target name resolves to its node when exactly one node carries that exact
+name (`resolution="exact_name"`, with `original_target`), even when fuzzy search
+ranks look-alike names higher; several exact-name matches return
+`status="ambiguous"` with only those as `candidates`. Successful responses carry
+`results_complete`, which is false only when the output budget trimmed the
+result list itself; `truncated` also turns true when only `edges` were trimmed.
+When `architecture_analysis_tool(mode="adp_violations")` is truncated, its first
+`next_tool_suggestions` entry repeats the call with `top_n` set to the total
+cycle count.
 
 `architecture_analysis_tool(mode="knowledge_gaps", top_n=20)` returns bounded
 structural weakness categories with explicit thresholds and raw counts.
