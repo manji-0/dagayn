@@ -582,6 +582,26 @@ Review impact / flow / architecture guidance also surfaces reportable bridges
 as first-class transitions and keeps low-confidence bridges as missingness
 caveats rather than hard claims.
 
+`callers_of` and `importers_of` accept `depth` (1 to 6, default 1) to follow
+the chain transitively in one call. Rows past hop 1 carry `depth` and `via`
+(the node they reach the previous hop through), and each node appears once, at
+its shortest hop. The response adds `depth` and a `reachability` object:
+`state` is `complete` or `truncated` (500 rows past hop 1), and
+`depth_limit_reached` is true when the walk stopped at `depth` with nodes whose
+own callers or importers were not checked. Other patterns reject `depth` other
+than 1.
+
+`query_graph_tool` has three detail levels. `standard` (default) returns one
+row per related node; for `callers_of`, `callees_of`, `inheritors_of`, and
+`importers_of`, the edge lines are folded into the row as `lines` with the
+edge's `confidence_tier`, and rows drop `id`, `language`, default
+`parent_name` / `is_test`, and a `file_path` already in `qualified_name`.
+It trims `answerability` to `status`, `score`, and `reason_codes` and omits
+`edges` and `_hints`. `minimal` keeps fewer row fields, drops `guidance` and
+`description`, and returns every row that fits a 4,000-token budget. `full`
+returns the earlier `standard` shape: one row per edge, the `edges` list, full
+`answerability`, and `_hints`.
+
 `traverse_graph_tool` returns both the legacy top-level `truncated` boolean and a
 typed `reachability` object. `reachability.state` is `complete`, `truncated`, or
 `not_found`, so callers can distinguish a fully explored budgeted neighborhood
@@ -744,7 +764,8 @@ name (`resolution="exact_name"`, with `original_target`), even when fuzzy search
 ranks look-alike names higher; several exact-name matches return
 `status="ambiguous"` with only those as `candidates`. Successful responses carry
 `results_complete`, which is false only when the output budget trimmed the
-result list itself; `truncated` also turns true when only `edges` were trimmed.
+result list itself; at `detail_level="full"`, `truncated` also turns true when
+only `edges` were trimmed.
 When `architecture_analysis_tool(mode="adp_violations")` is truncated, its first
 `next_tool_suggestions` entry repeats the call with `top_n` set to the total
 cycle count.

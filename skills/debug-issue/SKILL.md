@@ -22,7 +22,8 @@ the selected embedding mode so bug searches balance semantic recall with speed.
    and re-orient before search or traversal.
 2. Use `semantic_search_nodes_tool` to find code related to the issue.
 3. Fetch the suspected function with `query_graph_tool(pattern="source_of")`.
-   Then use `callers_of` and `callees_of` to trace call chains.
+   Then use `callers_of` and `callees_of` to trace call chains; `callers_of`
+   with `depth` returns the whole caller chain in one call.
 4. Use `traverse_graph_tool` only after selecting a concrete suspected node,
    only when a bounded neighborhood is more useful than a specific caller,
    callee, import, test, or documentation relationship, and only when the

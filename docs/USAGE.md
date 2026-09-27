@@ -319,6 +319,19 @@ The text is a worktree slice of the graph span, capped at 4,000 characters.
 omitted. Read the file only for surrounding context, edits, or the omitted
 tail.
 
+For everything that reaches a file or function, ask once with `depth` instead
+of calling `importers_of` or `callers_of` again for each file it returns:
+
+```python
+result = query_graph_tool(pattern="importers_of", target="src/changes.py", depth=6)
+files = {row["file"] for row in result["results"]}  # each row has depth and via
+if result["reachability"]["depth_limit_reached"]:
+    ...  # nodes at the last hop were not expanded
+```
+
+Rows are one per related node, with the edge lines in `lines`. Pass
+`detail_level="full"` for one row per edge and the raw `edges` list.
+
 ## Export the graph
 
 <!-- constrained-by ./ARCHITECTURE.md#post-processing -->

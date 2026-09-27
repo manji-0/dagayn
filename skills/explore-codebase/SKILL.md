@@ -24,6 +24,10 @@ the selected embedding mode so exploration chooses the right search strategy.
   narrowest pattern (`callers_of`, `callees_of`, `imports_of`, `tests_for`,
   `docs_for`, `implementations_of`, `children_of`, `file_summary`, or
   `source_of`).
+- Everything that reaches a function or file, not just direct neighbours: pass
+  `depth` (up to 6) to `callers_of` or `importers_of` instead of calling once
+  per discovered node. `reachability.depth_limit_reached` says whether a deeper
+  walk could find more.
 - Known entity whose body you need to inspect: use
   `query_graph_tool(pattern="source_of")` before opening the file.
 - Changed code, review risk, or blast radius: use `review_tool` before raw
