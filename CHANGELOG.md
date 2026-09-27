@@ -4,6 +4,31 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Changed
+
+- Agent guidance now routes concrete relationship questions to the one call
+  that answers them and says when a graph answer is enough. In 100 headless
+  agent runs on this repository, agents with dagayn used 1.23x the tokens of
+  agents without it at equal accuracy because they re-derived every graph
+  answer with shell searches. The managed instruction block gains a
+  question-to-call list and explicit verification triggers;
+  `explore-codebase` and `architecture-analysis` let concrete questions skip
+  minimal context and the overview.
+- `get_minimal_context_tool` adds a `lookup` workflow for callers, tests,
+  importers, and dependency-cycle questions.
+- `query_graph_tool` relationship results say they answer the question in
+  `next_action` and report `results_complete` separately from `truncated`.
+- `dagayn install` refreshes an out-of-date marked instruction section in
+  place instead of leaving the first installed text forever.
+
+### Fixed
+
+- `query_graph_tool` resolves a bare name that exactly one node carries
+  (`resolution="exact_name"`) instead of returning `ambiguous` with only
+  look-alike fuzzy candidates.
+- A truncated `adp_violations` result suggests rerunning with `top_n` set to
+  the total count.
+
 ## 5.0.0 — 2026-09-27
 
 ### Added

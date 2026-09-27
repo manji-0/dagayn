@@ -653,7 +653,11 @@ sampled/truncated.
 
 `get_minimal_context_tool` routes common English and Japanese task descriptions
 for review, debugging, exploration, feature addition, and refactoring to the
-next small set of MCP tools. It also returns `workflow`,
+next small set of MCP tools. Concrete relationship questions (callers, tests,
+importers or directive dependents, dependency cycles) route to
+`workflow="lookup"`, whose `recommended_action` names the one call that answers
+them, such as `query_graph_tool pattern="callers_of"` or
+`architecture_analysis_tool mode="adp_violations"`. It also returns `workflow`,
 `recommended_action`, `why`, and `confidence` so clients can show the next
 step without requiring users to know tool names. It includes compact
 `graph_health` answerability metadata and a `sync` object carrying the
@@ -739,6 +743,18 @@ For `query_graph_tool`, missing targets use the same consumer contract as empty
 relationship results: `status="not_found"`, `result_count=0`, `results=[]`,
 `zero_result_reason="target_not_found_in_graph"`, `next_action`,
 `answerability`, and `missingness`.
+A bare target name resolves to its node when exactly one node carries that exact
+name (`resolution="exact_name"`, with `original_target`), even when fuzzy search
+ranks look-alike names higher; several exact-name matches return
+`status="ambiguous"` with only those as `candidates`. Successful responses carry
+`results_complete`, which is false only when the output budget trimmed the
+result list itself; `truncated` also turns true when only `edges` were trimmed.
+For relationship patterns with results, `next_action` states that the results
+answer the question; `importers_of` / `imports_of` suggest repeating the query
+per result for a transitive closure.
+When `architecture_analysis_tool(mode="adp_violations")` is truncated, its first
+`next_tool_suggestions` entry repeats the call with `top_n` set to the total
+cycle count.
 
 `architecture_analysis_tool(mode="knowledge_gaps", top_n=20)` returns bounded
 structural weakness categories with explicit thresholds and raw counts.
