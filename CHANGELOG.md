@@ -12,6 +12,13 @@ All notable changes to `dagayn` are documented here.
   Agents no longer need one `importers_of` call per discovered file (11 to 14
   calls per question in the Composer 2.5 replication of the practice1
   experiment).
+- With `depth` above 1, `query_graph_tool`'s `next_action` says whether the
+  transitive set is closed (`tool: null`), cut off, or stopped at the depth
+  limit, instead of the generic `source_of` suggestion. The tool description
+  and the managed instruction text say that `standard` lists the same nodes as
+  `full`. In 5-run Composer 2.5 checks this did not change behavior: 4 of 5
+  runs still asked for `full` first, and both transitive-import runs still
+  re-queried intermediate files after the closed answer.
 
 ### Changed
 

@@ -478,9 +478,19 @@ def query_graph_tool(
         repo_root: Repository root path. Auto-detected if omitted.
         detail_level: "standard" (default) gives one row per related node with
             edge lines folded in; "minimal" trims fields and guidance; "full"
-            adds one row per edge, ``edges``, and full answerability.
+            adds one row per edge, ``edges``, and full answerability. Standard
+            and full list the same related nodes, and full hits the output
+            budget sooner, so keep standard for "list them all" questions.
         depth: For callers_of and importers_of, hops to follow (1 to 6) so a
             transitive answer comes back in one call. Default: 1 (direct only).
+            Pass 6 for "directly or indirectly" questions.
+
+    The response sets ``results_complete`` false when the output budget cut
+    rows. With ``depth`` above 1, ``reachability`` and ``next_action`` say
+    whether the set is closed; a closed set needs no per-node follow-up.
+    An import edge is a file's own import statement: ``from pkg import sub``
+    points at the submodule, and ``import a.b`` does not count
+    ``a/__init__.py``.
     """
     return _tool("query_graph")(
         pattern=pattern,

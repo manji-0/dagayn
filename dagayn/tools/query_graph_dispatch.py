@@ -721,7 +721,39 @@ def _finish_payload(
     apply_output_budget(payload, budget_tokens=budget_tokens, list_priorities=["results", "edges"])
     truncation = payload.get("_truncation")
     payload["results_complete"] = not (isinstance(truncation, dict) and "results" in truncation)
+    if state.reachability is not None:
+        payload["next_action"] = _transitive_next_action(
+            state.reachability, results_complete=payload["results_complete"]
+        )
     return _attach_source_of_coverage(payload, state, missingness)
+
+
+def _transitive_next_action(
+    reachability: Mapping[str, Any], *, results_complete: bool
+) -> dict[str, Any]:
+    if reachability.get("truncated") or not results_complete:
+        return {
+            "tool": "query_graph_tool",
+            "suggestion": (
+                "the reachable set was cut off; lower depth or query the deepest "
+                "listed nodes to see the rest"
+            ),
+        }
+    if reachability.get("depth_limit_reached"):
+        return {
+            "tool": "query_graph_tool",
+            "suggestion": (
+                f"nodes beyond {reachability.get('max_depth')} hops may exist; "
+                "raise depth (max 6) or query the deepest listed nodes"
+            ),
+        }
+    return {
+        "tool": None,
+        "suggestion": (
+            "the transitive set is closed over graph edges: no other node is reachable, "
+            "so querying listed nodes again returns nothing new"
+        ),
+    }
 
 
 _COMPACT_ANSWERABILITY = ("status", "score", "reason_codes")
