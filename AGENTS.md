@@ -140,7 +140,9 @@ scanning cannot.
   calling drill-down tools
 - **Finding relationships**: `query_graph_tool` with
   callers_of/callees_of/imports_of/tests_for/source_of; pass `depth` to
-  callers_of/importers_of for a transitive chain in one call
+  callers_of/importers_of for a transitive chain in one call, and stop when
+  `next_action` says the set is closed. The default `detail_level` lists every
+  related node; `full` only adds per-edge rows
 - **Architecture questions**: `architecture_analysis_tool(mode="overview")`
   first; use `architecture_health` and the Architecture Analysis skill before
   choosing a drill-down mode

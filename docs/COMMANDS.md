@@ -767,7 +767,11 @@ ranks look-alike names higher; several exact-name matches return
 `status="ambiguous"` with only those as `candidates`. Successful responses carry
 `results_complete`, which is false only when the output budget trimmed the
 result list itself; at `detail_level="full"`, `truncated` also turns true when
-only `edges` were trimmed.
+only `edges` were trimmed. `standard` and `full` list the same related nodes,
+and `full` reaches the output budget sooner.
+With `depth` above 1, `next_action` reports whether the transitive set is
+closed (`tool: null`: no other node is reachable over graph edges), cut off by
+the row limit or output budget, or stopped at `depth` with nodes still ahead.
 When `architecture_analysis_tool(mode="adp_violations")` is truncated, its first
 `next_tool_suggestions` entry repeats the call with `top_n` set to the total
 cycle count.

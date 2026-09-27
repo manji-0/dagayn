@@ -7,6 +7,7 @@ import pytest
 from dagayn.graph import GraphStore
 from dagayn.parser import EdgeInfo, NodeInfo
 from dagayn.tools import query as query_module
+from dagayn.tools.query_graph_dispatch import _transitive_next_action
 
 
 @pytest.fixture
@@ -88,6 +89,8 @@ def test_importers_of_walks_to_the_fixed_point(store):
     assert result["reachability"]["state"] == "complete"
     assert result["reachability"]["depth_limit_reached"] is False
     assert "within 6 hops" in result["summary"]
+    assert result["next_action"]["tool"] is None
+    assert "closed" in result["next_action"]["suggestion"]
 
 
 def test_node_reached_by_two_paths_appears_once_at_its_shortest_hop(store):
@@ -106,6 +109,21 @@ def test_depth_limit_is_reported(store):
         "/repo/c.py::f_c",
     }
     assert result["reachability"]["depth_limit_reached"] is True
+    assert "raise depth" in result["next_action"]["suggestion"]
+
+
+@pytest.mark.parametrize(
+    ("reachability", "results_complete"),
+    [
+        ({"truncated": True, "depth_limit_reached": False}, True),
+        ({"truncated": False, "depth_limit_reached": False}, False),
+    ],
+)
+def test_cut_off_set_is_not_reported_closed(reachability, results_complete):
+    action = _transitive_next_action(reachability, results_complete=results_complete)
+
+    assert action["tool"] == "query_graph_tool"
+    assert "cut off" in action["suggestion"]
 
 
 def test_callers_of_walks_call_chains(store):
