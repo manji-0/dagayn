@@ -122,10 +122,11 @@ class TestResolveBareCallTargets:
         assert resolve_bare_call_targets(store) == 1
         row = (
             store_conn(store)
-            .execute("SELECT target_qualified FROM edges WHERE kind='CALLS'")
+            .execute("SELECT target_qualified, confidence_tier FROM edges WHERE kind='CALLS'")
             .fetchone()
         )
         assert row["target_qualified"] == "Factory.cs::CreateCriteria"
+        assert row["confidence_tier"] == "MEDIUM"
 
     def test_resolves_imported_namespace(self, tmp_path):
         store = GraphStore(tmp_path / "namespace_import.db")
@@ -174,10 +175,11 @@ class TestResolveBareCallTargets:
         assert resolve_bare_call_targets(store) == 1
         row = (
             store_conn(store)
-            .execute("SELECT target_qualified FROM edges WHERE kind='CALLS'")
+            .execute("SELECT target_qualified, confidence_tier FROM edges WHERE kind='CALLS'")
             .fetchone()
         )
         assert row["target_qualified"] == "factory.cpp::Factory.createAllowed"
+        assert row["confidence_tier"] == "MEDIUM"
 
     def test_resolves_when_import_context_is_unique(self, tmp_path):
         store = GraphStore(tmp_path / "calls_import.db")
@@ -196,7 +198,7 @@ class TestResolveBareCallTargets:
             .fetchone()
         )
         assert row["target_qualified"] == "a.py::helper"
-        assert row["confidence_tier"] == "MEDIUM"
+        assert row["confidence_tier"] == "HIGH"
 
     def test_object_literal_members_are_not_bare_call_candidates(self, tmp_path):
         """`const api = { get() {} }` members are reachable only as `api.get`.
@@ -250,7 +252,7 @@ class TestResolveBareInheritanceTargets:
             .fetchone()
         )
         assert row["target_qualified"] == "base.py::Base"
-        assert row["confidence_tier"] == "MEDIUM"
+        assert row["confidence_tier"] == "HIGH"
 
     def test_resolves_extends_of_an_imported_type_alias(self, tmp_path):
         """`interface X extends Alias` may name a TypeScript `Type` alias."""
@@ -270,7 +272,7 @@ class TestResolveBareInheritanceTargets:
             .fetchone()
         )
         assert row["target_qualified"] == "types.ts::Props"
-        assert row["confidence_tier"] == "MEDIUM"
+        assert row["confidence_tier"] == "HIGH"
 
     def test_demotes_unresolved_ambiguous_inherits(self, tmp_path):
         store = GraphStore(tmp_path / "inherit_ambig.db")
@@ -327,7 +329,7 @@ class TestTestedBySync:
             .fetchone()
         )
         assert row["source_qualified"] == "a.py::helper"
-        assert row["confidence_tier"] == "MEDIUM"
+        assert row["confidence_tier"] == "HIGH"
 
     def test_typescript_member_call_resolved_in_postprocessing(self, tmp_path):
         """`box.helper()` on an untyped local binds in post-processing only."""

@@ -334,3 +334,22 @@ class TestSemanticSearchMinimalLocators:
         assert "signature" not in item
         assert "source_of" in result["next_action"]["suggestion"]
         assert "source_of" in result["guidance"][0]["action"]
+
+
+def test_query_confidence_follows_the_weakest_edge():
+    from dagayn.tools.query_graph_support import query_zero_result_fields
+
+    results = [{"qualified_name": "a.py::f"}]
+    strong = [{"confidence_tier": "EXTRACTED"}, {"confidence_tier": "HIGH"}]
+    weak = [*strong, {"confidence_tier": "MEDIUM"}]
+    assert (
+        query_zero_result_fields(results=results, unresolved_targets=[], edges=strong)["confidence"]
+        == "high"
+    )
+    assert (
+        query_zero_result_fields(results=results, unresolved_targets=[], edges=weak)["confidence"]
+        == "medium"
+    )
+    assert query_zero_result_fields(results=results, unresolved_targets=[])["confidence"] == (
+        "medium"
+    )

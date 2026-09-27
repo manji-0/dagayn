@@ -57,8 +57,9 @@ separate extractors.
    use (`type_role`, `is_abstract`, `is_contract`, `decorators`, `member_role`,
    `relationship_role`, `container_role`).
 5. **Unresolved beats wrong.** The parser does not guess. A name it cannot bind
-   stays bare, and graph post-processing may resolve it at MEDIUM confidence
-   through import visibility. The parser does not invent a QN such as
+   stays bare, and graph post-processing may resolve it through import
+   visibility (HIGH for a top-level symbol of a directly imported file,
+   MEDIUM for a method or namespace-only visibility; see `docs/SCHEMA.md`). The parser does not invent a QN such as
    `module::localAlias` that no declaration defines.
 6. **TypeScript and JavaScript behave the same** wherever the syntax overlaps.
 
