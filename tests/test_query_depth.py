@@ -1,4 +1,4 @@
-"""Tests for ``query_graph(depth=...)`` on callers_of and importers_of."""
+"""Tests for ``query_graph`` depth walks and compact rows."""
 
 from pathlib import Path
 
@@ -132,3 +132,80 @@ def test_invalid_depth_is_an_error(store, pattern, depth):
 
     assert result["status"] == "error"
     assert "depth" in result["error"]
+
+
+def _add_call(store, caller, callee, line):
+    store.upsert_edge(
+        EdgeInfo(
+            kind="CALLS",
+            source=f"/repo/{caller}.py::f_{caller}",
+            target=f"/repo/{callee}.py::f_{callee}",
+            file_path=f"/repo/{caller}.py",
+            line=line,
+        )
+    )
+    store.commit()
+
+
+def test_standard_folds_edges_into_rows(store):
+    _add_call(store, "b", "a", 7)
+
+    standard = _query(pattern="callers_of", target="/repo/a.py::f_a")
+    full = _query(pattern="callers_of", target="/repo/a.py::f_a", detail_level="full")
+
+    assert "edges" not in standard
+    assert "_hints" not in standard
+    assert standard["results"] == [
+        {
+            "kind": "Function",
+            "name": "f_b",
+            "qualified_name": "/repo/b.py::f_b",
+            "line_start": 2,
+            "line_end": 5,
+            "lines": [3, 7],
+            "confidence_tier": "EXTRACTED",
+        }
+    ]
+    assert standard["result_count"] == 1
+    assert len(full["results"]) == 2
+    assert len(full["edges"]) == 2
+    assert "counts" in full["answerability"]
+    assert set(standard["answerability"]) <= {"status", "score", "reason_codes"}
+
+
+def test_minimal_returns_every_row_that_fits(store):
+    for index in range(8):
+        name = f"/repo/extra_{index}.py"
+        store.upsert_node(
+            NodeInfo(
+                kind="File",
+                name=name,
+                file_path=name,
+                line_start=1,
+                line_end=5,
+                language="python",
+            )
+        )
+        store.upsert_edge(
+            EdgeInfo(
+                kind="IMPORTS_FROM",
+                source=name,
+                target="/repo/a.py",
+                file_path=name,
+                line=1,
+            )
+        )
+    store.commit()
+
+    result = _query(pattern="importers_of", target="/repo/a.py", detail_level="minimal")
+
+    assert result["result_count"] == 9
+    assert len(result["results"]) == 9
+    assert result["results_complete"] is True
+    assert "guidance" not in result
+    assert result["results"][0] == {
+        "file": "/repo/b.py",
+        "lines": [1],
+        "confidence_tier": "EXTRACTED",
+        "evidence_type": "extracted",
+    }

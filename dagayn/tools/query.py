@@ -442,7 +442,11 @@ def query_graph(
                  tests_for, inheritors_of, file_summary, source_of.
         target: The node name, qualified name, or file path to query about.
         repo_root: Repository root path. Auto-detected if omitted.
-        detail_level: "standard" (full output) or "minimal" (summary only).
+        detail_level: "standard" (default): one row per related node, with
+                      edge lines and confidence folded into the row.
+                      "minimal": the same rows with fewer fields and no
+                      guidance. "full": one row per edge plus ``edges``,
+                      full ``answerability``, and ``_hints``.
         depth: Hops to follow for callers_of and importers_of (1 to 6). Rows
                past hop 1 carry ``depth`` and ``via``; ``reachability`` says
                whether the walk was complete or hit the depth limit.

@@ -476,7 +476,9 @@ def query_graph_tool(
         pattern: Query pattern name (see above).
         target: Node name, qualified name, or file path to query.
         repo_root: Repository root path. Auto-detected if omitted.
-        detail_level: "standard" for full output, "minimal" for compact summary. Default: standard.
+        detail_level: "standard" (default) gives one row per related node with
+            edge lines folded in; "minimal" trims fields and guidance; "full"
+            adds one row per edge, ``edges``, and full answerability.
         depth: For callers_of and importers_of, hops to follow (1 to 6) so a
             transitive answer comes back in one call. Default: 1 (direct only).
     """
