@@ -273,7 +273,8 @@ def _expand_transitive(
     """Extend hop-1 rows breadth-first up to ``state.depth`` hops.
 
     Rows past hop 1 carry ``depth`` and ``via`` (the node they reach the
-    previous hop through); each node appears once, at its shortest hop.
+    previous hop through); each node appears once, at its shortest hop. Later
+    hops follow resolved edges only, without hop 1's bare-name fallback.
     """
     for row in state.results:
         row["depth"] = 1

@@ -588,8 +588,10 @@ the chain transitively in one call. Rows past hop 1 carry `depth` and `via`
 its shortest hop. The response adds `depth` and a `reachability` object:
 `state` is `complete` or `truncated` (500 rows past hop 1), and
 `depth_limit_reached` is true when the walk stopped at `depth` with nodes whose
-own callers or importers were not checked. Other patterns reject `depth` other
-than 1.
+own callers or importers were not checked. Hops past the first follow resolved
+edges only; the bare-name fallback that hop 1 of `callers_of` uses when a node
+has no resolved callers is not repeated further out. Other patterns reject
+`depth` other than 1.
 
 `query_graph_tool` has three detail levels. `standard` (default) returns one
 row per related node; for `callers_of`, `callees_of`, `inheritors_of`, and
