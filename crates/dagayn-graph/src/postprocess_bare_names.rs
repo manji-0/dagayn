@@ -3,6 +3,8 @@ use crate::postprocess_bridges::extra_json;
 use crate::postprocess_tested_by::sync_tested_by_with_calls;
 use crate::*;
 
+const DIRECT_IMPORT_CONFIDENCE: f64 = 0.9;
+
 const INFERRED_CONFIDENCE: f64 = 0.6;
 
 const BARE_UNRESOLVED_CONFIDENCE: f64 = 0.3;
@@ -319,12 +321,17 @@ fn load_bare_name_index(
     Ok(index)
 }
 
+/// The one visible candidate for a bare name, with the confidence its
+/// evidence supports: a top-level symbol in the same file or in a file the
+/// caller imports directly is `HIGH`. A method is `MEDIUM` even then, since
+/// the receiver's type is unknown, as is anything reached only through a
+/// namespace or a class declaration.
 fn resolve_via_imports(
     candidates: &[String],
     source_file: &str,
     import_targets: &HashMap<String, HashSet<String>>,
     visibility: &SymbolVisibility,
-) -> Option<String> {
+) -> Option<(String, f64, ConfidenceTier)> {
     let imported: Vec<&String> = candidates
         .iter()
         .filter(|qn| {
@@ -337,10 +344,24 @@ fn resolve_via_imports(
             )
         })
         .collect();
-    match imported.as_slice() {
-        [only] => Some((*only).clone()),
-        _ => None,
-    }
+    let [only] = imported.as_slice() else {
+        return None;
+    };
+    let target_file = node_file_from_qualified(only, "");
+    let top_level = !only
+        .split_once("::")
+        .is_some_and(|(_, symbol)| symbol.contains('.'));
+    let direct = top_level
+        && (source_file == target_file
+            || import_targets
+                .get(source_file)
+                .is_some_and(|targets| targets.contains(&target_file)));
+    let (confidence, tier) = if direct {
+        (DIRECT_IMPORT_CONFIDENCE, ConfidenceTier::High)
+    } else {
+        (INFERRED_CONFIDENCE, ConfidenceTier::Medium)
+    };
+    Some(((*only).clone(), confidence, tier))
 }
 
 impl GraphStore {
@@ -387,7 +408,7 @@ impl GraphStore {
                 continue;
             }
             let src_file = node_file_from_qualified(&source_qualified, &file_path);
-            let Some(qualified) =
+            let Some((qualified, confidence, tier)) =
                 resolve_via_imports(&candidates, &src_file, &import_targets, &visibility)
             else {
                 continue;
@@ -398,8 +419,8 @@ impl GraphStore {
                 params![
                     qualified,
                     edge_target_name(&qualified),
-                    INFERRED_CONFIDENCE,
-                    ConfidenceTier::Medium.as_str(),
+                    confidence,
+                    tier.as_str(),
                     edge_id
                 ],
             )?;
@@ -450,15 +471,15 @@ impl GraphStore {
                         resolve_via_imports(aliases, &src_file, &import_targets, &visibility)
                     },
                 );
-            if let Some(qualified) = resolved_target {
+            if let Some((qualified, confidence, tier)) = resolved_target {
                 tx.execute(
                     "UPDATE edges SET target_qualified = ?, target_name = ?, \
                      confidence = ?, confidence_tier = ? WHERE id = ?",
                     params![
                         qualified,
                         edge_target_name(&qualified),
-                        INFERRED_CONFIDENCE,
-                        ConfidenceTier::Medium.as_str(),
+                        confidence,
+                        tier.as_str(),
                         edge_id
                     ],
                 )?;

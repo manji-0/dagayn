@@ -28,6 +28,13 @@ All notable changes to `dagayn` are documented here.
   look-alike fuzzy candidates.
 - A truncated `adp_violations` result suggests rerunning with `top_n` set to
   the total count.
+- Python `from pkg import sub` records its `IMPORTS_FROM` edge to the
+  submodule file instead of `pkg/__init__.py`, so `importers_of` on the
+  submodule finds it.
+- Bare-name resolution marks a unique top-level symbol in the same or a
+  directly imported file `HIGH` (`0.9`) instead of `MEDIUM`; methods and
+  namespace-only matches stay `MEDIUM`. `query_graph_tool` reports
+  `confidence: "high"` when every returned edge is `HIGH` or better.
 
 ## 5.0.0 — 2026-09-27
 

@@ -162,7 +162,7 @@ fn resolving_bare_calls_moves_tested_by_to_the_resolved_target() {
                 "a.py::helper".to_string(),
                 test.to_string(),
                 2,
-                "MEDIUM".to_string()
+                "HIGH".to_string()
             ),
             (
                 "missing".to_string(),
@@ -174,7 +174,7 @@ fn resolving_bare_calls_moves_tested_by_to_the_resolved_target() {
                 "a.py::other".to_string(),
                 test.to_string(),
                 4,
-                "MEDIUM".to_string()
+                "HIGH".to_string()
             ),
         ]
     );

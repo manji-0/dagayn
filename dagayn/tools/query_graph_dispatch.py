@@ -538,6 +538,7 @@ def build_query_graph_response(
     zero_result_fields = query_zero_result_fields(
         results=state.results,
         unresolved_targets=state.unresolved_targets,
+        edges=state.edges_out,
     )
     guidance = query_graph_guidance(
         pattern=state.pattern,
