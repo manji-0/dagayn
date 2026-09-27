@@ -1,5 +1,6 @@
 """Tests for bare-name edge resolution and query_graph target binding (issue #34)."""
 
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -480,6 +481,69 @@ class TestQueryGraphBareNameBinding:
         assert result["resolution"] == "fuzzy"
         assert result["exact_match_count"] == 0
         assert result["resolved_target"].endswith("::unique_helper")
+
+    def test_unique_exact_name_wins_over_similar_search_hits(self, monkeypatch):
+        other = str(self.root / "other.py")
+        self.store.upsert_node(_node("File", "other.py", other))
+        for name in ("tracking_get_store", "fake_get_store", "_get_store"):
+            self.store.upsert_node(_node("Function", name, other))
+        self.store.commit()
+        self._patch_store(monkeypatch)
+        hits = [
+            self.store.get_node(f"{other}::{name}")
+            for name in ("tracking_get_store", "fake_get_store", "_get_store")
+        ]
+
+        with patch.object(self.store, "search_nodes", return_value=hits):
+            result = query_graph(
+                pattern="callers_of", target="_get_store", repo_root=str(self.root)
+            )
+
+        assert result["status"] == "ok"
+        assert result["resolution"] == "exact_name"
+        assert result["exact_match_count"] == 1
+        assert result["resolved_target"] == f"{other}::_get_store"
+        assert result["original_target"] == "_get_store"
+
+    def test_shared_exact_name_lists_only_exact_candidates(self, monkeypatch):
+        first = str(self.root / "a.py")
+        second = str(self.root / "b.py")
+        for path in (first, second):
+            self.store.upsert_node(_node("File", Path(path).name, path))
+            self.store.upsert_node(_node("Function", "_get_store", path))
+        self.store.upsert_node(_node("Function", "fake_get_store", first))
+        self.store.commit()
+        self._patch_store(monkeypatch)
+        hits = [
+            self.store.get_node(f"{first}::fake_get_store"),
+            self.store.get_node(f"{first}::_get_store"),
+            self.store.get_node(f"{second}::_get_store"),
+        ]
+
+        with patch.object(self.store, "search_nodes", return_value=hits):
+            result = query_graph(
+                pattern="callers_of", target="_get_store", repo_root=str(self.root)
+            )
+
+        assert result["status"] == "ambiguous"
+        assert {item["name"] for item in result["candidates"]} == {"_get_store"}
+        assert len(result["candidates"]) == 2
+
+    def test_relationship_results_report_completeness(self, monkeypatch):
+        other = str(self.root / "other.py")
+        self.store.upsert_node(_node("File", "other.py", other))
+        self.store.upsert_node(_node("Function", "target", other))
+        self.store.upsert_node(_node("Function", "caller", other))
+        self.store.upsert_edge(_edge("CALLS", f"{other}::caller", f"{other}::target", other))
+        self.store.commit()
+        self._patch_store(monkeypatch)
+
+        result = query_graph(
+            pattern="callers_of", target=f"{other}::target", repo_root=str(self.root)
+        )
+
+        assert result["result_count"] == 1
+        assert result["results_complete"] is True
 
     def test_callers_of_filters_cross_file_bare_name_fallback(self, monkeypatch):
         base_a = str(self.root / "a" / "base.py")
