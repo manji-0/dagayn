@@ -2475,31 +2475,51 @@ fn python_import_targets(
         return imports;
     }
 
-    let mut module = None;
-    let mut seen_import = false;
+    let Some(module_node) = node.child_by_field_name("module_name") else {
+        return Vec::new();
+    };
+    let module = node_text(module_node, source);
+    // `from pkg import sub` imports the submodule `pkg/sub.py`, the same way
+    // `import pkg.sub` does; only names that are not submodules (or `*`)
+    // make it an import of `pkg` itself.
+    let mut submodules = Vec::new();
+    let mut imports_package = false;
     let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        match child.kind() {
-            "relative_import" => {
-                let text = node_text(child, source);
-                module = Some(text);
-                break;
-            }
-            "dotted_name" if !seen_import => {
-                module = Some(node_text(child, source));
-            }
-            "import" => {
-                seen_import = true;
-            }
-            _ => {}
+    let names = node
+        .children_by_field_name("name", &mut cursor)
+        .collect::<Vec<_>>();
+    if names.is_empty() {
+        imports_package = true;
+    }
+    for name_node in names {
+        let dotted = if name_node.kind() == "aliased_import" {
+            name_node.child_by_field_name("name")
+        } else {
+            Some(name_node)
+        };
+        let Some(dotted) = dotted else {
+            imports_package = true;
+            continue;
+        };
+        let name = node_text(dotted, source);
+        let submodule = if module.ends_with('.') {
+            format!("{module}{name}")
+        } else {
+            format!("{module}.{name}")
+        };
+        match python_resolve_module_to_file(&submodule, file_path, repo_root) {
+            Some(path) if !submodules.contains(&path) => submodules.push(path),
+            Some(_) => {}
+            None => imports_package = true,
         }
     }
-    module
-        .into_iter()
-        .map(|target| {
-            python_resolve_module_to_file(&target, file_path, repo_root).unwrap_or(target)
-        })
-        .collect()
+    let mut imports = Vec::new();
+    if imports_package {
+        imports
+            .push(python_resolve_module_to_file(&module, file_path, repo_root).unwrap_or(module));
+    }
+    imports.extend(submodules);
+    imports
 }
 
 fn python_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
