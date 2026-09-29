@@ -818,3 +818,69 @@ fn external_package_calls_keep_their_package_target() {
     );
     let _ = std::fs::remove_file(path);
 }
+
+/// dagayn's own shape: a Python wrapper class shares its name with a Rust
+/// struct. Importing the wrapper must not make the struct's methods visible
+/// to a builtin `open(...)` call.
+#[test]
+fn class_declared_in_another_language_does_not_expose_methods() {
+    let path = temp_db("bare-call-cross-language-class");
+    let mut store = GraphStore::open(&path).expect("open");
+    store
+        .store_file_nodes_edges(
+            "pkg/graph.py",
+            &[
+                file_node("pkg/graph.py"),
+                class_node("GraphStore", "pkg/graph.py"),
+            ],
+            &[],
+            "",
+            0,
+        )
+        .expect("store python wrapper");
+    store
+        .store_file_nodes_edges(
+            "src/core.rs",
+            &[
+                NodeInput {
+                    language: "rust".to_string(),
+                    ..file_node("src/core.rs")
+                },
+                NodeInput {
+                    language: "rust".to_string(),
+                    ..class_node("GraphStore", "src/core.rs")
+                },
+                NodeInput {
+                    language: "rust".to_string(),
+                    ..method_node("open", "src/core.rs", "GraphStore")
+                },
+            ],
+            &[],
+            "",
+            0,
+        )
+        .expect("store rust struct");
+    store
+        .store_file_nodes_edges(
+            "pkg/runner.py",
+            &[
+                file_node("pkg/runner.py"),
+                function_node("load", "pkg/runner.py"),
+            ],
+            &[
+                edge(
+                    "IMPORTS_FROM",
+                    "pkg/runner.py",
+                    "pkg/graph.py",
+                    "pkg/runner.py",
+                    1,
+                ),
+                edge("CALLS", "pkg/runner.py::load", "open", "pkg/runner.py", 3),
+            ],
+            "",
+            0,
+        )
+        .expect("store caller");
+    assert_eq!(store.resolve_bare_call_targets().unwrap(), 0);
+    let _ = std::fs::remove_file(path);
+}

@@ -82,6 +82,27 @@ class TestBareNameResolutionHelpers:
         # An unknown file declares nothing, so nothing reaches it.
         assert not visibility.can_see("Broker.cs", "Unknown.cs")
 
+    def test_class_declared_in_another_language_does_not_expose_methods(self):
+        # A Python wrapper and a Rust struct share the name `GraphStore`.
+        visibility = SymbolVisibility(
+            declared={},
+            imported={},
+            class_files={"GraphStore": {"pkg/graph.py", "src/core.rs"}},
+        )
+        imports = {"pkg/runner.py": {"pkg/graph.py"}}
+        assert not is_plausible_bare_edge(
+            "pkg/runner.py", "src/core.rs", imports, visibility, "src/core.rs::GraphStore.open"
+        )
+        # The same-language declaration still counts (C++ header / source).
+        visibility.class_files["Factory"] = {"include/factory.hpp"}
+        assert is_plausible_bare_edge(
+            "src/broker.cpp",
+            "src/factory.cpp",
+            {"src/broker.cpp": {"include/factory.hpp"}},
+            visibility,
+            "src/factory.cpp::Factory.create",
+        )
+
 
 class TestResolveBareCallTargets:
     def test_requires_import_context_even_for_unique_name(self, tmp_path):

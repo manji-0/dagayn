@@ -264,14 +264,47 @@ fn is_plausible_bare_edge(
         return true;
     }
     // Reaching the class declaration is enough; the definition may live in a
-    // file nobody imports directly.
+    // file nobody imports directly. Only a declaration in the definition's own
+    // language counts: a Python `GraphStore` wrapper does not declare the Rust
+    // struct of the same name, so importing it must not make the struct's
+    // methods visible.
+    let family = language_family(target_file);
     visibility
         .declaring_files(target_qualified)
         .is_some_and(|declaring| {
-            declaring
-                .iter()
-                .any(|file| file_is_visible(source_file, file, import_targets, visibility))
+            declaring.iter().any(|file| {
+                same_language_family(family, language_family(file))
+                    && file_is_visible(source_file, file, import_targets, visibility)
+            })
         })
+}
+
+/// Language family by file extension, for pairing a definition with the
+/// files that declare its class (a C++ `.cpp` with its `.h`). `None` when the
+/// extension is unknown, which never rules a declaration out.
+pub(crate) fn language_family(file_path: &str) -> Option<&'static str> {
+    let ext = file_path.rsplit_once('.')?.1.to_ascii_lowercase();
+    Some(match ext.as_str() {
+        "py" | "pyi" => "python",
+        "rs" => "rust",
+        "c" | "h" | "cc" | "cpp" | "cxx" | "hh" | "hpp" | "hxx" | "m" | "mm" => "c",
+        "js" | "jsx" | "mjs" | "cjs" | "ts" | "tsx" | "mts" | "cts" => "javascript",
+        "java" | "kt" | "kts" | "scala" => "jvm",
+        "cs" => "csharp",
+        "go" => "go",
+        "rb" => "ruby",
+        "php" => "php",
+        "swift" => "swift",
+        "dart" => "dart",
+        _ => return None,
+    })
+}
+
+fn same_language_family(a: Option<&str>, b: Option<&str>) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => a == b,
+        _ => true,
+    }
 }
 
 fn file_is_visible(

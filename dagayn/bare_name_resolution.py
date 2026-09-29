@@ -203,11 +203,40 @@ def is_plausible_bare_edge(
     if visibility is None or not target_qualified:
         return False
     # Reaching the class declaration is enough; the definition may live in a
-    # file nobody imports directly.
+    # file nobody imports directly. Only a declaration in the definition's own
+    # language counts: a Python ``GraphStore`` wrapper does not declare the
+    # Rust struct of the same name.
+    family = language_family(target_file)
     return any(
-        _file_is_visible(source_file, declaring, import_targets, visibility)
+        _same_language_family(family, language_family(declaring))
+        and _file_is_visible(source_file, declaring, import_targets, visibility)
         for declaring in visibility.declaring_files(target_qualified)
     )
+
+
+_LANGUAGE_FAMILIES: dict[str, str] = {
+    **dict.fromkeys(("py", "pyi"), "python"),
+    "rs": "rust",
+    **dict.fromkeys(("c", "h", "cc", "cpp", "cxx", "hh", "hpp", "hxx", "m", "mm"), "c"),
+    **dict.fromkeys(("js", "jsx", "mjs", "cjs", "ts", "tsx", "mts", "cts"), "javascript"),
+    **dict.fromkeys(("java", "kt", "kts", "scala"), "jvm"),
+    "cs": "csharp",
+    "go": "go",
+    "rb": "ruby",
+    "php": "php",
+    "swift": "swift",
+    "dart": "dart",
+}
+
+
+def language_family(file_path: str) -> str | None:
+    """Language family by extension; mirrors the Rust ``language_family``."""
+    _, dot, ext = file_path.rpartition(".")
+    return _LANGUAGE_FAMILIES.get(ext.lower()) if dot else None
+
+
+def _same_language_family(a: str | None, b: str | None) -> bool:
+    return a is None or b is None or a == b
 
 
 def _file_is_visible(
