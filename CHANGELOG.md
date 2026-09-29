@@ -2,7 +2,7 @@
 
 All notable changes to `dagayn` are documented here.
 
-## Unreleased
+## 6.0.0 — 2026-09-30
 
 ### Added
 
@@ -19,7 +19,6 @@ All notable changes to `dagayn` are documented here.
   `full`. In 5-run Composer 2.5 checks this did not change behavior: 4 of 5
   runs still asked for `full` first, and both transitive-import runs still
   re-queried intermediate files after the closed answer.
-
 - Python code is linked to the Rust it calls through PyO3 and `ctypes`, so
   the impact of a Rust change reaches its Python callers. A new
   post-processing step (`native_bindings`) writes HIGH `CROSS_ARTIFACT`
