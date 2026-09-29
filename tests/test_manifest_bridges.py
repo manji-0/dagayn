@@ -84,6 +84,32 @@ class TestDiscoverManifestBridges:
         assert edge.extra["module_name"] == "demo_native._core"
         assert edge.extra["bridge_kind"] == "extension_module"
 
+    def test_cargo_manifest_links_library_root(self):
+        result = discover_manifest_bridges(FIXTURES / "py_rust")
+        edges = [
+            e for e in result.edges if e.extra.get("relationship_role") == "builds_from_source"
+        ]
+        assert len(edges) == 1
+        edge = edges[0]
+        assert (edge.source, edge.target) == ("rust/Cargo.toml", "rust/src/lib.rs")
+        assert edge.extra["lib_name"] == "demo_native"
+        assert edge.extra["crate_dir"] == "rust"
+        # maturin's module-name is what Python imports.
+        assert edge.extra["python_module"] == "demo_native._core"
+        assert edge.extra["confidence_tier"] == "HIGH"
+
+    def test_cargo_manifest_without_cdylib_or_maturin_is_skipped(self, tmp_path: Path):
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "lib.rs").write_text("pub fn f() {}\n")
+        (tmp_path / "Cargo.toml").write_text('[package]\nname = "plain"\n')
+        assert discover_manifest_bridges(tmp_path).edges == []
+        (tmp_path / "Cargo.toml").write_text(
+            '[package]\nname = "plain-lib"\n\n[lib]\ncrate-type = ["cdylib"]\n'
+        )
+        [edge] = discover_manifest_bridges(tmp_path).edges
+        assert edge.extra["lib_name"] == "plain_lib"
+        assert "python_module" not in edge.extra
+
     def test_openapitools_schema_to_package_to_consumer(self):
         result = discover_manifest_bridges(FIXTURES / "generated_client")
         generate_edges = [
@@ -130,15 +156,17 @@ class TestApplyManifestBridges:
         self.store.set_metadata("repo_root", str(repo.resolve()))
         result = PostprocessResult()
         _apply_manifest_bridges(self.store, result, [])
-        assert result.manifest_bridges_edges == 1
+        # pyproject.toml -> Cargo.toml, and Cargo.toml -> its library root.
+        assert result.manifest_bridges_edges == 2
 
-        edges = _manifest_edges(self.store)
-        assert len(edges) == 1
-        assert edges[0][0] == "pyproject.toml"
-        assert edges[0][1] == "rust/Cargo.toml"
+        edges = {(source, target) for source, target, _ in _manifest_edges(self.store)}
+        assert edges == {
+            ("pyproject.toml", "rust/Cargo.toml"),
+            ("rust/Cargo.toml", "rust/src/lib.rs"),
+        }
 
         stats = self.store.get_stats()
-        assert stats.edges_by_kind.get("CROSS_ARTIFACT", 0) == 1
+        assert stats.edges_by_kind.get("CROSS_ARTIFACT", 0) == 2
 
     def test_apply_is_idempotent(self):
         repo = FIXTURES / "generated_client"
@@ -154,7 +182,7 @@ class TestApplyManifestBridges:
         repo = FIXTURES / "py_rust"
         self.store.set_metadata("repo_root", str(repo.resolve()))
         _apply_manifest_bridges(self.store, PostprocessResult(), [])
-        assert len(_manifest_edges(self.store)) == 1
+        assert len(_manifest_edges(self.store)) == 2
         prior = _manifest_edges(self.store)
 
         def boom(*_args, **_kwargs):
@@ -165,7 +193,7 @@ class TestApplyManifestBridges:
         result = PostprocessResult()
         _apply_manifest_bridges(self.store, result, warnings)
 
-        assert len(_manifest_edges(self.store)) == 1
+        assert len(_manifest_edges(self.store)) == 2
         assert _manifest_edges(self.store) == prior
         assert any("Manifest bridge extraction failed" in w for w in warnings)
         assert result.manifest_bridges_edges is None
@@ -202,7 +230,7 @@ class TestApplyManifestBridges:
         assert row["mtime_ns"] == 1_700_000_000_000_000_000
         extra = json.loads(row["extra"] or "{}")
         assert extra.get("extractor") != EXTRACTOR_ID
-        assert len(_manifest_edges(self.store)) == 1
+        assert len(_manifest_edges(self.store)) == 2
 
     def test_full_build_postprocess_surfaces_manifest_edges(self):
         repo = FIXTURES / "generated_client"

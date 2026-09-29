@@ -41,6 +41,8 @@ pub struct PostprocessResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub manifest_bridges_nodes: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub native_bindings_resolved: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub flows_detected: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub communities_detected: Option<i64>,
@@ -168,6 +170,13 @@ pub fn run_post_processing_json(
     } else {
         result.manifest_bridges_edges = Some(0);
         result.manifest_bridges_nodes = Some(0);
+    }
+
+    // After the manifest bridges: they name the crates this step binds to.
+    if let Some(count) = record_step(&mut result.warnings, "Native binding resolution", || {
+        store.resolve_native_bindings()
+    }) {
+        result.native_bindings_resolved = Some(count);
     }
 
     if let Some(count) = record_step(

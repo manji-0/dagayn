@@ -260,6 +260,26 @@ def _resolve_terraform_artifact_refs(
         warnings.append(f"Terraform artifact ref resolution failed: {type(e).__name__}: {e}")
 
 
+def _resolve_native_bindings(
+    store: GraphStore,
+    result: PostprocessResult,
+    warnings: list[str],
+) -> None:
+    """Bind Python imports / calls / ctypes loads to the Rust crates they reach.
+
+    Runs after :func:`_apply_manifest_bridges`, whose ``Cargo.toml`` bridges
+    name the crates.
+    """
+    native = _native_method(store, "resolve_native_bindings")
+    if native is None:
+        raise RuntimeError("native binding resolution requires the Rust GraphStore")
+    try:
+        result.native_bindings_resolved = int(cast(Callable[[], int], native)())
+    except (OSError, RuntimeError, TypeError, ValueError) as e:
+        logger.warning("Native binding resolution failed: %s", e)
+        warnings.append(f"Native binding resolution failed: {type(e).__name__}: {e}")
+
+
 def _apply_manifest_bridges(
     store: GraphStore,
     result: PostprocessResult,

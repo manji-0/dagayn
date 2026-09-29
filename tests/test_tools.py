@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from dagayn.contracts.state_types import BuildResult, ChangeAnalysisResult
+from dagayn.extractor_versions import record_extractor_versions
 from dagayn.graph import GraphStore, _sanitize_name, node_to_dict
 from dagayn.parser import EdgeInfo, NodeInfo
 from dagayn.tools import (
@@ -3023,6 +3024,8 @@ class TestEnsureGraph:
             )
         )
         store.set_metadata("last_updated", "2026-08-05T00:00:00")
+        # A ready graph was parsed by the running extractors.
+        record_extractor_versions(store)
         store.commit()
         store.close()
 

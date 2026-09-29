@@ -527,6 +527,10 @@ impl PyGraphStore {
         self.with_store_mut(|store| store.resolve_terraform_artifact_refs())
     }
 
+    fn resolve_native_bindings(&self) -> PyResult<i64> {
+        self.with_store_mut(|store| store.resolve_native_bindings())
+    }
+
     fn resolve_bare_call_targets(&self) -> PyResult<i64> {
         self.with_store_mut(|store| store.resolve_bare_call_targets())
     }

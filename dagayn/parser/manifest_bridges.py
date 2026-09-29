@@ -65,14 +65,23 @@ def discover_manifest_bridges(repo_root: Path) -> ManifestBridgeResult:
     ignore_patterns = _load_ignore_patterns(repo_root)
 
     pyprojects = list(_iter_named_files(repo_root, "pyproject.toml", ignore_patterns))
+    cargo_manifests = list(_iter_named_files(repo_root, "Cargo.toml", ignore_patterns))
     openapitools = list(_iter_named_files(repo_root, "openapitools.json", ignore_patterns))
     package_jsons = list(_iter_named_files(repo_root, "package.json", ignore_patterns))
 
     # Generator output roots (repo-relative), later mapped to npm package names.
     generated_roots: set[str] = set()
 
+    # Cargo.toml -> Python module name, for crates maturin builds.
+    maturin_modules: dict[str, str | None] = {}
     for rel_path in pyprojects:
-        _extract_maturin_bridges(repo_root, rel_path, result)
+        built = _extract_maturin_bridges(repo_root, rel_path, result)
+        if built is not None:
+            cargo_rel, module_name = built
+            maturin_modules[cargo_rel] = module_name
+
+    for rel_path in cargo_manifests:
+        _extract_cargo_crate_root(repo_root, rel_path, maturin_modules, result)
 
     for rel_path in openapitools:
         _extract_openapitools_bridges(repo_root, rel_path, result, generated_roots)
@@ -108,17 +117,18 @@ def _extract_maturin_bridges(
     repo_root: Path,
     pyproject_rel: str,
     result: ManifestBridgeResult,
-) -> None:
+) -> tuple[str, str | None] | None:
+    """Emit pyproject.toml -> Cargo.toml; return (Cargo.toml, module-name)."""
     data = _load_toml(repo_root / pyproject_rel)
     if data is None:
-        return
+        return None
 
     tool = data.get("tool")
     if not isinstance(tool, dict):
-        return
+        return None
     maturin = tool.get("maturin")
     if not isinstance(maturin, dict):
-        return
+        return None
 
     pyproject_dir = PurePosixPath(pyproject_rel).parent
     manifest_path = maturin.get("manifest-path")
@@ -141,7 +151,7 @@ def _extract_maturin_bridges(
             "Skipping maturin bridge from %s: manifest-path escapes repository root",
             pyproject_rel,
         )
-        return
+        return None
 
     cargo_abs = _contained_path(repo_root, cargo_rel)
     if cargo_abs is None or not cargo_abs.is_file():
@@ -150,7 +160,7 @@ def _extract_maturin_bridges(
             pyproject_rel,
             cargo_rel,
         )
-        return
+        return None
 
     _ensure_file_node(result, pyproject_rel, language="toml")
     _ensure_file_node(result, cargo_rel, language="toml")
@@ -175,6 +185,89 @@ def _extract_maturin_bridges(
             source=pyproject_rel,
             target=cargo_rel,
             file_path=pyproject_rel,
+            line=0,
+            extra=extra,
+        )
+    )
+    module = module_name.strip() if isinstance(module_name, str) and module_name.strip() else None
+    return cargo_rel, module
+
+
+def _extract_cargo_crate_root(
+    repo_root: Path,
+    cargo_rel: str,
+    maturin_modules: dict[str, str | None],
+    result: ManifestBridgeResult,
+) -> None:
+    """Emit Cargo.toml -> library root for crates another language loads.
+
+    Only crates maturin builds or that declare a ``cdylib`` count: those are
+    the ones Python imports as an extension module or loads with ``ctypes``.
+    The edge carries what native-binding resolution matches against -- the
+    library name (``libNAME.so``), the crate directory, and the Python module
+    name maturin installs.
+    """
+    data = _load_toml(repo_root / cargo_rel)
+    if data is None:
+        return
+    package = data.get("package")
+    lib = data.get("lib")
+    lib = lib if isinstance(lib, dict) else {}
+    crate_types = lib.get("crate-type")
+    crate_types = (
+        [t for t in crate_types if isinstance(t, str)] if isinstance(crate_types, list) else []
+    )
+    built_by_maturin = cargo_rel in maturin_modules
+    if not built_by_maturin and "cdylib" not in crate_types:
+        return
+
+    lib_name = lib.get("name")
+    if not isinstance(lib_name, str) or not lib_name.strip():
+        package_name = package.get("name") if isinstance(package, dict) else None
+        if not isinstance(package_name, str) or not package_name.strip():
+            return
+        lib_name = package_name
+    lib_name = lib_name.strip().replace("-", "_")
+
+    crate_dir = PurePosixPath(cargo_rel).parent
+    declared_path = lib.get("path")
+    if isinstance(declared_path, str) and declared_path.strip():
+        root_rel = _resolve_rel(crate_dir, declared_path.strip())
+        evidence_source, confidence, tier = "lib.path", CONFIDENCE_EXACT, "EXACT"
+    else:
+        # Cargo's default library root.
+        root_rel = _resolve_rel(crate_dir, "src/lib.rs")
+        evidence_source, confidence, tier = "cargo default src/lib.rs", CONFIDENCE_HIGH, "HIGH"
+    if root_rel is None:
+        return
+    root_abs = _contained_path(repo_root, root_rel)
+    if root_abs is None or not root_abs.is_file():
+        return
+
+    _ensure_file_node(result, cargo_rel, language="toml")
+    extra = _bridge_extra(
+        relationship_role="builds_from_source",
+        bridge_kind="build_config",
+        evidence_kind="manifest",
+        evidence_source=evidence_source,
+        source_language="toml",
+        target_language="rust",
+        confidence=confidence,
+        confidence_tier=tier,
+    )
+    extra["manifest_kind"] = "cargo"
+    extra["lib_name"] = lib_name
+    extra["crate_types"] = crate_types
+    extra["crate_dir"] = "" if str(crate_dir) == "." else crate_dir.as_posix()
+    if built_by_maturin:
+        # maturin installs the extension as `module-name`, or the library name.
+        extra["python_module"] = maturin_modules[cargo_rel] or lib_name
+    result.edges.append(
+        EdgeInfo(
+            kind="CROSS_ARTIFACT",
+            source=cargo_rel,
+            target=root_rel,
+            file_path=cargo_rel,
             line=0,
             extra=extra,
         )

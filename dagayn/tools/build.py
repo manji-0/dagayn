@@ -608,6 +608,14 @@ def _run_postprocess(
             logger.warning("Manifest bridge extraction failed: %s", e)
             warnings.append(f"Manifest bridge extraction failed: {type(e).__name__}: {e}")
 
+        try:
+            from dagayn.postprocessing import _resolve_native_bindings
+
+            _resolve_native_bindings(store, post_result, warnings)
+        except (sqlite3.OperationalError, ImportError, RuntimeError) as e:
+            logger.warning("Native binding resolution failed: %s", e)
+            warnings.append(f"Native binding resolution failed: {type(e).__name__}: {e}")
+
     if postprocess != "none" and not skip_centrality_steps:
         # File re-parses invalidate hub_scores / bridge_scores wholesale (see
         # remove_files_data_tx), so every non-none postprocess level must

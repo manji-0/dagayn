@@ -142,3 +142,78 @@ def make() -> Repo:
         edge.kind == "CALLS" && edge.source == "app.py::make" && edge.target == "app.py::IRepo.find"
     }));
 }
+
+#[test]
+fn records_python_import_names_and_import_receivers() {
+    let source = br#"from pkg._core import fast_sum, Store as RustStore
+from pkg import _core
+import pkg._core as core2
+import os
+
+def run(xs):
+    core2.helper(xs)
+    _core.other(xs)
+    os.getenv("X")
+    return fast_sum(xs)
+"#;
+    let (_, edges) = parse_python("pkg/app.py", source);
+    let import_extra = |module: &str| {
+        edges
+            .iter()
+            .find(|edge| edge.kind == "IMPORTS_FROM" && edge.extra["module"] == module)
+            .map(|edge| edge.extra.clone())
+            .unwrap_or_else(|| panic!("no import of {module}"))
+    };
+    assert_eq!(
+        import_extra("pkg._core")["names"],
+        serde_json::json!([["fast_sum", "fast_sum"], ["Store", "RustStore"]])
+    );
+    assert_eq!(
+        import_extra("pkg")["names"],
+        serde_json::json!([["_core", "_core"]])
+    );
+    let aliased = edges
+        .iter()
+        .find(|edge| edge.kind == "IMPORTS_FROM" && edge.extra["alias"] == "core2")
+        .expect("aliased import");
+    assert_eq!(aliased.extra["module"], "pkg._core");
+
+    let receiver = |target: &str| {
+        edges
+            .iter()
+            .find(|edge| edge.kind == "CALLS" && edge.target == target)
+            .map(|edge| edge.extra.get("receiver").cloned())
+            .unwrap_or_else(|| panic!("no call to {target}"))
+    };
+    assert_eq!(receiver("helper"), Some(serde_json::json!("core2")));
+    assert_eq!(receiver("other"), Some(serde_json::json!("_core")));
+    assert_eq!(receiver("getenv"), Some(serde_json::json!("os")));
+    assert_eq!(receiver("fast_sum"), None);
+}
+
+#[test]
+fn python_ffi_bridge_sees_through_import_aliases() {
+    let source = br#"from ctypes import CDLL
+import ctypes as ct
+
+def load_a():
+    return CDLL("./libfoo.so")
+
+def load_b():
+    return ct.cdll.LoadLibrary("./libbar.so")
+"#;
+    let (_, edges) = parse_python("app.py", source);
+    let bridges = edges
+        .iter()
+        .filter(|edge| edge.kind == "CROSS_ARTIFACT")
+        .map(|edge| {
+            (
+                edge.source.as_str(),
+                edge.target.as_str(),
+                edge.extra["evidence_source"].as_str().unwrap_or_default(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert!(bridges.contains(&("app.py::load_a", "./libfoo.so", "ctypes.CDLL")));
+    assert!(bridges.contains(&("app.py::load_b", "./libbar.so", "ctypes.cdll.LoadLibrary")));
+}

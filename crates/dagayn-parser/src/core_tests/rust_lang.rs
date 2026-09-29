@@ -86,3 +86,55 @@ fn helper() {}
             && edge.target == "path"
     }));
 }
+
+#[test]
+fn records_rust_ffi_exports() {
+    let source = br#"use pyo3::prelude::*;
+
+#[pyfunction]
+fn fast_sum(xs: Vec<f64>) -> f64 { 0.0 }
+
+#[pyfunction]
+#[pyo3(name = "total")]
+fn total_impl() {}
+
+#[pyclass(name = "GraphStore")]
+struct PyGraphStore {}
+
+#[pymethods]
+impl PyGraphStore {
+    #[new]
+    fn new() -> Self { Self {} }
+    fn commit(&self) {}
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn c_sum() -> f64 { 0.0 }
+
+#[export_name = "renamed_symbol"]
+pub extern "C" fn exported() {}
+
+fn private_helper() {}
+"#;
+    let (nodes, _) = parse_rust("src/lib.rs", source);
+    let export = |name: &str| {
+        nodes
+            .iter()
+            .find(|node| node.name == name)
+            .unwrap_or_else(|| panic!("no node {name}"))
+            .extra
+            .get("ffi_export")
+            .cloned()
+    };
+    let json = |abi: &str, kind: &str, name: &str| {
+        Some(serde_json::json!({"abi": abi, "kind": kind, "name": name}))
+    };
+    assert_eq!(export("fast_sum"), json("pyo3", "function", "fast_sum"));
+    assert_eq!(export("total_impl"), json("pyo3", "function", "total"));
+    assert_eq!(export("PyGraphStore"), json("pyo3", "class", "GraphStore"));
+    assert_eq!(export("new"), json("pyo3", "method", "__new__"));
+    assert_eq!(export("commit"), json("pyo3", "method", "commit"));
+    assert_eq!(export("c_sum"), json("c", "function", "c_sum"));
+    assert_eq!(export("exported"), json("c", "function", "renamed_symbol"));
+    assert_eq!(export("private_helper"), None);
+}

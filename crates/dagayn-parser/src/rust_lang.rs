@@ -1,6 +1,8 @@
 use std::cell::RefCell;
 use std::collections::HashSet;
+use std::sync::LazyLock;
 
+use regex::Regex;
 use serde_json::json;
 
 use super::member_calls::MemberCallBindings;
@@ -162,11 +164,14 @@ fn rust_walk_children(
                     let params = rust_child_text(child, context.source, "parameters");
                     let is_test =
                         is_test_function(&name, &context.file_path, child, context.source);
-                    let extra = if child.kind() == "function_signature_item" {
+                    let mut extra = if child.kind() == "function_signature_item" {
                         json!({"is_abstract": true})
                     } else {
                         json!({})
                     };
+                    if let Some(export) = rust_function_ffi_export(child, context.source, &name) {
+                        extra["ffi_export"] = export;
+                    }
                     nodes.push(ParsedNode {
                         kind: if is_test {
                             crate::core::types::NodeKind::Test
@@ -427,7 +432,110 @@ fn rust_type_extra(node: tree_sitter::Node<'_>, source: &[u8]) -> serde_json::Va
     if let Some(derive_traits) = rust_derive_traits(node, source) {
         extra["derive_traits"] = json!(derive_traits);
     }
+    if node.kind() == "struct_item" || node.kind() == "enum_item" {
+        let attrs = rust_leading_attribute_texts(node, source);
+        if let Some(attr) = attrs.iter().find(|attr| rust_attr_is(attr, "pyclass")) {
+            let name = rust_attr_string_arg(attr, "name")
+                .or_else(|| rust_type_name(node, source))
+                .unwrap_or_default();
+            extra["ffi_export"] = json!({"abi": "pyo3", "kind": "class", "name": name});
+        }
+    }
     extra
+}
+
+static RUST_ATTR_STRING_ARG_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"\b(\w+)\s*=\s*"([^"]*)""#).expect("valid regex"));
+
+/// Texts of the outer attributes written before *node*, whitespace removed
+/// (`#[pyo3(name="x")]`).
+fn rust_leading_attribute_texts(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
+    rust_node_with_leading_attributes(node)
+        .filter(|candidate| candidate.kind() == "attribute_item")
+        .map(|attr| {
+            node_text(attr, source)
+                .chars()
+                .filter(|ch| !ch.is_whitespace())
+                .collect()
+        })
+        .collect()
+}
+
+/// True for `#[path]`, `#[path(...)]`, `#[unsafe(path)]`, and the
+/// `pyo3::`-qualified spellings.
+fn rust_attr_is(attr: &str, name: &str) -> bool {
+    let Some(inner) = attr
+        .strip_prefix("#[")
+        .and_then(|rest| rest.strip_suffix(']'))
+    else {
+        return false;
+    };
+    let inner = inner
+        .strip_prefix("unsafe(")
+        .and_then(|rest| rest.strip_suffix(')'))
+        .unwrap_or(inner);
+    let path = inner.split(['(', '=']).next().unwrap_or_default();
+    path == name || path.rsplit("::").next() == Some(name)
+}
+
+fn rust_attr_string_arg(attr: &str, key: &str) -> Option<String> {
+    RUST_ATTR_STRING_ARG_RE
+        .captures_iter(attr)
+        .find(|captures| &captures[1] == key)
+        .map(|captures| captures[2].to_string())
+}
+
+/// How a function is reachable from another language, if at all.
+///
+/// * `#[pyfunction]`, or a method in a `#[pymethods]` impl: PyO3 exposes it
+///   to Python under its own name or `#[pyo3(name = "...")]`.
+/// * `#[no_mangle]` / `#[export_name = "..."]`: exported as a C symbol that
+///   `ctypes` / `cffi` / `dlopen` can look up.
+fn rust_function_ffi_export(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    name: &str,
+) -> Option<serde_json::Value> {
+    let attrs = rust_leading_attribute_texts(node, source);
+    let renamed = || {
+        attrs
+            .iter()
+            .filter(|attr| rust_attr_is(attr, "pyo3") || rust_attr_is(attr, "pyfunction"))
+            .find_map(|attr| rust_attr_string_arg(attr, "name"))
+    };
+    if attrs.iter().any(|attr| rust_attr_is(attr, "pyfunction")) {
+        let python_name = renamed().unwrap_or_else(|| name.to_string());
+        return Some(json!({"abi": "pyo3", "kind": "function", "name": python_name}));
+    }
+    let in_pymethods = node
+        .parent()
+        .filter(|parent| parent.kind() == "declaration_list")
+        .and_then(|list| list.parent())
+        .filter(|item| item.kind() == "impl_item")
+        .is_some_and(|item| {
+            rust_leading_attribute_texts(item, source)
+                .iter()
+                .any(|attr| rust_attr_is(attr, "pymethods"))
+        });
+    if in_pymethods {
+        let python_name = if attrs.iter().any(|attr| rust_attr_is(attr, "new")) {
+            "__new__".to_string()
+        } else {
+            renamed().unwrap_or_else(|| name.to_string())
+        };
+        return Some(json!({"abi": "pyo3", "kind": "method", "name": python_name}));
+    }
+    if let Some(symbol) = attrs
+        .iter()
+        .filter(|attr| rust_attr_is(attr, "export_name"))
+        .find_map(|attr| rust_attr_string_arg(attr, "export_name"))
+    {
+        return Some(json!({"abi": "c", "kind": "function", "name": symbol}));
+    }
+    if attrs.iter().any(|attr| rust_attr_is(attr, "no_mangle")) {
+        return Some(json!({"abi": "c", "kind": "function", "name": name}));
+    }
+    None
 }
 
 fn rust_node_with_leading_attributes(

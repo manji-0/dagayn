@@ -867,13 +867,21 @@ class TestExtractorVersions:
     ):
         """Unchanged TypeScript files are re-parsed once; other languages are not."""
         import dagayn.incremental_build as incremental_build
-        from dagayn.extractor_versions import EXTRACTOR_VERSIONS_KEY, outdated_extractors
+        from dagayn.extractor_versions import (
+            EXTRACTOR_VERSIONS_KEY,
+            format_extractor_versions,
+            outdated_extractors,
+            parse_extractor_versions,
+        )
 
         repo = self._repo(tmp_path)
         store = GraphStore(tmp_path / "graph.db")
         try:
             full_build(repo, store)
-            store.set_metadata(EXTRACTOR_VERSIONS_KEY, "javascript=0")
+            # Only the JavaScript extractor is behind; the others stay current.
+            stamp = parse_extractor_versions(store.get_metadata(EXTRACTOR_VERSIONS_KEY))
+            stamp["javascript"] = 0
+            store.set_metadata(EXTRACTOR_VERSIONS_KEY, format_extractor_versions(stamp))
             store.commit()
             assert outdated_extractors(store) == ["javascript"]
 
@@ -905,7 +913,8 @@ class TestExtractorVersions:
         from dagayn.extractor_versions import EXTRACTOR_VERSIONS_KEY, outdated_extractors
 
         (tmp_path / ".git").mkdir()
-        (tmp_path / "tool.py").write_text("def run():\n    return 1\n")
+        # Go has no tracked extractor version.
+        (tmp_path / "tool.go").write_text("package tool\n\nfunc Run() int { return 1 }\n")
         store = GraphStore(tmp_path / "graph.db")
         try:
             full_build(tmp_path, store)

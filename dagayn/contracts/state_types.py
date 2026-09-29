@@ -153,8 +153,10 @@ CrossArtifactRole: TypeAlias = Literal[
     "builds_artifact",
     "generates_code",
     "binds_generated_client",
+    "builds_from_source",
     "loads_native_module",
     "loads_shared_library",
+    "calls_native_function",
     "maps_entrypoint",
     "invokes_binary",
 ]
@@ -600,6 +602,7 @@ class PostprocessResult(BaseModel):
     terraform_artifact_refs_still_unresolved: int | None = None
     manifest_bridges_edges: int | None = None
     manifest_bridges_nodes: int | None = None
+    native_bindings_resolved: int | None = None
     hub_scores_persisted: int | None = None
     bridge_scores_persisted: int | None = None
     hub_scores_code_persisted: int | None = None

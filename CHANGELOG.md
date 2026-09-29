@@ -20,6 +20,27 @@ All notable changes to `dagayn` are documented here.
   runs still asked for `full` first, and both transitive-import runs still
   re-queried intermediate files after the closed answer.
 
+- Python code is linked to the Rust it calls through PyO3 and `ctypes`, so
+  the impact of a Rust change reaches its Python callers. A new
+  post-processing step (`native_bindings`) writes HIGH `CROSS_ARTIFACT`
+  edges: `loads_native_module` from a file importing a maturin module (by
+  `module-name`), `calls_native_function` from a Python function to the
+  `#[pyfunction]` / `#[pyclass]` it calls, `loads_shared_library` from a
+  `ctypes.CDLL("…/libNAME.so")` loader to the `cdylib` crate named `NAME`,
+  and `calls_native_function` from calls in that file to the crate's
+  `#[no_mangle]` / `#[export_name]` symbols. Manifest bridges add
+  `Cargo.toml -> src/lib.rs` (`builds_from_source`) for crates maturin
+  builds or that declare a `cdylib`. On this repository, 15 Python files
+  now reach `crates/dagayn-py/src/lib.rs` and 37 calls reach its functions
+  and `GraphStore` class, where none did before.
+- The Python extractor records the module and bound names on
+  `IMPORTS_FROM` (`extra.module`, `extra.names`, `extra.alias`) and the
+  import alias used as the receiver of a call (`extra.receiver`). The Rust
+  extractor records `extra.ffi_export` on `#[pyfunction]`, `#[pyclass]`,
+  `#[pymethods]`, `#[no_mangle]`, and `#[export_name]` items. Both
+  extractors move to version 1, so the next update re-parses Python and
+  Rust files once.
+
 ### Changed
 
 - **Breaking:** `query_graph_tool` `detail_level="standard"` returns one row
@@ -33,6 +54,16 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- A bare call no longer resolves to a method whose class is only declared,
+  under the same name, in another language. A Python wrapper class named
+  `GraphStore` made the Rust struct's methods look visible, so the builtin
+  `open(path)`, `sqlite3` `conn.commit()`, and `Path.open()` were bound to
+  `GraphStore.open` / `GraphStore.commit`. On this repository all 1,630
+  such Python -> Rust `CALLS` edges (37 plainly wrong, the rest skipping the
+  PyO3 layer) are gone.
+- `ctypes` / `cffi` / `subprocess` bridges are found when the callee is
+  imported by name or through an alias (`from ctypes import CDLL`,
+  `import ctypes as ct`).
 - `query_graph_tool` resolves a bare name that exactly one node carries
   (`resolution="exact_name"`) instead of returning `ambiguous` with only
   look-alike fuzzy candidates, and reports `results_complete` separately

@@ -608,6 +608,7 @@ mod postprocess_bare_names;
 mod postprocess_bridges;
 mod postprocess_endpoints;
 mod postprocess_manifest;
+mod postprocess_native_bindings;
 mod postprocess_terraform;
 mod postprocess_tested_by;
 mod query;

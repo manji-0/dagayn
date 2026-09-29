@@ -21,13 +21,29 @@ pub struct ExtractorVersion {
 
 /// Extractors with a tracked output version. Extractors not listed here are
 /// treated as never changing their output.
-pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[ExtractorVersion {
-    // TypeScript / JavaScript rework (docs/TYPESCRIPT-EXTRACTION.md). Vue,
-    // Svelte, and Astro script blocks run through the same extractor.
-    extractor: "javascript",
-    version: 1,
-    languages: &["javascript", "typescript", "tsx", "vue", "svelte"],
-}];
+pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
+    ExtractorVersion {
+        // TypeScript / JavaScript rework (docs/TYPESCRIPT-EXTRACTION.md). Vue,
+        // Svelte, and Astro script blocks run through the same extractor.
+        extractor: "javascript",
+        version: 1,
+        languages: &["javascript", "typescript", "tsx", "vue", "svelte"],
+    },
+    ExtractorVersion {
+        // 1: IMPORTS_FROM records the module as written and the names it
+        // binds; CALLS on an import alias record the receiver.
+        extractor: "python",
+        version: 1,
+        languages: &["python", "notebook"],
+    },
+    ExtractorVersion {
+        // 1: functions and types record `ffi_export` (`#[pyfunction]`,
+        // `#[pyclass]`, `#[pymethods]`, `#[no_mangle]`, `#[export_name]`).
+        extractor: "rust",
+        version: 1,
+        languages: &["rust"],
+    },
+];
 
 /// The tracked extractor versions.
 pub fn extractor_versions() -> &'static [ExtractorVersion] {

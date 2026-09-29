@@ -28,6 +28,11 @@ from unittest.mock import patch
 
 from worktree_fixtures import git
 
+from dagayn.extractor_versions import (
+    format_extractor_versions,
+    parse_extractor_versions,
+    record_extractor_versions,
+)
 from dagayn.graph import GraphStore
 from dagayn.incremental import full_build
 from dagayn.parser import NodeInfo
@@ -74,6 +79,8 @@ def _seed_store(repo: Path, *, head_sha: str | None = None) -> Path:
         )
     )
     store.set_metadata("last_updated", "2026-08-10T00:00:00")
+    # Seeded as if parsed by the running extractors.
+    record_extractor_versions(store)
     if head_sha is not None:
         store.set_metadata("git_head_sha", head_sha)
     store.commit()
@@ -234,7 +241,9 @@ class TestAssessGraphSyncContract:
 
     def test_older_extractor_is_commit_drift_until_update(self, main_repo: Path):
         """A graph parsed by an older extractor is degraded even at HEAD."""
-        from dagayn.extractor_versions import EXTRACTOR_VERSIONS_KEY
+        from dagayn.extractor_versions import (
+            EXTRACTOR_VERSIONS_KEY,
+        )
         from dagayn.incremental import incremental_update
 
         (main_repo / "app.ts").write_text("export function main() {}\n", encoding="utf-8")
@@ -247,7 +256,10 @@ class TestAssessGraphSyncContract:
             full_build(main_repo, store)
             assert assess_graph_sync(store, main_repo)["state"] == "commit_synced"
 
-            store.set_metadata(EXTRACTOR_VERSIONS_KEY, "javascript=0")
+            # Only the JavaScript extractor is behind; the others stay current.
+            stamp = parse_extractor_versions(store.get_metadata(EXTRACTOR_VERSIONS_KEY))
+            stamp["javascript"] = 0
+            store.set_metadata(EXTRACTOR_VERSIONS_KEY, format_extractor_versions(stamp))
             store.commit()
             sync = assess_graph_sync(store, main_repo)
             assert sync["state"] == "commit_drift"

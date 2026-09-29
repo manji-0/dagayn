@@ -86,6 +86,8 @@ fn parse_python_module_with_parser(
         let (import_map, top_level_defined_names, protocol_names) =
             collect_python_file_scope(root, source);
         let class_names = collect_python_class_names(root, source);
+        let mut import_aliases = HashMap::new();
+        collect_python_import_aliases(root, source, &mut import_aliases);
         let context = PythonParseContext {
             source,
             file_path: file_path.clone(),
@@ -93,6 +95,7 @@ fn parse_python_module_with_parser(
             import_map: &import_map,
             top_level_defined_names: &top_level_defined_names,
             protocol_names: &protocol_names,
+            import_aliases: &import_aliases,
             bindings: RefCell::new(MemberCallBindings::with_types(class_names)),
         };
         python_walk_children(root, &context, None, None, &mut nodes, &mut edges);
@@ -184,6 +187,11 @@ struct PythonParseContext<'a> {
     import_map: &'a HashMap<String, String>,
     top_level_defined_names: &'a HashSet<String>,
     protocol_names: &'a HashSet<String>,
+    /// Local names bound by an import anywhere in the file, including the
+    /// function-level imports `import_map` leaves out. A call on one of them
+    /// (`_core.parse(...)`) records the receiver so native-binding
+    /// resolution can tell which module the attribute came from.
+    import_aliases: &'a HashMap<String, String>,
     bindings: RefCell<MemberCallBindings>,
 }
 
@@ -1844,7 +1852,7 @@ fn python_walk_children(
                 }
             }
             "import_statement" | "import_from_statement" => {
-                for target in python_import_targets(
+                for (target, extra) in python_import_targets(
                     child,
                     context.source,
                     &context.file_path,
@@ -1856,7 +1864,7 @@ fn python_walk_children(
                         target,
                         file_path: context.file_path.clone(),
                         line: child.start_position().row as i64 + 1,
-                        extra: json!({}),
+                        extra,
                     });
                 }
             }
@@ -1866,17 +1874,25 @@ fn python_walk_children(
                     let target = python_bound_member_target(child, context)
                         .or_else(|| python_resolve_imported_call_target(&call_name, context))
                         .unwrap_or(call_name);
+                    let extra = match python_import_receiver(child, context) {
+                        Some(receiver) => json!({"receiver": receiver}),
+                        None => json!({}),
+                    };
                     edges.push(ParsedEdge {
                         kind: crate::core::types::EdgeKind::Calls,
                         source: caller.to_string(),
                         target,
                         file_path: context.file_path.clone(),
                         line: child.start_position().row as i64 + 1,
-                        extra: json!({}),
+                        extra,
                     });
-                    if let Some(edge) =
-                        python_bridge_edge(child, context.source, &context.file_path, caller)
-                    {
+                    if let Some(edge) = python_bridge_edge(
+                        child,
+                        context.source,
+                        &context.file_path,
+                        caller,
+                        context.import_aliases,
+                    ) {
                         edges.push(edge);
                     }
                 }
@@ -2443,34 +2459,41 @@ fn python_type_alias_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<
         .or_else(|| python_identifier_child(node, source))
 }
 
+/// IMPORTS_FROM targets of one import statement, each with the raw module
+/// and the names it binds in `extra`: the target may already be resolved to
+/// a file, and native-binding resolution needs the module as written
+/// (`from pkg import _core` names `pkg._core`, a module with no `.py`).
 fn python_import_targets(
     node: tree_sitter::Node<'_>,
     source: &[u8],
     file_path: &FilePath,
     repo_root: Option<&Path>,
-) -> Vec<String> {
+) -> Vec<(String, serde_json::Value)> {
     if node.kind() == "import_statement" {
         let mut imports = Vec::new();
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            match child.kind() {
-                "dotted_name" => {
-                    let target = node_text(child, source);
-                    imports.push(
-                        python_resolve_module_to_file(&target, file_path, repo_root)
-                            .unwrap_or(target),
-                    );
-                }
+            let (module, alias) = match child.kind() {
+                "dotted_name" => (node_text(child, source), None),
                 "aliased_import" => {
-                    if let Some(target) = python_child_text(child, source, "dotted_name") {
-                        imports.push(
-                            python_resolve_module_to_file(&target, file_path, repo_root)
-                                .unwrap_or(target),
-                        );
-                    }
+                    let Some(module) = python_child_text(child, source, "dotted_name") else {
+                        continue;
+                    };
+                    let alias = child
+                        .child_by_field_name("alias")
+                        .map(|alias| node_text(alias, source));
+                    (module, alias)
                 }
-                _ => {}
+                _ => continue,
+            };
+            let mut extra = json!({"module": module});
+            if let Some(alias) = alias {
+                extra["alias"] = json!(alias);
             }
+            imports.push((
+                python_resolve_module_to_file(&module, file_path, repo_root).unwrap_or(module),
+                extra,
+            ));
         }
         return imports;
     }
@@ -2484,6 +2507,7 @@ fn python_import_targets(
     // make it an import of `pkg` itself.
     let mut submodules = Vec::new();
     let mut imports_package = false;
+    let mut bound_names = Vec::new();
     let mut cursor = node.walk();
     let names = node
         .children_by_field_name("name", &mut cursor)
@@ -2492,16 +2516,22 @@ fn python_import_targets(
         imports_package = true;
     }
     for name_node in names {
-        let dotted = if name_node.kind() == "aliased_import" {
-            name_node.child_by_field_name("name")
+        let (dotted, alias) = if name_node.kind() == "aliased_import" {
+            (
+                name_node.child_by_field_name("name"),
+                name_node
+                    .child_by_field_name("alias")
+                    .map(|alias| node_text(alias, source)),
+            )
         } else {
-            Some(name_node)
+            (Some(name_node), None)
         };
         let Some(dotted) = dotted else {
             imports_package = true;
             continue;
         };
         let name = node_text(dotted, source);
+        bound_names.push(json!([name, alias.unwrap_or_else(|| name.clone())]));
         let submodule = if module.ends_with('.') {
             format!("{module}{name}")
         } else {
@@ -2513,13 +2543,101 @@ fn python_import_targets(
             None => imports_package = true,
         }
     }
+    let extra = json!({"module": module, "names": bound_names});
     let mut imports = Vec::new();
     if imports_package {
-        imports
-            .push(python_resolve_module_to_file(&module, file_path, repo_root).unwrap_or(module));
+        imports.push((
+            python_resolve_module_to_file(&module, file_path, repo_root).unwrap_or(module),
+            extra.clone(),
+        ));
     }
-    imports.extend(submodules);
+    imports.extend(submodules.into_iter().map(|path| (path, extra.clone())));
     imports
+}
+
+/// Every local name an import statement binds, at any depth of the file,
+/// mapped to what it names: `import a.b` binds `a` -> `a`, `import a as b`
+/// binds `b` -> `a`, `from m import n as k` binds `k` -> `m.n`.
+fn collect_python_import_aliases(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    aliases: &mut HashMap<String, String>,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "import_statement" => {
+                let mut inner = child.walk();
+                for name in child.children(&mut inner) {
+                    match name.kind() {
+                        "dotted_name" => {
+                            let text = node_text(name, source);
+                            if let Some(head) = text.split('.').next() {
+                                aliases.insert(head.to_string(), head.to_string());
+                            }
+                        }
+                        "aliased_import" => {
+                            if let (Some(module), Some(alias)) = (
+                                name.child_by_field_name("name"),
+                                name.child_by_field_name("alias"),
+                            ) {
+                                aliases.insert(node_text(alias, source), node_text(module, source));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            "import_from_statement" => {
+                let module = child
+                    .child_by_field_name("module_name")
+                    .map(|module| node_text(module, source))
+                    .unwrap_or_default();
+                let mut inner = child.walk();
+                for name in child.children_by_field_name("name", &mut inner) {
+                    let (imported, bound) = if name.kind() == "aliased_import" {
+                        (
+                            name.child_by_field_name("name"),
+                            name.child_by_field_name("alias"),
+                        )
+                    } else {
+                        (Some(name), Some(name))
+                    };
+                    if let (Some(imported), Some(bound)) = (imported, bound) {
+                        let imported = node_text(imported, source);
+                        let origin = if module.is_empty() || module.ends_with('.') {
+                            format!("{module}{imported}")
+                        } else {
+                            format!("{module}.{imported}")
+                        };
+                        aliases.insert(node_text(bound, source), origin);
+                    }
+                }
+            }
+            _ => collect_python_import_aliases(child, source, aliases),
+        }
+    }
+}
+
+/// The receiver of `alias.attr(...)` when `alias` was bound by an import.
+fn python_import_receiver(
+    node: tree_sitter::Node<'_>,
+    context: &PythonParseContext<'_>,
+) -> Option<String> {
+    let mut cursor = node.walk();
+    let first = node.children(&mut cursor).next()?;
+    if first.kind() != "attribute" {
+        return None;
+    }
+    let receiver = first.child_by_field_name("object")?;
+    if receiver.kind() != "identifier" {
+        return None;
+    }
+    let receiver = node_text(receiver, context.source);
+    context
+        .import_aliases
+        .contains_key(&receiver)
+        .then_some(receiver)
 }
 
 fn python_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
@@ -2763,8 +2881,10 @@ fn python_bridge_edge(
     source: &[u8],
     file_path: &FilePath,
     caller: &str,
+    import_aliases: &HashMap<String, String>,
 ) -> Option<ParsedEdge> {
-    let signature = python_call_signature(node, source)?;
+    let signature =
+        python_canonical_signature(python_call_signature(node, source)?, import_aliases);
     let (relationship_role, bridge_kind) = python_bridge_pattern(&signature)?;
     let line = node.start_position().row as i64 + 1;
     let (target, confidence, confidence_tier) = match python_first_string_arg(node, source) {
@@ -2792,6 +2912,27 @@ fn python_bridge_edge(
             "confidence_tier": confidence_tier,
         }),
     })
+}
+
+/// Spell the callee through the import that bound its head, so
+/// `from ctypes import CDLL; CDLL(...)` and `import ctypes as ct;
+/// ct.CDLL(...)` both read `ctypes.CDLL`.
+fn python_canonical_signature(
+    signature: String,
+    import_aliases: &HashMap<String, String>,
+) -> String {
+    let (head, rest) = match signature.find('.') {
+        Some(index) => signature.split_at(index),
+        None => (signature.as_str(), ""),
+    };
+    let (name, call_suffix) = match head.strip_suffix("()") {
+        Some(name) => (name, "()"),
+        None => (head, ""),
+    };
+    match import_aliases.get(name) {
+        Some(origin) if origin != name => format!("{origin}{call_suffix}{rest}"),
+        _ => signature,
+    }
 }
 
 fn python_call_signature(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {

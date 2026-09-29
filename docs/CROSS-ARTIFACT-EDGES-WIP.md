@@ -201,6 +201,7 @@ Recommended values:
 - `invokes_binary`
 - `loads_native_module`
 - `loads_shared_library`
+- `calls_native_function`
 - `implemented_by`
 - `implements_contract`
 - `describes_symbol`
@@ -213,6 +214,7 @@ Recommended values:
 - `binds_generated_client`
 - `binds_generated_server`
 - `builds_artifact`
+- `builds_from_source`
 - `generates_code`
 - `maps_entrypoint`
 - `references_schema`
@@ -681,6 +683,22 @@ Implement the highest-signal bridge extractors first:
 - subprocess-launched local binaries
 - native module loading
 - build manifest links for common Python/Rust patterns
+
+**Implemented for Python -> Rust** (post-processing step `native_bindings`,
+`crates/dagayn-graph/src/postprocess_native_bindings.rs`). It joins evidence
+the extractors record separately and writes HIGH bridges only on exact
+matches:
+
+| Bridge | Evidence |
+|---|---|
+| `Cargo.toml -> src/lib.rs` (`builds_from_source`) | crate built by maturin or declaring `cdylib`; `[lib].path` (EXACT) or Cargo's default (HIGH) |
+| Python file -> crate root (`loads_native_module`) | `IMPORTS_FROM` whose module, or `module.name`, equals maturin's `module-name` |
+| Python function -> Rust item (`calls_native_function`) | call to a name imported from that module, or `alias.name(...)` on an imported module, matching a `#[pyfunction]` / `#[pyclass]` export |
+| loader -> crate root (`loads_shared_library`) | `ctypes.CDLL("…/libNAME.so")` whose `NAME` is the `cdylib`'s library name |
+| Python function -> Rust function (`calls_native_function`) | call in the loader's file to a `#[no_mangle]` / `#[export_name]` symbol of that crate |
+
+Methods of `#[pyclass]` types are recorded (`ffi_export.kind = "method"`) but
+not bound: a bare method name does not say which instance it is called on.
 
 ### Phase 3: generated and manifest-driven bridges
 
