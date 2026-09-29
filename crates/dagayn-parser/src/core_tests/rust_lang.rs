@@ -138,3 +138,46 @@ fn private_helper() {}
     assert_eq!(export("exported"), json("c", "function", "renamed_symbol"));
     assert_eq!(export("private_helper"), None);
 }
+
+#[test]
+fn records_wasm_bindgen_exports() {
+    let source = br#"use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen]
+pub fn fast_sum(xs: &[f64]) -> f64 { 0.0 }
+
+#[wasm_bindgen(js_name = meanOf)]
+pub fn mean_of(xs: &[f64]) -> f64 { 0.0 }
+
+#[wasm_bindgen(js_name = "Acc")]
+pub struct Accumulator { total: f64 }
+
+#[wasm_bindgen]
+impl Accumulator {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Accumulator { Accumulator { total: 0.0 } }
+    pub fn push(&mut self, x: f64) {}
+    fn internal(&self) {}
+}
+"#;
+    let (nodes, _) = parse_rust("src/lib.rs", source);
+    let export = |name: &str| {
+        nodes
+            .iter()
+            .find(|node| node.name == name)
+            .unwrap_or_else(|| panic!("no node {name}"))
+            .extra
+            .get("ffi_export")
+            .cloned()
+    };
+    let json = |kind: &str, name: &str| {
+        Some(serde_json::json!({"abi": "wasm", "kind": kind, "name": name}))
+    };
+    assert_eq!(export("fast_sum"), json("function", "fast_sum"));
+    assert_eq!(export("mean_of"), json("function", "meanOf"));
+    assert_eq!(export("Accumulator"), json("class", "Acc"));
+    assert_eq!(export("new"), json("method", "constructor"));
+    assert_eq!(export("push"), json("method", "push"));
+    // Only `pub` methods cross the boundary.
+    assert_eq!(export("internal"), None);
+}

@@ -165,7 +165,9 @@ pub(super) fn parse_javascript_like_interned(
 /// [`javascript_external_symbol`]) with `external: true` and
 /// `external_package` (the package name without a subpath), so same-file
 /// resolution, `TESTED_BY`, and query-time bare-name fallbacks leave them
-/// alone. Post-processing already skips `::` targets.
+/// alone. Post-processing already skips `::` targets. Symbols of a relative
+/// module missing from the repository (`./spec::name`) carry
+/// `unresolved_module` instead.
 fn javascript_mark_external_edges(edges: &mut [ParsedEdge], context: &JavaScriptParseContext<'_>) {
     let packages = context.external_packages;
     if packages.is_empty() {
@@ -186,8 +188,14 @@ fn javascript_mark_external_edges(edges: &mut [ParsedEdge], context: &JavaScript
             continue;
         };
         if let Some(map) = edge.extra.as_object_mut() {
-            map.insert("external".to_string(), json!(true));
-            map.insert("external_package".to_string(), json!(package));
+            if package.starts_with('.') {
+                // A relative module the repository does not contain: not a
+                // package, but the specifier still names where it comes from.
+                map.insert("unresolved_module".to_string(), json!(package));
+            } else {
+                map.insert("external".to_string(), json!(true));
+                map.insert("external_package".to_string(), json!(package));
+            }
         }
     }
 }

@@ -156,6 +156,7 @@ CrossArtifactRole: TypeAlias = Literal[
     "builds_from_source",
     "loads_native_module",
     "loads_shared_library",
+    "loads_wasm_module",
     "calls_native_function",
     "maps_entrypoint",
     "invokes_binary",

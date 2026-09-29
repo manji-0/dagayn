@@ -65,3 +65,59 @@ func runCommand(path string) {
             && edge.extra["evidence_source"] == "plugin.Open"
     }));
 }
+
+#[test]
+fn records_go_webassembly_exports() {
+    let source = br#"package main
+
+import "syscall/js"
+
+//go:wasmexport add
+func add(a, b int32) int32 { return a + b }
+
+// mul multiplies.
+//export mul
+func mul(a, b int32) int32 { return a * b }
+
+//export stale
+
+func notExported() {}
+
+func fastSum(this js.Value, args []js.Value) any { return nil }
+
+func main() {
+	js.Global().Set("goFastSum", js.FuncOf(fastSum))
+	js.Global().Set("goMean", js.FuncOf(func(this js.Value, args []js.Value) any {
+		return nil
+	}))
+}
+"#;
+    let (nodes, _) = parse_go("wasm/main.go", source);
+    let extra = |name: &str| {
+        nodes
+            .iter()
+            .find(|node| node.name == name)
+            .unwrap_or_else(|| panic!("no node {name}"))
+            .extra
+            .clone()
+    };
+    assert_eq!(
+        extra("add")["ffi_export"],
+        serde_json::json!({"abi": "wasm", "kind": "function", "name": "add"})
+    );
+    assert_eq!(
+        extra("mul")["ffi_export"],
+        serde_json::json!({"abi": "c", "kind": "function", "name": "mul"})
+    );
+    // A directive separated by a blank line is not attached.
+    assert!(extra("notExported").get("ffi_export").is_none());
+    assert_eq!(
+        extra("fastSum")["ffi_exports"],
+        serde_json::json!([{"abi": "js_global", "kind": "function", "name": "goFastSum"}])
+    );
+    // A function literal is exposed through the function registering it.
+    assert_eq!(
+        extra("main")["ffi_exports"],
+        serde_json::json!([{"abi": "js_global", "kind": "function", "name": "goMean"}])
+    );
+}

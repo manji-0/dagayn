@@ -2,6 +2,57 @@
 
 All notable changes to `dagayn` are documented here.
 
+## Unreleased
+
+### Added
+
+- JavaScript / TypeScript calls into Rust compiled to WebAssembly with
+  wasm-bindgen are linked, so the impact of a Rust change reaches its
+  TypeScript callers. For a crate that depends on `wasm-bindgen`, manifest
+  bridges record the package names JavaScript imports it by (the crate name,
+  a `wasm-pack build --scope`, and `file:` / `link:` dependencies on its
+  output) and its wasm-pack output directories (`pkg`, or `--out-dir`).
+  `native_bindings` then writes `loads_native_module` from a file importing
+  the package (by name, or by a relative path into the output directory) and
+  `calls_native_function` from a call to a `#[wasm_bindgen]` function or
+  class (`js_name` respected).
+- The Rust extractor records `ffi_export` with `abi: "wasm"` on
+  `#[wasm_bindgen]` items and on `pub` methods of a `#[wasm_bindgen] impl`
+  (`#[wasm_bindgen(constructor)]` as `constructor`). The Rust extractor moves
+  to version 2.
+- WebAssembly built from Go, TinyGo, and AssemblyScript is linked the same
+  way. Manifest bridges (`manifest_kind: "wasm_build"`) read
+  `GOOS=js|wasip1 GOARCH=wasm go build -o out.wasm ./pkg` and
+  `tinygo build -o out.wasm -target wasm|wasi ./pkg` from package.json
+  scripts, Makefiles, and justfiles, and `asconfig.json` targets or
+  `asc entry.ts --outFile out.wasm`, recording each `.wasm` output and where
+  its exports live. `native_bindings` then links JavaScript / TypeScript that
+  imports the generated glue next to an output (`build/release.js`), or
+  loads the output (`fetch("/app.wasm")`, `new URL("./app.wasm", ...)`), to
+  that module (`loads_native_module`), and calls in the loading file to its
+  exports (`calls_native_function`). A call to an ambient
+  `declare function name` binds to the Go function a
+  `js.Global().Set("name", js.FuncOf(f))` exposes, when exactly one module
+  defines `name`.
+- The Go extractor records `ffi_export` for `//go:wasmexport name` (`abi:
+  "wasm"`) and `//export name` (`abi: "c"`, also TinyGo's WebAssembly
+  export), and `ffi_exports` (`abi: "js_global"`) on the function a
+  `js.Global().Set` exposes. The JavaScript extractor emits a
+  `loads_wasm_module` `CROSS_ARTIFACT` for a call or `new` whose first
+  argument names a `.wasm` file. Go moves to extractor version 1.
+- Manifest discovery walks the repository once and prunes ignored
+  directories (`node_modules`, ...) instead of walking them once per manifest
+  name.
+
+### Changed
+
+- JavaScript / TypeScript symbols imported from a relative module that is
+  not in the repository (a build output such as wasm-pack's `pkg/`) are
+  qualified by the specifier (`../pkg/mod::name`) with `unresolved_module`,
+  instead of staying bare names that post-processing could bind to an
+  unrelated same-named function. They are not marked `external`. The
+  JavaScript extractor moves to version 2.
+
 ## 6.0.0 — 2026-09-30
 
 ### Added

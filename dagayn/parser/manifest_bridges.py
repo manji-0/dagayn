@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
+import shlex
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
@@ -40,6 +42,7 @@ _CLI_INPUT_RE = re.compile(
     r"(?:--input-spec|-i)\s+(?P<path>(?:\"[^\"]+\"|'[^']+'|[^\s]+))",
     re.IGNORECASE,
 )
+_WASM_PACK_BUILD_RE = re.compile(r"wasm-pack\s+build\b(?P<args>[^&|;]*)", re.IGNORECASE)
 _CLI_OUTPUT_RE = re.compile(
     r"(?:--output|-o)\s+(?P<path>(?:\"[^\"]+\"|'[^']+'|[^\s]+))",
     re.IGNORECASE,
@@ -64,10 +67,14 @@ def discover_manifest_bridges(repo_root: Path) -> ManifestBridgeResult:
     result = ManifestBridgeResult()
     ignore_patterns = _load_ignore_patterns(repo_root)
 
-    pyprojects = list(_iter_named_files(repo_root, "pyproject.toml", ignore_patterns))
-    cargo_manifests = list(_iter_named_files(repo_root, "Cargo.toml", ignore_patterns))
-    openapitools = list(_iter_named_files(repo_root, "openapitools.json", ignore_patterns))
-    package_jsons = list(_iter_named_files(repo_root, "package.json", ignore_patterns))
+    found = _collect_named_files(repo_root, _MANIFEST_NAMES, ignore_patterns)
+    pyprojects = found["pyproject.toml"]
+    cargo_manifests = found["Cargo.toml"]
+    openapitools = found["openapitools.json"]
+    package_jsons = found["package.json"]
+    build_scripts = sorted(
+        path for name in ("Makefile", "makefile", "GNUmakefile", "justfile") for path in found[name]
+    )
 
     # Generator output roots (repo-relative), later mapped to npm package names.
     generated_roots: set[str] = set()
@@ -80,8 +87,11 @@ def discover_manifest_bridges(repo_root: Path) -> ManifestBridgeResult:
             cargo_rel, module_name = built
             maturin_modules[cargo_rel] = module_name
 
+    wasm_hints = _collect_wasm_package_hints(repo_root, package_jsons)
     for rel_path in cargo_manifests:
-        _extract_cargo_crate_root(repo_root, rel_path, maturin_modules, result)
+        _extract_cargo_crate_root(repo_root, rel_path, maturin_modules, wasm_hints, result)
+
+    _extract_wasm_producers(repo_root, package_jsons, build_scripts, found["asconfig.json"], result)
 
     for rel_path in openapitools:
         _extract_openapitools_bridges(repo_root, rel_path, result, generated_roots)
@@ -96,21 +106,51 @@ def discover_manifest_bridges(repo_root: Path) -> ManifestBridgeResult:
     return result
 
 
-def _iter_named_files(
+_MANIFEST_NAMES = (
+    "pyproject.toml",
+    "Cargo.toml",
+    "openapitools.json",
+    "package.json",
+    "asconfig.json",
+    "Makefile",
+    "makefile",
+    "GNUmakefile",
+    "justfile",
+)
+
+
+def _collect_named_files(
     repo_root: Path,
-    file_name: str,
+    names: Iterable[str],
     ignore_patterns: list[str],
-) -> Iterator[str]:
-    for path in repo_root.rglob(file_name):
-        if not path.is_file() or path.is_symlink():
-            continue
-        try:
-            rel = path.relative_to(repo_root).as_posix()
-        except ValueError:
-            continue
-        if _should_ignore(rel, ignore_patterns):
-            continue
-        yield rel
+) -> dict[str, list[str]]:
+    """Repo-relative paths of files named *names*, in one directory walk.
+
+    Ignored directories (``node_modules``, build outputs, ...) are pruned
+    instead of walked and filtered afterwards.
+    """
+    wanted = set(names)
+    found: dict[str, list[str]] = {name: [] for name in wanted}
+    for dirpath, dirnames, filenames in os.walk(repo_root):
+        rel_dir = Path(dirpath).relative_to(repo_root).as_posix()
+        prefix = "" if rel_dir == "." else f"{rel_dir}/"
+        dirnames[:] = sorted(
+            name
+            for name in dirnames
+            if name != ".git"
+            and not os.path.islink(os.path.join(dirpath, name))
+            and not _should_ignore(f"{prefix}{name}/_", ignore_patterns)
+        )
+        for name in filenames:
+            if name not in wanted:
+                continue
+            rel = f"{prefix}{name}"
+            if os.path.islink(os.path.join(dirpath, name)) or _should_ignore(rel, ignore_patterns):
+                continue
+            found[name].append(rel)
+    for paths in found.values():
+        paths.sort()
+    return found
 
 
 def _extract_maturin_bridges(
@@ -193,19 +233,146 @@ def _extract_maturin_bridges(
     return cargo_rel, module
 
 
+@dataclass
+class _WasmPackageHints:
+    """What package.json files say about wasm-pack output, repo-relative."""
+
+    # (crate dir, out dir, out name, scope) from `wasm-pack build` scripts.
+    builds: list[tuple[str, str | None, str | None, str | None]] = field(default_factory=list)
+    # (dependency name, path) for `"name": "file:../crate/pkg"` dependencies.
+    file_dependencies: list[tuple[str, str]] = field(default_factory=list)
+
+
+def _collect_wasm_package_hints(repo_root: Path, package_jsons: list[str]) -> _WasmPackageHints:
+    hints = _WasmPackageHints()
+    for package_rel in package_jsons:
+        data = _load_json(repo_root / package_rel)
+        if data is None:
+            continue
+        package_dir = PurePosixPath(package_rel).parent
+        for section in ("dependencies", "devDependencies", "optionalDependencies"):
+            deps = data.get(section)
+            if not isinstance(deps, dict):
+                continue
+            for name, spec in deps.items():
+                if not isinstance(name, str) or not isinstance(spec, str):
+                    continue
+                for prefix in ("file:", "link:", "portal:"):
+                    if spec.startswith(prefix):
+                        target = _resolve_rel(package_dir, spec[len(prefix) :])
+                        if target is not None:
+                            hints.file_dependencies.append((name, target))
+        scripts = data.get("scripts")
+        if not isinstance(scripts, dict):
+            continue
+        for script in scripts.values():
+            if not isinstance(script, str):
+                continue
+            for match in _WASM_PACK_BUILD_RE.finditer(script):
+                build = _parse_wasm_pack_args(package_dir, match.group("args"))
+                if build is not None:
+                    hints.builds.append(build)
+    return hints
+
+
+def _parse_wasm_pack_args(
+    package_dir: PurePosixPath, args: str
+) -> tuple[str, str | None, str | None, str | None] | None:
+    """`wasm-pack build [path] --out-dir D --out-name N --scope S` -> parts.
+
+    The crate path is relative to where the script runs (the package.json
+    directory); `--out-dir` is relative to the crate.
+    """
+    tokens = [_strip_quotes(token) for token in args.split()]
+    crate_path = "."
+    options: dict[str, str] = {}
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token.startswith("--") and "=" in token:
+            key, _, value = token.partition("=")
+            options[key] = value
+        elif token in (
+            "--out-dir",
+            "-d",
+            "--out-name",
+            "--scope",
+            "-s",
+            "--target",
+            "-t",
+            "--mode",
+            "-m",
+        ):
+            if index + 1 < len(tokens):
+                options[token] = tokens[index + 1]
+            index += 1
+        elif not token.startswith("-"):
+            crate_path = token
+        index += 1
+    crate_rel = _resolve_rel(package_dir, crate_path) if crate_path != "." else None
+    if crate_rel is None:
+        crate_rel = "" if str(package_dir) in ("", ".") else package_dir.as_posix()
+    out_dir = options.get("--out-dir") or options.get("-d")
+    out_rel = None
+    if out_dir:
+        out_rel = _resolve_rel(PurePosixPath(crate_rel or "."), out_dir)
+    scope = options.get("--scope") or options.get("-s")
+    return crate_rel, out_rel, options.get("--out-name"), scope
+
+
+def _cargo_depends_on(data: ManifestData, crate: str) -> bool:
+    """True when *crate* is a dependency in any `[dependencies]` table."""
+    tables: list[object] = [data.get("dependencies")]
+    target = data.get("target")
+    if isinstance(target, dict):
+        tables.extend(
+            spec.get("dependencies") for spec in target.values() if isinstance(spec, dict)
+        )
+    return any(isinstance(table, dict) and crate in table for table in tables)
+
+
+def _wasm_package_facts(
+    crate_rel: str, package_name: str, hints: _WasmPackageHints
+) -> tuple[list[str], list[str]]:
+    """JavaScript package names and output directories of a wasm-pack crate.
+
+    wasm-pack writes `<crate>/pkg` named after the crate unless a script
+    passes `--out-dir` / `--scope`; a `file:` dependency on one of those
+    directories adds the name the consumer imports it by.
+    """
+    out_dirs = [f"{crate_rel}/pkg" if crate_rel else "pkg"]
+    names = [package_name]
+    for build_crate, out_dir, _out_name, scope in hints.builds:
+        if build_crate != crate_rel:
+            continue
+        if out_dir and out_dir not in out_dirs:
+            out_dirs.append(out_dir)
+        if scope:
+            scoped = f"@{scope.lstrip('@')}/{package_name}"
+            if scoped not in names:
+                names.append(scoped)
+    for name, path in hints.file_dependencies:
+        if path in out_dirs and name not in names:
+            names.append(name)
+    return names, out_dirs
+
+
 def _extract_cargo_crate_root(
     repo_root: Path,
     cargo_rel: str,
     maturin_modules: dict[str, str | None],
+    wasm_hints: _WasmPackageHints,
     result: ManifestBridgeResult,
 ) -> None:
     """Emit Cargo.toml -> library root for crates another language loads.
 
     Only crates maturin builds or that declare a ``cdylib`` count: those are
-    the ones Python imports as an extension module or loads with ``ctypes``.
-    The edge carries what native-binding resolution matches against -- the
-    library name (``libNAME.so``), the crate directory, and the Python module
-    name maturin installs.
+    the ones Python imports as an extension module or loads with ``ctypes``,
+    and JavaScript imports as a wasm-bindgen package. The edge carries what
+    native-binding resolution matches against -- the library name
+    (``libNAME.so``), the crate directory, the Python module name maturin
+    installs, and for wasm-bindgen crates the JavaScript package names and
+    wasm-pack output directories.
     """
     data = _load_toml(repo_root / cargo_rel)
     if data is None:
@@ -227,6 +394,7 @@ def _extract_cargo_crate_root(
         if not isinstance(package_name, str) or not package_name.strip():
             return
         lib_name = package_name
+    package_name = package.get("name") if isinstance(package, dict) else None
     lib_name = lib_name.strip().replace("-", "_")
 
     crate_dir = PurePosixPath(cargo_rel).parent
@@ -262,6 +430,13 @@ def _extract_cargo_crate_root(
     if built_by_maturin:
         # maturin installs the extension as `module-name`, or the library name.
         extra["python_module"] = maturin_modules[cargo_rel] or lib_name
+    if _cargo_depends_on(data, "wasm-bindgen") and isinstance(package_name, str):
+        js_packages, out_dirs = _wasm_package_facts(
+            extra["crate_dir"], package_name.strip(), wasm_hints
+        )
+        extra["wasm_bindgen"] = True
+        extra["js_packages"] = js_packages
+        extra["wasm_out_dirs"] = out_dirs
     result.edges.append(
         EdgeInfo(
             kind="CROSS_ARTIFACT",
@@ -271,6 +446,253 @@ def _extract_cargo_crate_root(
             line=0,
             extra=extra,
         )
+    )
+
+
+_GO_WASM_BUILD_RE = re.compile(r"\b(?P<tool>tinygo|go)\s+build\b(?P<args>[^;&|\n]*)", re.IGNORECASE)
+_ASC_RE = re.compile(r"(?:^|[\s;&|(])(?:npx\s+)?asc\s+(?P<args>[^;&|\n]*)")
+_WASM_TARGETS = {"wasm", "wasi", "wasip1", "wasip2", "wasm-unknown"}
+
+
+@dataclass
+class _WasmProducer:
+    """A WebAssembly module some build command produces from repo sources."""
+
+    config_rel: str
+    producer: str  # "go" | "tinygo" | "assemblyscript"
+    root_rel: str
+    outputs: list[str] = field(default_factory=list)
+    export_dir: str | None = None
+    entry_files: list[str] = field(default_factory=list)
+
+
+def _extract_wasm_producers(
+    repo_root: Path,
+    package_jsons: list[str],
+    build_scripts: list[str],
+    asconfigs: list[str],
+    result: ManifestBridgeResult,
+) -> None:
+    """Emit build config -> source edges for Go / TinyGo / AssemblyScript
+    WebAssembly builds, carrying the `.wasm` outputs JavaScript loads and
+    where the exported functions live."""
+    producers: dict[tuple[str, str], _WasmProducer] = {}
+
+    def add(producer: _WasmProducer) -> None:
+        key = (producer.config_rel, producer.root_rel)
+        existing = producers.get(key)
+        if existing is None:
+            producers[key] = producer
+            return
+        for output in producer.outputs:
+            if output not in existing.outputs:
+                existing.outputs.append(output)
+
+    for command_file, commands in _build_commands(repo_root, package_jsons, build_scripts):
+        cwd = PurePosixPath(command_file).parent
+        for command in commands:
+            for producer in _wasm_producers_in_command(repo_root, command_file, cwd, command):
+                add(producer)
+    for config_rel in asconfigs:
+        producer = _assemblyscript_asconfig(repo_root, config_rel)
+        if producer is not None:
+            add(producer)
+
+    for producer in producers.values():
+        if not producer.outputs:
+            continue
+        language = "json" if producer.config_rel.endswith(".json") else "make"
+        _ensure_file_node(result, producer.config_rel, language=language)
+        extra = _bridge_extra(
+            relationship_role="builds_from_source",
+            bridge_kind="build_config",
+            evidence_kind="config",
+            evidence_source=f"{producer.producer} build",
+            source_language=language,
+            target_language="go" if producer.producer in ("go", "tinygo") else "typescript",
+            confidence=CONFIDENCE_HIGH,
+            confidence_tier="HIGH",
+        )
+        extra["manifest_kind"] = "wasm_build"
+        extra["wasm_producer"] = producer.producer
+        extra["wasm_outputs"] = producer.outputs
+        if producer.export_dir is not None:
+            extra["export_dir"] = producer.export_dir
+        if producer.entry_files:
+            extra["entry_files"] = producer.entry_files
+        result.edges.append(
+            EdgeInfo(
+                kind="CROSS_ARTIFACT",
+                source=producer.config_rel,
+                target=producer.root_rel,
+                file_path=producer.config_rel,
+                line=0,
+                extra=extra,
+            )
+        )
+
+
+def _build_commands(
+    repo_root: Path, package_jsons: list[str], build_scripts: list[str]
+) -> Iterator[tuple[str, list[str]]]:
+    """(file, command lines) from package.json scripts, Makefiles, justfiles."""
+    for rel in package_jsons:
+        data = _load_json(repo_root / rel)
+        scripts = data.get("scripts") if data else None
+        if isinstance(scripts, dict):
+            yield rel, [script for script in scripts.values() if isinstance(script, str)]
+    for rel in build_scripts:
+        try:
+            text = (repo_root / rel).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        yield rel, text.replace("\\\n", " ").splitlines()
+
+
+def _split_command(text: str) -> list[str]:
+    try:
+        return shlex.split(text, comments=False)
+    except ValueError:
+        return text.split()
+
+
+def _wasm_producers_in_command(
+    repo_root: Path, command_file: str, cwd: PurePosixPath, command: str
+) -> Iterator[_WasmProducer]:
+    for match in _GO_WASM_BUILD_RE.finditer(command):
+        tool = match.group("tool").lower()
+        tokens = _split_command(match.group("args"))
+        options, positional = _command_options(
+            tokens, {"-o", "-target", "-tags", "-ldflags", "-gcflags", "-scheduler", "-gc", "-opt"}
+        )
+        if tool == "go" and "GOARCH=wasm" not in command.replace(" ", ""):
+            continue
+        if tool == "tinygo" and options.get("-target", "").lower() not in _WASM_TARGETS:
+            continue
+        output = options.get("-o")
+        if not output or not output.endswith(".wasm"):
+            continue
+        package = positional[-1] if positional else "."
+        if not package.startswith("."):
+            continue  # a module import path, not a directory
+        package_rel = _resolve_rel(cwd, package) if package != "." else _dir_rel(cwd)
+        output_rel = _resolve_rel(cwd, output)
+        if package_rel is None or output_rel is None:
+            continue
+        root = _go_main_file(repo_root, package_rel)
+        if root is None:
+            continue
+        yield _WasmProducer(
+            config_rel=command_file,
+            producer=tool,
+            root_rel=root,
+            outputs=[output_rel],
+            export_dir=package_rel,
+        )
+    for match in _ASC_RE.finditer(command):
+        tokens = _split_command(match.group("args"))
+        options, positional = _command_options(tokens, {"--outFile", "-o", "--target", "--config"})
+        output = options.get("--outFile") or options.get("-o")
+        entries = [
+            rel
+            for token in positional
+            if token.endswith(".ts") and (rel := _resolve_rel(cwd, token)) is not None
+        ]
+        entries = [rel for rel in entries if (repo_root / rel).is_file()]
+        if not output or not entries:
+            continue  # `asc --target release` reads asconfig.json instead
+        output_rel = _resolve_rel(cwd, output)
+        if output_rel is None:
+            continue
+        yield _WasmProducer(
+            config_rel=command_file,
+            producer="assemblyscript",
+            root_rel=entries[0],
+            outputs=[output_rel],
+            entry_files=entries,
+        )
+
+
+def _command_options(tokens: list[str], valued: set[str]) -> tuple[dict[str, str], list[str]]:
+    """Split CLI tokens into ``{flag: value}`` and positional arguments."""
+    options: dict[str, str] = {}
+    positional: list[str] = []
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token.startswith("-"):
+            flag, eq, value = token.partition("=")
+            if eq:
+                options[flag] = value
+            elif flag in valued and index + 1 < len(tokens):
+                options[flag] = tokens[index + 1]
+                index += 1
+            else:
+                options[flag] = ""
+        elif "=" not in token or token.startswith("."):
+            positional.append(token)
+        index += 1
+    return options, positional
+
+
+def _dir_rel(path: PurePosixPath) -> str | None:
+    text = path.as_posix()
+    return "" if text in ("", ".") else text
+
+
+def _go_main_file(repo_root: Path, package_rel: str) -> str | None:
+    """The file of a Go package directory that declares `func main`, else the
+    first `.go` file (tests excluded)."""
+    directory = repo_root / package_rel if package_rel else repo_root
+    if not directory.is_dir():
+        return None
+    files = sorted(
+        path
+        for path in directory.iterdir()
+        if path.suffix == ".go" and not path.name.endswith("_test.go") and path.is_file()
+    )
+    if not files:
+        return None
+    for path in files:
+        try:
+            if re.search(
+                r"^func\s+main\s*\(", path.read_text(encoding="utf-8", errors="replace"), re.M
+            ):
+                return path.relative_to(repo_root).as_posix()
+        except OSError:
+            continue
+    return files[0].relative_to(repo_root).as_posix()
+
+
+def _assemblyscript_asconfig(repo_root: Path, config_rel: str) -> _WasmProducer | None:
+    """`asconfig.json`: `entries` and every target's `outFile`."""
+    data = _load_json(repo_root / config_rel)
+    if data is None:
+        return None
+    base = PurePosixPath(config_rel).parent
+    entries_raw = data.get("entries")
+    entries = [
+        rel
+        for entry in (entries_raw if isinstance(entries_raw, list) else [])
+        if isinstance(entry, str)
+        and (rel := _resolve_rel(base, entry)) is not None
+        and (repo_root / rel).is_file()
+    ]
+    outputs: list[str] = []
+    targets = data.get("targets")
+    for target in targets.values() if isinstance(targets, dict) else []:
+        out_file = target.get("outFile") if isinstance(target, dict) else None
+        if isinstance(out_file, str) and (rel := _resolve_rel(base, out_file)) is not None:
+            if rel not in outputs:
+                outputs.append(rel)
+    if not entries or not outputs:
+        return None
+    return _WasmProducer(
+        config_rel=config_rel,
+        producer="assemblyscript",
+        root_rel=entries[0],
+        outputs=outputs,
+        entry_files=entries,
     )
 
 

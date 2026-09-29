@@ -439,13 +439,20 @@ fn rust_type_extra(node: tree_sitter::Node<'_>, source: &[u8]) -> serde_json::Va
                 .or_else(|| rust_type_name(node, source))
                 .unwrap_or_default();
             extra["ffi_export"] = json!({"abi": "pyo3", "kind": "class", "name": name});
+        } else if let Some(attr) = attrs.iter().find(|attr| rust_attr_is(attr, "wasm_bindgen")) {
+            let name = rust_attr_string_arg(attr, "js_name")
+                .or_else(|| rust_type_name(node, source))
+                .unwrap_or_default();
+            extra["ffi_export"] = json!({"abi": "wasm", "kind": "class", "name": name});
         }
     }
     extra
 }
 
-static RUST_ATTR_STRING_ARG_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"\b(\w+)\s*=\s*"([^"]*)""#).expect("valid regex"));
+static RUST_ATTR_STRING_ARG_RE: LazyLock<Regex> = LazyLock::new(|| {
+    // `key = "value"`, or `key = ident` (wasm-bindgen's `js_name = meanOf`).
+    Regex::new(r#"\b(\w+)\s*=\s*(?:"([^"]*)"|([A-Za-z_$][\w$]*))"#).expect("valid regex")
+});
 
 /// Texts of the outer attributes written before *node*, whitespace removed
 /// (`#[pyo3(name="x")]`).
@@ -482,7 +489,16 @@ fn rust_attr_string_arg(attr: &str, key: &str) -> Option<String> {
     RUST_ATTR_STRING_ARG_RE
         .captures_iter(attr)
         .find(|captures| &captures[1] == key)
-        .map(|captures| captures[2].to_string())
+        .and_then(|captures| captures.get(2).or_else(|| captures.get(3)))
+        .map(|value| value.as_str().to_string())
+}
+
+/// The `impl` block directly containing a method.
+fn rust_enclosing_impl(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
+    node.parent()
+        .filter(|parent| parent.kind() == "declaration_list")
+        .and_then(|list| list.parent())
+        .filter(|item| item.kind() == "impl_item")
 }
 
 /// How a function is reachable from another language, if at all.
@@ -491,6 +507,9 @@ fn rust_attr_string_arg(attr: &str, key: &str) -> Option<String> {
 ///   to Python under its own name or `#[pyo3(name = "...")]`.
 /// * `#[no_mangle]` / `#[export_name = "..."]`: exported as a C symbol that
 ///   `ctypes` / `cffi` / `dlopen` can look up.
+/// * `#[wasm_bindgen]`, or a `pub` method in a `#[wasm_bindgen] impl`:
+///   wasm-bindgen exposes it to JavaScript under its own name,
+///   `js_name = ...`, or `constructor`.
 fn rust_function_ffi_export(
     node: tree_sitter::Node<'_>,
     source: &[u8],
@@ -507,16 +526,35 @@ fn rust_function_ffi_export(
         let python_name = renamed().unwrap_or_else(|| name.to_string());
         return Some(json!({"abi": "pyo3", "kind": "function", "name": python_name}));
     }
-    let in_pymethods = node
-        .parent()
-        .filter(|parent| parent.kind() == "declaration_list")
-        .and_then(|list| list.parent())
-        .filter(|item| item.kind() == "impl_item")
-        .is_some_and(|item| {
-            rust_leading_attribute_texts(item, source)
-                .iter()
-                .any(|attr| rust_attr_is(attr, "pymethods"))
-        });
+    let wasm_attr = attrs.iter().find(|attr| rust_attr_is(attr, "wasm_bindgen"));
+    let wasm_impl = rust_enclosing_impl(node).filter(|item| {
+        rust_leading_attribute_texts(*item, source)
+            .iter()
+            .any(|attr| rust_attr_is(attr, "wasm_bindgen"))
+    });
+    if wasm_impl.is_some() {
+        // wasm-bindgen exports the `pub` methods of a `#[wasm_bindgen] impl`.
+        if !rust_has_pub_visibility(node, source) {
+            return None;
+        }
+        let js_name = if wasm_attr.is_some_and(|attr| attr.contains("constructor")) {
+            "constructor".to_string()
+        } else {
+            wasm_attr
+                .and_then(|attr| rust_attr_string_arg(attr, "js_name"))
+                .unwrap_or_else(|| name.to_string())
+        };
+        return Some(json!({"abi": "wasm", "kind": "method", "name": js_name}));
+    }
+    if let Some(attr) = wasm_attr {
+        let js_name = rust_attr_string_arg(attr, "js_name").unwrap_or_else(|| name.to_string());
+        return Some(json!({"abi": "wasm", "kind": "function", "name": js_name}));
+    }
+    let in_pymethods = rust_enclosing_impl(node).is_some_and(|item| {
+        rust_leading_attribute_texts(item, source)
+            .iter()
+            .any(|attr| rust_attr_is(attr, "pymethods"))
+    });
     if in_pymethods {
         let python_name = if attrs.iter().any(|attr| rust_attr_is(attr, "new")) {
             "__new__".to_string()

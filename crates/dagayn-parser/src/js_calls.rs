@@ -766,17 +766,25 @@ fn javascript_bridge_edge(
     caller: &str,
 ) -> Option<ParsedEdge> {
     let signature = javascript_call_signature(node, context.source)?;
-    let (relationship_role, bridge_kind) = javascript_bridge_pattern(&signature)?;
-    let line = node.start_position().row as i64 + 1;
-    let (target, confidence, confidence_tier) =
-        match javascript_first_string_arg(node, context.source) {
-            Some(target) if !target.is_empty() => (target, 0.8, "HIGH"),
-            _ => (
-                format!("<dynamic:{signature}@{}:{line}>", context.file_path),
-                0.2,
-                "LOW",
-            ),
+    let first_string = javascript_first_string_arg(node, context.source);
+    // Any call or `new` whose first argument names a `.wasm` file loads a
+    // WebAssembly module: `fetch("app.wasm")`, `readFileSync("app.wasm")`,
+    // `new URL("./app.wasm", import.meta.url)`.
+    let (relationship_role, bridge_kind) =
+        if first_string.as_deref().is_some_and(javascript_is_wasm_path) {
+            ("loads_wasm_module", "wasm")
+        } else {
+            javascript_bridge_pattern(&signature)?
         };
+    let line = node.start_position().row as i64 + 1;
+    let (target, confidence, confidence_tier) = match first_string {
+        Some(target) if !target.is_empty() => (target, 0.8, "HIGH"),
+        _ => (
+            format!("<dynamic:{signature}@{}:{line}>", context.file_path),
+            0.2,
+            "LOW",
+        ),
+    };
     Some(ParsedEdge {
         kind: crate::core::types::EdgeKind::CrossArtifact,
         source: caller.to_string(),
@@ -794,6 +802,12 @@ fn javascript_bridge_edge(
             "confidence_tier": confidence_tier,
         }),
     })
+}
+
+/// `app.wasm`, `./pkg/app.wasm?v=2`, `/static/app.wasm#x`.
+fn javascript_is_wasm_path(path: &str) -> bool {
+    let path = path.split(['?', '#']).next().unwrap_or(path);
+    path.len() > ".wasm".len() && path.to_ascii_lowercase().ends_with(".wasm")
 }
 
 fn javascript_bridge_pattern(signature: &str) -> Option<(&'static str, &'static str)> {

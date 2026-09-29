@@ -913,8 +913,8 @@ class TestExtractorVersions:
         from dagayn.extractor_versions import EXTRACTOR_VERSIONS_KEY, outdated_extractors
 
         (tmp_path / ".git").mkdir()
-        # Go has no tracked extractor version.
-        (tmp_path / "tool.go").write_text("package tool\n\nfunc Run() int { return 1 }\n")
+        # Ruby has no tracked extractor version.
+        (tmp_path / "tool.rb").write_text("def run\n  1\nend\n")
         store = GraphStore(tmp_path / "graph.db")
         try:
             full_build(tmp_path, store)

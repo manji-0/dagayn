@@ -33,7 +33,8 @@ pub(super) fn javascript_package_name(specifier: &str) -> Option<&str> {
 }
 
 /// The imported specifiers of `importer` that name external packages, with
-/// their package names: a package-name specifier that resolves to no
+/// their package names (a relative module missing from the repository maps
+/// to itself): a package-name specifier that resolves to no
 /// repository file and is not a tsconfig alias (an in-repo module that
 /// failed to resolve is not a package).
 pub(super) fn collect_javascript_external_packages(
@@ -46,6 +47,17 @@ pub(super) fn collect_javascript_external_packages(
     for binding in import_map.values() {
         let module = binding.module.as_str();
         if packages.contains_key(module) {
+            continue;
+        }
+        // A relative module missing from the repository is a build output
+        // (`wasm-pack`'s `pkg/`, generated clients): keep its symbols as
+        // `./spec::name` instead of bare names another file could capture.
+        // Only with a repository root, where "missing" is known.
+        if repo_root.is_some()
+            && (module.starts_with("./") || module.starts_with("../"))
+            && resolve_javascript_module(module, importer, repo_root, caches).is_none()
+        {
+            packages.insert(module.to_string(), module.to_string());
             continue;
         }
         let Some(package) = javascript_package_name(module) else {

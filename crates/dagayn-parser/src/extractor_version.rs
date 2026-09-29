@@ -25,8 +25,11 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
     ExtractorVersion {
         // TypeScript / JavaScript rework (docs/TYPESCRIPT-EXTRACTION.md). Vue,
         // Svelte, and Astro script blocks run through the same extractor.
+        // 2: symbols of a relative module missing from the repository are
+        // `spec::name` with `unresolved_module`, not bare names; calls whose
+        // first argument names a `.wasm` file emit `loads_wasm_module`.
         extractor: "javascript",
-        version: 1,
+        version: 2,
         languages: &["javascript", "typescript", "tsx", "vue", "svelte"],
     },
     ExtractorVersion {
@@ -39,9 +42,18 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
     ExtractorVersion {
         // 1: functions and types record `ffi_export` (`#[pyfunction]`,
         // `#[pyclass]`, `#[pymethods]`, `#[no_mangle]`, `#[export_name]`).
+        // 2: also `#[wasm_bindgen]` items and `pub` methods of a
+        // `#[wasm_bindgen] impl`.
         extractor: "rust",
-        version: 1,
+        version: 2,
         languages: &["rust"],
+    },
+    ExtractorVersion {
+        // 1: functions record WebAssembly exports (`//go:wasmexport`,
+        // `//export`, `js.Global().Set("name", js.FuncOf(f))`).
+        extractor: "go",
+        version: 1,
+        languages: &["go"],
     },
 ];
 

@@ -32,6 +32,7 @@ pub(super) fn parse_go_with_parser(
     {
         let root = tree.root_node();
         go_walk_children(root, source, &file_path, None, &mut nodes, &mut edges);
+        go_apply_js_global_exports(root, source, &mut nodes);
         let edges = resolve_rust_call_targets(&nodes, edges, &file_path);
         return (nodes, edges);
     }
@@ -201,7 +202,10 @@ fn go_emit_function(
         return_type: None,
         modifiers: None,
         is_test: false,
-        extra: json!({}),
+        extra: match go_directive_export(node, source) {
+            Some(export) => json!({"ffi_export": export}),
+            None => json!({}),
+        },
     });
     let container = receiver
         .map(|receiver| qualify(file_path, receiver, None))
@@ -214,6 +218,119 @@ fn go_emit_function(
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
+}
+
+/// `//go:wasmexport name` (a WebAssembly export) or `//export name` (cgo, and
+/// TinyGo's WebAssembly export) in the comments right above a function.
+fn go_directive_export(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<serde_json::Value> {
+    let mut current = node.prev_sibling();
+    let mut next_row = node.start_position().row;
+    while let Some(comment) = current.filter(|sibling| sibling.kind() == "comment") {
+        // Only the comment block attached to the declaration.
+        if comment.end_position().row + 1 < next_row {
+            break;
+        }
+        let text = node_text(comment, source);
+        let text = text.trim();
+        if let Some(name) = text.strip_prefix("//go:wasmexport ") {
+            return Some(json!({"abi": "wasm", "kind": "function", "name": name.trim()}));
+        }
+        if let Some(name) = text.strip_prefix("//export ") {
+            return Some(json!({"abi": "c", "kind": "function", "name": name.trim()}));
+        }
+        next_row = comment.start_position().row;
+        current = comment.prev_sibling();
+    }
+    None
+}
+
+/// `js.Global().Set("name", js.FuncOf(f))` exposes `f` to JavaScript as the
+/// global `name`; a function literal exposes the function that registers it.
+/// Recorded as `ffi_exports` entries with `abi: "js_global"`.
+fn go_apply_js_global_exports(
+    root: tree_sitter::Node<'_>,
+    source: &[u8],
+    nodes: &mut [ParsedNode],
+) {
+    let mut exports: Vec<(String, String)> = Vec::new();
+    go_collect_js_global_exports(root, source, None, &mut exports);
+    for (function, js_name) in exports {
+        let Some(node) = nodes.iter_mut().find(|node| {
+            node.kind == crate::core::types::NodeKind::Function
+                && match node.parent_name.as_deref() {
+                    Some(receiver) => format!("{receiver}.{}", node.name) == function,
+                    None => node.name == function,
+                }
+        }) else {
+            continue;
+        };
+        let entry = json!({"abi": "js_global", "kind": "function", "name": js_name});
+        match node
+            .extra
+            .get_mut("ffi_exports")
+            .and_then(|value| value.as_array_mut())
+        {
+            Some(list) => list.push(entry),
+            None => node.extra["ffi_exports"] = json!([entry]),
+        }
+    }
+}
+
+fn go_collect_js_global_exports(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    enclosing: Option<&str>,
+    out: &mut Vec<(String, String)>,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if matches!(child.kind(), "function_declaration" | "method_declaration")
+            && let Some((name, receiver)) = go_function_name_and_receiver(child, source)
+        {
+            let scope = match receiver {
+                Some(receiver) => format!("{receiver}.{name}"),
+                None => name,
+            };
+            go_collect_js_global_exports(child, source, Some(&scope), out);
+            continue;
+        }
+        if child.kind() == "call_expression"
+            && let Some((_, signature)) = go_call_name_and_signature(child, source)
+            && signature.replace(char::is_whitespace, "") == "js.Global().Set"
+            && let Some(export) = go_js_global_set(child, source, enclosing)
+        {
+            out.push(export);
+        }
+        go_collect_js_global_exports(child, source, enclosing, out);
+    }
+}
+
+/// `(function, js_name)` for `js.Global().Set("js_name", js.FuncOf(function))`.
+fn go_js_global_set(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    enclosing: Option<&str>,
+) -> Option<(String, String)> {
+    let js_name = go_first_string_arg(node, source)?;
+    let arguments = node.child_by_field_name("arguments")?;
+    let mut cursor = arguments.walk();
+    let value = arguments.named_children(&mut cursor).nth(1)?;
+    if value.kind() != "call_expression" {
+        return None;
+    }
+    let (_, signature) = go_call_name_and_signature(value, source)?;
+    if signature != "js.FuncOf" {
+        return None;
+    }
+    let inner = value.child_by_field_name("arguments")?;
+    let mut inner_cursor = inner.walk();
+    let wrapped = inner.named_children(&mut inner_cursor).next()?;
+    let function = match wrapped.kind() {
+        "identifier" => node_text(wrapped, source),
+        "func_literal" => enclosing?.to_string(),
+        _ => return None,
+    };
+    Some((function, js_name))
 }
 
 fn go_function_name_and_receiver(

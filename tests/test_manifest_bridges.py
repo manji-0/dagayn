@@ -110,6 +110,119 @@ class TestDiscoverManifestBridges:
         assert edge.extra["lib_name"] == "plain_lib"
         assert "python_module" not in edge.extra
 
+    def test_wasm_bindgen_crate_records_js_packages_and_out_dirs(self, tmp_path: Path):
+        (tmp_path / "wasm" / "src").mkdir(parents=True)
+        (tmp_path / "wasm" / "src" / "lib.rs").write_text("pub fn f() {}\n")
+        (tmp_path / "wasm" / "Cargo.toml").write_text(
+            '[package]\nname = "fast-sum"\n\n[lib]\ncrate-type = ["cdylib"]\n\n'
+            '[dependencies]\nwasm-bindgen = "0.2"\n'
+        )
+        (tmp_path / "web").mkdir()
+        (tmp_path / "web" / "package.json").write_text(
+            json.dumps(
+                {
+                    "scripts": {
+                        "wasm": "wasm-pack build ../wasm --out-dir ../web/wasm-out --scope acme"
+                    },
+                    "dependencies": {
+                        "fast-sum": "file:../wasm/pkg",
+                        "@acme/fast-sum": "file:wasm-out",
+                    },
+                }
+            )
+        )
+        [edge] = discover_manifest_bridges(tmp_path).edges
+        assert edge.extra["wasm_bindgen"] is True
+        assert edge.extra["wasm_out_dirs"] == ["wasm/pkg", "web/wasm-out"]
+        assert edge.extra["js_packages"] == ["fast-sum", "@acme/fast-sum"]
+
+    def test_cdylib_without_wasm_bindgen_has_no_js_packages(self, tmp_path: Path):
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "lib.rs").write_text("pub fn f() {}\n")
+        (tmp_path / "Cargo.toml").write_text(
+            '[package]\nname = "plain"\n\n[lib]\ncrate-type = ["cdylib"]\n'
+        )
+        [edge] = discover_manifest_bridges(tmp_path).edges
+        assert "js_packages" not in edge.extra
+
+    def test_go_and_tinygo_wasm_builds_in_scripts_and_makefiles(self, tmp_path: Path):
+        (tmp_path / "gowasm").mkdir()
+        (tmp_path / "gowasm" / "util.go").write_text("package main\n")
+        (tmp_path / "gowasm" / "main.go").write_text("package main\n\nfunc main() {}\n")
+        (tmp_path / "tiny").mkdir()
+        (tmp_path / "tiny" / "lib.go").write_text("package main\n")
+        (tmp_path / "web").mkdir()
+        (tmp_path / "web" / "package.json").write_text(
+            json.dumps(
+                {
+                    "scripts": {
+                        "go": "GOOS=js GOARCH=wasm go build -o public/app.wasm ../gowasm",
+                        # Not a WebAssembly build.
+                        "server": "go build -o bin/server ../gowasm",
+                    }
+                }
+            )
+        )
+        (tmp_path / "Makefile").write_text(
+            "wasm:\n\ttinygo build -o web/public/tiny.wasm \\\n\t\t-target wasi ./tiny\n"
+        )
+        edges = {
+            (e.source, e.target): e.extra
+            for e in discover_manifest_bridges(tmp_path).edges
+            if e.extra.get("manifest_kind") == "wasm_build"
+        }
+        assert edges.keys() == {
+            ("web/package.json", "gowasm/main.go"),
+            ("Makefile", "tiny/lib.go"),
+        }
+        go = edges[("web/package.json", "gowasm/main.go")]
+        assert go["wasm_producer"] == "go"
+        assert go["wasm_outputs"] == ["web/public/app.wasm"]
+        assert go["export_dir"] == "gowasm"
+        tiny = edges[("Makefile", "tiny/lib.go")]
+        assert tiny["wasm_producer"] == "tinygo"
+        assert tiny["wasm_outputs"] == ["web/public/tiny.wasm"]
+
+    def test_assemblyscript_asconfig_and_asc_script(self, tmp_path: Path):
+        (tmp_path / "as" / "assembly").mkdir(parents=True)
+        (tmp_path / "as" / "assembly" / "index.ts").write_text(
+            "export function f(): i32 { return 1; }\n"
+        )
+        (tmp_path / "as" / "asconfig.json").write_text(
+            json.dumps(
+                {
+                    "entries": ["assembly/index.ts"],
+                    "targets": {
+                        "debug": {"outFile": "build/debug.wasm"},
+                        "release": {"outFile": "build/release.wasm"},
+                    },
+                }
+            )
+        )
+        (tmp_path / "as" / "package.json").write_text(
+            json.dumps({"scripts": {"small": "asc assembly/index.ts --outFile out/small.wasm -O3"}})
+        )
+        edges = {
+            e.source: e.extra
+            for e in discover_manifest_bridges(tmp_path).edges
+            if e.extra.get("wasm_producer") == "assemblyscript"
+        }
+        assert edges["as/asconfig.json"]["wasm_outputs"] == [
+            "as/build/debug.wasm",
+            "as/build/release.wasm",
+        ]
+        assert edges["as/asconfig.json"]["entry_files"] == ["as/assembly/index.ts"]
+        assert edges["as/package.json"]["wasm_outputs"] == ["as/out/small.wasm"]
+
+    def test_manifest_walk_prunes_ignored_directories(self, tmp_path: Path):
+        nested = tmp_path / "node_modules" / "dep"
+        nested.mkdir(parents=True)
+        (nested / "asconfig.json").write_text(
+            json.dumps({"entries": ["a.ts"], "targets": {"r": {"outFile": "a.wasm"}}})
+        )
+        (nested / "a.ts").write_text("export function a(): void {}\n")
+        assert discover_manifest_bridges(tmp_path).edges == []
+
     def test_openapitools_schema_to_package_to_consumer(self):
         result = discover_manifest_bridges(FIXTURES / "generated_client")
         generate_edges = [

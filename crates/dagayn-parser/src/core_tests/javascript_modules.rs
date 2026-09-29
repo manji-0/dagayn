@@ -872,12 +872,18 @@ function shadow() {
     external(36, "antd::Form.Item", "antd");
     external(36, "antd::Button", "antd");
     // In-repo and unresolvable in-repo specifiers are never external.
-    for (line, target) in [(30, "src/lib/util.ts::util"), (31, "missing"), (32, "gone")] {
+    for (line, target) in [
+        (30, "src/lib/util.ts::util"),
+        (31, "missing"),
+        (32, "./gone::gone"),
+    ] {
         let found = call_at(line);
         assert_eq!(found.len(), 1, "{found:#?}");
         assert_eq!(found[0].0, target);
         assert!(found[0].1.get("external").is_none(), "{found:#?}");
     }
+    // A missing relative module keeps the specifier it was imported from.
+    assert_eq!(call_at(32)[0].1["unresolved_module"], "./gone");
     // A method on a value returned by an external call has no evidence of
     // its type: the bare name stays, marked as an unknown receiver.
     let get = call_at(35);
@@ -1064,4 +1070,85 @@ export function app() { getUser(); fmt(); useState(); }
     );
 
     let _ = std::fs::remove_dir_all(&repo_root);
+}
+
+/// A relative module missing from the repository (wasm-pack's `pkg/`, a
+/// generated client) keeps its symbols qualified by the specifier instead of
+/// leaving bare names another file's same-named function could capture.
+#[test]
+fn qualifies_symbols_of_a_missing_relative_module() {
+    let mut repo_root = std::env::temp_dir();
+    repo_root.push(format!(
+        "dagayn-parser-ts-missing-module-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    let _ = std::fs::remove_dir_all(&repo_root);
+    std::fs::create_dir_all(repo_root.join("web/src")).unwrap();
+
+    let source = br#"import { fast_sum as fs, Accumulator } from "../../wasm/pkg/fast_sum";
+import * as wasm from "../../wasm/pkg/fast_sum.js";
+
+export function run(xs: Float64Array) {
+  const acc = new Accumulator();
+  wasm.fast_sum(xs);
+  return fs(xs);
+}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "web/src/stats.ts", source);
+    let calls = edges
+        .iter()
+        .filter(|edge| edge.kind == "CALLS" && edge.source == "web/src/stats.ts::run")
+        .map(|edge| {
+            assert!(edge.extra.get("external").is_none(), "{edge:#?}");
+            (
+                edge.target.as_str(),
+                edge.extra.get("unresolved_module").cloned(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let module = |spec: &str| Some(serde_json::json!(spec));
+    assert!(calls.contains(&(
+        "../../wasm/pkg/fast_sum::fast_sum",
+        module("../../wasm/pkg/fast_sum")
+    )));
+    assert!(calls.contains(&(
+        "../../wasm/pkg/fast_sum::Accumulator",
+        module("../../wasm/pkg/fast_sum")
+    )));
+    assert!(calls.contains(&(
+        "../../wasm/pkg/fast_sum.js::fast_sum",
+        module("../../wasm/pkg/fast_sum.js")
+    )));
+    assert!(!calls.iter().any(|(target, _)| *target == "fs"));
+
+    let _ = std::fs::remove_dir_all(&repo_root);
+}
+
+#[test]
+fn records_webassembly_loads() {
+    let source = br#"export async function load() {
+  const { instance } = await WebAssembly.instantiateStreaming(fetch("/wasm/app.wasm?v=2"));
+  const url = new URL("./tiny.wasm", import.meta.url);
+  fetch("data.json");
+  return instance;
+}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_nodes, edges) = parser.parse_file_in_repo(None, "web/src/load.ts", source);
+    let loads = edges
+        .iter()
+        .filter(|edge| {
+            edge.kind == "CROSS_ARTIFACT" && edge.extra["relationship_role"] == "loads_wasm_module"
+        })
+        .map(|edge| (edge.source.as_str(), edge.target.as_str()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        loads,
+        vec![
+            ("web/src/load.ts::load", "/wasm/app.wasm?v=2"),
+            ("web/src/load.ts::load", "./tiny.wasm"),
+        ]
+    );
 }

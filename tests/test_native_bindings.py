@@ -141,3 +141,99 @@ def test_ctypes_library_and_symbol_reach_the_rust_crate(ctypes_repo: Path) -> No
         assert "app/native.py" in impact["impacted_files"]
     finally:
         store.close()
+
+
+@pytest.fixture
+def wasm_repo(tmp_path: Path) -> Path:
+    _write(
+        tmp_path,
+        {
+            "wasm/Cargo.toml": (
+                '[package]\nname = "fast-sum"\nversion = "0.1.0"\n\n'
+                '[lib]\ncrate-type = ["cdylib"]\n\n[dependencies]\nwasm-bindgen = "0.2"\n'
+            ),
+            "wasm/src/lib.rs": (
+                "use wasm_bindgen::prelude::*;\n\n"
+                "#[wasm_bindgen]\npub fn fast_sum(xs: &[f64]) -> f64 {\n    kahan(xs)\n}\n" + KAHAN
+            ),
+            "web/package.json": '{"name": "web", "dependencies": {"fast-sum": "file:../wasm/pkg"}}',
+            "web/src/stats.ts": (
+                'import init, { fast_sum } from "fast-sum";\n\n'
+                "export async function total(values: Float64Array): Promise<number> {\n"
+                "  await init();\n"
+                "  return fast_sum(values);\n"
+                "}\n"
+            ),
+            "web/src/report.ts": (
+                'import { total } from "./stats";\n\n'
+                "export async function monthlyReport(values: Float64Array) {\n"
+                "  return { sum: await total(values) };\n"
+                "}\n"
+            ),
+        },
+    )
+    return tmp_path
+
+
+def test_typescript_import_and_call_reach_the_wasm_bindgen_function(wasm_repo: Path) -> None:
+    store = _build(wasm_repo)
+    try:
+        assert _native_bridges(store) == {
+            ("web/src/stats.ts", "wasm/src/lib.rs", "loads_native_module"),
+            ("web/src/stats.ts::total", "wasm/src/lib.rs::fast_sum", "calls_native_function"),
+        }
+        impact = get_impact_radius(
+            changed_files=["wasm/src/lib.rs"], repo_root=str(wasm_repo), max_depth=2
+        )
+        assert "web/src/report.ts" in impact["impacted_files"]
+    finally:
+        store.close()
+
+
+@pytest.fixture
+def go_wasm_repo(tmp_path: Path) -> Path:
+    _write(
+        tmp_path,
+        {
+            "gowasm/go.mod": "module example.com/gowasm\n\ngo 1.24\n",
+            "gowasm/main.go": (
+                "package main\n\n"
+                "//go:wasmexport add\n"
+                "func add(a, b int32) int32 {\n\treturn a + b\n}\n\n"
+                "func main() {}\n"
+            ),
+            "web/package.json": (
+                '{"scripts": {"wasm": '
+                '"GOOS=wasip1 GOARCH=wasm go build -o public/add.wasm ../gowasm"}}'
+            ),
+            "web/src/add.ts": (
+                "export async function addWith(a: number, b: number): Promise<number> {\n"
+                "  const { instance } =\n"
+                '    await WebAssembly.instantiateStreaming(fetch("/add.wasm"));\n'
+                "  return (instance.exports as any).add(a, b);\n"
+                "}\n"
+            ),
+            "web/src/report.ts": (
+                'import { addWith } from "./add";\n\n'
+                "export async function report() {\n"
+                "  return addWith(1, 2);\n"
+                "}\n"
+            ),
+        },
+    )
+    return tmp_path
+
+
+def test_typescript_fetch_and_export_call_reach_the_go_function(go_wasm_repo: Path) -> None:
+    store = _build(go_wasm_repo)
+    try:
+        assert _native_bridges(store) == {
+            ("web/src/add.ts::addWith", "gowasm/main.go", "loads_native_module"),
+            ("web/src/add.ts::addWith", "gowasm/main.go::add", "calls_native_function"),
+        }
+        impact = get_impact_radius(
+            changed_files=["gowasm/main.go"], repo_root=str(go_wasm_repo), max_depth=2
+        )
+        assert "web/src/report.ts" in impact["impacted_files"]
+    finally:
+        store.close()

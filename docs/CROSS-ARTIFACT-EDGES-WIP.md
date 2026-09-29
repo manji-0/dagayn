@@ -696,9 +696,15 @@ matches:
 | Python function -> Rust item (`calls_native_function`) | call to a name imported from that module, or `alias.name(...)` on an imported module, matching a `#[pyfunction]` / `#[pyclass]` export |
 | loader -> crate root (`loads_shared_library`) | `ctypes.CDLL("…/libNAME.so")` whose `NAME` is the `cdylib`'s library name |
 | Python function -> Rust function (`calls_native_function`) | call in the loader's file to a `#[no_mangle]` / `#[export_name]` symbol of that crate |
+| JS/TS file -> crate root (`loads_native_module`, `bridge_kind: wasm`) | import of a wasm-bindgen crate's package name (crate name, `wasm-pack --scope`, `file:` dependency on its output) or of a relative path into its wasm-pack output directory |
+| JS/TS function -> Rust item (`calls_native_function`, `bridge_kind: wasm`) | call the extractor qualified as `specifier::name` into that package, matching a `#[wasm_bindgen]` function or class (`js_name`) |
+| build config -> Go package / AssemblyScript entry (`builds_from_source`, `manifest_kind: wasm_build`) | `go build` with `GOARCH=wasm`, `tinygo build -target wasm/wasi`, `asconfig.json` targets, or `asc --outFile`, naming the `.wasm` outputs |
+| JS/TS file or loader -> Go package / AssemblyScript entry (`loads_native_module`, `bridge_kind: wasm`) | import of the glue next to an output (`build/release.js` beside `build/release.wasm`), or a `loads_wasm_module` literal (`fetch("/app.wasm")`) matching an output path, resolved from the file or as a suffix |
+| JS/TS function -> Go / AssemblyScript function (`calls_native_function`, `bridge_kind: wasm`) | call into the glue, or a call in the loading file, matching `//go:wasmexport`, TinyGo `//export`, or an AssemblyScript entry `export`; or a call to an ambient `declare function` matching exactly one Go `js.Global().Set` global |
 
-Methods of `#[pyclass]` types are recorded (`ffi_export.kind = "method"`) but
-not bound: a bare method name does not say which instance it is called on.
+Methods of `#[pyclass]` and `#[wasm_bindgen]` types are recorded
+(`ffi_export.kind = "method"`) but not bound: a bare method name does not say
+which instance it is called on.
 
 ### Phase 3: generated and manifest-driven bridges
 
