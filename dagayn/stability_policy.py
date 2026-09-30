@@ -32,18 +32,15 @@ def component_stability_profiles(store: Any, snapshot: Any | None = None) -> Sta
     and SAP metric computations skip fresh table reads when several analyses
     run together.
     """
-    try:
-        from .architecture import compute_sdp_metrics
-        from .sap import compute_sap_metrics
+    from .architecture import compute_sdp_metrics
+    from .sap import compute_sap_metrics
 
-        sdp_metrics = compute_sdp_metrics(
-            store, granularity="package", artifact_scope="code", snapshot=snapshot
-        )
-        sap_metrics = compute_sap_metrics(
-            store, scope_kind="package", artifact_scope="code", snapshot=snapshot
-        )
-    except Exception:  # pragma: no cover - defensive for backend parity drift
-        return {}
+    sdp_metrics = compute_sdp_metrics(
+        store, granularity="package", artifact_scope="code", snapshot=snapshot
+    )
+    sap_metrics = compute_sap_metrics(
+        store, scope_kind="package", artifact_scope="code", snapshot=snapshot
+    )
 
     profiles: StabilityProfiles = {}
     thresholds = stability_thresholds()

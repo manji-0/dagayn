@@ -222,12 +222,9 @@ def _architecture_health_summary(
         )
 
     cross_artifact_count = 0
-    try:
-        stats = store.get_stats()
-        edges_by_kind = getattr(stats, "edges_by_kind", None) or {}
-        cross_artifact_count = int(edges_by_kind.get("CROSS_ARTIFACT", 0) or 0)
-    except Exception:  # pragma: no cover - defensive for backend parity drift
-        cross_artifact_count = 0
+    stats = store.get_stats()
+    edges_by_kind = getattr(stats, "edges_by_kind", None) or {}
+    cross_artifact_count = int(edges_by_kind.get("CROSS_ARTIFACT", 0) or 0)
     if cross_artifact_count:
         reason_codes.append("cross_artifact_edges_present")
         guidance.append(

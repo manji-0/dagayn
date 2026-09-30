@@ -252,21 +252,15 @@ def _component_density_by_scope(
             if any(edge.kind == "TESTED_BY" for edge in outgoing):
                 tested += 1
             if include_supplemental_tests and node.qualified_name in supplemental_qns:
-                try:
-                    inferred_tests = infer_tests_for_node(
-                        store,
-                        node,
-                        limit=1,
-                        minimum_confidence="medium",
-                    )
-                except Exception:  # pragma: no cover - defensive for backend parity drift
-                    inferred_tests = []
+                inferred_tests = infer_tests_for_node(
+                    store,
+                    node,
+                    limit=1,
+                    minimum_confidence="medium",
+                )
                 if any(test.get("coverage_source") == "heuristic" for test in inferred_tests):
                     heuristic_tested += 1
-                try:
-                    transitive_tests = store.get_transitive_tests(node.qualified_name)
-                except Exception:  # pragma: no cover - defensive for backend parity drift
-                    transitive_tests = []
+                transitive_tests = store.get_transitive_tests(node.qualified_name)
                 if any(test.get("indirect") for test in transitive_tests):
                     transitive_tested += 1
             evidence_types: set[str] = set()
@@ -406,10 +400,7 @@ def _recommend_tests(
         scope_key = _scope_key_for_record(func)
         profile = stability_profiles.get(scope_key or "", {})
         stability_bonus = 0.1 if profile.get("stable") or profile.get("should_be_stable") else 0.0
-        try:
-            tests = store.get_transitive_tests(qualified_name)
-        except Exception:  # pragma: no cover - defensive for backend parity drift
-            tests = []
+        tests = store.get_transitive_tests(qualified_name)
         for test in tests:
             test_qn = test.get("qualified_name")
             if not isinstance(test_qn, str):
@@ -443,10 +434,7 @@ def _recommend_tests(
             )
         if tests:
             continue
-        try:
-            node = store.get_node(qualified_name)
-        except Exception:  # pragma: no cover - defensive for backend parity drift
-            node = None
+        node = store.get_node(qualified_name)
         if node is None:
             continue
         for test in infer_tests_for_node(store, node, limit=3, minimum_confidence="medium"):
@@ -852,26 +840,22 @@ def _hotspot_proximity(
     limit: int = 5,
     snapshot: Any | None = None,
 ) -> ReviewPayload:
-    try:
-        from ..analysis import find_bridge_nodes, find_hub_nodes
+    from ..analysis import find_bridge_nodes, find_hub_nodes
 
-        hubs = find_hub_nodes(
-            store,
-            top_n=top_n,
-            artifact_scope="code",
-            include_tests=False,
-            snapshot=snapshot,
-        )
-        bridges = find_bridge_nodes(
-            store,
-            top_n=top_n,
-            artifact_scope="code",
-            include_tests=False,
-            snapshot=snapshot,
-        )
-    except Exception:  # pragma: no cover - defensive for backend parity drift
-        hubs = []
-        bridges = []
+    hubs = find_hub_nodes(
+        store,
+        top_n=top_n,
+        artifact_scope="code",
+        include_tests=False,
+        snapshot=snapshot,
+    )
+    bridges = find_bridge_nodes(
+        store,
+        top_n=top_n,
+        artifact_scope="code",
+        include_tests=False,
+        snapshot=snapshot,
+    )
 
     changed_qns = {
         getattr(node, "qualified_name", "")
@@ -998,17 +982,12 @@ def _architecture_delta_summary(
             "note": "No changed scopes were available for architecture filtering.",
         }
 
-    try:
-        from ..architecture import find_adp_violations, find_sdp_violations
-        from ..sap import find_sap_violations
+    from ..architecture import find_adp_violations, find_sdp_violations
+    from ..sap import find_sap_violations
 
-        adp = find_adp_violations(store, granularity="package", snapshot=snapshot)
-        sdp = find_sdp_violations(store, granularity="package", snapshot=snapshot)
-        sap = find_sap_violations(store, scope_kind="package", snapshot=snapshot)
-    except Exception:  # pragma: no cover - defensive for backend parity drift
-        adp = []
-        sdp = []
-        sap = []
+    adp = find_adp_violations(store, granularity="package", snapshot=snapshot)
+    sdp = find_sdp_violations(store, granularity="package", snapshot=snapshot)
+    sap = find_sap_violations(store, scope_kind="package", snapshot=snapshot)
 
     def _touches_scope(value: str) -> bool:
         normalized = value.replace("\\", "/")

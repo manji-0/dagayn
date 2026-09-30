@@ -1136,10 +1136,7 @@ def analyze_changes(
     if include_heuristic_test_gap_evidence and any(
         not n.is_test and n.language != "markdown" for n in changed_funcs
     ):
-        try:
-            coverage_scan_state = build_scan_state(store)
-        except Exception:  # pragma: no cover - defensive for backend parity drift
-            coverage_scan_state = None
+        coverage_scan_state = build_scan_state(store)
     for node in changed_funcs:
         if node.is_test:
             continue
