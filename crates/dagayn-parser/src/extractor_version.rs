@@ -53,8 +53,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // `ffi_import` instead of `ffi_export`.
         // 5: declarations in a C-ABI `extern` block record `ffi_import`
         // (`abi: "c"`, `#[link_name]`, `#[link(name)]`).
+        // 6: `#[cxx::bridge]` `extern "C++"` declarations record `ffi_import`
+        // and `extern "Rust"` declarations `ffi_export` (`abi: "cxx"`).
         extractor: "rust",
-        version: 5,
+        version: 6,
         languages: &["rust"],
     },
     ExtractorVersion {

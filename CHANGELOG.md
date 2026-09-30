@@ -110,6 +110,15 @@ All notable changes to `dagayn` are documented here.
   `#[link]` library, then the whole repository, and requiring exactly one
   match in the first scope that has any.
 
+- cxx bridges link Rust and C++ both ways. In a `#[cxx::bridge]` module the
+  Rust extractor records `ffi_import` (`abi: "cxx"`) on `extern "C++"`
+  functions, with `class` for methods (`self: Pin<&mut T>`, `self: &T`),
+  and `ffi_export` on `extern "Rust"` declarations; it moves to version 6.
+  Within the sources the crate's `build.rs` compiles with `cxx_build`,
+  `native_bindings` binds each `extern "C++"` declaration to the free C++
+  function or `T::method` of that name, and C++ calls to an `extern "Rust"`
+  name to the crate's Rust function.
+
 ### Changed
 
 - A shared-library loader outside Python (Java `System.loadLibrary`, ...)

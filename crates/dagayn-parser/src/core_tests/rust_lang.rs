@@ -326,3 +326,48 @@ extern "system" { fn GetTickCount() -> u32; }
         Some(serde_json::json!({"abi": "c", "name": "GetTickCount"}))
     );
 }
+
+#[test]
+fn cxx_bridge_declarations_record_imports_and_exports() {
+    let source = br#"#[cxx::bridge(namespace = "org::blobstore")]
+mod ffi {
+    extern "Rust" {
+        type MultiBuf;
+        fn next_chunk(buf: &mut MultiBuf) -> &[u8];
+    }
+    unsafe extern "C++" {
+        include!("demo/include/blobstore.h");
+        type BlobstoreClient;
+        fn new_blobstore_client() -> UniquePtr<BlobstoreClient>;
+        fn put(self: Pin<&mut BlobstoreClient>, parts: &mut MultiBuf) -> u64;
+        fn tag(self: &BlobstoreClient, blobid: u64, tag: &str);
+    }
+}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (nodes, _) = parser.parse_file("src/main.rs", source);
+    let extra = |name: &str| {
+        nodes
+            .iter()
+            .find(|node| node.name == name)
+            .unwrap_or_else(|| panic!("no node {name}"))
+            .extra
+            .clone()
+    };
+    assert_eq!(
+        extra("next_chunk").get("ffi_export").cloned(),
+        Some(serde_json::json!({"abi": "cxx", "kind": "function", "name": "next_chunk"}))
+    );
+    assert_eq!(
+        extra("new_blobstore_client").get("ffi_import").cloned(),
+        Some(serde_json::json!({"abi": "cxx", "name": "new_blobstore_client"}))
+    );
+    assert_eq!(
+        extra("put").get("ffi_import").cloned(),
+        Some(serde_json::json!({"abi": "cxx", "name": "put", "class": "BlobstoreClient"}))
+    );
+    assert_eq!(
+        extra("tag").get("ffi_import").cloned(),
+        Some(serde_json::json!({"abi": "cxx", "name": "tag", "class": "BlobstoreClient"}))
+    );
+}

@@ -756,3 +756,72 @@ def test_rust_extern_c_declarations_reach_the_c_they_link(tmp_path: Path) -> Non
         assert "sys/src/lib.rs::total" in impacted
     finally:
         store.close()
+
+
+def test_cxx_bridge_links_rust_and_cpp_both_ways(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        {
+            "demo/Cargo.toml": '[package]\nname = "demo"\nversion = "0.1.0"\n',
+            "demo/build.rs": (
+                "fn main() {\n"
+                '    cxx_build::bridge("src/main.rs")\n'
+                '        .file("src/blobstore.cc")\n'
+                '        .compile("cxxbridge-demo");\n'
+                "}\n"
+            ),
+            "demo/src/main.rs": (
+                '#[cxx::bridge(namespace = "org::blobstore")]\n'
+                "mod ffi {\n"
+                '    extern "Rust" {\n'
+                "        type MultiBuf;\n"
+                "        fn next_chunk(buf: &mut MultiBuf) -> &[u8];\n"
+                "    }\n"
+                '    unsafe extern "C++" {\n'
+                '        include!("demo/include/blobstore.h");\n'
+                "        type BlobstoreClient;\n"
+                "        fn new_blobstore_client() -> UniquePtr<BlobstoreClient>;\n"
+                "        fn put(self: Pin<&mut BlobstoreClient>, parts: &mut MultiBuf) -> u64;\n"
+                "    }\n"
+                "}\n\n"
+                "pub struct MultiBuf { chunks: Vec<Vec<u8>>, pos: usize }\n\n"
+                "pub fn next_chunk(buf: &mut MultiBuf) -> &[u8] {\n"
+                "    let next = buf.chunks.get(buf.pos);\n    buf.pos += 1;\n"
+                "    next.map_or(&[], Vec::as_slice)\n}\n\n"
+                "fn main() {\n    let client = ffi::new_blobstore_client();\n}\n"
+            ),
+            "demo/src/blobstore.cc": (
+                '#include "demo/include/blobstore.h"\n'
+                "namespace org {\nnamespace blobstore {\n"
+                "std::unique_ptr<BlobstoreClient> new_blobstore_client() {\n"
+                "  return std::make_unique<BlobstoreClient>();\n}\n"
+                "uint64_t BlobstoreClient::put(MultiBuf &buf) const {\n"
+                "  while (true) {\n    auto chunk = next_chunk(buf);\n"
+                "    if (chunk.size() == 0) break;\n  }\n  return 0;\n}\n"
+                "}\n}\n"
+            ),
+            # Same-named C++ outside the crate's cxx_build sources.
+            "other/impl.cc": "int new_blobstore_client() { return 0; }\n",
+        },
+    )
+    store = _build(tmp_path)
+    try:
+        assert _native_bridges(store) == {
+            (
+                "demo/src/main.rs::ffi.new_blobstore_client",
+                "demo/src/blobstore.cc::new_blobstore_client",
+                "calls_native_function",
+            ),
+            (
+                "demo/src/main.rs::ffi.put",
+                "demo/src/blobstore.cc::BlobstoreClient.put",
+                "calls_native_function",
+            ),
+            (
+                "demo/src/blobstore.cc::BlobstoreClient.put",
+                "demo/src/main.rs::next_chunk",
+                "calls_native_function",
+            ),
+        }
+    finally:
+        store.close()

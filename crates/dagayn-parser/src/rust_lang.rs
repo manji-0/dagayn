@@ -172,8 +172,11 @@ fn rust_walk_children(
                     };
                     if let Some(block) = rust_enclosing_foreign_block(child) {
                         // Declared in `extern "C" { ... }`: implemented on
-                        // the other side, never exported from here.
-                        if let Some(import) =
+                        // the other side, never exported from here. A cxx
+                        // `extern "Rust"` block declares what C++ may call.
+                        if let Some(export) = rust_cxx_rust_export(block, context.source, &name) {
+                            extra["ffi_export"] = export;
+                        } else if let Some(import) =
                             rust_foreign_ffi_import(child, block, context.source, &name)
                         {
                             extra["ffi_import"] = import;
@@ -675,6 +678,9 @@ fn rust_c_ffi_import(
         return None;
     }
     let abi = rust_extern_abi(block, source);
+    if abi.as_deref() == Some("C++") {
+        return rust_cxx_import(node, block, source, name);
+    }
     if !matches!(
         abi.as_deref(),
         None | Some("C" | "C-unwind" | "system" | "system-unwind" | "cdecl" | "stdcall")
@@ -695,6 +701,56 @@ fn rust_c_ffi_import(
         import["library"] = json!(library);
     }
     Some(import)
+}
+
+/// True when the `extern` block sits in a `#[cxx::bridge] mod`.
+fn rust_in_cxx_bridge(block: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    block
+        .parent()
+        .filter(|parent| parent.kind() == "declaration_list")
+        .and_then(|list| list.parent())
+        .filter(|item| item.kind() == "mod_item")
+        .is_some_and(|module| {
+            rust_leading_attribute_texts(module, source)
+                .iter()
+                .any(|attr| rust_attr_is(attr, "bridge") && attr.contains("cxx::bridge"))
+        })
+}
+
+/// `unsafe extern "C++" { fn f(); fn m(self: Pin<&mut T>); }` in a
+/// `#[cxx::bridge]`: the C++ function `f`, or the method `T::m`
+/// (`abi: "cxx"`, with `class` for a method).
+fn rust_cxx_import(
+    node: tree_sitter::Node<'_>,
+    block: tree_sitter::Node<'_>,
+    source: &[u8],
+    name: &str,
+) -> Option<serde_json::Value> {
+    if !rust_in_cxx_bridge(block, source) {
+        return None;
+    }
+    let mut import = json!({"abi": "cxx", "name": name});
+    let params = rust_child_text(node, source, "parameters").unwrap_or_default();
+    if let Some(receiver) = CXX_RECEIVER_RE.captures(&params) {
+        import["class"] = json!(receiver[1].to_string());
+    }
+    Some(import)
+}
+
+static CXX_RECEIVER_RE: LazyLock<Regex> = LazyLock::new(|| {
+    // `self: &T`, `self: &mut T`, `self: Pin<&mut T>`
+    Regex::new(r"^\(\s*self\s*:\s*(?:Pin\s*<\s*)?&\s*(?:mut\s+)?(\w+)").expect("valid regex")
+});
+
+/// A declaration in a cxx `extern "Rust"` block: the Rust function of that
+/// name is exported to C++ (`abi: "cxx"`).
+fn rust_cxx_rust_export(
+    block: tree_sitter::Node<'_>,
+    source: &[u8],
+    name: &str,
+) -> Option<serde_json::Value> {
+    (rust_extern_abi(block, source).as_deref() == Some("Rust") && rust_in_cxx_bridge(block, source))
+        .then(|| json!({"abi": "cxx", "kind": "function", "name": name}))
 }
 
 /// The ABI string of `extern "C" { ... }`; `None` for a bare `extern`.
