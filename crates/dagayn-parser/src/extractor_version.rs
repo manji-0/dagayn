@@ -63,8 +63,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 1: functions record WebAssembly exports (`//go:wasmexport`,
         // `//export`, `js.Global().Set("name", js.FuncOf(f))`).
         // 2: `//go:wasmimport module name` records `ffi_import`.
+        // 3: `C.f(...)` calls record `receiver: "C"`, and the File node
+        // records the cgo preamble's `-lNAME` libraries (`cgo_libraries`).
         extractor: "go",
-        version: 2,
+        version: 3,
         languages: &["go"],
     },
     ExtractorVersion {

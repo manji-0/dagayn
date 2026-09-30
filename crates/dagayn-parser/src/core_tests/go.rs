@@ -133,3 +133,39 @@ fn records_go_wasmimport_declarations() {
         Some(serde_json::json!({"abi": "wasmimport", "module": "env", "name": "log_value"}))
     );
 }
+
+#[test]
+fn records_cgo_calls_and_preamble_libraries() {
+    let source = br#"package fastsum
+
+/*
+#cgo CFLAGS: -O2
+#cgo linux LDFLAGS: -lmathx -L${SRCDIR}/lib -lm
+#include "sum.h"
+*/
+import "C"
+
+func Total(n int) float64 {
+	return float64(C.fast_sum(C.int(n)))
+}
+
+func Local() int { return helper() }
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (nodes, edges) = parser.parse_file("fastsum/sum.go", source);
+    assert_eq!(
+        nodes[0].extra.get("cgo_libraries").cloned(),
+        Some(serde_json::json!(["mathx", "m"]))
+    );
+    let receiver = |target: &str| {
+        edges
+            .iter()
+            .find(|edge| edge.kind == "CALLS" && edge.target == target)
+            .unwrap_or_else(|| panic!("no call {target}"))
+            .extra
+            .get("receiver")
+            .cloned()
+    };
+    assert_eq!(receiver("fast_sum"), Some(serde_json::json!("C")));
+    assert_eq!(receiver("helper"), None);
+}

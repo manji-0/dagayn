@@ -825,3 +825,44 @@ def test_cxx_bridge_links_rust_and_cpp_both_ways(tmp_path: Path) -> None:
         }
     finally:
         store.close()
+
+
+def test_cgo_calls_reach_c_and_c_calls_reach_go_exports(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        {
+            "fastsum/sum.go": (
+                "package fastsum\n\n"
+                '/*\n#cgo LDFLAGS: -lmathx\n#include "sum.h"\n*/\n'
+                'import "C"\n\n'
+                "func Total(n int) float64 {\n"
+                "\treturn float64(C.fast_sum(C.int(n))) + float64(C.scale(1))\n}\n\n"
+                "//export OnProgress\n"
+                "func OnProgress(done C.int) {}\n"
+            ),
+            "fastsum/sum.c": (
+                "void OnProgress(int done);\n"
+                "double fast_sum(int n) {\n  OnProgress(n);\n  return 0;\n}\n"
+            ),
+            # Same symbol elsewhere: the package directory wins.
+            "other/sum.c": "double fast_sum(int n) { return 1; }\n",
+            # `scale` is found through `-lmathx`.
+            "mathx/CMakeLists.txt": "add_library(mathx SHARED scale.c)\n",
+            "mathx/scale.c": "double scale(double x) { return x; }\n",
+            "legacy/scale.c": "double scale(double x) { return -x; }\n",
+        },
+    )
+    store = _build(tmp_path)
+    try:
+        bridges = {
+            (source, target)
+            for source, target, role in _native_bridges(store)
+            if role == "calls_native_function"
+        }
+        assert bridges == {
+            ("fastsum/sum.go::Total", "fastsum/sum.c::fast_sum"),
+            ("fastsum/sum.go::Total", "mathx/scale.c::scale"),
+            ("fastsum/sum.c::fast_sum", "fastsum/sum.go::OnProgress"),
+        }
+    finally:
+        store.close()

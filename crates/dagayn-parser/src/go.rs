@@ -33,6 +33,10 @@ pub(super) fn parse_go_with_parser(
         let root = tree.root_node();
         go_walk_children(root, source, &file_path, None, &mut nodes, &mut edges);
         go_apply_js_global_exports(root, source, &mut nodes);
+        let libraries = go_cgo_libraries(root, source);
+        if !libraries.is_empty() {
+            nodes[0].extra["cgo_libraries"] = json!(libraries);
+        }
         let edges = resolve_rust_call_targets(&nodes, edges, &file_path);
         return (nodes, edges);
     }
@@ -215,6 +219,40 @@ fn go_emit_function(
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
+}
+
+/// Libraries the cgo preamble links: `-lNAME` in `#cgo ... LDFLAGS:` lines of
+/// the comment right above `import "C"`.
+fn go_cgo_libraries(root: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
+    let mut libraries = Vec::new();
+    let mut cursor = root.walk();
+    for child in root.children(&mut cursor) {
+        if child.kind() != "import_declaration" || !node_text(child, source).contains("\"C\"") {
+            continue;
+        }
+        let mut current = child.prev_sibling();
+        while let Some(comment) = current.filter(|sibling| sibling.kind() == "comment") {
+            for line in node_text(comment, source).lines() {
+                let Some((directive, flags)) = line.split_once(':') else {
+                    continue;
+                };
+                let directive = directive.trim().trim_start_matches("//").trim();
+                if !(directive.starts_with("#cgo") && directive.ends_with("LDFLAGS")) {
+                    continue;
+                }
+                for flag in flags.split_whitespace() {
+                    if let Some(name) = flag.strip_prefix("-l")
+                        && !name.is_empty()
+                        && !libraries.iter().any(|known| known == name)
+                    {
+                        libraries.push(name.to_string());
+                    }
+                }
+            }
+            current = comment.prev_sibling();
+        }
+    }
+    libraries
 }
 
 /// `ffi_export` / `ffi_import` from the directive above a function, if any.
@@ -415,7 +453,12 @@ fn go_emit_call(
         target: call_name,
         file_path: file_path.clone(),
         line: node.start_position().row as i64 + 1,
-        extra: json!({}),
+        // `C.fast_sum(...)` calls C through cgo.
+        extra: if signature.starts_with("C.") {
+            json!({"receiver": "C"})
+        } else {
+            json!({})
+        },
     });
     if let Some(edge) = go_bridge_edge(node, source, file_path, &caller, &signature) {
         edges.push(edge);

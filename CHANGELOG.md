@@ -119,6 +119,16 @@ All notable changes to `dagayn` are documented here.
   function or `T::method` of that name, and C++ calls to an `extern "Rust"`
   name to the crate's Rust function.
 
+- Go calling C through cgo, and C calling Go back, are linked. The Go
+  extractor records `receiver: "C"` on `C.f(...)` calls and, on the File
+  node, the libraries the cgo preamble links (`#cgo ... LDFLAGS: -lNAME`,
+  `cgo_libraries`); it moves to version 3. `native_bindings` binds
+  `C.f(...)` to the C-ABI function `f`, looking first among the C files of
+  the package directory (which cgo compiles), then the sources of the
+  `-l` libraries, then the whole repository, requiring exactly one match in
+  the first scope that has any; and binds a call in a C file of the package
+  directory to the Go function a `//export` declares.
+
 ### Changed
 
 - A shared-library loader outside Python (Java `System.loadLibrary`, ...)
