@@ -59,7 +59,8 @@ fn go_walk_children(
                 go_emit_imports(child, source, file_path, edges);
             }
             "type_declaration" => {
-                go_emit_types(child, source, file_path, nodes, edges);
+                // A type declared in a function body is local to it.
+                go_emit_types(child, source, file_path, enclosing_func, nodes, edges);
             }
             "function_declaration" | "method_declaration" => {
                 // `func _()` is the blank identifier: nothing can refer to it.
@@ -121,6 +122,7 @@ fn go_emit_types(
     node: tree_sitter::Node<'_>,
     source: &[u8],
     file_path: &FilePath,
+    parent: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
@@ -134,7 +136,7 @@ fn go_emit_types(
         else {
             continue;
         };
-        let qualified = qualify(file_path, &name, None);
+        let qualified = qualify(file_path, &name, parent);
         let extra = go_type_extra(child, source);
         nodes.push(ParsedNode {
             kind: crate::core::types::NodeKind::Class,
@@ -143,7 +145,7 @@ fn go_emit_types(
             line_start: child.start_position().row as i64 + 1,
             line_end: child.end_position().row as i64 + 1,
             language: "go".to_string(),
-            parent_name: None,
+            parent_name: parent.map(str::to_string),
             params: None,
             return_type: None,
             modifiers: None,
@@ -152,7 +154,9 @@ fn go_emit_types(
         });
         edges.push(ParsedEdge {
             kind: crate::core::types::EdgeKind::Contains,
-            source: file_path.to_string(),
+            source: parent
+                .map(|parent| qualify(file_path, parent, None))
+                .unwrap_or_else(|| file_path.to_string()),
             target: qualified,
             file_path: file_path.clone(),
             line: child.start_position().row as i64 + 1,

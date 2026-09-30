@@ -83,12 +83,16 @@ fn rust_walk_children(
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
+    // Items inside a function body are local to it: `fn a() { fn helper() }`
+    // declares `a.helper`, so two functions' `helper`s stay apart.
+    let local_owner = enclosing_func.map(|func| rust_scope_join(enclosing_class, func));
+    let owner = local_owner.as_deref().or(enclosing_class);
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         match child.kind() {
             "mod_item" if child.child_by_field_name("body").is_some() => {
                 if let Some(name) = rust_identifier_child(child, context.source) {
-                    let path = rust_scope_join(enclosing_class, &name);
+                    let path = rust_scope_join(owner, &name);
                     nodes.push(ParsedNode {
                         kind: crate::core::types::NodeKind::Class,
                         name: name.clone(),
@@ -96,7 +100,7 @@ fn rust_walk_children(
                         line_start: child.start_position().row as i64 + 1,
                         line_end: child.end_position().row as i64 + 1,
                         language: "rust".to_string(),
-                        parent_name: enclosing_class.map(str::to_string),
+                        parent_name: owner.map(str::to_string),
                         params: None,
                         return_type: None,
                         modifiers: None,
@@ -105,8 +109,8 @@ fn rust_walk_children(
                     });
                     edges.push(ParsedEdge {
                         kind: crate::core::types::EdgeKind::Contains,
-                        source: rust_container(&context.file_path, enclosing_class),
-                        target: qualify(&context.file_path, &name, enclosing_class),
+                        source: rust_container(&context.file_path, owner),
+                        target: qualify(&context.file_path, &name, owner),
                         file_path: context.file_path.clone(),
                         line: child.start_position().row as i64 + 1,
                         extra: json!({}),
@@ -117,7 +121,7 @@ fn rust_walk_children(
             }
             "struct_item" | "enum_item" | "trait_item" | "type_item" => {
                 if let Some(name) = rust_type_name(child, context.source) {
-                    let qualified = qualify(&context.file_path, &name, enclosing_class);
+                    let qualified = qualify(&context.file_path, &name, owner);
                     let kind = if child.kind() == "type_item" {
                         crate::core::types::NodeKind::Type
                     } else {
@@ -130,7 +134,7 @@ fn rust_walk_children(
                         line_start: child.start_position().row as i64 + 1,
                         line_end: child.end_position().row as i64 + 1,
                         language: "rust".to_string(),
-                        parent_name: enclosing_class.map(str::to_string),
+                        parent_name: owner.map(str::to_string),
                         params: None,
                         return_type: None,
                         modifiers: rust_type_modifiers(child, context.source),
@@ -139,7 +143,7 @@ fn rust_walk_children(
                     });
                     edges.push(ParsedEdge {
                         kind: crate::core::types::EdgeKind::Contains,
-                        source: rust_container(&context.file_path, enclosing_class),
+                        source: rust_container(&context.file_path, owner),
                         target: qualified,
                         file_path: context.file_path.clone(),
                         line: child.start_position().row as i64 + 1,
@@ -149,18 +153,18 @@ fn rust_walk_children(
                         child,
                         context.source,
                         &context.file_path,
-                        &qualify(&context.file_path, &name, enclosing_class),
+                        &qualify(&context.file_path, &name, owner),
                         context.defined_names,
                         Some(&name),
                         edges,
                     );
-                    let path = rust_scope_join(enclosing_class, &name);
+                    let path = rust_scope_join(owner, &name);
                     rust_walk_children(child, context, Some(&path), None, nodes, edges);
                     continue;
                 }
             }
             "impl_item" if let Some(type_name) = rust_impl_type_name(child, context.source) => {
-                let type_name = rust_scope_join(enclosing_class, &type_name);
+                let type_name = rust_scope_join(owner, &type_name);
                 if let Some(trait_name) = rust_impl_trait_name(child, context.source) {
                     edges.push(ParsedEdge {
                         kind: crate::core::types::EdgeKind::Implements,
@@ -179,7 +183,7 @@ fn rust_walk_children(
             }
             "function_item" | "function_signature_item" => {
                 if let Some(name) = rust_identifier_child(child, context.source) {
-                    let qualified = qualify(&context.file_path, &name, enclosing_class);
+                    let qualified = qualify(&context.file_path, &name, owner);
                     let params = rust_child_text(child, context.source, "parameters");
                     let is_test =
                         is_test_function(&name, &context.file_path, child, context.source);
@@ -219,14 +223,14 @@ fn rust_walk_children(
                         line_start: child.start_position().row as i64 + 1,
                         line_end: child.end_position().row as i64 + 1,
                         language: "rust".to_string(),
-                        parent_name: enclosing_class.map(str::to_string),
+                        parent_name: owner.map(str::to_string),
                         params,
                         return_type: None,
                         modifiers: None,
                         is_test,
                         extra,
                     });
-                    let container = rust_container(&context.file_path, enclosing_class);
+                    let container = rust_container(&context.file_path, owner);
                     edges.push(ParsedEdge {
                         kind: crate::core::types::EdgeKind::Contains,
                         source: container,
@@ -239,19 +243,21 @@ fn rust_walk_children(
                         child,
                         context.source,
                         &context.file_path,
-                        &qualify(&context.file_path, &name, enclosing_class),
+                        &qualify(&context.file_path, &name, owner),
                         context.defined_names,
                         Some(&name),
                         edges,
                     );
                     let snapshot = context.bindings.borrow().snapshot();
-                    if let Some(class_name) = enclosing_class {
+                    if local_owner.is_none()
+                        && let Some(class_name) = enclosing_class
+                    {
                         context
                             .bindings
                             .borrow_mut()
                             .bind_implicit_receivers(class_name);
                     }
-                    rust_walk_children(child, context, enclosing_class, Some(&name), nodes, edges);
+                    rust_walk_children(child, context, owner, Some(&name), nodes, edges);
                     context.bindings.borrow_mut().restore(snapshot);
                     continue;
                 }

@@ -97,6 +97,7 @@ fn lua_walk_children(
                     context,
                     enclosing_class,
                     enclosing_func,
+                    None,
                     nodes,
                     edges,
                 ) =>
@@ -110,8 +111,14 @@ fn lua_walk_children(
                     continue;
                 }
                 if let Some(name) = lua_direct_child_text(child, context.source, &["identifier"]) {
-                    lua_emit_function(child, context, &name, enclosing_class, nodes, edges);
-                    lua_walk_children(child, context, enclosing_class, Some(&name), nodes, edges);
+                    // `local function f` in a function body is local to it.
+                    let is_local = lua_direct_child(child, &["local"]).is_some();
+                    let local_parent = is_local
+                        .then(|| lua_local_parent(enclosing_class, enclosing_func))
+                        .flatten();
+                    let parent = local_parent.as_deref().or(enclosing_class);
+                    lua_emit_function(child, context, &name, parent, nodes, edges);
+                    lua_walk_children(child, context, parent, Some(&name), nodes, edges);
                     continue;
                 }
             }
@@ -180,14 +187,26 @@ fn lua_handle_variable_declaration(
     }
 
     let _ = var_name;
+    // `local f = function` in a function body is local to it.
+    let local_parent = lua_local_parent(enclosing_class, enclosing_func);
     lua_emit_assigned_functions(
         assign,
         context,
         enclosing_class,
         enclosing_func,
+        local_parent.as_deref(),
         nodes,
         edges,
     )
+}
+
+/// The parent of a declaration local to the function being walked.
+fn lua_local_parent(enclosing_class: Option<&str>, enclosing_func: Option<&str>) -> Option<String> {
+    let func = enclosing_func?;
+    Some(match enclosing_class {
+        Some(class) => format!("{class}.{func}"),
+        None => func.to_string(),
+    })
 }
 
 /// Emits functions bound by assignment: `f = function`, `M.a.h = function`,
@@ -198,6 +217,7 @@ fn lua_emit_assigned_functions(
     context: &LuaParseContext<'_>,
     enclosing_class: Option<&str>,
     enclosing_func: Option<&str>,
+    local_parent: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) -> bool {
@@ -223,7 +243,7 @@ fn lua_emit_assigned_functions(
         let binding = target.and_then(|target| lua_binding_path(target, context.source));
         match (expr.kind(), binding) {
             ("function_definition", Some((parent, name))) => {
-                let parent = parent.as_deref().or(enclosing_class);
+                let parent = parent.as_deref().or(local_parent).or(enclosing_class);
                 lua_emit_function(*expr, context, &name, parent, nodes, edges);
                 lua_walk_children(*expr, context, parent, Some(&name), nodes, edges);
                 bound = true;
@@ -560,13 +580,14 @@ fn resolve_lua_call_targets(
             let dotted = edge.target.contains('.');
             match by_name.get(name.as_str()) {
                 Some(candidates) if !dotted => {
-                    let caller_table = edge
-                        .source
-                        .strip_prefix(&prefix)
-                        .and_then(|rest| rest.rsplit_once('.').map(|(table, _)| table));
+                    let caller = edge.source.strip_prefix(&prefix);
+                    let caller_table =
+                        caller.and_then(|rest| rest.rsplit_once('.').map(|(table, _)| table));
+                    // A `local function` of the caller shadows every other.
                     let chosen = candidates
                         .iter()
-                        .find(|(parent, _)| parent.is_none())
+                        .find(|(parent, _)| caller.is_some() && *parent == caller)
+                        .or_else(|| candidates.iter().find(|(parent, _)| parent.is_none()))
                         .or_else(|| {
                             candidates
                                 .iter()

@@ -70,6 +70,13 @@ fn kotlin_walk_children(
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
+    // Declarations inside a function body are local to it: `a`'s
+    // `helper` is `a.helper`, apart from `b.helper`.
+    let local_owner = enclosing_func.map(|func| match enclosing_class {
+        Some(class) => format!("{class}.{func}"),
+        None => func.to_string(),
+    });
+    let owner = local_owner.as_deref().or(enclosing_class);
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         match child.kind() {
@@ -78,16 +85,8 @@ fn kotlin_walk_children(
             }
             "class_declaration" | "object_declaration" => {
                 if let Some(name) = kotlin_direct_child_text(child, source, &["type_identifier"]) {
-                    kotlin_emit_type(
-                        child,
-                        source,
-                        file_path,
-                        &name,
-                        enclosing_class,
-                        nodes,
-                        edges,
-                    );
-                    let path = match enclosing_class {
+                    kotlin_emit_type(child, source, file_path, &name, owner, nodes, edges);
+                    let path = match owner {
                         Some(parent) => format!("{parent}.{name}"),
                         None => name.clone(),
                     };
@@ -119,20 +118,12 @@ fn kotlin_walk_children(
             "function_declaration" => {
                 if let Some(name) = kotlin_direct_child_text(child, source, &["simple_identifier"])
                 {
-                    kotlin_emit_function(
-                        child,
-                        source,
-                        file_path,
-                        &name,
-                        enclosing_class,
-                        nodes,
-                        edges,
-                    );
+                    kotlin_emit_function(child, source, file_path, &name, owner, nodes, edges);
                     kotlin_walk_children(
                         child,
                         source,
                         file_path,
-                        enclosing_class,
+                        owner,
                         Some(&name),
                         nodes,
                         edges,

@@ -276,6 +276,13 @@ fn zig_handle_var_decl(
         return false;
     };
 
+    // A type declared in a function body is local to it: `a`'s `const S =
+    // struct` is `a.S`, apart from `b.S`.
+    let local = scope.func.as_ref().map(|func| Scope {
+        container: Some(scope.child_path(func)),
+        func: None,
+    });
+    let scope = local.as_ref().unwrap_or(scope);
     let path = scope.child_path(&name);
     nodes.push(ParsedNode {
         kind: crate::core::types::NodeKind::Class,

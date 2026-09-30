@@ -16,6 +16,7 @@ mod javascript_sfc;
 mod javascript_test_detection;
 mod julia;
 mod kotlin;
+mod local_scopes;
 mod lua;
 mod markdown;
 mod namespaces;

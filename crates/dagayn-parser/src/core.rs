@@ -907,6 +907,17 @@ fn resolve_same_file_call_target(
     }
     let name = same_file_unqualified_name(file_path, target)?;
     let candidates = symbols.get(name)?;
+    // A declaration local to the caller (`def b(): def helper()`) shadows
+    // every other `helper` in the file.
+    if let Some(own) = caller
+        .strip_prefix(file_path)
+        .and_then(|rest| rest.strip_prefix("::"))
+        && let Some((_, qualified)) = candidates
+            .iter()
+            .find(|(parent, _)| parent.as_deref() == Some(own))
+    {
+        return Some(qualified.clone());
+    }
     let top_level = candidates.iter().find(|(parent, _)| parent.is_none());
     let methods = candidates
         .iter()

@@ -86,8 +86,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // `loads_shared_library`.
         // 3: WebAssembly hosts (wasmtime / wasmer) emit `loads_wasm_module`
         // and `calls_wasm_export`.
+        // 4: a call binds to a function nested in the caller before any other
+        // of that name (`b`'s `helper()` bound to `a.helper`).
         extractor: "python",
-        version: 3,
+        version: 4,
         languages: &["python", "notebook"],
     },
     ExtractorVersion {
@@ -114,6 +116,7 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // `calls_component_export`.
         // 10: a member of a type declared in another file is CONTAINED by the
         // File node, not by a `file::Type` node that does not exist.
+        // Items in a function body are `fn.item`.
         extractor: "rust",
         version: 10,
         languages: &["rust"],
@@ -129,6 +132,7 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // and `calls_wasm_export`.
         // 5: a member of a type declared in another file is CONTAINED by the
         // File node, not by a `file::Type` node that does not exist.
+        // Types in a function body are `fn.Type`.
         extractor: "go",
         version: 5,
         languages: &["go"],
@@ -160,7 +164,8 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
     ExtractorVersion {
         // 1: `native` methods record `ffi_import` with their JNI symbol.
         // 2: base classes and interfaces are named without type arguments
-        // (`JpaRepository`, not `JpaRepository<User, Integer>`).
+        // (`JpaRepository`, not `JpaRepository<User, Integer>`); a local
+        // class is `Outer.method.Local`.
         extractor: "java",
         version: 2,
         languages: &["java"],
@@ -198,6 +203,7 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 1: LuaJIT `ffi.load("lib")` emits `loads_shared_library`.
         // 2: a member of a type declared in another file is CONTAINED by the
         // File node, not by a `file::Type` node that does not exist.
+        // `local function f` in a function body is `outer.f`.
         extractor: "lua",
         version: 2,
         languages: &["lua"],
@@ -206,13 +212,15 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 1: `DynamicLibrary.open("lib")` emits `loads_shared_library`, and
         // `@Native` externals record `ffi_import`.
         // 2: type arguments are no longer bases, and `implements` emits
-        // IMPLEMENTS (role `implements`), `with` INHERITS (role `mixin`).
+        // IMPLEMENTS (role `implements`), `with` INHERITS (role `mixin`);
+        // local functions are `outer.f`.
         extractor: "dart",
         version: 2,
         languages: &["dart"],
     },
     ExtractorVersion {
-        // 1: type arguments of a base (`Q<Int>`) are no longer bases.
+        // 1: type arguments of a base (`Q<Int>`) are no longer bases, and
+        // nested functions are `outer.f`.
         extractor: "swift",
         version: 1,
         languages: &["swift"],
@@ -235,8 +243,9 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 1: `export fn` records `ffi_export`, `extern fn` records
         // `ffi_import`, and calls through an `@cImport` constant record
         // `c_import`.
+        // 2: a type declared in a function body is `fn.Type`, local to it.
         extractor: "zig",
-        version: 1,
+        version: 2,
         languages: &["zig"],
     },
     ExtractorVersion {

@@ -63,6 +63,13 @@ fn swift_walk_children(
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
+    // Declarations inside a function body are local to it: `a`'s
+    // `helper` is `a.helper`, apart from `b.helper`.
+    let local_owner = enclosing_func.map(|func| match enclosing_class {
+        Some(class) => format!("{class}.{func}"),
+        None => func.to_string(),
+    });
+    let owner = local_owner.as_deref().or(enclosing_class);
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         match child.kind() {
@@ -83,7 +90,7 @@ fn swift_walk_children(
                 if let Some(name) = swift_type_name(child, context.source) {
                     // Extensions reopen an existing type, so they stay unscoped.
                     let is_extension = swift_type_kind(child, context.source) == "extension";
-                    let parent = if is_extension { None } else { enclosing_class };
+                    let parent = if is_extension { None } else { owner };
                     swift_emit_class(child, context, &name, parent, nodes, edges);
                     let path = match parent {
                         Some(parent) => format!("{parent}.{name}"),
@@ -95,8 +102,8 @@ fn swift_walk_children(
             }
             "function_declaration" | "protocol_function_declaration" => {
                 if let Some(name) = swift_function_name(child, context.source) {
-                    swift_emit_function(child, context, &name, enclosing_class, nodes, edges);
-                    swift_walk_children(child, context, enclosing_class, Some(&name), nodes, edges);
+                    swift_emit_function(child, context, &name, owner, nodes, edges);
+                    swift_walk_children(child, context, owner, Some(&name), nodes, edges);
                     continue;
                 }
             }

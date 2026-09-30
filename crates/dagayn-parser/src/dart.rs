@@ -148,6 +148,13 @@ fn dart_walk_children(
     // signature's name has to carry across to the following `function_body`.
     // Without it every call in the body was attributed to the file.
     let mut pending_func: Option<(String, usize)> = None;
+    // Declarations inside a function body are local to it: `a`'s `helper`
+    // is `a.helper`, apart from `b.helper`.
+    let local_owner = enclosing_func.map(|func| match enclosing_class {
+        Some(class) => format!("{class}.{func}"),
+        None => func.to_string(),
+    });
+    let owner = local_owner.as_deref().or(enclosing_class);
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         match child.kind() {
@@ -159,16 +166,8 @@ fn dart_walk_children(
             | "enum_declaration"
             | "extension_declaration" => {
                 if let Some(name) = dart_direct_child_text(child, source, &["identifier"]) {
-                    dart_emit_type(
-                        child,
-                        source,
-                        file_path,
-                        &name,
-                        enclosing_class,
-                        nodes,
-                        edges,
-                    );
-                    let path = match enclosing_class {
+                    dart_emit_type(child, source, file_path, &name, owner, nodes, edges);
+                    let path = match owner {
                         Some(parent) => format!("{parent}.{name}"),
                         None => name.clone(),
                     };
@@ -179,15 +178,7 @@ fn dart_walk_children(
             "function_signature" | "method_signature" | "declaration" => {
                 if let Some((signature, name)) = dart_signature_name(child, source, enclosing_class)
                 {
-                    dart_emit_function(
-                        signature,
-                        source,
-                        file_path,
-                        &name,
-                        enclosing_class,
-                        nodes,
-                        edges,
-                    );
+                    dart_emit_function(signature, source, file_path, &name, owner, nodes, edges);
                     pending_func = Some((name, nodes.len() - 1));
                     continue;
                 }
@@ -198,16 +189,13 @@ fn dart_walk_children(
                     // The node spanned the signature line only until now.
                     nodes[*index].line_end = child.end_position().row as i64 + 1;
                 }
-                let func = current.as_ref().map(|(name, _)| name.as_str());
-                dart_walk_children(
-                    child,
-                    source,
-                    file_path,
-                    enclosing_class,
-                    func.or(enclosing_func),
-                    nodes,
-                    edges,
-                );
+                // The body of a function declared here runs under the owner
+                // its node was emitted with.
+                let (class, func) = match current.as_ref() {
+                    Some((name, _)) => (owner, Some(name.as_str())),
+                    None => (enclosing_class, enclosing_func),
+                };
+                dart_walk_children(child, source, file_path, class, func, nodes, edges);
                 continue;
             }
             _ => {}
