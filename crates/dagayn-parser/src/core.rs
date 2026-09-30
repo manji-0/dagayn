@@ -81,7 +81,7 @@ mod parsers;
 mod perl;
 #[path = "php.rs"]
 mod php;
-#[path = "python.rs"]
+#[path = "python/mod.rs"]
 mod python;
 #[path = "r.rs"]
 mod r;
