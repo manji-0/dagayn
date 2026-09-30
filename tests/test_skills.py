@@ -10,23 +10,11 @@ from unittest.mock import patch
 
 import yaml
 
-import dagayn.skills as _skills_module
+import dagayn.skills.instructions as _instructions_module
+import dagayn.skills.skill_files as _skill_files_module
 from dagayn.hook_guard import DEFAULT_HOOK_BUDGET_SECONDS
 from dagayn.skills import (
-    _CLAUDE_MD_SECTION,
-    _CLAUDE_MD_SECTION_HEADING,
-    _CLAUDE_MD_SECTION_MARKER,
-    _MARKDOWN_POLICY_HEADING,
-    _MARKDOWN_POLICY_MARKER,
     PLATFORMS,
-    _cursor_hook_scripts,
-    _dagayn_hook_scripts,
-    _detect_serve_command,
-    _has_instruction_section,
-    _in_poetry_project,
-    _in_uv_project,
-    _opencode_plugin_content,
-    _resolve_source_skills_dir,
     generate_cursor_hooks_config,
     generate_hermes_hooks_config,
     generate_hooks_config,
@@ -50,6 +38,23 @@ from dagayn.skills import (
     install_qoder_skills,
     normalize_platform_target,
 )
+from dagayn.skills.cursor import _cursor_hook_scripts
+from dagayn.skills.hooks import _dagayn_hook_scripts
+from dagayn.skills.instructions import (
+    _CLAUDE_MD_SECTION,
+    _CLAUDE_MD_SECTION_HEADING,
+    _CLAUDE_MD_SECTION_MARKER,
+    _MARKDOWN_POLICY_HEADING,
+    _MARKDOWN_POLICY_MARKER,
+    _has_instruction_section,
+)
+from dagayn.skills.opencode import _opencode_plugin_content
+from dagayn.skills.platforms import (
+    _detect_serve_command,
+    _in_poetry_project,
+    _in_uv_project,
+)
+from dagayn.skills.skill_files import _resolve_source_skills_dir
 
 EXPECTED_SKILLS = [
     "architecture-analysis.md",
@@ -460,9 +465,9 @@ class TestResolveSourceSkillsDir:
         # is empty so the second candidate is the only valid one.
         (tmp_path / "site-packages").mkdir(exist_ok=True)
 
-        fake_module_file = fake_pkg / "skills.py"
+        fake_module_file = fake_pkg / "skills" / "skill_files.py"
         fake_module_file.write_text("# stub", encoding="utf-8")
-        monkeypatch.setattr(_skills_module, "__file__", str(fake_module_file))
+        monkeypatch.setattr(_skill_files_module, "__file__", str(fake_module_file))
 
         resolved = _resolve_source_skills_dir()
         assert resolved == fake_pkg / "skills"
@@ -491,9 +496,9 @@ class TestResolveSourceSkillsDir:
             "---\nname: stale-skill\ndescription: y\n---\n\nbody\n", encoding="utf-8"
         )
 
-        fake_module_file = fake_pkg / "skills.py"
+        fake_module_file = fake_pkg / "skills" / "skill_files.py"
         fake_module_file.write_text("# stub", encoding="utf-8")
-        monkeypatch.setattr(_skills_module, "__file__", str(fake_module_file))
+        monkeypatch.setattr(_skill_files_module, "__file__", str(fake_module_file))
 
         resolved = _resolve_source_skills_dir()
         # Must return the package-local candidate, not the parent-sibling one.
@@ -502,20 +507,20 @@ class TestResolveSourceSkillsDir:
 
 class TestInstallGlobalSkills:
     def test_writes_to_home_claude_skills(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             result = install_global_skills()
         assert result == tmp_path / ".claude" / "skills"
         assert result.is_dir()
 
     def test_writes_both_new_skills(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             install_global_skills()
         target = tmp_path / ".claude" / "skills"
         assert (target / "writing-markdown-document.md").is_file()
         assert (target / "reading-markdown-document.md").is_file()
 
     def test_renders_embedding_context(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             install_global_skills(embedding_mode="local-embedding")
         target = tmp_path / ".claude" / "skills" / "semantic-search.md"
         content = target.read_text()
@@ -524,7 +529,7 @@ class TestInstallGlobalSkills:
         assert "mode-neutral" not in content
 
     def test_idempotent(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             install_global_skills()
             install_global_skills()
         target = tmp_path / ".claude" / "skills"
@@ -536,7 +541,7 @@ class TestInstallGlobalSkills:
         target.mkdir(parents=True)
         unrelated = target / "user-custom-skill.md"
         unrelated.write_text("# my own skill")
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             install_global_skills()
         assert unrelated.is_file()
         assert unrelated.read_text() == "# my own skill"
@@ -588,7 +593,7 @@ class TestInstallGlobalSkills:
 
 class TestInstallTreeSkills:
     def test_installs_codex_skill_tree(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             result = install_codex_skills()
 
         assert result == tmp_path / ".codex" / "skills"
@@ -596,7 +601,7 @@ class TestInstallTreeSkills:
         assert (result / "reading-markdown-document" / "SKILL.md").is_file()
 
     def test_installs_opencode_skill_tree(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             result = install_opencode_skills()
 
         assert result == tmp_path / ".config" / "opencode" / "skills"
@@ -604,7 +609,7 @@ class TestInstallTreeSkills:
         assert (result / "reading-markdown-document" / "SKILL.md").is_file()
 
     def test_installs_pi_skill_tree(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             result = install_pi_skills()
 
         assert result == tmp_path / ".pi" / "agent" / "skills"
@@ -612,7 +617,7 @@ class TestInstallTreeSkills:
         assert (result / "reading-markdown-document" / "SKILL.md").is_file()
 
     def test_installs_hermes_skill_tree(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             result = install_hermes_skills()
 
         assert result == tmp_path / ".hermes" / "skills"
@@ -620,7 +625,7 @@ class TestInstallTreeSkills:
         assert (result / "reading-markdown-document" / "SKILL.md").is_file()
 
     def test_tree_skill_install_renders_embedding_context(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             result = install_codex_skills(embedding_mode="local-embedding")
 
         target = result / "semantic-search" / "SKILL.md"
@@ -630,7 +635,7 @@ class TestInstallTreeSkills:
         assert "explicitly doing embedding-quality" in content
 
     def test_tree_skill_install_is_idempotent(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             install_codex_skills()
             result = install_codex_skills()
 
@@ -638,7 +643,7 @@ class TestInstallTreeSkills:
         assert sorted(installed) == sorted(path[:-3] for path in EXPECTED_SKILLS)
 
     def test_reinstall_updates_existing_tree_skill_content(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             result = install_codex_skills()
             target = result / "writing-markdown-document" / "SKILL.md"
             target.write_text("stale skill content", encoding="utf-8")
@@ -648,7 +653,7 @@ class TestInstallTreeSkills:
         assert "writing-markdown-document" in target.read_text(encoding="utf-8")
 
     def test_reinstall_replaces_managed_tree_skill_directory(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             result = install_codex_skills()
             managed_dir = result / "writing-markdown-document"
             stale_file = managed_dir / "removed-old-file.txt"
@@ -663,7 +668,7 @@ class TestInstallTreeSkills:
         assert user_skill.read_text(encoding="utf-8") == "user"
 
     def test_tree_skill_install_includes_markdown_code_traceability_guidance(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             result = install_codex_skills()
 
         writing = (result / "writing-markdown-document" / "SKILL.md").read_text()
@@ -992,7 +997,7 @@ class TestInstallGitHook:
 
 class TestInstallHooks:
     def test_creates_settings_file(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             settings_path = install_hooks(tmp_path)
         assert settings_path == tmp_path / ".claude" / "settings.json"
         assert settings_path.exists()
@@ -1000,7 +1005,7 @@ class TestInstallHooks:
         assert "hooks" in data
 
     def test_merges_with_existing(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             settings_dir = tmp_path / ".claude"
             settings_dir.mkdir(parents=True)
             existing = {"customSetting": True, "hooks": {"OtherHook": []}}
@@ -1017,7 +1022,7 @@ class TestInstallHooks:
         assert "OtherHook" in data["hooks"]  # pre-existing hooks must not be clobbered
 
     def test_creates_settings_backup(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             settings_dir = tmp_path / ".claude"
             settings_dir.mkdir(parents=True)
             existing = {"hooks": {"OtherHook": []}}
@@ -1031,7 +1036,7 @@ class TestInstallHooks:
         assert backup == existing
 
     def test_creates_claude_directory(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             install_hooks(tmp_path)
         assert (tmp_path / ".claude").is_dir()
 
@@ -1039,14 +1044,14 @@ class TestInstallHooks:
         repo = tmp_path / "repo"
         home = tmp_path / "home"
         repo.mkdir()
-        with patch("dagayn.skills.Path.home", return_value=home):
+        with patch("pathlib.Path.home", return_value=home):
             settings_path = install_hooks(repo)
 
         assert settings_path == home / ".claude" / "settings.json"
         assert not (repo / ".claude" / "settings.json").exists()
 
     def test_passes_extra_update_args_to_claude_hooks(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             settings_path = install_hooks(
                 tmp_path / "repo",
                 extra_update_args=["--local-embedding", "low"],
@@ -1094,7 +1099,7 @@ class TestInstallHooks:
         }
         (settings_dir / "settings.json").write_text(json.dumps(legacy))
 
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             install_hooks(tmp_path / "repo")
 
         data = json.loads((settings_dir / "settings.json").read_text())
@@ -1113,7 +1118,7 @@ class TestInstallHooks:
         assert "dagayn session prepare" in session_commands[0]
 
     def test_reinstall_updates_claude_hooks_when_extra_args_change(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             settings_path = install_hooks(tmp_path / "repo")
             install_hooks(
                 tmp_path / "repo",
@@ -1161,7 +1166,7 @@ class TestInstallCodexHooks:
         repo = tmp_path / "repo"
         home = tmp_path / "home"
         repo.mkdir()
-        with patch("dagayn.skills.Path.home", return_value=home):
+        with patch("pathlib.Path.home", return_value=home):
             hooks_path = install_codex_hooks(repo)
 
         assert hooks_path == home / ".codex" / "hooks.json"
@@ -1179,7 +1184,7 @@ class TestInstallCodexHooks:
         existing = {"hooks": {"Stop": []}, "customSetting": True}
         (codex_dir / "hooks.json").write_text(json.dumps(existing), encoding="utf-8")
 
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             install_codex_hooks(tmp_path / "repo")
 
         data = json.loads((codex_dir / "hooks.json").read_text())
@@ -1197,7 +1202,7 @@ class TestInstallCodexHooks:
             encoding="utf-8",
         )
 
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             install_codex_hooks(tmp_path / "repo")
 
         config = tomllib.loads((codex_dir / "config.toml").read_text())
@@ -1213,7 +1218,7 @@ class TestInstallCodexHooks:
             encoding="utf-8",
         )
 
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             install_codex_hooks(tmp_path / "repo")
 
         config_text = (codex_dir / "config.toml").read_text()
@@ -1222,7 +1227,7 @@ class TestInstallCodexHooks:
         assert "codex_hooks" not in config_text
 
     def test_no_duplicate_on_reinstall(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             install_codex_hooks(tmp_path / "repo")
             install_codex_hooks(tmp_path / "repo")
 
@@ -1237,7 +1242,7 @@ class TestInstallCodexHooks:
         assert (tmp_path / ".codex" / "config.toml").read_text().count("hooks = true") == 1
 
     def test_passes_extra_update_args_to_codex_hooks(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             hooks_path = install_codex_hooks(
                 tmp_path / "repo",
                 extra_update_args=["--local-embedding", "low"],
@@ -1250,7 +1255,7 @@ class TestInstallCodexHooks:
         assert "--local-embedding low" in data["hooks"]["SessionStart"][0]["hooks"][0]["command"]
 
     def test_reinstall_updates_codex_hooks_when_extra_args_change(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             hooks_path = install_codex_hooks(tmp_path / "repo")
             install_codex_hooks(
                 tmp_path / "repo",
@@ -1272,7 +1277,7 @@ class TestInstallCodexHooks:
         assert "--local-embedding low" in session_cmd
 
     def test_generate_hermes_hooks_config(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             config = generate_hermes_hooks_config()
 
         assert "post_tool_call" in config
@@ -1288,7 +1293,7 @@ class TestInstallCodexHooks:
             encoding="utf-8",
         )
 
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             hooks_path = install_hermes_hooks(extra_update_args=["--local-embedding", "low"])
 
         assert hooks_path == hermes_dir / "config.yaml"
@@ -1306,7 +1311,7 @@ class TestInstallCodexHooks:
         assert "--local-embedding low" in status.read_text()
 
     def test_reinstall_hermes_hooks_deduplicates_dagayn_entries(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             hooks_path = install_hermes_hooks()
             install_hermes_hooks()
 
@@ -1315,7 +1320,7 @@ class TestInstallCodexHooks:
         assert len([command for command in commands if "dagayn-update.sh" in command]) == 1
 
     def test_generate_pi_hooks_config(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             hooks = generate_pi_hooks_config()
 
         assert hooks[0]["event"] == "file.changed"
@@ -1330,7 +1335,7 @@ class TestInstallCodexHooks:
             encoding="utf-8",
         )
 
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             hooks_path = install_pi_hooks(extra_update_args=["--remote-embedding", "google"])
 
         assert hooks_path == hook_dir / "hooks.yaml"
@@ -1346,7 +1351,7 @@ class TestInstallCodexHooks:
         assert "--remote-embedding google" in status.read_text()
 
     def test_reinstall_pi_hooks_deduplicates_dagayn_entries(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             hooks_path = install_pi_hooks()
             install_pi_hooks()
 
@@ -1378,7 +1383,7 @@ class TestInjectClaudeMd:
         assert not _has_instruction_section("plain text", _CLAUDE_MD_SECTION_MARKER)
 
     def test_creates_section_in_new_file(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             inject_claude_md(tmp_path)
         content = (tmp_path / ".claude" / "CLAUDE.md").read_text()
         assert _CLAUDE_MD_SECTION_MARKER in content
@@ -1402,7 +1407,7 @@ class TestInjectClaudeMd:
         claude_md.parent.mkdir(parents=True)
         claude_md.write_text("# My Project\n\nExisting content.\n")
 
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             inject_claude_md(tmp_path)
 
         content = claude_md.read_text()
@@ -1412,11 +1417,11 @@ class TestInjectClaudeMd:
 
     def test_idempotent(self, tmp_path):
         """Running twice should not duplicate the section."""
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             inject_claude_md(tmp_path)
         first_content = (tmp_path / ".claude" / "CLAUDE.md").read_text()
 
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             inject_claude_md(tmp_path)
         second_content = (tmp_path / ".claude" / "CLAUDE.md").read_text()
 
@@ -1428,11 +1433,11 @@ class TestInjectClaudeMd:
         claude_md.parent.mkdir(parents=True)
         claude_md.write_text("# Existing\n")
 
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             inject_claude_md(tmp_path)
         first_content = claude_md.read_text()
 
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             inject_claude_md(tmp_path)
         second_content = claude_md.read_text()
 
@@ -1440,17 +1445,17 @@ class TestInjectClaudeMd:
         assert second_content.count(_CLAUDE_MD_SECTION_MARKER) == 1
 
     def test_also_injects_markdown_policy(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             inject_claude_md(tmp_path)
         content = (tmp_path / ".claude" / "CLAUDE.md").read_text()
         assert _MARKDOWN_POLICY_MARKER in content
         assert "constrained-by" in content
 
     def test_policy_idempotent(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             inject_claude_md(tmp_path)
         first = (tmp_path / ".claude" / "CLAUDE.md").read_text()
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             inject_claude_md(tmp_path)
         second = (tmp_path / ".claude" / "CLAUDE.md").read_text()
         assert first == second
@@ -1473,7 +1478,7 @@ class TestInjectClaudeMd:
             encoding="utf-8",
         )
 
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             inject_claude_md(tmp_path)
 
         content = claude_md.read_text(encoding="utf-8")
@@ -1488,7 +1493,7 @@ class TestInjectClaudeMd:
         claude_md.parent.mkdir(parents=True)
         claude_md.write_text(f"{_CLAUDE_MD_SECTION_MARKER}\n## MCP Tools: dagayn\n(existing)\n")
 
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             inject_claude_md(tmp_path)
 
         content = claude_md.read_text()
@@ -1498,7 +1503,7 @@ class TestInjectClaudeMd:
     def test_permission_error_is_reported_without_raising(self, tmp_path):
         errors: list[str] = []
         with (
-            patch("dagayn.skills.Path.home", return_value=tmp_path),
+            patch("pathlib.Path.home", return_value=tmp_path),
             patch("pathlib.Path.write_text", side_effect=PermissionError("read-only")),
         ):
             updated = inject_claude_md(tmp_path, errors=errors)
@@ -1578,7 +1583,7 @@ class TestInstructionFilesToModify:
 
 class TestInjectPlatformInstructionsFiltering:
     def test_all_writes_every_file(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             updated = inject_platform_instructions(tmp_path, target="all")
         assert set(updated) == {
             "AGENTS.md",
@@ -1592,7 +1597,7 @@ class TestInjectPlatformInstructionsFiltering:
         assert (tmp_path / ".config" / "opencode" / "AGENTS.md").exists()
 
     def test_default_is_all(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             updated = inject_platform_instructions(tmp_path)
         assert set(updated) == {
             "AGENTS.md",
@@ -1632,14 +1637,14 @@ class TestInjectPlatformInstructionsFiltering:
         assert set(updated) == {"AGENTS.md", "GEMINI.md"}
 
     def test_opencode_writes_only_agents(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             updated = inject_platform_instructions(tmp_path, target="opencode")
         assert updated == ["AGENTS.md"]
         assert (tmp_path / ".config" / "opencode" / "AGENTS.md").exists()
         assert not (tmp_path / "AGENTS.md").exists()
 
     def test_codex_writes_only_agents(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             updated = inject_platform_instructions(tmp_path, target="codex")
         assert updated == ["AGENTS.md"]
         assert (tmp_path / ".codex" / "AGENTS.md").exists()
@@ -1658,7 +1663,7 @@ class TestInjectPlatformInstructionsFiltering:
         assert not (tmp_path / ".windsurfrules").exists()
 
     def test_files_contain_markdown_policy(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             inject_platform_instructions(tmp_path, target="all")
         for filename in ("GEMINI.md", ".cursorrules", ".windsurfrules", "QODER.md"):
             content = (tmp_path / filename).read_text()
@@ -1668,7 +1673,7 @@ class TestInjectPlatformInstructionsFiltering:
         assert _MARKDOWN_POLICY_MARKER in opencode_agents.read_text()
 
     def test_agents_md_mentions_tool_surface_and_composed_outputs(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             inject_platform_instructions(tmp_path, target="codex")
 
         content = (tmp_path / ".codex" / "AGENTS.md").read_text()
@@ -1685,7 +1690,7 @@ class TestInjectPlatformInstructionsFiltering:
         agents_md.parent.mkdir(parents=True)
         agents_md.write_text(f"{_CLAUDE_MD_SECTION_MARKER}\n## MCP Tools: dagayn\n(stale)\n")
 
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             updated = inject_platform_instructions(tmp_path, target="opencode")
 
         assert updated == ["AGENTS.md"]
@@ -1727,7 +1732,7 @@ class TestInjectPlatformInstructionsFiltering:
     def test_one_failed_instruction_file_does_not_stop_remaining_files(self, tmp_path):
         errors: list[str] = []
         blocked = tmp_path / ".codex" / "AGENTS.md"
-        original_write = _skills_module.write_text_atomic
+        original_write = _instructions_module.write_text_atomic
 
         def write_text_atomic(path, *args, **kwargs):
             if Path(path) == blocked:
@@ -1735,8 +1740,8 @@ class TestInjectPlatformInstructionsFiltering:
             return original_write(path, *args, **kwargs)
 
         with (
-            patch("dagayn.skills.Path.home", return_value=tmp_path),
-            patch.object(_skills_module, "write_text_atomic", new=write_text_atomic),
+            patch("pathlib.Path.home", return_value=tmp_path),
+            patch.object(_instructions_module, "write_text_atomic", new=write_text_atomic),
         ):
             updated = inject_platform_instructions(tmp_path, target="all", errors=errors)
 
@@ -1865,7 +1870,7 @@ class TestInstallPlatformConfigs:
     def test_install_cursor_config(self, tmp_path, monkeypatch):
         fake_home = tmp_path / "home"
         fake_home.mkdir()
-        monkeypatch.setattr("dagayn.skills.Path.home", lambda: fake_home)
+        monkeypatch.setattr("pathlib.Path.home", lambda: fake_home)
         with patch.dict(
             PLATFORMS,
             {
@@ -2146,7 +2151,7 @@ class TestInstallPlatformConfigs:
         assert "mcpServers" in data
         assert "dagayn" in data["mcpServers"]
         assert data["mcpServers"]["dagayn"]["type"] == "stdio"
-        from dagayn.skills import _detect_serve_command
+        from dagayn.skills.platforms import _detect_serve_command
 
         expected_cmd, expected_args = _detect_serve_command()
         assert data["mcpServers"]["dagayn"]["command"] == expected_cmd
@@ -2286,7 +2291,7 @@ class TestCursorHooksConfig:
     def test_git_commit_matcher_covers_path_qualified_git(self):
         import re
 
-        from dagayn.skills import _GIT_COMMIT_COMMAND_MATCHER
+        from dagayn.skills.cursor import _GIT_COMMIT_COMMAND_MATCHER
 
         pattern = re.compile(_GIT_COMMIT_COMMAND_MATCHER)
         assert pattern.search("git commit -m 'x'")
@@ -2417,7 +2422,7 @@ class TestInstallCursorHooks:
     """Tests for install_cursor_hooks()."""
 
     def test_creates_hooks_json(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             result = install_cursor_hooks()
         hooks_json = tmp_path / ".cursor" / "hooks.json"
         assert hooks_json.exists()
@@ -2427,7 +2432,7 @@ class TestInstallCursorHooks:
         assert "afterFileEdit" in data["hooks"]
 
     def test_creates_hook_scripts(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             install_cursor_hooks()
         hooks_dir = tmp_path / ".cursor" / "hooks"
         assert (hooks_dir / "crg-update.sh").exists()
@@ -2435,7 +2440,7 @@ class TestInstallCursorHooks:
         assert (hooks_dir / "crg-pre-commit.sh").exists()
 
     def test_scripts_are_executable(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             install_cursor_hooks()
         hooks_dir = tmp_path / ".cursor" / "hooks"
         for script in hooks_dir.iterdir():
@@ -2455,7 +2460,7 @@ class TestInstallCursorHooks:
         }
         (cursor_dir / "hooks.json").write_text(json.dumps(existing))
 
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             install_cursor_hooks()
 
         data = json.loads((cursor_dir / "hooks.json").read_text())
@@ -2468,7 +2473,7 @@ class TestInstallCursorHooks:
         assert "stop" in data["hooks"]
 
     def test_no_duplicate_on_reinstall(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             install_cursor_hooks()
             install_cursor_hooks()
 
@@ -2510,7 +2515,7 @@ class TestInstallCursorHooks:
         }
         (cursor_dir / "hooks.json").write_text(json.dumps(existing))
 
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             install_cursor_hooks()
 
         data = json.loads((cursor_dir / "hooks.json").read_text())
@@ -2539,7 +2544,7 @@ class TestInstallCursorHooks:
         }
         (cursor_dir / "hooks.json").write_text(json.dumps(existing))
 
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             install_cursor_hooks()
 
         data = json.loads((cursor_dir / "hooks.json").read_text())
@@ -2557,7 +2562,7 @@ class TestInstallCursorHooks:
         cursor_dir.mkdir(parents=True)
         (cursor_dir / "hooks.json").write_text("not valid json{{{")
 
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             result = install_cursor_hooks()
 
         assert result.exists()
@@ -2635,7 +2640,7 @@ class TestKiroPlatform:
         # Mock Path.home() to a dir without .kiro so only workspace detection fires
         fake_home = tmp_path / "fakehome"
         fake_home.mkdir()
-        with patch("dagayn.skills.Path.home", return_value=fake_home):
+        with patch("pathlib.Path.home", return_value=fake_home):
             configured = install_platform_configs(tmp_path, target="all")
         assert "Kiro" in configured
 
@@ -2644,7 +2649,7 @@ class TestKiroPlatform:
         (tmp_path / ".kiro").mkdir()
         fake_home = tmp_path / "fakehome"
         fake_home.mkdir()
-        with patch("dagayn.skills.Path.home", return_value=fake_home):
+        with patch("pathlib.Path.home", return_value=fake_home):
             configured = install_platform_configs(tmp_path, target="all")
         assert "Kiro" in configured
         config_path = tmp_path / ".kiro" / "settings" / "mcp.json"
@@ -2698,7 +2703,7 @@ class TestDetectServeCommand:
         monkeypatch.setenv("POETRY_ACTIVE", "1")
         monkeypatch.delenv("VIRTUAL_ENV", raising=False)
         monkeypatch.setattr(
-            "dagayn.skills.shutil.which",
+            "shutil.which",
             lambda x: "/usr/bin/poetry" if x == "poetry" else None,
         )
         cmd, args = _detect_serve_command()
@@ -2710,7 +2715,7 @@ class TestDetectServeCommand:
         monkeypatch.delenv("POETRY_ACTIVE", raising=False)
         monkeypatch.setenv("VIRTUAL_ENV", "/home/user/.cache/pypoetry/virtualenvs/proj-abc123")
         monkeypatch.setattr(
-            "dagayn.skills.shutil.which",
+            "shutil.which",
             lambda x: "/usr/bin/poetry" if x == "poetry" else None,
         )
         cmd, args = _detect_serve_command()
@@ -2722,10 +2727,10 @@ class TestDetectServeCommand:
         monkeypatch.setenv("POETRY_ACTIVE", "1")
         monkeypatch.delenv("VIRTUAL_ENV", raising=False)
         monkeypatch.delenv("UV_PROJECT_ENVIRONMENT", raising=False)
-        monkeypatch.setattr("dagayn.skills._in_uv_project", lambda: False)
+        monkeypatch.setattr("dagayn.skills.platforms._in_uv_project", lambda: False)
         # poetry not on PATH → should fall through to uvx
         monkeypatch.setattr(
-            "dagayn.skills.shutil.which",
+            "shutil.which",
             lambda x: "/usr/bin/uvx" if x == "uvx" else None,
         )
         cmd, _ = _detect_serve_command()
@@ -2737,7 +2742,7 @@ class TestDetectServeCommand:
         monkeypatch.delenv("VIRTUAL_ENV", raising=False)
         monkeypatch.setenv("UV_PROJECT_ENVIRONMENT", "/some/.venv")
         monkeypatch.setattr(
-            "dagayn.skills.shutil.which",
+            "shutil.which",
             lambda x: "/usr/bin/uv" if x == "uv" else None,
         )
         cmd, args = _detect_serve_command()
@@ -2754,9 +2759,9 @@ class TestDetectServeCommand:
         (tmp_path / "uv.lock").write_text("")
         fake_python = venv / "python"
         fake_python.write_text("")
-        monkeypatch.setattr("dagayn.skills.sys.executable", str(fake_python))
+        monkeypatch.setattr("sys.executable", str(fake_python))
         monkeypatch.setattr(
-            "dagayn.skills.shutil.which",
+            "shutil.which",
             lambda x: "/usr/bin/uv" if x == "uv" else None,
         )
         assert _in_uv_project() is True
@@ -2769,9 +2774,9 @@ class TestDetectServeCommand:
         monkeypatch.delenv("POETRY_ACTIVE", raising=False)
         monkeypatch.delenv("VIRTUAL_ENV", raising=False)
         monkeypatch.delenv("UV_PROJECT_ENVIRONMENT", raising=False)
-        monkeypatch.setattr("dagayn.skills._in_uv_project", lambda: False)
+        monkeypatch.setattr("dagayn.skills.platforms._in_uv_project", lambda: False)
         monkeypatch.setattr(
-            "dagayn.skills.shutil.which",
+            "shutil.which",
             lambda x: f"/usr/bin/{x}" if x in {"dagayn", "uvx"} else None,
         )
         cmd, args = _detect_serve_command()
@@ -2783,9 +2788,9 @@ class TestDetectServeCommand:
         monkeypatch.delenv("POETRY_ACTIVE", raising=False)
         monkeypatch.delenv("VIRTUAL_ENV", raising=False)
         monkeypatch.delenv("UV_PROJECT_ENVIRONMENT", raising=False)
-        monkeypatch.setattr("dagayn.skills._in_uv_project", lambda: False)
+        monkeypatch.setattr("dagayn.skills.platforms._in_uv_project", lambda: False)
         monkeypatch.setattr(
-            "dagayn.skills.shutil.which",
+            "shutil.which",
             lambda x: "/usr/bin/uvx" if x == "uvx" else None,
         )
         cmd, args = _detect_serve_command()
@@ -2797,8 +2802,8 @@ class TestDetectServeCommand:
         monkeypatch.delenv("POETRY_ACTIVE", raising=False)
         monkeypatch.delenv("VIRTUAL_ENV", raising=False)
         monkeypatch.delenv("UV_PROJECT_ENVIRONMENT", raising=False)
-        monkeypatch.setattr("dagayn.skills._in_uv_project", lambda: False)
-        monkeypatch.setattr("dagayn.skills.shutil.which", lambda _: None)
+        monkeypatch.setattr("dagayn.skills.platforms._in_uv_project", lambda: False)
+        monkeypatch.setattr("shutil.which", lambda _: None)
         cmd, args = _detect_serve_command()
         assert cmd == sys.executable
         assert args == ["-m", "dagayn", "serve"]
@@ -2809,7 +2814,7 @@ class TestDetectServeCommand:
         monkeypatch.delenv("VIRTUAL_ENV", raising=False)
         monkeypatch.setenv("UV_PROJECT_ENVIRONMENT", "/some/.venv")
         monkeypatch.setattr(
-            "dagayn.skills.shutil.which",
+            "shutil.which",
             lambda x: "/usr/bin/poetry" if x == "poetry" else None,
         )
         cmd, _ = _detect_serve_command()
@@ -2820,8 +2825,8 @@ class TestDetectServeCommand:
         fake_python = tmp_path / "bin" / "python"
         fake_python.parent.mkdir(parents=True)
         fake_python.write_text("")
-        monkeypatch.setattr("dagayn.skills.sys.executable", str(fake_python))
-        monkeypatch.setattr("dagayn.skills.Path.home", staticmethod(lambda: tmp_path))
+        monkeypatch.setattr("sys.executable", str(fake_python))
+        monkeypatch.setattr("pathlib.Path.home", staticmethod(lambda: tmp_path))
         assert _in_uv_project() is False
 
 
@@ -2896,21 +2901,21 @@ class TestInstallOpenCodePlugin:
     """Tests for install_opencode_plugin()."""
 
     def test_creates_plugin_file(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             result = install_opencode_plugin()
         plugin_path = tmp_path / ".config" / "opencode" / "plugins" / "crg-plugin.ts"
         assert plugin_path.exists()
         assert result == plugin_path
 
     def test_plugin_file_has_correct_content(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             result = install_opencode_plugin()
         content = result.read_text(encoding="utf-8")
         assert "export default" in content
         assert "file.edited" in content
 
     def test_creates_parent_directories(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             install_opencode_plugin()
         plugins_dir = tmp_path / ".config" / "opencode" / "plugins"
         assert plugins_dir.is_dir()
@@ -2921,7 +2926,7 @@ class TestInstallOpenCodePlugin:
         old_plugin = plugins_dir / "crg-plugin.ts"
         old_plugin.write_text("// old version")
 
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             install_opencode_plugin()
 
         content = old_plugin.read_text()
@@ -2929,7 +2934,7 @@ class TestInstallOpenCodePlugin:
         assert "export default" in content
 
     def test_idempotent(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             install_opencode_plugin()
             result = install_opencode_plugin()
         content = result.read_text()
@@ -2938,7 +2943,7 @@ class TestInstallOpenCodePlugin:
         assert content.count("export default") == 1
 
     def test_plugin_is_typescript(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             result = install_opencode_plugin()
         assert result.suffix == ".ts"
 
@@ -2948,14 +2953,14 @@ class TestInstallOpenCodePlugin:
         other_plugin = plugins_dir / "other-plugin.ts"
         other_plugin.write_text("// other plugin")
 
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             install_opencode_plugin()
 
         assert other_plugin.exists()
         assert other_plugin.read_text() == "// other plugin"
 
     def test_file_is_utf8(self, tmp_path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             result = install_opencode_plugin()
         # Should be readable as UTF-8 without errors
         content = result.read_text(encoding="utf-8")

@@ -150,13 +150,13 @@ def _instruction_files_to_modify(
     or modify, given the current state of the repo and the selected
     platform target. Used for the dry-run / confirm preview (#173).
     """
-    from ...skills import (
+    from ...skills import normalize_platform_target
+    from ...skills.instructions import (
         _CLAUDE_MD_SECTION_MARKER,
         _MARKDOWN_POLICY_MARKER,
         _PLATFORM_INSTRUCTION_FILES,
         _has_instruction_section,
         _platform_instruction_paths,
-        normalize_platform_target,
     )
 
     def _needs_update(content: str) -> bool:
@@ -237,7 +237,10 @@ def _install_worktree_support(repo_root: Path, main_root: Path | None, cursor: b
 def handle(args: argparse.Namespace) -> None:
     """Set up MCP config for detected AI coding platforms."""
     from ...incremental import ensure_repo_gitignore_excludes_crg, find_repo_root
-    from ...skills import install_platform_configs, normalize_platform_target
+    from ...skills import (
+        install_platform_configs,
+        normalize_platform_target,
+    )
     from ...worktree import is_linked_worktree, main_worktree_root
 
     repo_root = Path(args.repo) if args.repo else find_repo_root()

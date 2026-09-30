@@ -37,11 +37,11 @@ from dagayn.graph import GraphStore
 from dagayn.incremental import full_build
 from dagayn.parser import NodeInfo
 from dagayn.skills import (
-    _opencode_plugin_content,
     generate_hooks_config,
     install_cursor_hooks,
     install_cursor_worktree_setup,
 )
+from dagayn.skills.opencode import _opencode_plugin_content
 from dagayn.tools.context import get_minimal_context
 from dagayn.tools.ensure import ensure_graph
 from dagayn.tools.session_prepare import (
@@ -840,7 +840,7 @@ class TestHookWiringFreshness:
         assert any("session prepare" in str(cmd) for cmd in commands)
 
     def test_uc_s1_uc_h1_cursor_scripts_use_session_prepare(self, tmp_path: Path):
-        with patch("dagayn.skills.Path.home", return_value=tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
             install_cursor_hooks()
         start = (tmp_path / ".cursor" / "hooks" / "crg-session-start.sh").read_text(
             encoding="utf-8"

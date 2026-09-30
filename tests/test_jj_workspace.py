@@ -32,7 +32,7 @@ from dagayn.incremental import (
 )
 from dagayn.incremental_files import resolve_commit_sha
 from dagayn.jj_workspace import JjWorkspaceError
-from dagayn.skills import _SHELL_JJ_WORKSPACE_NARROWING
+from dagayn.skills.hooks import _SHELL_JJ_WORKSPACE_NARROWING
 from dagayn.tools.sync_status import assess_graph_sync
 from dagayn.worktree import (
     is_gitignored,
