@@ -87,7 +87,7 @@ mod python;
 mod r;
 #[path = "ruby.rs"]
 mod ruby;
-#[path = "rust_lang.rs"]
+#[path = "rust_lang/mod.rs"]
 mod rust_lang;
 #[path = "scala.rs"]
 mod scala;
