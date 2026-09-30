@@ -107,19 +107,22 @@ jobs:
           enable-cache: true
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+      - name: Add llvm-tools to the pinned toolchain
+        run: rustup component add llvm-tools-preview
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
       - name: Install dependencies (frozen)
         # Also builds and installs the editable Rust extension.
         run: uv sync --frozen --extra dev
-      - name: Check Rust workspace
-        run: |
-          cargo test --workspace
-          cargo clippy --workspace -- -D warnings
-      - name: Run Rust backend parity tests
-        env:
-          DAGAYN_BACKEND: rust
-        run: uv run pytest tests/test_rust_backend_parity.py -q
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Rust tests with coverage
+        # dagayn-py is the PyO3 layer, exercised by the Python test job.
+        run: >
+          cargo llvm-cov --workspace --summary-only
+          --ignore-filename-regex 'dagayn-py/' --fail-under-lines 82
       - name: Smoke-test uvx source install path
         run: uvx --refresh --from . dagayn --help
 

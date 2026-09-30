@@ -49,11 +49,19 @@ Tests run in parallel with pytest-xdist (`-n auto --dist loadfile`); pass
 
 Requires a Rust toolchain (1.95+) and a C compiler. `uv sync` is enough for
 the Python test path (maturin). For `cargo test --workspace` or
-`cargo clippy --workspace -- -D warnings`, point PyO3 at uv's interpreter so
-`dagayn-py` can link `libpython`:
+`cargo clippy --workspace --all-targets -- -D warnings`, point PyO3 at uv's
+interpreter so `dagayn-py` can link `libpython`:
 
 ```bash
 export PYO3_PYTHON="$(uv run python -c 'import sys; print(sys.executable)')"
+```
+
+CI runs the Rust tests under `cargo llvm-cov` and fails below 82% line coverage.
+The PyO3 layer (`dagayn-py`) is left out of that figure because the Python
+tests exercise it:
+
+```bash
+cargo llvm-cov --workspace --summary-only --ignore-filename-regex 'dagayn-py/'
 ```
 
 ### VS Code extension (`dagayn-vscode/`)
