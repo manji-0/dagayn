@@ -835,23 +835,22 @@ fn c_emit_inheritance(
     };
     let mut cursor = base_clause.walk();
     for base in base_clause.named_children(&mut cursor) {
-        let base = match base.kind() {
-            "template_type" => match base.child_by_field_name("name") {
-                Some(name) => name,
-                None => continue,
-            },
-            "type_identifier" | "qualified_identifier" => base,
-            _ => continue,
-        };
-        let text = node_text(base, context.source);
-        let Some(target) = text
-            .rsplit("::")
-            .map(str::trim)
-            .find(|segment| !segment.is_empty())
-            .map(|segment| segment.split('<').next().unwrap_or(segment).to_string())
-        else {
+        // The last segment of `ns::Base<Args>`, read from the tree: the
+        // template arguments may themselves contain `::` and line breaks.
+        let mut base = base;
+        while matches!(base.kind(), "qualified_identifier" | "template_type") {
+            match base.child_by_field_name("name") {
+                Some(name) => base = name,
+                None => break,
+            }
+        }
+        if base.kind() != "type_identifier" {
             continue;
-        };
+        }
+        let target = node_text(base, context.source).trim().to_string();
+        if target.is_empty() {
+            continue;
+        }
         edges.push(ParsedEdge {
             kind: crate::core::types::EdgeKind::Inherits,
             source: qualify(&context.file_path, name, None),
@@ -931,11 +930,41 @@ fn c_type_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
 /// member uses `field_identifier`, and an out-of-line definition
 /// (`void Widget::draw() {}`) uses `qualified_identifier`, whose scope names
 /// the owning class. Matching on `identifier` alone dropped every C++ method.
+/// Keywords tree-sitter can mistake for a function name when it misreads a
+/// construct it does not know, e.g. `export namespace std { }` under `#if`
+/// parses as a function `namespace` returning `export`.
+const C_KEYWORDS: &[&str] = &[
+    "namespace",
+    "inline",
+    "export",
+    "module",
+    "import",
+    "extern",
+    "template",
+    "typename",
+    "using",
+    "return",
+    "if",
+    "else",
+    "while",
+    "for",
+    "do",
+    "switch",
+    "case",
+    "sizeof",
+    "decltype",
+    "static_assert",
+    "class",
+    "struct",
+    "enum",
+    "union",
+];
+
 fn c_function_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<(String, Option<String>)> {
     let declarator = node
         .child_by_field_name("declarator")
         .or_else(|| c_first_descendant(node, &["function_declarator"]))?;
-    c_declarator_name(declarator, source)
+    c_declarator_name(declarator, source).filter(|(name, _)| !C_KEYWORDS.contains(&name.as_str()))
 }
 
 fn c_declarator_name(

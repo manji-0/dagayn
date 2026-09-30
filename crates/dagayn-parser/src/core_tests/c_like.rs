@@ -576,3 +576,23 @@ TEST_CASE("catch case", "[tag]") {
             .any(|edge| edge.kind == "CALLS" && edge.target == "TEST_CASE")
     );
 }
+
+#[test]
+fn cpp_bases_and_misparsed_keywords() {
+    let source = b"#if X\nexport namespace std\n{\n  using std::any;\n}\n#endif\n\
+template <typename G1, typename G2>\nstruct crosses\n    : detail::relate::relate_impl\n        <\n            detail::de9im::static_mask_crosses_type,\n            G1\n        >\n{};\n";
+    let mut parser = RustOwnedParser::new();
+    let (nodes, edges) = parser.parse_file("x.hpp", source);
+    // `export namespace std` under `#if` misparses as a function `namespace`.
+    assert!(
+        !nodes.iter().any(|node| node.name == "namespace"),
+        "{nodes:#?}"
+    );
+    let bases: Vec<&str> = edges
+        .iter()
+        .filter(|edge| edge.kind == "INHERITS")
+        .map(|edge| edge.target.as_str())
+        .collect();
+    // The base, not the last `::` segment inside its template arguments.
+    assert_eq!(bases, vec!["relate_impl"]);
+}

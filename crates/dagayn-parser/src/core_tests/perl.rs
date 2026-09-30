@@ -95,3 +95,16 @@ sub run_dynamic {
             && edge.extra["confidence_tier"] == "LOW"
     }));
 }
+
+#[test]
+fn perl_error_recovery_does_not_invent_callees() {
+    let source = b"sub f {\n    return sub {\n        return input_avail && do {\n            $x = 1;\n        };\n    };\n}\n";
+    let mut parser = RustOwnedParser::new();
+    let (_, edges) = parser.parse_file("a.pl", source);
+    let calls: Vec<&str> = edges
+        .iter()
+        .filter(|edge| edge.kind == "CALLS")
+        .map(|edge| edge.target.as_str())
+        .collect();
+    assert_eq!(calls, vec!["input_avail"]);
+}

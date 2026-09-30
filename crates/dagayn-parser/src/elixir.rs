@@ -308,6 +308,9 @@ fn elixir_call_target(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<Stri
     let first = elixir_first_named_child(node)?;
     match first.kind() {
         "identifier" => Some(node_text(first, source)),
+        // `fun.(x)` calls an anonymous function bound to a variable: a dot
+        // with no right-hand name, nothing a declaration could match.
+        "dot" if first.child_by_field_name("right").is_none() => None,
         "dot" => Some(node_text(first, source).replace(' ', "")),
         _ => None,
     }

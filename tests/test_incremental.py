@@ -913,8 +913,8 @@ class TestExtractorVersions:
         from dagayn.extractor_versions import EXTRACTOR_VERSIONS_KEY, outdated_extractors
 
         (tmp_path / ".git").mkdir()
-        # Elixir has no tracked extractor version.
-        (tmp_path / "tool.ex").write_text("defmodule Tool do\n  def run, do: 1\nend\n")
+        # GDScript has no tracked extractor version.
+        (tmp_path / "tool.gd").write_text("func run():\n    return 1\n")
         store = GraphStore(tmp_path / "graph.db")
         try:
             full_build(tmp_path, store)

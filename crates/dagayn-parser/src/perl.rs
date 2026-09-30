@@ -405,7 +405,22 @@ fn perl_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> 
             None => method,
         });
     }
-    perl_direct_child_text(node, source, &["function", "bareword", "identifier"])
+    let name = perl_direct_child_text(node, source, &["function", "bareword", "identifier"])?;
+    // Error recovery can wrap a whole expression in a `function` node
+    // (`input_avail && do { ... }`); only a sub name is a callee.
+    let name = name.trim().trim_start_matches('&');
+    perl_is_sub_name(name).then(|| name.to_string())
+}
+
+/// `name`, `Pkg::name`, `::name` (Perl identifiers are word characters).
+fn perl_is_sub_name(name: &str) -> bool {
+    let name = name.strip_prefix("::").unwrap_or(name);
+    !name.is_empty()
+        && name.split("::").all(|segment| {
+            !segment.is_empty()
+                && !segment.starts_with(|c: char| c.is_ascii_digit())
+                && segment.chars().all(|c| c.is_alphanumeric() || c == '_')
+        })
 }
 
 fn perl_first_string_arg(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {

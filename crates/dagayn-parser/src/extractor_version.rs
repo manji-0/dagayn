@@ -101,7 +101,9 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 4: C++ test macros are named by their case: googletest `TEST(Suite,
         // Name)` is `Suite.Name`, Boost.Test by its first argument, and a
         // Catch2 / doctest `TEST_CASE("name") { }` is a Test node owning its
-        // block's calls.
+        // block's calls. `export namespace` misparsed under `#if` is no
+        // longer a function `namespace`, and a base whose template arguments
+        // contain `::` is named by the base, not the last argument segment.
         extractor: "c_like",
         version: 4,
         languages: &["c", "cpp", "objc"],
@@ -160,6 +162,20 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         extractor: "swift",
         version: 1,
         languages: &["swift"],
+    },
+    ExtractorVersion {
+        // 1: a callee is a sub name; error recovery no longer turns an
+        // expression (`input_avail && do { ... }`) into a call target.
+        extractor: "perl",
+        version: 1,
+        languages: &["perl"],
+    },
+    ExtractorVersion {
+        // 1: `fun.(x)` (an anonymous function in a variable) is not a call
+        // edge with an empty target.
+        extractor: "elixir",
+        version: 1,
+        languages: &["elixir"],
     },
     ExtractorVersion {
         // 1: `export fn` records `ffi_export`, `extern fn` records

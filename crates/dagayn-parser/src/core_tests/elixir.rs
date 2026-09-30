@@ -92,3 +92,16 @@ end
         edge.kind == "CALLS" && edge.source == "sample.ex::Calculator.log" && edge.target == "puts"
     }));
 }
+
+#[test]
+fn elixir_anonymous_function_calls_are_not_edges() {
+    let source = b"defmodule M do\n  def f(fun) do\n    fun.(1)\n    helper(2)\n  end\nend\n";
+    let mut parser = RustOwnedParser::new();
+    let (_, edges) = parser.parse_file("m.ex", source);
+    let calls: Vec<&str> = edges
+        .iter()
+        .filter(|edge| edge.kind == "CALLS")
+        .map(|edge| edge.target.as_str())
+        .collect();
+    assert_eq!(calls, vec!["helper"]);
+}
