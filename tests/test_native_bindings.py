@@ -1231,3 +1231,37 @@ def test_component_host_and_guest_link_through_wit_interfaces(tmp_path: Path) ->
         }
     finally:
         store.close()
+
+
+def test_ruby_ffi_attach_function_reaches_the_c_function(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        {
+            "native/CMakeLists.txt": "add_library(fastsum SHARED src/sum.c)\n",
+            "native/src/sum.c": C_SUM,
+            "legacy/sum.c": "double fast_sum(const double *xs, int n) { return 0; }\n",
+            "lib/fast.rb": (
+                "require 'ffi'\n\n"
+                "module Fast\n"
+                "  extend FFI::Library\n"
+                "  ffi_lib 'libfastsum.so'\n"
+                "  attach_function :fast_sum, [:pointer, :int], :double\n"
+                "end\n"
+            ),
+            "lib/report.rb": (
+                "require_relative 'fast'\n\ndef monthly(xs)\n  Fast.fast_sum(xs, xs.size)\nend\n"
+            ),
+        },
+    )
+    store = _build(tmp_path)
+    try:
+        assert _native_bridges(store) == {
+            ("lib/fast.rb::Fast.fast_sum", "native/src/sum.c::fast_sum", "calls_native_function"),
+        }
+        impact = get_impact_radius(
+            changed_files=["native/src/sum.c"], repo_root=str(tmp_path), max_depth=3
+        )
+        impacted = {node["qualified_name"] for node in impact["impacted_nodes"]}
+        assert "lib/fast.rb::Fast.fast_sum" in impacted
+    finally:
+        store.close()

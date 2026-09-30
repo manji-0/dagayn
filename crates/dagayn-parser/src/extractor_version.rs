@@ -152,8 +152,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
     ExtractorVersion {
         // 1: a call's name is its `method` (`Fast.fast_sum(...)` calls
         // `fast_sum`), not its first identifier (`xs.size` called `xs`).
+        // 2: ffi gem `attach_function` defines the module method, recording
+        // `ffi_import` with the `ffi_lib` library.
         extractor: "ruby",
-        version: 1,
+        version: 2,
         languages: &["ruby"],
     },
 ];

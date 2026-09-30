@@ -218,6 +218,14 @@ All notable changes to `dagayn` are documented here.
   matching interface, and a guest's `example::calc::logging::log(...)` to
   the host's `Host` implementation.
 
+- Ruby's ffi gem reaches the C function: `attach_function :name, [...], :ret`
+  (or `attach_function :name, :c_symbol, ...`) in a module now defines the
+  module method `name`, with `ffi_import` naming the C symbol and the
+  module's `ffi_lib` library, and `native_bindings` binds it like a Rust
+  `extern "C"` declaration. Library names in `#[link]` / `extern "lib"` /
+  `ffi_lib` are matched by stem (`libfastsum.so` names `fastsum`). The Ruby
+  extractor moves to version 2.
+
 ### Changed
 
 - Go `os.ReadFile("x.wasm")` is a `loads_wasm_module` bridge instead of

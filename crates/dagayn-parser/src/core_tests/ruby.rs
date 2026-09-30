@@ -88,3 +88,34 @@ end
     calls.sort_unstable();
     assert_eq!(calls, vec!["fast_sum", "size"]);
 }
+
+#[test]
+fn ruby_ffi_attach_function_defines_bound_module_methods() {
+    let source = br#"require 'ffi'
+module Fast
+  extend FFI::Library
+  ffi_lib 'libfastsum.so'
+  attach_function :fast_sum, [:pointer, :int], :double
+  attach_function :sum_alias, :fast_sum, [:pointer, :int], :double
+end
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (nodes, edges) = parser.parse_file("lib/fast.rb", source);
+    let import = |name: &str| {
+        nodes
+            .iter()
+            .find(|node| node.name == name)
+            .unwrap_or_else(|| panic!("no node {name}"))
+            .extra
+            .get("ffi_import")
+            .cloned()
+    };
+    let expected = Some(serde_json::json!({
+        "abi": "c", "name": "fast_sum", "library": "libfastsum.so"
+    }));
+    assert_eq!(import("fast_sum"), expected);
+    assert_eq!(import("sum_alias"), expected);
+    assert!(edges.iter().any(|edge| edge.kind == "CONTAINS"
+        && edge.source == "lib/fast.rb::Fast"
+        && edge.target == "lib/fast.rb::Fast.fast_sum"));
+}

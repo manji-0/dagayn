@@ -1866,7 +1866,9 @@ fn bind_c_imports(tx: &Transaction<'_>, bridges: &mut Vec<NewBridge>) -> Result<
         let named: HashSet<&String> = library
             .as_deref()
             .map(|library| {
-                let library = library.replace('-', "_");
+                // `fastsum`, `libfastsum.so`, and `fast-sum` all name `fastsum`.
+                let library =
+                    shared_library_stem(library).unwrap_or_else(|| library.replace('-', "_"));
                 libraries
                     .iter()
                     .filter(|lib| lib.lib_name == library)

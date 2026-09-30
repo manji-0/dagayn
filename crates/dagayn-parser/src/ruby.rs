@@ -93,6 +93,11 @@ fn ruby_walk_children(
                 }
             }
             "call" | "method_call" => {
+                if enclosing_func.is_none()
+                    && let Some(class) = enclosing_class
+                {
+                    ruby_emit_attached_function(child, source, file_path, class, nodes, edges);
+                }
                 ruby_emit_call(
                     child,
                     source,
@@ -275,6 +280,78 @@ fn ruby_emit_function(
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
+}
+
+/// The ffi gem: `attach_function :name, [...], :ret` (or
+/// `attach_function :name, :c_symbol, [...], :ret`) in a module that
+/// `extend FFI::Library` defines the module method `name`, bound to the C
+/// symbol in the library `ffi_lib "lib"` names (`ffi_import`).
+fn ruby_emit_attached_function(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    file_path: &FilePath,
+    class: &str,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    if ruby_call_name(node, source).as_deref() != Some("attach_function") {
+        return;
+    }
+    let names = ruby_leading_symbol_args(node, source);
+    let Some(name) = names.first() else {
+        return;
+    };
+    let symbol = names.get(1).unwrap_or(name);
+    let mut import = json!({"abi": "c", "name": symbol});
+    if let Some(library) = ruby_ffi_library(node, source) {
+        import["library"] = json!(library);
+    }
+    ruby_emit_function(node, file_path, name, Some(class), nodes, edges);
+    if let Some(last) = nodes.last_mut() {
+        last.extra = json!({"ffi_import": import});
+    }
+}
+
+/// Leading `:symbol` / `"string"` arguments of a call, as written.
+fn ruby_leading_symbol_args(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
+    let Some(arguments) = node.child_by_field_name("arguments") else {
+        return Vec::new();
+    };
+    let mut cursor = arguments.walk();
+    let mut names = Vec::new();
+    for argument in arguments.named_children(&mut cursor) {
+        match argument.kind() {
+            "simple_symbol" => names.push(
+                node_text(argument, source)
+                    .trim_start_matches(':')
+                    .to_string(),
+            ),
+            "string" => names.push(ruby_string_text(argument, source)),
+            _ => break,
+        }
+    }
+    names
+}
+
+/// The `ffi_lib "lib"` of the module or class enclosing *node*.
+fn ruby_ffi_library(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut container = node.parent();
+    while let Some(current) = container {
+        if matches!(current.kind(), "module" | "class") {
+            break;
+        }
+        container = current.parent();
+    }
+    let body = container?.child_by_field_name("body")?;
+    let mut cursor = body.walk();
+    body.named_children(&mut cursor)
+        .filter(|statement| statement.kind() == "call")
+        .find(|statement| ruby_call_name(*statement, source).as_deref() == Some("ffi_lib"))
+        .and_then(|statement| {
+            ruby_leading_symbol_args(statement, source)
+                .into_iter()
+                .next()
+        })
 }
 
 fn ruby_emit_call(
