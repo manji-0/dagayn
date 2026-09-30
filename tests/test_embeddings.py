@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from dagayn.cli.commands.build import _print_embedding_status
+from dagayn.cli.commands.build_handlers import _print_embedding_status
 from dagayn.embeddings import (
     EmbeddingProvider,
     EmbeddingStore,

@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import argparse
 
-from dagayn.cli.commands.build import (
+from dagayn.cli.commands.build import handle, register_commands
+from dagayn.cli.commands.build_handlers import (
     _print_local_embedding_summary,
     _print_vcs_status,
     _remove_existing_graph_database,
-    handle,
-    register_commands,
 )
 
 

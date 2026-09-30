@@ -313,7 +313,7 @@ class TestAssessGraphSyncContract:
 
     def test_status_command_reports_the_assessed_state(self, main_repo: Path, capsys):
         """``dagayn status`` must not disagree with what prepare acts on."""
-        from dagayn.cli.commands.build import _print_sync_state
+        from dagayn.cli.commands.build_handlers import _print_sync_state
 
         (main_repo / "hello.py").write_text(
             "def greet():\n    return 'discarded'\n",
