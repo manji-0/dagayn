@@ -14,7 +14,7 @@ import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Callable, Literal, cast
+from typing import Literal, cast
 
 from . import jj_workspace
 from .constants import SECURITY_KEYWORD_EXCLUDED_TOKENS as _SECURITY_KEYWORD_EXCLUDED_TOKENS
@@ -543,7 +543,7 @@ def map_changes_with_attribution(
             if repo_root:
                 lookup_paths.append(str(Path(repo_root) / renamed_from))
 
-    nodes_by_file = _get_nodes_for_files_boundary_aware(store, lookup_paths)
+    nodes_by_file = store.get_nodes_by_files(lookup_paths)
     for file_path, ranges in changed_ranges.items():
         graph_paths = _resolve_graph_file_paths(
             store,
@@ -632,10 +632,7 @@ def _graph_line_ranges_stale(
     current_hash = _current_file_hash(repo_root, changed_path)
     if current_hash is None:
         return False
-    get_meta = getattr(store, "get_file_meta_for_files", None)
-    if not callable(get_meta):
-        return False
-    stored_meta = cast(Callable[[list[str]], dict[str, tuple[str, int]]], get_meta)(graph_paths)
+    stored_meta = store.get_file_meta_for_files(graph_paths)
     for graph_path in graph_paths:
         stored_hash = stored_meta.get(graph_path, ("", 0))[0]
         if stored_hash and stored_hash != current_hash:
@@ -705,20 +702,6 @@ def _collect_unmapped_changed_files(
             continue
         unmapped.append(rel_path)
     return unmapped
-
-
-def _get_nodes_for_files_boundary_aware(
-    store: GraphStore,
-    file_paths: list[str],
-) -> dict[str, list[GraphNode]]:
-    rust_batch = getattr(store, "get_nodes_by_files", None)
-    store_module = type(store).__module__
-    if callable(rust_batch) and (
-        store_module.startswith("dagayn._core") or store_module.startswith("dagayn.graph._native")
-    ):
-        batch = cast(Callable[[list[str]], dict[str, list[GraphNode]]], rust_batch)
-        return batch(file_paths)
-    return {file_path: store.get_nodes_by_file(file_path) for file_path in file_paths}
 
 
 def _git_show_file(repo_root: str, base: str, rel_path: str) -> bytes | None:
