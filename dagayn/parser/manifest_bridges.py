@@ -106,6 +106,7 @@ def discover_manifest_bridges(repo_root: Path) -> ManifestBridgeResult:
         makefiles=makefiles,
         command_sources=_build_commands(repo_root, package_jsons, found["justfile"]),
         binding_gyps=found["binding.gyp"],
+        cargo_build_scripts=found["build.rs"],
         result=result,
     )
 
@@ -135,6 +136,7 @@ _MANIFEST_NAMES = (
     "CMakeLists.txt",
     "meson.build",
     "binding.gyp",
+    "build.rs",
 )
 
 
@@ -627,6 +629,7 @@ def _extract_native_libraries(
     makefiles: list[str],
     command_sources: Iterator[tuple[str, list[str]]],
     binding_gyps: list[str],
+    cargo_build_scripts: list[str],
     result: ManifestBridgeResult,
 ) -> None:
     """Emit build file -> source edges for C / C++ shared libraries.
@@ -645,13 +648,16 @@ def _extract_native_libraries(
         makefiles=makefiles,
         command_sources=command_sources,
         binding_gyps=binding_gyps,
+        build_scripts=cargo_build_scripts,
     )
     for library in libraries:
         source_language = library.build_system
+        if library.build_system in ("cc", "cxx"):
+            source_language = "rust"  # build.rs
         _ensure_file_node(result, library.config_rel, language=source_language)
         # Command lines are build configuration; CMake / Meson / gyp declare
         # the library in a manifest.
-        from_command = library.build_system in ("make", "emscripten")
+        from_command = library.build_system in ("make", "emscripten", "cc", "cxx")
         extra = _bridge_extra(
             relationship_role="builds_from_source",
             bridge_kind="build_config",

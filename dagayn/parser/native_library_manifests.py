@@ -13,6 +13,9 @@ repository sources each shared library is compiled from:
   ``library`` unless ``default_library`` is ``static``;
 * node-gyp: ``binding.gyp`` targets, whose ``sources`` build the Node.js
   addon ``build/Release/<target_name>.node``;
+* Cargo build scripts: ``cc::Build::new().file(...).compile("name")`` and
+  ``cxx_build::bridge(...)`` chains in ``build.rs``, whose sources are
+  linked into the crate beside them;
 * Emscripten: ``emcc`` / ``em++`` command lines, whose ``-o`` names the
   JavaScript glue and ``.wasm`` module and whose ``-sEXPORTED_FUNCTIONS``
   lists the C functions JavaScript may call;
@@ -45,7 +48,8 @@ class NativeLibrary:
     """A shared library a build file compiles from repository sources."""
 
     config_rel: str
-    build_system: str  # "cmake" | "meson" | "make" | "node-gyp" | "emscripten"
+    # "cmake" | "meson" | "make" | "node-gyp" | "emscripten" | "cc" | "cxx"
+    build_system: str
     lib_name: str
     sources: list[str] = field(default_factory=list)
     # Build outputs at known paths (node-gyp's `build/Release/NAME.node`,
@@ -410,6 +414,49 @@ def _meson_expression_end(text: str, start: int) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Cargo build scripts
+# ---------------------------------------------------------------------------
+
+_CC_CHAIN_RE = re.compile(r"\b(?P<kind>(?:cc::)?Build::new\(\)|cxx_build::bridges?\()")
+_CC_COMPILE_RE = re.compile(r"\.compile\(\s*\"(?P<name>[^\"]+)\"\s*\)")
+_CC_FILE_RE = re.compile(r"\.file\(\s*\"(?P<path>[^\"]+)\"\s*\)")
+_CC_FILES_RE = re.compile(r"\.files\(\s*&?\s*(?:vec!)?\s*\[(?P<items>[^\]]*)\]")
+_RUST_STRING_RE = re.compile(r"\"([^\"]*)\"")
+
+
+def _cc_build_libraries(repo_root: Path, build_rel: str) -> list[NativeLibrary]:
+    """``build.rs`` compiling C / C++ into the crate beside it: each
+    ``cc::Build::new()`` or ``cxx_build::bridge(...)`` chain up to its
+    ``.compile("name")``, with the paths given to ``.file`` / ``.files``."""
+    base = PurePosixPath(build_rel).parent
+    cargo_rel = "Cargo.toml" if str(base) == "." else f"{base}/Cargo.toml"
+    if not (repo_root / cargo_rel).is_file():
+        return []
+    try:
+        text = (repo_root / build_rel).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    text = re.sub(r"//[^\n]*", "", text)
+    libraries: list[NativeLibrary] = []
+    for start in _CC_CHAIN_RE.finditer(text):
+        compile_match = _CC_COMPILE_RE.search(text, start.end())
+        if compile_match is None:
+            continue
+        chain = text[start.start() : compile_match.end()]
+        if _CC_CHAIN_RE.search(chain, len(start.group(0))):
+            continue  # another chain starts before this one compiles
+        items = [m.group("path") for m in _CC_FILE_RE.finditer(chain)]
+        for files in _CC_FILES_RE.finditer(chain):
+            items.extend(_RUST_STRING_RE.findall(files.group("items")))
+        sources = _existing_sources(repo_root, base, items)
+        if not sources:
+            continue
+        kind = "cxx" if start.group("kind").startswith("cxx_build") else "cc"
+        libraries.append(NativeLibrary(build_rel, kind, compile_match.group("name"), sources))
+    return libraries
+
+
+# ---------------------------------------------------------------------------
 # node-gyp
 # ---------------------------------------------------------------------------
 
@@ -643,6 +690,7 @@ def discover_native_libraries(
     makefiles: list[str],
     command_sources: Iterator[tuple[str, list[str]]],
     binding_gyps: list[str],
+    build_scripts: list[str],
 ) -> list[NativeLibrary]:
     """Shared libraries built from repository C / C++ / Objective-C sources.
 
@@ -656,6 +704,8 @@ def discover_native_libraries(
         libraries.extend(_meson_libraries(repo_root, rel))
     for rel in binding_gyps:
         libraries.extend(_gyp_libraries(repo_root, rel))
+    for rel in build_scripts:
+        libraries.extend(_cc_build_libraries(repo_root, rel))
     for rel in makefiles:
         try:
             text = (repo_root / rel).read_text(encoding="utf-8", errors="replace")

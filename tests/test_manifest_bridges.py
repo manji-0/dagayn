@@ -380,6 +380,38 @@ class TestDiscoverManifestBridges:
         ]
         assert "wasm_exports" not in edges["index"]
 
+    def test_build_rs_cc_and_cxx_chains(self, tmp_path: Path):
+        crate = tmp_path / "sys"
+        (crate / "csrc").mkdir(parents=True)
+        for name in ("a.c", "b.c", "c.c", "bridge.cc"):
+            (crate / "csrc" / name).write_text("int f(void) { return 0; }\n")
+        (crate / "Cargo.toml").write_text('[package]\nname = "sys"\n')
+        (crate / "build.rs").write_text(
+            "fn main() {\n"
+            '    // cc::Build::new().file("csrc/c.c").compile("commented");\n'
+            "    cc::Build::new()\n"
+            '        .file("csrc/a.c")\n'
+            '        .files(&["csrc/b.c", "csrc/missing.c"])\n'
+            '        .compile("fast");\n'
+            '    cxx_build::bridge("src/main.rs").file("csrc/bridge.cc").compile("demo");\n'
+            "}\n"
+        )
+        # A build.rs without a Cargo.toml beside it is not a build script.
+        (tmp_path / "stray").mkdir()
+        (tmp_path / "stray" / "build.rs").write_text(
+            'fn main() { cc::Build::new().file("x.c").compile("x"); }\n'
+        )
+        edges = {
+            e.extra["lib_name"]: e.extra
+            for e in discover_manifest_bridges(tmp_path).edges
+            if e.extra.get("build_system") in ("cc", "cxx")
+        }
+        assert edges.keys() == {"fast", "demo"}
+        assert edges["fast"]["source_files"] == ["sys/csrc/a.c", "sys/csrc/b.c"]
+        assert edges["fast"]["build_system"] == "cc"
+        assert edges["demo"]["build_system"] == "cxx"
+        assert edges["demo"]["source_files"] == ["sys/csrc/bridge.cc"]
+
     def test_compiler_commands_in_makefiles_and_scripts(self, tmp_path: Path):
         (tmp_path / "c").mkdir()
         (tmp_path / "c" / "one.c").write_text("int one(void) { return 1; }\n")

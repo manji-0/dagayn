@@ -51,8 +51,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // `cx.export_function`) Node.js addon exports.
         // 4: declarations in a `#[wasm_bindgen] extern "C"` block record
         // `ffi_import` instead of `ffi_export`.
+        // 5: declarations in a C-ABI `extern` block record `ffi_import`
+        // (`abi: "c"`, `#[link_name]`, `#[link(name)]`).
         extractor: "rust",
-        version: 4,
+        version: 5,
         languages: &["rust"],
     },
     ExtractorVersion {

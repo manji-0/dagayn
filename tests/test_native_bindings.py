@@ -704,3 +704,55 @@ def test_emscripten_glue_and_ccall_reach_the_c_functions(tmp_path: Path) -> None
         }
     finally:
         store.close()
+
+
+def test_rust_extern_c_declarations_reach_the_c_they_link(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        {
+            # The crate compiles csrc/sum.c itself.
+            "sys/Cargo.toml": '[package]\nname = "sys"\nversion = "0.1.0"\n',
+            "sys/build.rs": (
+                'fn main() {\n    cc::Build::new().file("csrc/sum.c").compile("sum");\n}\n'
+            ),
+            "sys/csrc/sum.c": "double fast_sum(const double *xs, int n) { return 0; }\n",
+            "sys/src/lib.rs": (
+                'extern "C" {\n    fn fast_sum(xs: *const f64, n: i32) -> f64;\n}\n\n'
+                "pub fn total(xs: &[f64]) -> f64 {\n"
+                "    unsafe { fast_sum(xs.as_ptr(), xs.len() as i32) }\n}\n"
+            ),
+            # Another C function of the same name elsewhere does not compete.
+            "other/sum.c": "double fast_sum(const double *xs, int n) { return 1; }\n",
+            # `#[link(name)]` picks the CMake library.
+            "app/Cargo.toml": '[package]\nname = "app"\nversion = "0.1.0"\n',
+            "app/src/lib.rs": (
+                '#[link(name = "mathx")]\nextern "C" {\n    fn scale(x: f64) -> f64;\n}\n\n'
+                'extern "C" {\n    fn unique_helper() -> i32;\n'
+                "    fn fast_sum(xs: *const f64, n: i32) -> f64;\n}\n"
+            ),
+            "mathx/CMakeLists.txt": "add_library(mathx SHARED scale.c)\n",
+            "mathx/scale.c": "double scale(double x) { return x; }\n",
+            "legacy/scale.c": "double scale(double x) { return -x; }\n",
+            "helpers/helper.c": "int unique_helper(void) { return 1; }\n",
+        },
+    )
+    store = _build(tmp_path)
+    try:
+        bridges = {
+            (source, target)
+            for source, target, role in _native_bridges(store)
+            if role == "calls_native_function"
+        }
+        assert bridges == {
+            ("sys/src/lib.rs::fast_sum", "sys/csrc/sum.c::fast_sum"),
+            ("app/src/lib.rs::scale", "mathx/scale.c::scale"),
+            ("app/src/lib.rs::unique_helper", "helpers/helper.c::unique_helper"),
+            # app/src/lib.rs::fast_sum is ambiguous (two C definitions): unbound.
+        }
+        impact = get_impact_radius(
+            changed_files=["sys/csrc/sum.c"], repo_root=str(tmp_path), max_depth=3
+        )
+        impacted = {node["qualified_name"] for node in impact["impacted_nodes"]}
+        assert "sys/src/lib.rs::total" in impacted
+    finally:
+        store.close()

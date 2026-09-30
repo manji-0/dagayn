@@ -627,9 +627,12 @@ fn rust_foreign_ffi_import(
     name: &str,
 ) -> Option<serde_json::Value> {
     let block_attrs = rust_leading_attribute_texts(block, source);
-    let block_attr = block_attrs
+    let Some(block_attr) = block_attrs
         .iter()
-        .find(|attr| rust_attr_is(attr, "wasm_bindgen"))?;
+        .find(|attr| rust_attr_is(attr, "wasm_bindgen"))
+    else {
+        return rust_c_ffi_import(node, block, &block_attrs, source, name);
+    };
     let attrs = rust_leading_attribute_texts(node, source);
     let own_attr = attrs.iter().find(|attr| rust_attr_is(attr, "wasm_bindgen"));
     let module = rust_attr_string_arg(block_attr, "module")?;
@@ -656,6 +659,55 @@ fn rust_foreign_ffi_import(
         .and_then(|attr| rust_attr_string_arg(attr, "js_name"))
         .unwrap_or_else(|| name.to_string());
     Some(json!({"abi": "wasm", "module": module, "name": js_name}))
+}
+
+/// A declaration in a C-ABI `extern` block (`extern "C"`, `"system"`, or no
+/// ABI string): the C symbol it links against (`#[link_name]`, else its
+/// name), and the library `#[link(name = "...")]` names, if any.
+fn rust_c_ffi_import(
+    node: tree_sitter::Node<'_>,
+    block: tree_sitter::Node<'_>,
+    block_attrs: &[String],
+    source: &[u8],
+    name: &str,
+) -> Option<serde_json::Value> {
+    if node.kind() != "function_signature_item" {
+        return None;
+    }
+    let abi = rust_extern_abi(block, source);
+    if !matches!(
+        abi.as_deref(),
+        None | Some("C" | "C-unwind" | "system" | "system-unwind" | "cdecl" | "stdcall")
+    ) {
+        return None;
+    }
+    let symbol = rust_leading_attribute_texts(node, source)
+        .iter()
+        .filter(|attr| rust_attr_is(attr, "link_name"))
+        .find_map(|attr| rust_attr_string_arg(attr, "link_name"))
+        .unwrap_or_else(|| name.to_string());
+    let mut import = json!({"abi": "c", "name": symbol});
+    if let Some(library) = block_attrs
+        .iter()
+        .filter(|attr| rust_attr_is(attr, "link"))
+        .find_map(|attr| rust_attr_string_arg(attr, "name"))
+    {
+        import["library"] = json!(library);
+    }
+    Some(import)
+}
+
+/// The ABI string of `extern "C" { ... }`; `None` for a bare `extern`.
+fn rust_extern_abi(block: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = block.walk();
+    let abi = block
+        .children(&mut cursor)
+        .find(|child| child.kind() == "extern_modifier")?;
+    let mut inner = abi.walk();
+    let literal = abi
+        .children(&mut inner)
+        .find(|child| child.kind() == "string_literal")?;
+    Some(node_text(literal, source).trim_matches('"').to_string())
 }
 
 /// The `impl` block directly containing a method.

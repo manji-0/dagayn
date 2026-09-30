@@ -286,3 +286,43 @@ extern "C" {
     assert_eq!(import("render"), None);
     assert_eq!(import("log"), None);
 }
+
+#[test]
+fn c_extern_declarations_record_the_symbol_they_link() {
+    let source = br#"#[link(name = "fastsum")]
+extern "C" {
+    fn fast_sum(xs: *const f64, n: usize) -> f64;
+    #[link_name = "real_name"]
+    fn alias();
+}
+unsafe extern "C" { pub safe fn abs(x: i32) -> i32; }
+extern "system" { fn GetTickCount() -> u32; }
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (nodes, _) = parser.parse_file("src/lib.rs", source);
+    let import = |name: &str| {
+        nodes
+            .iter()
+            .find(|node| node.name == name)
+            .unwrap_or_else(|| panic!("no node {name}"))
+            .extra
+            .get("ffi_import")
+            .cloned()
+    };
+    assert_eq!(
+        import("fast_sum"),
+        Some(serde_json::json!({"abi": "c", "name": "fast_sum", "library": "fastsum"}))
+    );
+    assert_eq!(
+        import("alias"),
+        Some(serde_json::json!({"abi": "c", "name": "real_name", "library": "fastsum"}))
+    );
+    assert_eq!(
+        import("abs"),
+        Some(serde_json::json!({"abi": "c", "name": "abs"}))
+    );
+    assert_eq!(
+        import("GetTickCount"),
+        Some(serde_json::json!({"abi": "c", "name": "GetTickCount"}))
+    );
+}

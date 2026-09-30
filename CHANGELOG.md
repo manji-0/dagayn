@@ -97,6 +97,19 @@ All notable changes to `dagayn` are documented here.
   `ccall("name")`, and `cwrap("name")` in it to the C function, limited to
   `EXPORTED_FUNCTIONS` when the build lists them.
 
+- Rust calling C through `extern "C"` reaches the C function. The Rust
+  extractor records `ffi_import` (`abi: "c"`) on declarations in a C-ABI
+  `extern` block (`"C"`, `"system"`, bare `extern`), with the symbol
+  (`#[link_name]` respected) and the `#[link(name = "...")]` library, and
+  moves to version 5. Manifest bridges read `build.rs`
+  `cc::Build::new().file(...).files([...]).compile("name")` and
+  `cxx_build::bridge(...)` chains as libraries linked into the crate beside
+  them (`build_system: "cc"` / `"cxx"`). `native_bindings` binds the
+  declaration to the C-ABI function with that symbol, looking first among
+  the sources the crate's `build.rs` compiles, then the sources of the
+  `#[link]` library, then the whole repository, and requiring exactly one
+  match in the first scope that has any.
+
 ### Changed
 
 - A shared-library loader outside Python (Java `System.loadLibrary`, ...)

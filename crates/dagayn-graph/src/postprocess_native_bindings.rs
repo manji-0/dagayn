@@ -480,7 +480,6 @@ fn load_crates(tx: &Transaction<'_>) -> Result<Vec<NativeCrate>> {
                 Some("objc") => "objc",
                 _ => "c",
             };
-            // node-gyp addons are Node.js modules, not libraries `ctypes` loads.
             let node_addon = NodeAddon::from_extra(&extra);
             let emscripten = (extra.get("build_system").and_then(Value::as_str)
                 == Some("emscripten"))
@@ -493,7 +492,14 @@ fn load_crates(tx: &Transaction<'_>) -> Result<Vec<NativeCrate>> {
             crates.push(NativeCrate {
                 root,
                 lib_name: lib_name.to_string(),
-                cdylib: node_addon.is_none() && emscripten.is_none(),
+                // node-gyp and Emscripten outputs are not libraries `ctypes`
+                // loads, and `build.rs` links its `cc` output statically.
+                cdylib: node_addon.is_none()
+                    && emscripten.is_none()
+                    && !matches!(
+                        extra.get("build_system").and_then(Value::as_str),
+                        Some("cc" | "cxx")
+                    ),
                 python_module: None,
                 js_packages: string_list(&extra, "js_packages"),
                 wasm_out_dirs: Vec::new(),
@@ -1560,6 +1566,173 @@ fn nearest_dir(file_path: &str, dirs: &HashSet<String>) -> Option<String> {
     dirs.contains("").then(String::new)
 }
 
+/// Rust `extern "C" { fn f(); }` -> the C-ABI function `f` it links
+/// against (`calls_native_function`). The symbol is looked for, in order,
+/// among the sources a `build.rs` compiles into the same crate (`cc` /
+/// `cxx_build`), the sources of the library `#[link(name = "...")]` names,
+/// and the whole repository; the first scope with a match must hold
+/// exactly one.
+fn bind_c_imports(tx: &Transaction<'_>, bridges: &mut Vec<NewBridge>) -> Result<()> {
+    let imports = {
+        let mut stmt = tx.prepare(
+            "SELECT qualified_name, file_path, line_start, \
+                    json_extract(extra, '$.ffi_import.name'), \
+                    json_extract(extra, '$.ffi_import.library') \
+             FROM nodes WHERE json_extract(extra, '$.ffi_import.abi') = 'c'",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, Option<String>>(4)?,
+            ))
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    if imports.is_empty() {
+        return Ok(());
+    }
+    // symbol -> (qualified name, file, language)
+    let mut exports: HashMap<String, Vec<(String, String, String)>> = HashMap::new();
+    {
+        let mut stmt = tx.prepare(
+            "SELECT qualified_name, file_path, language, json_extract(extra, '$.ffi_export.name') \
+             FROM nodes WHERE json_extract(extra, '$.ffi_export.abi') = 'c'",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })?;
+        for row in rows {
+            let (qualified, file_path, language, symbol) = row?;
+            exports.entry(symbol).or_default().push((
+                qualified,
+                file_path,
+                language.unwrap_or_else(|| "c".to_string()),
+            ));
+        }
+    }
+    // (build system, library name, directory of the build file, sources)
+    let libraries: Vec<(String, String, String, HashSet<String>)> = {
+        let mut stmt = tx.prepare(
+            "SELECT source_qualified, extra FROM edges WHERE kind = 'CROSS_ARTIFACT' \
+               AND json_extract(extra, '$.manifest_kind') = 'native_library'",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+        })?;
+        let mut libraries = Vec::new();
+        for row in rows {
+            let (config, extra) = row?;
+            let extra = parse_json_column(extra)?;
+            let dir = config
+                .rsplit_once('/')
+                .map_or("", |(dir, _)| dir)
+                .to_string();
+            libraries.push((
+                extra
+                    .get("build_system")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                extra
+                    .get("lib_name")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .replace('-', "_"),
+                dir,
+                string_list(&extra, "source_files").into_iter().collect(),
+            ));
+        }
+        libraries
+    };
+    let under = |dir: &str, file: &str| {
+        dir.is_empty()
+            || file
+                .strip_prefix(dir)
+                .is_some_and(|rest| rest.starts_with('/'))
+    };
+    for (source, file_path, line, name, library) in imports {
+        let Some(name) = name else {
+            continue;
+        };
+        let Some(candidates) = exports.get(&name) else {
+            continue;
+        };
+        // Sources `build.rs` links into this crate: the deepest crate with
+        // a `cc` / `cxx_build` library that contains the file.
+        let is_build_rs = |system: &str| matches!(system, "cc" | "cxx");
+        let crate_dir = libraries
+            .iter()
+            .filter(|(system, _, dir, _)| is_build_rs(system) && under(dir, &file_path))
+            .map(|(_, _, dir, _)| dir)
+            .max_by_key(|dir| dir.len());
+        let linked: HashSet<&String> = libraries
+            .iter()
+            .filter(|(system, _, dir, _)| is_build_rs(system) && Some(dir) == crate_dir)
+            .flat_map(|(_, _, _, sources)| sources)
+            .collect();
+        let named: HashSet<&String> = library
+            .as_deref()
+            .map(|library| {
+                let library = library.replace('-', "_");
+                libraries
+                    .iter()
+                    .filter(|(_, lib_name, _, _)| *lib_name == library)
+                    .flat_map(|(_, _, _, sources)| sources)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let scopes: [(&str, Option<&HashSet<&String>>); 3] = [
+            ("build.rs", Some(&linked)),
+            ("link", Some(&named)),
+            ("symbol", None),
+        ];
+        let mut chosen = None;
+        for (evidence, scope) in scopes {
+            let hits: Vec<&(String, String, String)> = candidates
+                .iter()
+                .filter(|(_, file, _)| scope.is_none_or(|scope| scope.contains(file)))
+                .collect();
+            if !hits.is_empty() {
+                chosen = Some((evidence, hits));
+                break;
+            }
+        }
+        let Some((evidence, hits)) = chosen else {
+            continue;
+        };
+        let [(target, _, target_language)] = hits.as_slice() else {
+            continue;
+        };
+        bridges.push(NewBridge {
+            source,
+            target: target.clone(),
+            file_path,
+            line,
+            extra: bridge_extra(
+                "calls_native_function",
+                "ffi",
+                if evidence == "symbol" {
+                    "syntax"
+                } else {
+                    "manifest"
+                },
+                format!("{evidence} {name}"),
+                "rust",
+                target_language,
+            ),
+        });
+    }
+    Ok(())
+}
+
 impl GraphStore {
     /// Replace the `native_bindings` bridges; returns how many were written.
     pub fn resolve_native_bindings(&mut self) -> Result<i64> {
@@ -1573,6 +1746,7 @@ impl GraphStore {
         let mut bridges = Vec::new();
         bind_jni_methods(&tx, &mut bridges)?;
         bind_wasm_imports(&tx, &mut bridges)?;
+        bind_c_imports(&tx, &mut bridges)?;
         let crates = load_crates(&tx)?;
         if !crates.is_empty() {
             let exports = load_exports(&tx, &crates)?;
