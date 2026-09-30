@@ -1,5 +1,5 @@
+use super::extra_json;
 use crate::helpers::*;
-use crate::postprocess_bridges::extra_json;
 use crate::*;
 
 impl GraphStore {

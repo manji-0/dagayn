@@ -1,6 +1,6 @@
+use super::extra_json;
 use crate::helpers::*;
-use crate::postprocess_bridges::extra_json;
-use crate::postprocess_tested_by::sync_tested_by_with_calls;
+use crate::postprocess::sync_tested_by_with_calls;
 use crate::*;
 
 const DIRECT_IMPORT_CONFIDENCE: f64 = 0.9;

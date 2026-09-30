@@ -1,5 +1,5 @@
+use super::extra_json;
 use crate::helpers::*;
-use crate::postprocess_bridges::extra_json;
 use crate::*;
 
 /// A bare Terraform reference bound to the only same-module declaration.

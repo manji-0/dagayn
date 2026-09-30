@@ -21,7 +21,7 @@ fn endpoint_leaf(endpoint: &str) -> &str {
 /// duplicate an existing `TESTED_BY` edge drops the bare edge instead. Both
 /// edges live in the test's file, so file-scoped replacement on re-parse
 /// keeps working.
-pub(super) fn sync_tested_by_with_calls(tx: &Transaction<'_>) -> Result<i64> {
+pub(crate) fn sync_tested_by_with_calls(tx: &Transaction<'_>) -> Result<i64> {
     let rows = {
         let mut stmt = tx.prepare(
             "SELECT tb.id, tb.source_qualified, tb.target_qualified, tb.file_path, tb.line, \
