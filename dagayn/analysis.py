@@ -47,10 +47,10 @@ def _sort_key_float(item: Mapping[str, object], field: str) -> float:
 class GraphSnapshot:
     """Pre-computed slice of the graph shared by analysis helpers.
 
-    :func:`generate_suggested_questions` calls four helpers in sequence,
-    each of which independently scans the full edge / node tables. Building
-    a single :class:`GraphSnapshot` up front lets each helper skip its own
-    SQL and reuse the same in-memory view.
+    The architecture overview and health summary and the change analysis
+    summary call several helpers in sequence, each of which would otherwise
+    scan the full edge / node tables. Building a single :class:`GraphSnapshot` up front lets each
+    helper skip its own SQL and reuse the same in-memory view.
     """
 
     edges: list[GraphEdge]
@@ -1239,7 +1239,7 @@ def _degree_counters(edges: list[GraphEdge]) -> tuple[Counter[str], Counter[str]
 def generate_suggested_questions(
     store: GraphStore,
 ) -> list[SuggestedQuestionRecord]:
-    """Auto-generate review questions from graph analysis.
+    """Auto-generate review questions from graph analysis (native).
 
     Categories:
     - bridge_node: Why does X connect communities A and B?
@@ -1248,126 +1248,5 @@ def generate_suggested_questions(
     - hub_risk: Does hub node X have adequate test coverage?
     - surprising: Why does A call B across community boundary?
     """
-    native_questions = _generate_suggested_questions_native(store)
-    if native_questions is not None:
-        return native_questions
-
-    questions: list[SuggestedQuestionRecord] = []
-    snapshot = build_graph_snapshot(store)
-
-    # Bridge node questions
-    bridges = find_bridge_nodes(
-        store,
-        top_n=3,
-        snapshot=snapshot,
-        artifact_scope="code",
-        include_tests=False,
-    )
-    for b in bridges:
-        questions.append(
-            {
-                "category": "bridge_node",
-                "question": (
-                    f"'{b['name']}' is a critical connector "
-                    f"between multiple code regions. Is it "
-                    f"adequately tested and documented?"
-                ),
-                "target": b["qualified_name"],
-                "priority": "high",
-            }
-        )
-
-    # Hub risk questions
-    hubs = find_hub_nodes(
-        store,
-        top_n=3,
-        snapshot=snapshot,
-        artifact_scope="code",
-        include_tests=False,
-    )
-    tested = snapshot.tested_sources
-    for h in hubs:
-        if h["qualified_name"] not in tested:
-            questions.append(
-                {
-                    "category": "hub_risk",
-                    "question": (
-                        f"Hub node '{h['name']}' has "
-                        f"{h['total_degree']} connections but no "
-                        f"direct test coverage. Should it be "
-                        f"tested?"
-                    ),
-                    "target": h["qualified_name"],
-                    "priority": "high",
-                }
-            )
-
-    # Surprising connection questions
-    surprises = find_surprising_connections(store, top_n=3, snapshot=snapshot)
-    for s in surprises:
-        if "cross-community" in s["reasons"]:
-            questions.append(
-                {
-                    "category": "surprising_connection",
-                    "question": (
-                        f"'{s['source']}' (community "
-                        f"{s['source_community']}) calls "
-                        f"'{s['target']}' (community "
-                        f"{s['target_community']}). Is this "
-                        f"coupling intentional?"
-                    ),
-                    "target": s["source_qualified"],
-                    "priority": "medium",
-                }
-            )
-
-    # Knowledge gap questions
-    gaps = find_knowledge_gaps(store, snapshot=snapshot)
-
-    for c in gaps["thin_communities"][:2]:
-        questions.append(
-            {
-                "category": "thin_community",
-                "question": (
-                    f"Community '{c['name']}' has only "
-                    f"{c['size']} member(s). Should it be "
-                    f"merged with a neighbor?"
-                ),
-                "target": f"community:{c['community_id']}",
-                "priority": "low",
-            }
-        )
-
-    for h in gaps["untested_hotspots"][:2]:
-        questions.append(
-            {
-                "category": "untested_hotspot",
-                "question": (
-                    f"'{h['name']}' has {h['degree']} "
-                    f"connections but no test coverage. "
-                    f"Is this a risk?"
-                ),
-                "target": h["qualified_name"],
-                "priority": "medium",
-            }
-        )
-
-    return questions
-
-
-def _generate_suggested_questions_native(store: GraphStore) -> list[SuggestedQuestionRecord] | None:
-    native_generate = getattr(store, "generate_suggested_questions_json", None)
-    if not callable(native_generate):
-        return None
-    try:
-        raw = cast(Callable[[], str], native_generate)()
-        decoded = json.loads(raw)
-    except Exception:  # noqa: BLE001  # native acceleration must be optional
-        logger.debug(
-            "Native suggested-question generation failed; falling back to Python",
-            exc_info=True,
-        )
-        return None
-    if not isinstance(decoded, list) or not all(isinstance(item, dict) for item in decoded):
-        return None
+    decoded = json.loads(store.generate_suggested_questions_json())
     return cast(list[SuggestedQuestionRecord], decoded)
