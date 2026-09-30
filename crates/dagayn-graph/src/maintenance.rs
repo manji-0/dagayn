@@ -2,10 +2,6 @@
 
 use crate::*;
 
-/// Tables keyed directly on `nodes.id`. A file's rows here have to go before
-/// its nodes do, or they dangle the moment the file is re-parsed.
-const NODE_KEYED_TABLES: &[&str] = &["flow_memberships", "risk_index"];
-
 /// Derived tables that reference `nodes.id` / each other, in the order they must
 /// be pruned: a parent only after the children that could keep it alive.
 ///
@@ -37,32 +33,6 @@ pub const ORPHAN_PRUNE_STEPS: &[(&str, &str)] = &[
 ];
 
 impl GraphStore {
-    /// Drop node-keyed derived rows for `file_keys` before their nodes go.
-    ///
-    /// Scoped by file so this stays cheap on the per-file hot path; the
-    /// repository-wide sweep is `prune_orphaned_graph_structures`.
-    pub fn remove_node_keyed_rows_for_files(&self, file_keys: &[String]) -> Result<()> {
-        if file_keys.is_empty() {
-            return Ok(());
-        }
-        let placeholders = crate::helpers::placeholder_list(file_keys.len());
-        for table in NODE_KEYED_TABLES {
-            let sql = format!(
-                "DELETE FROM {table} WHERE node_id IN \
-                 (SELECT id FROM nodes WHERE file_path IN ({placeholders}))"
-            );
-            // A table absent on an older schema has nothing to remove.
-            if self
-                .conn
-                .execute(&sql, rusqlite::params_from_iter(file_keys))
-                .is_err()
-            {
-                continue;
-            }
-        }
-        Ok(())
-    }
-
     /// Delete rows of one derived table whose nodes no longer exist.
     ///
     /// Returns the number of rows deleted, or `0` when the table is absent on an

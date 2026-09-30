@@ -647,21 +647,6 @@ class TestFlows:
         assert stale_ids["reaches"] in affected_ids
         assert stale_ids["unrelated"] not in affected_ids
 
-    def test_get_node_ids_by_files_absolute_path(self, tmp_path):
-        """get_node_ids_by_files accepts absolute paths when repo_root is set."""
-        repo = tmp_path / "repo"
-        repo.mkdir()
-        self.store.set_metadata("repo_root", str(repo.resolve()))
-
-        self._add_func("service", path="services.py")
-        self._add_func("other", path="other.py")
-
-        rel_ids = self.store.get_node_ids_by_files(["services.py"])
-        abs_ids = self.store.get_node_ids_by_files([str((repo / "services.py").resolve())])
-
-        assert rel_ids == abs_ids
-        assert len(rel_ids) == 1
-
     # ---------------------------------------------------------------
     # get_flows sorting
     # ---------------------------------------------------------------

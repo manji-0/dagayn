@@ -1157,24 +1157,6 @@ class TestFlowTools:
             )
             assert row["kind"] == "Function"
 
-    def test_list_flows_kind_filter_batches_entry_point_lookup(self, monkeypatch):
-        from dagayn.tools import flows_tools
-
-        monkeypatch.setattr(flows_tools, "_get_store", lambda repo_root: (self.store, self.root))
-        self.store.close = lambda: None
-        monkeypatch.setattr(
-            self.store,
-            "get_node_kind_by_id",
-            lambda node_id: (_ for _ in ()).throw(
-                AssertionError("list_flows(kind=...) should not use per-flow kind lookups")
-            ),
-        )
-
-        result = flows_tools.list_flows(repo_root=str(self.root), kind="Function")
-
-        assert result["status"] == "ok"
-        assert len(result["flows"]) >= 1
-
     def test_list_flows_kind_filter_no_match(self):
         result = list_flows(repo_root=str(self.root), kind="Class")
         assert result["status"] == "ok"
@@ -1191,26 +1173,6 @@ class TestFlowTools:
         assert "flow" in result
         assert result["flow"]["id"] == fid
         assert "steps" in result["flow"]
-        assert len(result["flow"]["steps"]) >= 2
-
-    def test_get_flow_by_id_batches_step_lookup(self, monkeypatch):
-        from dagayn.tools import flows_tools
-
-        flow_id = list_flows(repo_root=str(self.root))["flows"][0]["id"]
-
-        monkeypatch.setattr(flows_tools, "_get_store", lambda repo_root: (self.store, self.root))
-        self.store.close = lambda: None
-        monkeypatch.setattr(
-            self.store,
-            "get_node_by_id",
-            lambda node_id: (_ for _ in ()).throw(
-                AssertionError("get_flow should not fetch step nodes one by one")
-            ),
-        )
-
-        result = flows_tools.get_flow(flow_id=flow_id, repo_root=str(self.root))
-
-        assert result["status"] == "ok"
         assert len(result["flow"]["steps"]) >= 2
 
     def test_traverse_graph_dfs_fetches_lazily(self, monkeypatch):

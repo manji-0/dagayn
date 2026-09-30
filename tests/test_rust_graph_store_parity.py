@@ -13,6 +13,7 @@ See: #153
 from __future__ import annotations
 
 import inspect
+import json
 from dataclasses import asdict
 from pathlib import Path
 
@@ -287,16 +288,6 @@ class TestQueryParity:
             rust_store.get_incoming_sources(qns)
         )
 
-    def test_get_node_by_id(self, stores):
-        python_store, rust_store, _ = stores
-        node = python_store.get_node("app.py::entry")
-        assert node is not None
-        assert node_key(python_store.get_node_by_id(node.id)) == node_key(
-            rust_store.get_node_by_id(node.id)
-        )
-        assert python_store.get_node_by_id(10**9) is None
-        assert rust_store.get_node_by_id(10**9) is None
-
     def test_get_nodes_by_size(self, stores):
         python_store, rust_store, _ = stores
         cases = [
@@ -326,35 +317,12 @@ class TestQueryParity:
         assert sorted(node_key(n) for n in py_out) == sorted(node_key(n) for n in rs_out)
         assert py_out
 
-    def test_get_node_ids_by_files(self, stores):
-        python_store, rust_store, _ = stores
-        # Ids differ between the two databases, so compare cardinality and the
-        # nodes those ids resolve to rather than the raw ids.
-        files = ["app.py", "tests/test_app.py"]
-        py_ids = python_store.get_node_ids_by_files(files)
-        rs_ids = rust_store.get_node_ids_by_files(files)
-        assert len(py_ids) == len(rs_ids)
-        assert sorted(
-            node_key(n) for n in python_store.get_nodes_by_ids(list(py_ids)).values()
-        ) == sorted(node_key(n) for n in rust_store.get_nodes_by_ids(list(rs_ids)).values())
-
     def test_resolve_file_path(self, stores):
         python_store, rust_store, repo_root = stores
         assert python_store.resolve_file_path("app.py") == rust_store.resolve_file_path("app.py")
         assert rust_store.resolve_file_path("app.py") == repo_root / "app.py"
         absolute = str(repo_root / "app.py")
         assert python_store.resolve_file_path(absolute) == rust_store.resolve_file_path(absolute)
-
-    def test_normalize_key_helpers(self, stores):
-        python_store, rust_store, repo_root = stores
-        for candidate in ("app.py", str(repo_root / "app.py")):
-            assert python_store._normalize_file_path_key(
-                candidate
-            ) == rust_store._normalize_file_path_key(candidate)
-        for candidate in ("app.py::entry", f"{repo_root}/app.py::entry"):
-            assert python_store._normalize_qualified_key(
-                candidate
-            ) == rust_store._normalize_qualified_key(candidate)
 
 
 class TestSearchParity:
@@ -486,18 +454,6 @@ class TestCommunityAndFlowParity:
         assert py_rows == rs_rows
         assert py_rows
 
-        community_id = py_rows[0][0]
-        assert sorted(python_store.get_community_member_qns(community_id)) == sorted(
-            rust_store.get_community_member_qns(community_id)
-        )
-
-    def test_flow_lookups_without_flows(self, stores):
-        python_store, rust_store, _ = stores
-        assert python_store.get_flow_ids_by_node_ids(set()) == rust_store.get_flow_ids_by_node_ids(
-            set()
-        )
-        assert python_store.get_flow_qualified_names(1) == rust_store.get_flow_qualified_names(1)
-
     def test_flow_lookups_with_stored_flows(self, stores):
         python_store, rust_store, _ = stores
 
@@ -505,13 +461,8 @@ class TestCommunityAndFlowParity:
             store_one_flow(store)
 
         for store in (python_store, rust_store):
-            node_ids = store.get_node_ids_by_files(["app.py"])
-            flow_ids = store.get_flow_ids_by_node_ids(node_ids)
+            flow_ids = [flow["id"] for flow in json.loads(store.get_flows_json("criticality", 10))]
             assert len(flow_ids) == 1
-            assert store.get_flow_qualified_names(flow_ids[0]) == {
-                "app.py::entry",
-                "app.py::middle",
-            }
             assert store.get_flow_qualified_names_for_flows(flow_ids) == {
                 flow_ids[0]: {"app.py::entry", "app.py::middle"}
             }
@@ -556,16 +507,6 @@ class TestMaintenanceParity:
             edge_key(e) for e in python_store.get_edges_by_target("app.py::added")
         ) == sorted(edge_key(e) for e in rust_store.get_edges_by_target("app.py::added"))
 
-    def test_remove_node_keyed_rows_for_files(self, stores):
-        python_store, rust_store, _ = stores
-        for store in (python_store, rust_store):
-            store.remove_node_keyed_rows_for_files(["app.py"])
-            store.commit()
-        # Nodes themselves are untouched by this call.
-        assert len(python_store.get_nodes_by_file("app.py")) == len(
-            rust_store.get_nodes_by_file("app.py")
-        )
-
     def test_prune_orphaned_graph_structures_with_nothing_to_prune(self, stores):
         python_store, rust_store, _ = stores
         assert python_store.prune_orphaned_graph_structures() == (
@@ -590,9 +531,6 @@ class TestMaintenanceParity:
         # sweep only has the now-empty flow left to delete.
         assert py_deleted == {"flows": 1}
 
-        for store in (python_store, rust_store):
-            assert store.get_flow_ids_by_node_ids({1, 2, 3}) == []
-
     def test_get_stats_still_matches(self, stores):
         python_store, rust_store, _ = stores
         assert asdict(python_store.get_stats()) == asdict(rust_store.get_stats())
@@ -615,12 +553,6 @@ class TestAttributeParity:
         python_store, rust_store, _ = stores
         assert python_store.count_non_file_nodes() == rust_store.count_non_file_nodes()
         assert python_store.count_non_file_nodes() > 0
-
-    def test_invalidate_cache_is_callable_on_both(self, stores):
-        python_store, rust_store, _ = stores
-        # Write paths call this unconditionally rather than probing for it.
-        assert python_store._invalidate_cache() is None
-        assert rust_store._invalidate_cache() is None
 
 
 def test_semantic_search_works_under_native_backend(tmp_path, monkeypatch):

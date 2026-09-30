@@ -25,27 +25,6 @@ impl GraphStore {
             .map_err(Into::into)
     }
 
-    /// Ids of every node belonging to `file_paths`.
-    pub fn get_node_ids_by_files(&self, file_paths: &[String]) -> Result<HashSet<i64>> {
-        let mut out = HashSet::new();
-        let file_keys = self.expand_file_keys(file_paths)?;
-        for chunk in file_keys.chunks(450) {
-            if chunk.is_empty() {
-                continue;
-            }
-            let placeholders = std::iter::repeat_n("?", chunk.len())
-                .collect::<Vec<_>>()
-                .join(",");
-            let sql = format!("SELECT id FROM nodes WHERE file_path IN ({placeholders})");
-            let mut stmt = self.conn.prepare(&sql)?;
-            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| row.get(0))?;
-            for row in rows {
-                out.insert(row?);
-            }
-        }
-        Ok(out)
-    }
-
     pub(crate) fn expand_file_keys(&self, file_paths: &[String]) -> Result<Vec<String>> {
         let mut keys = Vec::new();
         let mut seen = HashSet::new();

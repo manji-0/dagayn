@@ -219,43 +219,6 @@ impl GraphStore {
         Ok(None)
     }
 
-    pub fn get_flow_ids_by_node_ids(&self, node_ids: &HashSet<i64>) -> Result<Vec<i64>> {
-        let mut out = Vec::new();
-        let mut seen = HashSet::new();
-        let node_ids = node_ids.iter().copied().collect::<Vec<_>>();
-        for chunk in node_ids.chunks(450) {
-            if chunk.is_empty() {
-                continue;
-            }
-            let placeholders = std::iter::repeat_n("?", chunk.len())
-                .collect::<Vec<_>>()
-                .join(",");
-            let sql = format!(
-                "SELECT DISTINCT flow_id FROM flow_memberships WHERE node_id IN ({placeholders})"
-            );
-            let mut stmt = self.conn.prepare(&sql)?;
-            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| row.get(0))?;
-            for row in rows {
-                let flow_id = row?;
-                if seen.insert(flow_id) {
-                    out.push(flow_id);
-                }
-            }
-        }
-        Ok(out)
-    }
-
-    /// Qualified names of the nodes in one flow.
-    pub fn get_flow_qualified_names(&self, flow_id: i64) -> Result<HashSet<String>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT n.qualified_name FROM flow_memberships fm \
-             JOIN nodes n ON fm.node_id = n.id WHERE fm.flow_id = ?",
-        )?;
-        let rows = stmt.query_map([flow_id], |row| row.get::<_, String>(0))?;
-        rows.collect::<std::result::Result<HashSet<_>, _>>()
-            .map_err(Into::into)
-    }
-
     pub fn get_flow_qualified_names_for_flows(
         &self,
         flow_ids: &[i64],

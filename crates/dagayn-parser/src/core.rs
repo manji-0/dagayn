@@ -488,11 +488,6 @@ pub fn parse_markdown(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<P
     markdown::parse_markdown_with_parser(file_path, source, parser.as_mut())
 }
 
-pub fn parse_markdown_compact_json(file_path: &str, source: &[u8]) -> String {
-    let (nodes, edges) = parse_markdown(file_path, source);
-    parsed_compact_json(nodes, edges)
-}
-
 #[derive(Debug, Serialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 enum RustOwnedParseFileResult {
@@ -581,19 +576,9 @@ pub fn parse_terraform(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<
     terraform::parse_terraform_with_parser(file_path, source, parser.as_mut())
 }
 
-pub fn parse_terraform_compact_json(file_path: &str, source: &[u8]) -> String {
-    let (nodes, edges) = parse_terraform(file_path, source);
-    parsed_compact_json(nodes, edges)
-}
-
 pub fn parse_python(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let mut parser = new_python_parser();
     python::parse_python_with_parser(file_path, source, parser.as_mut(), None)
-}
-
-pub fn parse_python_compact_json(file_path: &str, source: &[u8]) -> String {
-    let (nodes, edges) = parse_python(file_path, source);
-    parsed_compact_json(nodes, edges)
 }
 
 pub fn parse_notebook(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
@@ -604,11 +589,6 @@ pub fn parse_notebook(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<P
 pub fn parse_rust(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let mut parser = new_rust_parser();
     rust_lang::parse_rust_with_parser(file_path, source, parser.as_mut())
-}
-
-pub fn parse_rust_compact_json(file_path: &str, source: &[u8]) -> String {
-    let (nodes, edges) = parse_rust(file_path, source);
-    parsed_compact_json(nodes, edges)
 }
 
 pub fn parse_zig(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {

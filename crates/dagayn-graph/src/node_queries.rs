@@ -7,13 +7,6 @@ use crate::*;
 pub type NodeSignatureRow = (i64, String, String, Option<String>, Option<String>);
 
 impl GraphStore {
-    pub fn get_node_by_id(&self, node_id: i64) -> Result<Option<GraphNode>> {
-        self.conn
-            .query_row("SELECT * FROM nodes WHERE id = ?", [node_id], node_from_row)
-            .optional()
-            .map_err(Into::into)
-    }
-
     /// Nodes whose line span falls inside `[min_lines, max_lines]`, largest first.
     pub fn get_nodes_by_size(
         &self,

@@ -622,10 +622,6 @@ impl PyGraphStore {
         self.with_store_mut(|store| store.insert_flows_json(flows_json))
     }
 
-    fn update_flow_criticalities_json(&self, updates_json: &str) -> PyResult<i64> {
-        self.with_store_mut(|store| store.update_flow_criticalities_json(updates_json))
-    }
-
     #[pyo3(signature = (sort_by = "criticality", limit = 50))]
     fn get_flows_json(&self, sort_by: &str, limit: i64) -> PyResult<String> {
         self.with_store(|store| store.get_flows_json(sort_by, limit))
@@ -637,14 +633,6 @@ impl PyGraphStore {
 
     fn get_affected_flows_json(&self, changed_files: Vec<String>) -> PyResult<String> {
         self.with_store(|store| store.get_affected_flows_json(&changed_files))
-    }
-
-    fn analyze_changes_json(
-        &self,
-        changed_files: Vec<String>,
-        changed_ranges_json: Option<&str>,
-    ) -> PyResult<String> {
-        self.with_store(|store| store.analyze_changes_json(&changed_files, changed_ranges_json))
     }
 
     fn delete_affected_flows(&self, changed_files: Vec<String>) -> PyResult<Vec<i64>> {
@@ -668,10 +656,6 @@ impl PyGraphStore {
         max_depth: i64,
     ) -> PyResult<String> {
         self.with_store_mut(|store| store.incremental_trace_flows_json(&changed_files, max_depth))
-    }
-
-    fn get_node_kind_by_id(&self, node_id: i64) -> PyResult<Option<String>> {
-        self.with_store(|store| store.get_node_kind_by_id(node_id))
     }
 
     fn store_communities_json(&self, communities_json: &str) -> PyResult<i64> {
@@ -716,11 +700,6 @@ impl PyGraphStore {
     // without probing for `_conn` or a method's existence. See: #153
     // -----------------------------------------------------------------------
 
-    fn get_node_by_id(&self, py: Python<'_>, node_id: i64) -> PyResult<Option<Py<PyAny>>> {
-        let node = self.with_store(|store| store.get_node_by_id(node_id))?;
-        node.map(|node| graph_node_to_py(py, node)).transpose()
-    }
-
     #[pyo3(signature = (min_lines = 50, max_lines = None, kind = None, file_path_pattern = None, limit = 50))]
     fn get_nodes_by_size(
         &self,
@@ -735,13 +714,6 @@ impl PyGraphStore {
             store.get_nodes_by_size(min_lines, max_lines, kind, file_path_pattern, limit)
         })?;
         graph_nodes_to_py_vec(py, nodes)
-    }
-
-    fn get_node_ids_by_files(
-        &self,
-        file_paths: Vec<String>,
-    ) -> PyResult<std::collections::HashSet<i64>> {
-        self.with_store(|store| store.get_node_ids_by_files(&file_paths))
     }
 
     #[pyo3(signature = (kinds, include_tests = false))]
@@ -916,24 +888,6 @@ impl PyGraphStore {
             .collect()
     }
 
-    fn get_community_member_qns(&self, community_id: i64) -> PyResult<Vec<String>> {
-        self.with_store(|store| store.get_community_member_qns(community_id))
-    }
-
-    fn get_flow_ids_by_node_ids(
-        &self,
-        node_ids: std::collections::HashSet<i64>,
-    ) -> PyResult<Vec<i64>> {
-        self.with_store(|store| store.get_flow_ids_by_node_ids(&node_ids))
-    }
-
-    fn get_flow_qualified_names(
-        &self,
-        flow_id: i64,
-    ) -> PyResult<std::collections::HashSet<String>> {
-        self.with_store(|store| store.get_flow_qualified_names(flow_id))
-    }
-
     fn resolve_file_path(&self, py: Python<'_>, file_path: &str) -> PyResult<Py<PyAny>> {
         let resolved = self.with_store(|store| store.resolve_file_path(file_path))?;
         let pathlib = PyModule::import(py, "pathlib")?;
@@ -1005,10 +959,6 @@ impl PyGraphStore {
         self.get_impact_radius(py, changed_files, max_depth, max_nodes)
     }
 
-    fn remove_node_keyed_rows_for_files(&self, file_keys: Vec<String>) -> PyResult<()> {
-        self.with_store(|store| store.remove_node_keyed_rows_for_files(&file_keys))
-    }
-
     fn prune_orphaned_graph_structures(&self) -> PyResult<std::collections::HashMap<String, i64>> {
         let raw = self.with_store_mut(native_prune_orphaned_graph_structures_json)?;
         serde_json::from_str(&raw).map_err(|err| PyValueError::new_err(err.to_string()))
@@ -1027,25 +977,6 @@ impl PyGraphStore {
             .ok_or_else(|| PyValueError::new_err("node is required"))?;
         self.with_store_mut(|store| store.upsert_node(&node, file_hash, mtime_ns))
     }
-
-    /// Named with the Python store's underscore because callers outside the
-    /// graph package (`dagayn.flows`) use it as part of the store contract.
-    #[pyo3(name = "_normalize_file_path_key")]
-    fn normalize_file_path_key(&self, file_path: &str) -> PyResult<String> {
-        self.with_store(|store| store.normalize_file_path_key(file_path))
-    }
-
-    /// See [`Self::normalize_file_path_key`]; used by `dagayn.incremental_build`.
-    #[pyo3(name = "_normalize_qualified_key")]
-    fn normalize_qualified_key(&self, qualified_name: &str) -> PyResult<String> {
-        self.with_store(|store| store.normalize_qualified_key(qualified_name))
-    }
-
-    /// No-op: the native store keeps no derived in-memory graph to invalidate.
-    ///
-    /// Present so write paths can call it unconditionally instead of probing.
-    #[pyo3(name = "_invalidate_cache")]
-    fn invalidate_cache(&self) {}
 
     fn upsert_edge(&self, py: Python<'_>, edge: &Bound<'_, PyAny>) -> PyResult<i64> {
         let edge = collect_edges(py, PyList::new(py, [edge])?.as_any())?
@@ -1891,10 +1822,6 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
         parse_rust_owned_file_compact_json,
         module
     )?)?;
-    module.add_function(wrap_pyfunction!(parse_markdown_compact_json, module)?)?;
-    module.add_function(wrap_pyfunction!(parse_terraform_compact_json, module)?)?;
-    module.add_function(wrap_pyfunction!(parse_rust_compact_json, module)?)?;
-    module.add_function(wrap_pyfunction!(parse_python_compact_json, module)?)?;
     module.add_function(wrap_pyfunction!(embedding_search, module)?)?;
     module.add_function(wrap_pyfunction!(embedding_search_prewarm, module)?)?;
     module.add_function(wrap_pyfunction!(extractor_versions, module)?)?;
@@ -2020,34 +1947,6 @@ fn parse_rust_owned_files_compact_json(
 #[pyfunction]
 fn parse_rust_owned_file_compact_json(file_path: &str, source: &[u8]) -> PyResult<String> {
     Ok(dagayn_parser::parse_rust_owned_file_compact_json(
-        file_path, source,
-    ))
-}
-
-#[pyfunction]
-fn parse_markdown_compact_json(file_path: &str, source: &[u8]) -> PyResult<String> {
-    Ok(dagayn_parser::parse_markdown_compact_json(
-        file_path, source,
-    ))
-}
-
-#[pyfunction]
-fn parse_terraform_compact_json(file_path: &str, source: &[u8]) -> PyResult<String> {
-    Ok(dagayn_parser::parse_terraform_compact_json(
-        file_path, source,
-    ))
-}
-
-#[pyfunction]
-fn parse_rust_compact_json(file_path: &str, source: &[u8]) -> PyResult<String> {
-    Ok(dagayn_parser::parse_rust_compact_json(
-        file_path, source,
-    ))
-}
-
-#[pyfunction]
-fn parse_python_compact_json(file_path: &str, source: &[u8]) -> PyResult<String> {
-    Ok(dagayn_parser::parse_python_compact_json(
         file_path, source,
     ))
 }

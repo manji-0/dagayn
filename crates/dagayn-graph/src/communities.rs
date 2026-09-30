@@ -126,16 +126,6 @@ impl GraphStore {
             .map_err(Into::into)
     }
 
-    /// Qualified names of the nodes assigned to one community.
-    pub fn get_community_member_qns(&self, community_id: i64) -> Result<Vec<String>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT qualified_name FROM nodes WHERE community_id = ?")?;
-        let rows = stmt.query_map([community_id], |row| row.get::<_, String>(0))?;
-        rows.collect::<std::result::Result<Vec<_>, _>>()
-            .map_err(Into::into)
-    }
-
     pub fn get_all_community_member_qns(&self) -> Result<HashMap<i64, Vec<String>>> {
         let mut out = HashMap::new();
         let mut stmt = self.conn.prepare(
