@@ -908,6 +908,31 @@ class TestExtractorVersions:
         finally:
             store.close()
 
+    def test_outdated_extractor_indexes_files_the_graph_lacks(self, tmp_path):
+        """A new extractor version picks up files its old version never parsed."""
+        from dagayn.extractor_versions import (
+            EXTRACTOR_VERSIONS_KEY,
+            format_extractor_versions,
+            parse_extractor_versions,
+        )
+
+        repo = self._repo(tmp_path)
+        store = GraphStore(tmp_path / "graph.db")
+        try:
+            full_build(repo, store)
+            # As if helper.ts had an extension the old extractor did not own.
+            store.remove_files_data(["helper.ts"])
+            stamp = parse_extractor_versions(store.get_metadata(EXTRACTOR_VERSIONS_KEY))
+            stamp["javascript"] = 0
+            store.set_metadata(EXTRACTOR_VERSIONS_KEY, format_extractor_versions(stamp))
+            store.commit()
+
+            incremental_update(repo, store, changed_files=[])
+
+            assert any(node.name == "helper" for node in store.get_nodes_by_file("helper.ts"))
+        finally:
+            store.close()
+
     def test_missing_stamp_without_extractor_output_is_not_drift(self, tmp_path):
         """A graph with no file of a tracked extractor has nothing to re-parse."""
         from dagayn.extractor_versions import EXTRACTOR_VERSIONS_KEY, outdated_extractors

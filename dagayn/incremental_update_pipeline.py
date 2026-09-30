@@ -117,20 +117,17 @@ def _extractor_reparse_scope(
     store: GraphStore,
     indexable: set[str],
 ) -> tuple[list[str], list[str]]:
-    """Return ``(outdated_extractors, indexed files they own)``.
+    """Return ``(outdated_extractors, indexable files they own)``.
 
     A graph parsed by an older extractor keeps that extractor's output for
     every file that has not changed since, so those files are re-parsed once.
+    Files the graph does not hold yet are included: a new version can take
+    on an extension the old one did not parse (Objective-C++ `.mm`).
     """
     outdated = outdated_extractors(store)
     if not outdated:
         return [], []
-    try:
-        graph_files = set(store.get_all_files() or [])
-    except Exception:  # noqa: BLE001 — never block an update on a listing failure
-        logger.debug("Could not list graph files for extractor re-parse", exc_info=True)
-        return outdated, []
-    files = files_for_extractors(repo_root, graph_files & indexable, outdated)
+    files = files_for_extractors(repo_root, indexable, outdated)
     if files:
         logger.info(
             "Re-parsing %d file(s) produced by an older %s extractor",
