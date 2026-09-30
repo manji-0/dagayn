@@ -452,3 +452,69 @@ fn records_wasm_host_loads_and_export_lookups() {
         ]
     );
 }
+
+#[test]
+fn records_component_model_guest_exports_host_imports_and_calls() {
+    let guest = br#"wit_bindgen::generate!({ world: "calculator", path: "wit" });
+struct Component;
+impl exports::example::calc::ops::Guest for Component {
+    fn add(a: i32, b: i32) -> i32 { a + b }
+}
+impl Guest for Component {
+    fn run() {}
+}
+impl std::fmt::Display for Component {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { Ok(()) }
+}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (nodes, _) = parser.parse_file("guest/src/lib.rs", guest);
+    let export = |nodes: &[crate::core::types::ParsedNode], name: &str| {
+        nodes
+            .iter()
+            .find(|node| node.name == name)
+            .unwrap_or_else(|| panic!("no node {name}"))
+            .extra
+            .get("ffi_export")
+            .cloned()
+    };
+    assert_eq!(
+        export(&nodes, "add"),
+        Some(serde_json::json!({
+            "abi": "wit", "kind": "function", "interface": "example::calc::ops", "name": "add"
+        }))
+    );
+    assert_eq!(
+        export(&nodes, "run"),
+        Some(serde_json::json!({"abi": "wit", "kind": "function", "interface": "", "name": "run"}))
+    );
+    assert_eq!(export(&nodes, "fmt"), None);
+
+    let host = br#"wasmtime::component::bindgen!({ world: "calculator" });
+struct State;
+impl example::calc::logging::Host for State {
+    fn log(&mut self, msg: String) {}
+}
+fn run(bindings: &Calculator, store: &mut Store<State>) {
+    bindings.example_calc_ops().call_add(&mut *store, 1, 2).unwrap();
+}
+"#;
+    let (nodes, edges) = parser.parse_file("host/src/main.rs", host);
+    assert_eq!(
+        export(&nodes, "log"),
+        Some(serde_json::json!({
+            "abi": "wit_host", "kind": "function", "interface": "example::calc::logging",
+            "name": "log"
+        }))
+    );
+    let call = edges
+        .iter()
+        .find(|edge| edge.extra["relationship_role"] == "calls_component_export")
+        .expect("component call");
+    assert_eq!(call.target, "add");
+    assert_eq!(call.extra["interface_hint"], "example_calc_ops");
+
+    // Without component bindings a `call_*` method is an ordinary call.
+    let (_, edges) = parser.parse_file("app/src/lib.rs", b"fn f(c: &C) { c.call_api(); }\n");
+    assert!(!edges.iter().any(|edge| edge.kind == "CROSS_ARTIFACT"));
+}

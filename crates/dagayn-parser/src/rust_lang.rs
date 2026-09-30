@@ -46,9 +46,19 @@ pub(super) fn parse_rust_with_parser(
             file_path: file_path.clone(),
             defined_names: &defined_names,
             bindings: RefCell::new(MemberCallBindings::with_types(type_names)),
+            component_bindings: rust_uses_component_bindings(source),
         };
         rust_walk_children(root, &context, None, None, &mut nodes, &mut edges);
-        rust_wasm_host_edges(root, source, &file_path, None, None, &mut edges);
+        let component_bindings = context.component_bindings;
+        rust_wasm_host_edges(
+            root,
+            source,
+            &file_path,
+            component_bindings,
+            None,
+            None,
+            &mut edges,
+        );
         record_neon_exported_functions(root, source, &mut nodes);
         if let Some(namespace) = rust_uniffi_namespace(root, source) {
             nodes[0].extra["uniffi_namespace"] = json!(namespace);
@@ -189,6 +199,10 @@ fn rust_walk_children(
                         rust_function_ffi_export(child, context.source, &name)
                     {
                         extra["ffi_export"] = export;
+                    } else if context.component_bindings
+                        && let Some(export) = rust_component_export(child, context.source, &name)
+                    {
+                        extra["ffi_export"] = export;
                     }
                     nodes.push(ParsedNode {
                         kind: if is_test {
@@ -308,6 +322,23 @@ struct RustParseContext<'a> {
     file_path: FilePath,
     defined_names: &'a HashSet<String>,
     bindings: RefCell<MemberCallBindings>,
+    /// The file generates WebAssembly component bindings
+    /// (`wit_bindgen::generate!`, `wasmtime::component::bindgen!`,
+    /// cargo-component's `bindings` module).
+    component_bindings: bool,
+}
+
+/// True for a file using generated WebAssembly component bindings.
+fn rust_uses_component_bindings(source: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(source);
+    [
+        "wit_bindgen::generate!",
+        "component::bindgen!",
+        "mod bindings",
+        "bindings::exports::",
+    ]
+    .iter()
+    .any(|marker| text.contains(marker))
 }
 
 fn collect_rust_defined_names(
@@ -576,6 +607,7 @@ fn rust_wasm_host_edges(
     node: tree_sitter::Node<'_>,
     source: &[u8],
     file_path: &FilePath,
+    component: bool,
     impl_type: Option<&str>,
     func: Option<&str>,
     edges: &mut Vec<ParsedEdge>,
@@ -587,12 +619,28 @@ fn rust_wasm_host_edges(
                 let type_name = child
                     .child_by_field_name("type")
                     .map(|ty| node_text(ty, source));
-                rust_wasm_host_edges(child, source, file_path, type_name.as_deref(), func, edges);
+                rust_wasm_host_edges(
+                    child,
+                    source,
+                    file_path,
+                    component,
+                    type_name.as_deref(),
+                    func,
+                    edges,
+                );
                 continue;
             }
             "function_item" => {
                 let name = rust_identifier_child(child, source);
-                rust_wasm_host_edges(child, source, file_path, impl_type, name.as_deref(), edges);
+                rust_wasm_host_edges(
+                    child,
+                    source,
+                    file_path,
+                    component,
+                    impl_type,
+                    name.as_deref(),
+                    edges,
+                );
                 continue;
             }
             "call_expression" | "macro_invocation" => {
@@ -620,6 +668,7 @@ fn rust_wasm_host_edges(
                     .unwrap_or_default()
                     .trim_end_matches('!')
                     .to_string();
+                let mut interface_hint = None;
                 let (role, target) = if let Some(path) = strings
                     .iter()
                     .find(|value| value.to_ascii_lowercase().ends_with(".wasm"))
@@ -629,32 +678,51 @@ fn rust_wasm_host_edges(
                     && let Some(name) = strings.last()
                 {
                     ("calls_wasm_export", name.clone())
+                } else if component
+                    && child.kind() == "call_expression"
+                    && let Some(export) = method.strip_prefix("call_")
+                {
+                    // wasmtime component bindings: `bindings
+                    // .example_calc_ops().call_add(&mut store, ...)` calls
+                    // the guest's `add` in interface `example:calc/ops`.
+                    interface_hint = callee
+                        .rsplit_once('.')
+                        .and_then(|(receiver, _)| receiver.strip_suffix("()"))
+                        .and_then(|receiver| receiver.rsplit('.').next())
+                        .map(str::to_string);
+                    ("calls_component_export", export.to_string())
                 } else {
-                    rust_wasm_host_edges(child, source, file_path, impl_type, func, edges);
+                    rust_wasm_host_edges(
+                        child, source, file_path, component, impl_type, func, edges,
+                    );
                     continue;
                 };
+                let mut extra = json!({
+                    "relationship_role": role,
+                    "bridge_kind": "wasm",
+                    "evidence_kind": "syntax",
+                    "evidence_source": method,
+                    "source_language": "rust",
+                    "target_language": "unknown",
+                    "confidence": 0.8,
+                    "confidence_tier": "HIGH",
+                });
+                if let Some(hint) = interface_hint {
+                    extra["interface_hint"] = json!(hint);
+                }
                 edges.push(ParsedEdge {
                     kind: crate::core::types::EdgeKind::CrossArtifact,
                     source: caller,
                     target,
                     file_path: file_path.clone(),
                     line,
-                    extra: json!({
-                        "relationship_role": role,
-                        "bridge_kind": "wasm",
-                        "evidence_kind": "syntax",
-                        "evidence_source": method,
-                        "source_language": "rust",
-                        "target_language": "unknown",
-                        "confidence": 0.8,
-                        "confidence_tier": "HIGH",
-                    }),
+                    extra,
                 });
                 continue;
             }
             _ => {}
         }
-        rust_wasm_host_edges(child, source, file_path, impl_type, func, edges);
+        rust_wasm_host_edges(child, source, file_path, component, impl_type, func, edges);
     }
 }
 
@@ -1006,6 +1074,53 @@ fn rust_function_ffi_export(
         return Some(json!({"abi": "c", "kind": "function", "name": name}));
     }
     None
+}
+
+/// WebAssembly component bindings, from the trait an impl block implements:
+///
+/// * `impl exports::example::calc::ops::Guest for C { fn add }` (wit-bindgen
+///   guest): the export `add` of interface `example::calc::ops`
+///   (`abi: "wit"`); a bare `Guest` is a world-level export (`interface: ""`);
+/// * `impl example::calc::logging::Host for S { fn log }` (wasmtime host):
+///   the import `log` of interface `example::calc::logging` a guest calls
+///   (`abi: "wit_host"`); `impl <World>Imports for S` implements world-level
+///   imports.
+fn rust_component_export(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    name: &str,
+) -> Option<serde_json::Value> {
+    let item = rust_enclosing_impl(node)?;
+    let trait_path = node_text(item.child_by_field_name("trait")?, source);
+    let trait_path = trait_path.split('<').next().unwrap_or(&trait_path).trim();
+    let mut segments: Vec<&str> = trait_path.split("::").map(str::trim).collect();
+    while matches!(segments.first(), Some(&("crate" | "self" | "bindings"))) {
+        segments.remove(0);
+    }
+    let last = segments.pop()?;
+    match last {
+        "Guest" => {
+            let interface = match segments.iter().position(|segment| *segment == "exports") {
+                Some(index) => segments[index + 1..].join("::"),
+                None if segments.is_empty() => String::new(),
+                None => return None,
+            };
+            Some(json!({"abi": "wit", "kind": "function", "interface": interface, "name": name}))
+        }
+        "Host" if !segments.is_empty() => Some(json!({
+            "abi": "wit_host",
+            "kind": "function",
+            "interface": segments.join("::"),
+            "name": name,
+        })),
+        imports if segments.is_empty() && imports.ends_with("Imports") => Some(json!({
+            "abi": "wit_host",
+            "kind": "function",
+            "interface": "",
+            "name": name,
+        })),
+        _ => None,
+    }
 }
 
 /// UniFFI: `#[uniffi::export]` functions, and methods of a

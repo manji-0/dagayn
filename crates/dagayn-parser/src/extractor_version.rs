@@ -66,8 +66,12 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // `setup_scaffolding!("ns")` namespace.
         // 8: WebAssembly hosts: a `.wasm` string argument emits
         // `loads_wasm_module`, export lookups by name `calls_wasm_export`.
+        // 9: WebAssembly components: `impl exports::..::Guest` functions
+        // record `ffi_export` (`abi: "wit"`), `impl ..::Host` functions
+        // `abi: "wit_host"`, and wasmtime `call_<name>` calls emit
+        // `calls_component_export`.
         extractor: "rust",
-        version: 8,
+        version: 9,
         languages: &["rust"],
     },
     ExtractorVersion {

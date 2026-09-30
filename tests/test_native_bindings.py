@@ -1190,3 +1190,44 @@ def test_wasm_hosts_reach_the_rust_guest_exports(tmp_path: Path) -> None:
         assert loads == {"host/src/main.rs::run", "tools/run.py::run", "gohost/main.go::run"}
     finally:
         store.close()
+
+
+def test_component_host_and_guest_link_through_wit_interfaces(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        {
+            "guest/src/lib.rs": (
+                'wit_bindgen::generate!({ world: "calculator", path: "wit" });\n\n'
+                "struct Component;\n\n"
+                "impl exports::example::calc::ops::Guest for Component {\n"
+                "    fn add(a: i32, b: i32) -> i32 {\n"
+                '        example::calc::logging::log("adding");\n'
+                "        a + b\n"
+                "    }\n"
+                "}\n\n"
+                "export!(Component);\n"
+            ),
+            "host/src/main.rs": (
+                'wasmtime::component::bindgen!({ world: "calculator", path: "../guest/wit" });\n\n'
+                "struct State;\n\n"
+                "impl example::calc::logging::Host for State {\n"
+                "    fn log(&mut self, msg: String) {}\n"
+                "}\n\n"
+                "fn run(bindings: &Calculator, store: &mut Store<State>) -> i32 {\n"
+                "    bindings.example_calc_ops().call_add(&mut *store, 1, 2).unwrap()\n"
+                "}\n"
+            ),
+        },
+    )
+    store = _build(tmp_path)
+    try:
+        assert _native_bridges(store) == {
+            ("host/src/main.rs::run", "guest/src/lib.rs::Component.add", "calls_native_function"),
+            (
+                "guest/src/lib.rs::Component.add",
+                "host/src/main.rs::State.log",
+                "calls_native_function",
+            ),
+        }
+    finally:
+        store.close()

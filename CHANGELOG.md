@@ -204,6 +204,20 @@ All notable changes to `dagayn` are documented here.
   `export`) of that name. The Rust extractor moves to version 8, Python to
   3, and Go to 4.
 
+- WebAssembly components written in Rust are linked through the WIT
+  interfaces both sides' generated bindings name. In a file using component
+  bindings (`wit_bindgen::generate!`, `wasmtime::component::bindgen!`,
+  cargo-component's `bindings`), the Rust extractor records `ffi_export`
+  with `abi: "wit"` and the interface on functions of
+  `impl exports::<ns>::<pkg>::<iface>::Guest` (a bare `Guest` is a world
+  export), `abi: "wit_host"` on functions of `impl <ns>::<pkg>::<iface>::Host`
+  and `<World>Imports`, and emits `calls_component_export` for wasmtime's
+  `call_<name>(...)`, with the interface accessor it is called on
+  (`example_calc_ops()`) as a hint; it moves to version 9.
+  `native_bindings` binds a host's `call_add` to the guest's `add` in the
+  matching interface, and a guest's `example::calc::logging::log(...)` to
+  the host's `Host` implementation.
+
 ### Changed
 
 - Go `os.ReadFile("x.wasm")` is a `loads_wasm_module` bridge instead of
