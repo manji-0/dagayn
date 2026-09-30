@@ -194,3 +194,26 @@ end
         ]
     );
 }
+
+#[test]
+fn julia_local_short_function_calls_come_from_its_node() {
+    let source = b"function outer(xs)\n    f(x) = helper(x)\n    map(f, xs)\nend\n";
+    let mut parser = RustOwnedParser::new();
+    let (nodes, edges) = parser.parse_file("a.jl", source);
+    let qualified: Vec<String> = nodes
+        .iter()
+        .map(|node| match &node.parent_name {
+            Some(parent) => format!("a.jl::{parent}.{}", node.name),
+            None => format!("a.jl::{}", node.name),
+        })
+        .collect();
+    let helper = edges
+        .iter()
+        .find(|edge| edge.kind == "CALLS" && edge.target == "helper")
+        .expect("call to helper");
+    assert!(
+        qualified.contains(&helper.source),
+        "{} not in {qualified:?}",
+        helper.source
+    );
+}

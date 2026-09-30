@@ -212,6 +212,17 @@ impl RustOwnedParser {
         file_path: &str,
         source: &[u8],
     ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+        let (nodes, mut edges) = self.parse_file_dispatch(repo_root, file_path, source);
+        contain_in_file(file_path, &nodes, &mut edges);
+        (nodes, edges)
+    }
+
+    fn parse_file_dispatch(
+        &mut self,
+        repo_root: Option<&Path>,
+        file_path: &str,
+        source: &[u8],
+    ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
         match rust_owned_path_kind_for_source(file_path, source) {
             RustOwnedPathKind::Markdown => {
                 if python::looks_like_marimo_md(source) {
@@ -442,6 +453,33 @@ impl RustOwnedParser {
                 swift::parse_swift_with_parser(file_path, source, self.swift_parser.as_mut())
             }
             RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
+        }
+    }
+}
+
+/// Points every CONTAINS edge at a container declared in this file.
+///
+/// A member of a type declared elsewhere (a Go method on a receiver from a
+/// sibling file, a Rust `impl` for a foreign type, an out-of-line C++
+/// `Widget::draw`, a Lua `M.f` on a module table) keeps its qualified name
+/// `file::Type.member`, but `file::Type` is no node: the edge from it dangled,
+/// and nothing in the graph contained the member. Such edges now start at
+/// the File node.
+fn contain_in_file(file_path: &str, nodes: &[ParsedNode], edges: &mut [ParsedEdge]) {
+    let declared: std::collections::HashSet<String> = nodes
+        .iter()
+        .map(|node| match (node.kind, &node.parent_name) {
+            (NodeKind::File, _) => node.file_path.to_string(),
+            (_, Some(parent)) => format!("{}::{parent}.{}", node.file_path, node.name),
+            (_, None) => format!("{}::{}", node.file_path, node.name),
+        })
+        .collect();
+    for edge in edges.iter_mut() {
+        if edge.kind == EdgeKind::Contains
+            && edge.source != file_path
+            && !declared.contains(&edge.source)
+        {
+            edge.source = file_path.to_string();
         }
     }
 }

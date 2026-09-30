@@ -804,7 +804,9 @@ fn c_emit_call(
     let caller = enclosing_func
         .map(|func| qualify(&context.file_path, func, enclosing_class))
         .unwrap_or_else(|| context.file_path.to_string());
-    if let Some(call_name) = c_call_name(node, context.source) {
+    // A C++ lambda capture `[this]()` in an Objective-C++ file reads as a
+    // message with no selector.
+    if let Some(call_name) = c_call_name(node, context.source).filter(|name| !name.is_empty()) {
         edges.push(ParsedEdge {
             kind: crate::core::types::EdgeKind::Calls,
             source: caller.clone(),

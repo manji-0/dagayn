@@ -284,7 +284,9 @@ fn julia_handle_short_function(
             }
             continue;
         }
-        julia_visit(child, context, enclosing_class, Some(&name), nodes, edges);
+        // Under the same parent the node was emitted with, so the body's
+        // calls come from `outer.f` when `f(x) = ...` is local to `outer`.
+        julia_visit(child, context, parent.as_deref(), Some(&name), nodes, edges);
     }
     true
 }

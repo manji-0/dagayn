@@ -70,8 +70,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // record `ffi_export` (`abi: "wit"`), `impl ..::Host` functions
         // `abi: "wit_host"`, and wasmtime `call_<name>` calls emit
         // `calls_component_export`.
+        // 10: a member of a type declared in another file is CONTAINED by the
+        // File node, not by a `file::Type` node that does not exist.
         extractor: "rust",
-        version: 9,
+        version: 10,
         languages: &["rust"],
     },
     ExtractorVersion {
@@ -83,8 +85,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 4: WebAssembly hosts (wazero, wasmtime-go, wasmer-go) emit
         // `loads_wasm_module` (instead of `reads_file` for a `.wasm` path)
         // and `calls_wasm_export`.
+        // 5: a member of a type declared in another file is CONTAINED by the
+        // File node, not by a `file::Type` node that does not exist.
         extractor: "go",
-        version: 4,
+        version: 5,
         languages: &["go"],
     },
     ExtractorVersion {
@@ -104,7 +108,9 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // block's calls. `export namespace` misparsed under `#if` is no
         // longer a function `namespace`, and a base whose template arguments
         // contain `::` is named by the base, not the last argument segment.
-        // Objective-C++ `.mm` files are parsed (as Objective-C).
+        // Objective-C++ `.mm` files are parsed (as Objective-C). An
+        // out-of-line `Widget::draw` whose class is declared in another file
+        // is CONTAINED by the File node.
         extractor: "c_like",
         version: 4,
         languages: &["c", "cpp", "objc"],
@@ -139,14 +145,19 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
     ExtractorVersion {
         // 1: `ccall((:sym, "lib"), ...)` and `@ccall lib.sym(...)` name the
         // library and record the C `symbol`.
+        // 2: a member of a type declared in another file is CONTAINED by the
+        // File node, not by a `file::Type` node that does not exist.
+        // Calls in a local `f(x) = ...` come from its `outer.f` node.
         extractor: "julia",
-        version: 1,
+        version: 2,
         languages: &["julia"],
     },
     ExtractorVersion {
         // 1: LuaJIT `ffi.load("lib")` emits `loads_shared_library`.
+        // 2: a member of a type declared in another file is CONTAINED by the
+        // File node, not by a `file::Type` node that does not exist.
         extractor: "lua",
-        version: 1,
+        version: 2,
         languages: &["lua"],
     },
     ExtractorVersion {

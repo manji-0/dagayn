@@ -204,3 +204,23 @@ func run() {
         ]
     );
 }
+
+#[test]
+fn methods_on_a_type_from_another_file_are_contained_by_the_file() {
+    // `Checker` is declared in a sibling file of the package.
+    let source = b"package types\n\nfunc (c *Checker) collect() {}\n\ntype Local struct{}\n\nfunc (l Local) run() {}\n";
+    let mut parser = RustOwnedParser::new();
+    let (_, edges) = parser.parse_file("resolver.go", source);
+    let contains: Vec<(&str, &str)> = edges
+        .iter()
+        .filter(|edge| edge.kind == "CONTAINS")
+        .map(|edge| (edge.source.as_str(), edge.target.as_str()))
+        .collect();
+    assert!(contains.contains(&("resolver.go", "resolver.go::Checker.collect")));
+    assert!(contains.contains(&("resolver.go::Local", "resolver.go::Local.run")));
+    assert!(
+        !contains
+            .iter()
+            .any(|(source, _)| *source == "resolver.go::Checker")
+    );
+}
