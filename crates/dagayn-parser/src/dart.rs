@@ -383,7 +383,10 @@ fn dart_emit_function(
         return_type: None,
         modifiers: None,
         is_test: false,
-        extra: json!({}),
+        extra: match dart_native_symbol(node, source, name) {
+            Some(symbol) => json!({"ffi_import": {"abi": "c", "name": symbol}}),
+            None => json!({}),
+        },
     });
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Contains,
@@ -411,25 +414,54 @@ fn dart_emit_calls_from_children(
         (None, None) => file_path.to_string(),
     };
     let mut call_name = None;
+    let mut receiver: Option<String> = None;
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         match child.kind() {
             "identifier" => {
                 call_name = Some(node_text(child, source));
+                receiver = None;
             }
             "selector" => {
                 if let Some(method_name) = dart_selector_method_name(child, source) {
+                    receiver = call_name.take();
                     call_name = Some(method_name);
                 }
                 if dart_selector_has_arguments(child)
                     && let Some(target) = call_name.take()
                 {
+                    let line = node.start_position().row as i64 + 1;
+                    // `DynamicLibrary.open("libfastsum.so")` from dart:ffi.
+                    if receiver.as_deref() == Some("DynamicLibrary")
+                        && target == "open"
+                        && let Some(library) =
+                            dart_first_descendant_text(child, source, &["string_literal"])
+                    {
+                        edges.push(ParsedEdge {
+                            kind: crate::core::types::EdgeKind::CrossArtifact,
+                            source: caller.clone(),
+                            target: library.trim_matches(['\'', '"']).to_string(),
+                            file_path: file_path.clone(),
+                            line,
+                            extra: json!({
+                                "relationship_role": "loads_shared_library",
+                                "bridge_kind": "ffi",
+                                "evidence_kind": "syntax",
+                                "evidence_source": "DynamicLibrary.open",
+                                "source_language": "dart",
+                                "target_language": "unknown",
+                                "confidence": 0.8,
+                                "confidence_tier": "HIGH",
+                            }),
+                        });
+                    }
+                    receiver = None;
                     edges.push(ParsedEdge {
                         kind: crate::core::types::EdgeKind::Calls,
                         source: caller.clone(),
                         target,
                         file_path: file_path.clone(),
-                        line: node.start_position().row as i64 + 1,
+                        line,
                         extra: json!({}),
                     });
                 }
@@ -437,9 +469,47 @@ fn dart_emit_calls_from_children(
             "return" | "await" | "yield" | "this" | "const" | "new" => {}
             _ => {
                 call_name = None;
+                receiver = None;
             }
         }
     }
+}
+
+/// `@Native<...>(symbol: "sym") external T f(...)`: the C symbol an
+/// `external` function binds (`symbol`, else its own name).
+fn dart_native_symbol(
+    signature: tree_sitter::Node<'_>,
+    source: &[u8],
+    name: &str,
+) -> Option<String> {
+    let mut current = signature.prev_named_sibling();
+    while let Some(annotation) = current.filter(|node| node.kind() == "annotation") {
+        let is_native = annotation
+            .child_by_field_name("name")
+            .is_some_and(|annotation_name| node_text(annotation_name, source) == "Native");
+        if is_native {
+            let mut cursor = annotation.walk();
+            let symbol = annotation
+                .children(&mut cursor)
+                .filter(|child| child.kind() == "arguments")
+                .flat_map(|arguments| {
+                    let mut inner = arguments.walk();
+                    arguments.children(&mut inner).collect::<Vec<_>>()
+                })
+                .filter(|argument| argument.kind() == "named_argument")
+                .find(|argument| {
+                    dart_first_descendant_text(*argument, source, &["label"])
+                        .is_some_and(|label| label.trim_end_matches(':').trim() == "symbol")
+                })
+                .and_then(|argument| {
+                    dart_first_descendant_text(argument, source, &["string_literal"])
+                })
+                .map(|literal| literal.trim_matches(['\'', '"']).to_string());
+            return Some(symbol.unwrap_or_else(|| name.to_string()));
+        }
+        current = annotation.prev_named_sibling();
+    }
+    None
 }
 
 fn dart_selector_method_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {

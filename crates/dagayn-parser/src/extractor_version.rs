@@ -31,8 +31,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 3: `require("bindings")("addon")` emits `loads_node_addon`.
         // 4: Emscripten `ccall("name")` / `cwrap("name")` emit
         // `calls_wasm_export`.
+        // 5: `Deno.dlopen(...)` and Bun's `dlopen(...)` emit
+        // `loads_shared_library`.
         extractor: "javascript",
-        version: 4,
+        version: 5,
         languages: &["javascript", "typescript", "tsx", "vue", "svelte"],
     },
     ExtractorVersion {
@@ -104,6 +106,26 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         extractor: "csharp",
         version: 1,
         languages: &["csharp"],
+    },
+    ExtractorVersion {
+        // 1: `ccall((:sym, "lib"), ...)` and `@ccall lib.sym(...)` name the
+        // library and record the C `symbol`.
+        extractor: "julia",
+        version: 1,
+        languages: &["julia"],
+    },
+    ExtractorVersion {
+        // 1: LuaJIT `ffi.load("lib")` emits `loads_shared_library`.
+        extractor: "lua",
+        version: 1,
+        languages: &["lua"],
+    },
+    ExtractorVersion {
+        // 1: `DynamicLibrary.open("lib")` emits `loads_shared_library`, and
+        // `@Native` externals record `ffi_import`.
+        extractor: "dart",
+        version: 1,
+        languages: &["dart"],
     },
 ];
 

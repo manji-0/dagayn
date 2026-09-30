@@ -172,3 +172,29 @@ Dog createDog(String name) {
         node.kind == "Function" && node.name == "fetch" && node.line_end > node.line_start
     }));
 }
+
+#[test]
+fn dart_native_externals_record_their_c_symbol() {
+    let source = br#"import 'dart:ffi';
+@Native<Double Function(Int32)>(symbol: 'fast_sum')
+external double fastSum(int n);
+@Native<Int32 Function()>()
+external int version();
+int plain() => 0;
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (nodes, _) = parser.parse_file("lib/sum.dart", source);
+    let symbol = |name: &str| {
+        nodes
+            .iter()
+            .find(|node| node.name == name)
+            .unwrap_or_else(|| panic!("no node {name}"))
+            .extra
+            .pointer("/ffi_import/name")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+    };
+    assert_eq!(symbol("fastSum").as_deref(), Some("fast_sum"));
+    assert_eq!(symbol("version").as_deref(), Some("version"));
+    assert_eq!(symbol("plain"), None);
+}

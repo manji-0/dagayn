@@ -163,3 +163,34 @@ end
             && edge.extra["evidence_source"] == "Libdl.dlopen"
     }));
 }
+
+#[test]
+fn julia_ccall_records_library_and_symbol() {
+    let source = br#"function a(x)
+    ccall(("sin", libm), Cdouble, (Cdouble,), x)
+end
+function b(x)
+    @ccall "libm".cos(x::Cdouble)::Cdouble
+end
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_, edges) = parser.parse_file("src/m.jl", source);
+    let loads: Vec<(&str, &str, &str)> = edges
+        .iter()
+        .filter(|edge| edge.extra["relationship_role"] == "loads_shared_library")
+        .map(|edge| {
+            (
+                edge.source.as_str(),
+                edge.target.as_str(),
+                edge.extra["symbol"].as_str().unwrap_or_default(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        loads,
+        vec![
+            ("src/m.jl::a", "libm", "sin"),
+            ("src/m.jl::b", "libm", "cos")
+        ]
+    );
+}

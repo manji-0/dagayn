@@ -405,7 +405,8 @@ fn lua_bridge_edge(
         "io.open" => ("opens_file", "file_io"),
         "io.lines" | "io.read" => ("reads_file", "file_io"),
         "io.write" => ("writes_file", "file_io"),
-        "package.loadlib" | "loadlib" => ("loads_shared_library", "ffi"),
+        // LuaJIT: `local lib = ffi.load("fastsum")`.
+        "package.loadlib" | "loadlib" | "ffi.load" => ("loads_shared_library", "ffi"),
         _ => return None,
     };
     let line = node.start_position().row as i64 + 1;

@@ -867,6 +867,8 @@ fn javascript_bridge_pattern(signature: &str) -> Option<(&'static str, &'static 
         | "child_process.spawn"
         | "child_process.spawnSync"
         | "child_process.fork" => Some(("invokes_binary", "subprocess")),
+        // Deno's FFI, and Bun's `dlopen` from "bun:ffi".
+        "Deno.dlopen" | "dlopen" => Some(("loads_shared_library", "ffi")),
         "fs.readFile" | "fs.readFileSync" | "fs.promises.readFile" => {
             Some(("reads_file", "file_io"))
         }

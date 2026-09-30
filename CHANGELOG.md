@@ -150,6 +150,17 @@ All notable changes to `dagayn` are documented here.
   to the C functions like `ctypes` ones. The Python extractor moves to
   version 2.
 
+- FFI from Julia, LuaJIT, Dart, Deno, and Bun reaches the C function.
+  Julia `ccall((:sym, "lib"), ...)` and `@ccall lib.sym(...)` now name the
+  library (they were a LOW `<dynamic:ccall>` bridge) and carry the C
+  `symbol`; LuaJIT `ffi.load("lib")`, Dart `DynamicLibrary.open("lib")`,
+  `Deno.dlopen(...)`, and Bun's `dlopen(...)` emit `loads_shared_library`;
+  a Dart `@Native(symbol: "sym") external` function records `ffi_import`.
+  `native_bindings` binds calls in a Deno / Bun / LuaJIT loader's file to
+  the library's C symbols by name, as for Python, and binds Julia calls and
+  Dart externals to their symbol. Julia, Lua, and Dart get extractor
+  version 1; JavaScript moves to 5.
+
 ### Changed
 
 - A shared-library loader outside Python (Java `System.loadLibrary`, ...)

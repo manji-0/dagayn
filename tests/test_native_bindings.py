@@ -958,3 +958,72 @@ def test_setuptools_rust_and_cffi_dlopen_reach_the_native_code(tmp_path: Path) -
         }
     finally:
         store.close()
+
+
+def test_scripting_language_ffi_reaches_the_c_function(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        {
+            "native/CMakeLists.txt": "add_library(fastsum SHARED src/sum.c)\n",
+            "native/src/sum.c": C_SUM,
+            "julia/sum.jl": (
+                "function total(xs)\n"
+                '    ccall((:fast_sum, "libfastsum"), Cdouble, (Ptr{Cdouble}, Cint), xs, 2)\n'
+                "end\n\n"
+                "function total2(xs)\n"
+                "    @ccall libfastsum.fast_sum(xs::Ptr{Cdouble}, 2::Cint)::Cdouble\n"
+                "end\n"
+            ),
+            "lua/sum.lua": (
+                'local ffi = require("ffi")\n'
+                "ffi.cdef[[ double fast_sum(const double *xs, int n); ]]\n"
+                'local lib = ffi.load("fastsum")\n'
+                "local function total(xs, n) return lib.fast_sum(xs, n) end\n"
+                "return { total = total }\n"
+            ),
+            "dart/sum.dart": (
+                "import 'dart:ffi';\n\n"
+                "final lib = DynamicLibrary.open('libfastsum.so');\n\n"
+                "@Native<Double Function(Pointer<Double>, Int32)>(symbol: 'fast_sum')\n"
+                "external double fastSum(Pointer<Double> xs, int n);\n"
+            ),
+            "deno/sum.ts": (
+                'const lib = Deno.dlopen("./libfastsum.so", {\n'
+                '  fast_sum: { parameters: ["pointer", "i32"], result: "f64" },\n'
+                "});\n"
+                "export function total(p: Deno.PointerValue, n: number) {\n"
+                "  return lib.symbols.fast_sum(p, n);\n}\n"
+            ),
+            "bun/sum.ts": (
+                'import { dlopen, FFIType } from "bun:ffi";\n'
+                'const lib = dlopen("libfastsum.dylib", {\n'
+                "  fast_sum: { args: [FFIType.ptr, FFIType.i32], returns: FFIType.f64 },\n"
+                "});\n"
+                "export function total(p: any, n: number) {\n"
+                "  return lib.symbols.fast_sum(p, n);\n}\n"
+            ),
+        },
+    )
+    store = _build(tmp_path)
+    try:
+        calls = {
+            source
+            for source, target, role in _native_bridges(store)
+            if role == "calls_native_function" and target == "native/src/sum.c::fast_sum"
+        }
+        assert calls == {
+            "julia/sum.jl::total",
+            "julia/sum.jl::total2",
+            "lua/sum.lua::total",
+            "dart/sum.dart::fastSum",
+            "deno/sum.ts::total",
+            "bun/sum.ts::total",
+        }
+        loads = {
+            source
+            for source, target, role in _native_bridges(store)
+            if role == "loads_shared_library" and target == "native/src/sum.c"
+        }
+        assert {"lua/sum.lua", "dart/sum.dart", "deno/sum.ts", "bun/sum.ts"} <= loads
+    finally:
+        store.close()

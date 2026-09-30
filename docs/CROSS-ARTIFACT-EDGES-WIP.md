@@ -29,10 +29,22 @@
 > | Language     | Bridge patterns |
 > |--------------|-----------------|
 > | `python`     | `subprocess.{run,Popen,call,check_call,check_output}`, `os.system`, `os.popen`, `os.exec*`, `os.spawn*`, `ctypes.{CDLL,WinDLL,PyDLL}`, `ctypes.cdll.LoadLibrary`, `<ffi>.dlopen` (cffi) |
-> | `javascript` | `child_process.{exec,execSync,execFile,execFileSync,spawn,spawnSync,fork}` |
+> | `javascript` | `child_process.{exec,execSync,execFile,execFileSync,spawn,spawnSync,fork}`, `fs.readFile*` / `fs.writeFile*`, `Deno.dlopen`, `dlopen` (Bun), any call whose first argument names a `.wasm` file (`loads_wasm_module`), `require("bindings")("name")` / `bindings("name")` (`loads_node_addon`), `ccall` / `cwrap` (`calls_wasm_export`) |
 > | `typescript` | (alias of `javascript`) |
-> | `java`       | `Runtime.getRuntime().exec`, `Runtime.exec`, `Runtime.getRuntime().{loadLibrary,load}`, `System.{loadLibrary,load}` |
-> | `r`          | `system`, `system2`, `.Call`, `.External`, `dyn.load`, `library.dynam` |
+> | `java`       | `Runtime.getRuntime().exec`, `Runtime.exec`, `Runtime.getRuntime().{loadLibrary,load}`, `System.{loadLibrary,load}`, `Files.*` |
+> | `kotlin`     | `Runtime.getRuntime().exec`, `ProcessBuilder.start`, `System.{loadLibrary,load}`, file I/O |
+> | `scala`      | `Runtime.getRuntime().exec`, `scala.sys.process.Process`, `System.{loadLibrary,load}`, file I/O |
+> | `csharp`     | `Process.Start`, `Assembly.LoadFile`, `NativeLibrary.Load`, `[DllImport]` / `[LibraryImport]` methods (with `symbol`), file I/O |
+> | `c` / `cpp` / `objc` | `system`, `popen`, `exec*`, `posix_spawn`, `std::system`, `boost::process::child`, `dlopen`, `LoadLibrary`, file I/O |
+> | `swift`      | `Process.run`, `dlopen`, `Bundle.load`, file I/O |
+> | `go`         | `exec.Command`, `plugin.Open`, `os.ReadFile` / `os.Open` / `os.WriteFile` |
+> | `ruby`       | `system`, `exec`, `spawn`, `IO.popen`, `Open3.*`, `Fiddle.dlopen`, file I/O |
+> | `php`        | `exec`, `shell_exec`, `system`, `passthru`, `proc_open`, `popen`, `FFI::cdef`, `FFI::load`, file I/O |
+> | `perl`       | `system`, `exec`, `DynaLoader::dl_load_file`, file I/O |
+> | `lua`        | `os.execute`, `io.popen`, `package.loadlib`, `ffi.load` (LuaJIT), file I/O |
+> | `julia`      | `run`, `Libdl.dlopen`, `dlopen`, `ccall((:sym, "lib"), ...)` / `@ccall lib.sym(...)` (with `symbol`), file I/O |
+> | `r`          | `system`, `system2`, `.Call`, `.External`, `dyn.load`, `library.dynam`, file I/O |
+> | `dart`       | `DynamicLibrary.open` |
 > | `bash`       | deferred — every command is a process invocation; needs a distinct model |
 >
 > - `CROSS_ARTIFACT` edge kind with the full `extra` metadata contract — `BridgePattern` in `dagayn/parser/_base/types.py`; extractors live in the Rust language parsers (formerly documented as `dagayn/parser/bridges.py`)
@@ -708,6 +720,8 @@ matches:
 | Go function -> C function via cgo (`calls_native_function`) | `C.f(...)` (`receiver: "C"`) in a file importing `"C"`, and exactly one C-ABI `f` in the first scope with a match: C files of the package directory, sources of the `#cgo LDFLAGS: -lNAME` libraries (`cgo_libraries`), the whole repository |
 | C function -> Go function via cgo `//export` (`calls_native_function`) | a call in a C file of a cgo package directory to a name a Go `//export` in that directory declares |
 | Python file / function -> C / C++ extension (`loads_native_module`, `calls_native_function`) | a C / C++ file defining `PYBIND11_MODULE(name, m)`, `NB_MODULE(name, m)`, or `PyInit_name` (`python_module`), imported like a PyO3 module; calls to names it registers with `m.def("name", &Fn)`, `py::class_<T>(m, "Name")` / `nb::class_`, or `PyMethodDef` `{"name", Fn, METH_..., doc}` |
+| Julia / Dart declaration -> C function (`calls_native_function`) | Julia `ccall` / `@ccall` loader carrying `symbol`, or a Dart `@Native(symbol:)` external (`ffi_import`), bound like a C# P/Invoke symbol or a Rust `extern "C"` declaration |
+| Deno / Bun / LuaJIT function -> C function (`calls_native_function`) | call in the loader's file (`lib.symbols.f(...)`, `lib.f(...)`) to a C symbol of the loaded library, as for Python |
 | Python function -> C function (`calls_native_function`) | call in the Python loader's file to a function with external C linkage in one of the library's sources (`ffi_export.abi = "c"`: not `static` / hidden; in C++ only inside `extern "C"`). Other languages' loaders do not bind calls by bare name |
 | JS/TS file -> napi-rs / neon crate root (`loads_native_module`, `bridge_kind: node_addon`) | import of the addon's package name (package.json in the crate directory or its parent, or a `file:` dependency on it), of its glue (`main` / `types`, napi-rs default `index.js` / `index.d.ts`, also when resolved to a committed glue file), or of a `.node` file (neon `main` / `index.node`, napi-rs `<binaryName>.*.node`) |
 | JS/TS function -> Rust item (`calls_native_function`, `bridge_kind: node_addon`) | call to a name imported from that module matching a `#[napi]` function or class, a `#[neon::export]` function, or a neon `cx.export_function("name", f)` registration (camelCase by default; `js_name` / `name` respected) |

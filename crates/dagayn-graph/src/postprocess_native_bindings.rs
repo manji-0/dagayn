@@ -917,11 +917,12 @@ fn bind_shared_libraries(
         })?;
         rows.collect::<std::result::Result<Vec<_>, _>>()?
     };
-    // Python file -> crates it loads. Only Python looks symbols up by the
-    // name it calls (`lib.fast_sum(...)` on a `ctypes.CDLL`); a Java file
-    // that loads a library calls `native` methods whose C symbols are
+    // File -> crates it loads, for loaders that look symbols up by the name
+    // they call: Python `ctypes` / cffi (`lib.fast_sum(...)`), Deno / Bun
+    // (`lib.symbols.fast_sum(...)`), LuaJIT (`lib.fast_sum(...)`). A Java
+    // file that loads a library calls `native` methods whose C symbols are
     // `Java_<class>_<method>`, so a bare-name match there is a coincidence.
-    let mut loaded: HashMap<String, HashSet<usize>> = HashMap::new();
+    let mut loaded: HashMap<String, HashSet<(usize, String)>> = HashMap::new();
     for (source, target, file_path, line, extra) in loaders {
         let Some(stem) = shared_library_stem(&target) else {
             continue;
@@ -978,18 +979,26 @@ fn bind_shared_libraries(
             line,
             extra,
         });
-        if source_language == "python" {
-            loaded.entry(file_path).or_default().insert(*index);
+        if matches!(
+            source_language.as_str(),
+            "python" | "javascript" | "typescript" | "lua"
+        ) {
+            loaded
+                .entry(file_path)
+                .or_default()
+                .insert((*index, source_language));
         }
     }
     for (file_path, indexes) in loaded {
         for (caller, target, line, _) in calls_in_file(tx, &file_path)? {
             let name = call_name(&target);
-            let hits: Vec<(&String, usize)> = indexes
+            let hits: Vec<(&String, usize, &str)> = indexes
                 .iter()
-                .filter_map(|index| unique(exports[*index].c.get(name)).map(|qn| (qn, *index)))
+                .filter_map(|(index, language)| {
+                    unique(exports[*index].c.get(name)).map(|qn| (qn, *index, language.as_str()))
+                })
                 .collect();
-            let [(target, index)] = hits.as_slice() else {
+            let [(target, index, language)] = hits.as_slice() else {
                 continue;
             };
             let extra = bridge_extra(
@@ -997,7 +1006,7 @@ fn bind_shared_libraries(
                 "ffi",
                 "syntax",
                 format!("{}::{name}", crates[*index].lib_name),
-                "python",
+                language,
                 crates[*index].language,
             );
             bridges.push(NewBridge {
@@ -1603,8 +1612,9 @@ fn nearest_dir(file_path: &str, dirs: &HashSet<String>) -> Option<String> {
     dirs.contains("").then(String::new)
 }
 
-/// Rust `extern "C" { fn f(); }` -> the C-ABI function `f` it links
-/// against (`calls_native_function`). The symbol is looked for, in order,
+/// A declaration bound to a C symbol (`ffi_import.abi = "c"`: Rust
+/// `extern "C" { fn f(); }`, Dart `@Native(symbol: "f")`) -> the C-ABI
+/// function `f` it links against (`calls_native_function`). The symbol is looked for, in order,
 /// among the sources a `build.rs` compiles into the same crate (`cc` /
 /// `cxx_build`), the sources of the library `#[link(name = "...")]` names,
 /// and the whole repository; the first scope with a match must hold
@@ -1686,7 +1696,7 @@ fn bind_c_imports(tx: &Transaction<'_>, bridges: &mut Vec<NewBridge>) -> Result<
         let mut stmt = tx.prepare(
             "SELECT qualified_name, file_path, line_start, \
                     json_extract(extra, '$.ffi_import.name'), \
-                    json_extract(extra, '$.ffi_import.library') \
+                    json_extract(extra, '$.ffi_import.library'), language \
              FROM nodes WHERE json_extract(extra, '$.ffi_import.abi') = 'c'",
         )?;
         let rows = stmt.query_map([], |row| {
@@ -1696,6 +1706,7 @@ fn bind_c_imports(tx: &Transaction<'_>, bridges: &mut Vec<NewBridge>) -> Result<
                 row.get::<_, i64>(2)?,
                 row.get::<_, Option<String>>(3)?,
                 row.get::<_, Option<String>>(4)?,
+                row.get::<_, Option<String>>(5)?,
             ))
         })?;
         rows.collect::<std::result::Result<Vec<_>, _>>()?
@@ -1728,7 +1739,7 @@ fn bind_c_imports(tx: &Transaction<'_>, bridges: &mut Vec<NewBridge>) -> Result<
         }
     }
     let libraries = load_native_libraries(tx)?;
-    for (source, file_path, line, name, library) in imports {
+    for (source, file_path, line, name, library, language) in imports {
         let Some(name) = name else {
             continue;
         };
@@ -1785,7 +1796,7 @@ fn bind_c_imports(tx: &Transaction<'_>, bridges: &mut Vec<NewBridge>) -> Result<
                     "manifest"
                 },
                 format!("{evidence} {name}"),
-                "rust",
+                language.as_deref().unwrap_or("rust"),
                 target_language,
             ),
         });

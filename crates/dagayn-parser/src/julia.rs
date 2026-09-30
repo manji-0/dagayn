@@ -671,11 +671,18 @@ fn julia_bridge_edge(
         "open" => ("opens_file", "file_io"),
         "read" | "readlines" => ("reads_file", "file_io"),
         "write" => ("writes_file", "file_io"),
-        "Libdl.dlopen" | "dlopen" | "ccall" => ("loads_shared_library", "ffi"),
+        "Libdl.dlopen" | "dlopen" | "ccall" | "@ccall" => ("loads_shared_library", "ffi"),
         _ => return None,
     };
     let line = node.start_position().row as i64 + 1;
-    let (target, confidence, confidence_tier) = match julia_first_string_arg(node, context.source) {
+    let (library, symbol) = match signature.as_str() {
+        "ccall" | "@ccall" => julia_ccall_target(node, context.source, &signature)
+            .map_or((None, None), |(library, symbol)| {
+                (Some(library), Some(symbol))
+            }),
+        _ => (julia_first_string_arg(node, context.source), None),
+    };
+    let (target, confidence, confidence_tier) = match library {
         Some(target) => (target, 0.8, "HIGH"),
         None => (
             format!("<dynamic:{signature}@{}:{line}>", context.file_path),
@@ -683,23 +690,77 @@ fn julia_bridge_edge(
             "LOW",
         ),
     };
+    let mut extra = json!({
+        "relationship_role": relationship_role,
+        "bridge_kind": bridge_kind,
+        "evidence_kind": "syntax",
+        "evidence_source": signature,
+        "source_language": "julia",
+        "target_language": "unknown",
+        "confidence": confidence,
+        "confidence_tier": confidence_tier,
+    });
+    if let Some(symbol) = symbol {
+        extra["symbol"] = json!(symbol);
+    }
     Some(ParsedEdge {
         kind: crate::core::types::EdgeKind::CrossArtifact,
         source: caller.to_string(),
         target,
         file_path: context.file_path.clone(),
         line,
-        extra: json!({
-            "relationship_role": relationship_role,
-            "bridge_kind": bridge_kind,
-            "evidence_kind": "syntax",
-            "evidence_source": signature,
-            "source_language": "julia",
-            "target_language": "unknown",
-            "confidence": confidence,
-            "confidence_tier": confidence_tier,
-        }),
+        extra,
     })
+}
+
+/// The library and C symbol of `ccall((:sym, "lib"), ...)` or
+/// `@ccall lib.sym(...)::T`. The library is a string literal or the
+/// constant naming it (`libfastsum`).
+fn julia_ccall_target(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    signature: &str,
+) -> Option<(String, String)> {
+    let library_text = |library: tree_sitter::Node<'_>| match library.kind() {
+        "string_literal" => julia_string_text(library, source),
+        "identifier" => Some(node_text(library, source)),
+        _ => None,
+    };
+    if signature == "ccall" {
+        let args = julia_direct_child(node, &["argument_list"])?;
+        let mut cursor = args.walk();
+        let tuple = args.named_children(&mut cursor).next()?;
+        if tuple.kind() != "tuple_expression" {
+            return None;
+        }
+        let mut inner = tuple.walk();
+        let parts: Vec<_> = tuple.named_children(&mut inner).collect();
+        let [symbol, library] = parts.as_slice() else {
+            return None;
+        };
+        let symbol = match symbol.kind() {
+            "quote_expression" => node_text(*symbol, source)
+                .trim_start_matches(':')
+                .to_string(),
+            "string_literal" => julia_string_text(*symbol, source)?,
+            _ => return None,
+        };
+        return Some((library_text(*library)?, symbol));
+    }
+    // `@ccall lib.sym(args...)::T`: the call inside the macro arguments.
+    let args = julia_direct_child(node, &["macro_argument_list"])?;
+    let call = julia_first_descendant(args, &["call_expression"])?;
+    let mut cursor = call.walk();
+    let callee = call
+        .named_children(&mut cursor)
+        .find(|child| child.kind() == "field_expression")?;
+    let library = callee.child_by_field_name("value")?;
+    let mut inner = callee.walk();
+    let symbol = callee
+        .named_children(&mut inner)
+        .filter(|child| child.kind() == "identifier" && child.id() != library.id())
+        .last()?;
+    Some((library_text(library)?, node_text(symbol, source)))
 }
 
 fn julia_import_targets(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
