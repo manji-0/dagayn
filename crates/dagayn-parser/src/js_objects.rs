@@ -489,7 +489,7 @@ pub(super) fn javascript_emit_object_container(
     let mut cursor = object.walk();
     for member in object.named_children(&mut cursor) {
         if !handled.contains(&member.id()) {
-            javascript_walk_node(member, context, None, None, nodes, edges);
+            javascript_walk_node(member, object, context, None, None, nodes, edges);
         }
     }
 }

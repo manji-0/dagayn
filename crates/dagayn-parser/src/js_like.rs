@@ -455,7 +455,15 @@ pub(super) fn javascript_walk_children(
 ) {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        javascript_walk_node(child, context, owner_path, enclosing_func, nodes, edges);
+        javascript_walk_node(
+            child,
+            node,
+            context,
+            owner_path,
+            enclosing_func,
+            nodes,
+            edges,
+        );
     }
 }
 
@@ -465,6 +473,7 @@ pub(super) fn javascript_walk_children(
 /// collected twice.
 pub(super) fn javascript_walk_node(
     child: tree_sitter::Node<'_>,
+    parent: tree_sitter::Node<'_>,
     context: &JavaScriptParseContext<'_>,
     owner_path: Option<&str>,
     enclosing_func: Option<&str>,
@@ -472,7 +481,7 @@ pub(super) fn javascript_walk_node(
     edges: &mut Vec<ParsedEdge>,
 ) {
     let position = (context.type_depth.get() == 0)
-        .then(|| javascript_type_root_position(child))
+        .then(|| javascript_type_root_position(child, parent))
         .flatten();
     let Some(position) = position else {
         javascript_walk_syntax_node(child, context, owner_path, enclosing_func, nodes, edges);

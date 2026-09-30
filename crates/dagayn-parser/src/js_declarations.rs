@@ -839,6 +839,7 @@ fn javascript_emit_wrapper_calls(
         if let Some(type_arguments) = call.child_by_field_name("type_arguments") {
             javascript_walk_node(
                 type_arguments,
+                *call,
                 context,
                 owner_path,
                 Some(name),
@@ -858,7 +859,7 @@ fn javascript_emit_wrapper_calls(
         let mut cursor = arguments.walk();
         for argument in arguments.named_children(&mut cursor) {
             if argument.id() != inner.id() {
-                javascript_walk_node(argument, context, owner_path, None, nodes, edges);
+                javascript_walk_node(argument, arguments, context, owner_path, None, nodes, edges);
             }
         }
     }

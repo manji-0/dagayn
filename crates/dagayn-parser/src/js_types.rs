@@ -18,11 +18,15 @@ use super::util::node_text;
 /// annotation of a parameter, field, return, or variable, a type parameter
 /// list, an `as` / `satisfies` target, call type arguments, or the class of
 /// an `instanceof` test.
-pub(super) fn javascript_type_root_position(node: tree_sitter::Node<'_>) -> Option<&'static str> {
+/// `parent` is `node.parent()`, passed in by the tree walk: `Node::parent`
+/// re-descends from the root, and this runs for every node of the file.
+pub(super) fn javascript_type_root_position(
+    node: tree_sitter::Node<'_>,
+    parent: tree_sitter::Node<'_>,
+) -> Option<&'static str> {
     if !node.is_named() {
         return None;
     }
-    let parent = node.parent()?;
     match node.kind() {
         "type_annotation" => Some(match parent.kind() {
             "required_parameter" | "optional_parameter"
@@ -237,21 +241,28 @@ fn javascript_type_name_is_bound(node: tree_sitter::Node<'_>, name: &str, source
     };
     let mut current = node.parent();
     while let Some(ancestor) = current {
-        let mut cursor = ancestor.walk();
-        for child in ancestor.named_children(&mut cursor) {
-            let bound = match child.kind() {
-                "type_parameters" => {
-                    let mut parameters = child.walk();
-                    child
-                        .named_children(&mut parameters)
-                        .any(|parameter| declares(parameter.child_by_field_name("name")))
-                }
-                "mapped_type_clause" => declares(child.child_by_field_name("name")),
-                _ => false,
-            };
-            if bound {
-                return true;
+        // Checked through the field and the one parent kind that can hold
+        // them, not by scanning children: the walk passes `program` and
+        // every other container, and this runs once per type reference.
+        let bound = match ancestor.kind() {
+            "index_signature" => {
+                let mut cursor = ancestor.walk();
+                ancestor
+                    .named_children(&mut cursor)
+                    .filter(|child| child.kind() == "mapped_type_clause")
+                    .any(|clause| declares(clause.child_by_field_name("name")))
             }
+            _ => ancestor
+                .child_by_field_name("type_parameters")
+                .is_some_and(|parameters| {
+                    let mut cursor = parameters.walk();
+                    parameters
+                        .named_children(&mut cursor)
+                        .any(|parameter| declares(parameter.child_by_field_name("name")))
+                }),
+        };
+        if bound {
+            return true;
         }
         if ancestor.kind() == "conditional_type"
             && javascript_declares_infer(ancestor, name, source)
@@ -398,7 +409,7 @@ pub(super) fn javascript_emit_type_roots(
         {
             continue;
         }
-        match javascript_type_root_position(child) {
+        match javascript_type_root_position(child, node) {
             Some(position) => {
                 let source =
                     javascript_type_reference_source(context, owner_path, enclosing_func, position);
