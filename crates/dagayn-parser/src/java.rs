@@ -86,11 +86,19 @@ fn java_walk_children(
 ) {
     // Declarations inside a function body are local to it: `a`'s
     // `helper` is `a.helper`, apart from `b.helper`.
-    let local_owner = enclosing_func.map(|func| match enclosing_class {
-        Some(class) => format!("{class}.{func}"),
-        None => func.to_string(),
-    });
-    let owner = local_owner.as_deref().or(enclosing_class);
+    let local_owner = std::cell::OnceCell::new();
+    // Built on first use: this runs for every node of a function body.
+    let owner = || {
+        local_owner
+            .get_or_init(|| {
+                enclosing_func.map(|func| match enclosing_class {
+                    Some(class) => format!("{class}.{func}"),
+                    None => func.to_string(),
+                })
+            })
+            .as_deref()
+            .or(enclosing_class)
+    };
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         match child.kind() {
@@ -113,11 +121,11 @@ fn java_walk_children(
                         context.source,
                         &context.file_path,
                         &name,
-                        owner,
+                        owner(),
                         nodes,
                         edges,
                     );
-                    let path = java_scope_join(owner, &name);
+                    let path = java_scope_join(owner(), &name);
                     java_walk_children(child, context, Some(&path), None, nodes, edges);
                     continue;
                 }
@@ -164,8 +172,8 @@ fn java_walk_children(
             | "constructor_declaration"
             | "compact_constructor_declaration" => {
                 if let Some(name) = java_function_name(child, context.source) {
-                    java_emit_function(child, context, &name, owner, nodes, edges);
-                    java_walk_children(child, context, owner, Some(&name), nodes, edges);
+                    java_emit_function(child, context, &name, owner(), nodes, edges);
+                    java_walk_children(child, context, owner(), Some(&name), nodes, edges);
                     continue;
                 }
             }
