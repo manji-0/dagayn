@@ -53,6 +53,16 @@ pub(super) fn javascript_emit_call(
         }
     }
     let Some(call_name) = javascript_call_name(node, context.source) else {
+        // A call of a call has no name, but `require("bindings")("addon")`
+        // still loads a native addon.
+        if javascript_callee_node(node).is_some_and(|callee| callee.kind() == "call_expression") {
+            let caller = enclosing_func
+                .map(|func| qualify(&context.file_path, func, owner_path))
+                .unwrap_or_else(|| context.file_path.to_string());
+            if let Some(edge) = javascript_bridge_edge(node, context, &caller) {
+                edges.push(edge);
+            }
+        }
         return false;
     };
 
@@ -773,6 +783,14 @@ fn javascript_bridge_edge(
     let (relationship_role, bridge_kind) =
         if first_string.as_deref().is_some_and(javascript_is_wasm_path) {
             ("loads_wasm_module", "wasm")
+        } else if javascript_is_bindings_loader(&signature)
+            && first_string
+                .as_deref()
+                .is_some_and(javascript_is_addon_name)
+        {
+            // `require("bindings")("addon")` finds node-gyp's
+            // `build/Release/addon.node`.
+            ("loads_node_addon", "node_addon")
         } else {
             javascript_bridge_pattern(&signature)?
         };
@@ -808,6 +826,26 @@ fn javascript_bridge_edge(
 fn javascript_is_wasm_path(path: &str) -> bool {
     let path = path.split(['?', '#']).next().unwrap_or(path);
     path.len() > ".wasm".len() && path.to_ascii_lowercase().ends_with(".wasm")
+}
+
+/// `require("bindings")` called directly, or the conventional `bindings`
+/// binding of it.
+fn javascript_is_bindings_loader(signature: &str) -> bool {
+    let compact: String = signature
+        .chars()
+        .filter(|ch| !ch.is_whitespace())
+        .map(|ch| if ch == '\'' || ch == '`' { '"' } else { ch })
+        .collect();
+    compact == "bindings" || compact == "require(\"bindings\")"
+}
+
+/// A node-gyp target name (`addon`, `my_addon.node`), not a path.
+fn javascript_is_addon_name(name: &str) -> bool {
+    let name = name.strip_suffix(".node").unwrap_or(name);
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-'))
 }
 
 fn javascript_bridge_pattern(signature: &str) -> Option<(&'static str, &'static str)> {

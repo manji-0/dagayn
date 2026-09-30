@@ -11,6 +11,8 @@ repository sources each shared library is compiled from:
   ``OUTPUT_NAME`` target property;
 * Meson: ``shared_library``, ``shared_module``, ``both_libraries``, and
   ``library`` unless ``default_library`` is ``static``;
+* node-gyp: ``binding.gyp`` targets, whose ``sources`` build the Node.js
+  addon ``build/Release/<target_name>.node``;
 * compiler command lines with ``-shared`` / ``-dynamiclib`` / ``-bundle``
   in Makefile recipes (``$@`` / ``$^`` / ``$<`` and simple variables
   expanded, object files mapped back to their sources), justfiles, and
@@ -22,6 +24,7 @@ sources can be located is not reported.
 
 from __future__ import annotations
 
+import ast
 import re
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
@@ -39,9 +42,11 @@ class NativeLibrary:
     """A shared library a build file compiles from repository sources."""
 
     config_rel: str
-    build_system: str  # "cmake" | "meson" | "make"
+    build_system: str  # "cmake" | "meson" | "make" | "node-gyp"
     lib_name: str
     sources: list[str] = field(default_factory=list)
+    # Build outputs at known paths (node-gyp's `build/Release/NAME.node`).
+    outputs: list[str] = field(default_factory=list)
 
     @property
     def language(self) -> str:
@@ -398,6 +403,47 @@ def _meson_expression_end(text: str, start: int) -> int:
 
 
 # ---------------------------------------------------------------------------
+# node-gyp
+# ---------------------------------------------------------------------------
+
+
+def _gyp_libraries(repo_root: Path, gyp_rel: str) -> list[NativeLibrary]:
+    """``binding.gyp``: a Python literal with ``#`` comments."""
+    try:
+        text = (repo_root / gyp_rel).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    stripped = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+    try:
+        data = ast.literal_eval(stripped)
+    except (ValueError, SyntaxError, MemoryError, RecursionError):
+        return []
+    targets = data.get("targets") if isinstance(data, dict) else None
+    base = PurePosixPath(gyp_rel).parent
+    libraries: list[NativeLibrary] = []
+    for target in targets if isinstance(targets, list) else []:
+        if not isinstance(target, dict):
+            continue
+        name = target.get("target_name")
+        sources = target.get("sources")
+        if target.get("type", "loadable_module") not in ("loadable_module", "shared_library"):
+            continue
+        if not isinstance(name, str) or not isinstance(sources, list):
+            continue
+        items = [source for source in sources if isinstance(source, str)]
+        found = _existing_sources(repo_root, base, items)
+        if not found:
+            continue
+        outputs = [
+            rel
+            for config in ("Release", "Debug")
+            if (rel := _resolve_rel(base, f"build/{config}/{name}.node")) is not None
+        ]
+        libraries.append(NativeLibrary(gyp_rel, "node-gyp", name, found, outputs))
+    return libraries
+
+
+# ---------------------------------------------------------------------------
 # Compiler command lines (Makefile recipes, justfiles, package.json scripts)
 # ---------------------------------------------------------------------------
 
@@ -534,6 +580,7 @@ def discover_native_libraries(
     meson_builds: list[str],
     makefiles: list[str],
     command_sources: Iterator[tuple[str, list[str]]],
+    binding_gyps: list[str],
 ) -> list[NativeLibrary]:
     """Shared libraries built from repository C / C++ / Objective-C sources.
 
@@ -545,6 +592,8 @@ def discover_native_libraries(
         libraries.extend(_cmake_libraries(repo_root, rel))
     for rel in meson_builds:
         libraries.extend(_meson_libraries(repo_root, rel))
+    for rel in binding_gyps:
+        libraries.extend(_gyp_libraries(repo_root, rel))
     for rel in makefiles:
         try:
             text = (repo_root / rel).read_text(encoding="utf-8", errors="replace")

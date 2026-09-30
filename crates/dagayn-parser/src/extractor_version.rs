@@ -28,8 +28,9 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 2: symbols of a relative module missing from the repository are
         // `spec::name` with `unresolved_module`, not bare names; calls whose
         // first argument names a `.wasm` file emit `loads_wasm_module`.
+        // 3: `require("bindings")("addon")` emits `loads_node_addon`.
         extractor: "javascript",
-        version: 2,
+        version: 3,
         languages: &["javascript", "typescript", "tsx", "vue", "svelte"],
     },
     ExtractorVersion {
@@ -61,8 +62,11 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 1: functions with external C linkage record `ffi_export` (C and
         // Objective-C free functions that are not `static` or hidden, C++
         // functions inside `extern "C"`).
+        // 2: functions registered as Node.js addon exports (N-API,
+        // node-addon-api, NAN, `NODE_SET_METHOD`) record `ffi_exports` with
+        // `abi: "napi"`.
         extractor: "c_like",
-        version: 1,
+        version: 2,
         languages: &["c", "cpp", "objc"],
     },
     ExtractorVersion {

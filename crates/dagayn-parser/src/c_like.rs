@@ -82,6 +82,9 @@ fn parse_c_like_with_parser(
             &mut nodes,
             &mut edges,
         );
+        if language != "objc" {
+            record_node_addon_registrations(tree.root_node(), source, &mut nodes);
+        }
         let mut edges = resolve_c_call_targets(&nodes, edges, &file_path);
         add_tested_by_edges(&nodes, &mut edges);
         return (nodes, edges);
@@ -367,6 +370,134 @@ fn c_function_ffi_export(
         return None;
     }
     Some(json!({"abi": "c", "kind": "function", "name": name}))
+}
+
+/// Node.js addon registrations: the JavaScript name a C / C++ function is
+/// exported under, recorded on that function as `ffi_exports` with
+/// `abi: "napi"`.
+///
+/// * `napi_create_function(env, "name", len, Fn, ...)`
+/// * `NODE_SET_METHOD(exports, "name", Fn)`, `Nan::SetMethod(target, "name", Fn)`
+/// * `DECLARE_NAPI_METHOD("name", Fn)`
+/// * `exports.Set("name", Napi::Function::New(env, Fn))`, also with
+///   `Napi::String::New(env, "name")` as the key
+/// * `napi_property_descriptor` initializers `{ "name", NULL, Fn, ... }`
+fn record_node_addon_registrations(
+    root: tree_sitter::Node<'_>,
+    source: &[u8],
+    nodes: &mut [ParsedNode],
+) {
+    let mut registrations = Vec::new();
+    c_collect_addon_registrations(root, source, &mut registrations);
+    for (js_name, function) in registrations {
+        let mut matches = nodes.iter_mut().filter(|node| {
+            node.kind == crate::core::types::NodeKind::Function && node.name == function
+        });
+        let (Some(node), None) = (matches.next(), matches.next()) else {
+            continue;
+        };
+        let entry = json!({"abi": "napi", "kind": "function", "name": js_name});
+        match node
+            .extra
+            .get_mut("ffi_exports")
+            .and_then(|value| value.as_array_mut())
+        {
+            Some(list) if !list.contains(&entry) => list.push(entry),
+            Some(_) => {}
+            None => node.extra["ffi_exports"] = json!([entry]),
+        }
+    }
+}
+
+fn c_collect_addon_registrations(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    found: &mut Vec<(String, String)>,
+) {
+    match node.kind() {
+        "call_expression" => {
+            if let Some(pair) = c_addon_registration_call(node, source) {
+                found.push(pair);
+            }
+        }
+        "initializer_list" => {
+            let mut cursor = node.walk();
+            let items: Vec<_> = node.named_children(&mut cursor).collect();
+            if let [name, data, function, ..] = items.as_slice()
+                && name.kind() == "string_literal"
+                && (matches!(data.kind(), "null" | "nullptr")
+                    || matches!(node_text(*data, source).trim(), "0" | "NULL" | "nullptr"))
+                && let Some(function) = c_function_reference(*function, source)
+            {
+                found.push((c_string_text(*name, source), function));
+            }
+        }
+        _ => {}
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        c_collect_addon_registrations(child, source, found);
+    }
+}
+
+fn c_addon_registration_call(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> Option<(String, String)> {
+    let callee = node.child_by_field_name("function")?;
+    let callee_text = node_text(callee, source).replace(char::is_whitespace, "");
+    let arguments = node.child_by_field_name("arguments")?;
+    let mut cursor = arguments.walk();
+    let args: Vec<_> = arguments.named_children(&mut cursor).collect();
+    let (name_index, function_index) = match callee_text.as_str() {
+        "napi_create_function" => (1, 3),
+        "NODE_SET_METHOD" | "Nan::SetMethod" => (1, 2),
+        "DECLARE_NAPI_METHOD" => (0, 1),
+        _ if callee_text.ends_with(".Set") || callee_text.ends_with("->Set") => {
+            // `exports.Set(key, Napi::Function::New(env, Fn))`
+            let key = args.first()?;
+            let name = if key.kind() == "string_literal" {
+                c_string_text(*key, source)
+            } else {
+                c_first_descendant(*key, &["string_literal"])
+                    .map(|literal| c_string_text(literal, source))?
+            };
+            let value = args.get(1)?;
+            if value.kind() != "call_expression" {
+                return None;
+            }
+            let value_callee = value.child_by_field_name("function")?;
+            if !node_text(value_callee, source)
+                .replace(char::is_whitespace, "")
+                .ends_with("Function::New")
+            {
+                return None;
+            }
+            let value_args = value.child_by_field_name("arguments")?;
+            let mut value_cursor = value_args.walk();
+            let function = value_args.named_children(&mut value_cursor).nth(1)?;
+            return Some((name, c_function_reference(function, source)?));
+        }
+        _ => return None,
+    };
+    let name = args.get(name_index)?;
+    if name.kind() != "string_literal" {
+        return None;
+    }
+    let function = c_function_reference(*args.get(function_index)?, source)?;
+    Some((c_string_text(*name, source), function))
+}
+
+/// `Fn`, `&Fn`, or `ns::Fn` as a function name (`Fn`).
+fn c_function_reference(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let text = node_text(node, source);
+    let text = text.trim().trim_start_matches('&').trim();
+    let name = text.rsplit("::").next().unwrap_or(text);
+    (!name.is_empty()
+        && name
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_'))
+    .then(|| name.to_string())
 }
 
 /// True when *node* sits inside `extern "C" { ... }` or is `extern "C" f()`.

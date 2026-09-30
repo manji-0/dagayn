@@ -424,3 +424,60 @@ class Widget { public: void draw() {} };
     assert_eq!(export(&nodes, "mangled"), None);
     assert_eq!(export(&nodes, "draw"), None);
 }
+
+#[test]
+fn records_node_addon_registrations() {
+    let exports = |nodes: &[crate::core::types::ParsedNode], name: &str| {
+        nodes
+            .iter()
+            .find(|node| node.name == name)
+            .unwrap_or_else(|| panic!("no node {name}"))
+            .extra
+            .get("ffi_exports")
+            .and_then(serde_json::Value::as_array)
+            .map(|list| {
+                list.iter()
+                    .filter_map(|entry| entry["name"].as_str().map(str::to_string))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    };
+    let c_source = br#"#include <node_api.h>
+static napi_value Hello(napi_env env, napi_callback_info info) { return NULL; }
+static napi_value Add(napi_env env, napi_callback_info info) { return NULL; }
+static napi_value Sub(napi_env env, napi_callback_info info) { return NULL; }
+static napi_value Init(napi_env env, napi_value exports) {
+    napi_value fn;
+    napi_create_function(env, "hello", NAPI_AUTO_LENGTH, Hello, NULL, &fn);
+    napi_property_descriptor desc[] = {
+        { "add", NULL, Add, NULL, NULL, NULL, napi_default, NULL },
+        DECLARE_NAPI_METHOD("sub", Sub),
+    };
+    return exports;
+}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (nodes, _) = parser.parse_file("addon/src/addon.c", c_source);
+    assert_eq!(exports(&nodes, "Hello"), vec!["hello"]);
+    assert_eq!(exports(&nodes, "Add"), vec!["add"]);
+    assert_eq!(exports(&nodes, "Sub"), vec!["sub"]);
+    assert!(exports(&nodes, "Init").is_empty());
+
+    let cpp_source = br#"#include <napi.h>
+Napi::Value Greet(const Napi::CallbackInfo& info) { return info.Env().Null(); }
+Napi::Value Sum(const Napi::CallbackInfo& info) { return info.Env().Null(); }
+void Legacy(const v8::FunctionCallbackInfo<v8::Value>& args) {}
+Napi::Object Init(Napi::Env env, Napi::Object exports) {
+    exports.Set(Napi::String::New(env, "greet"), Napi::Function::New(env, Greet));
+    exports.Set("sum", Napi::Function::New(env, Sum));
+    return exports;
+}
+void InitLegacy(v8::Local<v8::Object> exports) {
+    NODE_SET_METHOD(exports, "legacy", Legacy);
+}
+"#;
+    let (nodes, _) = parser.parse_file("addon/src/addon.cc", cpp_source);
+    assert_eq!(exports(&nodes, "Greet"), vec!["greet"]);
+    assert_eq!(exports(&nodes, "Sum"), vec!["sum"]);
+    assert_eq!(exports(&nodes, "Legacy"), vec!["legacy"]);
+}

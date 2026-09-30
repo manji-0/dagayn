@@ -321,6 +321,36 @@ class TestDiscoverManifestBridges:
         }
         assert edges == {"dyn": ["a/x.c", "a/y.c"], "plug": ["b/z.c"]}
 
+    def test_binding_gyp_targets_are_node_addons(self, tmp_path: Path):
+        (tmp_path / "addon" / "src").mkdir(parents=True)
+        (tmp_path / "addon" / "src" / "a.cc").write_text("int a() { return 0; }\n")
+        (tmp_path / "addon" / "binding.gyp").write_text(
+            "{\n  # comment\n  'targets': [\n"
+            "    {'target_name': 'native', 'sources': ['src/a.cc', 'src/missing.cc']},\n"
+            "    {'target_name': 'tool', 'type': 'executable', 'sources': ['src/a.cc']},\n"
+            "  ],\n}\n"
+        )
+        (tmp_path / "addon" / "package.json").write_text(
+            json.dumps({"name": "native-addon", "main": "index.js"})
+        )
+        edges = [
+            e.extra
+            for e in discover_manifest_bridges(tmp_path).edges
+            if e.extra.get("manifest_kind") == "native_library"
+        ]
+        assert len(edges) == 1
+        extra = edges[0]
+        assert extra["build_system"] == "node-gyp"
+        assert extra["lib_name"] == "native"
+        assert extra["source_files"] == ["addon/src/a.cc"]
+        assert extra["node_addon"] == "node-gyp"
+        assert extra["js_packages"] == ["native-addon"]
+        assert extra["js_entry_files"] == ["addon/index.js"]
+        assert extra["node_outputs"] == [
+            "addon/build/Release/native.node",
+            "addon/build/Debug/native.node",
+        ]
+
     def test_compiler_commands_in_makefiles_and_scripts(self, tmp_path: Path):
         (tmp_path / "c").mkdir()
         (tmp_path / "c" / "one.c").write_text("int one(void) { return 1; }\n")

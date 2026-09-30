@@ -59,6 +59,21 @@ All notable changes to `dagayn` are documented here.
   registers, under the camelCase name napi-rs and neon expose unless
   `js_name` / `name` overrides it. The Rust extractor moves to version 3.
 
+- Node.js addons built with node-gyp are linked the same way. Manifest
+  bridges read `binding.gyp` targets (`loadable_module` / `shared_library`)
+  as native libraries (`build_system: "node-gyp"`) with the package.json
+  beside them and their `build/Release|Debug/<target>.node` outputs. The
+  C / C++ extractor records `ffi_exports` with `abi: "napi"` on functions
+  registered as addon exports (`napi_create_function`,
+  `napi_property_descriptor` initializers, `DECLARE_NAPI_METHOD`,
+  node-addon-api `exports.Set(..., Napi::Function::New(env, Fn))`,
+  `NODE_SET_METHOD`, `Nan::SetMethod`) and moves to extractor version 2. The
+  JavaScript extractor emits `loads_node_addon` for
+  `require("bindings")("name")` and `bindings("name")` and moves to version
+  3. `native_bindings` links the loading file to the addon and binds calls
+  in it: to imported names, and to bare names such as `addon.hello()` on a
+  CommonJS `require` that exactly one loaded addon exports.
+
 ### Changed
 
 - A shared-library loader outside Python (Java `System.loadLibrary`, ...)

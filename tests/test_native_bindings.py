@@ -553,3 +553,52 @@ def test_neon_require_of_the_built_addon_reaches_the_rust_function(tmp_path: Pat
         }
     finally:
         store.close()
+
+
+GYP_ADDON_C = (
+    "#include <node_api.h>\n"
+    "static napi_value Hello(napi_env env, napi_callback_info info) { return NULL; }\n"
+    "static napi_value Init(napi_env env, napi_value exports) {\n"
+    "    napi_value fn;\n"
+    '    napi_create_function(env, "hello", NAPI_AUTO_LENGTH, Hello, NULL, &fn);\n'
+    "    return exports;\n}\n"
+)
+
+
+@pytest.mark.parametrize(
+    "loader",
+    [
+        pytest.param("require('bindings')('greeter')", id="bindings"),
+        pytest.param('require("../build/Release/greeter.node")', id="build-output"),
+    ],
+)
+def test_node_gyp_addon_loads_and_calls_reach_the_c_function(tmp_path: Path, loader: str) -> None:
+    _write(
+        tmp_path,
+        {
+            "binding.gyp": (
+                "# node-gyp build\n"
+                "{\n  'targets': [\n    {\n      'target_name': 'greeter',\n"
+                "      'sources': ['src/greeter.c'],\n    },\n  ],\n}\n"
+            ),
+            "package.json": '{"name": "greeter", "main": "lib/index.js", "gypfile": true}',
+            "src/greeter.c": GYP_ADDON_C,
+            "lib/index.js": (
+                f"const addon = {loader};\n\n"
+                "function greet() {\n  return addon.hello();\n}\n\n"
+                "module.exports = { greet };\n"
+            ),
+        },
+    )
+    store = _build(tmp_path)
+    try:
+        bridges = _native_bridges(store)
+        assert ("lib/index.js::greet", "src/greeter.c::Hello", "calls_native_function") in bridges
+        assert any(
+            target == "src/greeter.c" and role == "loads_native_module"
+            for _, target, role in bridges
+        )
+        # A node-gyp addon is a Node.js module, not a ctypes library.
+        assert not any(role == "loads_shared_library" for _, _, role in bridges)
+    finally:
+        store.close()

@@ -18,10 +18,13 @@ import shlex
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Any, Iterable, Iterator
+from typing import TYPE_CHECKING, Any, Iterable, Iterator
 
 from ._base.types import EdgeInfo, NodeInfo
 from .ignore import _load_ignore_patterns, _should_ignore
+
+if TYPE_CHECKING:
+    from .native_library_manifests import NativeLibrary
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +105,7 @@ def discover_manifest_bridges(repo_root: Path) -> ManifestBridgeResult:
         meson_builds=found["meson.build"],
         makefiles=makefiles,
         command_sources=_build_commands(repo_root, package_jsons, found["justfile"]),
+        binding_gyps=found["binding.gyp"],
         result=result,
     )
 
@@ -130,6 +134,7 @@ _MANIFEST_NAMES = (
     "justfile",
     "CMakeLists.txt",
     "meson.build",
+    "binding.gyp",
 )
 
 
@@ -621,6 +626,7 @@ def _extract_native_libraries(
     meson_builds: list[str],
     makefiles: list[str],
     command_sources: Iterator[tuple[str, list[str]]],
+    binding_gyps: list[str],
     result: ManifestBridgeResult,
 ) -> None:
     """Emit build file -> source edges for C / C++ shared libraries.
@@ -638,6 +644,7 @@ def _extract_native_libraries(
         meson_builds=meson_builds,
         makefiles=makefiles,
         command_sources=command_sources,
+        binding_gyps=binding_gyps,
     )
     for library in libraries:
         source_language = library.build_system
@@ -656,6 +663,8 @@ def _extract_native_libraries(
         extra["build_system"] = library.build_system
         extra["lib_name"] = library.lib_name
         extra["source_files"] = library.sources
+        if library.build_system == "node-gyp":
+            extra.update(_gyp_addon_facts(repo_root, library))
         result.edges.append(
             EdgeInfo(
                 kind="CROSS_ARTIFACT",
@@ -666,6 +675,25 @@ def _extract_native_libraries(
                 extra=extra,
             )
         )
+
+
+def _gyp_addon_facts(repo_root: Path, library: NativeLibrary) -> ManifestData:
+    """How JavaScript reaches a node-gyp addon: the package.json beside
+    ``binding.gyp`` names the package and its glue (``main``), and the
+    addon is loaded from ``build/Release/NAME.node`` or ``bindings("NAME")``."""
+    package_dir = PurePosixPath(library.config_rel).parent
+    package_rel = "package.json" if str(package_dir) == "." else f"{package_dir}/package.json"
+    data = _load_json(repo_root / package_rel) or {}
+    name = data.get("name")
+    main = data.get("main")
+    entry = _resolve_rel(package_dir, main) if isinstance(main, str) and main.strip() else None
+    return {
+        "node_addon": "node-gyp",
+        "js_packages": [name.strip()] if isinstance(name, str) and name.strip() else [],
+        "js_entry_files": [entry] if entry and not entry.endswith(".node") else [],
+        "node_outputs": library.outputs,
+        "node_binary_names": [],
+    }
 
 
 def _build_commands(

@@ -572,3 +572,26 @@ export function App() { return <><Fwd /><Nested /><Page /></>; }
 
     let _ = std::fs::remove_dir_all(&repo_root);
 }
+
+#[test]
+fn bindings_loader_calls_emit_loads_node_addon() {
+    let source = br#"const addon = require('bindings')('addon');
+const bindings = require("bindings");
+function load() { return bindings("other.node"); }
+const notAddon = bindings("./relative/path");
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_, edges) = parser.parse_file("lib/index.js", source);
+    let loads: Vec<(&str, &str)> = edges
+        .iter()
+        .filter(|edge| edge.extra["relationship_role"] == "loads_node_addon")
+        .map(|edge| (edge.source.as_str(), edge.target.as_str()))
+        .collect();
+    assert_eq!(
+        loads,
+        vec![
+            ("lib/index.js", "addon"),
+            ("lib/index.js::load", "other.node"),
+        ]
+    );
+}
