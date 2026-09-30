@@ -16,13 +16,13 @@ from ..incremental import full_build, incremental_update
 from ..paths import get_db_path
 from ..write_lock import WriteLockUnavailableError, graph_write_lock
 from ._common import _evict_store_cache, _get_store, _validate_repo_root
+from .sync_status import _local_embedding_requested
 
 logger = logging.getLogger(__name__)
 
 type BuildValue = Any
 type BuildPayload = dict[str, BuildValue]
 
-_LOCAL_EMBEDDING_DISABLED = {None, "", "none"}
 _LOCAL_EMBEDDING_BGE = "bge-m3"
 _LOCAL_EMBEDDING_LLAMA_QWEN3 = "llama-qwen3"
 _LOCAL_EMBEDDING_ENV_LOCK = threading.Lock()
@@ -51,10 +51,6 @@ def _embed_slice_seconds() -> float | None:
     except ValueError:
         return _DEFAULT_EMBED_SLICE_SECONDS
     return None if value <= 0 else value
-
-
-def _local_embedding_requested(local_embedding: str | None) -> bool:
-    return (local_embedding or "").strip().lower() not in _LOCAL_EMBEDDING_DISABLED
 
 
 def _resolve_local_embedding_mode(

@@ -44,6 +44,7 @@ from ..write_lock import (
     release_graph_lock,
     write_lock_is_held,
 )
+from .sync_status import commit_tier_freshness
 
 logger = logging.getLogger(__name__)
 
@@ -760,8 +761,6 @@ def _freshness_reason_codes(store: Any) -> tuple[list[str], ToolPayload]:
     if root is None:
         return [], {}
     try:
-        from .sync_status import commit_tier_freshness
-
         freshness = commit_tier_freshness(store, root)
     except Exception:  # noqa: BLE001
         return [], {}

@@ -39,6 +39,10 @@ from ..incremental import (
 logger = logging.getLogger(__name__)
 
 
+def _local_embedding_requested(local_embedding: str | None) -> bool:
+    return (local_embedding or "").strip().lower() not in {"", "none"}
+
+
 class SyncPayload(TypedDict, total=False):
     """Typed evidence envelope shared by sync assessment callers."""
 
@@ -439,8 +443,6 @@ def embedding_refresh_action(
     * ``skip`` — embeddings are off, the index is complete, or only orphans
       remain (structure updates already prune those without a provider).
     """
-    from .build import _local_embedding_requested
-
     if not _local_embedding_requested(local_embedding):
         return "skip"
     from ..embeddings_store import get_embedding_status

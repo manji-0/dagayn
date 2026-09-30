@@ -19,8 +19,9 @@ from ._common import (
     graph_answerability_summary,
     make_response,
 )
-from .build import _local_embedding_requested, build_or_update_graph
+from .build import build_or_update_graph
 from .sync_status import (
+    _local_embedding_requested,
     assess_graph_sync,
     is_structure_ready,
     needs_structure_prepare,
