@@ -440,39 +440,56 @@ fn main() {
         repo_root.join("dagayn/vendor_grammars.py").display()
     );
 
-    compile_grammar(&repo_root, &MARKDOWN);
-    compile_grammar(&repo_root, &TERRAFORM);
-    compile_grammar(&repo_root, &RUST);
-    compile_grammar(&repo_root, &PYTHON);
-    compile_grammar(&repo_root, &JAVASCRIPT);
-    compile_grammar(&repo_root, &TYPESCRIPT);
-    compile_grammar(&repo_root, &TSX);
-    compile_grammar(&repo_root, &BASH);
-    compile_grammar(&repo_root, &GO);
-    compile_grammar(&repo_root, &JAVA);
-    compile_grammar(&repo_root, &RUBY);
-    compile_grammar(&repo_root, &CSHARP);
-    compile_grammar(&repo_root, &PHP);
-    compile_grammar(&repo_root, &KOTLIN);
-    compile_grammar(&repo_root, &SCALA);
-    compile_grammar(&repo_root, &DART);
-    compile_grammar(&repo_root, &LUA);
-    compile_grammar(&repo_root, &C);
-    compile_grammar(&repo_root, &CPP);
-    compile_grammar(&repo_root, &OBJC);
-    compile_grammar(&repo_root, &ELIXIR);
-    compile_grammar(&repo_root, &GDSCRIPT);
-    compile_grammar(&repo_root, &R);
-    compile_grammar(&repo_root, &JULIA);
-    compile_grammar(&repo_root, &PERL);
-    compile_grammar(&repo_root, &VUE);
-    compile_grammar(&repo_root, &SVELTE);
-    compile_grammar(&repo_root, &ZIG);
-    compile_grammar(&repo_root, &POWERSHELL);
-    compile_grammar(&repo_root, &SWIFT);
+    let grammars: [&GrammarSpec; 30] = [
+        &MARKDOWN,
+        &TERRAFORM,
+        &RUST,
+        &PYTHON,
+        &JAVASCRIPT,
+        &TYPESCRIPT,
+        &TSX,
+        &BASH,
+        &GO,
+        &JAVA,
+        &RUBY,
+        &CSHARP,
+        &PHP,
+        &KOTLIN,
+        &SCALA,
+        &DART,
+        &LUA,
+        &C,
+        &CPP,
+        &OBJC,
+        &ELIXIR,
+        &GDSCRIPT,
+        &R,
+        &JULIA,
+        &PERL,
+        &VUE,
+        &SVELTE,
+        &ZIG,
+        &POWERSHELL,
+        &SWIFT,
+    ];
+    // Staging may run Python or download a source, and bash reads headers
+    // staged with the JavaScript grammar, so sources are prepared in order.
+    // Compiling the C sources is independent per grammar and dominates the
+    // build, so it runs in parallel.
+    let staged: Vec<(&GrammarSpec, PathBuf)> = grammars
+        .into_iter()
+        .map(|spec| (spec, stage_grammar(&repo_root, spec)))
+        .collect();
+    std::thread::scope(|scope| {
+        for (spec, source_dir) in &staged {
+            let repo_root = &repo_root;
+            scope.spawn(move || compile_grammar(repo_root, spec, source_dir));
+        }
+    });
 }
 
-fn compile_grammar(repo_root: &Path, spec: &GrammarSpec) {
+/// Makes the grammar's pinned source available and returns its directory.
+fn stage_grammar(repo_root: &Path, spec: &GrammarSpec) -> PathBuf {
     let source_dir = ensure_source_dir(repo_root, spec);
     stage_packaged_source(repo_root, spec, &source_dir);
     for required in spec.required_paths {
@@ -481,7 +498,10 @@ fn compile_grammar(repo_root: &Path, spec: &GrammarSpec) {
             source_dir.join(required).display()
         );
     }
+    source_dir
+}
 
+fn compile_grammar(repo_root: &Path, spec: &GrammarSpec, source_dir: &Path) {
     let parser_root = spec
         .parser_subdirectory
         .map(|subdir| source_dir.join(subdir))
