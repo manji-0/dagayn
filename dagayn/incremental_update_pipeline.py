@@ -197,7 +197,6 @@ def prepare_incremental_update(
 def classify_incremental_changes(state: IncrementalUpdateState) -> None:
     """Classify changed roots, dependents, and content vs mtime-only updates."""
     from .incremental_build import (
-        _callable_store_attr,
         _classify_python_changed_files,
         _expand_changed_submodules,
         _filter_incremental_candidates,
@@ -222,25 +221,17 @@ def classify_incremental_changes(state: IncrementalUpdateState) -> None:
     rust_changed_candidates, python_changed_candidates = _split_rust_parser_files(
         changed_candidates,
         state.repo_root,
-        state.store,
     )
     if rust_changed_candidates:
-        classify_changed_rust_owned_files = _callable_store_attr(
-            state.store,
-            "classify_changed_rust_owned_files",
+        rust_changed, raw_errors = state.store.classify_changed_rust_owned_files(
+            state.repo_root,
+            rust_changed_candidates,
         )
-        if classify_changed_rust_owned_files is not None:
-            rust_changed, raw_errors = classify_changed_rust_owned_files(
-                state.repo_root,
-                rust_changed_candidates,
-            )
-            state.rust_content_changed_files.update(rust_changed)
-            state.content_changed_files.update(rust_changed)
-            state.errors.extend(
-                {"file": str(file_path), "error": str(error)} for file_path, error in raw_errors
-            )
-        else:
-            state.content_changed_files.update(rust_changed_candidates)
+        state.rust_content_changed_files.update(rust_changed)
+        state.content_changed_files.update(rust_changed)
+        state.errors.extend(
+            {"file": str(file_path), "error": str(error)} for file_path, error in raw_errors
+        )
 
     if python_changed_candidates:
         changed_file_meta = _get_file_meta_for_candidates(
@@ -298,11 +289,7 @@ def plan_incremental_reparses(state: IncrementalUpdateState) -> None:
         ]
         full_set = set(full)
         state.candidates = [path for path in state.candidates if path not in full_set]
-        rust_forced, python_forced = _split_rust_parser_files(
-            full,
-            state.repo_root,
-            state.store,
-        )
+        rust_forced, python_forced = _split_rust_parser_files(full, state.repo_root)
         state.to_parse_rust_full.extend(rust_forced)
         for rel_path in python_forced:
             try:
@@ -314,7 +301,6 @@ def plan_incremental_reparses(state: IncrementalUpdateState) -> None:
     rust_candidates, python_candidates = _split_rust_parser_files(
         state.candidates,
         state.repo_root,
-        state.store,
     )
 
     for rel_path in rust_candidates:
@@ -356,13 +342,7 @@ def apply_incremental_graph_mutations(state: IncrementalUpdateState) -> BuildRes
 
     if state.removed_files or state.mtime_only_updates:
         if state.mtime_only_updates:
-            if hasattr(state.store, "update_file_mtimes"):
-                state.store.update_file_mtimes(state.mtime_only_updates)
-            elif hasattr(state.store, "update_file_mtime"):
-                for mtime_ns, file_path in state.mtime_only_updates:
-                    state.store.update_file_mtime(file_path, mtime_ns)
-            else:
-                raise RuntimeError("GraphStore.update_file_mtimes is required (Rust GraphStore).")
+            state.store.update_file_mtimes(state.mtime_only_updates)
         state.store.commit()
 
     if (
@@ -412,22 +392,15 @@ def _run_incremental_parsing_body(state: IncrementalUpdateState) -> None:
     from .incremental_build import (
         _MAX_PARSE_WORKERS,
         _PARSE_FILE_ERRORS,
-        _callable_store_attr,
         _flush_store_batch,
         _init_worker,
-        _parse_single_python_file,
         _parse_single_python_file_compact,
         _queue_store_file,
         _store_rust_parse_batches,
-        _uses_compact_entities,
     )
 
     use_serial = os.environ.get("CRG_SERIAL_PARSE", "") == "1"
     to_parse_mtime = dict(state.to_parse)
-    store_changed_rust_owned_files = _callable_store_attr(
-        state.store,
-        "store_changed_rust_owned_files",
-    )
 
     if state.to_parse_rust_full:
         # Unchanged content, older extractor: parse without the hash check the
@@ -444,20 +417,13 @@ def _run_incremental_parsing_body(state: IncrementalUpdateState) -> None:
     for rust_batch in (state.to_parse_rust_forced, state.to_parse_rust_checked):
         if not rust_batch:
             continue
-        if store_changed_rust_owned_files is not None:
-            rust_nodes, rust_edges, raw_errors = store_changed_rust_owned_files(
-                state.repo_root,
-                rust_batch,
-            )
-            rust_errors = [
-                {"file": str(file_path), "error": str(error)} for file_path, error in raw_errors
-            ]
-        else:
-            rust_nodes, rust_edges, rust_errors = _store_rust_parse_batches(
-                state.repo_root,
-                state.store,
-                rust_batch,
-            )
+        rust_nodes, rust_edges, raw_errors = state.store.store_changed_rust_owned_files(
+            state.repo_root,
+            rust_batch,
+        )
+        rust_errors = [
+            {"file": str(file_path), "error": str(error)} for file_path, error in raw_errors
+        ]
         state.total_nodes += rust_nodes
         state.total_edges += rust_edges
         state.errors.extend(rust_errors)
@@ -497,17 +463,12 @@ def _run_incremental_parsing_body(state: IncrementalUpdateState) -> None:
 
     args_list = [(rel_path, str(state.repo_root)) for rel_path, _ in state.to_parse]
     batch = []
-    parse_worker = (
-        _parse_single_python_file_compact
-        if _callable_store_attr(state.store, "store_file_batch_json") is not None
-        else _parse_single_python_file
-    )
     with concurrent.futures.ProcessPoolExecutor(
         max_workers=_MAX_PARSE_WORKERS,
         initializer=_init_worker,
     ) as executor:
         for rel_path, nodes, edges, error, fhash, mtime_ns in executor.map(
-            parse_worker,
+            _parse_single_python_file_compact,
             args_list,
             chunksize=20,
         ):
@@ -515,12 +476,6 @@ def _run_incremental_parsing_body(state: IncrementalUpdateState) -> None:
                 logger.warning("Error parsing %s: %s", rel_path, error)
                 state.errors.append({"file": rel_path, "error": error})
                 continue
-            if not _uses_compact_entities(nodes, edges):
-                nodes, edges = _relativize_parsed_entities(
-                    cast(list[NodeInfo], nodes),
-                    cast(list[EdgeInfo], edges),
-                    state.repo_root,
-                )
             _queue_store_file(state.store, batch, rel_path, nodes, edges, fhash, mtime_ns)
             state.total_nodes += len(nodes)
             state.total_edges += len(edges)

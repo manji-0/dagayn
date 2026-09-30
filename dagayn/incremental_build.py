@@ -105,11 +105,7 @@ def _batch_hop_dependents(store: GraphStore, frontier: set[str]) -> set[str]:
     if not frontier:
         return set()
 
-    rust_get = getattr(store, "get_direct_dependents", None)
-    if not callable(rust_get):
-        raise RuntimeError("GraphStore.get_direct_dependents is required (Rust GraphStore).")
-    direct = cast(Callable[[list[str]], list[str]], rust_get)(list(frontier))
-    return set(direct) - frontier
+    return set(store.get_direct_dependents(list(frontier))) - frontier
 
 
 class DependentList(list[str]):
@@ -210,23 +206,6 @@ def _parse_single_file(
         return (rel_path, [], [], str(e), "", 0)
 
 
-def _parse_single_python_file(
-    args: tuple[str, str],
-) -> WorkerParseResult:
-    """Parse one file known not to be owned by the Rust parser."""
-    rel_path, repo_root_str = args
-    abs_path = Path(repo_root_str) / rel_path
-    try:
-        mtime_ns = abs_path.stat().st_mtime_ns
-        raw = abs_path.read_bytes()
-        fhash = hashlib.sha256(raw).hexdigest()
-        parser = _worker_parser if _worker_parser is not None else CodeParser()
-        nodes, edges = parser.parse_bytes(abs_path, raw)
-        return (rel_path, nodes, edges, None, fhash, mtime_ns)
-    except _PARSE_FILE_ERRORS as e:
-        return (rel_path, [], [], str(e), "", 0)
-
-
 def _parse_single_python_file_compact(
     args: tuple[str, str],
 ) -> WorkerParseResult:
@@ -255,14 +234,7 @@ def _indexed_only(store: GraphStore, rel_paths: list[str]) -> list[str]:
     """Restrict *rel_paths* to files the graph actually holds nodes for."""
     if not rel_paths:
         return []
-    getter = getattr(store, "get_file_meta_for_files", None)
-    if not callable(getter):
-        return rel_paths
-    try:
-        meta_map = cast(Callable[[list[str]], dict[str, Any]], getter)(rel_paths) or {}
-        indexed = set(meta_map)
-    except Exception:  # noqa: BLE001 — fall back to the unfiltered list
-        return rel_paths
+    indexed = set(store.get_file_meta_for_files(rel_paths))
     return [rel_path for rel_path in rel_paths if rel_path in indexed]
 
 
@@ -482,32 +454,18 @@ def _get_file_meta_for_candidates(
     """Return stored file metadata for only the requested paths."""
     if not file_paths:
         return {}
-    if hasattr(store, "get_file_meta_for_files"):
-        return store.get_file_meta_for_files(file_paths)
-    if hasattr(store, "get_file_meta_map"):
-        return store.get_file_meta_map()
-    return {path: (fhash, 0) for path, fhash in store.get_file_hashes(file_paths).items()}
-
-
-def _callable_store_attr(store: GraphStore, name: str) -> Callable[..., Any] | None:
-    attr = getattr(store, name, None)
-    return attr if callable(attr) else None
+    return store.get_file_meta_for_files(file_paths)
 
 
 class _StoreBulkLoad:
     def __init__(self, store: GraphStore) -> None:
-        self._begin = _callable_store_attr(store, "begin_bulk_load")
-        self._finish = _callable_store_attr(store, "finish_bulk_load")
-        self._active = False
+        self._store = store
 
     def __enter__(self) -> None:
-        if self._begin is not None and self._finish is not None:
-            self._begin()
-            self._active = True
+        self._store.begin_bulk_load()
 
     def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
-        if self._active and self._finish is not None:
-            self._finish()
+        self._store.finish_bulk_load()
 
 
 #: Match the Rust writer: drop/rebuild indexes only for large file batches.
@@ -522,11 +480,7 @@ def _flush_store_batch(store: GraphStore, batch: StoreBatch) -> None:
     """
     if not batch:
         return
-    store_file_batch_json = _callable_store_attr(store, "store_file_batch_json")
-    if store_file_batch_json is not None:
-        store_file_batch_json(_serialize_store_batch(batch))
-    else:
-        store.store_file_batch(batch)
+    store.store_file_batch_json(_serialize_store_batch(batch))
     batch.clear()
 
 
@@ -589,23 +543,8 @@ def _is_compact_entities(entities: list[Any]) -> bool:
     return bool(entities) and isinstance(entities[0], (list, tuple))
 
 
-def _uses_compact_entities(nodes: list[Any], edges: list[Any]) -> bool:
-    return _is_compact_entities(nodes) or _is_compact_entities(edges)
-
-
 def _rust_backend_available() -> bool:
     return importlib.util.find_spec("dagayn._core") is not None
-
-
-def _rust_parser_backend_enabled(store: GraphStore | None = None) -> bool:
-    if not _rust_backend_enabled():
-        return False
-    if store is None:
-        return True
-    return (
-        _callable_store_attr(store, "store_rust_owned_files") is not None
-        or _callable_store_attr(store, "store_file_batch_json") is not None
-    )
 
 
 def _rust_parser_owns_path(rel_path: str, repo_root: Path | None = None) -> bool:
@@ -685,9 +624,8 @@ def _rust_parser_owns_path(rel_path: str, repo_root: Path | None = None) -> bool
 def _split_rust_parser_files(
     rel_paths: list[str],
     repo_root: Path | None = None,
-    store: GraphStore | None = None,
 ) -> tuple[list[str], list[str]]:
-    if not _rust_parser_backend_enabled(store):
+    if not _rust_backend_enabled():
         return [], rel_paths
     rust_files: list[str] = []
     python_files: list[str] = []
@@ -722,79 +660,33 @@ def _store_rust_parse_batches(
 ) -> tuple[int, int, list[dict[str, str]]]:
     if not rel_paths:
         return 0, 0, []
-    store_rust_owned_files = _callable_store_attr(store, "store_rust_owned_files")
-    if store_rust_owned_files is not None:
-        total_nodes = 0
-        total_edges = 0
-        errors: list[dict[str, str]] = []
-        for idx in range(0, len(rel_paths), _RUST_PARSE_BATCH_SIZE):
-            chunk = rel_paths[idx : idx + _RUST_PARSE_BATCH_SIZE]
-            try:
-                node_count, edge_count, raw_errors = store_rust_owned_files(
-                    repo_root,
-                    chunk,
-                )
-            except (RuntimeError, TypeError, ValueError) as exc:
-                # A whole chunk (up to _RUST_PARSE_BATCH_SIZE files) failed to
-                # *store* — e.g. `database is locked` surfaced as RuntimeError
-                # by PyO3. Tagged so the caller can refuse to stamp HEAD: with
-                # these recorded as ordinary parse errors, the update returned
-                # ok, claimed to describe HEAD, and later diffs started from
-                # HEAD, so the dropped files were never revisited.
-                logger.error("Failed to store %d file(s): %s", len(chunk), exc)
-                errors.extend(
-                    {"file": rel_path, "error": str(exc), "phase": "store"} for rel_path in chunk
-                )
-                continue
-            total_nodes += int(node_count)
-            total_edges += int(edge_count)
-            errors.extend(
-                {"file": str(file_path), "error": str(error)} for file_path, error in raw_errors
-            )
-        return total_nodes, total_edges, errors
-    store_file_batch_json = _callable_store_attr(store, "store_file_batch_json")
-    if store_file_batch_json is None:
-        raise RuntimeError("Rust parser batch requires a GraphStore with store_file_batch_json")
-    try:
-        from dagayn._core import parse_rust_owned_files_compact_json
-    except ImportError as exc:
-        raise RuntimeError(
-            "DAGAYN_BACKEND=rust was requested, but dagayn._core is not installed."
-        ) from exc
-
     total_nodes = 0
     total_edges = 0
     errors: list[dict[str, str]] = []
     for idx in range(0, len(rel_paths), _RUST_PARSE_BATCH_SIZE):
         chunk = rel_paths[idx : idx + _RUST_PARSE_BATCH_SIZE]
         try:
-            payload = json.loads(parse_rust_owned_files_compact_json(repo_root, chunk))
-        except (RuntimeError, TypeError, ValueError, json.JSONDecodeError) as exc:
-            errors.extend({"file": rel_path, "error": str(exc)} for rel_path in chunk)
-            continue
-        batch = payload.get("batch", [])
-        for raw_error in payload.get("errors", []):
-            if isinstance(raw_error, list | tuple) and len(raw_error) >= 2:
-                errors.append({"file": str(raw_error[0]), "error": str(raw_error[1])})
-            else:
-                errors.append({"file": "", "error": str(raw_error)})
-        if not batch:
-            continue
-        batch_with_mtime = [
-            (
-                item[0],
-                item[1],
-                item[2],
-                item[3],
-                int((repo_root / item[0]).stat().st_mtime_ns),
+            node_count, edge_count, raw_errors = store.store_rust_owned_files(
+                repo_root,
+                chunk,
             )
-            if len(item) == 4
-            else item
-            for item in batch
-        ]
-        store_file_batch_json(json.dumps(batch_with_mtime, separators=(",", ":")))
-        total_nodes += sum(len(item[1]) for item in batch)
-        total_edges += sum(len(item[2]) for item in batch)
+        except (RuntimeError, TypeError, ValueError) as exc:
+            # A whole chunk (up to _RUST_PARSE_BATCH_SIZE files) failed to
+            # *store* — e.g. `database is locked` surfaced as RuntimeError
+            # by PyO3. Tagged so the caller can refuse to stamp HEAD: with
+            # these recorded as ordinary parse errors, the update returned
+            # ok, claimed to describe HEAD, and later diffs started from
+            # HEAD, so the dropped files were never revisited.
+            logger.error("Failed to store %d file(s): %s", len(chunk), exc)
+            errors.extend(
+                {"file": rel_path, "error": str(exc), "phase": "store"} for rel_path in chunk
+            )
+            continue
+        total_nodes += int(node_count)
+        total_edges += int(edge_count)
+        errors.extend(
+            {"file": str(file_path), "error": str(error)} for file_path, error in raw_errors
+        )
     return total_nodes, total_edges, errors
 
 
@@ -846,7 +738,7 @@ def full_build(
 
     with _StoreBulkLoad(store):
         use_serial = os.environ.get("CRG_SERIAL_PARSE", "") == "1"
-        rust_files, python_files = _split_rust_parser_files(files, repo_root, store)
+        rust_files, python_files = _split_rust_parser_files(files, repo_root)
         if rust_files:
             rust_nodes, rust_edges, rust_errors = _store_rust_parse_batches(
                 repo_root,
@@ -889,29 +781,18 @@ def full_build(
                 # Parallel parsing — store calls remain serial (SQLite single-writer)
                 args_list = [(rel_path, str(repo_root)) for rel_path in python_files]
                 batch: StoreBatch = []
-                parse_worker = (
-                    _parse_single_python_file_compact
-                    if _callable_store_attr(store, "store_file_batch_json") is not None
-                    else _parse_single_python_file
-                )
                 with concurrent.futures.ProcessPoolExecutor(
                     max_workers=_MAX_PARSE_WORKERS,
                     initializer=_init_worker,
                 ) as executor:
                     for i, (rel_path, nodes, edges, error, fhash, mtime_ns) in enumerate(
-                        executor.map(parse_worker, args_list, chunksize=20),
+                        executor.map(_parse_single_python_file_compact, args_list, chunksize=20),
                         len(rust_files) + 1,
                     ):
                         if error:
                             logger.warning("Error parsing %s: %s", rel_path, error)
                             errors.append({"file": rel_path, "error": error})
                             continue
-                        if not _uses_compact_entities(nodes, edges):
-                            nodes, edges = _relativize_parsed_entities(
-                                cast(list[NodeInfo], nodes),
-                                cast(list[EdgeInfo], edges),
-                                repo_root,
-                            )
                         _queue_store_file(store, batch, rel_path, nodes, edges, fhash, mtime_ns)
                         total_nodes += len(nodes)
                         total_edges += len(edges)
@@ -1097,9 +978,7 @@ def watch(
                 # Pruning only ran from ``dagayn build``, so under watch/serve a
                 # deleted package's communities survived with size N and zero
                 # assigned members until the next full build.
-                prune = getattr(store, "prune_orphaned_graph_structures", None)
-                if callable(prune):
-                    prune()
+                store.prune_orphaned_graph_structures()
                 store.commit()
                 logger.info("Removed: %s", rel)
             except _GRAPH_STORE_ERRORS as e:
