@@ -893,9 +893,7 @@ def get_all_tracked_files(
         return _jj_working_copy_files(repo_root)
 
     if recurse_submodules is None:
-        from . import incremental as inc
-
-        recurse_submodules = inc._RECURSE_SUBMODULES
+        recurse_submodules = _RECURSE_SUBMODULES
 
     extra: list[str] = []
     if recurse_submodules:
@@ -926,9 +924,7 @@ def get_vcs_indexable_files(
         return _jj_working_copy_files(repo_root)
 
     if recurse_submodules is None:
-        from . import incremental as inc
-
-        recurse_submodules = inc._RECURSE_SUBMODULES
+        recurse_submodules = _RECURSE_SUBMODULES
 
     cached_args = ["--cached"]
     if recurse_submodules:
@@ -1000,9 +996,7 @@ def collect_all_files(
         # does `recurse_submodules.unwrap_or(false)` and never sees the env var,
         # so CRG_RECURSE_SUBMODULES was silently ignored under the default
         # backend (the fallback below is the only place that honoured it).
-        from . import incremental as inc
-
-        recurse_submodules = inc._RECURSE_SUBMODULES
+        recurse_submodules = _RECURSE_SUBMODULES
 
     vcs = detect_vcs(repo_root)
     if _rust_backend_enabled() and vcs != "svn":

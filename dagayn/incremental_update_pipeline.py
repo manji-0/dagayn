@@ -9,7 +9,7 @@ import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Callable, Optional, cast
 
 from .contracts.state_types import BuildResult
 from .extractor_versions import (
@@ -18,15 +18,42 @@ from .extractor_versions import (
     record_extractor_versions,
 )
 from .graph import GraphStore
+from .incremental_build import (
+    _GRAPH_STORE_ERRORS,
+    _MAX_PARSE_WORKERS,
+    _PARSE_FILE_ERRORS,
+    BULK_LOAD_FILE_THRESHOLD,
+    _classify_python_changed_files,
+    _diff_covers_graph_commit,
+    _expand_changed_submodules,
+    _filter_incremental_candidates,
+    _flush_store_batch,
+    _get_file_meta_for_candidates,
+    _indexable_scope,
+    _indexed_only,
+    _init_worker,
+    _is_ignore_scope_file,
+    _parse_single_python_file_compact,
+    _queue_store_file,
+    _split_rust_parser_files,
+    _store_rust_parse_batches,
+    _StoreBulkLoad,
+    find_dependents_for_files,
+    store_phase_failures,
+)
 from .incremental_files import (
     _dedupe_preserve_order,
+    _is_binary,
     _load_ignore_patterns,
     _make_repo_relative,
     _relativize_parsed_entities,
+    _should_ignore,
     _store_vcs_metadata,
+    get_changed_file_sources,
 )
 from .parser import CodeParser
 from .parser._base.types import EdgeInfo, NodeInfo
+from .worktree import is_gitignored
 
 logger = logging.getLogger(__name__)
 
@@ -134,12 +161,6 @@ def prepare_incremental_update(
     change_file_sources: dict[str, list[str]] | None = None,
 ) -> IncrementalUpdateState | BuildResult:
     """Resolve changed files and return state, or an early no-op result."""
-    from .incremental_build import (
-        _changed_file_sources,
-        _diff_covers_graph_commit,
-        _indexable_scope,
-    )
-
     repo_root = repo_root.resolve()
     store.set_metadata("repo_root", str(repo_root))
     ignore_patterns = _load_ignore_patterns(repo_root)
@@ -149,7 +170,7 @@ def prepare_incremental_update(
         change_file_sources = (
             dict(change_file_sources)
             if change_file_sources is not None
-            else _changed_file_sources(repo_root, base)
+            else get_changed_file_sources(repo_root, base)
         )
         changed_files = change_file_sources["files"]
         diff_covers_graph = _diff_covers_graph_commit(repo_root, store, base)
@@ -196,16 +217,6 @@ def prepare_incremental_update(
 
 def classify_incremental_changes(state: IncrementalUpdateState) -> None:
     """Classify changed roots, dependents, and content vs mtime-only updates."""
-    from .incremental_build import (
-        _classify_python_changed_files,
-        _expand_changed_submodules,
-        _filter_incremental_candidates,
-        _get_file_meta_for_candidates,
-        _indexed_only,
-        _split_rust_parser_files,
-        find_dependents_for_files,
-    )
-
     state.changed_files = _expand_changed_submodules(state.repo_root, state.changed_files)
     state.change_file_sources["files"] = state.changed_files
 
@@ -272,11 +283,6 @@ def classify_incremental_changes(state: IncrementalUpdateState) -> None:
 
 def plan_incremental_reparses(state: IncrementalUpdateState) -> None:
     """Build rust/python reparse queues from classified candidates."""
-    from .incremental_build import (
-        _get_file_meta_for_candidates,
-        _split_rust_parser_files,
-    )
-
     rust_content_changed_files = state.rust_content_changed_files
     if state.extractor_reparse_files:
         state.all_files |= set(state.extractor_reparse_files)
@@ -372,8 +378,6 @@ def apply_incremental_graph_mutations(state: IncrementalUpdateState) -> BuildRes
 
 def run_incremental_parsing(state: IncrementalUpdateState) -> None:
     """Parse rust and python file batches."""
-    from .incremental_build import BULK_LOAD_FILE_THRESHOLD, _StoreBulkLoad
-
     parse_files = (
         len(state.to_parse)
         + len(state.to_parse_rust_forced)
@@ -389,16 +393,6 @@ def run_incremental_parsing(state: IncrementalUpdateState) -> None:
 
 def _run_incremental_parsing_body(state: IncrementalUpdateState) -> None:
     """Parse rust and python file batches without toggling bulk-load."""
-    from .incremental_build import (
-        _MAX_PARSE_WORKERS,
-        _PARSE_FILE_ERRORS,
-        _flush_store_batch,
-        _init_worker,
-        _parse_single_python_file_compact,
-        _queue_store_file,
-        _store_rust_parse_batches,
-    )
-
     use_serial = os.environ.get("CRG_SERIAL_PARSE", "") == "1"
     to_parse_mtime = dict(state.to_parse)
 
@@ -484,8 +478,6 @@ def _run_incremental_parsing_body(state: IncrementalUpdateState) -> None:
 
 def finalize_incremental_update(state: IncrementalUpdateState) -> BuildResult:
     """Persist metadata and build the incremental update result payload."""
-    from .incremental_build import store_phase_failures
-
     state.store.set_metadata("last_updated", time.strftime("%Y-%m-%dT%H:%M:%S"))
     state.store.set_metadata("last_build_type", "incremental")
     state.store_failures.extend(store_phase_failures(state.errors))
@@ -547,3 +539,211 @@ def execute_incremental_update(
 
     run_incremental_parsing(state)
     return finalize_incremental_update(state)
+
+
+def incremental_update(
+    repo_root: Path,
+    store: GraphStore,
+    base: str = "HEAD~1",
+    changed_files: list[str] | None = None,
+    extra_files: list[str] | None = None,
+    change_file_sources: dict[str, list[str]] | None = None,
+) -> BuildResult:
+    """Incremental update: re-parse changed + dependent files only.
+
+    *change_file_sources* is a ``get_changed_file_sources(repo_root, base)``
+    result the caller already has, so the git diff and status are not run a
+    second time. It is ignored when *changed_files* is given.
+
+    *extra_files* are re-indexed on top of whatever the git diff reports. A
+    file whose on-disk content matches ``base`` cannot appear in that diff, so
+    content drift found by the diff tier of ``assess_graph_sync`` (a phantom
+    node inherited from a seeded worktree, or an edit indexed and then
+    discarded) is otherwise unreachable from here: the state that prescribes an
+    update is one the update itself can never clear.
+    """
+    return execute_incremental_update(
+        repo_root,
+        store,
+        base=base,
+        changed_files=changed_files,
+        extra_files=extra_files,
+        change_file_sources=change_file_sources,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Watch mode
+# ---------------------------------------------------------------------------
+
+
+_DEBOUNCE_SECONDS = 0.3
+#: Upper bound on how long the debounce may be pushed out by further events.
+#: Without it, sustained churn reset the timer forever and the graph was never
+#: updated while writes kept arriving.
+_MAX_DEBOUNCE_SECONDS = float(os.environ.get("DAGAYN_WATCH_MAX_DEBOUNCE_SECONDS", "5"))
+
+
+def watch(
+    repo_root: Path,
+    store: GraphStore,
+    on_files_updated: Optional[Callable] = None,
+) -> None:
+    """Watch for file changes and auto-update the graph.
+
+    Uses a 300ms debounce to batch rapid-fire saves into a single update.
+
+    Args:
+        repo_root: Repository root to watch.
+        store: Graph database to update.
+        on_files_updated: Optional callback invoked after each debounced
+            batch of file updates completes.  Receives the store as its
+            only argument.  Used by the CLI to run post-processing
+            (FTS, flows, communities) after watch updates.
+    """
+    import threading
+
+    from watchdog.events import FileSystemEventHandler
+    from watchdog.observers import Observer
+
+    parser = CodeParser()
+    repo_root = repo_root.resolve()
+    store.set_metadata("repo_root", str(repo_root))
+    scope = {"ignore_patterns": _load_ignore_patterns(repo_root)}
+
+    class GraphUpdateHandler(FileSystemEventHandler):
+        def __init__(self):
+            self._pending: set[str] = set()
+            self._lock = threading.Lock()
+            self._timer: threading.Timer | None = None
+            self._first_pending_at: float | None = None
+
+        def _should_handle(self, path: str) -> bool:
+            if Path(path).is_symlink():
+                return False
+            try:
+                rel = str(Path(path).relative_to(repo_root))
+            except ValueError:
+                return False
+            if _is_ignore_scope_file(rel):
+                return True
+            if is_gitignored(repo_root, rel):
+                return False
+            if _should_ignore(rel, scope["ignore_patterns"]):
+                return False
+            if parser.detect_language(Path(path)) is None:
+                return False
+            return True
+
+        def on_modified(self, event):
+            if event.is_directory:
+                return
+            if self._should_handle(event.src_path):
+                self._schedule(event.src_path)
+
+        def on_created(self, event):
+            if event.is_directory:
+                return
+            if self._should_handle(event.src_path):
+                self._schedule(event.src_path)
+
+        def on_deleted(self, event):
+            if event.is_directory:
+                return
+            try:
+                rel = str(Path(event.src_path).relative_to(repo_root))
+            except ValueError:
+                return
+            if _is_ignore_scope_file(rel):
+                self._schedule(event.src_path)
+                return
+            if is_gitignored(repo_root, rel):
+                return
+            if _should_ignore(rel, scope["ignore_patterns"]):
+                return
+            try:
+                store.remove_file_data(rel)
+                # Derived rows are keyed on node ids, so dropping the nodes
+                # leaves flow memberships and community assignments dangling.
+                # Pruning only ran from ``dagayn build``, so under watch/serve a
+                # deleted package's communities survived with size N and zero
+                # assigned members until the next full build.
+                store.prune_orphaned_graph_structures()
+                store.commit()
+                logger.info("Removed: %s", rel)
+            except _GRAPH_STORE_ERRORS as e:
+                logger.error("Error removing %s: %s", rel, e)
+
+        def _schedule(self, abs_path: str):
+            """Add file to pending set and reset the debounce timer.
+
+            The reset is capped by ``_MAX_DEBOUNCE_SECONDS`` from the *first*
+            pending event: with an uncapped reset, sustained churn (a large
+            ``git checkout``, a bundler write loop, a formatter pass) kept
+            pushing the deadline out and the graph was never updated.
+            """
+            with self._lock:
+                now = time.monotonic()
+                if not self._pending:
+                    self._first_pending_at = now
+                self._pending.add(abs_path)
+                deadline = (self._first_pending_at or now) + _MAX_DEBOUNCE_SECONDS
+                delay = max(0.0, min(_DEBOUNCE_SECONDS, deadline - now))
+                if self._timer is not None:
+                    self._timer.cancel()
+                self._timer = threading.Timer(delay, self._flush)
+                self._timer.start()
+
+        def _flush(self):
+            """Process all pending files after the debounce window."""
+            with self._lock:
+                paths = list(self._pending)
+                self._pending.clear()
+                self._first_pending_at = None
+                self._timer = None
+
+            rels: list[str] = []
+            for abs_path in paths:
+                path = Path(abs_path)
+                try:
+                    rel = str(path.relative_to(repo_root))
+                except ValueError:
+                    continue
+                if _is_ignore_scope_file(rel):
+                    rels.append(rel)
+                    continue
+                if not path.is_file() or path.is_symlink() or _is_binary(path):
+                    continue
+                rels.append(rel)
+            rels = sorted(set(rels))
+            if any(_is_ignore_scope_file(rel) for rel in rels):
+                scope["ignore_patterns"] = _load_ignore_patterns(repo_root)
+            updated = 0
+            if rels:
+                try:
+                    result = incremental_update(repo_root, store, changed_files=rels)
+                    updated = result.files_updated or 0
+                except _GRAPH_STORE_ERRORS as e:
+                    logger.error("Error updating watched files %s: %s", rels, e)
+
+            if updated > 0 and on_files_updated is not None:
+                try:
+                    on_files_updated(store)
+                except (OSError, RuntimeError, ValueError, TypeError) as e:
+                    logger.error("Post-update callback failed: %s", e)
+
+    handler = GraphUpdateHandler()
+    observer = Observer()
+    observer.schedule(handler, str(repo_root), recursive=True)
+    observer.start()
+
+    logger.info("Watching %s for changes... (Ctrl+C to stop)", repo_root)
+    try:
+        import time as _time
+
+        while True:
+            _time.sleep(1)
+    except KeyboardInterrupt:
+        observer.stop()
+    observer.join()
+    logger.info("Watch stopped.")

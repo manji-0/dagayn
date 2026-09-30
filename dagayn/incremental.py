@@ -6,9 +6,6 @@ and updates the graph accordingly. Also supports CLI invocation for hooks.
 
 from __future__ import annotations
 
-import subprocess
-
-from . import incremental_files as _incremental_files
 from .incremental_build import (
     DependentList,
     StoreBatch,
@@ -21,8 +18,6 @@ from .incremental_build import (
     find_dependents,
     find_dependents_for_files,
     full_build,
-    incremental_update,
-    watch,
 )
 from .incremental_files import (
     _RECURSE_SUBMODULES,
@@ -58,8 +53,7 @@ from .incremental_files import (
     resolve_cli_repo_root,
     same_repo_path,
 )
-
-_incremental_files.subprocess = subprocess
+from .incremental_update_pipeline import incremental_update, watch
 
 __all__ = [
     "AmbiguousWorkspaceRootError",

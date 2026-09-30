@@ -637,7 +637,7 @@ class TestIsBinary:
 
 
 class TestGitOperations:
-    @patch("dagayn.incremental.subprocess.run")
+    @patch("subprocess.run")
     def test_get_changed_files(self, mock_run, tmp_path):
         mock_run.side_effect = [
             MagicMock(returncode=0, stdout="M\0src/a.py\0M\0src/b.py\0"),
@@ -650,7 +650,7 @@ class TestGitOperations:
         assert "git" in call_args[0][0]
         assert call_args[1].get("timeout") == 30
 
-    @patch("dagayn.incremental.subprocess.run")
+    @patch("subprocess.run")
     def test_get_changed_file_sources_distinguishes_base_and_worktree(self, mock_run, tmp_path):
         mock_run.side_effect = [
             MagicMock(returncode=0, stdout="M\0src/committed.py\0M\0src/both.py\0"),
@@ -680,7 +680,7 @@ class TestGitOperations:
         assert result["unstaged"] == ["src/unstaged.py", "src/both.py"]
         assert result["untracked"] == ["src/new.py"]
 
-    @patch("dagayn.incremental.subprocess.run")
+    @patch("subprocess.run")
     def test_get_changed_files_fallback(self, mock_run, tmp_path):
         # First call fails, then working-tree status is still merged.
         mock_run.side_effect = [
@@ -691,13 +691,13 @@ class TestGitOperations:
         assert result == ["staged.py", "new.py"]
         assert mock_run.call_count == 2
 
-    @patch("dagayn.incremental.subprocess.run")
+    @patch("subprocess.run")
     def test_get_changed_files_timeout(self, mock_run, tmp_path):
         mock_run.side_effect = subprocess.TimeoutExpired("git", 30)
         result = get_changed_files(tmp_path)
         assert result == []
 
-    @patch("dagayn.incremental.subprocess.run")
+    @patch("subprocess.run")
     def test_get_staged_and_unstaged(self, mock_run, tmp_path):
         mock_run.return_value = MagicMock(
             returncode=0,
@@ -715,7 +715,7 @@ class TestGitOperations:
         assert "old.py" in result
         assert "--untracked-files=all" in mock_run.call_args[0][0]
 
-    @patch("dagayn.incremental.subprocess.run")
+    @patch("subprocess.run")
     def test_get_all_tracked_files(self, mock_run, tmp_path):
         mock_run.return_value = MagicMock(
             returncode=0,
@@ -724,7 +724,7 @@ class TestGitOperations:
         result = get_all_tracked_files(tmp_path)
         assert result == ["a.py", "b.py", "c.go"]
 
-    @patch("dagayn.incremental.subprocess.run")
+    @patch("subprocess.run")
     def test_get_all_tracked_files_recurse_submodules_param(self, mock_run, tmp_path):
         mock_run.return_value = MagicMock(
             returncode=0,
@@ -735,7 +735,7 @@ class TestGitOperations:
         cmd = mock_run.call_args[0][0]
         assert "--recurse-submodules" in cmd
 
-    @patch("dagayn.incremental.subprocess.run")
+    @patch("subprocess.run")
     def test_get_all_tracked_files_no_recurse_by_default(self, mock_run, tmp_path):
         mock_run.return_value = MagicMock(
             returncode=0,
@@ -746,8 +746,8 @@ class TestGitOperations:
         cmd = mock_run.call_args[0][0]
         assert "--recurse-submodules" not in cmd
 
-    @patch("dagayn.incremental.subprocess.run")
-    @patch("dagayn.incremental._RECURSE_SUBMODULES", True)
+    @patch("subprocess.run")
+    @patch("dagayn.incremental_files._RECURSE_SUBMODULES", True)
     def test_get_all_tracked_files_env_var_fallback(self, mock_run, tmp_path):
         mock_run.return_value = MagicMock(
             returncode=0,
@@ -759,8 +759,8 @@ class TestGitOperations:
         cmd = mock_run.call_args[0][0]
         assert "--recurse-submodules" in cmd
 
-    @patch("dagayn.incremental.subprocess.run")
-    @patch("dagayn.incremental._RECURSE_SUBMODULES", True)
+    @patch("subprocess.run")
+    @patch("dagayn.incremental_files._RECURSE_SUBMODULES", True)
     def test_get_all_tracked_files_param_overrides_env(self, mock_run, tmp_path):
         mock_run.return_value = MagicMock(
             returncode=0,
@@ -772,7 +772,7 @@ class TestGitOperations:
         cmd = mock_run.call_args[0][0]
         assert "--recurse-submodules" not in cmd
 
-    @patch("dagayn.incremental.subprocess.run")
+    @patch("subprocess.run")
     def test_get_vcs_indexable_files_includes_untracked(self, mock_run, tmp_path):
         mock_run.side_effect = [
             MagicMock(returncode=0, stdout="tracked.py\0"),
@@ -788,7 +788,7 @@ class TestGitOperations:
         assert "--recurse-submodules" not in cached_cmd
         assert "--recurse-submodules" not in others_cmd
 
-    @patch("dagayn.incremental.subprocess.run")
+    @patch("subprocess.run")
     def test_get_vcs_indexable_files_recurse_only_on_cached(self, mock_run, tmp_path):
         mock_run.side_effect = [
             MagicMock(returncode=0, stdout="a.py\0sub/b.py\0"),
@@ -866,7 +866,7 @@ class TestExtractorVersions:
         self, tmp_path, monkeypatch
     ):
         """Unchanged TypeScript files are re-parsed once; other languages are not."""
-        import dagayn.incremental_build as incremental_build
+        import dagayn.incremental_update_pipeline as incremental_update_pipeline
         from dagayn.extractor_versions import (
             EXTRACTOR_VERSIONS_KEY,
             format_extractor_versions,
@@ -886,13 +886,13 @@ class TestExtractorVersions:
             assert outdated_extractors(store) == ["javascript"]
 
             parsed: list[str] = []
-            original = incremental_build._store_rust_parse_batches
+            original = incremental_update_pipeline._store_rust_parse_batches
 
             def recording(repo_root, graph_store, rel_paths):
                 parsed.extend(rel_paths)
                 return original(repo_root, graph_store, rel_paths)
 
-            monkeypatch.setattr(incremental_build, "_store_rust_parse_batches", recording)
+            monkeypatch.setattr(incremental_update_pipeline, "_store_rust_parse_batches", recording)
             result = incremental_update(repo, store, changed_files=[])
 
             assert sorted(parsed) == ["app.ts", "helper.ts"]
@@ -1009,7 +1009,7 @@ class TestIncrementalUpdate:
         store = GraphStore(db_path)
         try:
             with patch(
-                "dagayn.incremental.get_changed_file_sources",
+                "dagayn.incremental_update_pipeline.get_changed_file_sources",
                 return_value={
                     "files": ["tracked.py", "new_mod.py"],
                     "base_diff": ["tracked.py"],
@@ -1088,7 +1088,9 @@ class TestIncrementalUpdate:
 
         monkeypatch.setattr("threading.Timer", FakeTimer)
         monkeypatch.setattr("watchdog.observers.Observer", FakeObserver)
-        monkeypatch.setattr("dagayn.incremental.incremental_update", fake_incremental_update)
+        monkeypatch.setattr(
+            "dagayn.incremental_update_pipeline.incremental_update", fake_incremental_update
+        )
 
         def stop_watch(_seconds):
             raise KeyboardInterrupt
@@ -1141,11 +1143,11 @@ class TestIncrementalUpdate:
         monkeypatch.setattr("threading.Timer", FakeTimer)
         monkeypatch.setattr("watchdog.observers.Observer", FakeObserver)
         monkeypatch.setattr(
-            "dagayn.incremental_build.is_gitignored",
+            "dagayn.incremental_update_pipeline.is_gitignored",
             lambda _root, rel: Path(rel).name == "generated.py",
         )
         monkeypatch.setattr(
-            "dagayn.incremental.incremental_update",
+            "dagayn.incremental_update_pipeline.incremental_update",
             lambda repo_root, passed_store, changed_files=None: (
                 calls.append(list(changed_files or [])) or BuildResult(files_updated=1)
             ),
@@ -1194,7 +1196,7 @@ class TestIncrementalUpdate:
         monkeypatch.setattr("threading.Timer", FakeTimer)
         monkeypatch.setattr("watchdog.observers.Observer", FakeObserver)
         monkeypatch.setattr(
-            "dagayn.incremental.incremental_update",
+            "dagayn.incremental_update_pipeline.incremental_update",
             lambda repo_root, passed_store, changed_files=None: (
                 calls.append(list(changed_files or [])) or BuildResult(files_updated=1)
             ),
