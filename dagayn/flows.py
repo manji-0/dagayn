@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Mapping, Sequence
-from typing import Any, Callable, Optional, TypedDict, cast
+from typing import Any, Optional, TypedDict, cast
 
 from .contracts.state_types import AffectedFlowsResult, ChangeFlowRecord
 from .graph import GraphEdge, GraphNode, GraphStore
@@ -63,20 +63,12 @@ DEFAULT_FLOW_MAX_NODES = 512
 FLOW_KIND_REACHABLE_SET = "reachable_set"
 
 
-def _require_native(store: GraphStore, name: str) -> Any:
-    method = getattr(store, name, None)
-    if not callable(method):
-        raise RuntimeError(f"GraphStore.{name} is required (Rust GraphStore).")
-    return method
-
-
 def detect_entry_points(
     store: GraphStore,
     include_tests: bool = False,
 ) -> list[GraphNode]:
     """Find functions that are entry points in the graph."""
-    native = _require_native(store, "detect_entry_points_json")
-    rows = json.loads(cast(Callable[[bool], str], native)(include_tests))
+    rows = json.loads(store.detect_entry_points_json(include_tests))
     ids = [int(row["id"]) for row in rows if isinstance(row, dict) and "id" in row]
     nodes_by_id = store.get_nodes_by_ids(ids)
     return [nodes_by_id[node_id] for node_id in ids if node_id in nodes_by_id]
@@ -89,8 +81,7 @@ def rebuild_stored_flows(
     include_tests: bool = False,
 ) -> int:
     """Rebuild stored flows in the native store."""
-    native = _require_native(store, "rebuild_flows_json")
-    payload = json.loads(cast(Callable[[int, bool], str], native)(max_depth, include_tests))
+    payload = json.loads(store.rebuild_flows_json(max_depth, include_tests))
     return int(payload.get("count") or 0)
 
 
@@ -155,15 +146,13 @@ def incremental_trace_flows(
     """Re-trace flows whose reachable sets are affected by *changed_files*."""
     if not changed_files:
         return 0
-    native = _require_native(store, "incremental_trace_flows_json")
-    payload = json.loads(cast(Callable[[list[str], int], str], native)(changed_files, max_depth))
+    payload = json.loads(store.incremental_trace_flows_json(changed_files, max_depth))
     return int(payload.get("count") or 0)
 
 
 def store_flows(store: GraphStore, flows: Sequence[Mapping[str, object]]) -> int:
     """Persist traced flow dicts through the native store."""
-    native = _require_native(store, "store_flows_json")
-    return int(cast(Callable[[str], int], native)(json.dumps(list(flows))))
+    return int(store.store_flows_json(json.dumps(list(flows))))
 
 
 def get_flows(
@@ -175,15 +164,13 @@ def get_flows(
     allowed_sort = {"criticality", "depth", "node_count", "file_count", "name"}
     if sort_by not in allowed_sort:
         sort_by = "criticality"
-    rust_get = _require_native(store, "get_flows_json")
-    rows_json = cast(Callable[[str, int], str], rust_get)(sort_by, limit)
+    rows_json = store.get_flows_json(sort_by, limit)
     return _annotate_flow_rows_liveness(store, json.loads(rows_json))
 
 
 def get_flow_by_id(store: GraphStore, flow_id: int) -> Optional[Any]:
     """Retrieve a single flow with reachable-set membership details."""
-    rust_get = _require_native(store, "get_flow_by_id_json")
-    raw = cast(Callable[[int], str | None], rust_get)(flow_id)
+    raw = store.get_flow_by_id_json(flow_id)
     if not raw:
         return None
     payload = json.loads(raw)
@@ -200,8 +187,7 @@ def get_affected_flows(
     """Find flows that include nodes from the given changed files."""
     if not changed_files:
         return {"affected_flows": [], "total": 0}
-    rust_get = _require_native(store, "get_affected_flows_json")
-    affected_json = cast(Callable[[list[str]], str], rust_get)(changed_files)
+    affected_json = store.get_affected_flows_json(changed_files)
     affected = cast(
         list[ChangeFlowRecord],
         [_annotate_flow_dict_bridges(store, flow) for flow in json.loads(affected_json)],
@@ -255,29 +241,8 @@ def _collect_cross_artifact_edges_among(
     """Fetch CROSS_ARTIFACT edges whose endpoints are both in ``path_qns``."""
     if not path_qns:
         return []
-    try:
-        get_among = getattr(store, "get_edges_among", None)
-        if callable(get_among):
-            edges = cast(Callable[[set[str]], list[GraphEdge]], get_among)(path_qns)
-            return [edge for edge in edges if getattr(edge, "kind", None) == "CROSS_ARTIFACT"]
-        outgoing, incoming = store.get_edges_by_endpoints(list(path_qns))
-        bridge_edges: list[GraphEdge] = []
-        seen: set[int] = set()
-        for edge_list in (*outgoing.values(), *incoming.values()):
-            for edge in edge_list:
-                edge_id = getattr(edge, "id", None)
-                if edge_id in seen:
-                    continue
-                if edge_id is not None:
-                    seen.add(edge_id)
-                if getattr(edge, "kind", None) == "CROSS_ARTIFACT":
-                    src = str(getattr(edge, "source_qualified", "") or "")
-                    tgt = str(getattr(edge, "target_qualified", "") or "")
-                    if src in path_qns and tgt in path_qns:
-                        bridge_edges.append(edge)
-        return bridge_edges
-    except Exception:  # pragma: no cover - backend parity drift
-        return []
+    edges = store.get_edges_among(path_qns)
+    return [edge for edge in edges if getattr(edge, "kind", None) == "CROSS_ARTIFACT"]
 
 
 def _annotate_flow_step_resolution(flow: Any) -> Any:

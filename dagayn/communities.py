@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from collections import Counter, defaultdict
-from typing import Any, Callable, TypedDict, cast
+from typing import Any, TypedDict, cast
 
 from .graph import GraphStore, _sanitize_name
 
@@ -60,17 +60,9 @@ class ArchitectureOverviewResult(TypedDict, total=False):
     cross_community_edges: list[CrossCommunityEdgeRecord]
 
 
-def _require_native(store: GraphStore, name: str) -> Any:
-    method = getattr(store, name, None)
-    if not callable(method):
-        raise RuntimeError(f"GraphStore.{name} is required (Rust GraphStore).")
-    return method
-
-
 def detect_communities(store: GraphStore, min_size: int = 2) -> list[Any]:
     """Detect communities in the code graph."""
-    native = _require_native(store, "detect_communities_json")
-    payload = json.loads(cast(str, native(min_size)))
+    payload = json.loads(store.detect_communities_json(min_size))
     results: list[Any] = []
     for item in payload:
         if not isinstance(item, dict):
@@ -93,8 +85,7 @@ def count_affected_communities(store: GraphStore, changed_files: list[str]) -> i
     """Return how many communities are affected by *changed_files*."""
     if not changed_files:
         return 0
-    rust_count = _require_native(store, "count_affected_communities")
-    return cast(Callable[[list[str]], int], rust_count)(changed_files)
+    return store.count_affected_communities(changed_files)
 
 
 def incremental_detect_communities(
@@ -106,13 +97,11 @@ def incremental_detect_communities(
     """Re-detect communities only if changed files affect existing communities."""
     if not changed_files:
         return 0
-    native = _require_native(store, "incremental_detect_communities")
-    return int(cast(int, native(changed_files, min_size, pre_affected_count)))
+    return int(store.incremental_detect_communities(changed_files, min_size, pre_affected_count))
 
 
 def store_communities(store: GraphStore, communities: list[Any]) -> int:
     """Store detected communities in the database."""
-    rust_store = _require_native(store, "store_communities_json")
     payload = [
         {
             "name": comm["name"],
@@ -125,7 +114,7 @@ def store_communities(store: GraphStore, communities: list[Any]) -> int:
         }
         for comm in communities
     ]
-    return cast(Callable[[str], int], rust_store)(json.dumps(payload))
+    return store.store_communities_json(json.dumps(payload))
 
 
 def get_communities(store: GraphStore, sort_by: str = "size", min_size: int = 0) -> list[Any]:
@@ -133,14 +122,12 @@ def get_communities(store: GraphStore, sort_by: str = "size", min_size: int = 0)
     valid_sorts = {"size", "cohesion", "name"}
     if sort_by not in valid_sorts:
         sort_by = "size"
-    rust_get = _require_native(store, "get_communities_json")
-    return json.loads(cast(Callable[[str, int], str], rust_get)(sort_by, min_size))
+    return json.loads(store.get_communities_json(sort_by, min_size))
 
 
 def refresh_community_stats(store: GraphStore) -> dict[str, int]:
     """Recompute community size/cohesion from live node assignments."""
-    native = _require_native(store, "refresh_community_stats_json")
-    return json.loads(cast(Callable[[], str], native)())
+    return json.loads(store.refresh_community_stats_json())
 
 
 _TEST_COMMUNITY_RE = re.compile(
