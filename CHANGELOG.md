@@ -2,6 +2,62 @@
 
 All notable changes to `dagayn` are documented here.
 
+## Unreleased
+
+### Added
+
+- Objective-C++ `.mm` files are indexed, parsed with the Objective-C
+  grammar (on real `.mm` files it recovers more than the C++ grammar).
+- C++ test cases are named by their case, not by their framework macro:
+  googletest `TEST(Suite, Name)` is `Suite.Name`, Boost.Test cases take
+  their first argument, and a Catch2 / doctest `TEST_CASE("name") { }` is a
+  Test node that owns its block's calls. Before, every case in a file was
+  one node named `TEST`, and Catch2 cases had no node.
+- The REFERENCES a Terraform `import`, `moved`, or `removed` block emits
+  carry `terraform_kind`.
+
+### Fixed
+
+- Inheritance bases are named without their type arguments. Kotlin
+  `class A : B<String>()` inherited `String`; Swift and Dart made type
+  arguments bases (`Q<Int>` also inherited `Int`); Java kept the base as
+  written, generics and line breaks included. Dart `implements` emits
+  IMPLEMENTS again, as it did before the Rust port.
+- Declarations inside a function body are local to it in Rust, Lua,
+  Kotlin, Swift, Dart, Scala, Zig, Go, R, and Java (local classes): two
+  functions' `helper`s are `a.helper` and `b.helper` instead of one shared
+  name. A call binds to a function nested in the caller before any other of
+  that name; Python's `b` calling its own `helper()` was bound to
+  `a.helper`.
+- Nodes sharing a qualified name (overloads, multi-clause Elixir
+  functions, `#ifdef` alternatives, a Swift type and its extensions) merge
+  into one node (`merged_declarations: n`) instead of the graph keeping
+  whichever was written last. Go's blank identifier `_` is not a node.
+- A member of a type declared in another file (a Go method on a receiver
+  from a sibling file, an out-of-line C++ `Widget::draw`, a Rust impl, a Lua
+  `M.f`) is contained by its File node; the CONTAINS edge used to start at a
+  `file::Type` node that does not exist.
+- Symbols invented by error recovery are gone: a C/C++ keyword read as a
+  function name (`export namespace` under `#if`), a C++ base named after
+  the last `::` segment of its template arguments, a Perl callee spanning an
+  expression, an Elixir `fun.(x)` call with an empty target, and names or
+  targets spanning lines in a file mid-edit. An unparseable notebook keeps
+  its File node.
+- Terraform `import` blocks no longer emit an IMPORTS_FROM to the
+  provider-side import id, and `moved` no longer links two raw addresses.
+- After an extractor version bump, the incremental update also indexes
+  files the new version owns that the graph does not hold yet.
+
+### Changed
+
+- JavaScript / TypeScript parsing is about 20% faster: the type walk no
+  longer re-descends from the root for every node.
+- Extractor versions: a new `shared` version covers every language (the
+  passes applied after each extractor); Java 2, Kotlin 2, Dart 2, Python 4,
+  Go 5, Rust 10, Lua 2, Julia 2, Zig 2, C / C++ / Objective-C 4; Swift,
+  Perl, Elixir, Scala, R, and Terraform are tracked from version 1. Existing
+  graphs re-parse once on the next update.
+
 ## 6.2.0 — 2026-09-30
 
 ### Added
