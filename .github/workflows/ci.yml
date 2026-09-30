@@ -83,12 +83,18 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
       - name: Install dependencies (frozen)
+        # Builds the editable extension with the `dev-fast` profile
+        # (`[tool.uv]` in pyproject.toml), not the fat-LTO release profile.
         run: uv sync --frozen --extra dev
       - name: Prefetch pinned grammars
         run: uv run python -m dagayn.vendor_grammars
       - name: Run tests with coverage
-        run: uv run pytest --tb=short -q --cov=dagayn --cov-report=term-missing --cov-fail-under=65
+        run: uv run pytest --tb=short -q -n auto --dist loadfile --cov=dagayn --cov-report=term-missing --cov-fail-under=65
 
   rust-backend:
     runs-on: ubuntu-latest
@@ -104,9 +110,8 @@ jobs:
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
       - name: Install dependencies (frozen)
+        # Also builds and installs the editable Rust extension.
         run: uv sync --frozen --extra dev
-      - name: Build editable package with Rust backend
-        run: uvx maturin develop --release
       - name: Check Rust workspace
         run: |
           cargo test --workspace

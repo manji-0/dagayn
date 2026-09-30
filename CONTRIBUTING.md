@@ -28,7 +28,7 @@ prek install
 uv run ruff check .
 uv run ruff format --check .
 uv run pyrefly check
-uv run pytest --tb=short -q
+uv run pytest --tb=short -q -n auto --dist loadfile
 ```
 
 Type checking runs on Pyrefly, whose Pydantic integration (>= 0.33.0) applies
@@ -38,6 +38,12 @@ Pydantic model semantics — `BaseModel`, `Field`, `ConfigDict`, and
 
 `uv sync --extra dev` builds the PyO3 extension (`dagayn._core`) and vendors
 pinned Tree-sitter grammars. The first build fetches grammars over the network.
+It uses the `dev-fast` Cargo profile (`[tool.uv]` in `pyproject.toml`: thin
+LTO, no single codegen unit), so a rebuild after a Rust edit takes seconds;
+release wheels are built with `maturin build --release` and keep fat LTO.
+
+Tests run in parallel with pytest-xdist (`-n auto --dist loadfile`); pass
+`-n 0` to debug a single test in-process.
 
 ### Rust workspace
 

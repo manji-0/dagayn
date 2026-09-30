@@ -68,6 +68,7 @@ dev = [
     "numpy>=1.26,<3",
     "pytest>=8.0,<9",
     "pytest-cov>=4.0,<8",
+    "pytest-xdist>=3.6,<4",
     "ruff>=0.3.0,<1",
     "pyinstrument>=4.6,<6",
 ]
@@ -93,6 +94,12 @@ include = [
     { path = "hooks/**/*", format = "sdist" },
     { path = "rust-toolchain.toml", format = "sdist" },
 ]
+
+[tool.uv]
+# `uv sync` builds the editable extension with the fast `dev-fast` profile
+# (Cargo.toml). Release wheels are built with `maturin build --release`,
+# which does not read this.
+config-settings = { build-args = "--profile dev-fast" }
 
 [tool.ruff]
 line-length = 100

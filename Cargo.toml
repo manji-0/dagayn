@@ -20,6 +20,15 @@ codegen-units = 1
 strip = "symbols"
 panic = "abort"
 
+# Editable installs (`uv sync`, see `[tool.uv]` in pyproject.toml): optimized
+# so pytest's real parsing stays fast, without the fat-LTO single-unit link
+# that makes every rebuild take minutes. Release wheels keep `release`.
+[profile.dev-fast]
+inherits = "release"
+lto = "thin"
+codegen-units = 16
+strip = false
+
 [workspace.dependencies]
 globset = "0.4"
 memchr = "2"

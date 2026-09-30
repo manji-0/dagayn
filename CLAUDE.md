@@ -16,7 +16,7 @@ dagayn serve
 uv run ruff check .
 uv run ruff format --check .
 uv run pyrefly check
-uv run pytest --tb=short -q
+uv run pytest --tb=short -q -n auto --dist loadfile
 ```
 
 ## Good prompts to start with
