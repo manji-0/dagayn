@@ -1,16 +1,12 @@
 """Tests for the hybrid search engine."""
 
-import inspect
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from dagayn import fts_tokenize
-from dagayn import search as graph_search
 from dagayn.embeddings import _encode_vector
 from dagayn.graph import GraphStore
-from dagayn.graph import _fts_tokenize as graph_fts_tokenize
 from dagayn.graph.types import FtsQueryResult
 from dagayn.parser import NodeInfo
 from dagayn.search import (
@@ -40,27 +36,6 @@ class _PatchableStore:
 
     def __getattr__(self, name):
         return getattr(self._inner, name)
-
-
-def test_graph_search_uses_graph_local_fts_tokenizer():
-    """Keep graph search from reintroducing a root dagayn import cycle."""
-    assert graph_search.segment_japanese_fts_text is graph_fts_tokenize.segment_japanese_fts_text
-    source = inspect.getsource(graph_search)
-    assert "from dagayn import fts_tokenize" not in source
-    assert "from .. import fts_tokenize" not in source
-
-
-def test_fts_tokenize_shim_reexports_graph_impl():
-    assert fts_tokenize.segment_japanese_fts_text is graph_fts_tokenize.segment_japanese_fts_text
-    assert fts_tokenize.contains_japanese is graph_fts_tokenize.contains_japanese
-
-
-def test_contains_japanese_includes_hangul():
-    """Hangul syllables are segmented like CJK (regression for #139)."""
-    assert graph_fts_tokenize.contains_japanese("안녕하세요") is True
-    assert graph_fts_tokenize.contains_japanese("Hello") is False
-    tokens = graph_fts_tokenize.segment_cjk_identifier_tokens("안녕하세요")
-    assert tokens == "안녕 녕하 하세 세요"
 
 
 def test_embedding_health_available_uses_status_field():
@@ -247,9 +222,6 @@ class TestHybridSearch:
         )
         self.store.commit()
         rebuild_fts_index(self.store)
-
-        segmented = fts_tokenize.segment_japanese_fts_text("GraphStoreで自然言語検索")
-        assert "GraphStore" in segmented
 
         results = hybrid_search(self.store, "GraphStore 自然言語検索")["results"]
         assert results

@@ -245,6 +245,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn hangul_counts_as_cjk_and_is_indexed() {
+        // Regression for #139: Hangul syllables are segmented like CJK.
+        assert!(contains_japanese("안녕하세요"));
+        assert!(!contains_japanese("Hello"));
+        let indexed = segment_japanese_fts_index("안녕하세요");
+        assert!(indexed.ends_with("안녕 녕하 하세 세요"), "{indexed}");
+    }
+
+    #[test]
     fn query_drops_inflection_and_keeps_content_words() {
         let query = segment_japanese_fts_query("自然言語検索する");
         assert!(query.contains("自然"), "{query}");

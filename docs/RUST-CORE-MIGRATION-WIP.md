@@ -231,9 +231,8 @@ Consequences for new code:
   `get_impact_radius` has no NetworkX arm natively (`CRG_BFS_ENGINE=networkx`
   applies to the Python store only, and both engines agree). Native `fts_query`
   segments Japanese with embedded Lindera IPADIC plus overlapping CJK bigrams
-  (content morphemes at query time). The Python store still uses optional
-  fugashi/MeCab/janome wakati when those packages are installed, otherwise
-  overlapping bigrams at both index and query.
+  (content morphemes at query time); the Python fugashi/MeCab/janome
+  segmenter was removed once it had no callers.
 
 See: #153
 
