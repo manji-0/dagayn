@@ -194,7 +194,8 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // library and record the C `symbol`.
         // 2: a member of a type declared in another file is CONTAINED by the
         // File node, not by a `file::Type` node that does not exist.
-        // Calls in a local `f(x) = ...` come from its `outer.f` node.
+        // Calls in a local `f(x) = ...` come from its `outer.f` node, and a
+        // call binds to a function nested in the caller first.
         extractor: "julia",
         version: 2,
         languages: &["julia"],
@@ -238,6 +239,19 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         extractor: "elixir",
         version: 1,
         languages: &["elixir"],
+    },
+    ExtractorVersion {
+        // 1: a `def` nested in a function body is `outer.f`, local to it.
+        extractor: "scala",
+        version: 1,
+        languages: &["scala"],
+    },
+    ExtractorVersion {
+        // 1: `f <- function` in a function body is `outer.f`, local to it,
+        // and a call binds to a function nested in the caller first.
+        extractor: "r",
+        version: 1,
+        languages: &["r"],
     },
     ExtractorVersion {
         // 1: `export fn` records `ffi_export`, `extern fn` records

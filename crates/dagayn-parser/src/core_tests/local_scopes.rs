@@ -110,3 +110,45 @@ fn local_types_in_java_go_and_zig() {
     );
     assert!(zig.contains(&"a.S".to_string()) && zig.contains(&"b.S".to_string()));
 }
+
+#[test]
+fn scala_nested_defs() {
+    let (names, calls) = parse(
+        "n.scala",
+        "object O {\n  def a() = { def helper() = 1; helper() }\n  def b() = { def helper() = 2; helper() }\n}\n",
+    );
+    assert!(names.contains(&"O.a.helper".to_string()) && names.contains(&"O.b.helper".to_string()));
+    assert!(
+        calls.contains(&("O.b".to_string(), "O.b.helper".to_string())),
+        "{calls:?}"
+    );
+}
+
+#[test]
+fn julia_nested_functions() {
+    assert_local_helpers(
+        "n.jl",
+        "function a()\n    function helper()\n        1\n    end\n    helper()\nend\nfunction b()\n    helper() = 2\n    helper()\nend\n",
+    );
+}
+
+#[test]
+fn r_local_functions() {
+    assert_local_helpers(
+        "n.r",
+        "a <- function() {\n  helper <- function() 1\n  helper()\n}\nb <- function() {\n  helper <- function() 2\n  helper()\n}\n",
+    );
+}
+
+#[test]
+fn csharp_local_functions() {
+    let (names, calls) = parse(
+        "n.cs",
+        "class C {\n  void A() { int helper() => 1; helper(); }\n  void B() { int helper() => 2; helper(); }\n}\n",
+    );
+    assert!(names.contains(&"C.A.helper".to_string()) && names.contains(&"C.B.helper".to_string()));
+    assert!(
+        calls.contains(&("C.B".to_string(), "C.B.helper".to_string())),
+        "{calls:?}"
+    );
+}

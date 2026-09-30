@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use serde_json::{Value, json};
 
 use super::types::{FilePath, ParsedEdge, ParsedNode};
@@ -9,7 +7,7 @@ use super::util::{
     is_test_file, line_count, node_text, resolve_import_path, set_namespaces_from_type_names,
     strip_matching_quotes,
 };
-use super::{add_tested_by_edges, is_test_function, qualify};
+use super::{add_tested_by_edges, is_test_function, qualify, resolve_rust_call_targets};
 
 pub(super) fn parse_julia_with_parser(
     file_path: &str,
@@ -52,7 +50,7 @@ pub(super) fn parse_julia_with_parser(
             &mut edges,
         );
         set_namespaces_from_type_names(&mut nodes);
-        let mut edges = resolve_julia_targets(&nodes, edges, &file_path);
+        let mut edges = resolve_rust_call_targets(&nodes, edges, &file_path);
         add_tested_by_edges(&nodes, &mut edges);
         return (nodes, edges);
     }
@@ -993,32 +991,4 @@ fn julia_collect_descendant_texts(
         }
         julia_collect_descendant_texts(child, source, kinds, found);
     }
-}
-
-fn resolve_julia_targets(
-    nodes: &[ParsedNode],
-    edges: Vec<ParsedEdge>,
-    file_path: &FilePath,
-) -> Vec<ParsedEdge> {
-    let symbols = nodes
-        .iter()
-        .filter(|node| matches!(node.kind.as_str(), "Function" | "Class" | "Test"))
-        .fold(HashMap::<String, String>::new(), |mut symbols, node| {
-            symbols
-                .entry(node.name.clone())
-                .or_insert_with(|| qualify(file_path, &node.name, node.parent_name.as_deref()));
-            symbols
-        });
-    edges
-        .into_iter()
-        .map(|mut edge| {
-            if matches!(edge.kind.as_str(), "CALLS" | "REFERENCES")
-                && !edge.target.contains("::")
-                && let Some(target) = symbols.get(&edge.target)
-            {
-                edge.target = target.clone();
-            }
-            edge
-        })
-        .collect()
 }

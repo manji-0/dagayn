@@ -1,10 +1,8 @@
-use std::collections::HashMap;
-
 use serde_json::json;
 
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{is_test_file, line_count, node_text, strip_matching_quotes};
-use super::{add_tested_by_edges, is_test_function, qualify};
+use super::{add_tested_by_edges, is_test_function, qualify, resolve_rust_call_targets};
 
 pub(super) fn parse_r_with_parser(
     file_path: &str,
@@ -44,7 +42,7 @@ pub(super) fn parse_r_with_parser(
             &mut nodes,
             &mut edges,
         );
-        let mut edges = resolve_r_call_targets(&nodes, edges, &file_path);
+        let mut edges = resolve_rust_call_targets(&nodes, edges, &file_path);
         add_tested_by_edges(&nodes, &mut edges);
         return (nodes, edges);
     }
@@ -69,7 +67,14 @@ fn r_walk_children(
     for child in node.children(&mut cursor) {
         match child.kind() {
             "binary_operator"
-                if r_handle_binary_operator(child, context, enclosing_class, nodes, edges) =>
+                if r_handle_binary_operator(
+                    child,
+                    context,
+                    enclosing_class,
+                    enclosing_func,
+                    nodes,
+                    edges,
+                ) =>
             {
                 continue;
             }
@@ -102,6 +107,7 @@ fn r_handle_binary_operator(
     node: tree_sitter::Node<'_>,
     context: &RParseContext<'_>,
     enclosing_class: Option<&str>,
+    enclosing_func: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) -> bool {
@@ -127,8 +133,17 @@ fn r_handle_binary_operator(
     }
     let (name, right) = (node_text(target, context.source), value);
     if right.kind() == "function_definition" {
-        r_emit_function(right, context, &name, enclosing_class, nodes, edges);
-        r_walk_children(right, context, enclosing_class, Some(&name), nodes, edges);
+        // `f <- function` in a function body binds a local; `<<-` / `->>`
+        // assign in an enclosing environment.
+        let local_parent = enclosing_func
+            .filter(|_| matches!(operator.kind(), "<-" | "=" | "->"))
+            .map(|func| match enclosing_class {
+                Some(class) => format!("{class}.{func}"),
+                None => func.to_string(),
+            });
+        let parent = local_parent.as_deref().or(enclosing_class);
+        r_emit_function(right, context, &name, parent, nodes, edges);
+        r_walk_children(right, context, parent, Some(&name), nodes, edges);
         return true;
     }
     if right.kind() == "call"
@@ -557,32 +572,4 @@ fn r_first_descendant_text(
         }
     }
     None
-}
-
-fn resolve_r_call_targets(
-    nodes: &[ParsedNode],
-    edges: Vec<ParsedEdge>,
-    file_path: &FilePath,
-) -> Vec<ParsedEdge> {
-    let symbols = nodes
-        .iter()
-        .filter(|node| matches!(node.kind.as_str(), "Function" | "Test"))
-        .fold(HashMap::<String, String>::new(), |mut symbols, node| {
-            symbols
-                .entry(node.name.clone())
-                .or_insert_with(|| qualify(file_path, &node.name, node.parent_name.as_deref()));
-            symbols
-        });
-    edges
-        .into_iter()
-        .map(|mut edge| {
-            if edge.kind == "CALLS"
-                && !edge.target.contains("::")
-                && let Some(target) = symbols.get(&edge.target)
-            {
-                edge.target = target.clone();
-            }
-            edge
-        })
-        .collect()
 }
