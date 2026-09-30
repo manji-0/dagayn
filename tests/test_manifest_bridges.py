@@ -450,6 +450,41 @@ class TestDiscoverManifestBridges:
         assert edges["demo"]["build_system"] == "cxx"
         assert edges["demo"]["source_files"] == ["sys/csrc/bridge.cc"]
 
+    def test_build_zig_shared_libraries_and_c_sources(self, tmp_path: Path):
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "root.zig").write_text("export fn add() i32 { return 1; }\n")
+        (tmp_path / "csrc").mkdir()
+        for name in ("sum.c", "a.c", "b.c"):
+            (tmp_path / "csrc" / name).write_text("int f(void) { return 0; }\n")
+        (tmp_path / "build.zig").write_text(
+            "pub fn build(b: *std.Build) void {\n"
+            "    const lib = b.addLibrary(.{\n"
+            '        .name = "fast-sum",\n'
+            "        .linkage = .dynamic,\n"
+            "        .root_module = b.createModule(.{\n"
+            '            .root_source_file = b.path("src/root.zig"),\n'
+            "        }),\n"
+            "    });\n"
+            "    const static = b.addLibrary(.{\n"
+            '        .name = "archive",\n'
+            "        .root_module = b.createModule(.{\n"
+            '            .root_source_file = b.path("src/root.zig"),\n'
+            "        }),\n"
+            "    });\n"
+            '    lib.addCSourceFile(.{ .file = b.path("csrc/sum.c"), .flags = &.{} });\n'
+            '    lib.addCSourceFiles(.{ .root = b.path("csrc"), .files = &.{ "a.c", "b.c" } });\n'
+            "}\n"
+        )
+        edges = {
+            e.extra["build_system"]: e.extra
+            for e in discover_manifest_bridges(tmp_path).edges
+            if e.extra.get("build_system") in ("zig", "zig-c")
+        }
+        assert edges["zig"]["lib_name"] == "fast_sum"
+        assert edges["zig"]["source_files"] == ["src/root.zig"]
+        assert edges["zig"]["target_language"] == "zig"
+        assert edges["zig-c"]["source_files"] == ["csrc/sum.c", "csrc/a.c", "csrc/b.c"]
+
     def test_compiler_commands_in_makefiles_and_scripts(self, tmp_path: Path):
         (tmp_path / "c").mkdir()
         (tmp_path / "c" / "one.c").write_text("int one(void) { return 1; }\n")

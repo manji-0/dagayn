@@ -1027,3 +1027,50 @@ def test_scripting_language_ffi_reaches_the_c_function(tmp_path: Path) -> None:
         assert {"lua/sum.lua", "dart/sum.dart", "deno/sum.ts", "bun/sum.ts"} <= loads
     finally:
         store.close()
+
+
+def test_zig_reaches_c_and_python_reaches_zig_exports(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        {
+            "build.zig": (
+                "pub fn build(b: *std.Build) void {\n"
+                "    const lib = b.addSharedLibrary(.{\n"
+                '        .name = "zigmath",\n'
+                '        .root_source_file = b.path("src/root.zig"),\n'
+                "    });\n"
+                '    lib.addCSourceFile(.{ .file = b.path("csrc/sum.c"), .flags = &.{} });\n'
+                "}\n"
+            ),
+            "src/root.zig": (
+                "const c = @cImport({\n"
+                '    @cInclude("sum.h");\n'
+                "});\n"
+                "extern fn scale(x: f64) f64;\n\n"
+                "export fn total(n: c_int) f64 {\n"
+                "    return c.fast_sum(n) + scale(1.0);\n"
+                "}\n"
+            ),
+            "csrc/sum.c": (
+                "double fast_sum(int n) { return n; }\ndouble scale(double x) { return x; }\n"
+            ),
+            # Same-named C outside the Zig build does not compete.
+            "other/sum.c": "double fast_sum(int n) { return 0; }\n",
+            "app/native.py": (
+                "import ctypes\n\n\n"
+                "def load():\n"
+                '    return ctypes.CDLL("zig-out/lib/libzigmath.so")\n\n\n'
+                "def run(n):\n    return load().total(n)\n"
+            ),
+        },
+    )
+    store = _build(tmp_path)
+    try:
+        assert _native_bridges(store) == {
+            ("src/root.zig::total", "csrc/sum.c::fast_sum", "calls_native_function"),
+            ("src/root.zig::scale", "csrc/sum.c::scale", "calls_native_function"),
+            ("app/native.py::load", "src/root.zig", "loads_shared_library"),
+            ("app/native.py::run", "src/root.zig::total", "calls_native_function"),
+        }
+    finally:
+        store.close()

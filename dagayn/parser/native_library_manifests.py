@@ -16,6 +16,10 @@ repository sources each shared library is compiled from:
 * Cargo build scripts: ``cc::Build::new().file(...).compile("name")`` and
   ``cxx_build::bridge(...)`` chains in ``build.rs``, whose sources are
   linked into the crate beside them;
+* Zig: ``build.zig`` shared libraries (``addSharedLibrary``, or
+  ``addLibrary`` with ``.linkage = .dynamic``) built from a Zig root source,
+  and the C sources ``addCSourceFile`` / ``addCSourceFiles`` compile into the
+  build;
 * Emscripten: ``emcc`` / ``em++`` command lines, whose ``-o`` names the
   JavaScript glue and ``.wasm`` module and whose ``-sEXPORTED_FUNCTIONS``
   lists the C functions JavaScript may call;
@@ -49,6 +53,7 @@ class NativeLibrary:
 
     config_rel: str
     # "cmake" | "meson" | "make" | "node-gyp" | "emscripten" | "cc" | "cxx"
+    # | "zig" (a Zig shared library) | "zig-c" (C sources in a Zig build)
     build_system: str
     lib_name: str
     sources: list[str] = field(default_factory=list)
@@ -61,6 +66,8 @@ class NativeLibrary:
 
     @property
     def language(self) -> str:
+        if any(source.endswith(".zig") for source in self.sources):
+            return "zig"
         if any(source.endswith(_CPP_SUFFIXES) for source in self.sources):
             return "cpp"
         if any(source.endswith(".m") for source in self.sources):
@@ -457,6 +464,72 @@ def _cc_build_libraries(repo_root: Path, build_rel: str) -> list[NativeLibrary]:
 
 
 # ---------------------------------------------------------------------------
+# Zig
+# ---------------------------------------------------------------------------
+
+_ZIG_LIBRARY_RE = re.compile(r"\b(?P<call>addSharedLibrary|addLibrary)\s*\(")
+_ZIG_NAME_RE = re.compile(r"\.name\s*=\s*\"(?P<name>[^\"]+)\"")
+_ZIG_ROOT_RE = re.compile(
+    r"\.root_source_file\s*=\s*(?:b\.path\(\s*\"(?P<path>[^\"]+)\"\s*\)"
+    r"|\.\{\s*\.path\s*=\s*\"(?P<legacy>[^\"]+)\"\s*\})"
+)
+_ZIG_C_FILE_RE = re.compile(
+    r"addCSourceFile\s*\(\s*(?:\.\{[^}]*?\.file\s*=\s*b\.path\(\s*\"(?P<file>[^\"]+)\""
+    r"|\"(?P<legacy>[^\"]+)\")"
+)
+_ZIG_C_FILES_RE = re.compile(r"addCSourceFiles\s*\(")
+
+
+def _balanced_parens(text: str, start: int) -> str:
+    """The argument text of the call whose ``(`` ends at *start*."""
+    depth, index = 1, start
+    while index < len(text) and depth:
+        depth += {"(": 1, ")": -1}.get(text[index], 0)
+        index += 1
+    return text[start : index - 1]
+
+
+def _zig_libraries(repo_root: Path, build_rel: str) -> list[NativeLibrary]:
+    try:
+        text = (repo_root / build_rel).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    text = re.sub(r"//[^\n]*", "", text)
+    base = PurePosixPath(build_rel).parent
+    libraries: list[NativeLibrary] = []
+    for match in _ZIG_LIBRARY_RE.finditer(text):
+        args = _balanced_parens(text, match.end())
+        if match.group("call") == "addLibrary" and not re.search(
+            r"\.linkage\s*=\s*\.dynamic", args
+        ):
+            continue
+        name = _ZIG_NAME_RE.search(args)
+        root = _ZIG_ROOT_RE.search(args)
+        if name is None or root is None:
+            continue
+        rel = _resolve_rel(base, root.group("path") or root.group("legacy"))
+        if rel is None or not (repo_root / rel).is_file():
+            continue
+        libraries.append(
+            NativeLibrary(build_rel, "zig", name.group("name").replace("-", "_"), [rel])
+        )
+    c_items = [m.group("file") or m.group("legacy") for m in _ZIG_C_FILE_RE.finditer(text)]
+    for match in _ZIG_C_FILES_RE.finditer(text):
+        args = _balanced_parens(text, match.end())
+        root = re.search(r"\.root\s*=\s*b\.path\(\s*\"([^\"]+)\"\s*\)", args)
+        files = re.search(r"\.files\s*=\s*&\s*\.\{(?P<items>[^}]*)\}", args)
+        if files is None:
+            continue
+        prefix = f"{root.group(1).rstrip('/')}/" if root else ""
+        names = re.findall(r"\"([^\"]+)\"", files.group("items"))
+        c_items.extend(f"{prefix}{name}" for name in names)
+    sources = _existing_sources(repo_root, base, c_items)
+    if sources:
+        libraries.append(NativeLibrary(build_rel, "zig-c", "", sources))
+    return libraries
+
+
+# ---------------------------------------------------------------------------
 # node-gyp
 # ---------------------------------------------------------------------------
 
@@ -691,6 +764,7 @@ def discover_native_libraries(
     command_sources: Iterator[tuple[str, list[str]]],
     binding_gyps: list[str],
     build_scripts: list[str],
+    zig_builds: list[str],
 ) -> list[NativeLibrary]:
     """Shared libraries built from repository C / C++ / Objective-C sources.
 
@@ -706,6 +780,8 @@ def discover_native_libraries(
         libraries.extend(_gyp_libraries(repo_root, rel))
     for rel in build_scripts:
         libraries.extend(_cc_build_libraries(repo_root, rel))
+    for rel in zig_builds:
+        libraries.extend(_zig_libraries(repo_root, rel))
     for rel in makefiles:
         try:
             text = (repo_root / rel).read_text(encoding="utf-8", errors="replace")

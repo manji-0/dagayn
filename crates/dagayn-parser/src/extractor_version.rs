@@ -127,6 +127,14 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         version: 1,
         languages: &["dart"],
     },
+    ExtractorVersion {
+        // 1: `export fn` records `ffi_export`, `extern fn` records
+        // `ffi_import`, and calls through an `@cImport` constant record
+        // `c_import`.
+        extractor: "zig",
+        version: 1,
+        languages: &["zig"],
+    },
 ];
 
 /// The tracked extractor versions.

@@ -83,3 +83,50 @@ test "point doubles" {
             && edge.target == "src/main.zig::point doubles"
     }));
 }
+
+#[test]
+fn records_zig_ffi_exports_imports_and_c_import_calls() {
+    let source = br#"const c = @cImport({
+    @cInclude("sum.h");
+});
+extern fn scale(x: f64) f64;
+extern "fastsum" fn legacy(x: c_int) c_int;
+export fn add(a: i32, b: i32) i32 {
+    return a + b;
+}
+pub fn total(n: c_int) f64 {
+    return c.fast_sum(n) + scale(1.0);
+}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (nodes, edges) = parser.parse_file("src/main.zig", source);
+    let extra = |name: &str| {
+        nodes
+            .iter()
+            .find(|node| node.name == name)
+            .unwrap_or_else(|| panic!("no node {name}"))
+            .extra
+            .clone()
+    };
+    assert_eq!(
+        extra("add").get("ffi_export").cloned(),
+        Some(serde_json::json!({"abi": "c", "kind": "function", "name": "add"}))
+    );
+    assert_eq!(
+        extra("scale").get("ffi_import").cloned(),
+        Some(serde_json::json!({"abi": "c", "name": "scale"}))
+    );
+    assert_eq!(
+        extra("legacy").get("ffi_import").cloned(),
+        Some(serde_json::json!({"abi": "c", "name": "legacy", "library": "fastsum"}))
+    );
+    assert_eq!(extra("total").get("ffi_import"), None);
+    let c_import = edges
+        .iter()
+        .find(|edge| edge.kind == "CALLS" && edge.target == "c.fast_sum")
+        .expect("c.fast_sum call");
+    assert_eq!(
+        c_import.extra.get("c_import"),
+        Some(&serde_json::json!(true))
+    );
+}

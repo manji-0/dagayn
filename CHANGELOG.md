@@ -161,6 +161,18 @@ All notable changes to `dagayn` are documented here.
   Dart externals to their symbol. Julia, Lua, and Dart get extractor
   version 1; JavaScript moves to 5.
 
+- Zig is linked to C both ways. The Zig extractor records `ffi_export`
+  (`abi: "c"`) on `export fn`, `ffi_import` on `extern fn` / `extern "lib"
+  fn`, and `c_import` on calls through a `const c = @cImport(...)`; it gets
+  extractor version 1. Manifest bridges read `build.zig`: shared libraries
+  (`addSharedLibrary`, or `addLibrary` with `.linkage = .dynamic`) built
+  from a Zig root source (`build_system: "zig"`), and the C sources
+  `addCSourceFile` / `addCSourceFiles` compile into the build
+  (`build_system: "zig-c"`). `native_bindings` binds `extern fn` and
+  `@cImport` calls to the C function, looking first among the build's C
+  sources, and lets `ctypes` and other loaders reach a Zig shared library's
+  `export fn`s.
+
 ### Changed
 
 - A shared-library loader outside Python (Java `System.loadLibrary`, ...)

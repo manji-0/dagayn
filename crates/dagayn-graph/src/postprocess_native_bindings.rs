@@ -481,6 +481,7 @@ fn load_crates(tx: &Transaction<'_>) -> Result<Vec<NativeCrate>> {
             let language = match extra.get("target_language").and_then(Value::as_str) {
                 Some("cpp") => "cpp",
                 Some("objc") => "objc",
+                Some("zig") => "zig",
                 _ => "c",
             };
             let node_addon = NodeAddon::from_extra(&extra);
@@ -496,12 +497,13 @@ fn load_crates(tx: &Transaction<'_>) -> Result<Vec<NativeCrate>> {
                 root,
                 lib_name: lib_name.to_string(),
                 // node-gyp and Emscripten outputs are not libraries `ctypes`
-                // loads, and `build.rs` links its `cc` output statically.
+                // loads, and `build.rs` / `build.zig` link their C sources
+                // statically.
                 cdylib: node_addon.is_none()
                     && emscripten.is_none()
                     && !matches!(
                         extra.get("build_system").and_then(Value::as_str),
-                        Some("cc" | "cxx")
+                        Some("cc" | "cxx" | "zig-c")
                     ),
                 python_module: None,
                 js_packages: string_list(&extra, "js_packages"),
@@ -1612,13 +1614,6 @@ fn nearest_dir(file_path: &str, dirs: &HashSet<String>) -> Option<String> {
     dirs.contains("").then(String::new)
 }
 
-/// A declaration bound to a C symbol (`ffi_import.abi = "c"`: Rust
-/// `extern "C" { fn f(); }`, Dart `@Native(symbol: "f")`) -> the C-ABI
-/// function `f` it links against (`calls_native_function`). The symbol is looked for, in order,
-/// among the sources a `build.rs` compiles into the same crate (`cc` /
-/// `cxx_build`), the sources of the library `#[link(name = "...")]` names,
-/// and the whole repository; the first scope with a match must hold
-/// exactly one.
 /// A native library a build file compiles from repository sources.
 struct NativeLibraryRow {
     build_system: String,
@@ -1691,6 +1686,15 @@ fn crate_linked_sources<'a>(
         .collect()
 }
 
+/// A declaration bound to a C symbol (`ffi_import.abi = "c"`: Rust
+/// `extern "C" { fn f(); }`, Zig `extern fn f`, Dart
+/// `@Native(symbol: "f")`), or a Zig call through `@cImport` -> the C-ABI
+/// function `f` (`calls_native_function`). The symbol is looked for, in
+/// order, among the C sources linked into the same crate or Zig build
+/// (`build.rs` `cc` / `cxx_build`, `build.zig` `addCSourceFile(s)`), the
+/// sources of the library `#[link(name = "...")]` / `extern "lib"` names,
+/// and the whole repository; the first scope with a match must hold
+/// exactly one.
 fn bind_c_imports(tx: &Transaction<'_>, bridges: &mut Vec<NewBridge>) -> Result<()> {
     let imports = {
         let mut stmt = tx.prepare(
@@ -1709,7 +1713,33 @@ fn bind_c_imports(tx: &Transaction<'_>, bridges: &mut Vec<NewBridge>) -> Result<
                 row.get::<_, Option<String>>(5)?,
             ))
         })?;
-        rows.collect::<std::result::Result<Vec<_>, _>>()?
+        let mut imports = rows.collect::<std::result::Result<Vec<_>, _>>()?;
+        // Zig calls through `const c = @cImport(...)`: `c.fast_sum(...)`.
+        let mut calls = tx.prepare(
+            "SELECT source_qualified, file_path, line, COALESCE(target_name, target_qualified) \
+             FROM edges WHERE kind = 'CALLS' AND json_extract(extra, '$.c_import') = 1",
+        )?;
+        let rows = calls.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })?;
+        for row in rows {
+            let (caller, file_path, line, target) = row?;
+            let name = target.rsplit('.').next().unwrap_or(&target).to_string();
+            imports.push((
+                caller,
+                file_path,
+                line,
+                Some(name),
+                None,
+                Some("zig".to_string()),
+            ));
+        }
+        imports
     };
     if imports.is_empty() {
         return Ok(());
@@ -1748,7 +1778,7 @@ fn bind_c_imports(tx: &Transaction<'_>, bridges: &mut Vec<NewBridge>) -> Result<
         };
         // Sources `build.rs` links into this crate: the deepest crate with
         // a `cc` / `cxx_build` library that contains the file.
-        let linked = crate_linked_sources(&libraries, &file_path, &["cc", "cxx"]);
+        let linked = crate_linked_sources(&libraries, &file_path, &["cc", "cxx", "zig-c"]);
         let named: HashSet<&String> = library
             .as_deref()
             .map(|library| {
@@ -1761,7 +1791,7 @@ fn bind_c_imports(tx: &Transaction<'_>, bridges: &mut Vec<NewBridge>) -> Result<
             })
             .unwrap_or_default();
         let scopes: [(&str, Option<&HashSet<&String>>); 3] = [
-            ("build.rs", Some(&linked)),
+            ("linked", Some(&linked)),
             ("link", Some(&named)),
             ("symbol", None),
         ];

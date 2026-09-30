@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use serde_json::json;
@@ -32,15 +32,17 @@ pub(super) fn parse_zig_with_parser(
         extra: json!({}),
     }];
     let mut edges = Vec::new();
-    let context = ZigParseContext {
+    let mut context = ZigParseContext {
         source,
         file_path: file_path.clone(),
         repo_root,
+        c_imports: HashSet::new(),
     };
 
     if let Some(parser) = parser
         && let Some(tree) = parser.parse(source, None)
     {
+        context.c_imports = zig_c_import_namespaces(tree.root_node(), source);
         zig_walk_children(
             tree.root_node(),
             &context,
@@ -60,6 +62,29 @@ struct ZigParseContext<'a> {
     source: &'a [u8],
     file_path: FilePath,
     repo_root: Option<&'a Path>,
+    /// Constants bound to `@cImport(...)`: calls through them call C.
+    c_imports: HashSet<String>,
+}
+
+/// `const c = @cImport({ ... });` at the top level of the file.
+fn zig_c_import_namespaces(root: tree_sitter::Node<'_>, source: &[u8]) -> HashSet<String> {
+    let mut names = HashSet::new();
+    let mut cursor = root.walk();
+    for decl in root.children(&mut cursor) {
+        let Some(var) =
+            zig_direct_child(decl, &["VarDecl"]).or((decl.kind() == "VarDecl").then_some(decl))
+        else {
+            continue;
+        };
+        let Some(name) = zig_direct_child_text(var, source, &["IDENTIFIER"]) else {
+            continue;
+        };
+        let value = zig_direct_child(var, &["ErrorUnionExpr"]).map(|expr| node_text(expr, source));
+        if value.is_some_and(|value| value.trim_start().starts_with("@cImport")) {
+            names.insert(name);
+        }
+    }
+    names
 }
 
 /// Where a node sits: the dotted container path and the enclosing function.
@@ -160,11 +185,26 @@ fn zig_handle_function(
     };
     let modifiers = zig_decl_modifiers(decl, context.source);
     let return_type = zig_direct_child_text(proto, context.source, &["ErrorUnionExpr"]);
-    let extra = if return_type.as_deref() == Some("type") {
+    let mut extra = if return_type.as_deref() == Some("type") {
         json!({"type_role": "type_function"})
     } else {
         json!({})
     };
+    let has_body = zig_direct_child(decl, &["Block"]).is_some();
+    if modifiers.iter().any(|modifier| modifier == "export") && has_body {
+        // `export fn f` is a C symbol other languages link against.
+        extra["ffi_export"] = json!({"abi": "c", "kind": "function", "name": name});
+    } else if modifiers.iter().any(|modifier| modifier == "extern") && !has_body {
+        // `extern fn f(...) T;` / `extern "lib" fn f(...) T;`
+        let mut import = json!({"abi": "c", "name": name});
+        if let Some(library) = zig_direct_child_text(decl, context.source, &["STRINGLITERALSINGLE"])
+            .map(|literal| strip_matching_quotes(&literal).to_string())
+            .filter(|library| library != "c")
+        {
+            import["library"] = json!(library);
+        }
+        extra["ffi_import"] = import;
+    }
     let qualified = qualify(&context.file_path, &name, scope.container.as_deref());
     nodes.push(ParsedNode {
         kind: crate::core::types::NodeKind::Function,
@@ -372,13 +412,21 @@ fn zig_push_call(
     target: String,
     edges: &mut Vec<ParsedEdge>,
 ) {
+    // `c.fast_sum(...)` through `const c = @cImport(...)` calls C.
+    let c_import = target
+        .split_once('.')
+        .is_some_and(|(namespace, _)| context.c_imports.contains(namespace));
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Calls,
         source: scope.caller(&context.file_path),
         target,
         file_path: context.file_path.clone(),
         line: node.start_position().row as i64 + 1,
-        extra: json!({}),
+        extra: if c_import {
+            json!({"c_import": true})
+        } else {
+            json!({})
+        },
     });
 }
 
