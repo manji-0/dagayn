@@ -49,6 +49,9 @@ pub(super) fn parse_rust_with_parser(
         };
         rust_walk_children(root, &context, None, None, &mut nodes, &mut edges);
         record_neon_exported_functions(root, source, &mut nodes);
+        if let Some(namespace) = rust_uniffi_namespace(root, source) {
+            nodes[0].extra["uniffi_namespace"] = json!(namespace);
+        }
         let mut edges = resolve_rust_call_targets(&nodes, edges, &file_path);
         add_tested_by_edges(&nodes, &mut edges);
         return (nodes, edges);
@@ -444,6 +447,17 @@ fn rust_type_extra(node: tree_sitter::Node<'_>, source: &[u8]) -> serde_json::Va
         }
     }
     if let Some(derive_traits) = rust_derive_traits(node, source) {
+        // `#[derive(uniffi::Object)]` (or `Record` / `Enum` / `Error`) is a
+        // type the foreign bindings expose.
+        if derive_traits.iter().any(|name| {
+            matches!(
+                name.as_str(),
+                "uniffi::Object" | "uniffi::Record" | "uniffi::Enum" | "uniffi::Error"
+            )
+        }) && let Some(type_name) = rust_type_name(node, source)
+        {
+            extra["ffi_export"] = json!({"abi": "uniffi", "kind": "class", "name": type_name});
+        }
         extra["derive_traits"] = json!(derive_traits);
     }
     if node.kind() == "struct_item" || node.kind() == "enum_item" {
@@ -539,6 +553,20 @@ fn js_camel_case(name: &str) -> String {
     }
     out.push_str(trailing);
     out
+}
+
+/// `uniffi::setup_scaffolding!("ns")`: the namespace the foreign bindings
+/// are generated under (the crate name when the macro has no argument).
+fn rust_uniffi_namespace(root: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = root.walk();
+    root.children(&mut cursor)
+        .filter(|child| matches!(child.kind(), "macro_invocation" | "expression_statement"))
+        .find_map(|child| {
+            let text = node_text(child, source);
+            let rest = text.trim().strip_prefix("uniffi::setup_scaffolding!")?;
+            let literal = rest.split('"').nth(1)?;
+            (!literal.is_empty()).then(|| literal.to_string())
+        })
 }
 
 /// neon's `cx.export_function("name", f)`: records the JavaScript name on
@@ -802,6 +830,9 @@ fn rust_function_ffi_export(
     if let Some(export) = rust_node_addon_export(node, source, name, &attrs) {
         return Some(export);
     }
+    if let Some(export) = rust_uniffi_export(node, source, name, &attrs) {
+        return Some(export);
+    }
     let wasm_attr = attrs.iter().find(|attr| rust_attr_is(attr, "wasm_bindgen"));
     let wasm_impl = rust_enclosing_impl(node).filter(|item| {
         rust_leading_attribute_texts(*item, source)
@@ -850,6 +881,30 @@ fn rust_function_ffi_export(
         return Some(json!({"abi": "c", "kind": "function", "name": name}));
     }
     None
+}
+
+/// UniFFI: `#[uniffi::export]` functions, and methods of a
+/// `#[uniffi::export] impl` (`abi: "uniffi"`, under the Rust name; each
+/// foreign language renames it by its own convention).
+fn rust_uniffi_export(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    name: &str,
+    attrs: &[String],
+) -> Option<serde_json::Value> {
+    let is_export = |attr: &String| attr.starts_with("#[uniffi::export");
+    let in_export_impl = rust_enclosing_impl(node).is_some_and(|item| {
+        rust_leading_attribute_texts(item, source)
+            .iter()
+            .any(is_export)
+    });
+    if in_export_impl {
+        return Some(json!({"abi": "uniffi", "kind": "method", "name": name}));
+    }
+    attrs
+        .iter()
+        .any(is_export)
+        .then(|| json!({"abi": "uniffi", "kind": "function", "name": name}))
 }
 
 /// Node.js addon exports: `#[napi]` functions, methods of a `#[napi] impl`

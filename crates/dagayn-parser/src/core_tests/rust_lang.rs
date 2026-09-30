@@ -371,3 +371,51 @@ mod ffi {
         Some(serde_json::json!({"abi": "cxx", "name": "tag", "class": "BlobstoreClient"}))
     );
 }
+
+#[test]
+fn records_uniffi_exports_and_namespace() {
+    let source = br#"uniffi::setup_scaffolding!("mathcore");
+
+#[uniffi::export]
+pub fn fast_sum(xs: Vec<f64>) -> f64 { 0.0 }
+
+#[derive(uniffi::Object)]
+pub struct Accumulator { total: f64 }
+
+#[uniffi::export]
+impl Accumulator {
+    #[uniffi::constructor]
+    pub fn new() -> Self { todo!() }
+}
+
+pub fn internal() {}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (nodes, _) = parser.parse_file("rust/src/lib.rs", source);
+    let export = |name: &str| {
+        nodes
+            .iter()
+            .find(|node| node.name == name)
+            .unwrap_or_else(|| panic!("no node {name}"))
+            .extra
+            .get("ffi_export")
+            .cloned()
+    };
+    assert_eq!(
+        nodes[0].extra.get("uniffi_namespace").cloned(),
+        Some(serde_json::json!("mathcore"))
+    );
+    assert_eq!(
+        export("fast_sum"),
+        Some(serde_json::json!({"abi": "uniffi", "kind": "function", "name": "fast_sum"}))
+    );
+    assert_eq!(
+        export("Accumulator"),
+        Some(serde_json::json!({"abi": "uniffi", "kind": "class", "name": "Accumulator"}))
+    );
+    assert_eq!(
+        export("new"),
+        Some(serde_json::json!({"abi": "uniffi", "kind": "method", "name": "new"}))
+    );
+    assert_eq!(export("internal"), None);
+}

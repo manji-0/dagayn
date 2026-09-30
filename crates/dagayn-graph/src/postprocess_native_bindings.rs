@@ -63,6 +63,17 @@ struct NativeCrate {
     node_addon: Option<NodeAddon>,
     /// C / C++ compiled to WebAssembly by Emscripten.
     emscripten: Option<Emscripten>,
+    /// Rust exposed to Kotlin / Swift / Python by UniFFI.
+    uniffi: Option<Uniffi>,
+}
+
+/// Where UniFFI's generated bindings live in each foreign language.
+#[derive(Clone)]
+struct Uniffi {
+    /// Kotlin package (`uniffi.<namespace>` by default).
+    kotlin_package: String,
+    /// Swift module (the namespace by default).
+    swift_module: String,
 }
 
 /// An Emscripten build: its C functions are JavaScript exports `_name`.
@@ -91,6 +102,34 @@ struct NodeAddon {
     outputs: Vec<String>,
     /// napi-rs `binaryName`: `<name>.node` / `<name>.<platform>.node`.
     binary_names: Vec<String>,
+}
+
+/// `(namespace, bindings)` for a UniFFI crate: `setup_scaffolding!("ns")` in
+/// the library root overrides the manifest's namespace.
+fn uniffi_names(tx: &Transaction<'_>, root: &str, facts: &Value) -> Result<(String, Uniffi)> {
+    let declared: Option<String> = tx
+        .query_row(
+            "SELECT json_extract(extra, '$.uniffi_namespace') FROM nodes \
+             WHERE kind = 'File' AND file_path = ?",
+            [root],
+            |row| row.get(0),
+        )
+        .optional()?
+        .flatten();
+    let namespace = declared
+        .or_else(|| {
+            facts
+                .get("namespace")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .unwrap_or_default();
+    let field = |key: &str| facts.get(key).and_then(Value::as_str).map(str::to_string);
+    let bindings = Uniffi {
+        kotlin_package: field("kotlin_package").unwrap_or_else(|| format!("uniffi.{namespace}")),
+        swift_module: field("swift_module").unwrap_or_else(|| namespace.clone()),
+    };
+    Ok((namespace, bindings))
 }
 
 impl NodeAddon {
@@ -171,6 +210,9 @@ struct CrateExports {
     js: HashMap<String, Vec<String>>,
     /// Globals a Go `js.Global().Set("name", js.FuncOf(f))` defines.
     js_global: HashMap<String, Vec<String>>,
+    /// UniFFI functions (by Rust name) and types, for Kotlin and Swift.
+    uniffi_functions: HashMap<String, Vec<String>>,
+    uniffi_types: HashMap<String, Vec<String>>,
 }
 
 /// What a local name in a Python file refers to.
@@ -513,6 +555,7 @@ fn load_crates(tx: &Transaction<'_>) -> Result<Vec<NativeCrate>> {
                 language,
                 node_addon,
                 emscripten,
+                uniffi: None,
                 build_system: extra
                     .get("build_system")
                     .and_then(Value::as_str)
@@ -552,6 +595,7 @@ fn load_crates(tx: &Transaction<'_>) -> Result<Vec<NativeCrate>> {
                 build_system: producer.to_string(),
                 node_addon: None,
                 emscripten: None,
+                uniffi: None,
             });
             continue;
         }
@@ -567,6 +611,10 @@ fn load_crates(tx: &Transaction<'_>) -> Result<Vec<NativeCrate>> {
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string();
+        let uniffi = extra
+            .get("uniffi")
+            .map(|facts| uniffi_names(tx, &root, facts))
+            .transpose()?;
         crates.push(NativeCrate {
             root,
             scope: ExportScope::Tree(crate_dir),
@@ -574,13 +622,16 @@ fn load_crates(tx: &Transaction<'_>) -> Result<Vec<NativeCrate>> {
             build_system: "cargo".to_string(),
             node_addon: NodeAddon::from_extra(&extra),
             emscripten: None,
+            uniffi: uniffi.as_ref().map(|(_, facts)| facts.clone()),
             wasm_outputs: Vec::new(),
             lib_name: lib_name.to_string(),
             cdylib,
+            // UniFFI's Python bindings are a module named after the namespace.
             python_module: extra
                 .get("python_module")
                 .and_then(Value::as_str)
-                .map(str::to_string),
+                .map(str::to_string)
+                .or_else(|| uniffi.as_ref().map(|(namespace, _)| namespace.clone())),
             js_packages: string_list(&extra, "js_packages"),
             wasm_out_dirs: string_list(&extra, "wasm_out_dirs"),
         });
@@ -617,6 +668,7 @@ fn load_crates(tx: &Transaction<'_>) -> Result<Vec<NativeCrate>> {
             build_system: "python-extension".to_string(),
             node_addon: None,
             emscripten: None,
+            uniffi: None,
         });
     }
     Ok(crates)
@@ -686,7 +738,20 @@ fn load_exports(tx: &Transaction<'_>, crates: &[NativeCrate]) -> Result<Vec<Crat
             let table = match (abi, kind) {
                 // Methods are reached through an instance, which a bare name
                 // cannot tell apart; only module attributes are bound here.
-                ("pyo3" | "python" | "wasm" | "napi", "method") => continue,
+                ("pyo3" | "python" | "wasm" | "napi" | "uniffi", "method") => continue,
+                ("uniffi", kind) => {
+                    // Python keeps the Rust name; Kotlin and Swift rename.
+                    exports[index]
+                        .python
+                        .entry(name.to_string())
+                        .or_default()
+                        .push(qualified.clone());
+                    if kind == "class" {
+                        &mut exports[index].uniffi_types
+                    } else {
+                        &mut exports[index].uniffi_functions
+                    }
+                }
                 ("pyo3" | "python", _) => &mut exports[index].python,
                 // TinyGo's `//export` is a WebAssembly export.
                 ("c", _) if go_wasm => &mut exports[index].js,
@@ -2123,6 +2188,147 @@ fn bind_cgo(tx: &Transaction<'_>, bridges: &mut Vec<NewBridge>) -> Result<()> {
     Ok(())
 }
 
+/// UniFFI's foreign-language name for a Rust function: `fast_sum` ->
+/// `fastSum` (Kotlin and Swift use lowerCamelCase).
+fn lower_camel_case(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    let mut upper = false;
+    for ch in name.chars() {
+        if ch == '_' {
+            upper = !out.is_empty();
+        } else if upper {
+            out.extend(ch.to_uppercase());
+            upper = false;
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+/// Kotlin / Swift using UniFFI bindings: a file importing the crate's
+/// Kotlin package (`uniffi.<namespace>` or below) or Swift module ->
+/// the crate root (`loads_native_module`), and its bare calls to a
+/// function's lowerCamelCase name or a type's name -> the Rust item
+/// (`calls_native_function`, `bridge_kind: uniffi`).
+fn bind_uniffi(
+    tx: &Transaction<'_>,
+    crates: &[NativeCrate],
+    exports: &[CrateExports],
+    bridges: &mut Vec<NewBridge>,
+) -> Result<()> {
+    if crates.iter().all(|krate| krate.uniffi.is_none()) {
+        return Ok(());
+    }
+    // Foreign name -> Rust item, per crate.
+    let names: Vec<HashMap<String, Vec<String>>> = exports
+        .iter()
+        .map(|table| {
+            let mut names: HashMap<String, Vec<String>> = HashMap::new();
+            for (name, items) in &table.uniffi_functions {
+                names
+                    .entry(lower_camel_case(name))
+                    .or_default()
+                    .extend(items.iter().cloned());
+            }
+            for (name, items) in &table.uniffi_types {
+                names
+                    .entry(name.clone())
+                    .or_default()
+                    .extend(items.iter().cloned());
+            }
+            names
+        })
+        .collect();
+    let mut stmt = tx.prepare(
+        "SELECT source_qualified, target_qualified, file_path, line FROM edges \
+         WHERE kind = 'IMPORTS_FROM' \
+           AND (file_path LIKE '%.kt' OR file_path LIKE '%.kts' OR file_path LIKE '%.swift')",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, i64>(3)?,
+        ))
+    })?;
+    let mut importing: HashMap<(String, &'static str), HashSet<usize>> = HashMap::new();
+    for row in rows {
+        let (source, target, file_path, line) = row?;
+        let language = if file_path.ends_with(".swift") {
+            "swift"
+        } else {
+            "kotlin"
+        };
+        for (index, krate) in crates.iter().enumerate() {
+            let Some(uniffi) = &krate.uniffi else {
+                continue;
+            };
+            let matched = if language == "swift" {
+                target == uniffi.swift_module
+            } else {
+                target == uniffi.kotlin_package
+                    || target
+                        .strip_prefix(uniffi.kotlin_package.as_str())
+                        .is_some_and(|rest| rest.starts_with('.'))
+            };
+            if !matched {
+                continue;
+            }
+            if importing
+                .entry((file_path.clone(), language))
+                .or_default()
+                .insert(index)
+            {
+                bridges.push(NewBridge {
+                    source: source.clone(),
+                    target: krate.root.clone(),
+                    file_path: file_path.clone(),
+                    line,
+                    extra: bridge_extra(
+                        "loads_native_module",
+                        "uniffi",
+                        "manifest",
+                        format!("import {target}"),
+                        language,
+                        krate.language,
+                    ),
+                });
+            }
+        }
+    }
+    for ((file_path, language), indexes) in importing {
+        for (caller, target, line, _) in calls_in_file(tx, &file_path)? {
+            if target.contains("::") {
+                continue;
+            }
+            let hits: Vec<(&String, usize)> = indexes
+                .iter()
+                .filter_map(|index| unique(names[*index].get(&target)).map(|qn| (qn, *index)))
+                .collect();
+            let [(item, index)] = hits.as_slice() else {
+                continue;
+            };
+            bridges.push(NewBridge {
+                source: caller,
+                target: (*item).clone(),
+                file_path: file_path.clone(),
+                line,
+                extra: bridge_extra(
+                    "calls_native_function",
+                    "uniffi",
+                    "syntax",
+                    format!("uniffi {target}"),
+                    language,
+                    crates[*index].language,
+                ),
+            });
+        }
+    }
+    Ok(())
+}
+
 impl GraphStore {
     /// Replace the `native_bindings` bridges; returns how many were written.
     pub fn resolve_native_bindings(&mut self) -> Result<i64> {
@@ -2157,6 +2363,7 @@ impl GraphStore {
                 &mut bridges,
             )?;
             bind_js_globals(&tx, &crates, &exports, &mut bridges)?;
+            bind_uniffi(&tx, &crates, &exports, &mut bridges)?;
         }
 
         let mut seen: HashSet<(String, String, i64)> = HashSet::new();
@@ -2887,6 +3094,7 @@ mod store_tests {
             build_system: "go".to_string(),
             node_addon: None,
             emscripten: None,
+            uniffi: None,
         };
         let crates = [
             producer(&["web/public/go.wasm"]),

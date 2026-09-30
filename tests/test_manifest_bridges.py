@@ -286,6 +286,26 @@ class TestDiscoverManifestBridges:
             "other/Cargo.toml": "fastsum._other",
         }
 
+    def test_uniffi_crates_record_binding_names(self, tmp_path: Path):
+        crate = tmp_path / "core"
+        (crate / "src").mkdir(parents=True)
+        (crate / "src" / "lib.rs").write_text("")
+        (crate / "src" / "math.udl").write_text("namespace mathcore {\n  u32 add(u32 a);\n};\n")
+        (crate / "Cargo.toml").write_text(
+            '[package]\nname = "core"\n\n[lib]\ncrate-type = ["cdylib", "staticlib"]\n\n'
+            '[dependencies]\nuniffi = "0.28"\n'
+        )
+        (crate / "uniffi.toml").write_text('[bindings.kotlin]\npackage_name = "com.example.math"\n')
+        edges = [
+            e.extra
+            for e in discover_manifest_bridges(tmp_path).edges
+            if e.extra.get("manifest_kind") == "cargo"
+        ]
+        assert edges[0]["uniffi"] == {
+            "namespace": "mathcore",
+            "kotlin_package": "com.example.math",
+        }
+
     def test_cmake_shared_libraries(self, tmp_path: Path):
         src = tmp_path / "native" / "src"
         src.mkdir(parents=True)

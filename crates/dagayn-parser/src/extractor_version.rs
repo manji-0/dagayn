@@ -59,8 +59,11 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // (`abi: "c"`, `#[link_name]`, `#[link(name)]`).
         // 6: `#[cxx::bridge]` `extern "C++"` declarations record `ffi_import`
         // and `extern "Rust"` declarations `ffi_export` (`abi: "cxx"`).
+        // 7: UniFFI `#[uniffi::export]` items and `#[derive(uniffi::Object)]`
+        // types record `ffi_export` (`abi: "uniffi"`), and the File node the
+        // `setup_scaffolding!("ns")` namespace.
         extractor: "rust",
-        version: 6,
+        version: 7,
         languages: &["rust"],
     },
     ExtractorVersion {

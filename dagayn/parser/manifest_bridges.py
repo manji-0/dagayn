@@ -484,6 +484,40 @@ def _wasm_package_facts(
     return names, out_dirs
 
 
+def _uniffi_facts(repo_root: Path, crate_rel: str, lib_name: str) -> ManifestData:
+    """The names UniFFI generates foreign bindings under: the UDL
+    ``namespace`` (else the library name; ``setup_scaffolding!("ns")`` is
+    read from the source later), and the Kotlin package / Swift module
+    ``uniffi.toml`` may override (``uniffi.<namespace>`` / the namespace by
+    default)."""
+    crate_dir = repo_root / crate_rel if crate_rel else repo_root
+    namespace = None
+    src_dir = crate_dir / "src"
+    for udl in sorted(src_dir.glob("*.udl")) if src_dir.is_dir() else []:
+        try:
+            match = re.search(
+                r"^\s*namespace\s+(\w+)", udl.read_text(encoding="utf-8", errors="replace"), re.M
+            )
+        except OSError:
+            continue
+        if match:
+            namespace = match.group(1)
+            break
+    facts: ManifestData = {"namespace": namespace or lib_name}
+    config = _load_toml(crate_dir / "uniffi.toml") or {}
+    bindings = config.get("bindings")
+    bindings = bindings if isinstance(bindings, dict) else {}
+    for language, key, fact in (
+        ("kotlin", "package_name", "kotlin_package"),
+        ("swift", "module_name", "swift_module"),
+    ):
+        section = bindings.get(language)
+        value = section.get(key) if isinstance(section, dict) else None
+        if isinstance(value, str) and value.strip():
+            facts[fact] = value.strip()
+    return facts
+
+
 def _node_addon_facts(
     repo_root: Path, crate_rel: str, addon: str, hints: _WasmPackageHints
 ) -> ManifestData | None:
@@ -626,6 +660,8 @@ def _extract_cargo_crate_root(
         extra["wasm_bindgen"] = True
         extra["js_packages"] = js_packages
         extra["wasm_out_dirs"] = out_dirs
+    if _cargo_depends_on(data, "uniffi"):
+        extra["uniffi"] = _uniffi_facts(repo_root, extra["crate_dir"], lib_name)
     addon = next((kind for kind in ("napi", "neon") if _cargo_depends_on(data, kind)), None)
     if addon is not None:
         facts = _node_addon_facts(repo_root, extra["crate_dir"], addon, wasm_hints)

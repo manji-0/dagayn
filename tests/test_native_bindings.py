@@ -1074,3 +1074,53 @@ def test_zig_reaches_c_and_python_reaches_zig_exports(tmp_path: Path) -> None:
         }
     finally:
         store.close()
+
+
+def test_kotlin_swift_and_python_reach_uniffi_exports(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        {
+            "rust/Cargo.toml": (
+                '[package]\nname = "mathcore"\nversion = "0.1.0"\n\n'
+                '[lib]\ncrate-type = ["cdylib", "staticlib"]\n\n'
+                '[dependencies]\nuniffi = "0.28"\n'
+            ),
+            "rust/src/lib.rs": (
+                "uniffi::setup_scaffolding!();\n\n"
+                "#[uniffi::export]\npub fn fast_sum(xs: Vec<f64>) -> f64 {\n    0.0\n}\n\n"
+                "#[derive(uniffi::Object)]\npub struct Accumulator {\n    total: f64,\n}\n"
+            ),
+            "android/Stats.kt": (
+                "package com.example\n\n"
+                "import uniffi.mathcore.*\n\n"
+                "class Stats {\n"
+                "    fun total(xs: List<Double>): Double = fastSum(xs)\n"
+                "    fun acc() = Accumulator()\n"
+                "}\n"
+            ),
+            "ios/Stats.swift": (
+                "import mathcore\n\n"
+                "struct Stats {\n"
+                "    func total(_ xs: [Double]) -> Double { return fastSum(xs: xs) }\n"
+                "}\n"
+            ),
+            "py/stats.py": (
+                "from mathcore import fast_sum\n\n\ndef total(xs):\n    return fast_sum(xs)\n"
+            ),
+        },
+    )
+    store = _build(tmp_path)
+    try:
+        calls = {
+            (source, target)
+            for source, target, role in _native_bridges(store)
+            if role == "calls_native_function"
+        }
+        assert calls == {
+            ("android/Stats.kt::Stats.total", "rust/src/lib.rs::fast_sum"),
+            ("android/Stats.kt::Stats.acc", "rust/src/lib.rs::Accumulator"),
+            ("ios/Stats.swift::Stats.total", "rust/src/lib.rs::fast_sum"),
+            ("py/stats.py::total", "rust/src/lib.rs::fast_sum"),
+        }
+    finally:
+        store.close()

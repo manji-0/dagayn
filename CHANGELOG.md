@@ -173,6 +173,19 @@ All notable changes to `dagayn` are documented here.
   sources, and lets `ctypes` and other loaders reach a Zig shared library's
   `export fn`s.
 
+- Kotlin, Swift, and Python calls into Rust through UniFFI reach the Rust
+  item. The Rust extractor records `ffi_export` (`abi: "uniffi"`) on
+  `#[uniffi::export]` functions and impl methods and on
+  `#[derive(uniffi::Object | Record | Enum | Error)]` types, and the
+  `setup_scaffolding!("ns")` namespace on the File node; it moves to
+  version 7. Manifest bridges record, for a crate depending on `uniffi`, its
+  namespace (UDL `namespace`, else the library name) and the Kotlin package
+  / Swift module `uniffi.toml` sets. `native_bindings` links Kotlin files
+  importing the package (`uniffi.<namespace>` by default) and Swift files
+  importing the module to the crate, and binds their calls to a function's
+  lowerCamelCase name or a type's name; Python imports the namespace module
+  as for PyO3, under the Rust names.
+
 ### Changed
 
 - A shared-library loader outside Python (Java `System.loadLibrary`, ...)
