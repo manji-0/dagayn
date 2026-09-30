@@ -562,22 +562,6 @@ def rrf_merge(*result_lists: list[tuple[int, float]], k: int = 10) -> list[tuple
 # ---------------------------------------------------------------------------
 
 
-def _embedding_search(
-    store: GraphStore,
-    query: str,
-    limit: int = 50,
-    model: str | None = None,
-    provider: str | None = None,
-    text_mode: str | None = None,
-) -> list[tuple[int, float]]:
-    """Run a vector similarity search using the embedding store.
-
-    Returns list of ``(node_id, similarity_score)`` tuples.
-    Gracefully returns an empty list if embeddings are not available.
-    """
-    return _embedding_search_with_health(store, query, limit, model, provider, text_mode)[0]
-
-
 def _embedding_provider_counts(db_path: Path) -> dict[str, int]:
     from dagayn.embeddings_store import get_embedding_provider_counts
 

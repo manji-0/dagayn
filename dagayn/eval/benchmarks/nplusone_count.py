@@ -16,7 +16,6 @@ from __future__ import annotations
 import logging
 import sqlite3
 from collections.abc import Callable
-from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -54,22 +53,10 @@ class SQLCounter:
         self.count = 0
         self.statements.clear()
 
-    def record_text(self, enabled: bool = True) -> None:
-        """When enabled, full statement text is appended to ``statements``."""
-        self._record_text = enabled
-
     def _on_statement(self, statement: str) -> None:
         self.count += 1
         if self._record_text:
             self.statements.append(statement)
-
-
-@contextmanager
-def count_sql(conn: sqlite3.Connection) -> Any:
-    """Context manager that yields a :class:`SQLCounter`."""
-    counter = SQLCounter(conn)
-    with counter as c:
-        yield c
 
 
 # ---------------------------------------------------------------------------

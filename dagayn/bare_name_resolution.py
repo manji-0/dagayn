@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -164,18 +164,6 @@ def build_symbol_visibility(conn: Any) -> SymbolVisibility:
     return SymbolVisibility(declared=declared, imported=imported, class_files=class_files)
 
 
-def build_import_targets(conn: Any) -> dict[str, set[str]]:
-    """Map source file paths to imported file paths (from IMPORTS_FROM edges)."""
-    import_targets: dict[str, set[str]] = {}
-    for row in conn.execute(
-        "SELECT DISTINCT file_path, target_qualified FROM edges WHERE kind = 'IMPORTS_FROM'"
-    ).fetchall():
-        target = row["target_qualified"]
-        target_file = target.split("::", 1)[0] if "::" in target else target
-        import_targets.setdefault(row["file_path"], set()).add(target_file)
-    return import_targets
-
-
 def is_namespace_candidate(target: str) -> bool:
     """True when *target* could name a namespace rather than a file.
 
@@ -250,63 +238,3 @@ def _file_is_visible(
     if target_file in import_targets.get(source_file, set()):
         return True
     return visibility is not None and visibility.can_see(source_file, target_file)
-
-
-def _bare_name_candidates(
-    conn: Any,
-    bare_name: str,
-    *,
-    kinds: tuple[str, ...] = ("Function", "Test", "Class"),
-) -> list[str]:
-    placeholders = ",".join("?" for _ in kinds)
-    rows = conn.execute(
-        f"SELECT qualified_name FROM nodes WHERE name = ? AND kind IN ({placeholders})",
-        (bare_name, *kinds),
-    ).fetchall()
-    return [row["qualified_name"] for row in rows]
-
-
-def _resolve_via_imports(
-    candidates: list[str],
-    source_file: str,
-    import_targets: dict[str, set[str]],
-    visibility: SymbolVisibility | None = None,
-) -> str | None:
-    imported = [
-        qn
-        for qn in candidates
-        if is_plausible_bare_edge(
-            source_file,
-            node_file_from_qualified(qn),
-            import_targets,
-            visibility,
-            qn,
-        )
-    ]
-    if len(imported) == 1:
-        return imported[0]
-    return None
-
-
-def resolve_bare_call_targets(store: Any) -> int:
-    """Resolve bare-name CALLS targets using import-aware disambiguation."""
-    native = getattr(store, "resolve_bare_call_targets", None)
-    if not callable(native):
-        raise RuntimeError("GraphStore.resolve_bare_call_targets is required (Rust GraphStore).")
-    resolved = int(cast(int, native()))
-    if resolved:
-        logger.info("Resolved %d bare-name CALLS targets", resolved)
-    return resolved
-
-
-def resolve_bare_inheritance_targets(store: Any) -> int:
-    """Resolve bare-name INHERITS/IMPLEMENTS targets using import context."""
-    native = getattr(store, "resolve_bare_inheritance_targets", None)
-    if not callable(native):
-        raise RuntimeError(
-            "GraphStore.resolve_bare_inheritance_targets is required (Rust GraphStore)."
-        )
-    resolved = int(cast(int, native()))
-    if resolved:
-        logger.info("Resolved %d bare-name inheritance targets", resolved)
-    return resolved

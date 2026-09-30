@@ -213,9 +213,3 @@ class IdentifierMatcher:
         if not candidate or not expected:
             return False
         return bool(self._equivalents(candidate) & self._equivalents(expected))
-
-    def first_rank(self, candidates: list[str], expected: str) -> int:
-        for idx, candidate in enumerate(candidates, start=1):
-            if self.matches(candidate, expected):
-                return idx
-        return 0

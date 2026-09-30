@@ -16,11 +16,6 @@ type BenchmarkValue = Any
 type BenchmarkPayload = dict[str, BenchmarkValue]
 
 
-def _count_tokens(text: str) -> int:
-    """Count tokens and keep the old private helper shape for callers/tests."""
-    return count_tokens(text)[0]
-
-
 def _get_changed_files(repo_path: Path, sha: str) -> list[str]:
     """Get list of changed files for a commit."""
     result = run_git(["diff", "--name-only", f"{sha}~1", sha], cwd=repo_path)

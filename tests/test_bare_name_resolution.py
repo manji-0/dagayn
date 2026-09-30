@@ -12,8 +12,6 @@ from dagayn.bare_name_resolution import (
     is_plausible_bare_edge,
     looks_like_file_target,
     normalize_namespace,
-    resolve_bare_call_targets,
-    resolve_bare_inheritance_targets,
 )
 from dagayn.graph import GraphStore
 from dagayn.parser import EdgeInfo, NodeInfo
@@ -114,7 +112,7 @@ class TestResolveBareCallTargets:
         store.upsert_edge(_edge("CALLS", "b.py::run", "helper", "b.py"))
         store.commit()
 
-        assert resolve_bare_call_targets(store) == 0
+        assert store.resolve_bare_call_targets() == 0
         row = (
             store_conn(store)
             .execute("SELECT target_qualified FROM edges WHERE kind='CALLS'")
@@ -140,7 +138,7 @@ class TestResolveBareCallTargets:
         visibility = build_symbol_visibility(store_conn(store))
         assert visibility.declared["Broker.cs"] == {"Repro.Infra"}
 
-        assert resolve_bare_call_targets(store) == 1
+        assert store.resolve_bare_call_targets() == 1
         row = (
             store_conn(store)
             .execute("SELECT target_qualified, confidence_tier FROM edges WHERE kind='CALLS'")
@@ -160,7 +158,7 @@ class TestResolveBareCallTargets:
         store.upsert_edge(_edge("CALLS", "Factory.php::make", "phpBuild", "Factory.php"))
         store.commit()
 
-        assert resolve_bare_call_targets(store) == 1
+        assert store.resolve_bare_call_targets() == 1
         row = (
             store_conn(store)
             .execute("SELECT target_qualified FROM edges WHERE kind='CALLS'")
@@ -193,7 +191,7 @@ class TestResolveBareCallTargets:
         store.upsert_edge(_edge("CALLS", "broker.cpp::use", "createAllowed", "broker.cpp"))
         store.commit()
 
-        assert resolve_bare_call_targets(store) == 1
+        assert store.resolve_bare_call_targets() == 1
         row = (
             store_conn(store)
             .execute("SELECT target_qualified, confidence_tier FROM edges WHERE kind='CALLS'")
@@ -212,7 +210,7 @@ class TestResolveBareCallTargets:
         store.upsert_edge(_edge("CALLS", "b.py::run", "helper", "b.py"))
         store.commit()
 
-        assert resolve_bare_call_targets(store) == 1
+        assert store.resolve_bare_call_targets() == 1
         row = (
             store_conn(store)
             .execute("SELECT target_qualified, confidence_tier FROM edges WHERE kind='CALLS'")
@@ -246,7 +244,7 @@ class TestResolveBareCallTargets:
         store.upsert_edge(_edge("CALLS", "express.ts", "get", "express.ts"))
         store.commit()
 
-        assert resolve_bare_call_targets(store) == 0
+        assert store.resolve_bare_call_targets() == 0
         row = (
             store_conn(store)
             .execute("SELECT target_qualified FROM edges WHERE kind='CALLS'")
@@ -266,7 +264,7 @@ class TestResolveBareInheritanceTargets:
         store.upsert_edge(_edge("INHERITS", "child.py::Child", "Base", "child.py"))
         store.commit()
 
-        assert resolve_bare_inheritance_targets(store) == 1
+        assert store.resolve_bare_inheritance_targets() == 1
         row = (
             store_conn(store)
             .execute("SELECT target_qualified, confidence_tier FROM edges WHERE kind='INHERITS'")
@@ -286,7 +284,7 @@ class TestResolveBareInheritanceTargets:
         store.upsert_edge(_edge("INHERITS", "view.ts::ViewProps", "Props", "view.ts"))
         store.commit()
 
-        assert resolve_bare_inheritance_targets(store) == 1
+        assert store.resolve_bare_inheritance_targets() == 1
         row = (
             store_conn(store)
             .execute("SELECT target_qualified, confidence_tier FROM edges WHERE kind='INHERITS'")
@@ -305,7 +303,7 @@ class TestResolveBareInheritanceTargets:
         store.upsert_edge(_edge("INHERITS", "child.py::Child", "Base", "child.py"))
         store.commit()
 
-        assert resolve_bare_inheritance_targets(store) == 0
+        assert store.resolve_bare_inheritance_targets() == 0
         row = (
             store_conn(store)
             .execute(
@@ -343,7 +341,7 @@ class TestTestedBySync:
         )
         store.commit()
 
-        assert resolve_bare_call_targets(store) == 1
+        assert store.resolve_bare_call_targets() == 1
         row = (
             store_conn(store)
             .execute("SELECT source_qualified, confidence_tier FROM edges WHERE kind='TESTED_BY'")

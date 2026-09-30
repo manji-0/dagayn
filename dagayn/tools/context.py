@@ -177,18 +177,6 @@ def _row_name(row: Any) -> str | None:
     return name if isinstance(name, str) and name else None
 
 
-def _names_from_rows(rows: list[Any], *, limit: int) -> list[str]:
-    """Return up to *limit* non-empty names from query rows."""
-    names: list[str] = []
-    for row in rows:
-        name = _row_name(row)
-        if name:
-            names.append(name)
-        if len(names) >= limit:
-            break
-    return names
-
-
 def _names_from_items(items: Sequence[Mapping[str, object]], *, limit: int) -> list[str]:
     """Return up to *limit* non-empty names from tool payload items."""
     names: list[str] = []

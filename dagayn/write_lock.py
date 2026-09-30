@@ -686,19 +686,6 @@ def wrap_store_close_to_unbind(store: object) -> _CloseableStore:
     return cast(_CloseableStore, store)
 
 
-def _reset_for_tests() -> None:
-    """Drop all lock state. Test helper only."""
-    with _registry_lock:
-        for held in list(_file_locks.values()):
-            try:
-                held.handle.close()
-            except OSError:
-                pass
-        _file_locks.clear()
-        _thread_locks.clear()
-        _store_read_binds.clear()
-
-
 __all__ = [
     "DEFAULT_IO_LOCK_TIMEOUT",
     "DEFAULT_WRITE_LOCK_TIMEOUT",

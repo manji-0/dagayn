@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import asdict, dataclass
 from enum import StrEnum
 from typing import Any
@@ -489,14 +488,6 @@ def get_metric_spec(benchmark: str, metric: str) -> MetricSpec | None:
     return METRIC_SPECS.get((benchmark, metric))
 
 
-def metric_specs_for_benchmark(benchmark: str) -> list[MetricSpec]:
-    """Return all registered specs for *benchmark* in stable metric order."""
-    return sorted(
-        (spec for (bench, _), spec in METRIC_SPECS.items() if bench == benchmark),
-        key=lambda spec: spec.metric,
-    )
-
-
 def metric_specs_for_row(row: MetricPayload) -> list[MetricSpec]:
     """Return specs for recognized metric columns present with non-empty values."""
     benchmark = str(row.get("benchmark", ""))
@@ -590,8 +581,3 @@ def metric_specs_as_dicts() -> list[MetricPayload]:
                 record[key] = value.value
         records.append(record)
     return records
-
-
-def metric_specs_json() -> str:
-    """Return the metric registry as stable JSON."""
-    return json.dumps(metric_specs_as_dicts(), indent=2, sort_keys=True)
