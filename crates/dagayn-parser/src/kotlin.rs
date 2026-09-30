@@ -4,7 +4,7 @@ use super::jni::jni_symbol;
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{
     collect_namespace_paths, is_test_file, line_count, node_text, set_declared_namespaces,
-    strip_matching_quotes,
+    strip_matching_quotes, type_name_without_arguments,
 };
 use super::{qualify, resolve_rust_call_targets};
 
@@ -235,8 +235,10 @@ fn kotlin_emit_type(
         }
         // `Base(a)` invokes a superclass constructor; a bare type names an
         // interface (or a delegated one via `by`).
-        let is_class = kotlin_direct_child(specifier, &["constructor_invocation"]).is_some();
-        let Some(target) = kotlin_last_descendant_text(specifier, source, &["type_identifier"])
+        let invocation = kotlin_direct_child(specifier, &["constructor_invocation"]);
+        let is_class = invocation.is_some();
+        let Some(target) = kotlin_direct_child(invocation.unwrap_or(specifier), &["user_type"])
+            .and_then(|user_type| type_name_without_arguments(user_type, source))
         else {
             continue;
         };

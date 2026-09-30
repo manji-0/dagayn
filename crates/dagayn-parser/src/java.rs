@@ -6,7 +6,7 @@ use super::jni::jni_symbol;
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{
     collect_namespace_paths, is_test_file, line_count, node_text, normalize_relative_path,
-    set_declared_namespaces, strip_matching_quotes,
+    set_declared_namespaces, strip_matching_quotes, type_name_without_arguments,
 };
 use super::{qualify, resolve_rust_call_targets};
 
@@ -393,8 +393,13 @@ fn java_collect_type_names(
 ) {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        if matches!(child.kind(), "type_identifier" | "generic_type") {
-            bases.push((node_text(child, source), role));
+        if matches!(
+            child.kind(),
+            "type_identifier" | "generic_type" | "scoped_type_identifier"
+        ) {
+            if let Some(base) = type_name_without_arguments(child, source) {
+                bases.push((base, role));
+            }
         } else {
             java_collect_type_names(child, source, role, bases);
         }

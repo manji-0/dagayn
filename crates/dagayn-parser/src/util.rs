@@ -46,6 +46,33 @@ pub(super) fn node_text(node: tree_sitter::Node<'_>, source: &[u8]) -> String {
     }
 }
 
+/// The name of a type as written, without its type arguments: `pkg.Base` for
+/// `pkg.Base<User, Integer>`. Identifier leaves are joined with `.`; any
+/// `type_arguments` subtree is skipped, so `B<String>` never yields `String`.
+pub(super) fn type_name_without_arguments(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> Option<String> {
+    fn collect(node: tree_sitter::Node<'_>, source: &[u8], parts: &mut Vec<String>) {
+        if matches!(node.kind(), "type_arguments" | "type_parameters") {
+            return;
+        }
+        if node.child_count() == 0 {
+            if node.is_named() {
+                parts.push(node_text(node, source));
+            }
+            return;
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            collect(child, source, parts);
+        }
+    }
+    let mut parts = Vec::new();
+    collect(node, source, &mut parts);
+    (!parts.is_empty()).then(|| parts.join("."))
+}
+
 pub(super) fn node_text_bytes<'source>(
     node: tree_sitter::Node<'_>,
     source: &'source [u8],

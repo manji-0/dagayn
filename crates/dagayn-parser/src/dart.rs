@@ -342,15 +342,19 @@ fn dart_emit_type(
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
-    for target in dart_inheritance_targets(node, source) {
+    for (target, role) in dart_inheritance_targets(node, source) {
         edges.push(ParsedEdge {
-            kind: crate::core::types::EdgeKind::Inherits,
+            kind: if role == "implements" {
+                crate::core::types::EdgeKind::Implements
+            } else {
+                crate::core::types::EdgeKind::Inherits
+            },
             source: qualified.clone(),
             target,
             file_path: file_path.clone(),
             line: node.start_position().row as i64 + 1,
             extra: json!({
-                "relationship_role": "extends",
+                "relationship_role": role,
                 "syntax_source": "class_definition",
             }),
         });
@@ -529,30 +533,37 @@ fn dart_selector_has_arguments(node: tree_sitter::Node<'_>) -> bool {
         .any(|child| child.kind() == "argument_part")
 }
 
-fn dart_inheritance_targets(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
+/// `(base, role)` for `extends B<T>`, `with M`, `implements C<D>, E`; type
+/// arguments are not bases.
+fn dart_inheritance_targets(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> Vec<(String, &'static str)> {
+    fn direct_types(
+        node: tree_sitter::Node<'_>,
+        source: &[u8],
+        role: &'static str,
+        out: &mut Vec<(String, &'static str)>,
+    ) {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            match child.kind() {
+                "type_identifier" => out.push((node_text(child, source), role)),
+                "mixins" => direct_types(child, source, "mixin", out),
+                _ => {}
+            }
+        }
+    }
     let mut out = Vec::new();
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        if matches!(child.kind(), "superclass" | "interfaces") {
-            dart_collect_type_identifiers(child, source, &mut out);
+        match child.kind() {
+            "superclass" => direct_types(child, source, "extends", &mut out),
+            "interfaces" => direct_types(child, source, "implements", &mut out),
+            _ => {}
         }
     }
     out
-}
-
-fn dart_collect_type_identifiers(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    out: &mut Vec<String>,
-) {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == "type_identifier" {
-            out.push(node_text(child, source));
-        } else {
-            dart_collect_type_identifiers(child, source, out);
-        }
-    }
 }
 
 fn dart_has_direct_child_kind(node: tree_sitter::Node<'_>, kind: &str) -> bool {

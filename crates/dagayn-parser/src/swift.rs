@@ -1,7 +1,9 @@
 use serde_json::json;
 
 use super::types::{FilePath, ParsedEdge, ParsedNode};
-use super::util::{is_test_file, line_count, node_text, strip_matching_quotes};
+use super::util::{
+    is_test_file, line_count, node_text, strip_matching_quotes, type_name_without_arguments,
+};
 use super::{is_test_function, qualify, resolve_rust_call_targets};
 
 pub(super) fn parse_swift_with_parser(
@@ -316,7 +318,12 @@ fn swift_inheritance_targets(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<
     let mut cursor = node.walk();
     node.children(&mut cursor)
         .filter(|child| child.kind() == "inheritance_specifier")
-        .flat_map(|specifier| swift_descendant_texts(specifier, source, &["type_identifier"]))
+        .filter_map(|specifier| {
+            let base = specifier
+                .child_by_field_name("inherits_from")
+                .unwrap_or(specifier);
+            type_name_without_arguments(base, source)
+        })
         .collect()
 }
 

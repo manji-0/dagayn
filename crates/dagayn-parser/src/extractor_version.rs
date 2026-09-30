@@ -104,14 +104,18 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
     },
     ExtractorVersion {
         // 1: `native` methods record `ffi_import` with their JNI symbol.
+        // 2: base classes and interfaces are named without type arguments
+        // (`JpaRepository`, not `JpaRepository<User, Integer>`).
         extractor: "java",
-        version: 1,
+        version: 2,
         languages: &["java"],
     },
     ExtractorVersion {
         // 1: `external fun` records `ffi_import` with its JNI symbol.
+        // 2: bases are the constructed / named type (`B` of `B<String>()`),
+        // not the last type argument.
         extractor: "kotlin",
-        version: 1,
+        version: 2,
         languages: &["kotlin"],
     },
     ExtractorVersion {
@@ -141,9 +145,17 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
     ExtractorVersion {
         // 1: `DynamicLibrary.open("lib")` emits `loads_shared_library`, and
         // `@Native` externals record `ffi_import`.
+        // 2: type arguments are no longer bases, and `implements` emits
+        // IMPLEMENTS (role `implements`), `with` INHERITS (role `mixin`).
         extractor: "dart",
-        version: 1,
+        version: 2,
         languages: &["dart"],
+    },
+    ExtractorVersion {
+        // 1: type arguments of a base (`Q<Int>`) are no longer bases.
+        extractor: "swift",
+        version: 1,
+        languages: &["swift"],
     },
     ExtractorVersion {
         // 1: `export fn` records `ffi_export`, `extern fn` records

@@ -1925,7 +1925,8 @@ class Repo(IRepo):
         nodes, edges = self._parse(src, "dart", tmp_path)
         classes = {n.name for n in nodes if n.kind == "Class"}
         assert {"IFoo", "Bar"} <= classes
-        assert [e for e in edges if e.kind == "IMPLEMENTS"] == []
+        implements = [(e.source, e.target) for e in edges if e.kind == "IMPLEMENTS"]
+        assert any(src.endswith("::Bar") and tgt == "IFoo" for src, tgt in implements)
 
     # --- Scala ---
 

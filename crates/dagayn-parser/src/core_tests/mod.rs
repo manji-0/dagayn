@@ -8,6 +8,7 @@ mod discovery;
 mod elixir;
 mod gdscript;
 mod go;
+mod heritage;
 mod java;
 mod javascript_calls;
 mod javascript_modules;
