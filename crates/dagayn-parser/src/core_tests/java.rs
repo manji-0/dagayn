@@ -144,3 +144,36 @@ class CachedRepo extends BaseRepo {
 
     let _ = std::fs::remove_dir_all(&repo_root);
 }
+
+#[test]
+fn java_native_methods_record_their_jni_symbols() {
+    let source = br#"package com.example;
+public class Sum {
+    static { System.loadLibrary("fastsum"); }
+    public static native double fastSum(double[] xs);
+    public double total(double[] xs) { return fastSum(xs); }
+    static class Inner { native void do_it(); }
+}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (nodes, _) = parser.parse_file("src/com/example/Sum.java", source);
+    let symbol = |name: &str| {
+        nodes
+            .iter()
+            .find(|node| node.name == name)
+            .unwrap_or_else(|| panic!("no node {name}"))
+            .extra
+            .pointer("/ffi_import/symbol")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+    };
+    assert_eq!(
+        symbol("fastSum").as_deref(),
+        Some("Java_com_example_Sum_fastSum")
+    );
+    assert_eq!(
+        symbol("do_it").as_deref(),
+        Some("Java_com_example_Sum_00024Inner_do_1it")
+    );
+    assert_eq!(symbol("total"), None);
+}

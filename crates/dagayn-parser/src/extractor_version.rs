@@ -63,6 +63,25 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         version: 1,
         languages: &["c", "cpp", "objc"],
     },
+    ExtractorVersion {
+        // 1: `native` methods record `ffi_import` with their JNI symbol.
+        extractor: "java",
+        version: 1,
+        languages: &["java"],
+    },
+    ExtractorVersion {
+        // 1: `external fun` records `ffi_import` with its JNI symbol.
+        extractor: "kotlin",
+        version: 1,
+        languages: &["kotlin"],
+    },
+    ExtractorVersion {
+        // 1: `[DllImport]` / `[LibraryImport]` methods emit a
+        // `loads_shared_library` bridge carrying the C symbol they bind.
+        extractor: "csharp",
+        version: 1,
+        languages: &["csharp"],
+    },
 ];
 
 /// The tracked extractor versions.

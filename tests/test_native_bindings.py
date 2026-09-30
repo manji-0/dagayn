@@ -344,3 +344,101 @@ def test_java_load_library_does_not_bind_calls_by_bare_name(tmp_path: Path) -> N
         assert roles == {"loads_shared_library"}
     finally:
         store.close()
+
+
+def test_csharp_p_invoke_reaches_the_c_function(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        {
+            "native/CMakeLists.txt": "add_library(fastsum SHARED src/sum.c)\n",
+            "native/src/sum.c": C_SUM,
+            "app/Native.cs": (
+                "using System.Runtime.InteropServices;\n"
+                "static class Native {\n"
+                '    [DllImport("fastsum", EntryPoint = "fast_sum")]\n'
+                "    static extern double FastSum(double[] xs, int n);\n"
+                "    public static double Total(double[] xs) => FastSum(xs, xs.Length);\n"
+                "}\n"
+            ),
+        },
+    )
+    store = _build(tmp_path)
+    try:
+        assert _native_bridges(store) == {
+            ("app/Native.cs::Native.FastSum", "native/src/sum.c", "loads_shared_library"),
+            (
+                "app/Native.cs::Native.FastSum",
+                "native/src/sum.c::fast_sum",
+                "calls_native_function",
+            ),
+        }
+        impact = get_impact_radius(
+            changed_files=["native/src/sum.c"], repo_root=str(tmp_path), max_depth=3
+        )
+        impacted = {node["qualified_name"] for node in impact["impacted_nodes"]}
+        assert "app/Native.cs::Native.Total" in impacted
+    finally:
+        store.close()
+
+
+def test_java_and_kotlin_jni_reach_c_and_rust(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        {
+            "java/com/example/Sum.java": (
+                "package com.example;\n"
+                "public class Sum {\n"
+                '    static { System.loadLibrary("fastsum"); }\n'
+                "    public static native double fastSum(double[] xs);\n"
+                "    public static native int overloaded(int x);\n"
+                "    public static double total(double[] xs) { return fastSum(xs); }\n"
+                "}\n"
+            ),
+            "java/com/example/Report.java": (
+                "package com.example;\n"
+                "class Report {\n"
+                "    double monthly(double[] xs) { return Sum.total(xs); }\n"
+                "}\n"
+            ),
+            "native/jni.c": (
+                "#include <jni.h>\n"
+                "JNIEXPORT jdouble JNICALL Java_com_example_Sum_fastSum("
+                "JNIEnv *env, jclass cls, jdoubleArray xs) { return 0; }\n"
+                "JNIEXPORT jint JNICALL Java_com_example_Sum_overloaded__I("
+                "JNIEnv *env, jclass cls, jint x) { return x; }\n"
+            ),
+            "kotlin/com/example/Mean.kt": (
+                "package com.example\n\n"
+                "class Mean {\n    external fun mean(xs: DoubleArray): Double\n}\n"
+            ),
+            "rust/src/lib.rs": (
+                "#[no_mangle]\n"
+                'pub extern "system" fn Java_com_example_Mean_mean() -> f64 {\n    0.0\n}\n'
+            ),
+        },
+    )
+    store = _build(tmp_path)
+    try:
+        assert _native_bridges(store) == {
+            (
+                "java/com/example/Sum.java::Sum.fastSum",
+                "native/jni.c::Java_com_example_Sum_fastSum",
+                "calls_native_function",
+            ),
+            (
+                "java/com/example/Sum.java::Sum.overloaded",
+                "native/jni.c::Java_com_example_Sum_overloaded__I",
+                "calls_native_function",
+            ),
+            (
+                "kotlin/com/example/Mean.kt::Mean.mean",
+                "rust/src/lib.rs::Java_com_example_Mean_mean",
+                "calls_native_function",
+            ),
+        }
+        impact = get_impact_radius(
+            changed_files=["native/jni.c"], repo_root=str(tmp_path), max_depth=3
+        )
+        assert "java/com/example/Report.java" in impact["impacted_files"]
+    finally:
+        store.close()

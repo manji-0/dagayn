@@ -1,6 +1,8 @@
 use std::cell::RefCell;
 use std::collections::HashSet;
+use std::sync::LazyLock;
 
+use regex::Regex;
 use serde_json::json;
 
 use super::documentation_directives::{
@@ -561,6 +563,9 @@ fn csharp_emit_function(
         is_test,
         extra,
     });
+    if let Some(edge) = csharp_native_import_edge(node, context, name, &qualified) {
+        edges.push(edge);
+    }
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Contains,
         source: enclosing_class
@@ -571,6 +576,119 @@ fn csharp_emit_function(
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
+}
+
+/// `const string Lib = "fastsum";`, the usual way to share a P/Invoke
+/// library name between `[DllImport(Lib)]` declarations.
+static CSHARP_CONST_STRING_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"\bconst\s+string\s+([A-Za-z_]\w*)\s*=\s*"([^"\\]*)""#)
+        .expect("valid C# const string regex")
+});
+
+/// A P/Invoke declaration: `[DllImport("lib", EntryPoint = "sym")] static
+/// extern T M(...)` or `[LibraryImport("lib")] static partial T M(...)`.
+///
+/// Emitted as a `loads_shared_library` bridge from the method to the
+/// library, carrying the C symbol it binds (`EntryPoint`, else the method
+/// name) so post-processing can reach the native function itself.
+fn csharp_native_import_edge(
+    node: tree_sitter::Node<'_>,
+    context: &CSharpParseContext<'_>,
+    name: &str,
+    qualified: &str,
+) -> Option<ParsedEdge> {
+    let source = context.source;
+    let mut list_cursor = node.walk();
+    let attribute = node
+        .children(&mut list_cursor)
+        .filter(|child| child.kind() == "attribute_list")
+        .flat_map(|list| {
+            let mut cursor = list.walk();
+            list.children(&mut cursor).collect::<Vec<_>>()
+        })
+        .find(|attribute| {
+            attribute.kind() == "attribute"
+                && csharp_named_text(*attribute, source, "name")
+                    .or_else(|| csharp_rightmost_identifier(*attribute, source))
+                    .is_some_and(|attr| {
+                        let simple = attr.rsplit('.').next().unwrap_or(&attr);
+                        matches!(
+                            simple.strip_suffix("Attribute").unwrap_or(simple),
+                            "DllImport" | "LibraryImport"
+                        )
+                    })
+        })?;
+    let mut cursor = attribute.walk();
+    let arguments = attribute
+        .children(&mut cursor)
+        .find(|child| child.kind() == "attribute_argument_list")?;
+    let mut library = None;
+    let mut entry_point = None;
+    let mut arg_cursor = arguments.walk();
+    for argument in arguments.children(&mut arg_cursor) {
+        if argument.kind() != "attribute_argument" {
+            continue;
+        }
+        let text = node_text(argument, source);
+        let value = csharp_attribute_argument_value(argument, source);
+        match text.split_once(['=', ':']) {
+            Some((key, _)) if !key.contains('"') => {
+                if key.trim() == "EntryPoint" {
+                    entry_point = value;
+                }
+            }
+            _ if library.is_none() => library = value,
+            _ => {}
+        }
+    }
+    let library = library.filter(|library| !library.is_empty())?;
+    let attribute_name = csharp_named_text(attribute, source, "name").unwrap_or_default();
+    Some(ParsedEdge {
+        kind: crate::core::types::EdgeKind::CrossArtifact,
+        source: qualified.to_string(),
+        target: library,
+        file_path: context.file_path.clone(),
+        line: node.start_position().row as i64 + 1,
+        extra: json!({
+            "relationship_role": "loads_shared_library",
+            "bridge_kind": "ffi",
+            "evidence_kind": "syntax",
+            "evidence_source": attribute_name,
+            "source_language": "csharp",
+            "target_language": "unknown",
+            "confidence": 0.8,
+            "confidence_tier": "HIGH",
+            "symbol": entry_point.unwrap_or_else(|| name.to_string()),
+        }),
+    })
+}
+
+/// A string literal argument, or a `const string` it names in this file.
+fn csharp_attribute_argument_value(
+    argument: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> Option<String> {
+    let mut cursor = argument.walk();
+    let children: Vec<_> = argument.children(&mut cursor).collect();
+    let value = children.last()?;
+    match value.kind() {
+        "string_literal" | "verbatim_string_literal" => Some(csharp_string_text(*value, source)),
+        "identifier" | "member_access_expression" => {
+            let text = node_text(*value, source);
+            let constant = text.rsplit('.').next().unwrap_or(&text).trim().to_string();
+            let file = std::str::from_utf8(source).ok()?;
+            let values: Vec<String> = CSHARP_CONST_STRING_RE
+                .captures_iter(file)
+                .filter(|captures| captures[1] == constant)
+                .map(|captures| captures[2].to_string())
+                .collect();
+            match values.as_slice() {
+                [only] => Some(only.clone()),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
 }
 
 fn csharp_function_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {

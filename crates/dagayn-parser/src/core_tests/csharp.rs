@@ -365,3 +365,55 @@ public class Service : Repo
             && edge.target.contains("docs/spec.md")
     }));
 }
+
+#[test]
+fn csharp_p_invoke_declarations_bind_their_c_symbols() {
+    let source = br#"using System.Runtime.InteropServices;
+static partial class Native {
+    private const string Lib = "fastsum";
+    [DllImport(Lib, EntryPoint = "fast_sum", CallingConvention = CallingConvention.Cdecl)]
+    public static extern double FastSum(double[] xs, int n);
+    [LibraryImport("libfastsum.so")]
+    internal static partial int version();
+    [DllImport("kernel32.dll")]
+    static extern bool Beep(uint freq, uint ms);
+}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_, edges) = parser.parse_file("app/Native.cs", source);
+    let imports: Vec<(&str, &str, &str, &str)> = edges
+        .iter()
+        .filter(|edge| edge.kind == "CROSS_ARTIFACT")
+        .map(|edge| {
+            (
+                edge.source.as_str(),
+                edge.target.as_str(),
+                edge.extra["symbol"].as_str().unwrap_or_default(),
+                edge.extra["evidence_source"].as_str().unwrap_or_default(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        imports,
+        vec![
+            (
+                "app/Native.cs::Native.FastSum",
+                "fastsum",
+                "fast_sum",
+                "DllImport"
+            ),
+            (
+                "app/Native.cs::Native.version",
+                "libfastsum.so",
+                "version",
+                "LibraryImport"
+            ),
+            (
+                "app/Native.cs::Native.Beep",
+                "kernel32.dll",
+                "Beep",
+                "DllImport"
+            ),
+        ]
+    );
+}

@@ -1,5 +1,6 @@
 use serde_json::json;
 
+use super::jni::jni_symbol;
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{
     collect_namespace_paths, is_test_file, line_count, node_text, set_declared_namespaces,
@@ -42,6 +43,7 @@ pub(super) fn parse_kotlin_with_parser(
             &mut nodes,
             &mut edges,
         );
+        kotlin_name_jni_symbols(tree.root_node(), source, &file_path, &mut nodes);
         set_declared_namespaces(
             &mut nodes,
             collect_namespace_paths(
@@ -96,6 +98,7 @@ fn kotlin_walk_children(
             "secondary_constructor" if enclosing_class.is_some() => {
                 kotlin_emit_function(
                     child,
+                    source,
                     file_path,
                     "constructor",
                     enclosing_class,
@@ -116,7 +119,15 @@ fn kotlin_walk_children(
             "function_declaration" => {
                 if let Some(name) = kotlin_direct_child_text(child, source, &["simple_identifier"])
                 {
-                    kotlin_emit_function(child, file_path, &name, enclosing_class, nodes, edges);
+                    kotlin_emit_function(
+                        child,
+                        source,
+                        file_path,
+                        &name,
+                        enclosing_class,
+                        nodes,
+                        edges,
+                    );
                     kotlin_walk_children(
                         child,
                         source,
@@ -294,6 +305,7 @@ fn kotlin_type_extra(node: tree_sitter::Node<'_>, source: &[u8]) -> serde_json::
 
 fn kotlin_emit_function(
     node: tree_sitter::Node<'_>,
+    source: &[u8],
     file_path: &FilePath,
     name: &str,
     enclosing_class: Option<&str>,
@@ -301,6 +313,12 @@ fn kotlin_emit_function(
     edges: &mut Vec<ParsedEdge>,
 ) {
     let qualified = qualify(file_path, name, enclosing_class);
+    // `external fun` is implemented through JNI; the JVM class that owns it,
+    // and so its symbol, is named once the whole file is walked.
+    let extra = match kotlin_jni_owner(node, source, enclosing_class) {
+        Some(owner) => json!({"ffi_import": {"abi": "jni", "owner": owner}}),
+        None => json!({}),
+    };
     nodes.push(ParsedNode {
         kind: crate::core::types::NodeKind::Function,
         name: name.to_string(),
@@ -313,7 +331,7 @@ fn kotlin_emit_function(
         return_type: None,
         modifiers: None,
         is_test: false,
-        extra: json!({}),
+        extra,
     });
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Contains,
@@ -325,6 +343,120 @@ fn kotlin_emit_function(
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
+}
+
+/// The class path an `external fun` belongs to on the JVM: the enclosing
+/// class (`Outer.Inner`), its `Companion` unless the function is
+/// `@JvmStatic`, or `""` for a top-level function (the file facade).
+fn kotlin_jni_owner(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    enclosing_class: Option<&str>,
+) -> Option<String> {
+    if node.kind() != "function_declaration" {
+        return None;
+    }
+    let modifiers = kotlin_direct_child(node, &["modifiers"])?;
+    let mut external = false;
+    let mut jvm_static = false;
+    let mut cursor = modifiers.walk();
+    for modifier in modifiers.children(&mut cursor) {
+        let text = node_text(modifier, source);
+        match modifier.kind() {
+            "function_modifier" => external |= text.trim() == "external",
+            "annotation" => {
+                jvm_static |= text
+                    .trim_start_matches('@')
+                    .split(['(', ' '])
+                    .next()
+                    .is_some_and(|name| name.rsplit('.').next() == Some("JvmStatic"));
+            }
+            _ => {}
+        }
+    }
+    if !external {
+        return None;
+    }
+    let mut owner = enclosing_class.unwrap_or_default().to_string();
+    let mut ancestor = node.parent();
+    while let Some(current) = ancestor {
+        match current.kind() {
+            "companion_object" => {
+                if !jvm_static {
+                    let name = kotlin_direct_child_text(current, source, &["type_identifier"]);
+                    owner.push('.');
+                    owner.push_str(name.as_deref().unwrap_or("Companion"));
+                }
+                break;
+            }
+            "class_declaration" | "object_declaration" => break,
+            _ => ancestor = current.parent(),
+        }
+    }
+    Some(owner)
+}
+
+/// Replaces each `ffi_import.owner` recorded by [`kotlin_jni_owner`] with the
+/// JNI `symbol`: top-level functions live in the file facade class
+/// (`Sum.kt` -> `SumKt`, or `@file:JvmName("Name")`).
+fn kotlin_name_jni_symbols(
+    root: tree_sitter::Node<'_>,
+    source: &[u8],
+    file_path: &FilePath,
+    nodes: &mut [ParsedNode],
+) {
+    let package = kotlin_direct_child(root, &["package_header"])
+        .and_then(|header| kotlin_direct_child_text(header, source, &["identifier"]));
+    let facade = kotlin_file_facade(root, source, file_path);
+    for node in nodes.iter_mut() {
+        let Some(import) = node.extra.get_mut("ffi_import") else {
+            continue;
+        };
+        let Some(owner) = import
+            .get("owner")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+        else {
+            continue;
+        };
+        let class = if owner.is_empty() {
+            facade.clone()
+        } else {
+            owner
+        };
+        import["symbol"] = json!(jni_symbol(package.as_deref(), &class, &node.name));
+        if let Some(map) = import.as_object_mut() {
+            map.remove("owner");
+        }
+    }
+}
+
+fn kotlin_file_facade(root: tree_sitter::Node<'_>, source: &[u8], file_path: &FilePath) -> String {
+    let mut cursor = root.walk();
+    for child in root.children(&mut cursor) {
+        if child.kind() != "file_annotation" {
+            continue;
+        }
+        let text = node_text(child, source);
+        if let Some(rest) = text.split_once("JvmName(").map(|(_, rest)| rest)
+            && let Some(name) = rest.split('"').nth(1)
+        {
+            return name.to_string();
+        }
+    }
+    let stem = file_path
+        .to_string()
+        .rsplit('/')
+        .next()
+        .unwrap_or_default()
+        .trim_end_matches(".kts")
+        .trim_end_matches(".kt")
+        .to_string();
+    let mut chars = stem.chars();
+    match chars.next() {
+        Some(first) => format!("{}{}Kt", first.to_uppercase(), chars.as_str()),
+        None => "Kt".to_string(),
+    }
 }
 
 fn kotlin_emit_call(

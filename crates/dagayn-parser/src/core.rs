@@ -35,6 +35,8 @@ mod gdscript;
 mod go;
 #[path = "java.rs"]
 mod java;
+#[path = "jni.rs"]
+mod jni;
 #[path = "js_calls.rs"]
 mod js_calls;
 #[path = "js_declarations.rs"]

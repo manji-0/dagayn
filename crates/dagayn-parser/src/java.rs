@@ -2,6 +2,7 @@ use std::path::Path;
 
 use serde_json::json;
 
+use super::jni::jni_symbol;
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{
     collect_namespace_paths, is_test_file, line_count, node_text, normalize_relative_path,
@@ -13,6 +14,8 @@ struct JavaParseContext<'a> {
     source: &'a [u8],
     file_path: FilePath,
     repo_root: Option<&'a Path>,
+    /// The `package` declaration, which prefixes JNI symbol names.
+    package: Option<String>,
 }
 
 pub(super) fn parse_java_with_parser(
@@ -46,6 +49,7 @@ pub(super) fn parse_java_with_parser(
             source,
             file_path: file_path.clone(),
             repo_root,
+            package: java_package(tree.root_node(), source),
         };
         java_walk_children(
             tree.root_node(),
@@ -153,15 +157,7 @@ fn java_walk_children(
             | "constructor_declaration"
             | "compact_constructor_declaration" => {
                 if let Some(name) = java_function_name(child, context.source) {
-                    java_emit_function(
-                        child,
-                        context.source,
-                        &context.file_path,
-                        &name,
-                        enclosing_class,
-                        nodes,
-                        edges,
-                    );
+                    java_emit_function(child, context, &name, enclosing_class, nodes, edges);
                     java_walk_children(child, context, enclosing_class, Some(&name), nodes, edges);
                     continue;
                 }
@@ -407,14 +403,24 @@ fn java_collect_type_names(
 
 fn java_emit_function(
     node: tree_sitter::Node<'_>,
-    source: &[u8],
-    file_path: &FilePath,
+    context: &JavaParseContext<'_>,
     name: &str,
     enclosing_class: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
+    let (source, file_path) = (context.source, &context.file_path);
     let qualified = qualify(file_path, name, enclosing_class);
+    // A `native` method is implemented by the C symbol its JNI name spells.
+    let extra = match enclosing_class {
+        Some(class) if node.kind() == "method_declaration" && java_is_native(node) => json!({
+            "ffi_import": {
+                "abi": "jni",
+                "symbol": jni_symbol(context.package.as_deref(), class, name),
+            }
+        }),
+        _ => json!({}),
+    };
     nodes.push(ParsedNode {
         kind: crate::core::types::NodeKind::Function,
         name: name.to_string(),
@@ -427,7 +433,7 @@ fn java_emit_function(
         return_type: None,
         modifiers: None,
         is_test: false,
-        extra: json!({}),
+        extra,
     });
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Contains,
@@ -439,6 +445,26 @@ fn java_emit_function(
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
+}
+
+fn java_is_native(node: tree_sitter::Node<'_>) -> bool {
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .filter(|child| child.kind() == "modifiers")
+        .any(|modifiers| {
+            let mut inner = modifiers.walk();
+            modifiers
+                .children(&mut inner)
+                .any(|modifier| modifier.kind() == "native")
+        })
+}
+
+fn java_package(root: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = root.walk();
+    let declaration = root
+        .children(&mut cursor)
+        .find(|child| child.kind() == "package_declaration")?;
+    java_direct_child_text(declaration, source, &["scoped_identifier", "identifier"])
 }
 
 fn java_scope_join(enclosing: Option<&str>, name: &str) -> String {

@@ -26,6 +26,21 @@ All notable changes to `dagayn` are documented here.
   or `visibility("hidden")`, and in C++ only those inside `extern "C"`. It
   moves to extractor version 1.
 
+- C# P/Invoke declarations reach the native function they bind. A method
+  with `[DllImport("lib", EntryPoint = "sym")]` or `[LibraryImport("lib")]`
+  (the library also given as a `const string` in the file) emits a
+  `loads_shared_library` bridge carrying the C symbol (`EntryPoint`, else the
+  method name), and `native_bindings` writes `calls_native_function` from the
+  method to that symbol in the library. The C# extractor moves to version 1.
+- Java `native` methods and Kotlin `external fun` reach their JNI
+  implementation. The extractors record `ffi_import` with the JNI symbol
+  (`Java_com_example_Outer_00024Inner_method`; Kotlin top-level functions in
+  the file facade `FileKt` or `@file:JvmName`, companion members in
+  `Companion` unless `@JvmStatic`), and `native_bindings` binds it to the one
+  C-ABI function of that name, or of an overload's `name__signature`, in C,
+  C++ `extern "C"`, or Rust `#[no_mangle]`, anywhere in the repository. The
+  Java and Kotlin extractors move to version 1.
+
 ### Changed
 
 - A shared-library loader outside Python (Java `System.loadLibrary`, ...)

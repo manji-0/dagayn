@@ -768,12 +768,33 @@ fn bind_shared_libraries(
         let [index] = matches.as_slice() else {
             continue;
         };
-        let source_language = parse_json_column(extra)?
+        let loader_extra = parse_json_column(extra)?;
+        let source_language = loader_extra
             .get("source_language")
             .and_then(Value::as_str)
             .unwrap_or("unknown")
             .to_string();
         let krate = &crates[*index];
+        // A declaration that names its symbol (C# `[DllImport("lib",
+        // EntryPoint = "sym")]`) binds straight to the native function.
+        if let Some(symbol) = loader_extra.get("symbol").and_then(Value::as_str)
+            && let Some(function) = unique(exports[*index].c.get(symbol))
+        {
+            bridges.push(NewBridge {
+                source: source.clone(),
+                target: function.clone(),
+                file_path: file_path.clone(),
+                line,
+                extra: bridge_extra(
+                    "calls_native_function",
+                    "ffi",
+                    "syntax",
+                    format!("{}::{symbol}", krate.lib_name),
+                    &source_language,
+                    krate.language,
+                ),
+            });
+        }
         let mut extra = bridge_extra(
             "loads_shared_library",
             "ffi",
@@ -1049,6 +1070,88 @@ fn bind_js_globals(
     Ok(())
 }
 
+/// Java `native` / Kotlin `external` methods -> the C-ABI function their JNI
+/// name spells (`Java_com_example_Sum_fastSum`, or an overload's
+/// `Java_..._fastSum__<signature>`), in C, C++ `extern "C"`, or Rust
+/// `#[no_mangle]`. The name encodes package, class, and method, so it is
+/// matched across the whole repository rather than inside a library the
+/// class is known to load.
+fn bind_jni_methods(tx: &Transaction<'_>, bridges: &mut Vec<NewBridge>) -> Result<()> {
+    let mut exports: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    {
+        let mut stmt = tx.prepare(
+            "SELECT qualified_name, language, json_extract(extra, '$.ffi_export.name') \
+             FROM nodes \
+             WHERE json_extract(extra, '$.ffi_export.abi') = 'c' \
+               AND json_extract(extra, '$.ffi_export.name') LIKE 'Java\\_%' ESCAPE '\\'",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?;
+        for row in rows {
+            let (qualified, language, symbol) = row?;
+            exports
+                .entry(symbol)
+                .or_default()
+                .push((qualified, language.unwrap_or_else(|| "c".to_string())));
+        }
+    }
+    if exports.is_empty() {
+        return Ok(());
+    }
+    let mut stmt = tx.prepare(
+        "SELECT qualified_name, file_path, line_start, language, \
+                json_extract(extra, '$.ffi_import.symbol') \
+         FROM nodes WHERE json_extract(extra, '$.ffi_import.abi') = 'jni'",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, i64>(2)?,
+            row.get::<_, Option<String>>(3)?,
+            row.get::<_, Option<String>>(4)?,
+        ))
+    })?;
+    for row in rows {
+        let (qualified, file_path, line, language, symbol) = row?;
+        let Some(symbol) = symbol else {
+            continue;
+        };
+        let overload_prefix = format!("{symbol}__");
+        let candidates: Vec<&(String, String)> = match exports.get(&symbol) {
+            Some(exact) => exact.iter().collect(),
+            None => exports
+                .iter()
+                .filter(|(name, _)| name.starts_with(&overload_prefix))
+                .flat_map(|(_, targets)| targets)
+                .collect(),
+        };
+        let [(target, target_language)] = candidates.as_slice() else {
+            continue;
+        };
+        bridges.push(NewBridge {
+            source: qualified,
+            target: target.clone(),
+            file_path,
+            line,
+            extra: bridge_extra(
+                "calls_native_function",
+                "jni",
+                "syntax",
+                symbol,
+                language.as_deref().unwrap_or("java"),
+                target_language,
+            ),
+        });
+    }
+    Ok(())
+}
+
 impl GraphStore {
     /// Replace the `native_bindings` bridges; returns how many were written.
     pub fn resolve_native_bindings(&mut self) -> Result<i64> {
@@ -1059,19 +1162,18 @@ impl GraphStore {
              AND json_extract(extra, '$.extractor') = ?",
             [NATIVE_BINDINGS_EXTRACTOR],
         )?;
-        let crates = load_crates(&tx)?;
-        if crates.is_empty() {
-            tx.commit()?;
-            return Ok(0);
-        }
-        let exports = load_exports(&tx, &crates)?;
         let mut bridges = Vec::new();
-        let bindings = bind_extension_imports(&tx, &crates, &mut bridges)?;
-        bind_extension_calls(&tx, &crates, &exports, &bindings, &mut bridges)?;
-        bind_shared_libraries(&tx, &crates, &exports, &mut bridges)?;
-        bind_wasm_modules(&tx, &crates, &exports, &mut bridges)?;
-        bind_wasm_loaders(&tx, &crates, &exports, &mut bridges)?;
-        bind_js_globals(&tx, &crates, &exports, &mut bridges)?;
+        bind_jni_methods(&tx, &mut bridges)?;
+        let crates = load_crates(&tx)?;
+        if !crates.is_empty() {
+            let exports = load_exports(&tx, &crates)?;
+            let bindings = bind_extension_imports(&tx, &crates, &mut bridges)?;
+            bind_extension_calls(&tx, &crates, &exports, &bindings, &mut bridges)?;
+            bind_shared_libraries(&tx, &crates, &exports, &mut bridges)?;
+            bind_wasm_modules(&tx, &crates, &exports, &mut bridges)?;
+            bind_wasm_loaders(&tx, &crates, &exports, &mut bridges)?;
+            bind_js_globals(&tx, &crates, &exports, &mut bridges)?;
+        }
 
         let mut seen: HashSet<(String, String, i64)> = HashSet::new();
         let mut written = 0_i64;

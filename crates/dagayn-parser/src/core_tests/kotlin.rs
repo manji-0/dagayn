@@ -79,3 +79,61 @@ fun createUser(repo: UserRepository) {
             && edge.extra["evidence_source"] == "System.loadLibrary"
     }));
 }
+
+#[test]
+fn kotlin_external_functions_record_their_jni_symbols() {
+    let source = br#"package com.example
+
+class Sum {
+    external fun fastSum(xs: DoubleArray): Double
+    fun total(xs: DoubleArray) = fastSum(xs)
+    companion object {
+        external fun viaCompanion(): Int
+        @JvmStatic external fun staticOne(): Int
+    }
+}
+
+external fun topLevel(): Int
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (nodes, _) = parser.parse_file("src/com/example/sum.kt", source);
+    let symbol = |name: &str| {
+        nodes
+            .iter()
+            .find(|node| node.name == name)
+            .unwrap_or_else(|| panic!("no node {name}"))
+            .extra
+            .pointer("/ffi_import/symbol")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+    };
+    assert_eq!(
+        symbol("fastSum").as_deref(),
+        Some("Java_com_example_Sum_fastSum")
+    );
+    assert_eq!(
+        symbol("viaCompanion").as_deref(),
+        Some("Java_com_example_Sum_00024Companion_viaCompanion")
+    );
+    assert_eq!(
+        symbol("staticOne").as_deref(),
+        Some("Java_com_example_Sum_staticOne")
+    );
+    assert_eq!(
+        symbol("topLevel").as_deref(),
+        Some("Java_com_example_SumKt_topLevel")
+    );
+    assert_eq!(symbol("total"), None);
+
+    let (nodes, _) = parser.parse_file(
+        "src/util.kt",
+        b"@file:JvmName(\"NativeUtil\")\npackage com.example\n\nexternal fun ping(): Int\n",
+    );
+    let ping = nodes.iter().find(|node| node.name == "ping").unwrap();
+    assert_eq!(
+        ping.extra
+            .pointer("/ffi_import/symbol")
+            .and_then(serde_json::Value::as_str),
+        Some("Java_com_example_NativeUtil_ping")
+    );
+}
