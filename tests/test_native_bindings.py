@@ -1263,5 +1263,56 @@ def test_ruby_ffi_attach_function_reaches_the_c_function(tmp_path: Path) -> None
         )
         impacted = {node["qualified_name"] for node in impact["impacted_nodes"]}
         assert "lib/fast.rb::Fast.fast_sum" in impacted
+        # The caller in another file is reached through `Fast.fast_sum`.
+        assert "lib/report.rb::monthly" in impacted
+    finally:
+        store.close()
+
+
+def test_calls_on_a_type_resolve_across_files(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        {
+            "lib/fast.rb": ("module Fast\n  def self.fast_sum(xs)\n    xs.sum\n  end\nend\n"),
+            "lib/other.rb": "def fast_sum(xs)\n  0\nend\n",
+            "lib/report.rb": (
+                "require_relative 'fast'\n\ndef monthly(xs)\n  Fast.fast_sum(xs)\nend\n"
+            ),
+            "app/Native.cs": (
+                "static class Native {\n    public static double Total(double[] xs) => 0;\n}\n"
+            ),
+            "app/Other.cs": (
+                "static class Other {\n    public static double Total(double[] xs) => 1;\n}\n"
+            ),
+            "app/Util.cs": (
+                "static class Util {\n    public static int Max(int a, int b) => a;\n}\n"
+            ),
+            "app/Report.cs": (
+                "static class Report {\n"
+                "    public static double Monthly(double[] xs) => Native.Total(xs);\n"
+                "    public static int Biggest(int a, int b) => Math.Max(a, b);\n"
+                "}\n"
+            ),
+        },
+    )
+    store = _build(tmp_path)
+    try:
+        calls = dict(
+            store_conn(store)
+            .execute(
+                "SELECT source_qualified, target_qualified FROM edges WHERE kind = 'CALLS' "
+                "AND source_qualified IN (?, ?, ?)",
+                (
+                    "lib/report.rb::monthly",
+                    "app/Report.cs::Report.Monthly",
+                    "app/Report.cs::Report.Biggest",
+                ),
+            )
+            .fetchall()
+        )
+        assert calls["lib/report.rb::monthly"] == "lib/fast.rb::Fast.fast_sum"
+        assert calls["app/Report.cs::Report.Monthly"] == "app/Native.cs::Native.Total"
+        # `Math` is not in the repository: `Math.Max` must not bind to `Util.Max`.
+        assert calls["app/Report.cs::Report.Biggest"] == "Max"
     finally:
         store.close()

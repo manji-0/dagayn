@@ -781,16 +781,25 @@ fn csharp_emit_call(
     let caller = enclosing_func
         .map(|func| qualify(&context.file_path, func, enclosing_class))
         .unwrap_or_else(|| context.file_path.to_string());
-    if let Some(call_name) =
-        csharp_bound_member_target(node, context).or_else(|| csharp_call_name(node, context.source))
-    {
+    let bound = csharp_bound_member_target(node, context);
+    let receiver_type = if bound.is_none() {
+        csharp_type_receiver(node, context.source)
+    } else {
+        None
+    };
+    if let Some(call_name) = bound.or_else(|| csharp_call_name(node, context.source)) {
         edges.push(ParsedEdge {
             kind: crate::core::types::EdgeKind::Calls,
             source: caller.clone(),
             target: call_name,
             file_path: context.file_path.clone(),
             line: node.start_position().row as i64 + 1,
-            extra: json!({}),
+            // `Native.Total(...)`: the type the method is called on, so a
+            // call into another file resolves to that type's method.
+            extra: match receiver_type {
+                Some(receiver_type) => json!({"receiver_type": receiver_type}),
+                None => json!({}),
+            },
         });
     }
     if let Some(signature) = csharp_call_signature(node, context.source)
@@ -856,6 +865,29 @@ fn csharp_bound_member_target(
             .map(|type_name| format!("{type_name}::{method}"));
     }
     None
+}
+
+/// The type a static-looking call names: `Native.Total(...)` ->
+/// `Native`, `System.IO.File.Read(...)` -> `File`. Only a PascalCase
+/// identifier (or dotted name ending in one) counts.
+fn csharp_type_receiver(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let callee = csharp_callee(node)?;
+    if callee.kind() != "member_access_expression" {
+        return None;
+    }
+    let receiver = callee.child_by_field_name("expression")?;
+    let name = match receiver.kind() {
+        "identifier" => node_text(receiver, source),
+        "member_access_expression" | "qualified_name" => {
+            let text = node_text(receiver, source);
+            text.rsplit('.').next()?.trim().to_string()
+        }
+        _ => return None,
+    };
+    name.chars()
+        .next()
+        .is_some_and(|first| first.is_ascii_uppercase())
+        .then_some(name)
 }
 
 fn csharp_call_signature(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {

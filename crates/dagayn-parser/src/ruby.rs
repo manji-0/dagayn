@@ -384,13 +384,25 @@ fn ruby_emit_call(
         if ruby_is_declarative_call(&call_name) {
             return;
         }
+        // `Fast.fast_sum(...)` / `A::B.run(...)`: the module or class the
+        // method is called on, so a call into another file resolves to it.
+        let receiver_type = node
+            .child_by_field_name("receiver")
+            .filter(|receiver| matches!(receiver.kind(), "constant" | "scope_resolution"))
+            .map(|receiver| {
+                let text = node_text(receiver, source);
+                text.rsplit("::").next().unwrap_or(&text).to_string()
+            });
         edges.push(ParsedEdge {
             kind: crate::core::types::EdgeKind::Calls,
             source: caller.clone(),
             target: call_name,
             file_path: file_path.clone(),
             line: node.start_position().row as i64 + 1,
-            extra: json!({}),
+            extra: match receiver_type {
+                Some(receiver_type) => json!({"receiver_type": receiver_type}),
+                None => json!({}),
+            },
         });
     }
     if let Some(signature) = ruby_call_signature(node, source)

@@ -397,6 +397,47 @@ fn resolve_via_imports(
     Some(((*only).clone(), confidence, tier))
 }
 
+/// A call on a named type (`Fast.fast_sum(...)`, `Native.Total(...)`,
+/// `receiver_type` on the edge): only that type's methods, in the caller's
+/// language, are candidates. The visible one wins as usual; when the caller
+/// cannot see any (Ruby `require` and namespace-less C# files do not make a
+/// file visible), a single such method is still the one the call names, at
+/// `MEDIUM`. A type with no such method in the repository (`File.read`)
+/// binds to nothing rather than to an unrelated same-named function.
+fn resolve_type_receiver(
+    candidates: &[String],
+    receiver_type: &str,
+    source_file: &str,
+    import_targets: &HashMap<String, HashSet<String>>,
+    visibility: &SymbolVisibility,
+) -> Option<(String, f64, ConfidenceTier)> {
+    let family = language_family(source_file);
+    let typed: Vec<String> = candidates
+        .iter()
+        .filter(|qn| {
+            let Some((file, symbol)) = qn.split_once("::") else {
+                return false;
+            };
+            let Some((parent, _)) = symbol.rsplit_once('.') else {
+                return false;
+            };
+            same_language_family(family, language_family(file))
+                && (parent == receiver_type
+                    || parent
+                        .strip_suffix(receiver_type)
+                        .is_some_and(|prefix| prefix.ends_with('.')))
+        })
+        .cloned()
+        .collect();
+    if let Some(resolved) = resolve_via_imports(&typed, source_file, import_targets, visibility) {
+        return Some(resolved);
+    }
+    let [only] = typed.as_slice() else {
+        return None;
+    };
+    Some((only.clone(), INFERRED_CONFIDENCE, ConfidenceTier::Medium))
+}
+
 impl GraphStore {
     pub fn import_targets_by_file(&self) -> Result<HashMap<String, Vec<String>>> {
         Ok(import_targets_conn(&self.conn)?
@@ -418,7 +459,8 @@ impl GraphStore {
         let index = load_bare_name_index(&tx, &["Function", "Test", "Class"])?;
         let edges = {
             let mut stmt = tx.prepare(
-                "SELECT id, source_qualified, target_qualified, file_path \
+                "SELECT id, source_qualified, target_qualified, file_path, \
+                        json_extract(extra, '$.receiver_type') \
                  FROM edges WHERE kind = 'CALLS' AND target_qualified NOT LIKE '%::%'",
             )?;
             let mapped = stmt.query_map([], |row| {
@@ -427,12 +469,13 @@ impl GraphStore {
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
                     row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(4)?,
                 ))
             })?;
             mapped.collect::<std::result::Result<Vec<_>, _>>()?
         };
         let mut resolved = 0_i64;
-        for (edge_id, source_qualified, target_qualified, file_path) in edges {
+        for (edge_id, source_qualified, target_qualified, file_path, receiver_type) in edges {
             if looks_like_file_target(&target_qualified) {
                 continue;
             }
@@ -441,9 +484,17 @@ impl GraphStore {
                 continue;
             }
             let src_file = node_file_from_qualified(&source_qualified, &file_path);
-            let Some((qualified, confidence, tier)) =
-                resolve_via_imports(&candidates, &src_file, &import_targets, &visibility)
-            else {
+            let resolution = match receiver_type.as_deref() {
+                Some(receiver_type) => resolve_type_receiver(
+                    &candidates,
+                    receiver_type,
+                    &src_file,
+                    &import_targets,
+                    &visibility,
+                ),
+                None => resolve_via_imports(&candidates, &src_file, &import_targets, &visibility),
+            };
+            let Some((qualified, confidence, tier)) = resolution else {
                 continue;
             };
             tx.execute(

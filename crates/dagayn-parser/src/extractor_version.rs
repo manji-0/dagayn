@@ -117,8 +117,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
     ExtractorVersion {
         // 1: `[DllImport]` / `[LibraryImport]` methods emit a
         // `loads_shared_library` bridge carrying the C symbol they bind.
+        // 2: calls on a PascalCase receiver (`Native.Total`) record
+        // `receiver_type`.
         extractor: "csharp",
-        version: 1,
+        version: 2,
         languages: &["csharp"],
     },
     ExtractorVersion {
@@ -154,8 +156,9 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // `fast_sum`), not its first identifier (`xs.size` called `xs`).
         // 2: ffi gem `attach_function` defines the module method, recording
         // `ffi_import` with the `ffi_lib` library.
+        // 3: calls on a constant (`Fast.fast_sum`) record `receiver_type`.
         extractor: "ruby",
-        version: 2,
+        version: 3,
         languages: &["ruby"],
     },
 ];

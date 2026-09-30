@@ -237,6 +237,16 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- Calls on a named type now resolve across files in Ruby and C#:
+  `Fast.fast_sum(...)` and `Native.Total(...)` were left as bare names when
+  the definition lived in another file, since a Ruby `require` or a
+  namespace-less C# file does not make that file visible. The Ruby and C#
+  extractors record `receiver_type` on such calls (Ruby moves to version 3,
+  C# to 2), and bare-name resolution then considers only that type's
+  methods in the caller's language, binding a single one at `MEDIUM` even
+  when no file is visible. A call on a type with no such method in the
+  repository (`Math.Max`) is no longer bound to an unrelated visible
+  function of the same name.
 - Ruby calls are named by their method: `xs.size` was recorded as a call
   to `xs`, and a call on a constant receiver (`Fast.fast_sum(...)`) was
   dropped. The Ruby extractor gets extractor version 1.

@@ -64,6 +64,14 @@ by that visibility:
   source reaches only through a shared or imported namespace or through its
   class declaration (a C++ header).
 
+A call on a named type (Ruby `Fast.fast_sum(...)`, C# `Native.Total(...)`)
+carries `receiver_type` on its `CALLS` edge. Only that type's methods in the
+caller's language are candidates; the visible one wins as above, and when
+none is visible (a Ruby `require` or a namespace-less C# file does not make a
+file visible) a single such method is bound at `MEDIUM`. A type with no such
+method in the repository (`Math.Max`) leaves the call unbound rather than
+binding it to an unrelated function of the same name.
+
 `query_graph_tool` reports `confidence: "high"` when every returned edge is
 `EXACT`, `EXTRACTED`, or `HIGH`, and `"medium"` otherwise.
 

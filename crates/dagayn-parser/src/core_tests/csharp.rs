@@ -417,3 +417,31 @@ static partial class Native {
         ]
     );
 }
+
+#[test]
+fn csharp_static_calls_record_the_receiver_type() {
+    let source = br#"class Report {
+    double Monthly(double[] xs) {
+        var local = new Helper();
+        local.Run();
+        System.IO.File.ReadAllText("x");
+        return Native.Total(xs) + service.Compute();
+    }
+}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_, edges) = parser.parse_file("app/Report.cs", source);
+    let receiver = |target: &str| {
+        edges
+            .iter()
+            .find(|edge| edge.kind == "CALLS" && edge.target.ends_with(target))
+            .unwrap_or_else(|| panic!("no call {target}"))
+            .extra
+            .get("receiver_type")
+            .cloned()
+    };
+    assert_eq!(receiver("Total"), Some(serde_json::json!("Native")));
+    assert_eq!(receiver("ReadAllText"), Some(serde_json::json!("File")));
+    assert_eq!(receiver("Compute"), None);
+    assert_eq!(receiver("Run"), None);
+}

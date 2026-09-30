@@ -119,3 +119,22 @@ end
         && edge.source == "lib/fast.rb::Fast"
         && edge.target == "lib/fast.rb::Fast.fast_sum"));
 }
+
+#[test]
+fn ruby_calls_on_a_constant_record_the_receiver_type() {
+    let source = b"def run(xs)\n  Fast.fast_sum(xs)\n  Outer::Inner.go\n  xs.size\nend\n";
+    let mut parser = RustOwnedParser::new();
+    let (_, edges) = parser.parse_file("lib/run.rb", source);
+    let receiver = |target: &str| {
+        edges
+            .iter()
+            .find(|edge| edge.kind == "CALLS" && edge.target == target)
+            .unwrap_or_else(|| panic!("no call {target}"))
+            .extra
+            .get("receiver_type")
+            .cloned()
+    };
+    assert_eq!(receiver("fast_sum"), Some(serde_json::json!("Fast")));
+    assert_eq!(receiver("go"), Some(serde_json::json!("Inner")));
+    assert_eq!(receiver("size"), None);
+}
