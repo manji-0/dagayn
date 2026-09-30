@@ -149,6 +149,13 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         version: 1,
         languages: &["zig"],
     },
+    ExtractorVersion {
+        // 1: a call's name is its `method` (`Fast.fast_sum(...)` calls
+        // `fast_sum`), not its first identifier (`xs.size` called `xs`).
+        extractor: "ruby",
+        version: 1,
+        languages: &["ruby"],
+    },
 ];
 
 /// The tracked extractor versions.

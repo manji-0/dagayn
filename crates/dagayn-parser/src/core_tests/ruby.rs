@@ -71,3 +71,20 @@ end
             && edge.extra["evidence_source"] == "Fiddle.dlopen"
     }));
 }
+
+#[test]
+fn ruby_calls_are_named_by_their_method() {
+    let source = br#"def total(xs)
+  Fast.fast_sum(xs, xs.size)
+end
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_, edges) = parser.parse_file("lib/total.rb", source);
+    let mut calls: Vec<&str> = edges
+        .iter()
+        .filter(|edge| edge.kind == "CALLS")
+        .map(|edge| edge.target.as_str())
+        .collect();
+    calls.sort_unstable();
+    assert_eq!(calls, vec!["fast_sum", "size"]);
+}

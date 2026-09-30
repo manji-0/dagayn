@@ -229,6 +229,9 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- Ruby calls are named by their method: `xs.size` was recorded as a call
+  to `xs`, and a call on a constant receiver (`Fast.fast_sum(...)`) was
+  dropped. The Ruby extractor gets extractor version 1.
 - Declarations inside a `#[wasm_bindgen] extern "C"` block are no longer
   recorded as Rust exports: they are JavaScript functions Rust imports, so
   a JavaScript call of the same name was bound to the Rust declaration.

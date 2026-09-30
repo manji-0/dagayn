@@ -333,6 +333,13 @@ fn ruby_method_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String
 }
 
 fn ruby_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    // `recv.name(...)` / `Const.name(...)`: the method, not the receiver
+    // (the first child), which named `xs.size` a call to `xs` and dropped
+    // `Fast.fast_sum` entirely.
+    if let Some(method) = node.child_by_field_name("method") {
+        return matches!(method.kind(), "identifier" | "constant")
+            .then(|| node_text(method, source));
+    }
     let mut cursor = node.walk();
     let first = node.children(&mut cursor).find(|child| {
         !matches!(
