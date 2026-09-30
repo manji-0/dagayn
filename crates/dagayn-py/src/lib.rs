@@ -7,7 +7,7 @@ use dagayn_graph::{
 use dagayn_postproc::{
     detect_communities_json as native_detect_communities_json,
     incremental_detect_communities as native_incremental_detect_communities,
-    prune_orphaned_graph_structures_json as native_prune_orphaned_graph_structures_json,
+    prune_orphaned_graph_structures as native_prune_orphaned_graph_structures,
     refresh_community_stats_json as native_refresh_community_stats_json,
     run_post_processing_json as native_run_post_processing_json,
 };
@@ -946,8 +946,7 @@ impl PyGraphStore {
     }
 
     fn prune_orphaned_graph_structures(&self) -> PyResult<std::collections::HashMap<String, i64>> {
-        let raw = self.with_store_mut(native_prune_orphaned_graph_structures_json)?;
-        serde_json::from_str(&raw).map_err(|err| PyValueError::new_err(err.to_string()))
+        self.with_store_mut(native_prune_orphaned_graph_structures)
     }
 
     #[pyo3(signature = (node, file_hash = "", mtime_ns = 0))]

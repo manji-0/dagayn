@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use dagayn_graph::{GraphError, GraphStore, ORPHAN_PRUNE_STEPS};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use crate::communities::refresh_community_stats_json;
 
@@ -52,10 +52,4 @@ pub fn prune_orphaned_graph_structures(store: &mut GraphStore) -> Result<HashMap
     }
 
     Ok(deleted)
-}
-
-/// `{table: rows_deleted}` as JSON, for the pyo3 boundary.
-pub fn prune_orphaned_graph_structures_json(store: &mut GraphStore) -> Result<String> {
-    let deleted = prune_orphaned_graph_structures(store)?;
-    serde_json::to_string(&json!(deleted)).map_err(GraphError::from)
 }

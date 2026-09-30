@@ -12,4 +12,4 @@ pub use communities::{
     refresh_community_stats_json,
 };
 pub use pipeline::{PostprocessResult, run_post_processing_json};
-pub use prune::{prune_orphaned_graph_structures, prune_orphaned_graph_structures_json};
+pub use prune::prune_orphaned_graph_structures;
