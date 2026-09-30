@@ -43,6 +43,7 @@ static EXTENSION_TO_LANGUAGE: LazyLock<HashMap<&'static str, &'static str>> = La
         (".xs", "c"),
         (".lua", "lua"),
         (".m", "objc"),
+        (".mm", "objc"),
         (".sh", "bash"),
         (".bash", "bash"),
         (".zsh", "bash"),

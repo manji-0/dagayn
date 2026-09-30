@@ -596,3 +596,13 @@ template <typename G1, typename G2>\nstruct crosses\n    : detail::relate::relat
     // The base, not the last `::` segment inside its template arguments.
     assert_eq!(bases, vec!["relate_impl"]);
 }
+
+#[test]
+fn objective_cpp_files_are_parsed_as_objective_c() {
+    let source = b"#import \"View.h\"\n@implementation View\n- (void)draw { [self paint]; }\n@end\nstatic int helper(int x) { return x; }\n";
+    let mut parser = RustOwnedParser::new();
+    let (nodes, _) = parser.parse_file("View.mm", source);
+    let names: Vec<&str> = nodes.iter().map(|node| node.name.as_str()).collect();
+    assert_eq!(names, vec!["View.mm", "View", "draw", "helper"]);
+    assert!(nodes.iter().all(|node| node.language == "objc"));
+}

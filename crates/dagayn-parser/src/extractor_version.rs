@@ -104,6 +104,7 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // block's calls. `export namespace` misparsed under `#if` is no
         // longer a function `namespace`, and a base whose template arguments
         // contain `::` is named by the base, not the last argument segment.
+        // Objective-C++ `.mm` files are parsed (as Objective-C).
         extractor: "c_like",
         version: 4,
         languages: &["c", "cpp", "objc"],

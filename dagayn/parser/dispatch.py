@@ -40,7 +40,8 @@ EXTENSION_TO_LANGUAGE: dict[str, str] = {
     ".t": "perl",
     ".xs": "c",  # Perl XS: parsed as C to capture functions/structs/includes
     ".lua": "lua",
-    ".m": "objc",  # Objective-C (.h still maps to C; .mm defers to C++ for simplicity)
+    ".m": "objc",  # Objective-C (.h still maps to C)
+    ".mm": "objc",  # Objective-C++: the ObjC grammar recovers more than C++ does
     ".sh": "bash",
     ".bash": "bash",
     ".zsh": "bash",

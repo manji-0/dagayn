@@ -111,7 +111,11 @@ pub(super) fn rust_owned_path_kind(file_path: &str) -> RustOwnedPathKind {
         || ends_with_ascii_ignore_case(file_path, ".hpp")
     {
         RustOwnedPathKind::Cpp
-    } else if ends_with_ascii_ignore_case(file_path, ".m") {
+    } else if ends_with_ascii_ignore_case(file_path, ".m")
+        // Objective-C++: the Objective-C grammar recovers more of a `.mm`
+        // file (its messages, interfaces, and C functions) than C++ does.
+        || ends_with_ascii_ignore_case(file_path, ".mm")
+    {
         RustOwnedPathKind::ObjC
     } else if ends_with_ascii_ignore_case(file_path, ".ex")
         || ends_with_ascii_ignore_case(file_path, ".exs")
