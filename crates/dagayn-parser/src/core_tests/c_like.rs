@@ -538,3 +538,41 @@ PyMODINIT_FUNC PyInit_capi(void) { return NULL; }
         Some(serde_json::json!([{"abi": "python", "kind": "function", "name": "add"}]))
     );
 }
+
+#[test]
+fn cpp_test_macros_name_each_case() {
+    let source = br#"BOOST_AUTO_TEST_CASE(first_case) { run(); }
+BOOST_FIXTURE_TEST_CASE(fixture_case, Fx) { run(); }
+TEST(Suite, Name) { EXPECT_EQ(1, 1); }
+TEST_F(Fixture, Other) { run(); }
+TEST_CASE("catch case", "[tag]") {
+  REQUIRE(check());
+}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (nodes, edges) = parser.parse_file("t.cpp", source);
+    let tests: Vec<(&str, i64, i64)> = nodes
+        .iter()
+        .filter(|node| node.is_test)
+        .map(|node| (node.name.as_str(), node.line_start, node.line_end))
+        .collect();
+    assert_eq!(
+        tests,
+        vec![
+            ("first_case", 1, 1),
+            ("fixture_case", 2, 2),
+            ("Suite.Name", 3, 3),
+            ("Fixture.Other", 4, 4),
+            ("catch case", 5, 7),
+        ]
+    );
+    // Calls in a Catch2 block belong to the case, not to the file.
+    assert!(edges.iter().any(|edge| edge.kind == "CALLS"
+        && edge.source == "t.cpp::catch case"
+        && edge.target == "check"));
+    assert!(
+        !edges
+            .iter()
+            .any(|edge| edge.kind == "CALLS" && edge.target == "TEST_CASE")
+    );
+}

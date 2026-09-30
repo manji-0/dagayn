@@ -98,8 +98,12 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // `python_module` (`PYBIND11_MODULE`, `NB_MODULE`, `PyInit_name`),
         // and pybind11 / nanobind `m.def` / `class_` and `PyMethodDef`
         // registrations record `ffi_exports` with `abi: "python"`.
+        // 4: C++ test macros are named by their case: googletest `TEST(Suite,
+        // Name)` is `Suite.Name`, Boost.Test by its first argument, and a
+        // Catch2 / doctest `TEST_CASE("name") { }` is a Test node owning its
+        // block's calls.
         extractor: "c_like",
-        version: 3,
+        version: 4,
         languages: &["c", "cpp", "objc"],
     },
     ExtractorVersion {

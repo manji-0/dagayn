@@ -175,7 +175,12 @@ fn c_walk_children(
     edges: &mut Vec<ParsedEdge>,
 ) {
     let mut cursor = node.walk();
+    // The body of a Catch2 `TEST_CASE("...") { }`, already walked with it.
+    let mut skip = None;
     for child in node.children(&mut cursor) {
+        if skip == Some(child.id()) {
+            continue;
+        }
         match child.kind() {
             "preproc_include" if enclosing_func.is_none() => {
                 if let Some(target) = c_include_target(child, context) {
@@ -222,20 +227,42 @@ fn c_walk_children(
                     continue;
                 }
             }
+            "function_definition" if enclosing_func.is_none() && context.language == "cpp" => {
+                if let Some(name) = c_test_macro_name(child, context.source) {
+                    c_emit_function(child, context, &name, None, true, nodes, edges);
+                    c_walk_children(child, context, None, Some(&name), nodes, edges);
+                    continue;
+                }
+                if let Some((name, scope)) = c_function_name(child, context.source) {
+                    let scope = scope.map(|scope| c_owner_from_scope(&scope, &context.class_paths));
+                    let owner = scope.as_deref().or(enclosing_class);
+                    c_emit_function(child, context, &name, owner, false, nodes, edges);
+                    c_walk_children(child, context, owner, Some(&name), nodes, edges);
+                    continue;
+                }
+            }
+            "expression_statement" if enclosing_func.is_none() && context.language == "cpp" => {
+                if let Some((name, body)) = c_catch2_test_case(child, context.source) {
+                    c_emit_test_block(child, body, context, &name, nodes, edges);
+                    c_walk_children(body, context, None, Some(&name), nodes, edges);
+                    skip = Some(body.id());
+                    continue;
+                }
+            }
             "function_definition" => {
                 if let Some((name, scope)) = c_function_name(child, context.source) {
                     // An out-of-line `Widget::draw` belongs to Widget, so it
                     // qualifies the same way an in-class definition would.
                     let scope = scope.map(|scope| c_owner_from_scope(&scope, &context.class_paths));
                     let owner = scope.as_deref().or(enclosing_class);
-                    c_emit_function(child, context, &name, owner, nodes, edges);
+                    c_emit_function(child, context, &name, owner, false, nodes, edges);
                     c_walk_children(child, context, owner, Some(&name), nodes, edges);
                     continue;
                 }
             }
             "method_definition" if context.language == "objc" => {
                 if let Some(name) = c_direct_child_text(child, context.source, &["identifier"]) {
-                    c_emit_function(child, context, &name, enclosing_class, nodes, edges);
+                    c_emit_function(child, context, &name, enclosing_class, false, nodes, edges);
                     c_walk_children(child, context, enclosing_class, Some(&name), nodes, edges);
                     continue;
                 }
@@ -294,15 +321,132 @@ fn c_emit_type(
     });
 }
 
+/// googletest `TEST(Suite, Name)` family, named `Suite.Name` as
+/// `--gtest_filter` spells it.
+const GTEST_MACROS: &[&str] = &[
+    "TEST",
+    "TEST_F",
+    "TEST_P",
+    "TYPED_TEST",
+    "TYPED_TEST_P",
+    "GTEST_TEST",
+];
+
+/// Boost.Test cases, named by their first argument.
+const BOOST_TEST_MACROS: &[&str] = &[
+    "BOOST_AUTO_TEST_CASE",
+    "BOOST_FIXTURE_TEST_CASE",
+    "BOOST_DATA_TEST_CASE",
+    "BOOST_DATA_TEST_CASE_F",
+    "BOOST_AUTO_TEST_CASE_TEMPLATE",
+    "BOOST_FIXTURE_TEST_CASE_TEMPLATE",
+];
+
+/// Catch2 / doctest cases, named by their string argument.
+const CATCH2_TEST_MACROS: &[&str] = &[
+    "TEST_CASE",
+    "SCENARIO",
+    "TEST_CASE_METHOD",
+    "TEMPLATE_TEST_CASE",
+    "TEMPLATE_PRODUCT_TEST_CASE",
+];
+
+/// The test a `TEST(Suite, Name) { }` / `BOOST_AUTO_TEST_CASE(name) { }`
+/// definition declares. tree-sitter reads the macro as a function whose
+/// parameters are the macro arguments; without this every case in a file
+/// was one function named after the macro.
+fn c_test_macro_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let declarator = node.child_by_field_name("declarator")?;
+    if declarator.kind() != "function_declarator" {
+        return None;
+    }
+    let macro_name = node_text(declarator.child_by_field_name("declarator")?, source);
+    let parameters = declarator.child_by_field_name("parameters")?;
+    let mut cursor = parameters.walk();
+    let arguments: Vec<String> = parameters
+        .named_children(&mut cursor)
+        .map(|parameter| node_text(parameter, source).trim().to_string())
+        .collect();
+    if GTEST_MACROS.contains(&macro_name.as_str()) {
+        match arguments.as_slice() {
+            [suite, name, ..] => Some(format!("{suite}.{name}")),
+            _ => None,
+        }
+    } else if BOOST_TEST_MACROS.contains(&macro_name.as_str()) {
+        arguments.into_iter().next().filter(|name| !name.is_empty())
+    } else {
+        None
+    }
+}
+
+/// `TEST_CASE("name", "[tag]") { ... }`: tree-sitter reads the macro as a
+/// call statement followed by a block. Returns the case name and the block.
+fn c_catch2_test_case<'tree>(
+    node: tree_sitter::Node<'tree>,
+    source: &[u8],
+) -> Option<(String, tree_sitter::Node<'tree>)> {
+    let call = node
+        .named_child(0)
+        .filter(|call| call.kind() == "call_expression")?;
+    let function = call.child_by_field_name("function")?;
+    if !CATCH2_TEST_MACROS.contains(&node_text(function, source).as_str()) {
+        return None;
+    }
+    let body = node
+        .next_named_sibling()
+        .filter(|body| body.kind() == "compound_statement")?;
+    let arguments = call.child_by_field_name("arguments")?;
+    let mut cursor = arguments.walk();
+    let name = arguments
+        .named_children(&mut cursor)
+        .find(|argument| argument.kind() == "string_literal")
+        .map(|literal| strip_matching_quotes(node_text(literal, source).trim()).to_string())?;
+    (!name.is_empty()).then_some((name, body))
+}
+
+fn c_emit_test_block(
+    head: tree_sitter::Node<'_>,
+    body: tree_sitter::Node<'_>,
+    context: &CParseContext<'_>,
+    name: &str,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let qualified = qualify(&context.file_path, name, None);
+    nodes.push(ParsedNode {
+        kind: crate::core::types::NodeKind::Test,
+        name: name.to_string(),
+        file_path: context.file_path.clone(),
+        line_start: head.start_position().row as i64 + 1,
+        line_end: body.end_position().row as i64 + 1,
+        language: context.language.to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: true,
+        extra: json!({}),
+    });
+    edges.push(ParsedEdge {
+        kind: crate::core::types::EdgeKind::Contains,
+        source: context.file_path.to_string(),
+        target: qualified,
+        file_path: context.file_path.clone(),
+        line: head.start_position().row as i64 + 1,
+        extra: json!({}),
+    });
+}
+
 fn c_emit_function(
     node: tree_sitter::Node<'_>,
     context: &CParseContext<'_>,
     name: &str,
     enclosing_class: Option<&str>,
+    test_macro: bool,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let is_test = is_test_function(name, &context.file_path, node, context.source);
+    let is_test = test_macro || is_test_function(name, &context.file_path, node, context.source);
     let qualified = qualify(&context.file_path, name, enclosing_class);
     nodes.push(ParsedNode {
         kind: if is_test {
