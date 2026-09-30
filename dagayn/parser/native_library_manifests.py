@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Iterator
 
-from .manifest_bridges import _command_options, _resolve_rel, _split_command
+from ._command_paths import _command_options, _resolve_rel, _split_command
 
 C_SOURCE_SUFFIXES = (".c", ".cc", ".cpp", ".cxx", ".c++", ".m", ".mm")
 _CPP_SUFFIXES = (".cc", ".cpp", ".cxx", ".c++", ".mm")

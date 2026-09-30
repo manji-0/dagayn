@@ -14,17 +14,15 @@ import json
 import logging
 import os
 import re
-import shlex
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Any, Iterable, Iterator
+from typing import Any, Iterable, Iterator
 
 from ._base.types import EdgeInfo, NodeInfo
+from ._command_paths import _command_options, _resolve_rel, _split_command
 from .ignore import _load_ignore_patterns, _should_ignore
-
-if TYPE_CHECKING:
-    from .native_library_manifests import NativeLibrary
+from .native_library_manifests import NativeLibrary, discover_native_libraries
 
 logger = logging.getLogger(__name__)
 
@@ -887,9 +885,6 @@ def _extract_native_libraries(
     and every source file compiled into it, where native-binding resolution
     looks for the exported C symbols.
     """
-    # Imported here: the module reuses this module's path and CLI helpers.
-    from .native_library_manifests import discover_native_libraries
-
     libraries = discover_native_libraries(
         repo_root,
         cmake_lists=cmake_lists,
@@ -978,13 +973,6 @@ def _build_commands(
         yield rel, text.replace("\\\n", " ").splitlines()
 
 
-def _split_command(text: str) -> list[str]:
-    try:
-        return shlex.split(text, comments=False)
-    except ValueError:
-        return text.split()
-
-
 def _wasm_producers_in_command(
     repo_root: Path, command_file: str, cwd: PurePosixPath, command: str
 ) -> Iterator[_WasmProducer]:
@@ -1040,28 +1028,6 @@ def _wasm_producers_in_command(
             outputs=[output_rel],
             entry_files=entries,
         )
-
-
-def _command_options(tokens: list[str], valued: set[str]) -> tuple[dict[str, str], list[str]]:
-    """Split CLI tokens into ``{flag: value}`` and positional arguments."""
-    options: dict[str, str] = {}
-    positional: list[str] = []
-    index = 0
-    while index < len(tokens):
-        token = tokens[index]
-        if token.startswith("-"):
-            flag, eq, value = token.partition("=")
-            if eq:
-                options[flag] = value
-            elif flag in valued and index + 1 < len(tokens):
-                options[flag] = tokens[index + 1]
-                index += 1
-            else:
-                options[flag] = ""
-        elif "=" not in token or token.startswith("."):
-            positional.append(token)
-        index += 1
-    return options, positional
 
 
 def _dir_rel(path: PurePosixPath) -> str | None:
@@ -1440,41 +1406,6 @@ def _bridge_extra(
         "confidence_tier": confidence_tier,
         "extractor": EXTRACTOR_ID,
     }
-
-
-def _resolve_rel(base_dir: PurePosixPath, declared: str) -> str | None:
-    """Resolve *declared* against *base_dir* as a repo-root-relative path.
-
-    Absolute inputs are treated as repo-root-relative by stripping the leading
-    slash.  Returns ``None`` when lexical normalization would escape the
-    repository root via ``..`` (path traversal).
-    """
-    raw = declared.strip()
-    if not raw:
-        return None
-
-    declared_path = PurePosixPath(raw)
-    if declared_path.is_absolute() or raw.startswith(("/", "\\")):
-        # Treat absolute-looking paths as repo-root-relative by stripping root.
-        candidate = PurePosixPath(raw.lstrip("/\\"))
-    elif str(base_dir) in ("", "."):
-        candidate = declared_path
-    else:
-        candidate = base_dir / declared_path
-
-    parts: list[str] = []
-    for part in candidate.parts:
-        if part in ("", ".", "/"):
-            continue
-        if part == "..":
-            if not parts:
-                return None
-            parts.pop()
-            continue
-        parts.append(part)
-    if not parts:
-        return None
-    return "/".join(parts)
 
 
 def _contained_path(repo_root: Path, rel_path: str) -> Path | None:

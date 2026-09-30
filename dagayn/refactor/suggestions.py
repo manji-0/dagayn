@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ..graph import GraphStore, _sanitize_name
-from . import concerns
+from .concerns import branch_count, comment_line_count, function_concern_profile
 from .dead_code import find_dead_code
 
 logger = logging.getLogger(__name__)
@@ -532,11 +532,11 @@ def _structural_suggestions(
         length = node.line_end - node.line_start + 1
         outgoing_edges = outgoing_by_qn.get(node.qualified_name, [])
         outgoing_calls = sum(1 for edge in outgoing_edges if edge.kind == "CALLS")
-        branches = concerns.branch_count(span)
-        comments = concerns.comment_line_count(span)
+        branches = branch_count(span)
+        comments = comment_line_count(span)
         comment_ratio = comments / max(length, 1)
         is_public_api = _is_external_api_candidate(record, lines)
-        concern_profile = concerns.function_concern_profile(
+        concern_profile = function_concern_profile(
             node,
             span,
             outgoing_edges,
