@@ -47,15 +47,18 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // `#[wasm_bindgen] impl`.
         // 3: also napi-rs (`#[napi]`) and neon (`#[neon::export]`,
         // `cx.export_function`) Node.js addon exports.
+        // 4: declarations in a `#[wasm_bindgen] extern "C"` block record
+        // `ffi_import` instead of `ffi_export`.
         extractor: "rust",
-        version: 3,
+        version: 4,
         languages: &["rust"],
     },
     ExtractorVersion {
         // 1: functions record WebAssembly exports (`//go:wasmexport`,
         // `//export`, `js.Global().Set("name", js.FuncOf(f))`).
+        // 2: `//go:wasmimport module name` records `ffi_import`.
         extractor: "go",
-        version: 1,
+        version: 2,
         languages: &["go"],
     },
     ExtractorVersion {

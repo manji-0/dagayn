@@ -1349,6 +1349,126 @@ fn bind_jni_methods(tx: &Transaction<'_>, bridges: &mut Vec<NewBridge>) -> Resul
     Ok(())
 }
 
+/// WebAssembly code calling into JavaScript: a foreign declaration -> the
+/// JavaScript function that implements it (`wraps_foreign_api`).
+///
+/// * Rust `#[wasm_bindgen(module = "/js/util.js")] extern "C" { fn f(); }`:
+///   the function `f` (or `js_name`) of that file, a path from the crate
+///   root (the nearest directory with a `Cargo.toml`).
+/// * Go `//go:wasmimport env f`: a JavaScript function `f` defined in an
+///   object literal under the key `env` (the import object passed to
+///   `WebAssembly.instantiate`), when exactly one exists.
+fn bind_wasm_imports(tx: &Transaction<'_>, bridges: &mut Vec<NewBridge>) -> Result<()> {
+    let imports = {
+        let mut stmt = tx.prepare(
+            "SELECT qualified_name, file_path, line_start, language, \
+                    json_extract(extra, '$.ffi_import.abi'), \
+                    json_extract(extra, '$.ffi_import.module'), \
+                    json_extract(extra, '$.ffi_import.name') \
+             FROM nodes WHERE json_extract(extra, '$.ffi_import.abi') IN ('wasm', 'wasmimport')",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, Option<String>>(5)?,
+                row.get::<_, Option<String>>(6)?,
+            ))
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    if imports.is_empty() {
+        return Ok(());
+    }
+    let cargo_dirs: HashSet<String> = {
+        let mut stmt = tx.prepare(
+            "SELECT DISTINCT file_path FROM nodes \
+             WHERE file_path = 'Cargo.toml' OR file_path LIKE '%/Cargo.toml'",
+        )?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        rows.map(|row| {
+            row.map(|path| {
+                path.strip_suffix("Cargo.toml")
+                    .unwrap_or_default()
+                    .trim_end_matches('/')
+                    .to_string()
+            })
+        })
+        .collect::<std::result::Result<_, _>>()?
+    };
+    let mut in_file = tx.prepare_cached(
+        "SELECT qualified_name FROM nodes \
+         WHERE file_path = ? AND name = ? AND kind = 'Function' AND parent_name IS NULL",
+    )?;
+    let mut in_object = tx.prepare_cached(
+        "SELECT qualified_name, file_path FROM nodes \
+         WHERE name = ? AND kind = 'Function' \
+           AND (parent_name = ? OR parent_name LIKE '%.' || ?)",
+    )?;
+    for (source, file_path, line, language, abi, module, name) in imports {
+        let (Some(module), Some(name)) = (module, name) else {
+            continue;
+        };
+        let targets: Vec<(String, String)> = if abi == "wasm" {
+            let Some(rel) = module.strip_prefix('/') else {
+                continue;
+            };
+            let Some(crate_dir) = nearest_dir(&file_path, &cargo_dirs) else {
+                continue;
+            };
+            let js_file = if crate_dir.is_empty() {
+                rel.to_string()
+            } else {
+                format!("{crate_dir}/{rel}")
+            };
+            let rows = in_file.query_map(params![js_file, name], |row| row.get::<_, String>(0))?;
+            rows.map(|row| row.map(|qualified| (qualified, js_file.clone())))
+                .collect::<std::result::Result<_, _>>()?
+        } else {
+            let rows = in_object.query_map(params![name, module, module], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+            rows.collect::<std::result::Result<Vec<_>, _>>()?
+                .into_iter()
+                .filter(|(_, path)| javascript_language(path).is_some())
+                .collect()
+        };
+        let [(target, target_file)] = targets.as_slice() else {
+            continue;
+        };
+        bridges.push(NewBridge {
+            source,
+            target: target.clone(),
+            file_path,
+            line,
+            extra: bridge_extra(
+                "wraps_foreign_api",
+                "wasm",
+                "syntax",
+                format!("{module}::{name}"),
+                language.as_deref().unwrap_or("unknown"),
+                javascript_language(target_file).unwrap_or("javascript"),
+            ),
+        });
+    }
+    Ok(())
+}
+
+/// The deepest directory in *dirs* containing *file_path* (`""` is the root).
+fn nearest_dir(file_path: &str, dirs: &HashSet<String>) -> Option<String> {
+    let mut current = file_path;
+    while let Some((parent, _)) = current.rsplit_once('/') {
+        if dirs.contains(parent) {
+            return Some(parent.to_string());
+        }
+        current = parent;
+    }
+    dirs.contains("").then(String::new)
+}
+
 impl GraphStore {
     /// Replace the `native_bindings` bridges; returns how many were written.
     pub fn resolve_native_bindings(&mut self) -> Result<i64> {
@@ -1361,6 +1481,7 @@ impl GraphStore {
         )?;
         let mut bridges = Vec::new();
         bind_jni_methods(&tx, &mut bridges)?;
+        bind_wasm_imports(&tx, &mut bridges)?;
         let crates = load_crates(&tx)?;
         if !crates.is_empty() {
             let exports = load_exports(&tx, &crates)?;

@@ -202,10 +202,7 @@ fn go_emit_function(
         return_type: None,
         modifiers: None,
         is_test: false,
-        extra: match go_directive_export(node, source) {
-            Some(export) => json!({"ffi_export": export}),
-            None => json!({}),
-        },
+        extra: go_directive_extra(node, source),
     });
     let container = receiver
         .map(|receiver| qualify(file_path, receiver, None))
@@ -220,9 +217,24 @@ fn go_emit_function(
     });
 }
 
-/// `//go:wasmexport name` (a WebAssembly export) or `//export name` (cgo, and
-/// TinyGo's WebAssembly export) in the comments right above a function.
-fn go_directive_export(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<serde_json::Value> {
+/// `ffi_export` / `ffi_import` from the directive above a function, if any.
+fn go_directive_extra(node: tree_sitter::Node<'_>, source: &[u8]) -> serde_json::Value {
+    match go_directive(node, source) {
+        Some((key, value)) => json!({ key: value }),
+        None => json!({}),
+    }
+}
+
+/// The FFI directive in the comments right above a function:
+///
+/// * `//go:wasmexport name` (a WebAssembly export) or `//export name` (cgo,
+///   and TinyGo's WebAssembly export): `ffi_export`;
+/// * `//go:wasmimport module name`: `ffi_import` of the host function
+///   `name` from the import object's `module`.
+fn go_directive(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> Option<(&'static str, serde_json::Value)> {
     let mut current = node.prev_sibling();
     let mut next_row = node.start_position().row;
     while let Some(comment) = current.filter(|sibling| sibling.kind() == "comment") {
@@ -233,10 +245,18 @@ fn go_directive_export(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<ser
         let text = node_text(comment, source);
         let text = text.trim();
         if let Some(name) = text.strip_prefix("//go:wasmexport ") {
-            return Some(json!({"abi": "wasm", "kind": "function", "name": name.trim()}));
+            let export = json!({"abi": "wasm", "kind": "function", "name": name.trim()});
+            return Some(("ffi_export", export));
         }
         if let Some(name) = text.strip_prefix("//export ") {
-            return Some(json!({"abi": "c", "kind": "function", "name": name.trim()}));
+            let export = json!({"abi": "c", "kind": "function", "name": name.trim()});
+            return Some(("ffi_export", export));
+        }
+        if let Some(rest) = text.strip_prefix("//go:wasmimport ")
+            && let [module, name] = rest.split_whitespace().collect::<Vec<_>>().as_slice()
+        {
+            let import = json!({"abi": "wasmimport", "module": module, "name": name});
+            return Some(("ffi_import", import));
         }
         next_row = comment.start_position().row;
         current = comment.prev_sibling();

@@ -170,7 +170,17 @@ fn rust_walk_children(
                     } else {
                         json!({})
                     };
-                    if let Some(export) = rust_function_ffi_export(child, context.source, &name) {
+                    if let Some(block) = rust_enclosing_foreign_block(child) {
+                        // Declared in `extern "C" { ... }`: implemented on
+                        // the other side, never exported from here.
+                        if let Some(import) =
+                            rust_foreign_ffi_import(child, block, context.source, &name)
+                        {
+                            extra["ffi_import"] = import;
+                        }
+                    } else if let Some(export) =
+                        rust_function_ffi_export(child, context.source, &name)
+                    {
                         extra["ffi_export"] = export;
                     }
                     nodes.push(ParsedNode {
@@ -593,6 +603,59 @@ fn rust_attr_string_arg(attr: &str, key: &str) -> Option<String> {
         .find(|captures| &captures[1] == key)
         .and_then(|captures| captures.get(2).or_else(|| captures.get(3)))
         .map(|value| value.as_str().to_string())
+}
+
+/// The `extern "C" { ... }` block directly containing a declaration.
+fn rust_enclosing_foreign_block(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
+    node.parent()
+        .filter(|parent| parent.kind() == "declaration_list")
+        .and_then(|list| list.parent())
+        .filter(|item| item.kind() == "foreign_mod_item")
+}
+
+/// What a foreign declaration binds to on the other side.
+///
+/// `#[wasm_bindgen(module = "/js/util.js")] extern "C" { fn f(); }` imports
+/// the JavaScript function `f` (or `js_name`) from that module, a path from
+/// the crate root. Methods, constructors, accessors, and namespaced or
+/// global imports (`js_namespace = console`) name no module function and
+/// are not recorded.
+fn rust_foreign_ffi_import(
+    node: tree_sitter::Node<'_>,
+    block: tree_sitter::Node<'_>,
+    source: &[u8],
+    name: &str,
+) -> Option<serde_json::Value> {
+    let block_attrs = rust_leading_attribute_texts(block, source);
+    let block_attr = block_attrs
+        .iter()
+        .find(|attr| rust_attr_is(attr, "wasm_bindgen"))?;
+    let attrs = rust_leading_attribute_texts(node, source);
+    let own_attr = attrs.iter().find(|attr| rust_attr_is(attr, "wasm_bindgen"));
+    let module = rust_attr_string_arg(block_attr, "module")?;
+    let flags = [
+        "method",
+        "constructor",
+        "getter",
+        "setter",
+        "structural",
+        "indexing_getter",
+        "indexing_setter",
+        "indexing_deleter",
+    ];
+    for attr in [Some(block_attr), own_attr].into_iter().flatten() {
+        if flags.iter().any(|flag| rust_attr_has_flag(attr, flag))
+            || rust_attr_string_arg(attr, "js_namespace").is_some()
+            || rust_attr_string_arg(attr, "static_method_of").is_some()
+            || attr.contains("js_namespace=")
+        {
+            return None;
+        }
+    }
+    let js_name = own_attr
+        .and_then(|attr| rust_attr_string_arg(attr, "js_name"))
+        .unwrap_or_else(|| name.to_string());
+    Some(json!({"abi": "wasm", "module": module, "name": js_name}))
 }
 
 /// The `impl` block directly containing a method.

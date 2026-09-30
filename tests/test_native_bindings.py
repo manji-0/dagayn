@@ -602,3 +602,64 @@ def test_node_gyp_addon_loads_and_calls_reach_the_c_function(tmp_path: Path, loa
         assert not any(role == "loads_shared_library" for _, _, role in bridges)
     finally:
         store.close()
+
+
+def test_wasm_imports_reach_the_javascript_that_implements_them(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        {
+            "wasm/Cargo.toml": (
+                '[package]\nname = "clock"\nversion = "0.1.0"\n\n'
+                '[lib]\ncrate-type = ["cdylib"]\n\n[dependencies]\nwasm-bindgen = "0.2"\n'
+            ),
+            "wasm/src/lib.rs": (
+                "use wasm_bindgen::prelude::*;\n\n"
+                '#[wasm_bindgen(module = "/js/util.js")]\n'
+                'extern "C" {\n'
+                "    #[wasm_bindgen(js_name = formatDate)]\n"
+                "    fn format_date(ms: f64) -> String;\n"
+                "}\n\n"
+                "#[wasm_bindgen]\npub fn today(ms: f64) -> String {\n    format_date(ms)\n}\n"
+            ),
+            "wasm/js/util.js": (
+                "export function formatDate(ms) {\n  return new Date(ms).toISOString();\n}\n"
+            ),
+            "gowasm/main.go": (
+                "package main\n\n"
+                "//go:wasmimport env log_value\n"
+                "func logValue(v int32)\n\n"
+                "//go:wasmexport run\n"
+                "func run() {\n\tlogValue(1)\n}\n\n"
+                "func main() {}\n"
+            ),
+            "web/src/host.ts": (
+                "export const hostImports = {\n"
+                "  env: {\n"
+                "    log_value: (v: number) => console.log(v),\n"
+                "  },\n"
+                "};\n"
+            ),
+        },
+    )
+    store = _build(tmp_path)
+    try:
+        bridges = _native_bridges(store)
+        assert (
+            "wasm/src/lib.rs::format_date",
+            "wasm/js/util.js::formatDate",
+            "wraps_foreign_api",
+        ) in bridges
+        assert (
+            "gowasm/main.go::logValue",
+            "web/src/host.ts::hostImports.env.log_value",
+            "wraps_foreign_api",
+        ) in bridges
+        # The imported declaration is not a Rust export JavaScript can call.
+        assert not any(target == "wasm/src/lib.rs::format_date" for _, target, _ in bridges)
+        impact = get_impact_radius(
+            changed_files=["wasm/js/util.js"], repo_root=str(tmp_path), max_depth=3
+        )
+        impacted = {node["qualified_name"] for node in impact["impacted_nodes"]}
+        assert "wasm/src/lib.rs::today" in impacted
+    finally:
+        store.close()

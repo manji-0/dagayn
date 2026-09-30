@@ -245,3 +245,44 @@ fn main(mut cx: ModuleContext) -> NeonResult<()> {
         Some(serde_json::json!([{"abi": "napi", "kind": "function", "name": "legacyHello"}]))
     );
 }
+
+#[test]
+fn wasm_bindgen_extern_declarations_are_imports_not_exports() {
+    let source = br#"use wasm_bindgen::prelude::*;
+#[wasm_bindgen(module = "/js/util.js")]
+extern "C" {
+    fn format_date(ms: f64) -> String;
+    #[wasm_bindgen(js_name = parseDate)]
+    fn parse_date(s: &str) -> f64;
+    #[wasm_bindgen(method)]
+    fn render(this: &Widget);
+}
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = console)]
+    fn log(s: &str);
+}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (nodes, _) = parser.parse_file("wasm/src/lib.rs", source);
+    let node = |name: &str| {
+        nodes
+            .iter()
+            .find(|node| node.name == name)
+            .unwrap_or_else(|| panic!("no node {name}"))
+    };
+    for name in ["format_date", "parse_date", "render", "log"] {
+        assert_eq!(node(name).extra.get("ffi_export"), None, "{name}");
+    }
+    let import = |name: &str| node(name).extra.get("ffi_import").cloned();
+    assert_eq!(
+        import("format_date"),
+        Some(serde_json::json!({"abi": "wasm", "module": "/js/util.js", "name": "format_date"}))
+    );
+    assert_eq!(
+        import("parse_date"),
+        Some(serde_json::json!({"abi": "wasm", "module": "/js/util.js", "name": "parseDate"}))
+    );
+    assert_eq!(import("render"), None);
+    assert_eq!(import("log"), None);
+}

@@ -74,12 +74,30 @@ All notable changes to `dagayn` are documented here.
   in it: to imported names, and to bare names such as `addon.hello()` on a
   CommonJS `require` that exactly one loaded addon exports.
 
+- WebAssembly code calling into JavaScript reaches the JavaScript that
+  implements the call. A declaration in a
+  `#[wasm_bindgen(module = "/js/util.js")] extern "C"` block records
+  `ffi_import` (`js_name` respected; methods, constructors, accessors, and
+  `js_namespace` globals skipped), and Go `//go:wasmimport module name`
+  records `ffi_import` too. `native_bindings` writes `wraps_foreign_api`
+  from the Rust declaration to the function of that name in the module
+  (a path from the crate root), and from the Go declaration to the one
+  JavaScript function `name` defined in an object literal under the key
+  `module` (the import object). The Rust extractor moves to version 4 and
+  Go to version 2.
+
 ### Changed
 
 - A shared-library loader outside Python (Java `System.loadLibrary`, ...)
   still links to the library, but calls in its file are no longer bound to
   the library's C symbols by bare name: JNI and similar bindings name their
   symbols differently, so a same-named call was a coincidence.
+
+### Fixed
+
+- Declarations inside a `#[wasm_bindgen] extern "C"` block are no longer
+  recorded as Rust exports: they are JavaScript functions Rust imports, so
+  a JavaScript call of the same name was bound to the Rust declaration.
 
 ## 6.1.0 — 2026-09-30
 

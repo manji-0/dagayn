@@ -121,3 +121,15 @@ func main() {
         serde_json::json!([{"abi": "js_global", "kind": "function", "name": "goMean"}])
     );
 }
+
+#[test]
+fn records_go_wasmimport_declarations() {
+    let source = b"package main\n\n//go:wasmimport env log_value\nfunc logValue(v int32)\n\nfunc main() { logValue(1) }\n";
+    let mut parser = RustOwnedParser::new();
+    let (nodes, _) = parser.parse_file("gowasm/main.go", source);
+    let log = nodes.iter().find(|node| node.name == "logValue").unwrap();
+    assert_eq!(
+        log.extra.get("ffi_import").cloned(),
+        Some(serde_json::json!({"abi": "wasmimport", "module": "env", "name": "log_value"}))
+    );
+}
