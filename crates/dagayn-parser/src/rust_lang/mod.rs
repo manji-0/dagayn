@@ -191,6 +191,29 @@ fn rust_walk_children(
                         Some(&name),
                         edges,
                     );
+                    // `trait A: B + fmt::Display` -- supertraits.
+                    if let Some(bounds) = child
+                        .child_by_field_name("bounds")
+                        .filter(|_| child.kind() == "trait_item")
+                    {
+                        let mut cursor = bounds.walk();
+                        for bound in bounds.named_children(&mut cursor) {
+                            let Some(target) = rust_receiver_type(bound, context.source) else {
+                                continue;
+                            };
+                            edges.push(ParsedEdge {
+                                kind: crate::core::types::EdgeKind::Inherits,
+                                source: qualify(&context.file_path, &name, owner()),
+                                target,
+                                file_path: context.file_path.clone(),
+                                line: child.start_position().row as i64 + 1,
+                                extra: json!({
+                                    "relationship_role": "supertrait",
+                                    "syntax_source": "trait_item",
+                                }),
+                            });
+                        }
+                    }
                     let path = rust_scope_join(owner(), &name);
                     rust_walk_children(child, context, Some(&path), None, nodes, edges);
                     continue;

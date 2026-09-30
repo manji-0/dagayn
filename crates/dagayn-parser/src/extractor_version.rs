@@ -123,6 +123,7 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // module files (IMPORTS_FROM, with `names`, `glob`, `re_export`);
         // calls carry `receiver_type` / `module_file` / `receiver_unknown`,
         // macros are `name!`, and calls inside macro arguments are extracted.
+        // Types of other files are referenced; supertraits are INHERITS.
         extractor: "rust",
         version: 10,
         languages: &["rust"],

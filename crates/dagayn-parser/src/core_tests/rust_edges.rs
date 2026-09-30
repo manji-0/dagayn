@@ -210,3 +210,26 @@ fn build(edge: types::Edge) -> Vec<ParsedNode> {\n\
         ]
     );
 }
+
+#[test]
+fn supertraits_are_inherits() {
+    let mut parser = RustOwnedParser::new();
+    let (_, edges) = parser.parse_file(
+        "src/lib.rs",
+        b"trait A: B + fmt::Display + 'static {}\ntrait C<T>: Into<T> {}\n",
+    );
+    let mut bases: Vec<(&str, &str)> = edges
+        .iter()
+        .filter(|edge| edge.kind == "INHERITS")
+        .map(|edge| (edge.source.as_str(), edge.target.as_str()))
+        .collect();
+    bases.sort();
+    assert_eq!(
+        bases,
+        vec![
+            ("src/lib.rs::A", "B"),
+            ("src/lib.rs::A", "Display"),
+            ("src/lib.rs::C", "Into"),
+        ]
+    );
+}
