@@ -69,15 +69,6 @@ pub const ZIG_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_z
 pub const POWERSHELL_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_powershell) };
 pub const SWIFT_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_swift) };
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum GrammarStatus {
-    Ready,
-}
-
-pub fn status() -> GrammarStatus {
-    GrammarStatus::Ready
-}
-
 pub fn markdown_language() -> tree_sitter::Language {
     MARKDOWN_LANGUAGE.into()
 }

@@ -13,7 +13,3 @@ pub use communities::{
 };
 pub use pipeline::{PostprocessResult, run_post_processing_json};
 pub use prune::{prune_orphaned_graph_structures, prune_orphaned_graph_structures_json};
-
-pub fn phase() -> u8 {
-    2
-}

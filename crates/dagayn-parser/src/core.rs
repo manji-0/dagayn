@@ -122,9 +122,6 @@ use util::{contains_ascii_ignore_case, node_text, sha256_hex, starts_with_ascii_
 pub(crate) use discovery::{build_globset, load_ignore_patterns, should_ignore, walk_files};
 #[cfg(test)]
 use js_like::parse_javascript_like;
-pub fn grammar_status() -> dagayn_grammars::GrammarStatus {
-    dagayn_grammars::status()
-}
 
 pub struct RustOwnedParser {
     markdown_parser: Option<tree_sitter::Parser>,
