@@ -29,8 +29,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // `spec::name` with `unresolved_module`, not bare names; calls whose
         // first argument names a `.wasm` file emit `loads_wasm_module`.
         // 3: `require("bindings")("addon")` emits `loads_node_addon`.
+        // 4: Emscripten `ccall("name")` / `cwrap("name")` emit
+        // `calls_wasm_export`.
         extractor: "javascript",
-        version: 3,
+        version: 4,
         languages: &["javascript", "typescript", "tsx", "vue", "svelte"],
     },
     ExtractorVersion {

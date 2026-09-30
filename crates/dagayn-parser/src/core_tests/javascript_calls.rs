@@ -595,3 +595,20 @@ const notAddon = bindings("./relative/path");
         ]
     );
 }
+
+#[test]
+fn emscripten_ccall_and_cwrap_emit_calls_wasm_export() {
+    let source = br#"export function run(Module) {
+  const add = Module.cwrap("add", "number", ["number", "number"]);
+  return Module.ccall('sub', 'number', [], []) + add(1, 2);
+}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_, edges) = parser.parse_file("web/run.js", source);
+    let calls: Vec<&str> = edges
+        .iter()
+        .filter(|edge| edge.extra["relationship_role"] == "calls_wasm_export")
+        .map(|edge| edge.target.as_str())
+        .collect();
+    assert_eq!(calls, vec!["add", "sub"]);
+}

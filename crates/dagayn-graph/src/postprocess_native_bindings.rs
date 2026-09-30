@@ -58,6 +58,15 @@ struct NativeCrate {
     build_system: String,
     /// napi-rs / neon crates: how JavaScript reaches the Node.js addon.
     node_addon: Option<NodeAddon>,
+    /// C / C++ compiled to WebAssembly by Emscripten.
+    emscripten: Option<Emscripten>,
+}
+
+/// An Emscripten build: its C functions are JavaScript exports `_name`.
+struct Emscripten {
+    /// `-sEXPORTED_FUNCTIONS` without the `_`; `None` when not listed, in
+    /// which case every function with external C linkage counts.
+    exported: Option<HashSet<String>>,
 }
 
 impl NativeCrate {
@@ -82,6 +91,16 @@ struct NodeAddon {
 }
 
 impl NodeAddon {
+    /// From a `builds_from_source` edge marked `node_addon`.
+    fn from_extra(extra: &Value) -> Option<Self> {
+        extra.get("node_addon").and_then(Value::as_str)?;
+        Some(Self {
+            entry_files: string_list(extra, "js_entry_files"),
+            outputs: string_list(extra, "node_outputs"),
+            binary_names: string_list(extra, "node_binary_names"),
+        })
+    }
+
     /// True when the repo-relative module *path* is this addon's glue or
     /// binary (`native/index` for `native/index.js`, `native` for its
     /// `index`, or a `.node` file).
@@ -462,25 +481,27 @@ fn load_crates(tx: &Transaction<'_>) -> Result<Vec<NativeCrate>> {
                 _ => "c",
             };
             // node-gyp addons are Node.js modules, not libraries `ctypes` loads.
-            let node_addon = extra
-                .get("node_addon")
-                .and_then(Value::as_str)
-                .map(|_| NodeAddon {
-                    entry_files: string_list(&extra, "js_entry_files"),
-                    outputs: string_list(&extra, "node_outputs"),
-                    binary_names: string_list(&extra, "node_binary_names"),
-                });
+            let node_addon = NodeAddon::from_extra(&extra);
+            let emscripten = (extra.get("build_system").and_then(Value::as_str)
+                == Some("emscripten"))
+            .then(|| Emscripten {
+                exported: extra
+                    .get("wasm_exports")
+                    .is_some()
+                    .then(|| string_list(&extra, "wasm_exports").into_iter().collect()),
+            });
             crates.push(NativeCrate {
                 root,
                 lib_name: lib_name.to_string(),
-                cdylib: node_addon.is_none(),
+                cdylib: node_addon.is_none() && emscripten.is_none(),
                 python_module: None,
                 js_packages: string_list(&extra, "js_packages"),
                 wasm_out_dirs: Vec::new(),
-                wasm_outputs: Vec::new(),
+                wasm_outputs: string_list(&extra, "wasm_outputs"),
                 scope: ExportScope::Files(string_list(&extra, "source_files")),
                 language,
                 node_addon,
+                emscripten,
                 build_system: extra
                     .get("build_system")
                     .and_then(Value::as_str)
@@ -519,6 +540,7 @@ fn load_crates(tx: &Transaction<'_>) -> Result<Vec<NativeCrate>> {
                 language,
                 build_system: producer.to_string(),
                 node_addon: None,
+                emscripten: None,
             });
             continue;
         }
@@ -539,14 +561,8 @@ fn load_crates(tx: &Transaction<'_>) -> Result<Vec<NativeCrate>> {
             scope: ExportScope::Tree(crate_dir),
             language: "rust",
             build_system: "cargo".to_string(),
-            node_addon: extra
-                .get("node_addon")
-                .and_then(Value::as_str)
-                .map(|_| NodeAddon {
-                    entry_files: string_list(&extra, "js_entry_files"),
-                    outputs: string_list(&extra, "node_outputs"),
-                    binary_names: string_list(&extra, "node_binary_names"),
-                }),
+            node_addon: NodeAddon::from_extra(&extra),
+            emscripten: None,
             wasm_outputs: Vec::new(),
             lib_name: lib_name.to_string(),
             cdylib,
@@ -606,6 +622,22 @@ fn load_exports(tx: &Transaction<'_>, crates: &[NativeCrate]) -> Result<Vec<Crat
                 .get("kind")
                 .and_then(Value::as_str)
                 .unwrap_or("function");
+            if abi == "c"
+                && let Some(emscripten) = &crates[index].emscripten
+            {
+                if emscripten
+                    .exported
+                    .as_ref()
+                    .is_none_or(|exported| exported.contains(name))
+                {
+                    exports[index]
+                        .js
+                        .entry(format!("_{name}"))
+                        .or_default()
+                        .push(qualified.clone());
+                }
+                continue;
+            }
             let table = match (abi, kind) {
                 // Methods are reached through an instance, which a bare name
                 // cannot tell apart; only module attributes are bound here.
@@ -939,19 +971,19 @@ fn bind_shared_libraries(
 
 /// JavaScript / TypeScript imports of a wasm-bindgen or Node.js addon
 /// crate, and the calls the extractor qualified as `specifier::name` into
-/// it. Returns the files that import a Node.js addon, whose other calls
-/// [`bind_addon_namespace_calls`] matches by name.
+/// it. Returns the files that import a Node.js addon or Emscripten glue,
+/// whose other calls [`bind_namespace_calls`] matches by name.
 fn bind_js_modules(
     tx: &Transaction<'_>,
     crates: &[NativeCrate],
     exports: &[CrateExports],
     bridges: &mut Vec<NewBridge>,
 ) -> Result<HashMap<String, HashSet<usize>>> {
-    let mut addon_files: HashMap<String, HashSet<usize>> = HashMap::new();
+    let mut module_files: HashMap<String, HashSet<usize>> = HashMap::new();
     if crates.iter().all(|krate| {
         krate.js_packages.is_empty() && krate.wasm_outputs.is_empty() && krate.node_addon.is_none()
     }) {
-        return Ok(addon_files);
+        return Ok(module_files);
     }
     let mut stmt = tx.prepare(
         "SELECT kind, source_qualified, target_qualified, file_path, line FROM edges \
@@ -976,8 +1008,8 @@ fn bind_js_modules(
             let Some(index) = js_crate_for(crates, &file_path, &target) else {
                 continue;
             };
-            if crates[index].node_addon.is_some() {
-                addon_files
+            if crates[index].node_addon.is_some() || crates[index].emscripten.is_some() {
+                module_files
                     .entry(file_path.clone())
                     .or_default()
                     .insert(index);
@@ -1025,7 +1057,7 @@ fn bind_js_modules(
             ),
         });
     }
-    Ok(addon_files)
+    Ok(module_files)
 }
 
 /// `require("bindings")("addon")` (`loads_node_addon`) -> the node-gyp
@@ -1033,7 +1065,7 @@ fn bind_js_modules(
 fn bind_node_addon_loaders(
     tx: &Transaction<'_>,
     crates: &[NativeCrate],
-    addon_files: &mut HashMap<String, HashSet<usize>>,
+    module_files: &mut HashMap<String, HashSet<usize>>,
     bridges: &mut Vec<NewBridge>,
 ) -> Result<()> {
     let mut stmt = tx.prepare(
@@ -1061,7 +1093,7 @@ fn bind_node_addon_loaders(
         let [index] = matches.as_slice() else {
             continue;
         };
-        addon_files
+        module_files
             .entry(file_path.clone())
             .or_default()
             .insert(*index);
@@ -1083,17 +1115,18 @@ fn bind_node_addon_loaders(
     Ok(())
 }
 
-/// In a file that loads a Node.js addon, a call the extractor left as a
-/// bare name (`addon.hello()` on a CommonJS `require`, whose receiver it
-/// cannot type) that exactly one of the loaded addons exports.
-fn bind_addon_namespace_calls(
+/// In a file that loads a Node.js addon or Emscripten glue, a call the
+/// extractor left as a bare name (`addon.hello()` on a CommonJS `require`,
+/// `Module._add()`, whose receiver it cannot type) that exactly one of the
+/// loaded modules exports.
+fn bind_namespace_calls(
     tx: &Transaction<'_>,
     crates: &[NativeCrate],
     exports: &[CrateExports],
-    addon_files: &HashMap<String, HashSet<usize>>,
+    module_files: &HashMap<String, HashSet<usize>>,
     bridges: &mut Vec<NewBridge>,
 ) -> Result<()> {
-    for (file_path, indexes) in addon_files {
+    for (file_path, indexes) in module_files {
         let language = javascript_language(file_path).unwrap_or("javascript");
         for (caller, target, line, _) in calls_in_file(tx, file_path)? {
             if target.contains("::") {
@@ -1113,7 +1146,7 @@ fn bind_addon_namespace_calls(
                 line,
                 extra: bridge_extra(
                     "calls_native_function",
-                    "node_addon",
+                    crates[*index].js_bridge_kind(),
                     "syntax",
                     format!("export {target}"),
                     language,
@@ -1133,9 +1166,10 @@ fn bind_wasm_loaders(
     crates: &[NativeCrate],
     exports: &[CrateExports],
     bridges: &mut Vec<NewBridge>,
-) -> Result<()> {
+) -> Result<HashMap<String, HashSet<usize>>> {
+    let mut loaded: HashMap<String, HashSet<usize>> = HashMap::new();
     if crates.iter().all(|krate| krate.wasm_outputs.is_empty()) {
-        return Ok(());
+        return Ok(loaded);
     }
     let loaders = {
         let mut stmt = tx.prepare(
@@ -1154,7 +1188,6 @@ fn bind_wasm_loaders(
         })?;
         rows.collect::<std::result::Result<Vec<_>, _>>()?
     };
-    let mut loaded: HashMap<String, HashSet<usize>> = HashMap::new();
     for (source, target, file_path, line) in loaders {
         let Some(index) = wasm_output_crate(crates, &file_path, &target) else {
             continue;
@@ -1178,9 +1211,9 @@ fn bind_wasm_loaders(
         });
         loaded.entry(file_path).or_default().insert(index);
     }
-    for (file_path, indexes) in loaded {
-        let language = javascript_language(&file_path).unwrap_or("unknown");
-        for (caller, target, line, _) in calls_in_file(tx, &file_path)? {
+    for (file_path, indexes) in &loaded {
+        let language = javascript_language(file_path).unwrap_or("unknown");
+        for (caller, target, line, _) in calls_in_file(tx, file_path)? {
             let name = call_name(&target);
             let hits: Vec<(&String, usize)> = indexes
                 .iter()
@@ -1208,6 +1241,64 @@ fn bind_wasm_loaders(
                 ),
             });
         }
+    }
+    Ok(loaded)
+}
+
+/// Emscripten's `ccall("add", ...)` / `cwrap("add", ...)`
+/// (`calls_wasm_export`) in a file that loads the module -> the C function
+/// behind the export `_add`.
+fn bind_wasm_export_calls(
+    tx: &Transaction<'_>,
+    crates: &[NativeCrate],
+    exports: &[CrateExports],
+    loaded: [&HashMap<String, HashSet<usize>>; 2],
+    bridges: &mut Vec<NewBridge>,
+) -> Result<()> {
+    let mut stmt = tx.prepare(
+        "SELECT source_qualified, target_qualified, file_path, line FROM edges \
+         WHERE kind = 'CROSS_ARTIFACT' \
+           AND json_extract(extra, '$.relationship_role') = 'calls_wasm_export'",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, i64>(3)?,
+        ))
+    })?;
+    for row in rows {
+        let (source, name, file_path, line) = row?;
+        let indexes: HashSet<usize> = loaded
+            .iter()
+            .filter_map(|files| files.get(&file_path))
+            .flatten()
+            .copied()
+            .filter(|index| crates[*index].emscripten.is_some())
+            .collect();
+        let key = format!("_{name}");
+        let hits: Vec<(&String, usize)> = indexes
+            .iter()
+            .filter_map(|index| unique(exports[*index].js.get(&key)).map(|qn| (qn, *index)))
+            .collect();
+        let [(export, index)] = hits.as_slice() else {
+            continue;
+        };
+        bridges.push(NewBridge {
+            source,
+            target: (*export).clone(),
+            file_path: file_path.clone(),
+            line,
+            extra: bridge_extra(
+                "calls_native_function",
+                "wasm",
+                "syntax",
+                format!("export {key}"),
+                javascript_language(&file_path).unwrap_or("javascript"),
+                crates[*index].language,
+            ),
+        });
     }
     Ok(())
 }
@@ -1488,10 +1579,17 @@ impl GraphStore {
             let bindings = bind_extension_imports(&tx, &crates, &mut bridges)?;
             bind_extension_calls(&tx, &crates, &exports, &bindings, &mut bridges)?;
             bind_shared_libraries(&tx, &crates, &exports, &mut bridges)?;
-            let mut addon_files = bind_js_modules(&tx, &crates, &exports, &mut bridges)?;
-            bind_node_addon_loaders(&tx, &crates, &mut addon_files, &mut bridges)?;
-            bind_addon_namespace_calls(&tx, &crates, &exports, &addon_files, &mut bridges)?;
-            bind_wasm_loaders(&tx, &crates, &exports, &mut bridges)?;
+            let mut module_files = bind_js_modules(&tx, &crates, &exports, &mut bridges)?;
+            bind_node_addon_loaders(&tx, &crates, &mut module_files, &mut bridges)?;
+            bind_namespace_calls(&tx, &crates, &exports, &module_files, &mut bridges)?;
+            let wasm_files = bind_wasm_loaders(&tx, &crates, &exports, &mut bridges)?;
+            bind_wasm_export_calls(
+                &tx,
+                &crates,
+                &exports,
+                [&module_files, &wasm_files],
+                &mut bridges,
+            )?;
             bind_js_globals(&tx, &crates, &exports, &mut bridges)?;
         }
 
@@ -2222,6 +2320,7 @@ mod store_tests {
             language: "go",
             build_system: "go".to_string(),
             node_addon: None,
+            emscripten: None,
         };
         let crates = [
             producer(&["web/public/go.wasm"]),

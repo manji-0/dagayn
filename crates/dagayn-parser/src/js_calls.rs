@@ -791,6 +791,10 @@ fn javascript_bridge_edge(
             // `require("bindings")("addon")` finds node-gyp's
             // `build/Release/addon.node`.
             ("loads_node_addon", "node_addon")
+        } else if javascript_is_emscripten_call_helper(&signature) && first_string.is_some() {
+            // `Module.ccall("add", ...)` / `cwrap("add", ...)` call the
+            // Emscripten export `_add` by its C name.
+            ("calls_wasm_export", "wasm")
         } else {
             javascript_bridge_pattern(&signature)?
         };
@@ -837,6 +841,12 @@ fn javascript_is_bindings_loader(signature: &str) -> bool {
         .map(|ch| if ch == '\'' || ch == '`' { '"' } else { ch })
         .collect();
     compact == "bindings" || compact == "require(\"bindings\")"
+}
+
+/// Emscripten's `ccall` / `cwrap`, bare or on the module object.
+fn javascript_is_emscripten_call_helper(signature: &str) -> bool {
+    let name = signature.rsplit('.').next().unwrap_or(signature).trim();
+    matches!(name, "ccall" | "cwrap")
 }
 
 /// A node-gyp target name (`addon`, `my_addon.node`), not a path.

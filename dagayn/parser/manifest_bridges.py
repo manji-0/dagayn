@@ -649,11 +649,14 @@ def _extract_native_libraries(
     for library in libraries:
         source_language = library.build_system
         _ensure_file_node(result, library.config_rel, language=source_language)
+        # Command lines are build configuration; CMake / Meson / gyp declare
+        # the library in a manifest.
+        from_command = library.build_system in ("make", "emscripten")
         extra = _bridge_extra(
             relationship_role="builds_from_source",
             bridge_kind="build_config",
-            evidence_kind="config" if library.build_system == "make" else "manifest",
-            evidence_source=f"{library.build_system} shared library",
+            evidence_kind="config" if from_command else "manifest",
+            evidence_source=f"{library.build_system} library",
             source_language=source_language,
             target_language=library.language,
             confidence=CONFIDENCE_HIGH,
@@ -665,6 +668,10 @@ def _extract_native_libraries(
         extra["source_files"] = library.sources
         if library.build_system == "node-gyp":
             extra.update(_gyp_addon_facts(repo_root, library))
+        elif library.build_system == "emscripten":
+            extra["wasm_outputs"] = library.outputs
+            if library.wasm_exports is not None:
+                extra["wasm_exports"] = library.wasm_exports
         result.edges.append(
             EdgeInfo(
                 kind="CROSS_ARTIFACT",

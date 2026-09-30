@@ -13,6 +13,9 @@ repository sources each shared library is compiled from:
   ``library`` unless ``default_library`` is ``static``;
 * node-gyp: ``binding.gyp`` targets, whose ``sources`` build the Node.js
   addon ``build/Release/<target_name>.node``;
+* Emscripten: ``emcc`` / ``em++`` command lines, whose ``-o`` names the
+  JavaScript glue and ``.wasm`` module and whose ``-sEXPORTED_FUNCTIONS``
+  lists the C functions JavaScript may call;
 * compiler command lines with ``-shared`` / ``-dynamiclib`` / ``-bundle``
   in Makefile recipes (``$@`` / ``$^`` / ``$<`` and simple variables
   expanded, object files mapped back to their sources), justfiles, and
@@ -42,11 +45,15 @@ class NativeLibrary:
     """A shared library a build file compiles from repository sources."""
 
     config_rel: str
-    build_system: str  # "cmake" | "meson" | "make" | "node-gyp"
+    build_system: str  # "cmake" | "meson" | "make" | "node-gyp" | "emscripten"
     lib_name: str
     sources: list[str] = field(default_factory=list)
-    # Build outputs at known paths (node-gyp's `build/Release/NAME.node`).
+    # Build outputs at known paths (node-gyp's `build/Release/NAME.node`,
+    # Emscripten's glue and `.wasm`).
     outputs: list[str] = field(default_factory=list)
+    # Emscripten `EXPORTED_FUNCTIONS` without the leading `_`; `None` when
+    # the command does not list them.
+    wasm_exports: list[str] | None = None
 
     @property
     def language(self) -> str:
@@ -483,6 +490,8 @@ def _command_library(
     if not tokens:
         return None
     compiler = tokens[0].lstrip("@-")
+    if compiler.rsplit("/", 1)[-1] in ("emcc", "em++"):
+        return _emscripten_library(repo_root, command_file, cwd, tokens[1:])
     if not _COMPILER_RE.match(compiler.rsplit("/", 1)[-1]):
         return None
     args = tokens[1:]
@@ -497,6 +506,59 @@ def _command_library(
     if not sources:
         return None
     return NativeLibrary(command_file, "make", library_stem(output), sources)
+
+
+_EMSCRIPTEN_GLUE_SUFFIXES = (".js", ".mjs", ".cjs", ".html")
+
+
+def _emscripten_library(
+    repo_root: Path, command_file: str, cwd: PurePosixPath, args: list[str]
+) -> NativeLibrary | None:
+    settings: dict[str, str] = {}
+    rest: list[str] = []
+    index = 0
+    while index < len(args):
+        token = args[index]
+        if token == "-s" and index + 1 < len(args):
+            setting = args[index + 1]
+            index += 1
+        elif token.startswith("-s") and "=" in token:
+            setting = token[2:]
+        else:
+            rest.append(token)
+            index += 1
+            continue
+        key, _, value = setting.partition("=")
+        settings[key] = value
+        index += 1
+    options, positional = _command_options(rest, _VALUED_FLAGS)
+    output = options.get("-o")
+    if not output:
+        return None
+    output_rel = _resolve_rel(cwd, output)
+    if output_rel is None:
+        return None
+    stem, dot, suffix = output_rel.rpartition(".")
+    if not dot or f".{suffix}" not in (*_EMSCRIPTEN_GLUE_SUFFIXES, ".wasm"):
+        return None
+    outputs = [output_rel]
+    if f".{suffix}" == ".html":
+        outputs.append(f"{stem}.js")
+    if f".{suffix}" != ".wasm":
+        outputs.append(f"{stem}.wasm")
+    items = [_object_source(repo_root, cwd, item) or item for item in positional]
+    sources = _existing_sources(repo_root, cwd, items)
+    if not sources:
+        return None
+    exported = settings.get("EXPORTED_FUNCTIONS")
+    wasm_exports = None
+    if exported is not None and not exported.startswith("@"):
+        names = re.findall(r"[A-Za-z_$][\w$]*", exported)
+        wasm_exports = [name.removeprefix("_") for name in names]
+    name = stem.rsplit("/", 1)[-1]
+    return NativeLibrary(
+        command_file, "emscripten", name, sources, outputs, wasm_exports=wasm_exports
+    )
 
 
 def _object_source(repo_root: Path, cwd: PurePosixPath, item: str) -> str | None:

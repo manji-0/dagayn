@@ -86,6 +86,17 @@ All notable changes to `dagayn` are documented here.
   `module` (the import object). The Rust extractor moves to version 4 and
   Go to version 2.
 
+- C and C++ compiled to WebAssembly by Emscripten are linked to their
+  JavaScript callers. Manifest bridges read `emcc` / `em++` command lines
+  in Makefile recipes, justfiles, and package.json scripts
+  (`build_system: "emscripten"`), recording the sources, the glue and
+  `.wasm` outputs `-o` implies, and `-sEXPORTED_FUNCTIONS`. The JavaScript
+  extractor emits `calls_wasm_export` for `ccall("name")` / `cwrap("name")`
+  and moves to version 4. `native_bindings` links a file importing the glue
+  or fetching the `.wasm` to the module, and binds `Module._name(...)`,
+  `ccall("name")`, and `cwrap("name")` in it to the C function, limited to
+  `EXPORTED_FUNCTIONS` when the build lists them.
+
 ### Changed
 
 - A shared-library loader outside Python (Java `System.loadLibrary`, ...)

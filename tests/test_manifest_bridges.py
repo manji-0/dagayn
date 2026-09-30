@@ -351,6 +351,35 @@ class TestDiscoverManifestBridges:
             "addon/build/Debug/native.node",
         ]
 
+    def test_emscripten_commands_record_outputs_and_exports(self, tmp_path: Path):
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "lib.c").write_text("int add(int a, int b) { return a + b; }\n")
+        (tmp_path / "package.json").write_text(
+            json.dumps(
+                {
+                    "scripts": {
+                        "wasm": "emcc src/lib.c -o dist/lib.mjs -s "
+                        "EXPORTED_FUNCTIONS=['_add','_malloc']",
+                        "page": "em++ src/lib.c -o site/index.html",
+                    }
+                }
+            )
+        )
+        edges = {
+            e.extra["lib_name"]: e.extra
+            for e in discover_manifest_bridges(tmp_path).edges
+            if e.extra.get("build_system") == "emscripten"
+        }
+        assert edges["lib"]["wasm_outputs"] == ["dist/lib.mjs", "dist/lib.wasm"]
+        assert edges["lib"]["wasm_exports"] == ["add", "malloc"]
+        assert edges["lib"]["source_files"] == ["src/lib.c"]
+        assert edges["index"]["wasm_outputs"] == [
+            "site/index.html",
+            "site/index.js",
+            "site/index.wasm",
+        ]
+        assert "wasm_exports" not in edges["index"]
+
     def test_compiler_commands_in_makefiles_and_scripts(self, tmp_path: Path):
         (tmp_path / "c").mkdir()
         (tmp_path / "c" / "one.c").write_text("int one(void) { return 1; }\n")

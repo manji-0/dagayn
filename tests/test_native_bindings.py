@@ -663,3 +663,44 @@ def test_wasm_imports_reach_the_javascript_that_implements_them(tmp_path: Path) 
         assert "wasm/src/lib.rs::today" in impacted
     finally:
         store.close()
+
+
+EM_SOURCE = (
+    "#include <emscripten.h>\n"
+    "static int twice(int x) { return x * 2; }\n"
+    "EMSCRIPTEN_KEEPALIVE int add(int a, int b) { return twice(a) + b; }\n"
+    "int sub(int a, int b) { return a - b; }\n"
+    "int hidden(int a) { return a; }\n"
+)
+
+
+def test_emscripten_glue_and_ccall_reach_the_c_functions(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        {
+            "native/math.c": EM_SOURCE,
+            "Makefile": (
+                "web/dist/math.js: native/math.c\n"
+                "\temcc $^ -O2 -o $@ -sMODULARIZE -sEXPORT_ES6 "
+                "-sEXPORTED_FUNCTIONS=_add,_sub -sEXPORTED_RUNTIME_METHODS=ccall,cwrap\n"
+            ),
+            "web/src/calc.ts": (
+                'import createModule from "../dist/math.js";\n\n'
+                "export async function calc(a: number, b: number) {\n"
+                "  const Module = await createModule();\n"
+                "  const diff = Module.ccall('sub', 'number', ['number', 'number'], [a, b]);\n"
+                "  return Module._add(a, b) + diff + Module._hidden(a);\n"
+                "}\n"
+            ),
+        },
+    )
+    store = _build(tmp_path)
+    try:
+        bridges = _native_bridges(store)
+        assert bridges == {
+            ("web/src/calc.ts", "native/math.c", "loads_native_module"),
+            ("web/src/calc.ts::calc", "native/math.c::add", "calls_native_function"),
+            ("web/src/calc.ts::calc", "native/math.c::sub", "calls_native_function"),
+        }
+    finally:
+        store.close()
