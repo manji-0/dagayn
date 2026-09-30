@@ -41,6 +41,24 @@ All notable changes to `dagayn` are documented here.
   C++ `extern "C"`, or Rust `#[no_mangle]`, anywhere in the repository. The
   Java and Kotlin extractors move to version 1.
 
+- JavaScript / TypeScript calls into Node.js addons written in Rust reach
+  the Rust function. For a `cdylib` crate depending on `napi` or `neon`,
+  manifest bridges record the package names it is imported by (its
+  package.json `name`, in the crate directory or the one above, and `file:`
+  dependencies on it), its glue (`main` / `types`; `index.js` /
+  `index.d.ts` by default for napi-rs), and its `.node` files (neon's
+  `main` or `index.node`, napi-rs's `<binaryName>.<platform>.node`).
+  `native_bindings` then writes `loads_native_module` and
+  `calls_native_function` (`bridge_kind: "node_addon"`) from imports of the
+  package, the glue (also when the glue is committed and the import resolves
+  to it), or the `.node` file, and from calls to the imported names.
+- The Rust extractor records `ffi_export` with `abi: "napi"` on `#[napi]`
+  functions and classes (not `#[napi(object)]`), methods of a `#[napi]
+  impl` (`#[napi(constructor)]` as `constructor`), `#[neon::export]`
+  functions, and the function a neon `cx.export_function("name", f)`
+  registers, under the camelCase name napi-rs and neon expose unless
+  `js_name` / `name` overrides it. The Rust extractor moves to version 3.
+
 ### Changed
 
 - A shared-library loader outside Python (Java `System.loadLibrary`, ...)

@@ -442,3 +442,114 @@ def test_java_and_kotlin_jni_reach_c_and_rust(tmp_path: Path) -> None:
         assert "java/com/example/Report.java" in impact["impacted_files"]
     finally:
         store.close()
+
+
+NAPI_LIB = (
+    "use napi_derive::napi;\n\n"
+    "#[napi]\npub fn fast_sum(xs: Vec<f64>) -> f64 {\n    kahan(&xs)\n}\n" + KAHAN
+)
+NAPI_CARGO = (
+    '[package]\nname = "fastsum"\nversion = "0.1.0"\n\n[lib]\ncrate-type = ["cdylib"]\n\n'
+    '[dependencies]\nnapi = "3"\nnapi-derive = "3"\n'
+)
+
+
+def test_typescript_import_by_package_reaches_the_napi_function(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        {
+            "native/Cargo.toml": NAPI_CARGO,
+            "native/src/lib.rs": NAPI_LIB,
+            "native/package.json": (
+                '{"name": "@demo/fastsum", "main": "index.js", "types": "index.d.ts",'
+                ' "napi": {"binaryName": "fastsum"}}'
+            ),
+            "web/src/stats.ts": (
+                'import { fastSum } from "@demo/fastsum";\n\n'
+                "export function total(values: number[]): number {\n"
+                "  return fastSum(values);\n"
+                "}\n"
+            ),
+            "web/src/report.ts": (
+                'import { total } from "./stats";\n\n'
+                "export function monthlyReport(values: number[]) {\n"
+                "  return { sum: total(values) };\n"
+                "}\n"
+            ),
+        },
+    )
+    store = _build(tmp_path)
+    try:
+        bridges = _native_bridges(store)
+        assert bridges == {
+            ("web/src/stats.ts", "native/src/lib.rs", "loads_native_module"),
+            ("web/src/stats.ts::total", "native/src/lib.rs::fast_sum", "calls_native_function"),
+        }
+        impact = get_impact_radius(
+            changed_files=["native/src/lib.rs"], repo_root=str(tmp_path), max_depth=2
+        )
+        assert "web/src/report.ts" in impact["impacted_files"]
+    finally:
+        store.close()
+
+
+def test_committed_napi_glue_at_the_repo_root_reaches_the_rust_function(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        {
+            "Cargo.toml": NAPI_CARGO,
+            "src/lib.rs": NAPI_LIB,
+            "package.json": '{"name": "fastsum", "main": "index.js", "types": "index.d.ts"}',
+            "index.d.ts": "export declare function fastSum(xs: Array<number>): number\n",
+            "index.js": (
+                "const { fastSum } = require('./fastsum.darwin-arm64.node')\n"
+                "module.exports.fastSum = fastSum\n"
+            ),
+            "lib/stats.ts": (
+                'import { fastSum } from "../index";\n\n'
+                "export function total(values: number[]): number {\n"
+                "  return fastSum(values);\n"
+                "}\n"
+            ),
+        },
+    )
+    store = _build(tmp_path)
+    try:
+        bridges = _native_bridges(store)
+        assert ("lib/stats.ts::total", "src/lib.rs::fast_sum", "calls_native_function") in bridges
+    finally:
+        store.close()
+
+
+def test_neon_require_of_the_built_addon_reaches_the_rust_function(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        {
+            "Cargo.toml": (
+                '[package]\nname = "adder"\nversion = "0.1.0"\n\n[lib]\ncrate-type = ["cdylib"]\n\n'
+                '[dependencies]\nneon = "1"\n'
+            ),
+            "src/lib.rs": (
+                "#[neon::export]\nfn add_one(n: f64) -> f64 {\n    n + 1.0\n}\n\n"
+                "fn legacy(mut cx: FunctionContext) -> JsResult<JsNumber> {\n    todo!()\n}\n\n"
+                "#[neon::main]\nfn main(mut cx: ModuleContext) -> NeonResult<()> {\n"
+                '    cx.export_function("legacy", legacy)?;\n    Ok(())\n}\n'
+            ),
+            "package.json": '{"name": "adder", "main": "index.node"}',
+            "lib/math.js": (
+                'const { addOne, legacy } = require("../index.node");\n\n'
+                "function increment(n) {\n  return addOne(n);\n}\n\n"
+                "function old() {\n  return legacy();\n}\n\n"
+                "module.exports = { increment, old };\n"
+            ),
+        },
+    )
+    store = _build(tmp_path)
+    try:
+        assert _native_bridges(store) == {
+            ("lib/math.js", "src/lib.rs", "loads_native_module"),
+            ("lib/math.js::increment", "src/lib.rs::add_one", "calls_native_function"),
+            ("lib/math.js::old", "src/lib.rs::legacy", "calls_native_function"),
+        }
+    finally:
+        store.close()

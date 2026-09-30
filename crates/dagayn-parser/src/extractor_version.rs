@@ -44,8 +44,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // `#[pyclass]`, `#[pymethods]`, `#[no_mangle]`, `#[export_name]`).
         // 2: also `#[wasm_bindgen]` items and `pub` methods of a
         // `#[wasm_bindgen] impl`.
+        // 3: also napi-rs (`#[napi]`) and neon (`#[neon::export]`,
+        // `cx.export_function`) Node.js addon exports.
         extractor: "rust",
-        version: 2,
+        version: 3,
         languages: &["rust"],
     },
     ExtractorVersion {

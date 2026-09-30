@@ -181,3 +181,67 @@ impl Accumulator {
     // Only `pub` methods cross the boundary.
     assert_eq!(export("internal"), None);
 }
+
+#[test]
+fn records_node_addon_exports() {
+    let source = br#"use napi_derive::napi;
+
+#[napi]
+pub fn fast_sum(xs: Vec<f64>) -> f64 { 0.0 }
+
+#[napi(js_name = "meanOf")]
+pub fn mean(xs: Vec<f64>) -> f64 { 0.0 }
+
+#[napi]
+pub struct Accumulator { total: f64 }
+
+#[napi(object)]
+pub struct Options { pub strict: bool }
+
+#[napi]
+impl Accumulator {
+    #[napi(constructor)]
+    pub fn new() -> Self { Accumulator { total: 0.0 } }
+    #[napi]
+    pub fn add_value(&mut self, x: f64) {}
+}
+
+#[neon::export]
+fn add_one(n: f64) -> f64 { n + 1.0 }
+
+#[neon::export(name = "helloSync")]
+fn hello() -> String { String::new() }
+
+fn legacy_hello(mut cx: FunctionContext) -> JsResult<JsString> { todo!() }
+
+#[neon::main]
+fn main(mut cx: ModuleContext) -> NeonResult<()> {
+    cx.export_function("legacyHello", legacy_hello)?;
+    Ok(())
+}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (nodes, _) = parser.parse_file("native/src/lib.rs", source);
+    let node = |name: &str| {
+        nodes
+            .iter()
+            .find(|node| node.name == name)
+            .unwrap_or_else(|| panic!("no node {name}"))
+    };
+    let export = |name: &str| node(name).extra.get("ffi_export").cloned();
+    let json = |kind: &str, name: &str| {
+        Some(serde_json::json!({"abi": "napi", "kind": kind, "name": name}))
+    };
+    assert_eq!(export("fast_sum"), json("function", "fastSum"));
+    assert_eq!(export("mean"), json("function", "meanOf"));
+    assert_eq!(export("Accumulator"), json("class", "Accumulator"));
+    assert_eq!(export("Options"), None);
+    assert_eq!(export("new"), json("method", "constructor"));
+    assert_eq!(export("add_value"), json("method", "addValue"));
+    assert_eq!(export("add_one"), json("function", "addOne"));
+    assert_eq!(export("hello"), json("function", "helloSync"));
+    assert_eq!(
+        node("legacy_hello").extra.get("ffi_exports").cloned(),
+        Some(serde_json::json!([{"abi": "napi", "kind": "function", "name": "legacyHello"}]))
+    );
+}

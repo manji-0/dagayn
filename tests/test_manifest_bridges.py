@@ -214,6 +214,40 @@ class TestDiscoverManifestBridges:
         assert edges["as/asconfig.json"]["entry_files"] == ["as/assembly/index.ts"]
         assert edges["as/package.json"]["wasm_outputs"] == ["as/out/small.wasm"]
 
+    def test_napi_and_neon_crates_record_node_addon_facts(self, tmp_path: Path):
+        for crate, dep in (("napi-crate", 'napi = "3"'), ("neon-crate", 'neon = "1"')):
+            (tmp_path / crate / "src").mkdir(parents=True)
+            (tmp_path / crate / "src" / "lib.rs").write_text("")
+            (tmp_path / crate / "Cargo.toml").write_text(
+                f'[package]\nname = "{crate}"\n\n[lib]\ncrate-type = ["cdylib"]\n\n'
+                f"[dependencies]\n{dep}\n"
+            )
+        (tmp_path / "napi-crate" / "package.json").write_text(
+            json.dumps({"name": "@demo/napi", "napi": {"binaryName": "demo"}})
+        )
+        (tmp_path / "neon-crate" / "package.json").write_text(
+            json.dumps({"name": "demo-neon", "main": "lib/addon.node"})
+        )
+        (tmp_path / "web").mkdir()
+        (tmp_path / "web" / "package.json").write_text(
+            json.dumps({"dependencies": {"napi-local": "file:../napi-crate"}})
+        )
+        edges = {
+            e.source: e.extra
+            for e in discover_manifest_bridges(tmp_path).edges
+            if e.extra.get("node_addon")
+        }
+        napi = edges["napi-crate/Cargo.toml"]
+        assert napi["node_addon"] == "napi"
+        assert napi["js_packages"] == ["@demo/napi", "napi-local"]
+        assert napi["js_entry_files"] == ["napi-crate/index.js", "napi-crate/index.d.ts"]
+        assert napi["node_binary_names"] == ["demo"]
+        neon = edges["neon-crate/Cargo.toml"]
+        assert neon["node_addon"] == "neon"
+        assert neon["js_packages"] == ["demo-neon"]
+        assert neon["node_outputs"] == ["neon-crate/lib/addon.node", "neon-crate/index.node"]
+        assert neon["js_entry_files"] == []
+
     def test_cmake_shared_libraries(self, tmp_path: Path):
         src = tmp_path / "native" / "src"
         src.mkdir(parents=True)

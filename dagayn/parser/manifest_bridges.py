@@ -371,6 +371,68 @@ def _wasm_package_facts(
     return names, out_dirs
 
 
+def _node_addon_facts(
+    repo_root: Path, crate_rel: str, addon: str, hints: _WasmPackageHints
+) -> ManifestData | None:
+    """How JavaScript reaches a napi-rs / neon crate, from its package.json.
+
+    The package sits in the crate directory or the one above it. JavaScript
+    imports the addon by the package name (or a ``file:`` dependency on the
+    package directory), through the generated glue (``main`` / ``types``,
+    ``index.js`` / ``index.d.ts`` by default for napi-rs), or by requiring
+    the built ``.node`` file: neon's ``main`` (``index.node``), or napi-rs's
+    ``<binaryName>.<platform>.node``.
+    """
+    crate_dir = PurePosixPath(crate_rel) if crate_rel else PurePosixPath(".")
+    candidates = [crate_dir] if str(crate_dir) == "." else [crate_dir, crate_dir.parent]
+    for package_dir in candidates:
+        package_rel = "package.json" if str(package_dir) == "." else f"{package_dir}/package.json"
+        data = _load_json(repo_root / package_rel)
+        if data is not None:
+            break
+    else:
+        return None
+    dir_rel = _dir_rel(package_dir) or ""
+    names: list[str] = []
+    name = data.get("name")
+    if isinstance(name, str) and name.strip():
+        names.append(name.strip())
+    for dep_name, path in hints.file_dependencies:
+        if path == dir_rel and dep_name not in names:
+            names.append(dep_name)
+    entries: list[str] = []
+    outputs: list[str] = []
+    fields = [data.get("main"), data.get("types"), data.get("typings")]
+    if addon == "napi":
+        fields += ["index.js", "index.d.ts"]
+    else:
+        fields.append("index.node")
+    for value in fields:
+        if not isinstance(value, str) or not value.strip():
+            continue
+        rel = _resolve_rel(package_dir, value.strip())
+        if rel is None:
+            continue
+        bucket = outputs if rel.endswith(".node") else entries
+        if rel not in bucket:
+            bucket.append(rel)
+    binary_names: list[str] = []
+    if addon == "napi":
+        # `napi.binaryName` (napi-rs 3) or `napi.name` (2), else `index`.
+        napi = data.get("napi")
+        napi = napi if isinstance(napi, dict) else {}
+        configured = napi.get("binaryName") or napi.get("name")
+        binary_names.append(
+            configured.strip() if isinstance(configured, str) and configured.strip() else "index"
+        )
+    return {
+        "js_packages": names,
+        "js_entry_files": entries,
+        "node_outputs": outputs,
+        "node_binary_names": binary_names,
+    }
+
+
 def _extract_cargo_crate_root(
     repo_root: Path,
     cargo_rel: str,
@@ -451,6 +513,12 @@ def _extract_cargo_crate_root(
         extra["wasm_bindgen"] = True
         extra["js_packages"] = js_packages
         extra["wasm_out_dirs"] = out_dirs
+    addon = next((kind for kind in ("napi", "neon") if _cargo_depends_on(data, kind)), None)
+    if addon is not None:
+        facts = _node_addon_facts(repo_root, extra["crate_dir"], addon, wasm_hints)
+        if facts is not None:
+            extra["node_addon"] = addon
+            extra.update(facts)
     result.edges.append(
         EdgeInfo(
             kind="CROSS_ARTIFACT",

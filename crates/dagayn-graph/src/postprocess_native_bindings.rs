@@ -56,6 +56,54 @@ struct NativeCrate {
     /// What builds the library (`cargo`, `cmake`, `meson`, `make`), named
     /// in the evidence of the bridges that match its library name.
     build_system: String,
+    /// napi-rs / neon crates: how JavaScript reaches the Node.js addon.
+    node_addon: Option<NodeAddon>,
+}
+
+impl NativeCrate {
+    /// `bridge_kind` of the bridges from JavaScript into this crate.
+    fn js_bridge_kind(&self) -> &'static str {
+        if self.node_addon.is_some() {
+            "node_addon"
+        } else {
+            "wasm"
+        }
+    }
+}
+
+/// A napi-rs / neon Node.js addon, besides its package names.
+struct NodeAddon {
+    /// Generated glue (`index.js`, `index.d.ts`), repo-relative.
+    entry_files: Vec<String>,
+    /// Built `.node` files at known paths (neon's `index.node`).
+    outputs: Vec<String>,
+    /// napi-rs `binaryName`: `<name>.node` / `<name>.<platform>.node`.
+    binary_names: Vec<String>,
+}
+
+impl NodeAddon {
+    /// True when the repo-relative module *path* is this addon's glue or
+    /// binary (`native/index` for `native/index.js`, `native` for its
+    /// `index`, or a `.node` file).
+    fn matches(&self, path: &str) -> bool {
+        let stem = module_stem(path);
+        let glue = self.entry_files.iter().any(|entry| {
+            let entry_stem = module_stem(entry);
+            entry_stem == stem
+                || entry_stem
+                    .strip_suffix("/index")
+                    .or_else(|| (entry_stem == "index").then_some(""))
+                    .is_some_and(|dir| dir == stem)
+        });
+        let binary = path.ends_with(".node")
+            && (self.outputs.iter().any(|output| output == path)
+                || self.binary_names.iter().any(|name| {
+                    let file = path.rsplit('/').next().unwrap_or(path);
+                    file.strip_prefix(name.as_str())
+                        .is_some_and(|rest| rest.starts_with('.'))
+                }));
+        glue || binary
+    }
 }
 
 enum ExportScope {
@@ -96,8 +144,9 @@ struct CrateExports {
     /// C symbols: `#[no_mangle]` / `#[export_name]`.
     c: HashMap<String, Vec<String>>,
     /// JavaScript-visible exports: `#[wasm_bindgen]` functions and classes,
-    /// Go `//go:wasmexport` / TinyGo `//export`, AssemblyScript `export`.
-    wasm: HashMap<String, Vec<String>>,
+    /// Go `//go:wasmexport` / TinyGo `//export`, AssemblyScript `export`,
+    /// and Node.js addon exports (`#[napi]`, neon).
+    js: HashMap<String, Vec<String>>,
     /// Globals a Go `js.Global().Set("name", js.FuncOf(f))` defines.
     js_global: HashMap<String, Vec<String>>,
 }
@@ -253,7 +302,7 @@ fn join_relative(file_path: &str, spec: &str) -> Option<String> {
 /// A module path without its JavaScript / WebAssembly extension, so the
 /// glue `build/release.js` meets the output `build/release.wasm`.
 fn module_stem(path: &str) -> &str {
-    for ext in [".d.ts", ".wasm", ".js", ".mjs", ".cjs", ".ts"] {
+    for ext in [".d.ts", ".wasm", ".node", ".js", ".mjs", ".cjs", ".ts"] {
         if let Some(stem) = path.strip_suffix(ext) {
             return stem;
         }
@@ -309,36 +358,60 @@ fn package_of(spec: &str) -> &str {
     }
 }
 
-/// The wasm-bindgen crate a JavaScript module specifier imports: its package
-/// name, or a relative path into its wasm-pack output directory.
-fn wasm_crate_for(crates: &[NativeCrate], file_path: &str, spec: &str) -> Option<usize> {
-    let matches: Vec<usize> = if spec.starts_with("./") || spec.starts_with("../") {
-        let resolved = join_relative(file_path, spec)?;
-        let stem = module_stem(&resolved);
-        crates
-            .iter()
-            .enumerate()
-            .filter(|(_, krate)| {
-                krate.wasm_out_dirs.iter().any(|dir| {
-                    resolved == *dir
-                        || resolved
-                            .strip_prefix(dir.as_str())
-                            .is_some_and(|rest| rest.starts_with('/'))
-                }) || krate
-                    .wasm_outputs
-                    .iter()
-                    .any(|output| module_stem(output) == stem)
-            })
-            .map(|(index, _)| index)
-            .collect()
+/// The crate a JavaScript module specifier imports: a wasm-bindgen or
+/// Node.js addon package by name, a relative path into a wasm-pack output
+/// directory or to a WebAssembly glue / addon glue or `.node` file, or the
+/// repo-relative path the extractor resolved such an import to.
+fn js_crate_for(crates: &[NativeCrate], file_path: &str, spec: &str) -> Option<usize> {
+    let resolved = if spec.starts_with("./") || spec.starts_with("../") {
+        Some(join_relative(file_path, spec)?)
     } else {
-        let package = package_of(spec);
-        crates
+        None
+    };
+    let matches_path = |krate: &NativeCrate, path: &str| {
+        let stem = module_stem(path);
+        krate.wasm_out_dirs.iter().any(|dir| {
+            path == dir
+                || path
+                    .strip_prefix(dir.as_str())
+                    .is_some_and(|rest| rest.starts_with('/'))
+        }) || krate
+            .wasm_outputs
+            .iter()
+            .any(|output| module_stem(output) == stem)
+            || krate
+                .node_addon
+                .as_ref()
+                .is_some_and(|addon| addon.matches(path))
+    };
+    let matches: Vec<usize> = match &resolved {
+        Some(path) => crates
             .iter()
             .enumerate()
-            .filter(|(_, krate)| krate.js_packages.iter().any(|name| name == package))
+            .filter(|(_, krate)| matches_path(krate, path))
             .map(|(index, _)| index)
-            .collect()
+            .collect(),
+        None => {
+            let package = package_of(spec);
+            let by_name: Vec<usize> = crates
+                .iter()
+                .enumerate()
+                .filter(|(_, krate)| krate.js_packages.iter().any(|name| name == package))
+                .map(|(index, _)| index)
+                .collect();
+            if by_name.is_empty() {
+                // An import the extractor resolved to a file in the
+                // repository (committed napi-rs glue) arrives as its path.
+                crates
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, krate)| krate.node_addon.is_some() && matches_path(krate, spec))
+                    .map(|(index, _)| index)
+                    .collect()
+            } else {
+                by_name
+            }
+        }
     };
     match matches.as_slice() {
         [only] => Some(*only),
@@ -398,6 +471,7 @@ fn load_crates(tx: &Transaction<'_>) -> Result<Vec<NativeCrate>> {
                 wasm_outputs: Vec::new(),
                 scope: ExportScope::Files(string_list(&extra, "source_files")),
                 language,
+                node_addon: None,
                 build_system: extra
                     .get("build_system")
                     .and_then(Value::as_str)
@@ -435,6 +509,7 @@ fn load_crates(tx: &Transaction<'_>) -> Result<Vec<NativeCrate>> {
                 scope,
                 language,
                 build_system: producer.to_string(),
+                node_addon: None,
             });
             continue;
         }
@@ -455,6 +530,14 @@ fn load_crates(tx: &Transaction<'_>) -> Result<Vec<NativeCrate>> {
             scope: ExportScope::Tree(crate_dir),
             language: "rust",
             build_system: "cargo".to_string(),
+            node_addon: extra
+                .get("node_addon")
+                .and_then(Value::as_str)
+                .map(|_| NodeAddon {
+                    entry_files: string_list(&extra, "js_entry_files"),
+                    outputs: string_list(&extra, "node_outputs"),
+                    binary_names: string_list(&extra, "node_binary_names"),
+                }),
             wasm_outputs: Vec::new(),
             lib_name: lib_name.to_string(),
             cdylib,
@@ -517,12 +600,12 @@ fn load_exports(tx: &Transaction<'_>, crates: &[NativeCrate]) -> Result<Vec<Crat
             let table = match (abi, kind) {
                 // Methods are reached through an instance, which a bare name
                 // cannot tell apart; only module attributes are bound here.
-                ("pyo3" | "wasm", "method") => continue,
+                ("pyo3" | "wasm" | "napi", "method") => continue,
                 ("pyo3", _) => &mut exports[index].python,
                 // TinyGo's `//export` is a WebAssembly export.
-                ("c", _) if go_wasm => &mut exports[index].wasm,
+                ("c", _) if go_wasm => &mut exports[index].js,
                 ("c", _) => &mut exports[index].c,
-                ("wasm", _) => &mut exports[index].wasm,
+                ("wasm" | "napi", _) => &mut exports[index].js,
                 ("js_global", _) => &mut exports[index].js_global,
                 _ => continue,
             };
@@ -550,7 +633,7 @@ fn load_exports(tx: &Transaction<'_>, crates: &[NativeCrate]) -> Result<Vec<Crat
             })?;
             for row in rows {
                 let (qualified, name) = row?;
-                exports[index].wasm.entry(name).or_default().push(qualified);
+                exports[index].js.entry(name).or_default().push(qualified);
             }
         }
     }
@@ -847,16 +930,15 @@ fn bind_shared_libraries(
 
 /// JavaScript / TypeScript imports of a wasm-bindgen crate, and the calls
 /// the extractor qualified as `specifier::name` into it.
-fn bind_wasm_modules(
+fn bind_js_modules(
     tx: &Transaction<'_>,
     crates: &[NativeCrate],
     exports: &[CrateExports],
     bridges: &mut Vec<NewBridge>,
 ) -> Result<()> {
-    if crates
-        .iter()
-        .all(|krate| krate.js_packages.is_empty() && krate.wasm_outputs.is_empty())
-    {
+    if crates.iter().all(|krate| {
+        krate.js_packages.is_empty() && krate.wasm_outputs.is_empty() && krate.node_addon.is_none()
+    }) {
         return Ok(());
     }
     let mut stmt = tx.prepare(
@@ -879,7 +961,7 @@ fn bind_wasm_modules(
             continue;
         };
         if kind == "IMPORTS_FROM" {
-            let Some(index) = wasm_crate_for(crates, &file_path, &target) else {
+            let Some(index) = js_crate_for(crates, &file_path, &target) else {
                 continue;
             };
             if linked.insert((file_path.clone(), index)) {
@@ -890,7 +972,7 @@ fn bind_wasm_modules(
                     line,
                     extra: bridge_extra(
                         "loads_native_module",
-                        "wasm",
+                        crates[index].js_bridge_kind(),
                         "manifest",
                         format!("import {target}"),
                         language,
@@ -903,11 +985,11 @@ fn bind_wasm_modules(
         let Some((spec, path)) = target.split_once("::") else {
             continue;
         };
-        let Some(index) = wasm_crate_for(crates, &file_path, spec) else {
+        let Some(index) = js_crate_for(crates, &file_path, spec) else {
             continue;
         };
         let name = path.split('.').next().unwrap_or(path);
-        let Some(export) = unique(exports[index].wasm.get(name)) else {
+        let Some(export) = unique(exports[index].js.get(name)) else {
             continue;
         };
         bridges.push(NewBridge {
@@ -917,9 +999,9 @@ fn bind_wasm_modules(
             line,
             extra: bridge_extra(
                 "calls_native_function",
-                "wasm",
+                crates[index].js_bridge_kind(),
                 "syntax",
-                format!("wasm export {name}"),
+                format!("export {name}"),
                 language,
                 crates[index].language,
             ),
@@ -988,7 +1070,7 @@ fn bind_wasm_loaders(
             let hits: Vec<(&String, usize)> = indexes
                 .iter()
                 .filter_map(|index| {
-                    unique(exports[*index].wasm.get(name))
+                    unique(exports[*index].js.get(name))
                         .or_else(|| unique(exports[*index].js_global.get(name)))
                         .map(|qn| (qn, *index))
                 })
@@ -1170,7 +1252,7 @@ impl GraphStore {
             let bindings = bind_extension_imports(&tx, &crates, &mut bridges)?;
             bind_extension_calls(&tx, &crates, &exports, &bindings, &mut bridges)?;
             bind_shared_libraries(&tx, &crates, &exports, &mut bridges)?;
-            bind_wasm_modules(&tx, &crates, &exports, &mut bridges)?;
+            bind_js_modules(&tx, &crates, &exports, &mut bridges)?;
             bind_wasm_loaders(&tx, &crates, &exports, &mut bridges)?;
             bind_js_globals(&tx, &crates, &exports, &mut bridges)?;
         }
@@ -1901,6 +1983,7 @@ mod store_tests {
             scope: ExportScope::Files(Vec::new()),
             language: "go",
             build_system: "go".to_string(),
+            node_addon: None,
         };
         let crates = [
             producer(&["web/public/go.wasm"]),
@@ -1923,7 +2006,7 @@ mod store_tests {
             None
         );
         assert_eq!(
-            wasm_crate_for(&crates, "web/src/a.ts", "../../as/build/release.js"),
+            js_crate_for(&crates, "web/src/a.ts", "../../as/build/release.js"),
             Some(1)
         );
     }

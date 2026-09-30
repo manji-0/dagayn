@@ -701,13 +701,15 @@ matches:
 | C# P/Invoke method -> C / Rust function (`calls_native_function`) | `[DllImport]` / `[LibraryImport]` bridge (`loads_shared_library` with `symbol` = `EntryPoint` or the method name) whose library matches, and the library exports that C symbol |
 | Java `native` / Kotlin `external` method -> C / C++ / Rust function (`calls_native_function`, `bridge_kind: jni`) | `ffi_import.symbol` (`Java_<mangled class>_<mangled method>`) equals exactly one C-ABI export, or one overload `symbol__<signature>`, anywhere in the repository |
 | Python function -> C function (`calls_native_function`) | call in the Python loader's file to a function with external C linkage in one of the library's sources (`ffi_export.abi = "c"`: not `static` / hidden; in C++ only inside `extern "C"`). Other languages' loaders do not bind calls by bare name |
+| JS/TS file -> napi-rs / neon crate root (`loads_native_module`, `bridge_kind: node_addon`) | import of the addon's package name (package.json in the crate directory or its parent, or a `file:` dependency on it), of its glue (`main` / `types`, napi-rs default `index.js` / `index.d.ts`, also when resolved to a committed glue file), or of a `.node` file (neon `main` / `index.node`, napi-rs `<binaryName>.*.node`) |
+| JS/TS function -> Rust item (`calls_native_function`, `bridge_kind: node_addon`) | call to a name imported from that module matching a `#[napi]` function or class, a `#[neon::export]` function, or a neon `cx.export_function("name", f)` registration (camelCase by default; `js_name` / `name` respected) |
 | JS/TS file -> crate root (`loads_native_module`, `bridge_kind: wasm`) | import of a wasm-bindgen crate's package name (crate name, `wasm-pack --scope`, `file:` dependency on its output) or of a relative path into its wasm-pack output directory |
 | JS/TS function -> Rust item (`calls_native_function`, `bridge_kind: wasm`) | call the extractor qualified as `specifier::name` into that package, matching a `#[wasm_bindgen]` function or class (`js_name`) |
 | build config -> Go package / AssemblyScript entry (`builds_from_source`, `manifest_kind: wasm_build`) | `go build` with `GOARCH=wasm`, `tinygo build -target wasm/wasi`, `asconfig.json` targets, or `asc --outFile`, naming the `.wasm` outputs |
 | JS/TS file or loader -> Go package / AssemblyScript entry (`loads_native_module`, `bridge_kind: wasm`) | import of the glue next to an output (`build/release.js` beside `build/release.wasm`), or a `loads_wasm_module` literal (`fetch("/app.wasm")`) matching an output path, resolved from the file or as a suffix |
 | JS/TS function -> Go / AssemblyScript function (`calls_native_function`, `bridge_kind: wasm`) | call into the glue, or a call in the loading file, matching `//go:wasmexport`, TinyGo `//export`, or an AssemblyScript entry `export`; or a call to an ambient `declare function` matching exactly one Go `js.Global().Set` global |
 
-Methods of `#[pyclass]` and `#[wasm_bindgen]` types are recorded
+Methods of `#[pyclass]`, `#[wasm_bindgen]`, and `#[napi]` types are recorded
 (`ffi_export.kind = "method"`) but not bound: a bare method name does not say
 which instance it is called on.
 

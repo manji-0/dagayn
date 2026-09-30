@@ -48,6 +48,7 @@ pub(super) fn parse_rust_with_parser(
             bindings: RefCell::new(MemberCallBindings::with_types(type_names)),
         };
         rust_walk_children(root, &context, None, None, &mut nodes, &mut edges);
+        record_neon_exported_functions(root, source, &mut nodes);
         let mut edges = resolve_rust_call_targets(&nodes, edges, &file_path);
         add_tested_by_edges(&nodes, &mut edges);
         return (nodes, edges);
@@ -444,6 +445,14 @@ fn rust_type_extra(node: tree_sitter::Node<'_>, source: &[u8]) -> serde_json::Va
                 .or_else(|| rust_type_name(node, source))
                 .unwrap_or_default();
             extra["ffi_export"] = json!({"abi": "wasm", "kind": "class", "name": name});
+        } else if let Some(attr) = attrs.iter().find(|attr| rust_attr_is(attr, "napi"))
+            // `#[napi(object)]` is a plain object type, not a class.
+            && !rust_attr_has_flag(attr, "object")
+        {
+            let name = rust_attr_string_arg(attr, "js_name")
+                .or_else(|| rust_type_name(node, source))
+                .unwrap_or_default();
+            extra["ffi_export"] = json!({"abi": "napi", "kind": "class", "name": name});
         }
     }
     extra
@@ -483,6 +492,99 @@ fn rust_attr_is(attr: &str, name: &str) -> bool {
         .unwrap_or(inner);
     let path = inner.split(['(', '=']).next().unwrap_or_default();
     path == name || path.rsplit("::").next() == Some(name)
+}
+
+/// True when the attribute's argument list contains the bare word *flag*
+/// (`#[napi(object)]`, `#[napi(constructor)]`).
+fn rust_attr_has_flag(attr: &str, flag: &str) -> bool {
+    attr.split_once('(')
+        .map(|(_, args)| args.trim_end_matches([']', ')']))
+        .is_some_and(|args| args.split(',').any(|arg| arg == flag))
+}
+
+/// The JavaScript name napi-rs and neon give a Rust function by default:
+/// `fast_sum` -> `fastSum`. Leading and trailing underscores stay; a name
+/// that is not plain lowercase `snake_case` is kept as written.
+fn js_camel_case(name: &str) -> String {
+    let core = name.trim_matches('_');
+    if core.is_empty() || core.contains("__") || core.chars().any(|ch| ch.is_ascii_uppercase()) {
+        return name.to_string();
+    }
+    let leading = &name[..name.len() - name.trim_start_matches('_').len()];
+    let trailing = &name[name.trim_end_matches('_').len()..];
+    let mut out = String::from(leading);
+    let mut upper = false;
+    for ch in core.chars() {
+        if ch == '_' {
+            upper = true;
+        } else if upper {
+            out.extend(ch.to_uppercase());
+            upper = false;
+        } else {
+            out.push(ch);
+        }
+    }
+    out.push_str(trailing);
+    out
+}
+
+/// neon's `cx.export_function("name", f)`: records the JavaScript name on
+/// the Rust function `f` it registers (`ffi_exports`, `abi: "napi"`).
+fn record_neon_exported_functions(
+    root: tree_sitter::Node<'_>,
+    source: &[u8],
+    nodes: &mut [ParsedNode],
+) {
+    let mut registrations = Vec::new();
+    collect_neon_registrations(root, source, &mut registrations);
+    for (js_name, function) in registrations {
+        let mut matches = nodes.iter_mut().filter(|node| {
+            node.kind == crate::core::types::NodeKind::Function && node.name == function
+        });
+        let (Some(node), None) = (matches.next(), matches.next()) else {
+            continue;
+        };
+        let entry = json!({"abi": "napi", "kind": "function", "name": js_name});
+        match node
+            .extra
+            .get_mut("ffi_exports")
+            .and_then(|v| v.as_array_mut())
+        {
+            Some(list) => list.push(entry),
+            None => node.extra["ffi_exports"] = json!([entry]),
+        }
+    }
+}
+
+fn collect_neon_registrations(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    found: &mut Vec<(String, String)>,
+) {
+    if node.kind() == "call_expression"
+        && let Some(function) = node.child_by_field_name("function")
+        && function.kind() == "field_expression"
+        && function
+            .child_by_field_name("field")
+            .is_some_and(|field| node_text(field, source) == "export_function")
+        && let Some(arguments) = node.child_by_field_name("arguments")
+    {
+        let mut cursor = arguments.walk();
+        let args: Vec<_> = arguments.named_children(&mut cursor).collect();
+        if let [name, target, ..] = args.as_slice()
+            && name.kind() == "string_literal"
+            && matches!(target.kind(), "identifier" | "scoped_identifier")
+        {
+            let js_name = node_text(*name, source).trim_matches('"').to_string();
+            let target = node_text(*target, source);
+            let function = target.rsplit("::").next().unwrap_or(&target).to_string();
+            found.push((js_name, function));
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_neon_registrations(child, source, found);
+    }
 }
 
 fn rust_attr_string_arg(attr: &str, key: &str) -> Option<String> {
@@ -525,6 +627,9 @@ fn rust_function_ffi_export(
     if attrs.iter().any(|attr| rust_attr_is(attr, "pyfunction")) {
         let python_name = renamed().unwrap_or_else(|| name.to_string());
         return Some(json!({"abi": "pyo3", "kind": "function", "name": python_name}));
+    }
+    if let Some(export) = rust_node_addon_export(node, source, name, &attrs) {
+        return Some(export);
     }
     let wasm_attr = attrs.iter().find(|attr| rust_attr_is(attr, "wasm_bindgen"));
     let wasm_impl = rust_enclosing_impl(node).filter(|item| {
@@ -574,6 +679,43 @@ fn rust_function_ffi_export(
         return Some(json!({"abi": "c", "kind": "function", "name": name}));
     }
     None
+}
+
+/// Node.js addon exports: `#[napi]` functions, methods of a `#[napi] impl`
+/// (`#[napi(constructor)]` as `constructor`), and `#[neon::export]`
+/// functions, under the camelCase name both expose unless `js_name` /
+/// `name` says otherwise.
+fn rust_node_addon_export(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    name: &str,
+    attrs: &[String],
+) -> Option<serde_json::Value> {
+    let napi_attr = attrs.iter().find(|attr| rust_attr_is(attr, "napi"));
+    let napi_impl = rust_enclosing_impl(node).is_some_and(|item| {
+        rust_leading_attribute_texts(item, source)
+            .iter()
+            .any(|attr| rust_attr_is(attr, "napi"))
+    });
+    if napi_impl {
+        let attr = napi_attr?;
+        let js_name = if rust_attr_has_flag(attr, "constructor") {
+            "constructor".to_string()
+        } else {
+            rust_attr_string_arg(attr, "js_name").unwrap_or_else(|| js_camel_case(name))
+        };
+        return Some(json!({"abi": "napi", "kind": "method", "name": js_name}));
+    }
+    if let Some(attr) = napi_attr {
+        let js_name = rust_attr_string_arg(attr, "js_name").unwrap_or_else(|| js_camel_case(name));
+        return Some(json!({"abi": "napi", "kind": "function", "name": js_name}));
+    }
+    let neon_attr = attrs.iter().find(|attr| {
+        attr.strip_prefix("#[")
+            .is_some_and(|inner| inner.starts_with("neon::export"))
+    })?;
+    let js_name = rust_attr_string_arg(neon_attr, "name").unwrap_or_else(|| js_camel_case(name));
+    Some(json!({"abi": "napi", "kind": "function", "name": js_name}))
 }
 
 fn rust_node_with_leading_attributes(
