@@ -108,3 +108,7 @@ SCALING_AND_TOKEN_EFFICIENCY_PLAN.md
 .beads-credential-key
 # Added by dagayn
 .dagayn/
+
+# LLVM coverage profiles from instrumented test runs
+*.profraw
+*.profdata

@@ -424,58 +424,17 @@ fn push_terraform_node(
     });
 }
 
+/// `import`, `moved` and `removed` blocks declare nothing; their addresses
+/// (`to = aws_s3_bucket.b`, `from = aws_instance.old`) are references, resolved
+/// like any other and tagged with the block kind. The import `id` is a
+/// provider-side identifier, not something in the configuration.
 fn handle_terraform_meta_block(
     file_path: &FilePath,
     block: &TerraformBlock,
     defined_names: &HashSet<String>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let attrs = terraform_attrs(block);
-    let attr_value = |name: &str| {
-        attrs
-            .iter()
-            .find(|attr| attr.name == name)
-            .map(|attr| strip_tf_string(&attr.value))
-    };
-    match block.kind.as_str() {
-        "import" => {
-            if let Some(target) = attr_value("id").or_else(|| attr_value("to")) {
-                edges.push(ParsedEdge {
-                    kind: crate::core::types::EdgeKind::ImportsFrom,
-                    source: file_path.to_string(),
-                    target,
-                    file_path: file_path.clone(),
-                    line: block.line_start,
-                    extra: json!({}),
-                });
-            }
-        }
-        "moved" => {
-            if let (Some(source), Some(target)) = (attr_value("from"), attr_value("to")) {
-                edges.push(ParsedEdge {
-                    kind: crate::core::types::EdgeKind::References,
-                    source,
-                    target,
-                    file_path: file_path.clone(),
-                    line: block.line_start,
-                    extra: json!({"terraform_kind": "moved"}),
-                });
-            }
-        }
-        "removed" => {
-            if let Some(target) = attr_value("from") {
-                edges.push(ParsedEdge {
-                    kind: crate::core::types::EdgeKind::References,
-                    source: file_path.to_string(),
-                    target,
-                    file_path: file_path.clone(),
-                    line: block.line_start,
-                    extra: json!({"terraform_kind": "removed"}),
-                });
-            }
-        }
-        _ => {}
-    }
+    let first = edges.len();
     scan_terraform_block(
         block,
         file_path,
@@ -484,6 +443,11 @@ fn handle_terraform_meta_block(
         defined_names,
         edges,
     );
+    for edge in &mut edges[first..] {
+        if let Some(extra) = edge.extra.as_object_mut() {
+            extra.insert("terraform_kind".to_string(), json!(block.kind));
+        }
+    }
 }
 
 fn scan_terraform_body(

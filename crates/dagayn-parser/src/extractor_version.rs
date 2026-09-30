@@ -257,6 +257,14 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         languages: &["r"],
     },
     ExtractorVersion {
+        // 1: `import` / `moved` / `removed` blocks emit resolved REFERENCES
+        // tagged with `terraform_kind`, not an IMPORTS_FROM to the provider's
+        // import id or an edge between raw addresses.
+        extractor: "terraform",
+        version: 1,
+        languages: &["terraform"],
+    },
+    ExtractorVersion {
         // 1: `export fn` records `ffi_export`, `extern fn` records
         // `ffi_import`, and calls through an `@cImport` constant record
         // `c_import`.

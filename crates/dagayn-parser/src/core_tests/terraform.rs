@@ -361,3 +361,104 @@ resource "google_cloudfunctions_function" "api" {
         edge.extra["evidence_source"] == "entry_point" && edge.target == "<unresolved:serve>"
     }));
 }
+
+#[test]
+fn blocks_survive_a_file_tree_sitter_cannot_recover() {
+    // A stray `}}}` (or an unterminated string) turns the whole tree into one
+    // ERROR node; the text scanner still finds the blocks.
+    for prefix in ["}}}\n", "\"unterminated\n"] {
+        let source = format!(
+            "{prefix}resource \"aws_s3_bucket\" \"b\" {{\n  bucket = var.name\n}}\nmodule \"m\" {{\n  source = \"./m\"\n}}\n"
+        );
+        let mut parser = RustOwnedParser::new();
+        let (nodes, edges) = parser.parse_file("main.tf", source.as_bytes());
+        let names: Vec<&str> = nodes.iter().map(|node| node.name.as_str()).collect();
+        assert!(
+            names.contains(&"resource.aws_s3_bucket.b"),
+            "{prefix:?}: {names:?}"
+        );
+        assert!(names.contains(&"module.m"), "{prefix:?}: {names:?}");
+        assert!(
+            edges
+                .iter()
+                .any(|edge| edge.kind == "IMPORTS_FROM" && edge.target == "./m")
+        );
+        assert!(
+            edges
+                .iter()
+                .any(|edge| edge.kind == "REFERENCES" && edge.target == "var.name")
+        );
+    }
+}
+
+#[test]
+fn import_moved_and_removed_blocks_reference_resolved_addresses() {
+    let source = b"resource \"aws_s3_bucket\" \"b\" {}\nresource \"aws_instance\" \"new\" {}\n\
+import {\n  to = aws_s3_bucket.b\n  id = \"bucket-123\"\n}\n\
+moved {\n  from = aws_instance.old\n  to   = aws_instance.new\n}\n\
+removed {\n  from = aws_instance.gone\n}\n";
+    let mut parser = RustOwnedParser::new();
+    let (_, edges) = parser.parse_file("meta.tf", source);
+    let mut meta: Vec<(&str, &str, &str)> = edges
+        .iter()
+        .filter(|edge| edge.extra.get("terraform_kind").is_some())
+        .map(|edge| {
+            (
+                edge.extra["terraform_kind"].as_str().unwrap(),
+                edge.source.as_str(),
+                edge.target.as_str(),
+            )
+        })
+        .collect();
+    meta.sort();
+    assert_eq!(
+        meta,
+        vec![
+            ("import", "meta.tf", "meta.tf::resource.aws_s3_bucket.b"),
+            ("moved", "meta.tf", "meta.tf::resource.aws_instance.new"),
+            ("moved", "meta.tf", "resource.aws_instance.old"),
+            ("removed", "meta.tf", "resource.aws_instance.gone"),
+        ]
+    );
+    // The provider-side import id is not a module.
+    assert!(!edges.iter().any(|edge| edge.target == "bucket-123"));
+}
+
+#[test]
+fn json_configuration_declares_providers_locals_and_settings() {
+    let source = br#"{
+  "terraform": { "required_version": ">= 1.5" },
+  "provider": { "aws": { "region": "us-east-1" } },
+  "locals": { "name": "app" },
+  "variable": { "env": {} },
+  "resource": { "aws_s3_bucket": { "b": { "bucket": "x" } } }
+}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (nodes, _) = parser.parse_file("main.tf.json", source);
+    let mut names: Vec<&str> = nodes.iter().map(|node| node.name.as_str()).collect();
+    names.sort();
+    assert_eq!(
+        names,
+        vec![
+            "local.name",
+            "main.tf.json",
+            "provider.aws",
+            "resource.aws_s3_bucket.b",
+            "terraform",
+            "var.env",
+        ]
+    );
+}
+
+#[test]
+fn test_files_declare_run_blocks() {
+    let source = b"run \"creates_bucket\" {\n  command = plan\n  assert {\n    condition = aws_s3_bucket.b.bucket == \"x\"\n    error_message = \"wrong\"\n  }\n}\n";
+    let mut parser = RustOwnedParser::new();
+    let (nodes, _) = parser.parse_file("main.tftest.hcl", source);
+    let run = nodes
+        .iter()
+        .find(|node| node.name == "run.creates_bucket")
+        .expect("run block");
+    assert!(run.is_test);
+}
