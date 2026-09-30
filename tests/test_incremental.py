@@ -1121,7 +1121,7 @@ class TestIncrementalUpdate:
         def stop_watch(_seconds):
             raise KeyboardInterrupt
 
-        monkeypatch.setattr("time.sleep", stop_watch)
+        monkeypatch.setattr("dagayn.incremental_update_pipeline._idle", lambda: stop_watch(1))
 
         try:
             watch(tmp_path, store, on_files_updated=lambda s: callbacks.append(s))
@@ -1178,7 +1178,10 @@ class TestIncrementalUpdate:
                 calls.append(list(changed_files or [])) or BuildResult(files_updated=1)
             ),
         )
-        monkeypatch.setattr("time.sleep", lambda _seconds: (_ for _ in ()).throw(KeyboardInterrupt))
+        monkeypatch.setattr(
+            "dagayn.incremental_update_pipeline._idle",
+            lambda: (_ for _ in ()).throw(KeyboardInterrupt),
+        )
 
         try:
             watch(tmp_path, store)
@@ -1227,7 +1230,10 @@ class TestIncrementalUpdate:
                 calls.append(list(changed_files or [])) or BuildResult(files_updated=1)
             ),
         )
-        monkeypatch.setattr("time.sleep", lambda _seconds: (_ for _ in ()).throw(KeyboardInterrupt))
+        monkeypatch.setattr(
+            "dagayn.incremental_update_pipeline._idle",
+            lambda: (_ for _ in ()).throw(KeyboardInterrupt),
+        )
 
         try:
             watch(tmp_path, store)

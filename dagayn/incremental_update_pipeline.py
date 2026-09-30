@@ -581,6 +581,11 @@ _DEBOUNCE_SECONDS = 0.3
 _MAX_DEBOUNCE_SECONDS = float(os.environ.get("DAGAYN_WATCH_MAX_DEBOUNCE_SECONDS", "5"))
 
 
+def _idle() -> None:
+    """One tick of the watch loop's wait for Ctrl+C (patched in tests)."""
+    time.sleep(1)
+
+
 def watch(
     repo_root: Path,
     store: GraphStore,
@@ -736,10 +741,8 @@ def watch(
 
     logger.info("Watching %s for changes... (Ctrl+C to stop)", repo_root)
     try:
-        import time as _time
-
         while True:
-            _time.sleep(1)
+            _idle()
     except KeyboardInterrupt:
         observer.stop()
     observer.join()
