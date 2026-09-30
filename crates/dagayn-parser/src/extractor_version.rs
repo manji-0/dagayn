@@ -76,8 +76,12 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 2: functions registered as Node.js addon exports (N-API,
         // node-addon-api, NAN, `NODE_SET_METHOD`) record `ffi_exports` with
         // `abi: "napi"`.
+        // 3: Python extension modules: the File node records
+        // `python_module` (`PYBIND11_MODULE`, `NB_MODULE`, `PyInit_name`),
+        // and pybind11 / nanobind `m.def` / `class_` and `PyMethodDef`
+        // registrations record `ffi_exports` with `abi: "python"`.
         extractor: "c_like",
-        version: 2,
+        version: 3,
         languages: &["c", "cpp", "objc"],
     },
     ExtractorVersion {

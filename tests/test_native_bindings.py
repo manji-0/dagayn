@@ -866,3 +866,49 @@ def test_cgo_calls_reach_c_and_c_calls_reach_go_exports(tmp_path: Path) -> None:
         }
     finally:
         store.close()
+
+
+def test_python_calls_reach_pybind11_and_c_api_extensions(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        {
+            "src/ext/bind.cpp": (
+                "#include <pybind11/pybind11.h>\n"
+                "namespace py = pybind11;\n"
+                "int add(int a, int b) { return a + b; }\n"
+                "struct Dog { void bark() {} };\n"
+                "PYBIND11_MODULE(_core, m) {\n"
+                '    m.def("add", &add);\n'
+                '    py::class_<Dog>(m, "Dog");\n'
+                "}\n"
+            ),
+            "src/ext/capi.c": (
+                "#include <Python.h>\n"
+                "static PyObject *py_scale(PyObject *self, PyObject *args) { return NULL; }\n"
+                "static PyMethodDef Methods[] = {\n"
+                '    {"scale", py_scale, METH_VARARGS, "Scale."},\n'
+                "    {NULL, NULL, 0, NULL}\n};\n"
+                "PyMODINIT_FUNC PyInit_capi(void) { return NULL; }\n"
+            ),
+            "pkg/__init__.py": "",
+            "pkg/api.py": (
+                "from pkg._core import add, Dog\n"
+                "from pkg import capi\n\n\n"
+                "def total(a, b):\n    return add(a, b)\n\n\n"
+                "def pet():\n    return Dog()\n\n\n"
+                "def scaled(x):\n    return capi.scale(x)\n"
+            ),
+        },
+    )
+    store = _build(tmp_path)
+    try:
+        bridges = _native_bridges(store)
+        assert bridges == {
+            ("pkg/api.py", "src/ext/bind.cpp", "loads_native_module"),
+            ("pkg/api.py", "src/ext/capi.c", "loads_native_module"),
+            ("pkg/api.py::total", "src/ext/bind.cpp::add", "calls_native_function"),
+            ("pkg/api.py::pet", "src/ext/bind.cpp::Dog", "calls_native_function"),
+            ("pkg/api.py::scaled", "src/ext/capi.c::py_scale", "calls_native_function"),
+        }
+    finally:
+        store.close()

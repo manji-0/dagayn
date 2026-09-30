@@ -13,6 +13,9 @@
 //!   `#[no_mangle]`), naming what the crate exports;
 //! * Python `IMPORTS_FROM` edges with the raw module and bound names, and
 //!   `CALLS` edges with the import alias used as receiver;
+//! * C / C++ files defining a Python extension module (pybind11,
+//!   nanobind, the CPython C-API), with the functions and classes they
+//!   register (`abi: "python"`);
 //! * C / C++ shared libraries a CMake, Meson, or Make build compiles from
 //!   repository sources (`manifest_kind: native_library`), whose C symbols
 //!   are the functions with `extra.ffi_export` (external C linkage);
@@ -580,6 +583,40 @@ fn load_crates(tx: &Transaction<'_>) -> Result<Vec<NativeCrate>> {
             wasm_out_dirs: string_list(&extra, "wasm_out_dirs"),
         });
     }
+    // C / C++ files that define a Python extension module themselves
+    // (`PYBIND11_MODULE`, `NB_MODULE`, `PyInit_name`).
+    let mut stmt = tx.prepare(
+        "SELECT file_path, language, json_extract(extra, '$.python_module') FROM nodes \
+         WHERE kind = 'File' AND json_extract(extra, '$.python_module') IS NOT NULL",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, Option<String>>(1)?,
+            row.get::<_, String>(2)?,
+        ))
+    })?;
+    for row in rows {
+        let (file_path, language, module) = row?;
+        crates.push(NativeCrate {
+            root: file_path.clone(),
+            lib_name: module.clone(),
+            cdylib: false,
+            python_module: Some(module),
+            js_packages: Vec::new(),
+            wasm_out_dirs: Vec::new(),
+            wasm_outputs: Vec::new(),
+            scope: ExportScope::Files(vec![file_path]),
+            language: if language.as_deref() == Some("c") {
+                "c"
+            } else {
+                "cpp"
+            },
+            build_system: "python-extension".to_string(),
+            node_addon: None,
+            emscripten: None,
+        });
+    }
     Ok(crates)
 }
 
@@ -647,8 +684,8 @@ fn load_exports(tx: &Transaction<'_>, crates: &[NativeCrate]) -> Result<Vec<Crat
             let table = match (abi, kind) {
                 // Methods are reached through an instance, which a bare name
                 // cannot tell apart; only module attributes are bound here.
-                ("pyo3" | "wasm" | "napi", "method") => continue,
-                ("pyo3", _) => &mut exports[index].python,
+                ("pyo3" | "python" | "wasm" | "napi", "method") => continue,
+                ("pyo3" | "python", _) => &mut exports[index].python,
                 // TinyGo's `//export` is a WebAssembly export.
                 ("c", _) if go_wasm => &mut exports[index].js,
                 ("c", _) => &mut exports[index].c,
@@ -769,7 +806,7 @@ fn bind_extension_imports(
                         "manifest",
                         format!("import {python_module}"),
                         "python",
-                        "rust",
+                        crates[index].language,
                     ),
                 });
             }
@@ -846,7 +883,7 @@ fn bind_extension_calls(
                     "syntax",
                     format!("{module}.{exported}"),
                     "python",
-                    "rust",
+                    crates[index].language,
                 ),
             });
         }

@@ -82,8 +82,10 @@ fn parse_c_like_with_parser(
             &mut nodes,
             &mut edges,
         );
-        if language != "objc" {
-            record_node_addon_registrations(tree.root_node(), source, &mut nodes);
+        if language != "objc"
+            && let Some(module) = record_foreign_registrations(tree.root_node(), source, &mut nodes)
+        {
+            nodes[0].extra["python_module"] = json!(module);
         }
         let mut edges = resolve_c_call_targets(&nodes, edges, &file_path);
         add_tested_by_edges(&nodes, &mut edges);
@@ -372,9 +374,10 @@ fn c_function_ffi_export(
     Some(json!({"abi": "c", "kind": "function", "name": name}))
 }
 
-/// Node.js addon registrations: the JavaScript name a C / C++ function is
-/// exported under, recorded on that function as `ffi_exports` with
-/// `abi: "napi"`.
+/// Functions and classes C / C++ code registers with another runtime,
+/// recorded on the registered node as `ffi_exports`.
+///
+/// Node.js addons (`abi: "napi"`, the JavaScript name):
 ///
 /// * `napi_create_function(env, "name", len, Fn, ...)`
 /// * `NODE_SET_METHOD(exports, "name", Fn)`, `Nan::SetMethod(target, "name", Fn)`
@@ -382,21 +385,40 @@ fn c_function_ffi_export(
 /// * `exports.Set("name", Napi::Function::New(env, Fn))`, also with
 ///   `Napi::String::New(env, "name")` as the key
 /// * `napi_property_descriptor` initializers `{ "name", NULL, Fn, ... }`
-fn record_node_addon_registrations(
+///
+/// Python extension modules (`abi: "python"`, the module attribute):
+///
+/// * pybind11 / nanobind `m.def("name", &Fn)` and
+///   `py::class_<T>(m, "Name")` / `nb::class_<T>(m, "Name")`
+/// * CPython `PyMethodDef` entries `{ "name", Fn, METH_..., doc }`
+///
+/// Returns the Python module the file defines (`PYBIND11_MODULE(name, m)`,
+/// `NB_MODULE(name, m)`, `PyInit_name`), if any.
+fn record_foreign_registrations(
     root: tree_sitter::Node<'_>,
     source: &[u8],
     nodes: &mut [ParsedNode],
-) {
+) -> Option<String> {
     let mut registrations = Vec::new();
-    c_collect_addon_registrations(root, source, &mut registrations);
-    for (js_name, function) in registrations {
-        let mut matches = nodes.iter_mut().filter(|node| {
-            node.kind == crate::core::types::NodeKind::Function && node.name == function
-        });
+    let mut python_module = None;
+    c_collect_registrations(root, source, &mut registrations, &mut python_module);
+    for registration in registrations {
+        let wanted = if registration.kind == "class" {
+            crate::core::types::NodeKind::Class
+        } else {
+            crate::core::types::NodeKind::Function
+        };
+        let mut matches = nodes
+            .iter_mut()
+            .filter(|node| node.kind == wanted && node.name == registration.target);
         let (Some(node), None) = (matches.next(), matches.next()) else {
             continue;
         };
-        let entry = json!({"abi": "napi", "kind": "function", "name": js_name});
+        let entry = json!({
+            "abi": registration.abi,
+            "kind": registration.kind,
+            "name": registration.name,
+        });
         match node
             .extra
             .get_mut("ffi_exports")
@@ -407,17 +429,44 @@ fn record_node_addon_registrations(
             None => node.extra["ffi_exports"] = json!([entry]),
         }
     }
+    python_module
 }
 
-fn c_collect_addon_registrations(
+struct Registration {
+    abi: &'static str,
+    kind: &'static str,
+    /// The name the other runtime sees.
+    name: String,
+    /// The C / C++ function or class registered.
+    target: String,
+}
+
+impl Registration {
+    fn function(abi: &'static str, name: String, target: String) -> Self {
+        Self {
+            abi,
+            kind: "function",
+            name,
+            target,
+        }
+    }
+}
+
+fn c_collect_registrations(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    found: &mut Vec<(String, String)>,
+    found: &mut Vec<Registration>,
+    python_module: &mut Option<String>,
 ) {
     match node.kind() {
+        "function_definition" if python_module.is_none() => {
+            *python_module = c_python_module(node, source);
+        }
         "call_expression" => {
-            if let Some(pair) = c_addon_registration_call(node, source) {
-                found.push(pair);
+            if let Some((name, function)) = c_addon_registration_call(node, source) {
+                found.push(Registration::function("napi", name, function));
+            } else if let Some(registration) = c_python_registration_call(node, source) {
+                found.push(registration);
             }
         }
         "initializer_list" => {
@@ -429,15 +478,100 @@ fn c_collect_addon_registrations(
                     || matches!(node_text(*data, source).trim(), "0" | "NULL" | "nullptr"))
                 && let Some(function) = c_function_reference(*function, source)
             {
-                found.push((c_string_text(*name, source), function));
+                found.push(Registration::function(
+                    "napi",
+                    c_string_text(*name, source),
+                    function,
+                ));
+            } else if let [name, function, flags, ..] = items.as_slice()
+                && name.kind() == "string_literal"
+                && node_text(*flags, source).contains("METH_")
+                && let Some(function) = c_function_reference(c_uncast(*function), source)
+            {
+                found.push(Registration::function(
+                    "python",
+                    c_string_text(*name, source),
+                    function,
+                ));
             }
         }
         _ => {}
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        c_collect_addon_registrations(child, source, found);
+        c_collect_registrations(child, source, found, python_module);
     }
+}
+
+/// The value inside a cast: `(PyCFunction)py_add` -> `py_add`.
+fn c_uncast(node: tree_sitter::Node<'_>) -> tree_sitter::Node<'_> {
+    if node.kind() == "cast_expression"
+        && let Some(value) = node.child_by_field_name("value")
+    {
+        return value;
+    }
+    node
+}
+
+/// `PYBIND11_MODULE(name, m) { ... }` / `NB_MODULE(name, m) { ... }` (which
+/// parse as a function of that name) or `PyInit_name`.
+fn c_python_module(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let (name, _) = c_function_name(node, source)?;
+    if let Some(module) = name.strip_prefix("PyInit_") {
+        return (!module.is_empty()).then(|| module.to_string());
+    }
+    if !matches!(name.as_str(), "PYBIND11_MODULE" | "NB_MODULE") {
+        return None;
+    }
+    let parameters = c_first_descendant(node, &["parameter_list"])?;
+    let mut cursor = parameters.walk();
+    let first = parameters.named_children(&mut cursor).next()?;
+    let module = node_text(first, source).trim().to_string();
+    (!module.is_empty()
+        && module
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_'))
+    .then_some(module)
+}
+
+/// pybind11 / nanobind: `m.def("name", &Fn, ...)` on a module variable, and
+/// `py::class_<T>(m, "Name")`.
+fn c_python_registration_call(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<Registration> {
+    let callee = node.child_by_field_name("function")?;
+    let callee_text = node_text(callee, source).replace(char::is_whitespace, "");
+    let arguments = node.child_by_field_name("arguments")?;
+    let mut cursor = arguments.walk();
+    let args: Vec<_> = arguments.named_children(&mut cursor).collect();
+    if let Some(receiver) = callee_text.strip_suffix(".def")
+        && receiver
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+    {
+        let name = args.first().filter(|arg| arg.kind() == "string_literal")?;
+        let function = c_function_reference(*args.get(1)?, source)?;
+        return Some(Registration::function(
+            "python",
+            c_string_text(*name, source),
+            function,
+        ));
+    }
+    let class = [
+        "py::class_<",
+        "pybind11::class_<",
+        "nb::class_<",
+        "nanobind::class_<",
+    ]
+    .iter()
+    .find_map(|prefix| callee_text.strip_prefix(prefix))?;
+    let class = class.split([',', '>']).next()?;
+    let class = class.rsplit("::").next().unwrap_or(class).to_string();
+    let name = args.get(1).filter(|arg| arg.kind() == "string_literal")?;
+    Some(Registration {
+        abi: "python",
+        kind: "class",
+        name: c_string_text(*name, source),
+        target: class,
+    })
 }
 
 fn c_addon_registration_call(

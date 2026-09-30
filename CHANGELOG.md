@@ -129,6 +129,17 @@ All notable changes to `dagayn` are documented here.
   the first scope that has any; and binds a call in a C file of the package
   directory to the Go function a `//export` declares.
 
+- Python calls into C and C++ extension modules written with pybind11,
+  nanobind, or the CPython C-API reach the C / C++ function. The C / C++
+  extractor records the module a file defines (`PYBIND11_MODULE(name, m)`,
+  `NB_MODULE(name, m)`, `PyInit_name`) as `python_module` on the File node,
+  and `ffi_exports` with `abi: "python"` on what it registers: `m.def("name",
+  &Fn)`, `py::class_<T>(m, "Name")` / `nb::class_`, and `PyMethodDef`
+  entries `{"name", Fn, METH_..., doc}` (class methods are not module
+  attributes and are skipped). It moves to extractor version 3.
+  `native_bindings` then binds Python imports of the module and calls to its
+  attributes the same way as for PyO3.
+
 ### Changed
 
 - A shared-library loader outside Python (Java `System.loadLibrary`, ...)

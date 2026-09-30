@@ -481,3 +481,60 @@ void InitLegacy(v8::Local<v8::Object> exports) {
     assert_eq!(exports(&nodes, "Sum"), vec!["sum"]);
     assert_eq!(exports(&nodes, "Legacy"), vec!["legacy"]);
 }
+
+#[test]
+fn records_python_extension_modules_and_registrations() {
+    let exports = |nodes: &[crate::core::types::ParsedNode], name: &str| {
+        nodes
+            .iter()
+            .find(|node| node.name == name)
+            .unwrap_or_else(|| panic!("no node {name}"))
+            .extra
+            .get("ffi_exports")
+            .cloned()
+    };
+    let pybind = br#"#include <pybind11/pybind11.h>
+namespace py = pybind11;
+int add(int a, int b) { return a + b; }
+struct Dog { void bark() {} };
+PYBIND11_MODULE(_core, m) {
+    m.def("add", &add, "Add two numbers");
+    m.def("sub", [](int a, int b) { return a - b; });
+    py::class_<Dog>(m, "Dog").def("bark", &Dog::bark);
+}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (nodes, _) = parser.parse_file("ext/bind.cpp", pybind);
+    assert_eq!(
+        nodes[0].extra.get("python_module").cloned(),
+        Some(serde_json::json!("_core"))
+    );
+    assert_eq!(
+        exports(&nodes, "add"),
+        Some(serde_json::json!([{"abi": "python", "kind": "function", "name": "add"}]))
+    );
+    assert_eq!(
+        exports(&nodes, "Dog"),
+        Some(serde_json::json!([{"abi": "python", "kind": "class", "name": "Dog"}]))
+    );
+    // A class method is not a module attribute.
+    assert_eq!(exports(&nodes, "bark"), None);
+
+    let capi = br#"#include <Python.h>
+static PyObject *py_add(PyObject *self, PyObject *args) { return NULL; }
+static PyMethodDef Methods[] = {
+    {"add", (PyCFunction)py_add, METH_VARARGS, "Add."},
+    {NULL, NULL, 0, NULL}
+};
+PyMODINIT_FUNC PyInit_capi(void) { return NULL; }
+"#;
+    let (nodes, _) = parser.parse_file("ext/capi.c", capi);
+    assert_eq!(
+        nodes[0].extra.get("python_module").cloned(),
+        Some(serde_json::json!("capi"))
+    );
+    assert_eq!(
+        exports(&nodes, "py_add"),
+        Some(serde_json::json!([{"abi": "python", "kind": "function", "name": "add"}]))
+    );
+}
