@@ -28,6 +28,9 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 1: nodes sharing a qualified name merge into one
         // (`merged_declarations`), and CONTAINS edges start at a node of the
         // file (the File node for members of a type declared elsewhere).
+        // Symbols with an empty or multi-line name or target (error recovery
+        // in a file mid-edit) are dropped; an unparseable notebook keeps its
+        // File node.
         extractor: "shared",
         version: 1,
         languages: &[

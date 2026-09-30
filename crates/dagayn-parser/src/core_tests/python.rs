@@ -247,3 +247,25 @@ def run(store, instance):
         ]
     );
 }
+
+#[test]
+fn a_file_mid_edit_yields_no_multi_line_symbols() {
+    // An unterminated string swallows the following lines.
+    let source = b"import \"os\nfrom x import (\ndef f():\n    return 1\n";
+    let mut parser = RustOwnedParser::new();
+    let (nodes, edges) = parser.parse_file("mid_edit.py", source);
+    assert!(nodes.iter().all(|node| !node.name.contains('\n')));
+    assert!(
+        edges
+            .iter()
+            .all(|edge| !edge.target.trim().is_empty() && !edge.target.contains('\n'))
+    );
+}
+
+#[test]
+fn an_unparseable_notebook_keeps_its_file_node() {
+    let mut parser = RustOwnedParser::new();
+    let (nodes, _) = parser.parse_file("draft.ipynb", b"{\"cells\": [");
+    assert_eq!(nodes.len(), 1);
+    assert_eq!(nodes[0].kind, NodeKind::File);
+}

@@ -106,12 +106,14 @@ class TestNotebookParsing:
         assert edges == []
 
     def test_malformed_json(self):
+        """Like an unsupported kernel, it keeps a File node (#137): a notebook
+        mid-save is still a tracked file."""
         source = b"not valid json {{"
         nodes, edges = self.parser.parse_bytes(
             Path("bad.ipynb"),
             source,
         )
-        assert nodes == []
+        assert [(n.kind, n.name) for n in nodes] == [("File", "bad.ipynb")]
         assert edges == []
 
 

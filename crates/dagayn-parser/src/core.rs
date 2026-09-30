@@ -213,6 +213,7 @@ impl RustOwnedParser {
         source: &[u8],
     ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
         let (mut nodes, mut edges) = self.parse_file_dispatch(repo_root, file_path, source);
+        drop_malformed_names(&mut nodes, &mut edges);
         collapse_duplicate_nodes(&mut nodes, &mut edges);
         contain_in_file(file_path, &nodes, &mut edges);
         (nodes, edges)
@@ -456,6 +457,31 @@ impl RustOwnedParser {
             RustOwnedPathKind::Unsupported => (Vec::new(), Vec::new()),
         }
     }
+}
+
+/// Drops symbols no source could declare: an empty name, or a name or edge
+/// target spanning lines. tree-sitter's error recovery produces them from a
+/// file mid-edit (an unterminated string swallows the following lines), and
+/// the next parse of the finished file replaces them anyway. Documentation
+/// sections keep their multi-line text.
+fn drop_malformed_names(nodes: &mut Vec<ParsedNode>, edges: &mut Vec<ParsedEdge>) {
+    let malformed = |name: &str| name.trim().is_empty() || name.contains(['\n', '\r']);
+    let mut dropped = std::collections::HashSet::new();
+    nodes.retain(|node| {
+        let keep = matches!(
+            node.kind,
+            NodeKind::File | NodeKind::DocSection | NodeKind::DocBody
+        ) || !malformed(&node.name);
+        if !keep {
+            dropped.insert(qualified_name_of(node));
+        }
+        keep
+    });
+    edges.retain(|edge| {
+        !malformed(&edge.target)
+            && !dropped.contains(&edge.source)
+            && !dropped.contains(&edge.target)
+    });
 }
 
 fn qualified_name_of(node: &ParsedNode) -> String {

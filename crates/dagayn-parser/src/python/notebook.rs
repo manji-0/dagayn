@@ -34,7 +34,18 @@ pub(crate) fn parse_notebook_with_parser(
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let file_path = FilePath::new(file_path);
     let Ok(notebook) = serde_json::from_slice::<Value>(source) else {
-        return (Vec::new(), Vec::new());
+        // Unparseable JSON (often a notebook mid-save): keep the File node,
+        // as for a kernel we do not parse, rather than an empty parse.
+        return (
+            vec![notebook_file_node(
+                &file_path,
+                1,
+                "notebook",
+                is_test_file(&file_path),
+                None,
+            )],
+            Vec::new(),
+        );
     };
     let Some(default_language) = notebook_kernel_language(&notebook) else {
         // Kernel language is not natively parsed (Julia, Scala, SQL, ...).
