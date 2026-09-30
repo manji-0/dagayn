@@ -1775,52 +1775,6 @@ class TestBuildPostprocess:
         assert "flows_detected" not in result
         assert "communities_detected" not in result
 
-    def test_postprocess_minimal_can_use_rust_store(self):
-        from dagayn.tools.build import _postprocess_store
-
-        class FakeRustStore:
-            def compute_missing_signatures(self):
-                return 0
-
-            def rebuild_fts_index(self):
-                return 0
-
-            def resolve_markdown_artifact_refs(self):
-                return (0, 0)
-
-            def demote_unresolved_endpoint_edges(self):
-                return 0
-
-            def resolve_terraform_artifact_refs(self):
-                return (0, 0)
-
-            def resolve_bare_call_targets(self):
-                return 0
-
-            def resolve_bare_inheritance_targets(self):
-                return 0
-
-            def resolve_terraform_module_references(self):
-                return 0
-
-            def replace_manifest_bridges_json(self, *_args):
-                return 0
-
-        store = FakeRustStore()
-        selected, should_close = _postprocess_store(store, self.root, "minimal")
-
-        assert selected is store
-        assert not should_close
-
-    def test_postprocess_full_does_not_reopen_python_store_for_rust(self):
-        from dagayn.tools.build import _postprocess_store
-
-        class FakeRustStore:
-            pass
-
-        with pytest.raises(RuntimeError, match="Post-processing requires dagayn._core"):
-            _postprocess_store(FakeRustStore(), self.root, "full")
-
     def test_postprocess_full_matches_default(self, monkeypatch):
         from unittest.mock import patch
 
