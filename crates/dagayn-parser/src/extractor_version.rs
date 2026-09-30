@@ -119,8 +119,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // `loads_shared_library` bridge carrying the C symbol they bind.
         // 2: calls on a PascalCase receiver (`Native.Total`) record
         // `receiver_type`.
+        // 3: so do calls on a variable of a type declared in another file
+        // (`var n = new Native(); n.Total()`) and `new Native()` itself.
         extractor: "csharp",
-        version: 2,
+        version: 3,
         languages: &["csharp"],
     },
     ExtractorVersion {

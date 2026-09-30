@@ -12,29 +12,64 @@ use std::collections::{HashMap, HashSet};
 pub(super) struct MemberCallBindings {
     type_names: HashSet<String>,
     bindings: HashMap<String, String>,
+    /// Variables bound to a type this file does not declare (`var n = new
+    /// Native()` with `Native` in another file): the type name only, which
+    /// resolution across files matches (`receiver_type`).
+    foreign: HashMap<String, String>,
+}
+
+/// The bindings in scope, saved around a nested scope.
+#[derive(Debug, Default)]
+pub(super) struct BindingsSnapshot {
+    bindings: HashMap<String, String>,
+    foreign: HashMap<String, String>,
 }
 
 impl MemberCallBindings {
     pub(super) fn with_types(type_names: HashSet<String>) -> Self {
         Self {
             type_names,
-            bindings: HashMap::new(),
+            ..Self::default()
         }
     }
 
-    pub(super) fn snapshot(&self) -> HashMap<String, String> {
-        self.bindings.clone()
+    pub(super) fn snapshot(&self) -> BindingsSnapshot {
+        BindingsSnapshot {
+            bindings: self.bindings.clone(),
+            foreign: self.foreign.clone(),
+        }
     }
 
-    pub(super) fn restore(&mut self, bindings: HashMap<String, String>) {
-        self.bindings = bindings;
+    pub(super) fn restore(&mut self, snapshot: BindingsSnapshot) {
+        self.bindings = snapshot.bindings;
+        self.foreign = snapshot.foreign;
     }
 
     pub(super) fn bind(&mut self, var: impl Into<String>, type_name: impl Into<String>) {
         let type_name = type_name.into();
         if self.type_names.contains(type_name.as_str()) {
-            self.bindings.insert(var.into(), type_name);
+            let var = var.into();
+            self.foreign.remove(&var);
+            self.bindings.insert(var, type_name);
         }
+    }
+
+    /// Binds `var` to `type_name` whether or not this file declares it: a
+    /// declared type goes through [`Self::bind`], any other is remembered
+    /// by name for [`Self::foreign_type`].
+    pub(super) fn bind_any(&mut self, var: impl Into<String>, type_name: impl Into<String>) {
+        let (var, type_name) = (var.into(), type_name.into());
+        if self.type_names.contains(type_name.as_str()) {
+            self.bind(var, type_name);
+        } else {
+            self.bindings.remove(&var);
+            self.foreign.insert(var, type_name);
+        }
+    }
+
+    /// The name of the type in another file `var` is bound to.
+    pub(super) fn foreign_type(&self, var: &str) -> Option<&str> {
+        self.foreign.get(var).map(String::as_str)
     }
 
     /// Binds `var` to a same-file owner path the caller already verified

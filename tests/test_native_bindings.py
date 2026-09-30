@@ -1293,6 +1293,15 @@ def test_calls_on_a_type_resolve_across_files(tmp_path: Path) -> None:
                 "    public static int Biggest(int a, int b) => Math.Max(a, b);\n"
                 "}\n"
             ),
+            "app/Calc.cs": "class Calc {\n    public double Mean(double[] xs) => 0;\n}\n",
+            "app/Stats.cs": (
+                "class Stats {\n"
+                "    public double Run(double[] xs) {\n"
+                "        var calc = new Calc();\n"
+                "        return calc.Mean(xs);\n"
+                "    }\n"
+                "}\n"
+            ),
         },
     )
     store = _build(tmp_path)
@@ -1314,5 +1323,14 @@ def test_calls_on_a_type_resolve_across_files(tmp_path: Path) -> None:
         assert calls["app/Report.cs::Report.Monthly"] == "app/Native.cs::Native.Total"
         # `Math` is not in the repository: `Math.Max` must not bind to `Util.Max`.
         assert calls["app/Report.cs::Report.Biggest"] == "Max"
+        stats = {
+            row["target_qualified"]
+            for row in store_conn(store).execute(
+                "SELECT target_qualified FROM edges WHERE kind = 'CALLS' "
+                "AND source_qualified = 'app/Stats.cs::Stats.Run'"
+            )
+        }
+        # A variable of a type in another file: the constructor and the method.
+        assert stats == {"app/Calc.cs::Calc", "app/Calc.cs::Calc.Mean"}
     finally:
         store.close()

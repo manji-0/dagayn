@@ -406,26 +406,34 @@ fn resolve_via_imports(
 /// binds to nothing rather than to an unrelated same-named function.
 fn resolve_type_receiver(
     candidates: &[String],
+    target: &str,
     receiver_type: &str,
     source_file: &str,
     import_targets: &HashMap<String, HashSet<String>>,
     visibility: &SymbolVisibility,
 ) -> Option<(String, f64, ConfidenceTier)> {
     let family = language_family(source_file);
+    let names_type = |path: &str| {
+        path == receiver_type
+            || path
+                .strip_suffix(receiver_type)
+                .is_some_and(|prefix| prefix.ends_with('.'))
+    };
     let typed: Vec<String> = candidates
         .iter()
         .filter(|qn| {
             let Some((file, symbol)) = qn.split_once("::") else {
                 return false;
             };
-            let Some((parent, _)) = symbol.rsplit_once('.') else {
+            if !same_language_family(family, language_family(file)) {
                 return false;
-            };
-            same_language_family(family, language_family(file))
-                && (parent == receiver_type
-                    || parent
-                        .strip_suffix(receiver_type)
-                        .is_some_and(|prefix| prefix.ends_with('.')))
+            }
+            match symbol.rsplit_once('.') {
+                // A method of the type.
+                Some((parent, _)) if names_type(parent) => true,
+                // `new Native()`: the call names the type itself.
+                _ => target == receiver_type && names_type(symbol),
+            }
         })
         .cloned()
         .collect();
@@ -487,6 +495,7 @@ impl GraphStore {
             let resolution = match receiver_type.as_deref() {
                 Some(receiver_type) => resolve_type_receiver(
                     &candidates,
+                    &target_qualified,
                     receiver_type,
                     &src_file,
                     &import_targets,

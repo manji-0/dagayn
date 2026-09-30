@@ -783,7 +783,8 @@ fn csharp_emit_call(
         .unwrap_or_else(|| context.file_path.to_string());
     let bound = csharp_bound_member_target(node, context);
     let receiver_type = if bound.is_none() {
-        csharp_type_receiver(node, context.source)
+        csharp_foreign_receiver(node, context)
+            .or_else(|| csharp_type_receiver(node, context.source))
     } else {
         None
     };
@@ -865,6 +866,37 @@ fn csharp_bound_member_target(
             .map(|type_name| format!("{type_name}::{method}"));
     }
     None
+}
+
+/// The type in another file a call's receiver or constructor names:
+/// `n.Total(...)` after `var n = new Native()` or `Native n` -> `Native`,
+/// and `new Native()` itself -> `Native`.
+fn csharp_foreign_receiver(
+    node: tree_sitter::Node<'_>,
+    context: &CSharpParseContext<'_>,
+) -> Option<String> {
+    if node.kind() == "object_creation_expression" {
+        let type_name = csharp_call_name(node, context.source)?;
+        let declared_here = context
+            .bindings
+            .borrow()
+            .constructor_type(&type_name)
+            .is_some();
+        return (!declared_here && csharp_is_type_name(&type_name)).then_some(type_name);
+    }
+    let callee = csharp_callee(node)?;
+    if callee.kind() != "member_access_expression" {
+        return None;
+    }
+    let receiver = callee.child_by_field_name("expression")?;
+    if receiver.kind() != "identifier" {
+        return None;
+    }
+    context
+        .bindings
+        .borrow()
+        .foreign_type(&node_text(receiver, context.source))
+        .map(str::to_string)
 }
 
 /// The type a static-looking call names: `Native.Total(...)` ->
@@ -1085,11 +1117,23 @@ fn csharp_bind_one_declarator(
                 context.bindings.borrow_mut().bind(var, type_name);
                 return;
             }
+            // `var n = new Native()` with `Native` declared in another file.
+            if csharp_is_type_name(&call_name) {
+                context.bindings.borrow_mut().bind_any(var, call_name);
+                return;
+            }
         }
     }
     if let Some(type_name) = annotated {
-        context.bindings.borrow_mut().bind(var, type_name);
+        csharp_bind_typed(context, var, type_name);
     }
+}
+
+/// A PascalCase name, as C# types are written.
+fn csharp_is_type_name(name: &str) -> bool {
+    name.chars()
+        .next()
+        .is_some_and(|first| first.is_ascii_uppercase())
 }
 
 fn csharp_bind_parameter(node: tree_sitter::Node<'_>, context: &CSharpParseContext<'_>) {
@@ -1105,7 +1149,17 @@ fn csharp_bind_parameter(node: tree_sitter::Node<'_>, context: &CSharpParseConte
     else {
         return;
     };
-    context.bindings.borrow_mut().bind(var, type_name);
+    csharp_bind_typed(context, var, type_name);
+}
+
+/// `T var`: a declared type binds as before; a PascalCase type from
+/// another file is remembered by name (not `var`, `int`, `string`).
+fn csharp_bind_typed(context: &CSharpParseContext<'_>, var: String, type_name: String) {
+    if type_name != "var" && csharp_is_type_name(&type_name) {
+        context.bindings.borrow_mut().bind_any(var, type_name);
+    } else {
+        context.bindings.borrow_mut().bind(var, type_name);
+    }
 }
 
 fn csharp_type_ident(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {

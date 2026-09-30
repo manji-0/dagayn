@@ -237,6 +237,13 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- C# calls on a variable of a type declared in another file
+  (`var n = new Native(); n.Total()`, `Native n`, a `Native` parameter) and
+  the constructor `new Native()` resolve across files: the local type
+  bindings only remembered types the same file declares, so these stayed
+  bare names. Such variables are now bound by type name and their calls
+  carry `receiver_type`, and a constructor binds to the class. The C#
+  extractor moves to version 3.
 - Calls on a named type now resolve across files in Ruby and C#:
   `Fast.fast_sum(...)` and `Native.Total(...)` were left as bare names when
   the definition lived in another file, since a Ruby `require` or a

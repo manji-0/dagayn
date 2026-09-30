@@ -64,8 +64,10 @@ by that visibility:
   source reaches only through a shared or imported namespace or through its
   class declaration (a C++ header).
 
-A call on a named type (Ruby `Fast.fast_sum(...)`, C# `Native.Total(...)`)
-carries `receiver_type` on its `CALLS` edge. Only that type's methods in the
+A call on a named type (Ruby `Fast.fast_sum(...)`, C# `Native.Total(...)`,
+and in C# a call on a variable of a type another file declares, `var n = new
+Native(); n.Total()`, or the constructor `new Native()` itself) carries
+`receiver_type` on its `CALLS` edge; a constructor binds to the class. Only that type's methods in the
 caller's language are candidates; the visible one wins as above, and when
 none is visible (a Ruby `require` or a namespace-less C# file does not make a
 file visible) a single such method is bound at `MEDIUM`. A type with no such

@@ -443,5 +443,38 @@ fn csharp_static_calls_record_the_receiver_type() {
     assert_eq!(receiver("Total"), Some(serde_json::json!("Native")));
     assert_eq!(receiver("ReadAllText"), Some(serde_json::json!("File")));
     assert_eq!(receiver("Compute"), None);
-    assert_eq!(receiver("Run"), None);
+    // `var local = new Helper()`, `Helper` declared in another file.
+    assert_eq!(receiver("Run"), Some(serde_json::json!("Helper")));
+}
+
+#[test]
+fn csharp_variables_of_other_file_types_record_the_receiver_type() {
+    let source = br#"class Report {
+    double Monthly(double[] xs, Native param, string label) {
+        var made = new Native();
+        Native declared = Create();
+        label.Trim();
+        return made.Total(xs) + declared.Mean(xs) + param.Max(xs);
+    }
+    double Other(double[] xs) {
+        return made.Total(xs);
+    }
+}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_, edges) = parser.parse_file("app/Report.cs", source);
+    let receivers = |target: &str| -> Vec<Option<serde_json::Value>> {
+        edges
+            .iter()
+            .filter(|edge| edge.kind == "CALLS" && edge.target == target)
+            .map(|edge| edge.extra.get("receiver_type").cloned())
+            .collect()
+    };
+    let native = Some(serde_json::json!("Native"));
+    assert_eq!(receivers("Native"), vec![native.clone()]);
+    assert_eq!(receivers("Mean"), vec![native.clone()]);
+    assert_eq!(receivers("Max"), vec![native.clone()]);
+    // `made` is out of scope in `Other`, and `string` is not a type to match.
+    assert_eq!(receivers("Total"), vec![native, None]);
+    assert_eq!(receivers("Trim"), vec![None]);
 }
