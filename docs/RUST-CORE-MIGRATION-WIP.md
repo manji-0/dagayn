@@ -120,8 +120,6 @@ Responsible for:
 
 A single Python extension module (`dagayn._core`) is built by maturin from the `crates/dagayn-py` entry point. Python callers import this module directly — no subprocess boundary.
 
-A minimal native CLI binary (`dagayn-core`) is kept in `crates/dagayn-core/` for local debugging and A/B comparison against the Python implementation. It is not part of the distributed wheel.
-
 ### Layer 3: Python interface shell
 
 Python remains responsible for:
@@ -139,7 +137,6 @@ or correctness-sensitive core logic should land in Rust crates first.
 
 ```
 crates/
-  dagayn-core/      # public API facade; used by dagayn-py and integration tests
   dagayn-graph/     # SQLite I/O, upserts, incremental replacement, migrations (rusqlite)
   dagayn-postproc/  # FTS, flows, communities, traversal helpers
   dagayn-parser/    # tree-sitter orchestration, language detection, ipynb, Markdown
@@ -153,7 +150,7 @@ Dependency rules:
 - `dagayn-graph` uses `rusqlite` for SQLite access. It is the sole owner of connection management and schema migrations.
 - `dagayn-postproc` depends on `dagayn-graph` only. It must not depend on `dagayn-parser`.
 - `dagayn-parser` depends on `dagayn-grammars` for compiled grammar bindings.
-- `dagayn-core` depends on all internal crates and is the only public surface for `dagayn-py`.
+- `dagayn-py` depends on `dagayn-graph`, `dagayn-parser`, and `dagayn-postproc` directly (the former `dagayn-core` re-export facade was removed).
 
 ipynb parsing lives in `dagayn-parser/src/notebook.rs` using `serde_json`. Markdown grammar wiring lives in `dagayn-grammars/` with a build.rs that fetches and compiles the pinned grammar source via `cc`.
 

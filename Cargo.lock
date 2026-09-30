@@ -210,15 +210,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cd10668980c9e7ba8aa2e616207d9ec52f7db66ebb47db857ed1f3c342530dad"
 
 [[package]]
-name = "dagayn-core"
-version = "0.1.0"
-dependencies = [
- "dagayn-graph",
- "dagayn-parser",
- "dagayn-postproc",
-]
-
-[[package]]
 name = "dagayn-grammars"
 version = "0.1.0"
 dependencies = [
@@ -271,7 +262,9 @@ dependencies = [
 name = "dagayn-py"
 version = "0.1.0"
 dependencies = [
- "dagayn-core",
+ "dagayn-graph",
+ "dagayn-parser",
+ "dagayn-postproc",
  "pyo3",
  "rayon",
  "serde_json",

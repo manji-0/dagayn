@@ -15,7 +15,9 @@ default = []
 extension-module = ["pyo3/extension-module"]
 
 [dependencies]
-dagayn-core = { path = "../dagayn-core" }
+dagayn-graph = { path = "../dagayn-graph" }
+dagayn-parser = { path = "../dagayn-parser" }
+dagayn-postproc = { path = "../dagayn-postproc" }
 pyo3.workspace = true
 rayon = "1.10"
 serde_json.workspace = true

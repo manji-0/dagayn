@@ -1,6 +1,5 @@
 [workspace]
 members = [
-    "crates/dagayn-core",
     "crates/dagayn-grammars",
     "crates/dagayn-graph",
     "crates/dagayn-parser",

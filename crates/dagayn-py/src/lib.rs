@@ -1,8 +1,10 @@
 use std::sync::Mutex;
 
-use dagayn_core::{
+use dagayn_graph::{
     EdgeInput, FileBatchItem, GraphEdge, GraphNode, GraphStats, GraphStore as NativeGraphStore,
     ImpactRadius, NodeInput, NodeSignatureRow,
+};
+use dagayn_postproc::{
     detect_communities_json as native_detect_communities_json,
     incremental_detect_communities as native_incremental_detect_communities,
     prune_orphaned_graph_structures_json as native_prune_orphaned_graph_structures_json,
@@ -1098,7 +1100,7 @@ impl PyGraphStore {
 impl PyGraphStore {
     fn with_store<T>(
         &self,
-        f: impl FnOnce(&NativeGraphStore) -> dagayn_core::Result<T>,
+        f: impl FnOnce(&NativeGraphStore) -> dagayn_graph::Result<T>,
     ) -> PyResult<T> {
         let guard = self
             .inner
@@ -1110,7 +1112,7 @@ impl PyGraphStore {
 
     fn with_store_mut<T>(
         &self,
-        f: impl FnOnce(&mut NativeGraphStore) -> dagayn_core::Result<T>,
+        f: impl FnOnce(&mut NativeGraphStore) -> dagayn_graph::Result<T>,
     ) -> PyResult<T> {
         let mut guard = self
             .inner
@@ -1221,7 +1223,7 @@ fn edge_from_py(py: Python<'_>, obj: &Bound<'_, PyAny>) -> PyResult<EdgeInput> {
 }
 
 fn parse_rust_owned_file_inputs(
-    parser: &mut dagayn_core::parser::RustOwnedParser,
+    parser: &mut dagayn_parser::RustOwnedParser,
     repo_root: &std::path::Path,
     file_path: &str,
     source: &[u8],
@@ -1242,7 +1244,7 @@ fn par_map_with_parser<I, T, F>(items: Vec<I>, f: F) -> Vec<T>
 where
     I: Send,
     T: Send,
-    F: Fn(&mut dagayn_core::parser::RustOwnedParser, I) -> T + Sync,
+    F: Fn(&mut dagayn_parser::RustOwnedParser, I) -> T + Sync,
 {
     use rayon::prelude::*;
 
@@ -1258,7 +1260,7 @@ where
     chunks
         .into_par_iter()
         .map(|chunk| {
-            let mut parser = dagayn_core::parser::RustOwnedParser::new();
+            let mut parser = dagayn_parser::RustOwnedParser::new();
             chunk
                 .into_iter()
                 .map(|item| f(&mut parser, item))
@@ -1280,7 +1282,7 @@ fn collect_rust_owned_file_batch(
             Ok(source) => source,
             Err(err) => return Err((file_path, err.to_string())),
         };
-        if !dagayn_core::parser::rust_parser_owns_source(&file_path, &source) {
+        if !dagayn_parser::rust_parser_owns_source(&file_path, &source) {
             return Err((file_path, "unsupported Rust parser path".to_string()));
         }
         let mtime_ns = file_mtime_ns(&full_path).unwrap_or(0);
@@ -1337,7 +1339,7 @@ fn collect_changed_rust_owned_file_batch(
             )
         }) {
             Some((source, _, _))
-                if !dagayn_core::parser::rust_parser_owns_source(&file_path, &source) =>
+                if !dagayn_parser::rust_parser_owns_source(&file_path, &source) =>
             {
                 errors.push((file_path, "unsupported Rust parser path".to_string()));
                 None
@@ -1386,7 +1388,7 @@ fn classify_changed_rust_owned_file_batch(
             &mut mtime_updates,
             &mut errors,
         ) {
-            if !dagayn_core::parser::rust_parser_owns_source(&file_path, &source) {
+            if !dagayn_parser::rust_parser_owns_source(&file_path, &source) {
                 errors.push((file_path, "unsupported Rust parser path".to_string()));
                 continue;
             }
@@ -1456,7 +1458,7 @@ fn file_mtime_ns(path: &std::path::Path) -> std::io::Result<i64> {
     })
 }
 
-fn parsed_node_to_input(node: dagayn_core::parser::ParsedNode) -> NodeInput {
+fn parsed_node_to_input(node: dagayn_parser::ParsedNode) -> NodeInput {
     NodeInput {
         kind: node.kind.as_str().to_string(),
         name: node.name,
@@ -1473,7 +1475,7 @@ fn parsed_node_to_input(node: dagayn_core::parser::ParsedNode) -> NodeInput {
     }
 }
 
-fn parsed_edge_to_input(edge: dagayn_core::parser::ParsedEdge) -> EdgeInput {
+fn parsed_edge_to_input(edge: dagayn_parser::ParsedEdge) -> EdgeInput {
     EdgeInput {
         kind: edge.kind.as_str().to_string(),
         source: edge.source,
@@ -1866,7 +1868,7 @@ fn json_value_to_py(py: Python<'_>, value: &Value) -> PyResult<Py<PyAny>> {
     }
 }
 
-fn to_py_runtime_error(err: dagayn_core::GraphError) -> PyErr {
+fn to_py_runtime_error(err: dagayn_graph::GraphError) -> PyErr {
     PyRuntimeError::new_err(err.to_string())
 }
 
@@ -1903,7 +1905,7 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
 /// output version; see `dagayn.extractor_versions`.
 #[pyfunction]
 fn extractor_versions() -> Vec<(String, u32, Vec<String>)> {
-    dagayn_core::parser::extractor_versions()
+    dagayn_parser::extractor_versions()
         .iter()
         .map(|entry| {
             (
@@ -1929,7 +1931,7 @@ fn embedding_search(
 ) -> PyResult<Vec<(String, f32)>> {
     let os = PyModule::import(py, "os")?;
     let db_path: String = os.getattr("fspath")?.call1((db_path,))?.extract()?;
-    py.detach(|| dagayn_core::embedding_search(db_path, provider, &query_vec, limit))
+    py.detach(|| dagayn_graph::embedding_search(db_path, provider, &query_vec, limit))
         .map_err(to_py_runtime_error)
 }
 
@@ -1941,7 +1943,7 @@ fn embedding_search_prewarm(
 ) -> PyResult<usize> {
     let os = PyModule::import(py, "os")?;
     let db_path: String = os.getattr("fspath")?.call1((db_path,))?.extract()?;
-    py.detach(|| dagayn_core::embedding_search_prewarm(db_path, provider))
+    py.detach(|| dagayn_graph::embedding_search_prewarm(db_path, provider))
         .map_err(to_py_runtime_error)
 }
 
@@ -1954,7 +1956,7 @@ fn filter_incremental_candidates(
 ) -> PyResult<(Vec<String>, Vec<String>)> {
     let os = PyModule::import(py, "os")?;
     let repo_root: String = os.getattr("fspath")?.call1((repo_root,))?.extract()?;
-    Ok(dagayn_core::parser::filter_incremental_candidates(
+    Ok(dagayn_parser::filter_incremental_candidates(
         std::path::Path::new(&repo_root),
         &candidates,
         &ignore_patterns,
@@ -1967,7 +1969,7 @@ fn filter_ignored_paths(
     candidates: Vec<String>,
     ignore_patterns: Vec<String>,
 ) -> Vec<String> {
-    py.detach(|| dagayn_core::parser::filter_ignored_paths(&candidates, &ignore_patterns))
+    py.detach(|| dagayn_parser::filter_ignored_paths(&candidates, &ignore_patterns))
 }
 
 #[pyfunction]
@@ -1979,7 +1981,7 @@ fn filter_parseable_files(
 ) -> PyResult<Vec<String>> {
     let os = PyModule::import(py, "os")?;
     let repo_root: String = os.getattr("fspath")?.call1((repo_root,))?.extract()?;
-    Ok(dagayn_core::parser::filter_parseable_files(
+    Ok(dagayn_parser::filter_parseable_files(
         std::path::Path::new(&repo_root),
         &candidates,
         &ignore_patterns,
@@ -1995,7 +1997,7 @@ fn collect_parseable_files(
 ) -> PyResult<Vec<String>> {
     let os = PyModule::import(py, "os")?;
     let repo_root: String = os.getattr("fspath")?.call1((repo_root,))?.extract()?;
-    Ok(dagayn_core::parser::collect_parseable_files(
+    Ok(dagayn_parser::collect_parseable_files(
         std::path::Path::new(&repo_root),
         recurse_submodules,
     ))
@@ -2009,7 +2011,7 @@ fn parse_rust_owned_files_compact_json(
 ) -> PyResult<String> {
     let os = PyModule::import(py, "os")?;
     let repo_root: String = os.getattr("fspath")?.call1((repo_root,))?.extract()?;
-    Ok(dagayn_core::parser::parse_rust_owned_files_compact_json(
+    Ok(dagayn_parser::parse_rust_owned_files_compact_json(
         std::path::Path::new(&repo_root),
         &file_paths,
     ))
@@ -2017,35 +2019,35 @@ fn parse_rust_owned_files_compact_json(
 
 #[pyfunction]
 fn parse_rust_owned_file_compact_json(file_path: &str, source: &[u8]) -> PyResult<String> {
-    Ok(dagayn_core::parser::parse_rust_owned_file_compact_json(
+    Ok(dagayn_parser::parse_rust_owned_file_compact_json(
         file_path, source,
     ))
 }
 
 #[pyfunction]
 fn parse_markdown_compact_json(file_path: &str, source: &[u8]) -> PyResult<String> {
-    Ok(dagayn_core::parser::parse_markdown_compact_json(
+    Ok(dagayn_parser::parse_markdown_compact_json(
         file_path, source,
     ))
 }
 
 #[pyfunction]
 fn parse_terraform_compact_json(file_path: &str, source: &[u8]) -> PyResult<String> {
-    Ok(dagayn_core::parser::parse_terraform_compact_json(
+    Ok(dagayn_parser::parse_terraform_compact_json(
         file_path, source,
     ))
 }
 
 #[pyfunction]
 fn parse_rust_compact_json(file_path: &str, source: &[u8]) -> PyResult<String> {
-    Ok(dagayn_core::parser::parse_rust_compact_json(
+    Ok(dagayn_parser::parse_rust_compact_json(
         file_path, source,
     ))
 }
 
 #[pyfunction]
 fn parse_python_compact_json(file_path: &str, source: &[u8]) -> PyResult<String> {
-    Ok(dagayn_core::parser::parse_python_compact_json(
+    Ok(dagayn_parser::parse_python_compact_json(
         file_path, source,
     ))
 }
