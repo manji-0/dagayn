@@ -489,9 +489,23 @@ fn main() {
 }
 
 /// Makes the grammar's pinned source available and returns its directory.
+///
+/// Returns the packaged copy (`dagayn/_vendor_grammars/<language>`) once it
+/// is staged: grammars sharing one upstream repository (TypeScript and TSX)
+/// share its cache directory, and staging the later one may replace what the
+/// earlier one staged there before the parallel compile reads it.
 fn stage_grammar(repo_root: &Path, spec: &GrammarSpec) -> PathBuf {
     let source_dir = ensure_source_dir(repo_root, spec);
     stage_packaged_source(repo_root, spec, &source_dir);
+    let packaged = repo_root
+        .join("dagayn")
+        .join("_vendor_grammars")
+        .join(spec.language);
+    let source_dir = if is_ready(&packaged, spec) {
+        packaged
+    } else {
+        source_dir
+    };
     for required in spec.required_paths {
         println!(
             "cargo:rerun-if-changed={}",
