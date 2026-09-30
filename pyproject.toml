@@ -66,8 +66,8 @@ all = [
 ]
 dev = [
     "numpy>=1.26,<3",
-    "pytest>=8.0,<9",
-    "pytest-cov>=4.0,<8",
+    "pytest>=8.4.2,<9",
+    "pytest-cov>=7.1,<8",
     "pytest-xdist>=3.6,<4",
     "ruff>=0.3.0,<1",
     "pyinstrument>=4.6,<6",
@@ -136,6 +136,17 @@ testpaths = ["tests"]
 pythonpath = ["tests"]
 norecursedirs = ["tests/fixtures"]
 
+[tool.coverage.run]
+source = ["dagayn"]
+
+[tool.coverage.report]
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]
+skip_covered = true
+
 [tool.pyrefly]
 python-version = "3.13"
 project-includes = ["dagayn", "tests"]
@@ -148,9 +159,8 @@ project-excludes = ["tests/fixtures/**"]
 missing-import = false
 
 [dependency-groups]
+# Type-checking tools; test tools are in the `dev` extra.
 dev = [
-    "pytest>=8.4.2",
-    "pytest-cov>=7.1.0",
     "pyrefly>=0.33.0",
     "types-networkx>=3.6,<4",
     "types-PyYAML>=6.0.12,<7",

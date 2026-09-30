@@ -529,8 +529,6 @@ numpy = [
 [package.dev-dependencies]
 dev = [
     { name = "pyrefly" },
-    { name = "pytest" },
-    { name = "pytest-cov" },
     { name = "types-networkx" },
     { name = "types-pyyaml" },
 ]
@@ -548,8 +546,8 @@ requires-dist = [
     { name = "numpy", marker = "extra == 'numpy'", specifier = ">=1.26,<3" },
     { name = "pydantic", specifier = ">=2.10,<3" },
     { name = "pyinstrument", marker = "extra == 'dev'", specifier = ">=4.6,<6" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0,<9" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0,<8" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.4.2,<9" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=7.1,<8" },
     { name = "pytest-xdist", marker = "extra == 'dev'", specifier = ">=3.6,<4" },
     { name = "pyyaml", marker = "extra == 'eval'", specifier = ">=6.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.3.0,<1" },
@@ -560,8 +558,6 @@ provides-extras = ["numpy", "google-embeddings", "eval", "all", "dev"]
 [package.metadata.requires-dev]
 dev = [
     { name = "pyrefly", specifier = ">=0.33.0" },
-    { name = "pytest", specifier = ">=8.4.2" },
-    { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "types-networkx", specifier = ">=3.6,<4" },
     { name = "types-pyyaml", specifier = ">=6.0.12,<7" },
 ]
