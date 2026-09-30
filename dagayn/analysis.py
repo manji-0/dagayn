@@ -9,11 +9,10 @@ import logging
 import math
 import re
 import sqlite3
-import time
 from collections import Counter, defaultdict
 from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
-from typing import Callable, TypedDict, cast
+from typing import TypedDict, cast
 
 from ._scope import ArtifactScope, node_matches_artifact_scope
 from .communities import CommunityMetricsPayload
@@ -349,128 +348,11 @@ def persist_centrality_scores(
     calls). Each lands in its own table so loaders can pick the matching
     ranking without re-computing betweenness.
     """
-    rust_persist = getattr(store, "persist_centrality_scores", None)
-    if callable(rust_persist):
-        try:
-            if changed_files:
-                scores = cast(Callable[..., dict[str, int]], rust_persist)(list(changed_files))
-            else:
-                scores = cast(Callable[..., dict[str, int]], rust_persist)()
-            return {key: int(value) for key, value in scores.items()}
-        except Exception:  # noqa: BLE001 — native acceleration must be optional
-            logger.debug("Native centrality persist failed; falling back", exc_info=True)
-
-    _ensure_centrality_score_tables(store)
-    snapshot = build_graph_snapshot(store)
-    hubs = find_hub_nodes(
-        store, top_n=10**9, snapshot=snapshot, use_persisted=False, artifact_scope="all"
-    )
-    bridges = find_bridge_nodes(
-        store, top_n=10**9, snapshot=snapshot, use_persisted=False, artifact_scope="all"
-    )
-    hubs_code = find_hub_nodes(
-        store,
-        top_n=10**9,
-        snapshot=snapshot,
-        use_persisted=False,
-        artifact_scope="code",
-        include_tests=False,
-    )
-    bridges_code = find_bridge_nodes(
-        store,
-        top_n=10**9,
-        snapshot=snapshot,
-        use_persisted=False,
-        artifact_scope="code",
-        include_tests=False,
-    )
-    now = time.time()
-    with borrowed_sqlite_connection(store) as conn:
-        with conn:
-            conn.execute("DELETE FROM hub_scores")
-            conn.execute("DELETE FROM bridge_scores")
-            conn.execute("DELETE FROM hub_scores_code")
-            conn.execute("DELETE FROM bridge_scores_code")
-            conn.executemany(
-                "INSERT INTO hub_scores "
-                "(qualified_name, name, kind, file_path, in_degree, out_degree, total_degree, "
-                "community_id, computed_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                [
-                    (
-                        h["qualified_name"],
-                        h["name"],
-                        h["kind"],
-                        h["file"],
-                        int(h["in_degree"]),
-                        int(h["out_degree"]),
-                        int(h["total_degree"]),
-                        h.get("community_id"),
-                        now,
-                    )
-                    for h in hubs
-                ],
-            )
-            conn.executemany(
-                "INSERT INTO bridge_scores "
-                "(qualified_name, name, kind, file_path, betweenness, community_id, computed_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                [
-                    (
-                        b["qualified_name"],
-                        b["name"],
-                        b["kind"],
-                        b["file"],
-                        float(b["betweenness"]),
-                        b.get("community_id"),
-                        now,
-                    )
-                    for b in bridges
-                ],
-            )
-            conn.executemany(
-                "INSERT INTO hub_scores_code "
-                "(qualified_name, name, kind, file_path, in_degree, out_degree, total_degree, "
-                "community_id, computed_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                [
-                    (
-                        h["qualified_name"],
-                        h["name"],
-                        h["kind"],
-                        h["file"],
-                        int(h["in_degree"]),
-                        int(h["out_degree"]),
-                        int(h["total_degree"]),
-                        h.get("community_id"),
-                        now,
-                    )
-                    for h in hubs_code
-                ],
-            )
-            conn.executemany(
-                "INSERT INTO bridge_scores_code "
-                "(qualified_name, name, kind, file_path, betweenness, community_id, computed_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                [
-                    (
-                        b["qualified_name"],
-                        b["name"],
-                        b["kind"],
-                        b["file"],
-                        float(b["betweenness"]),
-                        b.get("community_id"),
-                        now,
-                    )
-                    for b in bridges_code
-                ],
-            )
-    return {
-        "hub_scores_persisted": len(hubs),
-        "bridge_scores_persisted": len(bridges),
-        "hub_scores_code_persisted": len(hubs_code),
-        "bridge_scores_code_persisted": len(bridges_code),
-    }
+    if changed_files:
+        scores = store.persist_centrality_scores(list(changed_files))
+    else:
+        scores = store.persist_centrality_scores()
+    return {key: int(value) for key, value in scores.items()}
 
 
 def _ensure_centrality_score_tables(store: GraphStore) -> None:
