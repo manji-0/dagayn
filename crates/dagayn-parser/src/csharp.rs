@@ -631,14 +631,17 @@ fn csharp_native_import_edge(
         }
         let text = node_text(argument, source);
         let value = csharp_attribute_argument_value(argument, source);
-        match text.split_once(['=', ':']) {
-            Some((key, _)) if !key.contains('"') => {
-                if key.trim() == "EntryPoint" {
-                    entry_point = value;
-                }
-            }
-            _ if library.is_none() => library = value,
-            _ => {}
+        // `Name = value` is a named argument; the first positional one is
+        // the library.
+        let named = text
+            .split_once(['=', ':'])
+            .map(|(key, _)| key)
+            .filter(|key| !key.contains('"'));
+        match named.map(str::trim) {
+            Some("EntryPoint") => entry_point = value,
+            Some(_) => {}
+            None if library.is_none() => library = value,
+            None => {}
         }
     }
     let library = library.filter(|library| !library.is_empty())?;

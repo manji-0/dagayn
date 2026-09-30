@@ -638,14 +638,14 @@ def _emscripten_library(
     rest: list[str] = []
     index = 0
     while index < len(args):
-        token = args[index]
-        if token == "-s" and index + 1 < len(args):
+        arg = args[index]
+        if arg == "-s" and index + 1 < len(args):
             setting = args[index + 1]
             index += 1
-        elif token.startswith("-s") and "=" in token:
-            setting = token[2:]
+        elif arg.startswith("-s") and "=" in arg:
+            setting = arg[2:]
         else:
-            rest.append(token)
+            rest.append(arg)
             index += 1
             continue
         key, _, value = setting.partition("=")
