@@ -11,7 +11,7 @@ import struct
 import sys
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, cast
+from typing import TYPE_CHECKING, Any
 
 from .contracts.state_types import EmbeddingStatusRecord, seal_embedding_status
 from .embeddings_providers import (
@@ -1403,11 +1403,7 @@ def prepare_all_nodes(
     )
 
     if embedding_store.source_root is None:
-        get_repo_root = getattr(graph_store, "get_repo_root", None)
-        if callable(get_repo_root):
-            root = cast(Callable[[], Path | None], get_repo_root)()
-            if root is not None:
-                embedding_store.source_root = root
+        embedding_store.source_root = graph_store.get_repo_root()
 
     if embedding_store.text_mode == "narrative":
         embedding_store.graph_facts_by_qualified_name = _build_graph_facts_by_qualified_name(

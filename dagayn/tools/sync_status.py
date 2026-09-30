@@ -136,10 +136,7 @@ def sync_state(sync: Mapping[str, object]) -> GraphSyncStateName | None:
 
 def _indexed_file_meta(store: Any) -> dict[str, tuple[str, int]]:
     """Return ``{repo_relative_path: (file_hash, mtime_ns)}`` for indexed files."""
-    getter = getattr(store, "get_file_meta_map", None)
-    if not callable(getter):
-        return {}
-    return dict(getter() or {})
+    return dict(store.get_file_meta_map())
 
 
 def _classify_diff_tier(
@@ -288,12 +285,8 @@ def _clear_seed_verification_flag(store: Any) -> None:
     try:
         from ..worktree import SEEDED_NEEDS_VERIFY_KEY
 
-        setter = getattr(store, "set_metadata", None)
-        if callable(setter):
-            setter(SEEDED_NEEDS_VERIFY_KEY, "0")
-            commit = getattr(store, "commit", None)
-            if callable(commit):
-                commit()
+        store.set_metadata(SEEDED_NEEDS_VERIFY_KEY, "0")
+        store.commit()
     except Exception:  # noqa: BLE001 — best effort; a stale flag only costs a re-verify
         logger.debug("Could not clear the seed verification flag", exc_info=True)
 

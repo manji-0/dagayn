@@ -852,6 +852,9 @@ class TestEmbeddingStore:
                 assert exclude_files is True
                 return [live]
 
+            def get_repo_root(self):
+                return None
+
         class FakeProvider:
             name = "fake"
             preferred_batch_size = 1
