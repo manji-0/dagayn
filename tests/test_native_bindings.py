@@ -1124,3 +1124,69 @@ def test_kotlin_swift_and_python_reach_uniffi_exports(tmp_path: Path) -> None:
         }
     finally:
         store.close()
+
+
+def test_wasm_hosts_reach_the_rust_guest_exports(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        {
+            "guest/Cargo.toml": (
+                '[package]\nname = "guest"\nversion = "0.1.0"\n\n[lib]\ncrate-type = ["cdylib"]\n'
+            ),
+            "guest/src/lib.rs": (
+                '#[no_mangle]\npub extern "C" fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n'
+            ),
+            "Makefile": (
+                "guest:\n"
+                "\tcargo build --release --target wasm32-unknown-unknown "
+                "--manifest-path guest/Cargo.toml\n"
+            ),
+            "host/Cargo.toml": '[package]\nname = "host"\nversion = "0.1.0"\n',
+            "host/src/main.rs": (
+                "use wasmtime::*;\n\n"
+                "fn run() -> anyhow::Result<i32> {\n"
+                "    let engine = Engine::default();\n"
+                "    let module = Module::from_file(\n"
+                '        &engine, "guest/target/wasm32-unknown-unknown/release/guest.wasm")?;\n'
+                "    let mut store = Store::new(&engine, ());\n"
+                "    let instance = Instance::new(&mut store, &module, &[])?;\n"
+                '    let add = instance.get_typed_func::<(i32, i32), i32>(&mut store, "add")?;\n'
+                "    add.call(&mut store, (1, 2))\n}\n"
+            ),
+            "tools/run.py": (
+                "from wasmtime import Instance, Module, Store\n\n\n"
+                "def run():\n"
+                "    store = Store()\n"
+                '    module = Module.from_file(store.engine, "guest.wasm")\n'
+                "    instance = Instance(store, module, [])\n"
+                '    return instance.exports(store).get("add")(store, 1, 2)\n'
+            ),
+            "gohost/main.go": (
+                "package main\n\n"
+                'import (\n\t"context"\n\t"os"\n\n\t"github.com/tetratelabs/wazero"\n)\n\n'
+                "func run() {\n"
+                "\tctx := context.Background()\n"
+                "\tr := wazero.NewRuntime(ctx)\n"
+                '\twasm, _ := os.ReadFile("guest.wasm")\n'
+                "\tmod, _ := r.Instantiate(ctx, wasm)\n"
+                '\tmod.ExportedFunction("add").Call(ctx, 1, 2)\n'
+                "}\n"
+            ),
+        },
+    )
+    store = _build(tmp_path)
+    try:
+        calls = {
+            source
+            for source, target, role in _native_bridges(store)
+            if role == "calls_native_function" and target == "guest/src/lib.rs::add"
+        }
+        assert calls == {"host/src/main.rs::run", "tools/run.py::run", "gohost/main.go::run"}
+        loads = {
+            source
+            for source, target, role in _native_bridges(store)
+            if role == "loads_native_module" and target == "guest/src/lib.rs"
+        }
+        assert loads == {"host/src/main.rs::run", "tools/run.py::run", "gohost/main.go::run"}
+    finally:
+        store.close()

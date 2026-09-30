@@ -42,8 +42,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // binds; CALLS on an import alias record the receiver.
         // 2: any `<receiver>.dlopen("lib")` (a cffi `FFI()` instance) emits
         // `loads_shared_library`.
+        // 3: WebAssembly hosts (wasmtime / wasmer) emit `loads_wasm_module`
+        // and `calls_wasm_export`.
         extractor: "python",
-        version: 2,
+        version: 3,
         languages: &["python", "notebook"],
     },
     ExtractorVersion {
@@ -62,8 +64,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 7: UniFFI `#[uniffi::export]` items and `#[derive(uniffi::Object)]`
         // types record `ffi_export` (`abi: "uniffi"`), and the File node the
         // `setup_scaffolding!("ns")` namespace.
+        // 8: WebAssembly hosts: a `.wasm` string argument emits
+        // `loads_wasm_module`, export lookups by name `calls_wasm_export`.
         extractor: "rust",
-        version: 7,
+        version: 8,
         languages: &["rust"],
     },
     ExtractorVersion {
@@ -72,8 +76,11 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 2: `//go:wasmimport module name` records `ffi_import`.
         // 3: `C.f(...)` calls record `receiver: "C"`, and the File node
         // records the cgo preamble's `-lNAME` libraries (`cgo_libraries`).
+        // 4: WebAssembly hosts (wazero, wasmtime-go, wasmer-go) emit
+        // `loads_wasm_module` (instead of `reads_file` for a `.wasm` path)
+        // and `calls_wasm_export`.
         extractor: "go",
-        version: 3,
+        version: 4,
         languages: &["go"],
     },
     ExtractorVersion {

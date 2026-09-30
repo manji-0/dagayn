@@ -186,8 +186,28 @@ All notable changes to `dagayn` are documented here.
   lowerCamelCase name or a type's name; Python imports the namespace module
   as for PyO3, under the Rust names.
 
+- WebAssembly hosts reach the guest code they embed. The Rust, Python, and
+  Go extractors emit `loads_wasm_module` for a call (or Rust
+  `include_bytes!`) with a string argument naming a `.wasm` file, and
+  `calls_wasm_export` for an export looked up by name: wasmtime
+  `get_typed_func` / `get_func` / `get_export`, wasmer `get_function` /
+  `get_typed_function`, Python `instance.exports(store).get("name")` and
+  wasmer's `instance.exports.name(...)`, Go wazero `ExportedFunction` and
+  wasmtime-go / wasmer-go `GetFunc` / `GetExport` / `GetFunction`. Manifest
+  bridges give a `cdylib` crate built with `cargo build --target wasm32-*`
+  (in a package.json script, Makefile, or justfile, selected by `-p`,
+  `--manifest-path`, or the directory it runs in) or with a `wasm32-*`
+  `[build] target` in `.cargo/config.toml` its
+  `target/<triple>/{release,debug}/<lib>.wasm` outputs. `native_bindings`
+  links the host to the guest crate and binds export lookups to the Rust
+  `#[no_mangle]` function (or Go `//go:wasmexport`, AssemblyScript
+  `export`) of that name. The Rust extractor moves to version 8, Python to
+  3, and Go to 4.
+
 ### Changed
 
+- Go `os.ReadFile("x.wasm")` is a `loads_wasm_module` bridge instead of
+  `reads_file`.
 - A shared-library loader outside Python (Java `System.loadLibrary`, ...)
   still links to the library, but calls in its file are no longer bound to
   the library's C symbols by bare name: JNI and similar bindings name their

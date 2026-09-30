@@ -217,3 +217,33 @@ def load_b():
     assert!(bridges.contains(&("app.py::load_a", "./libfoo.so", "ctypes.CDLL")));
     assert!(bridges.contains(&("app.py::load_b", "./libbar.so", "ctypes.cdll.LoadLibrary")));
 }
+
+#[test]
+fn python_wasm_hosts_emit_loads_and_export_calls() {
+    let source = br#"from wasmtime import Module
+def run(store, instance):
+    module = Module.from_file(store.engine, "guest.wasm")
+    add = instance.exports(store).get("add")
+    return instance.exports.mul(1, 2)
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_, edges) = parser.parse_file("tools/run.py", source);
+    let bridges: Vec<(&str, &str)> = edges
+        .iter()
+        .filter(|edge| edge.kind == "CROSS_ARTIFACT")
+        .map(|edge| {
+            (
+                edge.extra["relationship_role"].as_str().unwrap_or_default(),
+                edge.target.as_str(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        bridges,
+        vec![
+            ("loads_wasm_module", "guest.wasm"),
+            ("calls_wasm_export", "add"),
+            ("calls_wasm_export", "mul"),
+        ]
+    );
+}

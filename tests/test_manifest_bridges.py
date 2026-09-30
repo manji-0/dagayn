@@ -306,6 +306,38 @@ class TestDiscoverManifestBridges:
             "kotlin_package": "com.example.math",
         }
 
+    def test_cargo_wasm_builds_record_guest_outputs(self, tmp_path: Path):
+        for crate in ("guest", "plugin", "native"):
+            (tmp_path / crate / "src").mkdir(parents=True)
+            (tmp_path / crate / "src" / "lib.rs").write_text("")
+            (tmp_path / crate / "Cargo.toml").write_text(
+                f'[package]\nname = "{crate}"\n\n[lib]\ncrate-type = ["cdylib"]\n'
+            )
+        (tmp_path / "justfile").write_text(
+            "guest:\n    cargo build -p guest --target wasm32-wasip1 --release\n"
+        )
+        (tmp_path / "plugin" / ".cargo").mkdir()
+        (tmp_path / "plugin" / ".cargo" / "config.toml").write_text(
+            '[build]\ntarget = "wasm32-unknown-unknown"\n'
+        )
+        outputs = {
+            e.source: e.extra.get("wasm_outputs")
+            for e in discover_manifest_bridges(tmp_path).edges
+            if e.extra.get("manifest_kind") == "cargo"
+        }
+        assert outputs["guest/Cargo.toml"] == [
+            "guest/target/wasm32-wasip1/release/guest.wasm",
+            "guest/target/wasm32-wasip1/debug/guest.wasm",
+            "target/wasm32-wasip1/release/guest.wasm",
+            "target/wasm32-wasip1/debug/guest.wasm",
+        ]
+        assert outputs["plugin/Cargo.toml"] == [
+            "plugin/target/wasm32-unknown-unknown/release/plugin.wasm",
+            "plugin/target/wasm32-unknown-unknown/debug/plugin.wasm",
+        ]
+        # A cdylib nothing builds for wasm has no wasm outputs.
+        assert outputs["native/Cargo.toml"] is None
+
     def test_cmake_shared_libraries(self, tmp_path: Path):
         src = tmp_path / "native" / "src"
         src.mkdir(parents=True)

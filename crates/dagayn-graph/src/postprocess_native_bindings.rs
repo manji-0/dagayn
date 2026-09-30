@@ -623,7 +623,8 @@ fn load_crates(tx: &Transaction<'_>) -> Result<Vec<NativeCrate>> {
             node_addon: NodeAddon::from_extra(&extra),
             emscripten: None,
             uniffi: uniffi.as_ref().map(|(_, facts)| facts.clone()),
-            wasm_outputs: Vec::new(),
+            // `cargo build --target wasm32-*` outputs of a guest crate.
+            wasm_outputs: string_list(&extra, "wasm_outputs"),
             lib_name: lib_name.to_string(),
             cdylib,
             // UniFFI's Python bindings are a module named after the namespace.
@@ -1292,7 +1293,8 @@ fn bind_wasm_loaders(
     }
     let loaders = {
         let mut stmt = tx.prepare(
-            "SELECT source_qualified, target_qualified, file_path, line FROM edges \
+            "SELECT source_qualified, target_qualified, file_path, line, \
+                    json_extract(extra, '$.source_language') FROM edges \
              WHERE kind = 'CROSS_ARTIFACT' \
                AND json_extract(extra, '$.relationship_role') = 'loads_wasm_module' \
                AND COALESCE(json_extract(extra, '$.extractor'), '') != ?",
@@ -1303,15 +1305,16 @@ fn bind_wasm_loaders(
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
                 row.get::<_, i64>(3)?,
+                row.get::<_, Option<String>>(4)?,
             ))
         })?;
         rows.collect::<std::result::Result<Vec<_>, _>>()?
     };
-    for (source, target, file_path, line) in loaders {
+    for (source, target, file_path, line, source_language) in loaders {
         let Some(index) = wasm_output_crate(crates, &file_path, &target) else {
             continue;
         };
-        let language = javascript_language(&file_path).unwrap_or("unknown");
+        let language = source_language.as_deref().unwrap_or("unknown");
         let mut extra = bridge_extra(
             "loads_native_module",
             "wasm",
@@ -1331,7 +1334,12 @@ fn bind_wasm_loaders(
         loaded.entry(file_path).or_default().insert(index);
     }
     for (file_path, indexes) in &loaded {
-        let language = javascript_language(file_path).unwrap_or("unknown");
+        // `instance.exports.add(...)` is how JavaScript calls an export; a
+        // host in another language looks exports up by name
+        // (`calls_wasm_export`) instead.
+        let Some(language) = javascript_language(file_path) else {
+            continue;
+        };
         for (caller, target, line, _) in calls_in_file(tx, file_path)? {
             let name = call_name(&target);
             let hits: Vec<(&String, usize)> = indexes
@@ -1364,9 +1372,12 @@ fn bind_wasm_loaders(
     Ok(loaded)
 }
 
-/// Emscripten's `ccall("add", ...)` / `cwrap("add", ...)`
-/// (`calls_wasm_export`) in a file that loads the module -> the C function
-/// behind the export `_add`.
+/// An export looked up by name (`calls_wasm_export`) in a file that loads
+/// the module -> the function behind it: Emscripten's `ccall("add")` /
+/// `cwrap("add")` (the C function behind `_add`), and a WebAssembly host's
+/// `get_typed_func(&mut store, "add")` / `ExportedFunction("add")` / ... (a
+/// Rust `#[no_mangle]` function, Go `//go:wasmexport`, or AssemblyScript
+/// `export`).
 fn bind_wasm_export_calls(
     tx: &Transaction<'_>,
     crates: &[NativeCrate],
@@ -1375,7 +1386,8 @@ fn bind_wasm_export_calls(
     bridges: &mut Vec<NewBridge>,
 ) -> Result<()> {
     let mut stmt = tx.prepare(
-        "SELECT source_qualified, target_qualified, file_path, line FROM edges \
+        "SELECT source_qualified, target_qualified, file_path, line, \
+                json_extract(extra, '$.source_language') FROM edges \
          WHERE kind = 'CROSS_ARTIFACT' \
            AND json_extract(extra, '$.relationship_role') = 'calls_wasm_export'",
     )?;
@@ -1385,21 +1397,28 @@ fn bind_wasm_export_calls(
             row.get::<_, String>(1)?,
             row.get::<_, String>(2)?,
             row.get::<_, i64>(3)?,
+            row.get::<_, Option<String>>(4)?,
         ))
     })?;
     for row in rows {
-        let (source, name, file_path, line) = row?;
+        let (source, name, file_path, line, language) = row?;
         let indexes: HashSet<usize> = loaded
             .iter()
             .filter_map(|files| files.get(&file_path))
             .flatten()
             .copied()
-            .filter(|index| crates[*index].emscripten.is_some())
             .collect();
-        let key = format!("_{name}");
         let hits: Vec<(&String, usize)> = indexes
             .iter()
-            .filter_map(|index| unique(exports[*index].js.get(&key)).map(|qn| (qn, *index)))
+            .filter_map(|index| {
+                let table = &exports[*index];
+                if crates[*index].emscripten.is_some() {
+                    unique(table.js.get(&format!("_{name}")))
+                } else {
+                    unique(table.js.get(&name)).or_else(|| unique(table.c.get(&name)))
+                }
+                .map(|qn| (qn, *index))
+            })
             .collect();
         let [(export, index)] = hits.as_slice() else {
             continue;
@@ -1413,8 +1432,8 @@ fn bind_wasm_export_calls(
                 "calls_native_function",
                 "wasm",
                 "syntax",
-                format!("export {key}"),
-                javascript_language(&file_path).unwrap_or("javascript"),
+                format!("export {name}"),
+                language.as_deref().unwrap_or("unknown"),
                 crates[*index].language,
             ),
         });

@@ -48,6 +48,7 @@ pub(super) fn parse_rust_with_parser(
             bindings: RefCell::new(MemberCallBindings::with_types(type_names)),
         };
         rust_walk_children(root, &context, None, None, &mut nodes, &mut edges);
+        rust_wasm_host_edges(root, source, &file_path, None, None, &mut edges);
         record_neon_exported_functions(root, source, &mut nodes);
         if let Some(namespace) = rust_uniffi_namespace(root, source) {
             nodes[0].extra["uniffi_namespace"] = json!(namespace);
@@ -553,6 +554,130 @@ fn js_camel_case(name: &str) -> String {
     }
     out.push_str(trailing);
     out
+}
+
+/// Methods a WebAssembly runtime looks an export up by name with
+/// (wasmtime `get_typed_func` / `get_func` / `get_export`, wasmer
+/// `get_function` / `get_typed_function`).
+const RUST_WASM_EXPORT_LOOKUPS: &[&str] = &[
+    "get_typed_func",
+    "get_func",
+    "get_export",
+    "get_function",
+    "get_typed_function",
+];
+
+/// A WebAssembly host embedding a module: any call or `include_bytes!` with
+/// a string argument naming a `.wasm` file (`Module::from_file(&engine,
+/// "guest.wasm")`) emits `loads_wasm_module`, and an export lookup by name
+/// (`instance.get_typed_func::<_, _>(&mut store, "add")`) emits
+/// `calls_wasm_export`.
+fn rust_wasm_host_edges(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    file_path: &FilePath,
+    impl_type: Option<&str>,
+    func: Option<&str>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "impl_item" => {
+                let type_name = child
+                    .child_by_field_name("type")
+                    .map(|ty| node_text(ty, source));
+                rust_wasm_host_edges(child, source, file_path, type_name.as_deref(), func, edges);
+                continue;
+            }
+            "function_item" => {
+                let name = rust_identifier_child(child, source);
+                rust_wasm_host_edges(child, source, file_path, impl_type, name.as_deref(), edges);
+                continue;
+            }
+            "call_expression" | "macro_invocation" => {
+                let caller = func
+                    .map(|func| qualify(file_path, func, impl_type))
+                    .unwrap_or_else(|| file_path.to_string());
+                let mut strings = Vec::new();
+                rust_collect_string_literals(child, source, &mut strings);
+                let line = child.start_position().row as i64 + 1;
+                let field = if child.kind() == "call_expression" {
+                    "function"
+                } else {
+                    "macro"
+                };
+                let callee = child
+                    .child_by_field_name(field)
+                    .map(|callee| node_text(callee, source))
+                    .unwrap_or_default();
+                let method = callee
+                    .split("::<")
+                    .next()
+                    .unwrap_or_default()
+                    .rsplit(['.', ':'])
+                    .next()
+                    .unwrap_or_default()
+                    .trim_end_matches('!')
+                    .to_string();
+                let (role, target) = if let Some(path) = strings
+                    .iter()
+                    .find(|value| value.to_ascii_lowercase().ends_with(".wasm"))
+                {
+                    ("loads_wasm_module", path.clone())
+                } else if RUST_WASM_EXPORT_LOOKUPS.contains(&method.as_str())
+                    && let Some(name) = strings.last()
+                {
+                    ("calls_wasm_export", name.clone())
+                } else {
+                    rust_wasm_host_edges(child, source, file_path, impl_type, func, edges);
+                    continue;
+                };
+                edges.push(ParsedEdge {
+                    kind: crate::core::types::EdgeKind::CrossArtifact,
+                    source: caller,
+                    target,
+                    file_path: file_path.clone(),
+                    line,
+                    extra: json!({
+                        "relationship_role": role,
+                        "bridge_kind": "wasm",
+                        "evidence_kind": "syntax",
+                        "evidence_source": method,
+                        "source_language": "rust",
+                        "target_language": "unknown",
+                        "confidence": 0.8,
+                        "confidence_tier": "HIGH",
+                    }),
+                });
+                continue;
+            }
+            _ => {}
+        }
+        rust_wasm_host_edges(child, source, file_path, impl_type, func, edges);
+    }
+}
+
+/// String literals among a call's direct arguments (or a macro's tokens).
+fn rust_collect_string_literals(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    found: &mut Vec<String>,
+) {
+    let arguments = node.child_by_field_name("arguments").or_else(|| {
+        let mut cursor = node.walk();
+        node.children(&mut cursor)
+            .find(|child| child.kind() == "token_tree")
+    });
+    let Some(arguments) = arguments else {
+        return;
+    };
+    let mut cursor = arguments.walk();
+    for argument in arguments.children(&mut cursor) {
+        if argument.kind() == "string_literal" {
+            found.push(node_text(argument, source).trim_matches('"').to_string());
+        }
+    }
 }
 
 /// `uniffi::setup_scaffolding!("ns")`: the namespace the foreign bindings

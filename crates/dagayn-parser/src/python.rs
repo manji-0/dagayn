@@ -2885,8 +2885,27 @@ fn python_bridge_edge(
 ) -> Option<ParsedEdge> {
     let signature =
         python_canonical_signature(python_call_signature(node, source)?, import_aliases);
-    let (relationship_role, bridge_kind) = python_bridge_pattern(&signature)?;
     let line = node.start_position().row as i64 + 1;
+    if let Some((relationship_role, target)) = python_wasm_host_bridge(node, source, &signature) {
+        return Some(ParsedEdge {
+            kind: crate::core::types::EdgeKind::CrossArtifact,
+            source: caller.to_string(),
+            target,
+            file_path: file_path.clone(),
+            line,
+            extra: json!({
+                "relationship_role": relationship_role,
+                "bridge_kind": "wasm",
+                "evidence_kind": "syntax",
+                "evidence_source": signature,
+                "source_language": "python",
+                "target_language": "unknown",
+                "confidence": 0.8,
+                "confidence_tier": "HIGH",
+            }),
+        });
+    }
+    let (relationship_role, bridge_kind) = python_bridge_pattern(&signature)?;
     let (target, confidence, confidence_tier) = match python_first_string_arg(node, source) {
         Some(target) if !target.is_empty() => (target, 0.8, "HIGH"),
         _ => (
@@ -2942,6 +2961,37 @@ fn python_call_signature(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<S
         .find(|child| child.kind() != "argument_list")
         .map(|child| node_text(child, source).trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+/// A WebAssembly host (wasmtime / wasmer): a call with a string argument
+/// naming a `.wasm` file (`Module.from_file(engine, "guest.wasm")`) loads
+/// the module; `instance.exports(store).get("add")` and wasmer's
+/// `instance.exports.add(...)` call its export.
+fn python_wasm_host_bridge(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    signature: &str,
+) -> Option<(&'static str, String)> {
+    let arguments = node
+        .children(&mut node.walk())
+        .find(|child| child.kind() == "argument_list")?;
+    let strings: Vec<String> = arguments
+        .children(&mut arguments.walk())
+        .filter(|child| child.kind() == "string")
+        .filter_map(|child| python_string_literal_text(child, source))
+        .collect();
+    if let Some(path) = strings
+        .iter()
+        .find(|value| value.to_ascii_lowercase().ends_with(".wasm"))
+    {
+        return Some(("loads_wasm_module", path.clone()));
+    }
+    if signature.ends_with(".get") && signature.contains(".exports(") {
+        return Some(("calls_wasm_export", strings.first()?.clone()));
+    }
+    let (object, name) = signature.rsplit_once('.')?;
+    (object.ends_with(".exports") && !name.is_empty())
+        .then(|| ("calls_wasm_export", name.to_string()))
 }
 
 fn python_bridge_pattern(signature: &str) -> Option<(&'static str, &'static str)> {

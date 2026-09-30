@@ -492,6 +492,26 @@ fn go_bridge_edge(
     caller: &str,
     signature: &str,
 ) -> Option<ParsedEdge> {
+    let line = node.start_position().row as i64 + 1;
+    if let Some((relationship_role, target)) = go_wasm_host_bridge(node, source, signature) {
+        return Some(ParsedEdge {
+            kind: crate::core::types::EdgeKind::CrossArtifact,
+            source: caller.to_string(),
+            target,
+            file_path: file_path.clone(),
+            line,
+            extra: json!({
+                "relationship_role": relationship_role,
+                "bridge_kind": "wasm",
+                "evidence_kind": "syntax",
+                "evidence_source": signature,
+                "source_language": "go",
+                "target_language": "unknown",
+                "confidence": 0.8,
+                "confidence_tier": "HIGH",
+            }),
+        });
+    }
     let (relationship_role, bridge_kind) = match signature {
         "exec.Command" => ("invokes_binary", "subprocess"),
         "os.ReadFile" | "os.Open" => ("reads_file", "file_io"),
@@ -499,7 +519,6 @@ fn go_bridge_edge(
         "plugin.Open" => ("loads_shared_library", "ffi"),
         _ => return None,
     };
-    let line = node.start_position().row as i64 + 1;
     let (target, confidence, confidence_tier) = match go_first_string_arg(node, source) {
         Some(target) => (target, 0.8, "HIGH"),
         None => (
@@ -525,6 +544,47 @@ fn go_bridge_edge(
             "confidence_tier": confidence_tier,
         }),
     })
+}
+
+/// A WebAssembly host (wazero, wasmtime-go, wasmer-go): a call with a
+/// string argument naming a `.wasm` file (`os.ReadFile("guest.wasm")`)
+/// loads the module; `mod.ExportedFunction("add")`,
+/// `instance.GetFunc(store, "add")`, `instance.GetExport(store, "add")`, and
+/// `instance.Exports.GetFunction("add")` call its export.
+fn go_wasm_host_bridge(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    signature: &str,
+) -> Option<(&'static str, String)> {
+    let mut cursor = node.walk();
+    let arguments = node
+        .children(&mut cursor)
+        .find(|child| child.kind() == "argument_list")?;
+    let mut arg_cursor = arguments.walk();
+    let strings: Vec<String> = arguments
+        .children(&mut arg_cursor)
+        .filter(|child| {
+            matches!(
+                child.kind(),
+                "interpreted_string_literal" | "raw_string_literal"
+            )
+        })
+        .map(|child| strip_matching_quotes(node_text(child, source).trim()).to_string())
+        .collect();
+    if let Some(path) = strings
+        .iter()
+        .find(|value| value.to_ascii_lowercase().ends_with(".wasm"))
+    {
+        return Some(("loads_wasm_module", path.clone()));
+    }
+    let method = signature.rsplit('.').next().unwrap_or(signature);
+    matches!(
+        method,
+        "ExportedFunction" | "GetFunc" | "GetExport" | "GetFunction"
+    )
+    .then(|| strings.last().cloned())
+    .flatten()
+    .map(|name| ("calls_wasm_export", name))
 }
 
 fn go_first_string_arg(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {

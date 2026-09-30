@@ -95,6 +95,7 @@ def discover_manifest_bridges(repo_root: Path) -> ManifestBridgeResult:
             maturin_modules.setdefault(cargo_rel, module_name)
 
     wasm_hints = _collect_wasm_package_hints(repo_root, package_jsons)
+    wasm_hints.cargo_builds = _cargo_wasm_builds(repo_root, package_jsons, build_scripts)
     for rel_path in cargo_manifests:
         _extract_cargo_crate_root(repo_root, rel_path, maturin_modules, wasm_hints, result)
 
@@ -368,6 +369,100 @@ class _WasmPackageHints:
     builds: list[tuple[str, str | None, str | None, str | None]] = field(default_factory=list)
     # (dependency name, path) for `"name": "file:../crate/pkg"` dependencies.
     file_dependencies: list[tuple[str, str]] = field(default_factory=list)
+    # `cargo build --target wasm32-*` commands, from any build file.
+    cargo_builds: list[_CargoWasmBuild] = field(default_factory=list)
+
+
+@dataclass
+class _CargoWasmBuild:
+    """``cargo build --target wasm32-...`` run from *cwd*, selecting a crate by
+    ``-p`` / ``--package`` or ``--manifest-path`` (or the crate in *cwd*)."""
+
+    cwd: str
+    target: str
+    package: str | None = None
+    manifest: str | None = None
+
+
+_CARGO_BUILD_RE = re.compile(r"\bcargo\s+(?:\+\S+\s+)?build\b(?P<args>[^;&|\n]*)")
+
+
+def _cargo_wasm_builds(
+    repo_root: Path, package_jsons: list[str], build_scripts: list[str]
+) -> list[_CargoWasmBuild]:
+    builds: list[_CargoWasmBuild] = []
+    for command_file, commands in _build_commands(repo_root, package_jsons, build_scripts):
+        cwd = PurePosixPath(command_file).parent
+        for command in commands:
+            for match in _CARGO_BUILD_RE.finditer(command):
+                options, _ = _command_options(
+                    _split_command(match.group("args")),
+                    {"--target", "-p", "--package", "--manifest-path", "--profile"},
+                )
+                target = options.get("--target", "")
+                if not target.startswith("wasm32-"):
+                    continue
+                manifest = options.get("--manifest-path")
+                builds.append(
+                    _CargoWasmBuild(
+                        cwd=_dir_rel(cwd) or "",
+                        target=target,
+                        package=options.get("-p") or options.get("--package"),
+                        manifest=_resolve_rel(cwd, manifest) if manifest else None,
+                    )
+                )
+    return builds
+
+
+def _cargo_config_wasm_target(repo_root: Path, crate_rel: str) -> str | None:
+    """``[build] target = "wasm32-..."`` in ``.cargo/config.toml`` of the crate
+    directory or one of its ancestors."""
+    parts = PurePosixPath(crate_rel).parts if crate_rel else ()
+    for depth in range(len(parts), -1, -1):
+        directory = repo_root.joinpath(*parts[:depth])
+        for name in ("config.toml", "config"):
+            data = _load_toml(directory / ".cargo" / name)
+            build = data.get("build") if data else None
+            target = build.get("target") if isinstance(build, dict) else None
+            if isinstance(target, str) and target.startswith("wasm32-"):
+                return target
+    return None
+
+
+def _cargo_wasm_outputs(
+    repo_root: Path,
+    cargo_rel: str,
+    crate_rel: str,
+    package_name: str | None,
+    lib_name: str,
+    hints: _WasmPackageHints,
+) -> list[str]:
+    """``.wasm`` files ``cargo build --target wasm32-*`` writes for the crate:
+    ``<target dir>/<triple>/{release,debug}/<lib>.wasm`` under the crate and
+    under the directory the build runs from (a workspace root)."""
+    selections: list[tuple[str, str]] = []  # (target triple, directory the build runs in)
+    for build in hints.cargo_builds:
+        if build.manifest is not None:
+            selected = build.manifest == cargo_rel
+        elif build.package is not None:
+            selected = build.package == package_name
+        else:
+            selected = build.cwd == crate_rel
+        if selected:
+            selections.append((build.target, build.cwd))
+    configured = _cargo_config_wasm_target(repo_root, crate_rel)
+    if configured is not None:
+        selections.append((configured, crate_rel))
+    outputs: list[str] = []
+    for target, cwd in selections:
+        for root in dict.fromkeys([crate_rel, cwd]):
+            for profile in ("release", "debug"):
+                rel = "/".join(
+                    part for part in (root, "target", target, profile, f"{lib_name}.wasm") if part
+                )
+                if rel not in outputs:
+                    outputs.append(rel)
+    return outputs
 
 
 def _collect_wasm_package_hints(repo_root: Path, package_jsons: list[str]) -> _WasmPackageHints:
@@ -660,6 +755,17 @@ def _extract_cargo_crate_root(
         extra["wasm_bindgen"] = True
         extra["js_packages"] = js_packages
         extra["wasm_out_dirs"] = out_dirs
+    if "cdylib" in crate_types and not extra.get("wasm_bindgen"):
+        wasm_outputs = _cargo_wasm_outputs(
+            repo_root,
+            cargo_rel,
+            extra["crate_dir"],
+            package_name.strip() if isinstance(package_name, str) else None,
+            lib_name,
+            wasm_hints,
+        )
+        if wasm_outputs:
+            extra["wasm_outputs"] = wasm_outputs
     if _cargo_depends_on(data, "uniffi"):
         extra["uniffi"] = _uniffi_facts(repo_root, extra["crate_dir"], lib_name)
     addon = next((kind for kind in ("napi", "neon") if _cargo_depends_on(data, kind)), None)

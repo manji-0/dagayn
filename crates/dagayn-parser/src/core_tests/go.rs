@@ -169,3 +169,38 @@ func Local() int { return helper() }
     assert_eq!(receiver("fast_sum"), Some(serde_json::json!("C")));
     assert_eq!(receiver("helper"), None);
 }
+
+#[test]
+fn go_wasm_hosts_emit_loads_and_export_calls() {
+    let source = br#"package main
+
+func run() {
+	wasm, _ := os.ReadFile("guest.wasm")
+	mod, _ := r.Instantiate(ctx, wasm)
+	mod.ExportedFunction("add").Call(ctx, 1, 2)
+	f := instance.GetFunc(store, "mul")
+	data, _ := os.ReadFile("config.json")
+}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_, edges) = parser.parse_file("gohost/main.go", source);
+    let bridges: Vec<(&str, &str)> = edges
+        .iter()
+        .filter(|edge| edge.kind == "CROSS_ARTIFACT")
+        .map(|edge| {
+            (
+                edge.extra["relationship_role"].as_str().unwrap_or_default(),
+                edge.target.as_str(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        bridges,
+        vec![
+            ("loads_wasm_module", "guest.wasm"),
+            ("calls_wasm_export", "add"),
+            ("calls_wasm_export", "mul"),
+            ("reads_file", "config.json"),
+        ]
+    );
+}

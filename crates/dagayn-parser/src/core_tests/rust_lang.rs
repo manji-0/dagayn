@@ -419,3 +419,36 @@ pub fn internal() {}
     );
     assert_eq!(export("internal"), None);
 }
+
+#[test]
+fn records_wasm_host_loads_and_export_lookups() {
+    let source = br#"fn run(engine: &Engine, store: &mut Store<()>) {
+    let module = Module::from_file(engine, "guest.wasm").unwrap();
+    let bytes = include_bytes!("plugin.wasm");
+    let add = instance.get_typed_func::<(i32, i32), i32>(&mut *store, "add").unwrap();
+    let mul = instance.exports.get_function("mul").unwrap();
+    let other = lookup("add");
+}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_, edges) = parser.parse_file("host/src/main.rs", source);
+    let bridges: Vec<(&str, &str)> = edges
+        .iter()
+        .filter(|edge| edge.kind == "CROSS_ARTIFACT")
+        .map(|edge| {
+            (
+                edge.extra["relationship_role"].as_str().unwrap_or_default(),
+                edge.target.as_str(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        bridges,
+        vec![
+            ("loads_wasm_module", "guest.wasm"),
+            ("loads_wasm_module", "plugin.wasm"),
+            ("calls_wasm_export", "add"),
+            ("calls_wasm_export", "mul"),
+        ]
+    );
+}
