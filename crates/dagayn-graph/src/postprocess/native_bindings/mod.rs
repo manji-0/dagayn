@@ -34,7 +34,6 @@
 //! `extractor = "native_bindings"`, and each run replaces the previous set.
 
 use crate::helpers::*;
-use crate::postprocess::extra_json;
 use crate::*;
 
 mod c_imports;
