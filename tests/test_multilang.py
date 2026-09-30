@@ -480,13 +480,16 @@ class TestSwiftParsing:
         assert "DataStore" in names
 
     def test_finds_extension(self):
-        """Extensions should be detected and linked to the extended type."""
-        classes = [n for n in self.nodes if n.kind == "Class"]
-        # Extension of InMemoryRepo should produce a Class node named InMemoryRepo
-        # with swift_kind == "extension"
-        ext_nodes = [c for c in classes if c.extra.get("swift_kind") == "extension"]
-        assert len(ext_nodes) >= 1
-        assert ext_nodes[0].name == "InMemoryRepo"
+        """An extension merges into the type it extends and adds its conformances."""
+        repo_nodes = [n for n in self.nodes if n.kind == "Class" and n.name == "InMemoryRepo"]
+        assert len(repo_nodes) == 1
+        assert repo_nodes[0].extra.get("merged_declarations") == 2
+        conformances = {
+            e.target
+            for e in self.edges
+            if e.kind == "INHERITS" and e.source.endswith("::InMemoryRepo")
+        }
+        assert "CustomStringConvertible" in conformances
 
     def test_finds_protocol(self):
         classes = [n for n in self.nodes if n.kind == "Class"]
@@ -500,11 +503,8 @@ class TestSwiftParsing:
         assert classes["Direction"].extra.get("swift_kind") == "enum"
         assert classes["DataStore"].extra.get("swift_kind") == "actor"
         assert classes["UserRepository"].extra.get("swift_kind") == "protocol"
-        # InMemoryRepo appears twice (class + extension); check at least one is "class"
-        repo_nodes = [n for n in self.nodes if n.kind == "Class" and n.name == "InMemoryRepo"]
-        kinds = {n.extra.get("swift_kind") for n in repo_nodes}
-        assert "class" in kinds
-        assert "extension" in kinds
+        # The class declaration, not its later extension, names the kind.
+        assert classes["InMemoryRepo"].extra.get("swift_kind") == "class"
 
     def test_inheritance_edges(self):
         """Swift inheritance / conformance should produce INHERITS edges."""

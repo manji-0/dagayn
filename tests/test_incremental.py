@@ -938,8 +938,9 @@ class TestExtractorVersions:
         from dagayn.extractor_versions import EXTRACTOR_VERSIONS_KEY, outdated_extractors
 
         (tmp_path / ".git").mkdir()
-        # GDScript has no tracked extractor version.
-        (tmp_path / "tool.gd").write_text("func run():\n    return 1\n")
+        # Every parsed language has a tracked version (the `shared` passes),
+        # so only a graph with no parsed file lacks extractor output.
+        (tmp_path / "notes.txt").write_text("not source\n")
         store = GraphStore(tmp_path / "graph.db")
         try:
             full_build(tmp_path, store)

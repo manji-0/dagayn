@@ -212,7 +212,8 @@ impl RustOwnedParser {
         file_path: &str,
         source: &[u8],
     ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-        let (nodes, mut edges) = self.parse_file_dispatch(repo_root, file_path, source);
+        let (mut nodes, mut edges) = self.parse_file_dispatch(repo_root, file_path, source);
+        collapse_duplicate_nodes(&mut nodes, &mut edges);
         contain_in_file(file_path, &nodes, &mut edges);
         (nodes, edges)
     }
@@ -457,6 +458,80 @@ impl RustOwnedParser {
     }
 }
 
+fn qualified_name_of(node: &ParsedNode) -> String {
+    match (node.kind, &node.parent_name) {
+        (NodeKind::File, _) => node.file_path.to_string(),
+        (_, Some(parent)) => format!("{}::{parent}.{}", node.file_path, node.name),
+        (_, None) => format!("{}::{}", node.file_path, node.name),
+    }
+}
+
+/// One qualified name, one node. Overloads (Java, C++, Swift, Kotlin),
+/// multi-clause functions (Elixir), `#ifdef` alternatives (C), redefinitions
+/// (shell, Ruby), and an Objective-C `@interface` plus `@implementation`
+/// share a qualified name. The graph store keeps the last write for a name,
+/// so the surviving node used to depend on declaration order. They now merge
+/// into the first: spanning every definition, a test if any is, with
+/// `merged_declarations: n`; the duplicate CONTAINS edges go. JavaScript
+/// merges its own duplicates first, with language-specific detail.
+fn collapse_duplicate_nodes(nodes: &mut Vec<ParsedNode>, edges: &mut Vec<ParsedEdge>) {
+    let mut first: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut merged: Vec<Option<usize>> = vec![None; nodes.len()];
+    for index in 0..nodes.len() {
+        let qualified = qualified_name_of(&nodes[index]);
+        match first.get(&qualified) {
+            Some(&primary) => merged[index] = Some(primary),
+            None => {
+                first.insert(qualified, index);
+            }
+        }
+    }
+    if merged.iter().all(Option::is_none) {
+        return;
+    }
+    let mut counts = vec![1usize; nodes.len()];
+    for index in 0..nodes.len() {
+        let Some(primary) = merged[index] else {
+            continue;
+        };
+        let (line_start, line_end, is_test) = (
+            nodes[index].line_start,
+            nodes[index].line_end,
+            nodes[index].is_test,
+        );
+        let target = &mut nodes[primary];
+        target.line_start = target.line_start.min(line_start);
+        target.line_end = target.line_end.max(line_end);
+        target.is_test |= is_test;
+        counts[primary] += 1;
+    }
+    for (index, count) in counts.iter().enumerate() {
+        if *count > 1
+            && let Some(extra) = nodes[index].extra.as_object_mut()
+        {
+            let previous = extra
+                .get("merged_declarations")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(1) as usize;
+            extra.insert(
+                "merged_declarations".to_string(),
+                serde_json::json!(previous + count - 1),
+            );
+        }
+    }
+    let mut index = 0;
+    nodes.retain(|_| {
+        let keep = merged[index].is_none();
+        index += 1;
+        keep
+    });
+    let mut seen_contains = std::collections::HashSet::new();
+    edges.retain(|edge| {
+        edge.kind != EdgeKind::Contains
+            || seen_contains.insert((edge.source.clone(), edge.target.clone()))
+    });
+}
+
 /// Points every CONTAINS edge at a container declared in this file.
 ///
 /// A member of a type declared elsewhere (a Go method on a receiver from a
@@ -466,14 +541,7 @@ impl RustOwnedParser {
 /// and nothing in the graph contained the member. Such edges now start at
 /// the File node.
 fn contain_in_file(file_path: &str, nodes: &[ParsedNode], edges: &mut [ParsedEdge]) {
-    let declared: std::collections::HashSet<String> = nodes
-        .iter()
-        .map(|node| match (node.kind, &node.parent_name) {
-            (NodeKind::File, _) => node.file_path.to_string(),
-            (_, Some(parent)) => format!("{}::{parent}.{}", node.file_path, node.name),
-            (_, None) => format!("{}::{}", node.file_path, node.name),
-        })
-        .collect();
+    let declared: std::collections::HashSet<String> = nodes.iter().map(qualified_name_of).collect();
     for edge in edges.iter_mut() {
         if edge.kind == EdgeKind::Contains
             && edge.source != file_path

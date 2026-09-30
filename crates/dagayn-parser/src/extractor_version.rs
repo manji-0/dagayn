@@ -23,6 +23,48 @@ pub struct ExtractorVersion {
 /// treated as never changing their output.
 pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
     ExtractorVersion {
+        // Passes every file's output goes through after its extractor
+        // (`parse_file_in_repo`), so every language re-parses when they change.
+        // 1: nodes sharing a qualified name merge into one
+        // (`merged_declarations`), and CONTAINS edges start at a node of the
+        // file (the File node for members of a type declared elsewhere).
+        extractor: "shared",
+        version: 1,
+        languages: &[
+            "bash",
+            "c",
+            "cpp",
+            "csharp",
+            "dart",
+            "elixir",
+            "gdscript",
+            "go",
+            "java",
+            "javascript",
+            "julia",
+            "kotlin",
+            "lua",
+            "markdown",
+            "notebook",
+            "objc",
+            "perl",
+            "php",
+            "powershell",
+            "python",
+            "r",
+            "ruby",
+            "rust",
+            "scala",
+            "svelte",
+            "swift",
+            "terraform",
+            "tsx",
+            "typescript",
+            "vue",
+            "zig",
+        ],
+    },
+    ExtractorVersion {
         // TypeScript / JavaScript rework (docs/TYPESCRIPT-EXTRACTION.md). Vue,
         // Svelte, and Astro script blocks run through the same extractor.
         // 2: symbols of a relative module missing from the repository are

@@ -606,3 +606,21 @@ fn objective_cpp_files_are_parsed_as_objective_c() {
     assert_eq!(names, vec!["View.mm", "View", "draw", "helper"]);
     assert!(nodes.iter().all(|node| node.language == "objc"));
 }
+
+#[test]
+fn duplicate_qualified_names_merge_into_one_node() {
+    // `#ifdef` alternatives define the same function twice.
+    let source =
+        b"#ifdef A\nint pick(void) { return 1; }\n#else\nint pick(void) { return 2; }\n#endif\n";
+    let mut parser = RustOwnedParser::new();
+    let (nodes, edges) = parser.parse_file("p.c", source);
+    let picks: Vec<&ParsedNode> = nodes.iter().filter(|node| node.name == "pick").collect();
+    assert_eq!(picks.len(), 1);
+    assert_eq!((picks[0].line_start, picks[0].line_end), (2, 4));
+    assert_eq!(picks[0].extra["merged_declarations"], 2);
+    let contains = edges
+        .iter()
+        .filter(|edge| edge.kind == "CONTAINS" && edge.target == "p.c::pick")
+        .count();
+    assert_eq!(contains, 1);
+}

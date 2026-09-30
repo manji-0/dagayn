@@ -62,7 +62,10 @@ fn go_walk_children(
                 go_emit_types(child, source, file_path, nodes, edges);
             }
             "function_declaration" | "method_declaration" => {
-                if let Some((name, receiver)) = go_function_name_and_receiver(child, source) {
+                // `func _()` is the blank identifier: nothing can refer to it.
+                if let Some((name, receiver)) =
+                    go_function_name_and_receiver(child, source).filter(|(name, _)| name != "_")
+                {
                     go_emit_function(
                         child,
                         source,
@@ -126,7 +129,9 @@ fn go_emit_types(
         if child.kind() != "type_spec" {
             continue;
         }
-        let Some(name) = go_direct_child_text(child, source, "type_identifier") else {
+        let Some(name) =
+            go_direct_child_text(child, source, "type_identifier").filter(|name| name != "_")
+        else {
             continue;
         };
         let qualified = qualify(file_path, &name, None);

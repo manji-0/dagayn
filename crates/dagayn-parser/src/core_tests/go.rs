@@ -224,3 +224,18 @@ fn methods_on_a_type_from_another_file_are_contained_by_the_file() {
             .any(|(source, _)| *source == "resolver.go::Checker")
     );
 }
+
+#[test]
+fn blank_identifier_declarations_are_not_nodes() {
+    let source = b"package p\n\ntype _ int\n\nfunc _() { helper() }\n\nfunc real() {}\n";
+    let mut parser = RustOwnedParser::new();
+    let (nodes, edges) = parser.parse_file("p.go", source);
+    let names: Vec<&str> = nodes.iter().map(|node| node.name.as_str()).collect();
+    assert_eq!(names, vec!["p.go", "real"]);
+    // The body is still walked; its calls come from the file.
+    assert!(
+        edges
+            .iter()
+            .any(|edge| edge.kind == "CALLS" && edge.source == "p.go" && edge.target == "helper")
+    );
+}
