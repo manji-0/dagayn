@@ -603,14 +603,14 @@ class TestEmbeddingStore:
 
     def test_store_initializes(self, tmp_path):
         db = tmp_path / "embeddings.db"
-        with patch("dagayn.embeddings.get_provider", return_value=None):
+        with patch("dagayn.embeddings_store.get_provider", return_value=None):
             store = EmbeddingStore(db)
             assert store.count() == 0
             store.close()
 
     def test_count_empty(self, tmp_path):
         db = tmp_path / "embeddings.db"
-        with patch("dagayn.embeddings.get_provider", return_value=None):
+        with patch("dagayn.embeddings_store.get_provider", return_value=None):
             store = EmbeddingStore(db)
             assert store.count() == 0
             assert store.count_provider() == 0
@@ -618,7 +618,7 @@ class TestEmbeddingStore:
 
     def test_embed_nodes_returns_zero_when_unavailable(self, tmp_path):
         db = tmp_path / "embeddings.db"
-        with patch("dagayn.embeddings.get_provider", return_value=None):
+        with patch("dagayn.embeddings_store.get_provider", return_value=None):
             store = EmbeddingStore(db)
             result = store.embed_nodes([])
             assert result == 0
@@ -626,7 +626,7 @@ class TestEmbeddingStore:
 
     def test_search_returns_empty_when_unavailable(self, tmp_path):
         db = tmp_path / "embeddings.db"
-        with patch("dagayn.embeddings.get_provider", return_value=None):
+        with patch("dagayn.embeddings_store.get_provider", return_value=None):
             store = EmbeddingStore(db)
             results = store.search("query")
             assert results == []
@@ -634,7 +634,7 @@ class TestEmbeddingStore:
 
     def test_remove_node(self, tmp_path):
         db = tmp_path / "embeddings.db"
-        with patch("dagayn.embeddings.get_provider", return_value=None):
+        with patch("dagayn.embeddings_store.get_provider", return_value=None):
             store = EmbeddingStore(db)
             # Should not raise even if node doesn't exist
             store.remove_node("nonexistent::func")
@@ -642,7 +642,7 @@ class TestEmbeddingStore:
 
     def test_embeddings_writes_bump_the_generation(self, tmp_path):
         db = tmp_path / "embeddings.db"
-        with patch("dagayn.embeddings.get_provider", return_value=None):
+        with patch("dagayn.embeddings_store.get_provider", return_value=None):
             store = EmbeddingStore(db)
             conn = store_conn(store)
 
@@ -698,7 +698,7 @@ class TestEmbeddingStore:
                 (name, _encode_vector([1.0])),
             )
 
-        with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+        with patch("dagayn.embeddings_store.get_provider", return_value=FakeProvider()):
             store = EmbeddingStore(db)
             conn = store_conn(store)
             insert(conn, "file.py::a")
@@ -730,7 +730,7 @@ class TestEmbeddingStore:
             def dimension(self):
                 return 1
 
-        with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+        with patch("dagayn.embeddings_store.get_provider", return_value=FakeProvider()):
             store = EmbeddingStore(db)
             store_conn(store).executemany(
                 """INSERT INTO embeddings (qualified_name, vector, text_hash, provider)
@@ -773,7 +773,7 @@ class TestEmbeddingStore:
             def dimension(self):
                 return 1
 
-        with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+        with patch("dagayn.embeddings_store.get_provider", return_value=FakeProvider()):
             store = EmbeddingStore(db)
             store_conn(store).executemany(
                 """INSERT INTO embeddings (qualified_name, vector, text_hash, provider)
@@ -815,7 +815,7 @@ class TestEmbeddingStore:
             def dimension(self):
                 return 1
 
-        with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+        with patch("dagayn.embeddings_store.get_provider", return_value=FakeProvider()):
             store = EmbeddingStore(db)
             store_conn(store).executemany(
                 """INSERT INTO embeddings (qualified_name, vector, text_hash, provider)
@@ -869,7 +869,7 @@ class TestEmbeddingStore:
             def dimension(self):
                 return 1
 
-        with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+        with patch("dagayn.embeddings_store.get_provider", return_value=FakeProvider()):
             store = EmbeddingStore(db)
             store_conn(store).execute(
                 """INSERT INTO embeddings (qualified_name, vector, text_hash, provider)
@@ -913,7 +913,7 @@ class TestEmbeddingStore:
 
         provider = FakeProvider()
         nodes = [self._make_node(f"func_{i}", i + 1) for i in range(3)]
-        with patch("dagayn.embeddings.get_provider", return_value=provider):
+        with patch("dagayn.embeddings_store.get_provider", return_value=provider):
             store = EmbeddingStore(db)
             with pytest.raises(RuntimeError, match=r"Embedding batch 2/3 failed"):
                 store.embed_nodes(nodes)
@@ -946,7 +946,7 @@ class TestEmbeddingStore:
     def test_embed_nodes_without_slice_budget_embeds_everything(self, tmp_path):
         provider = self._slow_provider(0.0)
         nodes = [self._make_node(f"func_{i}", i + 1) for i in range(4)]
-        with patch("dagayn.embeddings.get_provider", return_value=provider):
+        with patch("dagayn.embeddings_store.get_provider", return_value=provider):
             store = EmbeddingStore(tmp_path / "embeddings.db")
             assert store.embed_nodes(nodes) == 4
             assert store.last_remaining == 0
@@ -955,7 +955,7 @@ class TestEmbeddingStore:
     def test_slice_budget_stops_early_and_reports_remaining(self, tmp_path):
         provider = self._slow_provider(0.05)
         nodes = [self._make_node(f"func_{i}", i + 1) for i in range(5)]
-        with patch("dagayn.embeddings.get_provider", return_value=provider):
+        with patch("dagayn.embeddings_store.get_provider", return_value=provider):
             store = EmbeddingStore(tmp_path / "embeddings.db")
             embedded = store.embed_nodes(nodes, slice_seconds=0.04)
             # One batch always runs; the budget is already spent after it.
@@ -967,7 +967,7 @@ class TestEmbeddingStore:
     def test_slice_budget_of_zero_still_makes_progress(self, tmp_path):
         provider = self._slow_provider(0.0)
         nodes = [self._make_node(f"func_{i}", i + 1) for i in range(3)]
-        with patch("dagayn.embeddings.get_provider", return_value=provider):
+        with patch("dagayn.embeddings_store.get_provider", return_value=provider):
             store = EmbeddingStore(tmp_path / "embeddings.db")
             assert store.embed_nodes(nodes, slice_seconds=0.0) == 1
             assert store.last_remaining == 2
@@ -976,7 +976,7 @@ class TestEmbeddingStore:
     def test_successive_slices_finish_the_corpus(self, tmp_path):
         provider = self._slow_provider(0.0)
         nodes = [self._make_node(f"func_{i}", i + 1) for i in range(4)]
-        with patch("dagayn.embeddings.get_provider", return_value=provider):
+        with patch("dagayn.embeddings_store.get_provider", return_value=provider):
             store = EmbeddingStore(tmp_path / "embeddings.db")
             slices = 0
             while True:
@@ -1016,7 +1016,7 @@ class TestEmbeddingStore:
                 return 1
 
         provider = CapturingProvider()
-        with patch("dagayn.embeddings.get_provider", return_value=provider):
+        with patch("dagayn.embeddings_store.get_provider", return_value=provider):
             store = EmbeddingStore(db, text_mode="body", source_root=tmp_path)
             node = self._make_node("func_1", 1)
             node.line_end = 2
@@ -1047,7 +1047,7 @@ class TestEmbeddingStore:
 
         provider = CapturingProvider()
         node = self._make_node("func_1", 1)
-        with patch("dagayn.embeddings.get_provider", return_value=provider):
+        with patch("dagayn.embeddings_store.get_provider", return_value=provider):
             material = EmbeddingStore(db, text_mode="material")
             assert material.embed_nodes([node]) == 1
             assert material.count_provider() == 1
@@ -1093,7 +1093,7 @@ class TestEmbeddingStore:
             self._make_node("bad_node", 2),
             self._make_node("good_b", 3),
         ]
-        with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+        with patch("dagayn.embeddings_store.get_provider", return_value=FakeProvider()):
             store = EmbeddingStore(db)
             with pytest.raises(RuntimeError) as exc_info:
                 store.embed_nodes(nodes)
@@ -1124,7 +1124,7 @@ class TestEmbeddingStore:
                 return 1
 
         nodes = [self._make_node("a", 1), self._make_node("b", 2)]
-        with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+        with patch("dagayn.embeddings_store.get_provider", return_value=FakeProvider()):
             store = EmbeddingStore(db)
             assert store.embed_nodes(nodes) == 2
             assert store.count() == 2
@@ -1147,7 +1147,7 @@ class TestEmbeddingStore:
             def dimension(self):
                 return 1
 
-        with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+        with patch("dagayn.embeddings_store.get_provider", return_value=FakeProvider()):
             store = EmbeddingStore(db)
             with pytest.raises(RuntimeError, match=r"batch 1/1 returned 1 vector"):
                 store.embed_nodes([self._make_node("a", 1), self._make_node("b", 2)])
@@ -1155,7 +1155,7 @@ class TestEmbeddingStore:
             store.close()
 
     def test_search_uses_native_backend_when_configured(self, tmp_path, monkeypatch):
-        import dagayn.embeddings as emb
+        import dagayn.embeddings_store as emb_store
 
         db = tmp_path / "embeddings.db"
 
@@ -1180,9 +1180,9 @@ class TestEmbeddingStore:
             return [("file.py::best", 1.0)]
 
         monkeypatch.delenv("DAGAYN_EMBEDDING_SEARCH_BACKEND", raising=False)
-        monkeypatch.setattr(emb, "_native_embedding_search", fake_native_search)
+        monkeypatch.setattr(emb_store, "_native_embedding_search", fake_native_search)
 
-        with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+        with patch("dagayn.embeddings_store.get_provider", return_value=FakeProvider()):
             store = EmbeddingStore(db)
             assert store.search("query", limit=1) == [("file.py::best", 1.0)]
             store.close()
@@ -1191,7 +1191,7 @@ class TestEmbeddingStore:
         assert calls[0][1:] == ("fake#text=material", [1.0, 0.0], 1)
 
     def test_prewarm_search_uses_native_cache(self, tmp_path, monkeypatch):
-        import dagayn.embeddings as emb
+        import dagayn.embeddings_store as emb_store
 
         db = tmp_path / "embeddings.db"
 
@@ -1215,9 +1215,9 @@ class TestEmbeddingStore:
             calls.append((db_path, provider_name))
             return 2
 
-        monkeypatch.setattr(emb, "_native_embedding_search_prewarm", fake_prewarm)
+        monkeypatch.setattr(emb_store, "_native_embedding_search_prewarm", fake_prewarm)
 
-        with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+        with patch("dagayn.embeddings_store.get_provider", return_value=FakeProvider()):
             store = EmbeddingStore(db)
             assert store.prewarm_search() == 2
             store.close()
@@ -1226,7 +1226,7 @@ class TestEmbeddingStore:
         assert calls[0][1] == "fake#text=material"
 
     def test_search_auto_falls_back_when_native_unavailable(self, tmp_path, monkeypatch):
-        import dagayn.embeddings as emb
+        import dagayn.embeddings_store as emb_store
 
         db = tmp_path / "embeddings.db"
 
@@ -1248,9 +1248,9 @@ class TestEmbeddingStore:
             raise AttributeError("old extension")
 
         monkeypatch.setenv("DAGAYN_EMBEDDING_SEARCH_BACKEND", "auto")
-        monkeypatch.setattr(emb, "_native_embedding_search", failing_native_search)
+        monkeypatch.setattr(emb_store, "_native_embedding_search", failing_native_search)
 
-        with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+        with patch("dagayn.embeddings_store.get_provider", return_value=FakeProvider()):
             store = EmbeddingStore(db)
             store_conn(store).executemany(
                 """INSERT INTO embeddings (qualified_name, vector, text_hash, provider)
@@ -1266,7 +1266,6 @@ class TestEmbeddingStore:
             store.close()
 
     def test_search_python_backend_uses_pure_python_without_numpy(self, tmp_path, monkeypatch):
-        import dagayn.embeddings as emb
         import dagayn.embeddings_store as emb_store
 
         db = tmp_path / "embeddings.db"
@@ -1287,9 +1286,9 @@ class TestEmbeddingStore:
 
         monkeypatch.setenv("DAGAYN_EMBEDDING_SEARCH_BACKEND", "python")
         monkeypatch.setattr(emb_store, "_NUMPY_AVAILABLE", False)
-        monkeypatch.setattr(emb, "_NUMPY_AVAILABLE", False)
+        monkeypatch.setattr(emb_store, "_NUMPY_AVAILABLE", False)
 
-        with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+        with patch("dagayn.embeddings_store.get_provider", return_value=FakeProvider()):
             store = EmbeddingStore(db)
             store_conn(store).executemany(
                 """INSERT INTO embeddings (qualified_name, vector, text_hash, provider)
@@ -1309,10 +1308,9 @@ class TestEmbeddingStore:
         assert results[1][1] == pytest.approx(0.0, abs=1e-5)
 
     def test_search_numpy_matmul_parity_with_python_loop(self, tmp_path, monkeypatch):
-        import dagayn.embeddings as emb
         import dagayn.embeddings_store as emb_store
 
-        if not emb._NUMPY_AVAILABLE:
+        if not emb_store._NUMPY_AVAILABLE:
             pytest.skip("numpy fast path is optional")
 
         db = tmp_path / "embeddings.db"
@@ -1341,7 +1339,7 @@ class TestEmbeddingStore:
 
         monkeypatch.setenv("DAGAYN_EMBEDDING_SEARCH_BACKEND", "python")
 
-        with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+        with patch("dagayn.embeddings_store.get_provider", return_value=FakeProvider()):
             store = EmbeddingStore(db)
             store_conn(store).executemany(
                 """INSERT INTO embeddings (qualified_name, vector, text_hash, provider)
@@ -1350,13 +1348,13 @@ class TestEmbeddingStore:
             )
             store_conn(store).commit()
 
-            emb._np_vec_cache.clear()
+            emb_store._np_vec_cache.clear()
             numpy_results = store.search("query", limit=5)
             # Also exercise argpartition (limit < n); limit == n takes the argsort path.
             numpy_top2 = store.search("query", limit=2)
 
             monkeypatch.setattr(emb_store, "_NUMPY_AVAILABLE", False)
-            monkeypatch.setattr(emb, "_NUMPY_AVAILABLE", False)
+            monkeypatch.setattr(emb_store, "_NUMPY_AVAILABLE", False)
             python_results = store.search("query", limit=5)
             python_top2 = store.search("query", limit=2)
             store.close()
@@ -1406,10 +1404,9 @@ class TestEmbeddingStore:
         """Numpy path with limit < n must not drop the true k-th match."""
         import sqlite3
 
-        import dagayn.embeddings as emb
         import dagayn.embeddings_store as emb_store
 
-        if not emb._NUMPY_AVAILABLE:
+        if not emb_store._NUMPY_AVAILABLE:
             pytest.skip("numpy fast path is optional")
 
         # Query [1,0]; cosine equals the first component for these rows.
@@ -1444,7 +1441,7 @@ class TestEmbeddingStore:
         )
         conn.commit()
 
-        emb._np_vec_cache.clear()
+        emb_store._np_vec_cache.clear()
         numpy_hits = emb_store._numpy_matmul_search(db, conn, provider, query, limit=3)
         python_hits = emb_store._python_loop_search(conn, provider, query, limit=3)
         conn.close()
@@ -1454,9 +1451,9 @@ class TestEmbeddingStore:
         assert "n::fourth" not in {qn for qn, _ in numpy_hits}
 
     def test_search_reuses_numpy_matrix_cache(self, tmp_path, monkeypatch):
-        import dagayn.embeddings as emb
+        import dagayn.embeddings_store as emb_store
 
-        if not emb._NUMPY_AVAILABLE:
+        if not emb_store._NUMPY_AVAILABLE:
             pytest.skip("numpy fast path is optional")
 
         db = tmp_path / "embeddings.db"
@@ -1477,7 +1474,7 @@ class TestEmbeddingStore:
 
         monkeypatch.setenv("DAGAYN_EMBEDDING_SEARCH_BACKEND", "python")
 
-        with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+        with patch("dagayn.embeddings_store.get_provider", return_value=FakeProvider()):
             store = EmbeddingStore(db)
             store_conn(store).executemany(
                 """INSERT INTO embeddings (qualified_name, vector, text_hash, provider)
@@ -1489,16 +1486,16 @@ class TestEmbeddingStore:
             )
             store_conn(store).commit()
 
-            emb._np_vec_cache.clear()
+            emb_store._np_vec_cache.clear()
             load_calls = 0
-            original_load = emb._load_vec_matrix
+            original_load = emb_store._load_vec_matrix
 
             def counting_load(*args, **kwargs):
                 nonlocal load_calls
                 load_calls += 1
                 return original_load(*args, **kwargs)
 
-            monkeypatch.setattr(emb, "_load_vec_matrix", counting_load)
+            monkeypatch.setattr(emb_store, "_load_vec_matrix", counting_load)
 
             assert store.search("query", limit=1)[0][0] == "file.py::best"
             assert store.search("query", limit=1)[0][0] == "file.py::best"
@@ -1510,10 +1507,9 @@ class TestEmbeddingStore:
         import sqlite3
         import time
 
-        import dagayn.embeddings as emb
         import dagayn.embeddings_store as emb_store
 
-        if not emb._NUMPY_AVAILABLE:
+        if not emb_store._NUMPY_AVAILABLE:
             pytest.skip("numpy fast path is optional")
 
         rows = 4000
@@ -1547,7 +1543,7 @@ class TestEmbeddingStore:
         )
         conn.commit()
 
-        emb._np_vec_cache.clear()
+        emb_store._np_vec_cache.clear()
         # Warm caches / decode once for a fair comparison of the scan itself.
         _ = emb_store._python_loop_search(conn, provider, query, limit=10)
         _ = emb_store._numpy_matmul_search(db, conn, provider, query, limit=10)
@@ -1606,7 +1602,7 @@ class TestCloudProviderWarning:
         with patch.dict(os.environ, {"MINIMAX_API_KEY": "fake"}, clear=False):
             os.environ.pop("CRG_ACCEPT_CLOUD_EMBEDDINGS", None)
             with patch(
-                "dagayn.embeddings.MiniMaxEmbeddingProvider",
+                "dagayn.embeddings_providers.MiniMaxEmbeddingProvider",
             ) as mock_cls:
                 mock_cls.return_value = MagicMock()
                 get_provider(provider="minimax")
@@ -1621,7 +1617,7 @@ class TestCloudProviderWarning:
         with patch.dict(os.environ, {"GOOGLE_API_KEY": "fake"}, clear=False):
             os.environ.pop("CRG_ACCEPT_CLOUD_EMBEDDINGS", None)
             with patch(
-                "dagayn.embeddings.GoogleEmbeddingProvider",
+                "dagayn.embeddings_providers.GoogleEmbeddingProvider",
             ) as mock_cls:
                 mock_cls.return_value = MagicMock()
                 get_provider(provider="google")
@@ -1640,7 +1636,7 @@ class TestCloudProviderWarning:
             clear=False,
         ):
             with patch(
-                "dagayn.embeddings.MiniMaxEmbeddingProvider",
+                "dagayn.embeddings_providers.MiniMaxEmbeddingProvider",
             ) as mock_cls:
                 mock_cls.return_value = MagicMock()
                 get_provider(provider="minimax")
@@ -1661,13 +1657,13 @@ class TestEmbeddingStoreModelPassthrough:
 
     def test_model_forwarded_to_get_provider(self, tmp_path):
         db = tmp_path / "embeddings.db"
-        with patch("dagayn.embeddings.get_provider", return_value=None) as mock_gp:
+        with patch("dagayn.embeddings_store.get_provider", return_value=None) as mock_gp:
             EmbeddingStore(db, model="custom/model").close()
             mock_gp.assert_called_once_with(None, model="custom/model")
 
     def test_provider_and_model_forwarded(self, tmp_path):
         db = tmp_path / "embeddings.db"
-        with patch("dagayn.embeddings.get_provider", return_value=None) as mock_gp:
+        with patch("dagayn.embeddings_store.get_provider", return_value=None) as mock_gp:
             EmbeddingStore(db, provider="openai", model="custom/model").close()
             mock_gp.assert_called_once_with("openai", model="custom/model")
 
@@ -1675,7 +1671,7 @@ class TestEmbeddingStoreModelPassthrough:
         db = tmp_path / "embeddings.db"
         provider = MagicMock()
         provider.name = "fake"
-        with patch("dagayn.embeddings.get_provider", return_value=None) as mock_gp:
+        with patch("dagayn.embeddings_store.get_provider", return_value=None) as mock_gp:
             store = EmbeddingStore(db, provider_instance=provider)
             assert store.provider is provider
             mock_gp.assert_not_called()
@@ -2754,14 +2750,14 @@ class TestVectorDimensionIdentity:
             signature=None,
         )
         dim4 = DimProvider(4)
-        with patch("dagayn.embeddings.get_provider", return_value=dim4):
+        with patch("dagayn.embeddings_store.get_provider", return_value=dim4):
             store = EmbeddingStore(db, provider_instance=dim4)
             embedded = store.embed_nodes([node])
             assert embedded == 1
             store.close()
 
         dim8 = DimProvider(8)
-        with patch("dagayn.embeddings.get_provider", return_value=dim8):
+        with patch("dagayn.embeddings_store.get_provider", return_value=dim8):
             store = EmbeddingStore(db, provider_instance=dim8)
             reembedded = store.embed_nodes([node])
             assert reembedded == 1
@@ -2837,7 +2833,7 @@ class TestVectorDimensionIdentity:
                 return [1.0] * 8
 
         monkeypatch.setenv("DAGAYN_EMBEDDING_SEARCH_BACKEND", "python")
-        with patch("dagayn.embeddings.get_provider", return_value=Dim8Provider()):
+        with patch("dagayn.embeddings_store.get_provider", return_value=Dim8Provider()):
             results, health = _embedding_search_with_health(store, "alpha", limit=5)
             store.close()
 
@@ -2848,7 +2844,6 @@ class TestVectorDimensionIdentity:
         assert health["stored_dimension"] == 4
 
     def test_search_backends_agree_on_mixed_dimensions(self, tmp_path, monkeypatch):
-        import dagayn.embeddings as emb
         import dagayn.embeddings_store as emb_store
 
         rows = [
@@ -2879,8 +2874,8 @@ class TestVectorDimensionIdentity:
         conn.commit()
 
         python_hits = emb_store._python_loop_search(conn, provider, query, limit=5)
-        if emb._NUMPY_AVAILABLE:
-            emb._np_vec_cache.clear()
+        if emb_store._NUMPY_AVAILABLE:
+            emb_store._np_vec_cache.clear()
             numpy_hits = emb_store._numpy_matmul_search(db, conn, provider, query, limit=5)
             assert [qn for qn, _ in numpy_hits] == [qn for qn, _ in python_hits]
         try:
@@ -2901,7 +2896,6 @@ class TestVectorDimensionIdentity:
         """Rust, numpy, and pure-Python cosine scores match, not just rankings."""
         import random
 
-        import dagayn.embeddings as emb
         import dagayn.embeddings_store as emb_store
 
         try:
@@ -2955,9 +2949,9 @@ class TestVectorDimensionIdentity:
             assert rust_top == pytest.approx(python_top, abs=1e-5)
 
             pytest.importorskip("numpy")
-            if not emb._NUMPY_AVAILABLE:
+            if not emb_store._NUMPY_AVAILABLE:
                 pytest.skip("numpy fast path is optional")
-            emb._np_vec_cache.clear()
+            emb_store._np_vec_cache.clear()
             numpy_full = dict(
                 emb_store._numpy_matmul_search(db, conn, provider, query, limit=count)
             )

@@ -1344,7 +1344,7 @@ class TestIntentReranking:
             store_conn(store).commit()
             rebuild_fts_index(store)
 
-            with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+            with patch("dagayn.embeddings_store.get_provider", return_value=FakeProvider()):
                 result = hybrid_search(
                     store,
                     "function that reads source span and returns text",
@@ -1410,7 +1410,7 @@ class TestIntentReranking:
             store_conn(store).commit()
             rebuild_fts_index(store)
 
-            with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+            with patch("dagayn.embeddings_store.get_provider", return_value=FakeProvider()):
                 result = hybrid_search(
                     store,
                     "function that reads source span and returns text",
@@ -1460,7 +1460,7 @@ class TestCachedEmbeddingStore:
         _emb_cache.clear()
         monkeypatch.setenv("DAGAYN_EMBEDDING_SEARCH_BACKEND", "python")
 
-        with patch("dagayn.embeddings.get_provider", return_value=FakeProvider()):
+        with patch("dagayn.embeddings_store.get_provider", return_value=FakeProvider()):
             first = _get_cached_emb_store(db, provider=None, model=None)
             second = _get_cached_emb_store(db, provider=None, model=None)
 

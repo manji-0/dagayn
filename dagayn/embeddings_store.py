@@ -20,6 +20,7 @@ from .embeddings_providers import (
     embedding_provider_base_name,
     embedding_provider_lookup_candidates,
     embedding_provider_text_mode,
+    get_provider,
     strip_provider_dimension_suffix,
 )
 from .embeddings_text import (
@@ -86,13 +87,6 @@ else:
         _NUMPY_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
-
-
-def _get_provider(provider: str | None, *, model: str | None = None) -> EmbeddingProvider | None:
-    """Resolve provider through the public embeddings shim for monkeypatch compatibility."""
-    from . import embeddings as emb
-
-    return emb.get_provider(provider, model=model)
 
 
 ACTIVE_EMBEDDING_PROVIDER_METADATA_KEY = "embedding_provider"
@@ -564,25 +558,6 @@ def _load_vec_matrix(
     return matrix, names, row_norms
 
 
-def _numpy_vec_cache() -> dict[tuple[str, str, int, int], tuple[Any, list[str], Any]]:
-    """Return the numpy vector cache via the public embeddings shim."""
-    from . import embeddings as emb
-
-    return emb._np_vec_cache
-
-
-def _load_vec_matrix_for_search(
-    conn: sqlite3.Connection,
-    provider_name: str,
-    *,
-    vector_bytes: int | None = None,
-) -> tuple[Any, list[str], Any]:
-    """Load vectors through the public embeddings shim for monkeypatch compatibility."""
-    from . import embeddings as emb
-
-    return emb._load_vec_matrix(conn, provider_name, vector_bytes=vector_bytes)
-
-
 def _invalidate_np_vec_cache(db_path: Path, provider_name: str | None = None) -> None:
     """Drop cached numpy matrices for a database (optionally one provider)."""
     path_key = str(db_path)
@@ -630,11 +605,9 @@ def _numpy_matmul_search(
     vector_bytes = _vector_byte_length(len(query_vec))
     stamp_ns = _db_stamp_ns(db_path)
     cache_key = (str(db_path), provider_name, stamp_ns, vector_bytes)
-    vec_cache = _numpy_vec_cache()
+    vec_cache = _np_vec_cache
     if cache_key not in vec_cache:
-        vec_cache[cache_key] = _load_vec_matrix_for_search(
-            conn, provider_name, vector_bytes=vector_bytes
-        )
+        vec_cache[cache_key] = _load_vec_matrix(conn, provider_name, vector_bytes=vector_bytes)
         # Evict stale entries for the same (path, provider) to bound memory
         for key in list(vec_cache):
             if (
@@ -713,30 +686,11 @@ def _native_embedding_search(
     ]
 
 
-def _native_embedding_search_for_search(
-    db_path: str | Path,
-    provider_name: str,
-    query_vec: list[float],
-    limit: int,
-) -> list[tuple[str, float]]:
-    """Run native search through the public embeddings shim for monkeypatch compatibility."""
-    from . import embeddings as emb
-
-    return emb._native_embedding_search(db_path, provider_name, query_vec, limit)
-
-
 def _native_embedding_search_prewarm(db_path: str | Path, provider_name: str) -> int:
     """Preload the native Rust embedding-search matrix cache."""
     from dagayn import _core
 
     return _core.embedding_search_prewarm(db_path, provider_name)
-
-
-def _native_embedding_search_prewarm_for_search(db_path: str | Path, provider_name: str) -> int:
-    """Prewarm native search through the public embeddings shim for monkeypatch compatibility."""
-    from . import embeddings as emb
-
-    return emb._native_embedding_search_prewarm(db_path, provider_name)
 
 
 class EmbeddingStore:
@@ -751,7 +705,7 @@ class EmbeddingStore:
         text_mode: str | None = None,
         source_root: str | Path | None = None,
     ) -> None:
-        self.provider = provider_instance or _get_provider(provider, model=model)
+        self.provider = provider_instance or get_provider(provider, model=model)
         self.available = self.provider is not None
         self.db_path = Path(db_path)
         self.text_mode = _embedding_text_mode(text_mode)
@@ -1155,7 +1109,7 @@ class EmbeddingStore:
 
         if backend in {"auto", "rust"}:
             try:
-                return _native_embedding_search_for_search(
+                return _native_embedding_search(
                     self.db_path,
                     provider_name,
                     query_vec,
@@ -1182,7 +1136,7 @@ class EmbeddingStore:
         provider_name = self._provider_key_for_lookup()
         if provider_name is None:
             return 0
-        return _native_embedding_search_prewarm_for_search(self.db_path, provider_name)
+        return _native_embedding_search_prewarm(self.db_path, provider_name)
 
     def remove_node(self, qualified_name: str) -> None:
         self._conn.execute("DELETE FROM embeddings WHERE qualified_name = ?", (qualified_name,))
