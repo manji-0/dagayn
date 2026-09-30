@@ -49,7 +49,7 @@ mod js_heritage;
 mod js_like;
 #[path = "js_members.rs"]
 mod js_members;
-#[path = "js_modules.rs"]
+#[path = "js_modules/mod.rs"]
 mod js_modules;
 #[path = "js_namespaces.rs"]
 mod js_namespaces;
