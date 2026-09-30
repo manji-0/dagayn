@@ -140,6 +140,16 @@ All notable changes to `dagayn` are documented here.
   `native_bindings` then binds Python imports of the module and calls to its
   attributes the same way as for PyO3.
 
+- setuptools-rust extensions are linked like maturin ones: manifest bridges
+  read `RustExtension("pkg._core", "rust/Cargo.toml")` in `setup.py` and
+  `[[tool.setuptools-rust.ext-modules]]` `target` / `path` in
+  `pyproject.toml` (`manifest_kind: "setuptools-rust"`) and give the crate
+  that Python module name.
+- cffi's `ffi.dlopen("libfoo.so")` on an `FFI()` instance is a
+  `loads_shared_library` bridge, so calls through the returned library bind
+  to the C functions like `ctypes` ones. The Python extractor moves to
+  version 2.
+
 ### Changed
 
 - A shared-library loader outside Python (Java `System.loadLibrary`, ...)

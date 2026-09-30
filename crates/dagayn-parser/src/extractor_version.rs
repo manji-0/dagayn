@@ -38,8 +38,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
     ExtractorVersion {
         // 1: IMPORTS_FROM records the module as written and the names it
         // binds; CALLS on an import alias record the receiver.
+        // 2: any `<receiver>.dlopen("lib")` (a cffi `FFI()` instance) emits
+        // `loads_shared_library`.
         extractor: "python",
-        version: 1,
+        version: 2,
         languages: &["python", "notebook"],
     },
     ExtractorVersion {

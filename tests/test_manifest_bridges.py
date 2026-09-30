@@ -248,6 +248,44 @@ class TestDiscoverManifestBridges:
         assert neon["node_outputs"] == ["neon-crate/lib/addon.node", "neon-crate/index.node"]
         assert neon["js_entry_files"] == []
 
+    def test_setuptools_rust_extensions_name_the_python_module(self, tmp_path: Path):
+        for crate in ("rust", "other"):
+            (tmp_path / crate / "src").mkdir(parents=True)
+            (tmp_path / crate / "src" / "lib.rs").write_text("")
+            (tmp_path / crate / "Cargo.toml").write_text(
+                f'[package]\nname = "{crate}"\n\n[lib]\ncrate-type = ["cdylib"]\n'
+            )
+        (tmp_path / "setup.py").write_text(
+            "from setuptools import setup\n"
+            "from setuptools_rust import Binding, RustExtension\n\n"
+            "setup(\n    name='fastsum',\n    rust_extensions=[\n"
+            '        RustExtension("fastsum._core", "rust/Cargo.toml", binding=Binding.PyO3),\n'
+            "    ],\n)\n"
+        )
+        (tmp_path / "pyproject.toml").write_text(
+            '[[tool.setuptools-rust.ext-modules]]\ntarget = "fastsum._other"\n'
+            'path = "other/Cargo.toml"\n'
+        )
+        edges = discover_manifest_bridges(tmp_path).edges
+        setuptools = {
+            (e.source, e.target): e.extra["module_name"]
+            for e in edges
+            if e.extra.get("manifest_kind") == "setuptools-rust"
+        }
+        assert setuptools == {
+            ("setup.py", "rust/Cargo.toml"): "fastsum._core",
+            ("pyproject.toml", "other/Cargo.toml"): "fastsum._other",
+        }
+        modules = {
+            e.source: e.extra.get("python_module")
+            for e in edges
+            if e.extra.get("manifest_kind") == "cargo"
+        }
+        assert modules == {
+            "rust/Cargo.toml": "fastsum._core",
+            "other/Cargo.toml": "fastsum._other",
+        }
+
     def test_cmake_shared_libraries(self, tmp_path: Path):
         src = tmp_path / "native" / "src"
         src.mkdir(parents=True)

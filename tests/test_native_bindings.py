@@ -912,3 +912,49 @@ def test_python_calls_reach_pybind11_and_c_api_extensions(tmp_path: Path) -> Non
         }
     finally:
         store.close()
+
+
+def test_setuptools_rust_and_cffi_dlopen_reach_the_native_code(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        {
+            "setup.py": (
+                "from setuptools import setup\n"
+                "from setuptools_rust import RustExtension\n\n"
+                'setup(rust_extensions=[RustExtension("fastsum._core", "rust/Cargo.toml")])\n'
+            ),
+            "rust/Cargo.toml": (
+                '[package]\nname = "fastsum-core"\nversion = "0.1.0"\n\n'
+                '[lib]\nname = "_core"\ncrate-type = ["cdylib"]\n'
+            ),
+            "rust/src/lib.rs": (
+                "use pyo3::prelude::*;\n\n"
+                "#[pyfunction]\nfn fast_sum(xs: Vec<f64>) -> f64 {\n    0.0\n}\n"
+            ),
+            "fastsum/__init__.py": (
+                "from fastsum._core import fast_sum\n\n\n"
+                "def total(values):\n    return fast_sum(list(values))\n"
+            ),
+            "native/CMakeLists.txt": "add_library(mathx SHARED scale.c)\n",
+            "native/scale.c": "double scale(double x) { return x * 2; }\n",
+            "fastsum/scaling.py": (
+                "from cffi import FFI\n\n"
+                "ffi = FFI()\n"
+                'ffi.cdef("double scale(double x);")\n\n\n'
+                "def load():\n"
+                '    return ffi.dlopen("native/build/libmathx.so")\n\n\n'
+                "def doubled(x):\n    return load().scale(x)\n"
+            ),
+        },
+    )
+    store = _build(tmp_path)
+    try:
+        bridges = _native_bridges(store)
+        assert bridges == {
+            ("fastsum/__init__.py", "rust/src/lib.rs", "loads_native_module"),
+            ("fastsum/__init__.py::total", "rust/src/lib.rs::fast_sum", "calls_native_function"),
+            ("fastsum/scaling.py::load", "native/scale.c", "loads_shared_library"),
+            ("fastsum/scaling.py::doubled", "native/scale.c::scale", "calls_native_function"),
+        }
+    finally:
+        store.close()

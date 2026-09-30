@@ -89,6 +89,10 @@ def discover_manifest_bridges(repo_root: Path) -> ManifestBridgeResult:
         if built is not None:
             cargo_rel, module_name = built
             maturin_modules[cargo_rel] = module_name
+    # setuptools-rust names the module the same way maturin does.
+    for rel_path in sorted([*pyprojects, *found["setup.py"]]):
+        for cargo_rel, module_name in _extract_setuptools_rust(repo_root, rel_path, result):
+            maturin_modules.setdefault(cargo_rel, module_name)
 
     wasm_hints = _collect_wasm_package_hints(repo_root, package_jsons)
     for rel_path in cargo_manifests:
@@ -137,6 +141,7 @@ _MANIFEST_NAMES = (
     "meson.build",
     "binding.gyp",
     "build.rs",
+    "setup.py",
 )
 
 
@@ -252,6 +257,105 @@ def _extract_maturin_bridges(
     )
     module = module_name.strip() if isinstance(module_name, str) and module_name.strip() else None
     return cargo_rel, module
+
+
+_RUST_EXTENSION_RE = re.compile(r"\bRustExtension\s*\(")
+_PY_STRING_ARG_RE = re.compile(r"""^\s*(?:(?P<key>\w+)\s*=\s*)?(["'])(?P<value>[^"']*)\2\s*$""")
+
+
+def _python_call_string_args(text: str, start: int) -> tuple[list[str], dict[str, str]]:
+    """String-literal arguments of the call whose ``(`` ends at *start*:
+    positional values in order, and ``key="value"`` keywords. Other
+    arguments are skipped."""
+    args: list[str] = []
+    depth, current, index = 1, "", start
+    while index < len(text) and depth:
+        char = text[index]
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+        if depth == 0 or (char == "," and depth == 1):
+            args.append(current)
+            current = ""
+        else:
+            current += char
+        index += 1
+    positional: list[str] = []
+    keywords: dict[str, str] = {}
+    for arg in args:
+        match = _PY_STRING_ARG_RE.match(arg)
+        if match is None:
+            continue
+        if match.group("key"):
+            keywords[match.group("key")] = match.group("value")
+        else:
+            positional.append(match.group("value"))
+    return positional, keywords
+
+
+def _extract_setuptools_rust(
+    repo_root: Path, rel_path: str, result: ManifestBridgeResult
+) -> list[tuple[str, str]]:
+    """setuptools-rust extensions: ``RustExtension("pkg._core", "Cargo.toml")``
+    in ``setup.py``, or ``[[tool.setuptools-rust.ext-modules]]`` with
+    ``target`` / ``path`` in ``pyproject.toml``. Emits config -> Cargo.toml
+    and returns ``(Cargo.toml, module)`` pairs."""
+    base = PurePosixPath(rel_path).parent
+    declared: list[tuple[str, str]] = []  # (module, Cargo.toml as written)
+    if rel_path.endswith(".toml"):
+        data = _load_toml(repo_root / rel_path) or {}
+        tool = data.get("tool")
+        section = tool.get("setuptools-rust") if isinstance(tool, dict) else None
+        modules = section.get("ext-modules") if isinstance(section, dict) else None
+        for module in modules if isinstance(modules, list) else []:
+            if isinstance(module, dict) and isinstance(module.get("target"), str):
+                path = module.get("path")
+                declared.append((module["target"], path if isinstance(path, str) else "Cargo.toml"))
+    else:
+        try:
+            text = (repo_root / rel_path).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return []
+        for match in _RUST_EXTENSION_RE.finditer(text):
+            positional, keywords = _python_call_string_args(text, match.end())
+            target = keywords.get("target") or (positional[0] if positional else None)
+            if target is None:
+                continue
+            rest = positional if "target" in keywords else positional[1:]
+            declared.append((target, keywords.get("path") or (rest[0] if rest else "Cargo.toml")))
+    found: list[tuple[str, str]] = []
+    for module, path in declared:
+        cargo_rel = _resolve_rel(base, path)
+        if cargo_rel is None or not (repo_root / cargo_rel).is_file():
+            continue
+        language = "toml" if rel_path.endswith(".toml") else "python"
+        _ensure_file_node(result, rel_path, language=language)
+        _ensure_file_node(result, cargo_rel, language="toml")
+        extra = _bridge_extra(
+            relationship_role="builds_artifact",
+            bridge_kind="extension_module",
+            evidence_kind="manifest",
+            evidence_source="setuptools-rust",
+            source_language="python",
+            target_language="rust",
+            confidence=CONFIDENCE_EXACT,
+            confidence_tier="EXACT",
+        )
+        extra["module_name"] = module
+        extra["manifest_kind"] = "setuptools-rust"
+        result.edges.append(
+            EdgeInfo(
+                kind="CROSS_ARTIFACT",
+                source=rel_path,
+                target=cargo_rel,
+                file_path=rel_path,
+                line=0,
+                extra=extra,
+            )
+        )
+        found.append((cargo_rel, module))
+    return found
 
 
 @dataclass

@@ -28,7 +28,7 @@
 >
 > | Language     | Bridge patterns |
 > |--------------|-----------------|
-> | `python`     | `subprocess.{run,Popen,call,check_call,check_output}`, `os.system`, `os.popen`, `os.exec*`, `os.spawn*`, `ctypes.{CDLL,WinDLL,PyDLL}`, `ctypes.cdll.LoadLibrary`, `cffi.FFI().dlopen` |
+> | `python`     | `subprocess.{run,Popen,call,check_call,check_output}`, `os.system`, `os.popen`, `os.exec*`, `os.spawn*`, `ctypes.{CDLL,WinDLL,PyDLL}`, `ctypes.cdll.LoadLibrary`, `<ffi>.dlopen` (cffi) |
 > | `javascript` | `child_process.{exec,execSync,execFile,execFileSync,spawn,spawnSync,fork}` |
 > | `typescript` | (alias of `javascript`) |
 > | `java`       | `Runtime.getRuntime().exec`, `Runtime.exec`, `Runtime.getRuntime().{loadLibrary,load}`, `System.{loadLibrary,load}` |
@@ -92,7 +92,8 @@
 > - **OpenAPI Generator:** `openapitools.json` `inputSpec`/`output` → schema → generated package (`generates_code`). `package.json` dependency on that generated package name → consumer → package (`binds_generated_client`). Exact CLI `-i`/`-o` paths in `openapi-generator-cli generate` scripts are also accepted.
 > - Confidence tiers for this family: `EXACT` for explicit manifest fields/paths; `HIGH` for maturin default layout; Layer-3 naming-only heuristics are intentionally **not** emitted
 > - Fixtures under `tests/fixtures/cross_artifact_manifest/` (Python↔Rust maturin + OpenAPI schema→package→consumer + negative controls); tests in `tests/test_manifest_bridges.py`
-> - **Limitation:** does not invent bridges from package-name similarity alone; protobuf/`buf.gen.yaml` and setuptools-rust are deferred
+> - **setuptools-rust:** `RustExtension("pkg._core", "Cargo.toml")` in `setup.py` and `[[tool.setuptools-rust.ext-modules]]` in `pyproject.toml` → config → `Cargo.toml` (`builds_artifact`, `manifest_kind: setuptools-rust`, `EXACT`), naming the crate's Python module like `module-name`
+> - **Limitation:** does not invent bridges from package-name similarity alone; protobuf/`buf.gen.yaml` is deferred
 
 >
 > Edges surface automatically in graph stats (`edges_by_kind`) and `query_graph` without additional code.

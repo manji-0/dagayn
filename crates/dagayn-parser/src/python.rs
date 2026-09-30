@@ -2969,6 +2969,9 @@ fn python_bridge_pattern(signature: &str) -> Option<(&'static str, &'static str)
         | "ctypes.PyDLL"
         | "cffi.FFI().dlopen" => Some(("loads_shared_library", "ffi")),
         "open" | "io.open" => Some(("opens_file", "file_io")),
+        // `ffi = cffi.FFI(); lib = ffi.dlopen("libfoo.so")`: the instance is
+        // a variable, so the receiver cannot be spelled out.
+        _ if signature.ends_with(".dlopen") => Some(("loads_shared_library", "ffi")),
         _ => None,
     }
 }
