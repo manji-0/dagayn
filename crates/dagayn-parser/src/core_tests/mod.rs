@@ -25,6 +25,7 @@ mod php;
 mod python;
 mod r;
 mod ruby;
+mod rust_edges;
 mod rust_lang;
 mod scala;
 mod swift;

@@ -16,8 +16,27 @@ All notable changes to `dagayn` are documented here.
 - The REFERENCES a Terraform `import`, `moved`, or `removed` block emits
   carry `terraform_kind`.
 
+- Rust calls resolve across files. `use` paths are resolved to module files
+  by following the crate's `mod` declarations (`#[path]` included) and the
+  workspace's library crates; `pub use` re-exports and `use super::*` globs
+  are followed during resolution. Receivers typed by a parameter, a
+  `Type::new(..)` / `?` / `.unwrap()` binding, an enum variant, or a field of
+  a struct declared in the file bind to that type's method; `module::f()` and
+  `Type::f()` paths, `use ... as` aliases, functions passed as values, and
+  calls inside macro arguments (`assert_eq!(f(x), 1)`, `json!`, `format!`)
+  are extracted. Measured against rust-analyzer's references on this
+  repository, recall of function-to-function edges goes from 45% to 95% at
+  99.9% precision; on a second 850-file workspace, from 53% to 89%.
+
 ### Fixed
 
+- Rust: a method call on a receiver of unknown type (`tx.commit()`) no
+  longer binds to a same-named method of this repository, a bare call no
+  longer resolves to a method or to a function of another module (`mod
+  tests`), a macro (`matches!`) is not the function of the same name, a
+  type of another crate (`io::Error::new`, `Instant::now()`) is not a
+  same-named type here, and a local variable passed as an argument is not a
+  reference to a same-named function.
 - Inheritance bases are named without their type arguments. Kotlin
   `class A : B<String>()` inherited `String`; Swift and Dart made type
   arguments bases (`Q<Int>` also inherited `Int`); Java kept the base as

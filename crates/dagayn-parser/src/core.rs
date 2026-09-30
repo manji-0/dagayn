@@ -157,6 +157,7 @@ pub struct RustOwnedParser {
     javascript_export_cache: js_modules::JavaScriptExportCache,
     javascript_module_cache: js_modules::JavaScriptModuleCache,
     javascript_tsconfig_cache: js_modules::JavaScriptTsconfigCache,
+    rust_module_cache: rust_lang::modules::RustModuleCache,
 }
 
 impl RustOwnedParser {
@@ -195,6 +196,7 @@ impl RustOwnedParser {
             javascript_export_cache: Default::default(),
             javascript_module_cache: Default::default(),
             javascript_tsconfig_cache: Default::default(),
+            rust_module_cache: Default::default(),
         }
     }
 
@@ -254,6 +256,7 @@ impl RustOwnedParser {
                 file_path,
                 source,
                 parser_slot(&mut self.rust_parser, new_rust_parser),
+                repo_root.map(|root| (root, &self.rust_module_cache)),
             ),
             RustOwnedPathKind::Python => python::parse_python_with_parser(
                 file_path,
@@ -717,7 +720,7 @@ pub fn parse_notebook(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<P
 
 pub fn parse_rust(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let mut parser = new_rust_parser();
-    rust_lang::parse_rust_with_parser(file_path, source, parser.as_mut())
+    rust_lang::parse_rust_with_parser(file_path, source, parser.as_mut(), None)
 }
 
 pub fn parse_zig(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {

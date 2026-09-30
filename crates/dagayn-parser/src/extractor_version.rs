@@ -119,7 +119,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // `calls_component_export`.
         // 10: a member of a type declared in another file is CONTAINED by the
         // File node, not by a `file::Type` node that does not exist.
-        // Items in a function body are `fn.item`.
+        // Items in a function body are `fn.item`. `use` paths resolve to
+        // module files (IMPORTS_FROM, with `names`, `glob`, `re_export`);
+        // calls carry `receiver_type` / `module_file` / `receiver_unknown`,
+        // macros are `name!`, and calls inside macro arguments are extracted.
         extractor: "rust",
         version: 10,
         languages: &["rust"],

@@ -653,3 +653,68 @@ class TestQueryGraphBareNameBinding:
         assert result["status"] == "ambiguous"
         assert result["result_count"] == 0
         assert result["results"] == []
+
+
+class TestRustModuleResolution:
+    """Rust calls resolve across files through `use`, re-exports, and globs."""
+
+    def _build(self, tmp_path, files):
+        from dagayn.incremental import full_build
+        from dagayn.postprocessing import run_post_processing
+
+        repo = tmp_path / "repo"
+        for rel, text in files.items():
+            path = repo / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+        (repo / ".git").mkdir()
+        store = GraphStore(repo / ".dagayn" / "graph.db")
+        full_build(repo, store)
+        run_post_processing(store)
+        return store
+
+    def test_use_re_export_glob_and_module_path_calls(self, tmp_path):
+        store = self._build(
+            tmp_path,
+            {
+                "Cargo.toml": '[package]\nname = "app"\n',
+                "src/lib.rs": "pub mod util;\nmod run;\nmod tx;\n",
+                "src/util/mod.rs": "mod text;\npub use text::*;\n",
+                "src/util/text.rs": "pub fn node_text() {}\n",
+                "src/tx.rs": "pub struct Tx;\nimpl Tx {\n    pub fn commit(&self) {}\n}\n",
+                "src/run.rs": (
+                    "use crate::util::node_text;\n"
+                    "fn run() {\n"
+                    "    node_text();\n"
+                    "    crate::util::node_text();\n"
+                    "    open_connection().commit();\n"
+                    "}\n"
+                    "mod tests {\n"
+                    "    use super::*;\n"
+                    "    fn checks() { node_text(); }\n"
+                    "}\n"
+                ),
+            },
+        )
+        try:
+            conn = store_conn(store)
+
+            def targets(source):
+                return [
+                    row["target_qualified"]
+                    for row in conn.execute(
+                        "SELECT target_qualified FROM edges "
+                        "WHERE kind='CALLS' AND source_qualified=?",
+                        (source,),
+                    )
+                ]
+
+            run = targets("src/run.rs::run")
+            # Through `pub use text::*` in util/mod.rs, by `use` and by path.
+            assert run.count("src/util/text.rs::node_text") == 2, run
+            # An untyped receiver is not bound to the only visible `commit`.
+            assert "src/tx.rs::Tx.commit" not in run
+            # `use super::*` in the test module sees what its parent imported.
+            assert targets("src/run.rs::tests.checks") == ["src/util/text.rs::node_text"]
+        finally:
+            store.close()

@@ -226,21 +226,83 @@ pub(crate) fn symbol_visibility(conn: &rusqlite::Connection) -> Result<SymbolVis
     Ok(visibility)
 }
 
+/// Files each file can name symbols from through its imports.
+///
+/// Besides the files it imports directly, a file sees what those files
+/// re-export (Rust `pub use child::*` / `pub(crate) use child::item`, marked
+/// `re_export` on the edge), transitively, and everything a module it
+/// glob-imports (`use super::*`, `glob`) itself imports.
 fn import_targets_conn(conn: &rusqlite::Connection) -> Result<HashMap<String, HashSet<String>>> {
-    let mut import_targets: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut direct: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut re_exports: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut globs: HashMap<String, HashSet<String>> = HashMap::new();
     let mut stmt = conn.prepare(
-        "SELECT DISTINCT file_path, target_qualified FROM edges WHERE kind = 'IMPORTS_FROM'",
+        "SELECT DISTINCT file_path, target_qualified, \
+                COALESCE(json_extract(extra, '$.re_export'), 0), \
+                COALESCE(json_extract(extra, '$.glob'), 0) \
+         FROM edges WHERE kind = 'IMPORTS_FROM'",
     )?;
     let rows = stmt.query_map([], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, i64>(2)? != 0,
+            row.get::<_, i64>(3)? != 0,
+        ))
     })?;
     for row in rows {
-        let (file_path, target) = row?;
+        let (file_path, target, re_export, glob) = row?;
         let target_file = node_file_from_qualified(&target, &target);
-        import_targets
-            .entry(file_path)
-            .or_default()
-            .insert(target_file);
+        if re_export {
+            re_exports
+                .entry(file_path.clone())
+                .or_default()
+                .insert(target_file.clone());
+        }
+        if glob {
+            globs
+                .entry(file_path.clone())
+                .or_default()
+                .insert(target_file.clone());
+        }
+        direct.entry(file_path).or_default().insert(target_file);
+    }
+    if re_exports.is_empty() && globs.is_empty() {
+        return Ok(direct);
+    }
+    // Fixpoint: a file sees its direct imports, what they re-export, and
+    // everything a module it glob-imports sees (globs chain: `use super::*`
+    // in `a/b/c.rs` reaches what `a/b.rs` itself glob-imported).
+    let mut import_targets: HashMap<String, HashSet<String>> = direct.clone();
+    loop {
+        let mut changed = false;
+        let files: Vec<String> = import_targets.keys().cloned().collect();
+        for file in files {
+            let mut seen = import_targets[&file].clone();
+            let before = seen.len();
+            let mut pending: Vec<String> = seen.iter().cloned().collect();
+            for module in globs.get(&file).into_iter().flatten() {
+                for inherited in import_targets.get(module).into_iter().flatten() {
+                    if seen.insert(inherited.clone()) {
+                        pending.push(inherited.clone());
+                    }
+                }
+            }
+            while let Some(module) = pending.pop() {
+                for exported in re_exports.get(&module).into_iter().flatten() {
+                    if seen.insert(exported.clone()) {
+                        pending.push(exported.clone());
+                    }
+                }
+            }
+            if seen.len() != before {
+                changed = true;
+                import_targets.insert(file, seen);
+            }
+        }
+        if !changed {
+            break;
+        }
     }
     Ok(import_targets)
 }
@@ -396,6 +458,51 @@ fn resolve_via_imports(
     Some(((*only).clone(), confidence, tier))
 }
 
+/// A call through a module path (Rust `crate::util::f()`, `module_file` on
+/// the edge): a top-level symbol of that module's file, else of a file the
+/// module re-exports or imports.
+fn resolve_in_module(
+    candidates: &[String],
+    module_file: &str,
+    import_targets: &HashMap<String, HashSet<String>>,
+) -> Option<(String, f64, ConfidenceTier)> {
+    let top_level = |qn: &&String| {
+        !qn.split_once("::")
+            .is_some_and(|(_, symbol)| symbol.contains('.'))
+    };
+    let in_file = |file: &str| {
+        candidates
+            .iter()
+            .filter(top_level)
+            .filter(|qn| node_file_from_qualified(qn, "") == file)
+            .collect::<Vec<_>>()
+    };
+    if let [only] = in_file(module_file).as_slice() {
+        return Some((
+            (*only).clone(),
+            DIRECT_IMPORT_CONFIDENCE,
+            ConfidenceTier::High,
+        ));
+    }
+    let reachable: Vec<&String> = candidates
+        .iter()
+        .filter(top_level)
+        .filter(|qn| {
+            import_targets
+                .get(module_file)
+                .is_some_and(|files| files.contains(&node_file_from_qualified(qn, "")))
+        })
+        .collect();
+    let [only] = reachable.as_slice() else {
+        return None;
+    };
+    Some((
+        (*only).clone(),
+        DIRECT_IMPORT_CONFIDENCE,
+        ConfidenceTier::High,
+    ))
+}
+
 /// A call on a named type (`Fast.fast_sum(...)`, `Native.Total(...)`,
 /// `receiver_type` on the edge): only that type's methods, in the caller's
 /// language, are candidates. The visible one wins as usual; when the caller
@@ -467,8 +574,14 @@ impl GraphStore {
         let edges = {
             let mut stmt = tx.prepare(
                 "SELECT id, source_qualified, target_qualified, file_path, \
-                        json_extract(extra, '$.receiver_type') \
-                 FROM edges WHERE kind = 'CALLS' AND target_qualified NOT LIKE '%::%'",
+                        json_extract(extra, '$.receiver_type'), \
+                        json_extract(extra, '$.module_file'), \
+                        COALESCE(json_extract(extra, '$.receiver_unknown'), 0) \
+                 FROM edges \
+                 WHERE (kind = 'CALLS' \
+                        OR (kind = 'REFERENCES' \
+                            AND COALESCE(json_extract(extra, '$.value_reference'), 0) = 1)) \
+                   AND target_qualified NOT LIKE '%::%'",
             )?;
             let mapped = stmt.query_map([], |row| {
                 Ok((
@@ -477,22 +590,52 @@ impl GraphStore {
                     row.get::<_, String>(2)?,
                     row.get::<_, String>(3)?,
                     row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, i64>(6)? != 0,
                 ))
             })?;
             mapped.collect::<std::result::Result<Vec<_>, _>>()?
         };
         let mut resolved = 0_i64;
-        for (edge_id, source_qualified, target_qualified, file_path, receiver_type) in edges {
+        for (
+            edge_id,
+            source_qualified,
+            target_qualified,
+            file_path,
+            receiver_type,
+            module_file,
+            receiver_unknown,
+        ) in edges
+        {
             if looks_like_file_target(&target_qualified) {
                 continue;
             }
-            let candidates = index.get(&target_qualified).cloned().unwrap_or_default();
+            let src_file = node_file_from_qualified(&source_qualified, &file_path);
+            let rust = language_family(&src_file) == Some("rust");
+            // Rust `x.m()` on a receiver of unknown type: the extractor already
+            // typed every receiver the syntax gives away, and binding the rest
+            // to whichever `m` is visible is usually wrong (`tx.commit()`).
+            if rust && receiver_unknown {
+                continue;
+            }
+            let mut candidates = index.get(&target_qualified).cloned().unwrap_or_default();
+            // A bare Rust call names a function a `use` brought in, i.e. one at
+            // the top of its module file, never a method or a function of an
+            // inline module such as `mod tests`.
+            if receiver_type.is_none() && rust {
+                candidates.retain(|qn| {
+                    !qn.split_once("::")
+                        .is_some_and(|(_, symbol)| symbol.contains('.'))
+                });
+            }
             if candidates.is_empty() {
                 continue;
             }
-            let src_file = node_file_from_qualified(&source_qualified, &file_path);
-            let resolution = match receiver_type.as_deref() {
-                Some(receiver_type) => resolve_type_receiver(
+            let resolution = match (receiver_type.as_deref(), module_file.as_deref()) {
+                (_, Some(module_file)) => {
+                    resolve_in_module(&candidates, module_file, &import_targets)
+                }
+                (Some(receiver_type), None) => resolve_type_receiver(
                     &candidates,
                     &target_qualified,
                     receiver_type,
@@ -500,7 +643,9 @@ impl GraphStore {
                     &import_targets,
                     &visibility,
                 ),
-                None => resolve_via_imports(&candidates, &src_file, &import_targets, &visibility),
+                (None, None) => {
+                    resolve_via_imports(&candidates, &src_file, &import_targets, &visibility)
+                }
             };
             let Some((qualified, confidence, tier)) = resolution else {
                 continue;
