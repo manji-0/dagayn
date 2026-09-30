@@ -214,6 +214,101 @@ class TestDiscoverManifestBridges:
         assert edges["as/asconfig.json"]["entry_files"] == ["as/assembly/index.ts"]
         assert edges["as/package.json"]["wasm_outputs"] == ["as/out/small.wasm"]
 
+    def test_cmake_shared_libraries(self, tmp_path: Path):
+        src = tmp_path / "native" / "src"
+        src.mkdir(parents=True)
+        for name in ("a.c", "b.cpp", "extra.c", "static_only.c", "gen1.c"):
+            (src / name).write_text("int f(void) { return 0; }\n")
+        (src / "a.h").write_text("int f(void);\n")
+        (tmp_path / "native" / "CMakeLists.txt").write_text(
+            "project(demo C CXX)\n"
+            "#[[ add_library(commented SHARED src/a.c) ]]\n"
+            "set(CORE src/a.c src/a.h)\n"
+            "list(APPEND CORE ${CMAKE_CURRENT_SOURCE_DIR}/src/b.cpp)\n"
+            "file(GLOB GENERATED CONFIGURE_DEPENDS src/gen*.c)\n"
+            "add_library(core SHARED ${CORE} ${GENERATED})\n"
+            "target_sources(core PRIVATE src/extra.c)\n"
+            'set_target_properties(core PROPERTIES OUTPUT_NAME "demo-core")\n'
+            "add_library(plugin MODULE src/missing.c)\n"
+            "add_library(archive STATIC src/static_only.c)\n"
+            "add_library(core::alias ALIAS core)\n"
+        )
+        edges = [
+            e
+            for e in discover_manifest_bridges(tmp_path).edges
+            if e.extra.get("manifest_kind") == "native_library"
+        ]
+        assert [(e.source, e.target) for e in edges] == [
+            ("native/CMakeLists.txt", "native/src/a.c")
+        ]
+        extra = edges[0].extra
+        assert extra["build_system"] == "cmake"
+        assert extra["lib_name"] == "demo_core"
+        assert extra["target_language"] == "cpp"
+        assert extra["source_files"] == [
+            "native/src/a.c",
+            "native/src/b.cpp",
+            "native/src/gen1.c",
+            "native/src/extra.c",
+        ]
+
+    def test_cmake_build_shared_libs_makes_plain_add_library_shared(self, tmp_path: Path):
+        (tmp_path / "lib.c").write_text("int f(void) { return 0; }\n")
+        (tmp_path / "CMakeLists.txt").write_text(
+            'option(BUILD_SHARED_LIBS "shared" ON)\nadd_library(plain lib.c)\n'
+        )
+        libs = [
+            e.extra["lib_name"]
+            for e in discover_manifest_bridges(tmp_path).edges
+            if e.extra.get("manifest_kind") == "native_library"
+        ]
+        assert libs == ["plain"]
+
+    def test_meson_libraries_respect_default_library(self, tmp_path: Path):
+        (tmp_path / "a").mkdir()
+        (tmp_path / "a" / "x.c").write_text("int x(void) { return 0; }\n")
+        (tmp_path / "a" / "y.c").write_text("int y(void) { return 0; }\n")
+        (tmp_path / "a" / "meson.build").write_text(
+            "srcs = ['x.c']\nsrcs += files('y.c')\n"
+            "library('dyn', srcs, c_args: '-DX')  # shared by default\n"
+            "static_library('st', 'x.c')\n"
+        )
+        (tmp_path / "b").mkdir()
+        (tmp_path / "b" / "z.c").write_text("int z(void) { return 0; }\n")
+        (tmp_path / "b" / "meson.build").write_text(
+            "project('b', 'c', default_options: ['default_library=static'])\n"
+            "library('onlystatic', 'z.c')\n"
+            "shared_module('plug', sources: ['z.c'])\n"
+        )
+        edges = {
+            e.extra["lib_name"]: e.extra["source_files"]
+            for e in discover_manifest_bridges(tmp_path).edges
+            if e.extra.get("manifest_kind") == "native_library"
+        }
+        assert edges == {"dyn": ["a/x.c", "a/y.c"], "plug": ["b/z.c"]}
+
+    def test_compiler_commands_in_makefiles_and_scripts(self, tmp_path: Path):
+        (tmp_path / "c").mkdir()
+        (tmp_path / "c" / "one.c").write_text("int one(void) { return 1; }\n")
+        (tmp_path / "c" / "two.cc").write_text('extern "C" int two() { return 2; }\n')
+        (tmp_path / "c" / "Makefile").write_text(
+            "OBJS = one.o two.o\nLIB := libpair.so\n\n"
+            "$(LIB): $(OBJS)\n\t@$(CXX) -shared -Wl,-soname,$@ -o $@ $^\n\n"
+            "app: one.o\n\t$(CC) -o app one.o\n"
+        )
+        (tmp_path / "package.json").write_text(
+            json.dumps({"scripts": {"native": "clang -dynamiclib -o out/libone.dylib c/one.c"}})
+        )
+        edges = {
+            (e.source, e.extra["lib_name"]): e.extra["source_files"]
+            for e in discover_manifest_bridges(tmp_path).edges
+            if e.extra.get("manifest_kind") == "native_library"
+        }
+        assert edges == {
+            ("c/Makefile", "pair"): ["c/one.c", "c/two.cc"],
+            ("package.json", "one"): ["c/one.c"],
+        }
+
     def test_manifest_walk_prunes_ignored_directories(self, tmp_path: Path):
         nested = tmp_path / "node_modules" / "dep"
         nested.mkdir(parents=True)

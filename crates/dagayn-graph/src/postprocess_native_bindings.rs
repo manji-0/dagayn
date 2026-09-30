@@ -1,4 +1,5 @@
-//! Python -> native code bridges through PyO3 extension modules and `ctypes`.
+//! Bridges from Python and JavaScript / TypeScript into native code: PyO3
+//! extension modules, shared libraries loaded with `ctypes`, and WebAssembly.
 //!
 //! Parsing each language on its own leaves both sides of an FFI boundary
 //! disconnected: a Python call `fast_sum(xs)` names a symbol that only exists
@@ -12,6 +13,9 @@
 //!   `#[no_mangle]`), naming what the crate exports;
 //! * Python `IMPORTS_FROM` edges with the raw module and bound names, and
 //!   `CALLS` edges with the import alias used as receiver;
+//! * C / C++ shared libraries a CMake, Meson, or Make build compiles from
+//!   repository sources (`manifest_kind: native_library`), whose C symbols
+//!   are the functions with `extra.ffi_export` (external C linkage);
 //! * `loads_shared_library` bridges naming `libNAME.so` / `.dylib` / `.dll`;
 //! * JavaScript / TypeScript imports of a wasm-bindgen package (by name, or a
 //!   relative path into its wasm-pack output directory), and calls the
@@ -49,6 +53,9 @@ struct NativeCrate {
     scope: ExportScope,
     /// Language of the exported items (`target_language` of the bridges).
     language: &'static str,
+    /// What builds the library (`cargo`, `cmake`, `meson`, `make`), named
+    /// in the evidence of the bridges that match its library name.
+    build_system: String,
 }
 
 enum ExportScope {
@@ -56,7 +63,7 @@ enum ExportScope {
     Tree(String),
     /// A Go package: the files directly in the directory.
     Dir(String),
-    /// AssemblyScript entry files.
+    /// AssemblyScript entry files, or the sources of a C / C++ library.
     Files(Vec<String>),
 }
 
@@ -112,13 +119,22 @@ struct NewBridge {
     extra: Value,
 }
 
-fn owning_crate(crates: &[NativeCrate], file_path: &str) -> Option<usize> {
-    crates
+/// The crates a file's exports belong to: every one at the most specific
+/// rank, since a C source can be compiled into several shared libraries.
+fn owning_crates(crates: &[NativeCrate], file_path: &str) -> Vec<usize> {
+    let ranked: Vec<(usize, usize)> = crates
         .iter()
         .enumerate()
         .filter_map(|(index, krate)| krate.scope.rank(file_path).map(|rank| (index, rank)))
-        .max_by_key(|(_, rank)| *rank)
+        .collect();
+    let Some(best) = ranked.iter().map(|(_, rank)| *rank).max() else {
+        return Vec::new();
+    };
+    ranked
+        .into_iter()
+        .filter(|(_, rank)| *rank == best)
         .map(|(index, _)| index)
+        .collect()
 }
 
 /// Dotted package of a Python file: `pkg/sub/mod.py` -> `pkg.sub`.
@@ -363,6 +379,33 @@ fn load_crates(tx: &Transaction<'_>) -> Result<Vec<NativeCrate>> {
     for row in rows {
         let (root, extra) = row?;
         let extra = parse_json_column(extra)?;
+        if extra.get("manifest_kind").and_then(Value::as_str) == Some("native_library") {
+            let Some(lib_name) = extra.get("lib_name").and_then(Value::as_str) else {
+                continue;
+            };
+            let language = match extra.get("target_language").and_then(Value::as_str) {
+                Some("cpp") => "cpp",
+                Some("objc") => "objc",
+                _ => "c",
+            };
+            crates.push(NativeCrate {
+                root,
+                lib_name: lib_name.to_string(),
+                cdylib: true,
+                python_module: None,
+                js_packages: Vec::new(),
+                wasm_out_dirs: Vec::new(),
+                wasm_outputs: Vec::new(),
+                scope: ExportScope::Files(string_list(&extra, "source_files")),
+                language,
+                build_system: extra
+                    .get("build_system")
+                    .and_then(Value::as_str)
+                    .unwrap_or("make")
+                    .to_string(),
+            });
+            continue;
+        }
         if let Some(producer) = extra.get("wasm_producer").and_then(Value::as_str) {
             let (scope, language) = match producer {
                 "go" | "tinygo" => (
@@ -391,6 +434,7 @@ fn load_crates(tx: &Transaction<'_>) -> Result<Vec<NativeCrate>> {
                 wasm_outputs: string_list(&extra, "wasm_outputs"),
                 scope,
                 language,
+                build_system: producer.to_string(),
             });
             continue;
         }
@@ -410,6 +454,7 @@ fn load_crates(tx: &Transaction<'_>) -> Result<Vec<NativeCrate>> {
             root,
             scope: ExportScope::Tree(crate_dir),
             language: "rust",
+            build_system: "cargo".to_string(),
             wasm_outputs: Vec::new(),
             lib_name: lib_name.to_string(),
             cdylib,
@@ -438,17 +483,27 @@ fn load_exports(tx: &Transaction<'_>, crates: &[NativeCrate]) -> Result<Vec<Crat
     })?;
     for row in rows {
         let (qualified, file_path, extra) = row?;
-        let Some(index) = owning_crate(crates, &file_path) else {
+        let owners = owning_crates(crates, &file_path);
+        if owners.is_empty() {
             continue;
-        };
+        }
         let extra = parse_json_column(extra)?;
-        let listed = extra
-            .get("ffi_exports")
-            .and_then(Value::as_array)
+        let listed: Vec<&Value> = extra
+            .get("ffi_export")
             .into_iter()
-            .flatten();
-        let go_wasm = crates[index].language == "go";
-        for export in extra.get("ffi_export").into_iter().chain(listed) {
+            .chain(
+                extra
+                    .get("ffi_exports")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten(),
+            )
+            .collect();
+        for (index, export) in owners
+            .iter()
+            .flat_map(|index| listed.iter().map(move |export| (*index, *export)))
+        {
+            let go_wasm = crates[index].language == "go";
             let (Some(abi), Some(name)) = (
                 export.get("abi").and_then(Value::as_str),
                 export.get("name").and_then(Value::as_str),
@@ -486,6 +541,9 @@ fn load_exports(tx: &Transaction<'_>, crates: &[NativeCrate]) -> Result<Vec<Crat
         let ExportScope::Files(files) = &krate.scope else {
             continue;
         };
+        if krate.language != "typescript" {
+            continue;
+        }
         for file in files {
             let rows = entry_stmt.query_map([file], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -692,7 +750,10 @@ fn bind_shared_libraries(
         })?;
         rows.collect::<std::result::Result<Vec<_>, _>>()?
     };
-    // File -> crates it loads.
+    // Python file -> crates it loads. Only Python looks symbols up by the
+    // name it calls (`lib.fast_sum(...)` on a `ctypes.CDLL`); a Java file
+    // that loads a library calls `native` methods whose C symbols are
+    // `Java_<class>_<method>`, so a bare-name match there is a coincidence.
     let mut loaded: HashMap<String, HashSet<usize>> = HashMap::new();
     for (source, target, file_path, line, extra) in loaders {
         let Some(stem) = shared_library_stem(&target) else {
@@ -712,23 +773,26 @@ fn bind_shared_libraries(
             .and_then(Value::as_str)
             .unwrap_or("unknown")
             .to_string();
+        let krate = &crates[*index];
         let mut extra = bridge_extra(
             "loads_shared_library",
             "ffi",
             "manifest",
-            format!("cargo lib name {}", crates[*index].lib_name),
+            format!("{} lib name {}", krate.build_system, krate.lib_name),
             &source_language,
-            "rust",
+            krate.language,
         );
         extra["library"] = Value::String(target);
         bridges.push(NewBridge {
             source,
-            target: crates[*index].root.clone(),
+            target: krate.root.clone(),
             file_path: file_path.clone(),
             line,
             extra,
         });
-        loaded.entry(file_path).or_default().insert(*index);
+        if source_language == "python" {
+            loaded.entry(file_path).or_default().insert(*index);
+        }
     }
     for (file_path, indexes) in loaded {
         for (caller, target, line, _) in calls_in_file(tx, &file_path)? {
@@ -740,20 +804,13 @@ fn bind_shared_libraries(
             let [(target, index)] = hits.as_slice() else {
                 continue;
             };
-            let mut extra = bridge_extra(
+            let extra = bridge_extra(
                 "calls_native_function",
                 "ffi",
                 "syntax",
                 format!("{}::{name}", crates[*index].lib_name),
-                "unknown",
-                "rust",
-            );
-            extra["source_language"] = Value::String(
-                if file_path.ends_with(".py") || file_path.ends_with(".pyi") {
-                    "python".to_string()
-                } else {
-                    "unknown".to_string()
-                },
+                "python",
+                crates[*index].language,
             );
             bridges.push(NewBridge {
                 source: caller,
@@ -1741,6 +1798,7 @@ mod store_tests {
             wasm_outputs: outputs.iter().map(|o| o.to_string()).collect(),
             scope: ExportScope::Files(Vec::new()),
             language: "go",
+            build_system: "go".to_string(),
         };
         let crates = [
             producer(&["web/public/go.wasm"]),

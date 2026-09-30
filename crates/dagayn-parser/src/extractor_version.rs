@@ -55,6 +55,14 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         version: 1,
         languages: &["go"],
     },
+    ExtractorVersion {
+        // 1: functions with external C linkage record `ffi_export` (C and
+        // Objective-C free functions that are not `static` or hidden, C++
+        // functions inside `extern "C"`).
+        extractor: "c_like",
+        version: 1,
+        languages: &["c", "cpp", "objc"],
+    },
 ];
 
 /// The tracked extractor versions.

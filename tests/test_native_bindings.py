@@ -237,3 +237,110 @@ def test_typescript_fetch_and_export_call_reach_the_go_function(go_wasm_repo: Pa
         assert "web/src/report.ts" in impact["impacted_files"]
     finally:
         store.close()
+
+
+C_SUM = (
+    "static double kahan(const double *xs, int n) {\n"
+    "    double s = 0;\n    for (int i = 0; i < n; i++) s += xs[i];\n    return s;\n}\n\n"
+    "double fast_sum(const double *xs, int n) {\n    return kahan(xs, n);\n}\n"
+)
+CTYPES_CALLER = (
+    "import ctypes\n\n\n"
+    "def load():\n    return ctypes.CDLL({library!r})\n\n\n"
+    "def total(values):\n"
+    "    lib = load()\n"
+    "    return lib.fast_sum(values, len(values))\n\n\n"
+    "def hidden(values):\n"
+    "    return load().kahan(values, len(values))\n"
+)
+REPORT = "from app.native import total\n\n\ndef monthly_report(rows):\n    return total(rows)\n"
+
+
+@pytest.mark.parametrize(
+    ("build_files", "library"),
+    [
+        pytest.param(
+            {
+                "native/CMakeLists.txt": (
+                    "cmake_minimum_required(VERSION 3.20)\nproject(fastsum C)\n"
+                    "set(SOURCES src/sum.c)  # the library\n"
+                    "add_library(fastsum SHARED ${SOURCES})\n"
+                    "add_library(fastsum_static STATIC src/sum.c)\n"
+                ),
+            },
+            "build/libfastsum.so",
+            id="cmake",
+        ),
+        pytest.param(
+            {
+                "native/meson.build": (
+                    "project('fastsum', 'c')\n"
+                    "srcs = files('src/sum.c')\n"
+                    "shared_library('fastsum', srcs, install: true)\n"
+                ),
+            },
+            "libfastsum.dylib",
+            id="meson",
+        ),
+        pytest.param(
+            {
+                "native/Makefile": (
+                    "CFLAGS = -O2 -fPIC\n\n"
+                    "libfastsum.so: src/sum.o\n"
+                    "\t$(CC) $(CFLAGS) -shared -o $@ $^\n"
+                ),
+            },
+            "native/libfastsum.so",
+            id="make",
+        ),
+    ],
+)
+def test_ctypes_library_and_symbol_reach_the_c_source(
+    tmp_path: Path, build_files: dict[str, str], library: str
+) -> None:
+    _write(
+        tmp_path,
+        {
+            **build_files,
+            "native/src/sum.c": C_SUM,
+            "app/__init__.py": "",
+            "app/native.py": CTYPES_CALLER.format(library=library),
+            "app/report.py": REPORT,
+        },
+    )
+    store = _build(tmp_path)
+    try:
+        # `kahan` is static: not a symbol ctypes can look up.
+        assert _native_bridges(store) == {
+            ("app/native.py::load", "native/src/sum.c", "loads_shared_library"),
+            ("app/native.py::total", "native/src/sum.c::fast_sum", "calls_native_function"),
+        }
+        impact = get_impact_radius(
+            changed_files=["native/src/sum.c"], repo_root=str(tmp_path), max_depth=2
+        )
+        assert "app/report.py" in impact["impacted_files"]
+    finally:
+        store.close()
+
+
+def test_java_load_library_does_not_bind_calls_by_bare_name(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        {
+            "native/CMakeLists.txt": "add_library(fastsum SHARED src/sum.c)\n",
+            "native/src/sum.c": C_SUM,
+            "app/Sum.java": (
+                "class Sum {\n"
+                '    static { System.loadLibrary("fastsum"); }\n'
+                "    static double fast_sum(double[] xs) { return 0; }\n"
+                "    double total(double[] xs) { return fast_sum(xs); }\n"
+                "}\n"
+            ),
+        },
+    )
+    store = _build(tmp_path)
+    try:
+        roles = {role for _, _, role in _native_bridges(store)}
+        assert roles == {"loads_shared_library"}
+    finally:
+        store.close()

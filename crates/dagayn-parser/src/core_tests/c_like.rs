@@ -382,3 +382,45 @@ int main(int argc, const char * argv[]) {
         edge.kind == "CALLS" && edge.source == "sample.m::main" && edge.target == "NSLog"
     }));
 }
+
+#[test]
+fn records_c_linkage_functions_as_ffi_exports() {
+    let export = |nodes: &[crate::core::types::ParsedNode], name: &str| {
+        nodes
+            .iter()
+            .find(|node| node.name == name)
+            .unwrap_or_else(|| panic!("no node {name}"))
+            .extra
+            .get("ffi_export")
+            .cloned()
+    };
+    let c_symbol =
+        |name: &str| Some(serde_json::json!({"abi": "c", "kind": "function", "name": name}));
+
+    let c_source = br#"static double kahan(const double *xs, int n) { return 0; }
+double fast_sum(const double *xs, int n) { return kahan(xs, n); }
+__attribute__((visibility("hidden"))) int helper(void) { return 1; }
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (nodes, _) = parser.parse_file("native/sum.c", c_source);
+    assert_eq!(export(&nodes, "fast_sum"), c_symbol("fast_sum"));
+    assert_eq!(export(&nodes, "kahan"), None);
+    assert_eq!(export(&nodes, "helper"), None);
+
+    let cpp_source = br#"namespace impl { double kahan(const double *xs, int n) { return 0; } }
+extern "C" {
+double fast_sum(const double *xs, int n) { return impl::kahan(xs, n); }
+static int hidden_helper() { return 0; }
+}
+extern "C" int version() { return 1; }
+int mangled() { return 0; }
+class Widget { public: void draw() {} };
+"#;
+    let (nodes, _) = parser.parse_file("native/sum.cpp", cpp_source);
+    assert_eq!(export(&nodes, "fast_sum"), c_symbol("fast_sum"));
+    assert_eq!(export(&nodes, "version"), c_symbol("version"));
+    assert_eq!(export(&nodes, "kahan"), None);
+    assert_eq!(export(&nodes, "hidden_helper"), None);
+    assert_eq!(export(&nodes, "mangled"), None);
+    assert_eq!(export(&nodes, "draw"), None);
+}

@@ -93,6 +93,18 @@ def discover_manifest_bridges(repo_root: Path) -> ManifestBridgeResult:
 
     _extract_wasm_producers(repo_root, package_jsons, build_scripts, found["asconfig.json"], result)
 
+    makefiles = sorted(
+        path for name in ("Makefile", "makefile", "GNUmakefile") for path in found[name]
+    )
+    _extract_native_libraries(
+        repo_root,
+        cmake_lists=found["CMakeLists.txt"],
+        meson_builds=found["meson.build"],
+        makefiles=makefiles,
+        command_sources=_build_commands(repo_root, package_jsons, found["justfile"]),
+        result=result,
+    )
+
     for rel_path in openapitools:
         _extract_openapitools_bridges(repo_root, rel_path, result, generated_roots)
 
@@ -116,6 +128,8 @@ _MANIFEST_NAMES = (
     "makefile",
     "GNUmakefile",
     "justfile",
+    "CMakeLists.txt",
+    "meson.build",
 )
 
 
@@ -526,6 +540,60 @@ def _extract_wasm_producers(
                 source=producer.config_rel,
                 target=producer.root_rel,
                 file_path=producer.config_rel,
+                line=0,
+                extra=extra,
+            )
+        )
+
+
+def _extract_native_libraries(
+    repo_root: Path,
+    *,
+    cmake_lists: list[str],
+    meson_builds: list[str],
+    makefiles: list[str],
+    command_sources: Iterator[tuple[str, list[str]]],
+    result: ManifestBridgeResult,
+) -> None:
+    """Emit build file -> source edges for C / C++ shared libraries.
+
+    The edge carries the library name loaders are matched by (``libNAME.so``)
+    and every source file compiled into it, where native-binding resolution
+    looks for the exported C symbols.
+    """
+    # Imported here: the module reuses this module's path and CLI helpers.
+    from .native_library_manifests import discover_native_libraries
+
+    libraries = discover_native_libraries(
+        repo_root,
+        cmake_lists=cmake_lists,
+        meson_builds=meson_builds,
+        makefiles=makefiles,
+        command_sources=command_sources,
+    )
+    for library in libraries:
+        source_language = library.build_system
+        _ensure_file_node(result, library.config_rel, language=source_language)
+        extra = _bridge_extra(
+            relationship_role="builds_from_source",
+            bridge_kind="build_config",
+            evidence_kind="config" if library.build_system == "make" else "manifest",
+            evidence_source=f"{library.build_system} shared library",
+            source_language=source_language,
+            target_language=library.language,
+            confidence=CONFIDENCE_HIGH,
+            confidence_tier="HIGH",
+        )
+        extra["manifest_kind"] = "native_library"
+        extra["build_system"] = library.build_system
+        extra["lib_name"] = library.lib_name
+        extra["source_files"] = library.sources
+        result.edges.append(
+            EdgeInfo(
+                kind="CROSS_ARTIFACT",
+                source=library.config_rel,
+                target=library.sources[0],
+                file_path=library.config_rel,
                 line=0,
                 extra=extra,
             )

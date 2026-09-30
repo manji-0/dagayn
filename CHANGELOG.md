@@ -2,6 +2,37 @@
 
 All notable changes to `dagayn` are documented here.
 
+## Unreleased
+
+### Added
+
+- Shared libraries built from C, C++, and Objective-C sources are linked to
+  the code that loads them, so the impact of a C change reaches its Python
+  callers. Manifest bridges (`manifest_kind: "native_library"`) read CMake
+  `add_library(NAME SHARED|MODULE ...)` (and a plain `add_library` under
+  `BUILD_SHARED_LIBS`) with `set` / `list(APPEND)` / `file(GLOB)` variables,
+  `target_sources`, and `OUTPUT_NAME`; Meson `shared_library`,
+  `shared_module`, `both_libraries`, and `library` (unless
+  `default_library=static`); and `cc` / `clang` / `gcc` command lines with
+  `-shared` / `-dynamiclib` / `-bundle` in Makefile recipes (`$@`, `$^`,
+  `$<`, and simple variables expanded; `foo.o` mapped to `foo.c`), justfiles,
+  and package.json scripts. Each records the library name and its source
+  files. `native_bindings` then writes `loads_shared_library` from a loader
+  naming `libNAME.so` / `.dylib` / `.dll` in any language, and, for Python,
+  `calls_native_function` from calls in the loading file to the library's C
+  symbols.
+- The C / C++ / Objective-C extractor records `ffi_export` (`abi: "c"`) on
+  functions with external C linkage: free functions that are not `static`
+  or `visibility("hidden")`, and in C++ only those inside `extern "C"`. It
+  moves to extractor version 1.
+
+### Changed
+
+- A shared-library loader outside Python (Java `System.loadLibrary`, ...)
+  still links to the library, but calls in its file are no longer bound to
+  the library's C symbols by bare name: JNI and similar bindings name their
+  symbols differently, so a same-named call was a coincidence.
+
 ## 6.1.0 — 2026-09-30
 
 ### Added

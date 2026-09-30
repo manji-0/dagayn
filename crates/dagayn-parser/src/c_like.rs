@@ -315,7 +315,10 @@ fn c_emit_function(
         return_type: None,
         modifiers: None,
         is_test,
-        extra: json!({}),
+        extra: match c_function_ffi_export(node, context, name, enclosing_class) {
+            Some(export) => json!({"ffi_export": export}),
+            None => json!({}),
+        },
     });
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Contains,
@@ -327,6 +330,59 @@ fn c_emit_function(
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
     });
+}
+
+/// The C symbol a function definition exports from a shared library.
+///
+/// A C (or Objective-C) free function has external linkage unless it is
+/// `static` or hidden with `__attribute__((visibility("hidden")))`. C++
+/// mangles every name except those declared inside `extern "C"`, so only
+/// those are reachable by the plain name `dlsym` / `ctypes` look up.
+fn c_function_ffi_export(
+    node: tree_sitter::Node<'_>,
+    context: &CParseContext<'_>,
+    name: &str,
+    enclosing_class: Option<&str>,
+) -> Option<serde_json::Value> {
+    if node.kind() != "function_definition" || enclosing_class.is_some() {
+        return None;
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "storage_class_specifier" if node_text(child, context.source).trim() == "static" => {
+                return None;
+            }
+            "attribute_specifier" | "attribute_declaration"
+                if node_text(child, context.source)
+                    .replace(' ', "")
+                    .contains("visibility(\"hidden\")") =>
+            {
+                return None;
+            }
+            _ => {}
+        }
+    }
+    if context.language == "cpp" && !c_has_c_linkage(node, context.source) {
+        return None;
+    }
+    Some(json!({"abi": "c", "kind": "function", "name": name}))
+}
+
+/// True when *node* sits inside `extern "C" { ... }` or is `extern "C" f()`.
+fn c_has_c_linkage(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    let mut current = node.parent();
+    while let Some(ancestor) = current {
+        if ancestor.kind() == "linkage_specification"
+            && ancestor
+                .child_by_field_name("value")
+                .is_some_and(|value| c_string_text(value, source) == "C")
+        {
+            return true;
+        }
+        current = ancestor.parent();
+    }
+    false
 }
 
 fn c_emit_call(

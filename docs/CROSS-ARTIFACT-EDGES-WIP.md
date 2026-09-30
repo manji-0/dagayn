@@ -684,7 +684,7 @@ Implement the highest-signal bridge extractors first:
 - native module loading
 - build manifest links for common Python/Rust patterns
 
-**Implemented for Python -> Rust** (post-processing step `native_bindings`,
+**Implemented for Python -> Rust / C / C++ and JavaScript / TypeScript -> WebAssembly** (post-processing step `native_bindings`,
 `crates/dagayn-graph/src/postprocess_native_bindings.rs`). It joins evidence
 the extractors record separately and writes HIGH bridges only on exact
 matches:
@@ -696,6 +696,9 @@ matches:
 | Python function -> Rust item (`calls_native_function`) | call to a name imported from that module, or `alias.name(...)` on an imported module, matching a `#[pyfunction]` / `#[pyclass]` export |
 | loader -> crate root (`loads_shared_library`) | `ctypes.CDLL("…/libNAME.so")` whose `NAME` is the `cdylib`'s library name |
 | Python function -> Rust function (`calls_native_function`) | call in the loader's file to a `#[no_mangle]` / `#[export_name]` symbol of that crate |
+| build file -> C / C++ sources (`builds_from_source`, `manifest_kind: native_library`) | CMake `add_library(NAME SHARED\|MODULE ...)` (or plain under `BUILD_SHARED_LIBS`) with `set` / `list(APPEND)` / `file(GLOB)` / `target_sources` / `OUTPUT_NAME`; Meson `shared_library` / `shared_module` / `both_libraries` / `library` unless `default_library=static`; `cc` / `clang` / `gcc` with `-shared` / `-dynamiclib` / `-bundle` in Makefile recipes, justfiles, and package.json scripts. Only sources present in the repository count (`source_files`) |
+| loader -> C / C++ library (`loads_shared_library`) | a `loads_shared_library` bridge in any language (`ctypes.CDLL`, `System.loadLibrary`, `NativeLibrary.Load`, `dlopen`, ...) whose `NAME` is the library name |
+| Python function -> C function (`calls_native_function`) | call in the Python loader's file to a function with external C linkage in one of the library's sources (`ffi_export.abi = "c"`: not `static` / hidden; in C++ only inside `extern "C"`). Other languages' loaders do not bind calls by bare name |
 | JS/TS file -> crate root (`loads_native_module`, `bridge_kind: wasm`) | import of a wasm-bindgen crate's package name (crate name, `wasm-pack --scope`, `file:` dependency on its output) or of a relative path into its wasm-pack output directory |
 | JS/TS function -> Rust item (`calls_native_function`, `bridge_kind: wasm`) | call the extractor qualified as `specifier::name` into that package, matching a `#[wasm_bindgen]` function or class (`js_name`) |
 | build config -> Go package / AssemblyScript entry (`builds_from_source`, `manifest_kind: wasm_build`) | `go build` with `GOARCH=wasm`, `tinygo build -target wasm/wasi`, `asconfig.json` targets, or `asc --outFile`, naming the `.wasm` outputs |
