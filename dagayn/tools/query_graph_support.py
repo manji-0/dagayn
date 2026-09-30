@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Callable, cast
+from typing import Any
 
 from ..bare_name_resolution import (
     SymbolVisibility,
@@ -246,11 +246,9 @@ def filter_bare_name_fallback_edges(
     if _bare_name_is_unique(store, getattr(target_node, "name", "")):
         return edges
 
-    native = getattr(store, "import_targets_by_file", None)
-    if not callable(native):
-        return edges
-    native_map = cast(Callable[[], dict[str, list[str]]], native)()
-    import_targets = {file_path: set(targets) for file_path, targets in native_map.items()}
+    import_targets = {
+        file_path: set(targets) for file_path, targets in store.import_targets_by_file().items()
+    }
     visibility = _native_symbol_visibility(store)
 
     target_file = target_node.file_path
@@ -268,18 +266,9 @@ def filter_bare_name_fallback_edges(
     ]
 
 
-def _native_symbol_visibility(store: Any) -> SymbolVisibility | None:
-    """Read the visibility index from the Rust backend, if it exposes one."""
-    reader = getattr(store, "symbol_visibility_by_file", None)
-    if not callable(reader):
-        return None
-    declared, imported, class_files = cast(
-        Callable[
-            [],
-            tuple[dict[str, list[str]], dict[str, list[str]], dict[str, list[str]]],
-        ],
-        reader,
-    )()
+def _native_symbol_visibility(store: Any) -> SymbolVisibility:
+    """Read the visibility index from the Rust backend."""
+    declared, imported, class_files = store.symbol_visibility_by_file()
     return SymbolVisibility(
         declared={file_path: set(values) for file_path, values in declared.items()},
         imported={file_path: set(values) for file_path, values in imported.items()},
@@ -291,10 +280,7 @@ def _bare_name_is_unique(store: Any, name: str) -> bool:
     """True when exactly one Function/Class in the graph carries *name*."""
     if not name:
         return False
-    counter = getattr(store, "count_nodes_by_name", None)
-    if not callable(counter):
-        return False
-    counts = cast(Callable[..., dict[str, int]], counter)(["Function", "Class"])
+    counts = store.count_nodes_by_name(["Function", "Class"])
     return counts.get(name, 0) == 1
 
 

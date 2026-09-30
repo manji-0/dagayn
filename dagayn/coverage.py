@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any, Callable, TypedDict
+from typing import Any, TypedDict
 
 from .contracts.state_types import ChangeNodeRecord
 from .graph import GraphEdge, GraphNode, node_to_dict
@@ -222,32 +222,17 @@ def _build_import_edges_by_source(
     The old per-candidate ``get_edges_by_source`` loop issued one SQL query
     (and JSON-parsed every row) per candidate — tens of thousands of queries
     per ``infer_tests_for_node`` call on larger graphs. A single kind-filtered
-    query returns only the IMPORTS_FROM rows the heuristic needs; when the
-    store does not expose it, fall back to a batched endpoint query.
+    query returns only the IMPORTS_FROM rows the heuristic needs.
     """
     if not candidate_keys:
         return {}
-    get_by_kind: Callable[[str], list[GraphEdge]] | None = getattr(store, "get_edges_by_kind", None)
-    if get_by_kind is not None:
-        try:
-            edges = get_by_kind("IMPORTS_FROM")
-        except Exception:  # pragma: no cover - defensive for backend parity drift
-            edges = []
-        wanted = set(candidate_keys)
-        by_source: dict[str, list[GraphEdge]] = {}
-        for edge in edges:
-            src = getattr(edge, "source_qualified", "")
-            if src in wanted:
-                by_source.setdefault(src, []).append(edge)
-        return by_source
-    try:
-        outgoing, _ = store.get_edges_by_endpoints(list(candidate_keys))
-    except Exception:  # pragma: no cover - defensive for backend parity drift
-        return {}
-    return {
-        key: [edge for edge in edges if getattr(edge, "kind", None) == "IMPORTS_FROM"]
-        for key, edges in outgoing.items()
-    }
+    wanted = set(candidate_keys)
+    by_source: dict[str, list[GraphEdge]] = {}
+    for edge in store.get_edges_by_kind("IMPORTS_FROM"):
+        src = getattr(edge, "source_qualified", "")
+        if src in wanted:
+            by_source.setdefault(src, []).append(edge)
+    return by_source
 
 
 def _candidate_references_target_module(

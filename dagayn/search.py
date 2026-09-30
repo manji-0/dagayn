@@ -14,7 +14,7 @@ import threading
 import time
 from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Optional, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Optional, TypedDict
 
 from dagayn.graph import GraphStore, _sanitize_name
 
@@ -139,10 +139,7 @@ def rebuild_fts_index(store: GraphStore) -> int:
     Returns:
         Number of rows indexed.
     """
-    rust_rebuild = getattr(store, "rebuild_fts_index", None)
-    if not callable(rust_rebuild):
-        raise RuntimeError("GraphStore.rebuild_fts_index is required (Rust GraphStore).")
-    count = cast(Callable[[], int], rust_rebuild)()
+    count = store.rebuild_fts_index()
     logger.info("FTS index rebuilt: %d rows indexed", count)
     return count
 
