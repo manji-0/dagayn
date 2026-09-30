@@ -58,6 +58,7 @@ pub(super) fn parse_rust_with_parser(
             file_path: file_path.clone(),
             scope: scope.as_ref(),
             uses: RefCell::new(HashMap::new()),
+            repo_glob: std::cell::Cell::new(false),
             free_functions: &free_functions,
             struct_fields: &struct_fields,
             locals: RefCell::new(Vec::new()),
@@ -185,10 +186,8 @@ fn rust_walk_children(
                     });
                     rust_emit_type_references(
                         child,
-                        context.source,
-                        &context.file_path,
+                        context,
                         &qualify(&context.file_path, &name, owner()),
-                        context.defined_names,
                         Some(&name),
                         edges,
                     );
@@ -275,10 +274,8 @@ fn rust_walk_children(
                     });
                     rust_emit_type_references(
                         child,
-                        context.source,
-                        &context.file_path,
+                        context,
                         &qualify(&context.file_path, &name, owner()),
-                        context.defined_names,
                         Some(&name),
                         edges,
                     );
@@ -389,6 +386,8 @@ struct RustParseContext<'a> {
     scope: Option<&'a modules::RustModuleScope<'a>>,
     /// Names `use` brings into scope: local name -> the path it names.
     uses: RefCell<HashMap<String, Vec<String>>>,
+    /// A `use ...::*` of a module of this repository is in effect.
+    repo_glob: std::cell::Cell<bool>,
     /// Free functions of this file (not methods), by name.
     free_functions: &'a HashSet<String>,
     /// Field types of the structs this file declares: struct -> field -> type.
@@ -990,7 +989,10 @@ fn rust_emit_use(
                     .entry(resolved.file)
                     .or_insert_with(|| (module, Vec::new(), false));
                 match resolved.rest.first().map(String::as_str) {
-                    Some("*") => entry.2 = true,
+                    Some("*") => {
+                        entry.2 = true;
+                        context.repo_glob.set(true);
+                    }
                     Some(name) => entry.1.push((name.to_string(), local)),
                     None => {}
                 }
@@ -1612,62 +1614,214 @@ fn rust_local_bindings(function: tree_sitter::Node<'_>, source: &[u8]) -> HashSe
     names
 }
 
+/// Types named in an item (signature and body): REFERENCES to each. A type
+/// declared in this file is its node; one a `use` brought in from this
+/// repository (`use crate::types::ParsedEdge`, `types::ParsedEdge`) or that a
+/// glob of a repository module may have (`use super::*`) is left for
+/// resolution across files (`value_reference`, with `module_file` when the
+/// module is known). An enum variant path (`EdgeKind::Calls`) names its
+/// type.
 fn rust_emit_type_references(
     node: tree_sitter::Node<'_>,
-    source: &[u8],
-    file_path: &FilePath,
+    context: &RustParseContext<'_>,
     source_qualified: &str,
-    defined_names: &HashSet<String>,
     skip_name: Option<&str>,
     edges: &mut Vec<ParsedEdge>,
 ) {
     let mut emitted = HashSet::new();
-    let context = RustTypeReferenceContext {
-        source,
-        file_path: file_path.clone(),
+    rust_collect_type_references(
+        node,
+        context,
         source_qualified,
-        defined_names,
         skip_name,
-    };
-    rust_collect_type_references(node, edges, &mut emitted, &context);
+        edges,
+        &mut emitted,
+    );
 }
 
-struct RustTypeReferenceContext<'a> {
-    source: &'a [u8],
-    file_path: FilePath,
-    source_qualified: &'a str,
-    defined_names: &'a HashSet<String>,
-    skip_name: Option<&'a str>,
-}
+/// Standard library types that no glob of this repository provides.
+const RUST_STD_TYPES: &[&str] = &[
+    "String", "Vec", "Option", "Result", "Box", "Rc", "Arc", "Cell", "RefCell", "Mutex", "RwLock",
+    "HashMap", "HashSet", "BTreeMap", "BTreeSet", "VecDeque", "Cow", "Path", "PathBuf", "Self",
+    "Some", "None", "Ok", "Err", "Duration", "Instant", "Ordering",
+];
 
 fn rust_collect_type_references(
     node: tree_sitter::Node<'_>,
+    context: &RustParseContext<'_>,
+    source_qualified: &str,
+    skip_name: Option<&str>,
     edges: &mut Vec<ParsedEdge>,
     emitted: &mut HashSet<String>,
-    context: &RustTypeReferenceContext<'_>,
 ) {
-    if node.kind() == "type_identifier" {
-        let name = node_text(node, context.source);
-        if context.skip_name != Some(name.as_str())
-            && context.defined_names.contains(&name)
-            && emitted.insert(name.clone())
-        {
-            edges.push(ParsedEdge {
-                kind: crate::core::types::EdgeKind::References,
-                source: context.source_qualified.to_string(),
-                target: qualify(&context.file_path, &name, None),
-                file_path: context.file_path.clone(),
-                line: node.start_position().row as i64 + 1,
-                extra: json!({
-                    "relationship_role": "type_reference",
-                    "evidence_kind": "rust_type_identifier"
-                }),
-            });
+    let source = context.source;
+    let is_type = |name: &str| name.starts_with(|c: char| c.is_ascii_uppercase());
+    // (type name, module path it was named through)
+    let named: Option<(String, Vec<String>)> = match node.kind() {
+        "type_identifier" => Some((node_text(node, source), Vec::new())),
+        "scoped_type_identifier" => node.child_by_field_name("name").map(|name| {
+            let path = node
+                .child_by_field_name("path")
+                .map(|path| node_text(path, source))
+                .unwrap_or_default();
+            (
+                node_text(name, source),
+                path.split("::")
+                    .map(|segment| segment.trim().to_string())
+                    .collect(),
+            )
+        }),
+        // `EdgeKind::Calls`, `types::EdgeKind::Calls`.
+        "scoped_identifier" => node
+            .child_by_field_name("name")
+            .filter(|name| is_type(&node_text(*name, source)))
+            .and_then(|_| node.child_by_field_name("path"))
+            .and_then(|path| {
+                let text = node_text(path, source);
+                let mut segments: Vec<String> = text
+                    .split("::")
+                    .map(|segment| segment.trim().to_string())
+                    .collect();
+                let name = segments.pop()?;
+                is_type(&name).then_some((name, segments))
+            }),
+        "token_tree" => {
+            // Macro arguments are tokens: `vec![ParsedNode { kind:
+            // crate::types::NodeKind::File }]` names ParsedNode and NodeKind.
+            let mut cursor = node.walk();
+            let tokens: Vec<tree_sitter::Node<'_>> = node.children(&mut cursor).collect();
+            let mut index = 0;
+            while index < tokens.len() {
+                let token = tokens[index];
+                if token.kind() == "token_tree" {
+                    rust_collect_type_references(
+                        token,
+                        context,
+                        source_qualified,
+                        skip_name,
+                        edges,
+                        emitted,
+                    );
+                    index += 1;
+                    continue;
+                }
+                if !matches!(token.kind(), "identifier" | "crate" | "self" | "super") {
+                    index += 1;
+                    continue;
+                }
+                let mut segments = vec![node_text(token, source)];
+                let mut end = index;
+                while tokens
+                    .get(end + 1)
+                    .is_some_and(|sep| node_text(*sep, source) == "::")
+                    && tokens.get(end + 2).is_some_and(|next| {
+                        matches!(next.kind(), "identifier" | "crate" | "self" | "super")
+                    })
+                {
+                    segments.push(node_text(tokens[end + 2], source));
+                    end += 2;
+                }
+                index = end + 1;
+                if let Some(at) = segments.iter().position(|segment| is_type(segment)) {
+                    rust_emit_type_reference(
+                        token,
+                        segments[at].clone(),
+                        segments[..at].to_vec(),
+                        context,
+                        source_qualified,
+                        skip_name,
+                        edges,
+                        emitted,
+                    );
+                }
+            }
+            return;
         }
+        _ => None,
+    };
+    if let Some((name, module)) = named {
+        rust_emit_type_reference(
+            node,
+            name,
+            module,
+            context,
+            source_qualified,
+            skip_name,
+            edges,
+            emitted,
+        );
+    }
+    if matches!(node.kind(), "scoped_type_identifier" | "scoped_identifier") {
+        return;
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        rust_collect_type_references(child, edges, emitted, context);
+        rust_collect_type_references(child, context, source_qualified, skip_name, edges, emitted);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn rust_emit_type_reference(
+    node: tree_sitter::Node<'_>,
+    name: String,
+    module: Vec<String>,
+    context: &RustParseContext<'_>,
+    source_qualified: &str,
+    skip_name: Option<&str>,
+    edges: &mut Vec<ParsedEdge>,
+    emitted: &mut HashSet<String>,
+) {
+    let is_type = |name: &str| name.starts_with(|c: char| c.is_ascii_uppercase());
+    if skip_name != Some(name.as_str()) && is_type(&name) && emitted.insert(name.clone()) {
+        let line = node.start_position().row as i64 + 1;
+        let mut extra = json!({
+            "relationship_role": "type_reference",
+            "evidence_kind": "rust_type_identifier"
+        });
+        let target = if module.is_empty() && context.defined_names.contains(&name) {
+            Some(qualify(&context.file_path, &name, None))
+        } else {
+            let path = if module.is_empty() {
+                context.uses.borrow().get(&name).cloned()
+            } else {
+                // `types::ParsedEdge` where `use super::types;` named `types`.
+                let mut path = context
+                    .uses
+                    .borrow()
+                    .get(&module[0])
+                    .cloned()
+                    .unwrap_or_else(|| vec![module[0].clone()]);
+                path.extend(module[1..].iter().cloned());
+                path.push(name.clone());
+                Some(path)
+            };
+            match path {
+                Some(path) => context
+                    .scope
+                    .and_then(|scope| scope.resolve(&path))
+                    .filter(|resolved| resolved.rest.len() == 1)
+                    .map(|resolved| {
+                        extra["value_reference"] = json!(true);
+                        extra["module_file"] = json!(resolved.file);
+                        path.last().cloned().unwrap_or_else(|| name.clone())
+                    }),
+                None if context.repo_glob.get() && !RUST_STD_TYPES.contains(&name.as_str()) => {
+                    extra["value_reference"] = json!(true);
+                    Some(name.clone())
+                }
+                None => None,
+            }
+        };
+        if let Some(target) = target {
+            edges.push(ParsedEdge {
+                kind: crate::core::types::EdgeKind::References,
+                source: source_qualified.to_string(),
+                target,
+                file_path: context.file_path.clone(),
+                line,
+                extra,
+            });
+        }
     }
 }
 

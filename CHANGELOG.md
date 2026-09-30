@@ -24,9 +24,13 @@ All notable changes to `dagayn` are documented here.
   a struct declared in the file bind to that type's method; `module::f()` and
   `Type::f()` paths, `use ... as` aliases, functions passed as values, and
   calls inside macro arguments (`assert_eq!(f(x), 1)`, `json!`, `format!`)
-  are extracted. Measured against rust-analyzer's references on this
+  are extracted. Type references reach types of other files too (imported,
+  named by path such as `types::Edge` or `NodeKind::File`, or inside macro
+  arguments). Measured against rust-analyzer's references on this
   repository, recall of function-to-function edges goes from 45% to 95% at
-  99.9% precision; on a second 850-file workspace, from 53% to 89%.
+  99.9% precision and of type references from 24% to 96%; on a second
+  850-file workspace, calls go from 53% to 91% and type references reach
+  93%.
 
 ### Fixed
 

@@ -169,3 +169,44 @@ fn run(node: u8, rows: Rows) {
         .expect("node call");
     assert_eq!(node_call.target, "node");
 }
+
+#[test]
+fn type_references_reach_imported_and_macro_named_types() {
+    let root = repo(
+        "types",
+        &[
+            ("Cargo.toml", "[package]\nname = \"app\"\n"),
+            ("src/lib.rs", "pub mod types;\nmod build;\n"),
+            (
+                "src/types.rs",
+                "pub struct ParsedNode;\npub enum NodeKind { File }\npub struct Edge;\n",
+            ),
+            (
+                "src/build.rs",
+                "use crate::types::ParsedNode;\nuse super::types;\n\
+fn build(edge: types::Edge) -> Vec<ParsedNode> {\n\
+    let kind = crate::types::NodeKind::File;\n\
+    vec![ParsedNode]\n\
+}\n",
+            ),
+        ],
+    );
+    let mut parser = RustOwnedParser::new();
+    let source = std::fs::read(root.join("src/build.rs")).unwrap();
+    let (_, edges) = parser.parse_file_in_repo(Some(&root), "src/build.rs", &source);
+    let mut references: Vec<(&str, &serde_json::Value)> = edges
+        .iter()
+        .filter(|edge| edge.kind == "REFERENCES" && edge.source == "src/build.rs::build")
+        .map(|edge| (edge.target.as_str(), &edge.extra["module_file"]))
+        .collect();
+    references.sort_by_key(|(target, _)| *target);
+    let types_rs = serde_json::json!("src/types.rs");
+    assert_eq!(
+        references,
+        vec![
+            ("Edge", &types_rs),
+            ("NodeKind", &types_rs),
+            ("ParsedNode", &types_rs)
+        ]
+    );
+}
