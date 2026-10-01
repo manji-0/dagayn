@@ -112,3 +112,6 @@ SCALING_AND_TOKEN_EFFICIENCY_PLAN.md
 # LLVM coverage profiles from instrumented test runs
 *.profraw
 *.profdata
+
+# Separate repository (manji-0/dagayn-video) checked out in place
+/dagayn-video/
