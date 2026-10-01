@@ -61,8 +61,9 @@ dagayn serve
 - `architecture_analysis_tool(mode="overview")` and its drill-down modes for
   evidence-backed architecture analysis
 - `refactor_tool` for rename previews, dead-code analysis, and refactor suggestions
-- apply a rename preview with `dagayn tool apply_refactor_tool` (advanced MCP
-  surface: `dagayn serve --tools all`)
+- apply a rename preview with `apply_refactor_tool` in the same `dagayn serve`
+  session that produced it (advanced MCP surface: `dagayn serve --tools all`);
+  a separate `dagayn tool` process cannot see that session's `refactor_id`
 - `traverse_graph` and maintenance tools are available through explicit
   `--tools` allow-lists or `dagayn tool`, not the default MCP surface
 

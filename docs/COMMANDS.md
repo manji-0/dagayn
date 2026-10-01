@@ -411,7 +411,10 @@ dagayn resolves the open workspace from Cursor's `WORKSPACE_FOLDER_PATHS`.
 `dagayn install --platform codex` configures the Codex MCP server, installs
 Codex skills, and writes global Codex hooks in `~/.codex/hooks.json` with the
 required `~/.codex/config.toml` feature flag. Claude hooks are written to
-`~/.claude/settings.json`. Git hooks installed by `dagayn install` refresh
+`~/.claude/settings.json`, and dagayn's Claude Code skills to
+`~/.claude/skills/<name>/SKILL.md` only: Claude Code also loads
+`<repo>/.claude/skills`, so install removes the untracked dagayn copies an
+earlier install left there (committed copies stay). Git hooks installed by `dagayn install` refresh
 cheaply with `dagayn update --skip-flows` before commit-time checks and run a
 full `dagayn update` after a commit. Generated AI-tool edit hooks enqueue a
 structure-only update (`dagayn queue add update`) instead of running one

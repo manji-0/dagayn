@@ -597,6 +597,23 @@ class TestInstallGlobalSkills:
         assert sorted(p.name for p in skills.iterdir()) == ["my-team-skill"]
         assert remove_repo_local_skills(tmp_path / "elsewhere") == 0
 
+    def test_remove_repo_local_skills_keeps_committed_copies(self, tmp_path):
+        """A dagayn skill the team committed (maybe customized) is theirs."""
+        import subprocess
+
+        from dagayn.skills import remove_repo_local_skills
+
+        skills = tmp_path / ".claude" / "skills"
+        generate_skills(tmp_path, skills_dir=skills)
+        git = ["git", "-C", str(tmp_path), "-c", "user.email=t@t", "-c", "user.name=t"]
+        subprocess.run([*git, "init", "-q"], check=True)
+        subprocess.run([*git, "add", ".claude/skills/review-pr"], check=True)
+        subprocess.run([*git, "commit", "-qm", "team copy"], check=True)
+
+        removed = remove_repo_local_skills(tmp_path)
+        assert removed == len(EXPECTED_SKILLS) - 1
+        assert sorted(p.name for p in skills.iterdir()) == ["review-pr"]
+
     def test_init_installs_claude_skills_globally_only(self, tmp_path, capsys):
         import argparse
 

@@ -482,6 +482,33 @@ def test_callers_of_a_standard_library_package_lists_its_callers(tmp_path):
     assert [item["qualified_name"] for item in result["results"]] == ["tool.py::run_git"]
 
 
+def test_callers_of_a_local_symbol_named_like_a_package_stays_local(tmp_path):
+    """A repository function named `shlex` is what `callers_of("shlex")` means,
+    even when the standard-library `shlex` package also has callers."""
+    from dagayn.incremental import full_build
+    from dagayn.postprocessing import run_post_processing
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    (repo / "a.py").write_text(
+        "def shlex(value):\n    return str(value)\n\ndef use_local():\n    shlex(1)\n",
+        encoding="utf-8",
+    )
+    (repo / "b.py").write_text(
+        "import shlex as stdshlex\n\ndef dump():\n    stdshlex.quote('x')\n",
+        encoding="utf-8",
+    )
+    store = GraphStore(repo / ".dagayn" / "graph.db")
+    full_build(repo, store)
+    run_post_processing(store)
+    store.close()
+
+    result = query_graph(pattern="callers_of", target="shlex", repo_root=str(repo))
+    assert result.get("resolution") != "external_package", result
+    assert [item["qualified_name"] for item in result["results"]] == ["a.py::use_local"]
+
+
 class TestQueryGraphBareNameBinding:
     @pytest.fixture(autouse=True)
     def _setup_store(self, tmp_path):

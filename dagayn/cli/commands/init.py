@@ -380,7 +380,11 @@ def handle(args: argparse.Namespace) -> None:
                     embedding_provider=provider,
                 )
                 print(f"Installed global skills to {global_skills_dir}")
-                removed = remove_repo_local_skills(repo_root)
+                try:
+                    removed = remove_repo_local_skills(repo_root)
+                except OSError as e:
+                    print(f"Could not remove repo-local dagayn skills ({e})", file=sys.stderr)
+                    removed = 0
                 if removed:
                     print(
                         f"Removed {removed} repo-local dagayn skill(s) from "

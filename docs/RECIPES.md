@@ -72,7 +72,8 @@ dagayn build --repo /path/to/infra
 
 List and search via CLI tool surface (`cross_repo_search_tool` is advanced;
 default `dagayn serve` does not expose it unless `--tools` includes it or
-`all`):
+`all`). Its `limit` applies to each repository, so the merged result holds up
+to `limit` hits per searched repository:
 
 ```bash
 dagayn tool list_repos_tool

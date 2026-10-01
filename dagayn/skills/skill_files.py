@@ -9,6 +9,7 @@ Cursor hooks / OpenCode plugin generation.
 from __future__ import annotations
 
 import shutil
+import subprocess
 from pathlib import Path
 
 from ..atomic_write import write_text_atomic
@@ -243,14 +244,34 @@ def remove_repo_local_skills(repo_root: Path) -> int:
     skills_dir = repo_root / ".claude" / "skills"
     if not skills_dir.is_dir():
         return 0
+    tracked = _git_tracked(repo_root, skills_dir)
     source_dir = _resolve_source_skills_dir()
     names = [entry.name for entry in source_dir.iterdir()] if source_dir else []
     removed = 0
     for name in [*names, *_RETIRED_SKILLS]:
         for path in (skills_dir / name, skills_dir / f"{name}.md"):
+            # A committed copy is the team's, possibly customized: keep it.
+            if any(t == path or path in t.parents for t in tracked):
+                continue
             if path.exists() and _remove_dagayn_skill(path, name):
                 removed += 1
     return removed
+
+
+def _git_tracked(repo_root: Path, under: Path) -> list[Path]:
+    """Paths git tracks under *under*; empty outside a git repository."""
+    try:
+        completed = subprocess.run(  # noqa: S603, S607 - fixed git command
+            ["git", "-C", str(repo_root), "ls-files", "-z", "--", str(under)],
+            capture_output=True,
+            check=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [
+        repo_root / name for name in completed.stdout.decode("utf-8", "replace").split("\0") if name
+    ]
 
 
 def _install_skill_tree(

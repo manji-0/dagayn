@@ -65,6 +65,13 @@ class QueryGraphState:
         return self.node.qualified_name if self.node is not None else self.target
 
 
+def _has_node_named(store: Any, name: str) -> bool:
+    """Whether some node of the graph is named exactly *name*."""
+    return any(
+        hit.name == name for hit in store.search_nodes(name, limit=_NAME_RESOLUTION_SEARCH_LIMIT)
+    )
+
+
 def resolve_query_target(
     state: QueryGraphState,
     *,
@@ -82,10 +89,13 @@ def resolve_query_target(
     if (
         not node
         and state.pattern == "callers_of"
+        and not _has_node_named(state.store, state.target)
         and is_external_package_target(state.store, state.target)
     ):
-        # `callers_of("react::useState")`: the callers of an external
-        # package symbol, which has edges but no node.
+        # `callers_of("react::useState")` / `callers_of("subprocess")`: the
+        # callers of an external package or package symbol, which has edges
+        # but no node. A repository symbol of the same name (a local `json`
+        # helper) is what the bare name means, so it wins.
         state.resolution = "external_package"
         return None
     if not node and state.pattern == "file_summary" and looks_like_query_file_target(state.target):

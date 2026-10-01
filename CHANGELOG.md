@@ -9,16 +9,19 @@ All notable changes to `dagayn` are documented here.
 - `callers_of` on a package name (`subprocess`, `std`, `builtins`,
   `net/http`) lists the callers of that package, as
   `docs/CALL-RESOLUTION.md` promises; it used to search for a symbol of that
-  name and answer `ambiguous`.
+  name and answer `ambiguous`. A repository symbol of the same name still
+  wins.
 - A `dagayn:` directive shown inside a Markdown code span or fenced block is an
   example and creates no edge (guides and README translations had created
   `HIGH` links to `path::symbol`). Markdown files re-parse once on the next
   update.
-- A `dagayn:` directive or a Markdown dependency comment whose target is not in
-  the graph is demoted to `LOW` after Markdown reference resolution, so
-  `implementations_of` no longer reports it as an authored contract. Edges to
-  things that are never nodes (commands, files a program writes, Terraform
-  providers) keep their tiers.
+- A `dagayn:` directive or a Markdown dependency comment naming a section or
+  symbol that its indexed file does not have (a renamed symbol, a heading
+  typo) is demoted to `LOW` after Markdown reference resolution, so
+  `implementations_of` no longer reports it as an authored contract; the tier
+  comes back once the target exists. Targets in files the graph does not
+  index, and edges to things that are never nodes (commands, files a program
+  writes, Terraform providers), keep their tiers.
 - `cross_repo_search_tool` applies `limit` per repository, as documented; the
   merged list was cut to `limit` overall, so one repository's higher score
   scale could hide every hit from the others.
@@ -27,8 +30,9 @@ All notable changes to `dagayn` are documented here.
 
 - `dagayn install` writes dagayn's Claude Code skills to `~/.claude/skills`
   only and removes the copies earlier installs put in `<repo>/.claude/skills`:
-  Claude Code loads both, so every skill was listed twice. The repository
-  copy is written only when the home directory is not writable.
+  Claude Code loads both, so every skill was listed twice. Copies committed to
+  git are the team's and stay. The repository copy is written only when the
+  home directory is not writable.
 - `dagayn install` now writes Claude Code skills as `<name>/SKILL.md`
   directories, the layout Claude Code loads. Earlier versions wrote flat
   `~/.claude/skills/<name>.md` files that Claude Code never loaded, so the

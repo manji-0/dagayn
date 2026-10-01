@@ -266,20 +266,48 @@ impl GraphStore {
             }
         }
 
-        // An authored directive whose target is no node (a renamed symbol, a
-        // heading typo, a missing file) stays recorded but is no longer
-        // authored evidence: `implementations_of` must not report it as a
-        // contract. Edges to things that are never nodes (commands, files a
-        // program writes, Terraform providers) carry no directive marker.
+        // An authored directive or dependency comment naming a section or
+        // symbol of an indexed file that has no such section or symbol (a
+        // renamed symbol, a heading typo) stays recorded but is not authored
+        // evidence any more: `implementations_of` must not report it as a
+        // contract. Its tier is kept in `extra` and comes back once the
+        // target exists. Targets in files the graph does not index (a
+        // config file, a URL, a path outside the repository) are not judged.
+        const DIRECTIVE_EDGE: &str = "((kind = 'CROSS_ARTIFACT' \
+               AND json_extract(extra, '$.evidence_source') = 'dagayn_directive') \
+              OR (kind = 'DEPENDS_ON' \
+                  AND json_extract(extra, '$.markdown_directive_kind') IS NOT NULL))";
+        tx.execute(
+            &format!(
+                "UPDATE edges SET \
+                     confidence_tier = json_extract(extra, '$.dangling_demoted_from'), \
+                     confidence = json_extract(extra, '$.dangling_demoted_confidence'), \
+                     extra = json_remove(extra, '$.dangling_demoted_from', \
+                                         '$.dangling_demoted_confidence') \
+                 WHERE {DIRECTIVE_EDGE} \
+                   AND json_extract(extra, '$.dangling_demoted_from') IS NOT NULL \
+                   AND EXISTS (SELECT 1 FROM nodes n \
+                               WHERE n.qualified_name = edges.target_qualified)"
+            ),
+            [],
+        )?;
         demoted += tx.execute(
-            "UPDATE edges SET confidence = MIN(confidence, 0.2), confidence_tier = 'LOW' \
-             WHERE ((kind = 'CROSS_ARTIFACT' \
-                     AND json_extract(extra, '$.evidence_source') = 'dagayn_directive') \
-                    OR (kind = 'DEPENDS_ON' \
-                        AND json_extract(extra, '$.markdown_directive_kind') IS NOT NULL)) \
-               AND COALESCE(confidence_tier, '') <> 'LOW' \
-               AND NOT EXISTS (SELECT 1 FROM nodes n \
-                               WHERE n.qualified_name = edges.target_qualified)",
+            &format!(
+                "UPDATE edges SET \
+                     extra = json_set(COALESCE(extra, '{{}}'), \
+                                      '$.dangling_demoted_from', confidence_tier, \
+                                      '$.dangling_demoted_confidence', confidence), \
+                     confidence = MIN(confidence, 0.2), confidence_tier = 'LOW' \
+                 WHERE {DIRECTIVE_EDGE} \
+                   AND COALESCE(confidence_tier, '') <> 'LOW' \
+                   AND instr(target_qualified, '::') > 0 \
+                   AND NOT EXISTS (SELECT 1 FROM nodes n \
+                                   WHERE n.qualified_name = edges.target_qualified) \
+                   AND EXISTS (SELECT 1 FROM nodes f \
+                               WHERE f.kind = 'File' \
+                                 AND f.qualified_name = substr(edges.target_qualified, 1, \
+                                     instr(edges.target_qualified, '::') - 1))"
+            ),
             [],
         )? as i64;
         tx.commit()?;

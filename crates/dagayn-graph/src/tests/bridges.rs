@@ -310,9 +310,9 @@ fn markdown_resolver_retiers_resolved_code_span_bridges_left_at_high() {
 
 #[test]
 fn directives_to_missing_targets_are_no_longer_authored_evidence() {
-    // `implemented-by` to a renamed symbol and `constrained-by` to a missing
-    // file drop to LOW; the live directive and a command a program runs keep
-    // their tiers.
+    // In the indexed `auth.py`, `renamed_away` is missing: LOW until it
+    // appears. A missing heading of the indexed `docs/guide.md` likewise. A
+    // config file the graph does not index and a command keep their tiers.
     let path = temp_db("markdown-dangling-directives");
     let mut store = GraphStore::open(&path).expect("open graph store");
     let node = |name: &str, file: &str, kind: &str| NodeInput {
@@ -341,30 +341,48 @@ fn directives_to_missing_targets_are_no_longer_authored_evidence() {
         "bridge_kind": "documentation", "evidence_source": "dagayn_directive",
         "relationship_role": "implemented_by", "confidence": 0.8, "confidence_tier": "HIGH",
     });
+    let batch = |nodes: Vec<NodeInput>, edges: Vec<EdgeInput>, file: &str| {
+        (file.to_string(), nodes, edges, "hash".to_string(), 0)
+    };
     store
-        .store_file_batch(&[(
-            "docs/spec.md".to_string(),
-            vec![
-                node("docs/spec.md", "docs/spec.md", "File"),
-                node("refresh", "auth.py", "Function"),
-            ],
-            vec![
-                edge("CROSS_ARTIFACT", "auth.py::refresh", directive.clone()),
-                edge("CROSS_ARTIFACT", "auth.py::renamed_away", directive),
-                edge(
-                    "DEPENDS_ON",
-                    "docs/missing.md",
-                    json!({"markdown_directive_kind": "constrained-by"}),
-                ),
-                edge(
-                    "CROSS_ARTIFACT",
-                    "git",
-                    json!({"bridge_kind": "subprocess", "confidence_tier": "HIGH"}),
-                ),
-            ],
-            "hash".to_string(),
-            0,
-        )])
+        .store_file_batch(&[
+            batch(
+                vec![node("docs/spec.md", "docs/spec.md", "File")],
+                vec![
+                    edge("CROSS_ARTIFACT", "auth.py::refresh", directive.clone()),
+                    edge("CROSS_ARTIFACT", "auth.py::renamed_away", directive),
+                    edge(
+                        "DEPENDS_ON",
+                        "docs/guide.md::no-such-heading",
+                        json!({"markdown_directive_kind": "constrained-by"}),
+                    ),
+                    edge(
+                        "DEPENDS_ON",
+                        "prek.toml",
+                        json!({"markdown_directive_kind": "constrained-by"}),
+                    ),
+                    edge(
+                        "CROSS_ARTIFACT",
+                        "git",
+                        json!({"bridge_kind": "subprocess", "confidence_tier": "HIGH"}),
+                    ),
+                ],
+                "docs/spec.md",
+            ),
+            batch(
+                vec![
+                    node("auth.py", "auth.py", "File"),
+                    node("refresh", "auth.py", "Function"),
+                ],
+                vec![],
+                "auth.py",
+            ),
+            batch(
+                vec![node("docs/guide.md", "docs/guide.md", "File")],
+                vec![],
+                "docs/guide.md",
+            ),
+        ])
         .unwrap();
     store
         .conn
@@ -373,28 +391,52 @@ fn directives_to_missing_targets_are_no_longer_authored_evidence() {
             [],
         )
         .unwrap();
+    let tiers = |store: &GraphStore| {
+        store
+            .conn
+            .prepare(
+                "SELECT target_qualified, confidence_tier FROM edges ORDER BY target_qualified",
+            )
+            .unwrap()
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .unwrap()
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .unwrap()
+    };
+    let pair = |target: &str, tier: &str| (target.to_string(), tier.to_string());
 
     let (_, demoted, _, _) = store.resolve_markdown_artifact_refs().unwrap();
     assert_eq!(demoted, 2);
-    let tiers = store
-        .conn
-        .prepare("SELECT target_qualified, confidence_tier FROM edges ORDER BY id")
-        .unwrap()
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })
-        .unwrap()
-        .collect::<std::result::Result<Vec<_>, _>>()
+    assert_eq!(
+        tiers(&store),
+        vec![
+            pair("auth.py::refresh", "HIGH"),
+            pair("auth.py::renamed_away", "LOW"),
+            pair("docs/guide.md::no-such-heading", "LOW"),
+            pair("git", "HIGH"),
+            pair("prek.toml", "HIGH"),
+        ]
+    );
+
+    // The symbol comes back (a later update re-adds it): so does the tier.
+    store
+        .store_file_batch(&[batch(
+            vec![
+                node("auth.py", "auth.py", "File"),
+                node("refresh", "auth.py", "Function"),
+                node("renamed_away", "auth.py", "Function"),
+            ],
+            vec![],
+            "auth.py",
+        )])
         .unwrap();
-    let tier = |target: &str| {
-        tiers
-            .iter()
-            .find(|(qualified, _)| qualified == target)
-            .map(|(_, tier)| tier.as_str())
-    };
-    assert_eq!(tier("auth.py::refresh"), Some("HIGH"));
-    assert_eq!(tier("auth.py::renamed_away"), Some("LOW"));
-    assert_eq!(tier("docs/missing.md"), Some("LOW"));
-    assert_eq!(tier("git"), Some("HIGH"));
+    store.resolve_markdown_artifact_refs().unwrap();
+    assert_eq!(
+        tiers(&store)[1],
+        pair("auth.py::renamed_away", "HIGH"),
+        "the tier recorded at demotion is restored"
+    );
     let _ = std::fs::remove_file(path);
 }
