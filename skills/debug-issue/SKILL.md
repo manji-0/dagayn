@@ -48,6 +48,27 @@ the selected embedding mode so bug searches balance semantic recall with speed.
 7. **Confirm the failing span** with `source_of`; open the file only when the
    span is truncated or stale, or you need the surrounding code.
 
+## Evidence
+
+Reach comes from the graph; correctness from `source_of`; user-visible
+effect from a reproduction or CLI output. Do not mix those in one claim.
+
+- **Highest** — assert freely: on a graph whose orientation shows no
+  `graph_describes_another_commit` or `graph_built_by_older_extractor`,
+  `CALLS` / importer edges with `resolved_by: "scip"` at `HIGH` or
+  `EXTRACTED`; the `source_of` span those edges point at; authored
+  `CROSS_ARTIFACT` contracts (`implemented_by` / `implements_contract`,
+  `evidence_type=authored`).
+- **Medium** — structure only, not correctness: `review_tool`
+  `reason_codes`, blast radius, affected flows; `EXTRACTED` `TESTED_BY`
+  and directive dependencies; FTS hits when embeddings are empty or
+  `embedding_health` is not available (keyword candidates, not semantic
+  ranking).
+- **Low** — hypothesis until `source_of` or a reproduction: `MEDIUM` /
+  `LOW` or non-SCIP calls; `heuristic_reachable`; a file-level
+  `tests_for` of 0; `truncated`, `status="ambiguous"`, or absences on a
+  degraded orientation.
+
 ## Tips
 
 - Prefer relationship queries over raw traversal when the question names a
