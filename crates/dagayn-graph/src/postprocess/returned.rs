@@ -489,47 +489,47 @@ fn builtin_type_package(family: &str, file: &str, name: &str) -> Option<&'static
         {
             "globalThis"
         }
-        "jvm" if file.ends_with(".kt") || file.ends_with(".kts") => {
-            if is(&[
-                "String",
-                "Int",
-                "Long",
-                "Double",
-                "Float",
-                "Boolean",
-                "Char",
-                "Byte",
-                "Short",
-                "List",
-                "MutableList",
-                "Map",
-                "MutableMap",
-                "Set",
-                "MutableSet",
-                "Array",
-                "Sequence",
-                "Pair",
-                "Triple",
-                "Collection",
-                "Iterable",
-                "Regex",
-                "Result",
-            ]) {
-                "kotlin"
-            } else {
-                return None;
-            }
+        "jvm"
+            if (file.ends_with(".kt") || file.ends_with(".kts"))
+                && is(&[
+                    "String",
+                    "Int",
+                    "Long",
+                    "Double",
+                    "Float",
+                    "Boolean",
+                    "Char",
+                    "Byte",
+                    "Short",
+                    "List",
+                    "MutableList",
+                    "Map",
+                    "MutableMap",
+                    "Set",
+                    "MutableSet",
+                    "Array",
+                    "Sequence",
+                    "Pair",
+                    "Triple",
+                    "Collection",
+                    "Iterable",
+                    "Regex",
+                    "Result",
+                ]) =>
+        {
+            "kotlin"
         }
-        "jvm" if file.ends_with(".scala") || file.ends_with(".sc") => {
-            if is(&[
-                "String", "Int", "Long", "Double", "Boolean", "List", "Seq", "Vector", "Map",
-                "Set", "Option", "Either", "Future", "Array", "Iterator",
-            ]) {
-                "scala"
-            } else {
-                return None;
-            }
+        "jvm" if file.ends_with(".kt") || file.ends_with(".kts") => return None,
+        "jvm"
+            if (file.ends_with(".scala") || file.ends_with(".sc"))
+                && is(&[
+                    "String", "Int", "Long", "Double", "Boolean", "List", "Seq", "Vector", "Map",
+                    "Set", "Option", "Either", "Future", "Array", "Iterator",
+                ]) =>
+        {
+            "scala"
         }
+        "jvm" if file.ends_with(".scala") || file.ends_with(".sc") => return None,
         "jvm"
             if is(&[
                 "String",
