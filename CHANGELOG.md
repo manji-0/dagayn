@@ -12,7 +12,7 @@ All notable changes to `dagayn` are documented here.
   post-processing. Each `CALLS` edge is matched to the index's reference at
   its called name and moved to the definition's node or the symbol's
   package (`resolved_by: "scip"`, `HIGH`); unresolved calls of a closure or
-  a callback record `callee_local`. Missing indexers are warnings. On this
+  a callback record `callee_local`. On this
   repository's v7.0.0 sources, unresolved calls drop from 2,597 to 1,126
   (Rust 1,167 → 14, TypeScript 483 → 194) in a 15 s build.
 - `build --scip` also runs scip-go, scip-python, scip-java (Java/Kotlin,
