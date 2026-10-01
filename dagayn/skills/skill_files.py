@@ -17,6 +17,10 @@ from .platforms import logger
 # --- Skill file contents ---
 
 
+# Skills earlier dagayn versions installed and no longer ship: an upgrade
+# removes the copies it left behind.
+_RETIRED_SKILLS = ("wiki-research",)
+
 _SKILL_EMBEDDING_CONTEXT_START = "<!-- dagayn skill embedding context -->"
 _SKILL_EMBEDDING_CONTEXT_END = "<!-- /dagayn skill embedding context -->"
 
@@ -59,11 +63,13 @@ def _embedding_context_lines(
             "BGE-M3 llama.cpp sidecar.",
             "",
             "- MCP search defaults to hybrid retrieval when matching embeddings exist.",
-            "- Read `search_mode`, `rerank_intent`, and per-result `source` before "
-            "judging search quality.",
-            "- Routine graph refreshes for parser, flow, documentation, or review "
-            'verification should pass `local_embedding="none"` so they do not '
-            "inherit the server embedding mode and trigger a large embedding refresh.",
+            "- Read `search_mode`, `embedding_health.requested_text_mode`, and "
+            '(at `detail_level="standard"`) per-result `source` before judging '
+            "search quality.",
+            "- Routine graph refreshes with `build_or_update_graph_tool` for parser, "
+            'flow, documentation, or review verification should pass `local_embedding="none"` '
+            "so they do not inherit the server embedding mode and trigger a large "
+            "embedding refresh (`ensure_graph_tool` always follows the server mode).",
             "- Use embedding-enabled full rebuilds only for explicit embedding-quality "
             "or end-to-end maintenance work after stating the reason.",
             "- Exact identifier lookup can still rely on FTS; use semantic search for "
@@ -79,11 +85,13 @@ def _embedding_context_lines(
             f"(`--mode local-embedding-llama --preset {preset}`).",
             "",
             "- MCP search defaults to hybrid retrieval when matching embeddings exist.",
-            "- Read `search_mode`, `rerank_intent`, and per-result `source` before "
-            "judging search quality.",
-            "- Routine graph refreshes for parser, flow, documentation, or review "
-            'verification should pass `local_embedding="none"` so they do not '
-            "inherit the server sidecar mode and trigger a large embedding refresh.",
+            "- Read `search_mode`, `embedding_health.requested_text_mode`, and "
+            '(at `detail_level="standard"`) per-result `source` before judging '
+            "search quality.",
+            "- Routine graph refreshes with `build_or_update_graph_tool` for parser, "
+            'flow, documentation, or review verification should pass `local_embedding="none"` '
+            "so they do not inherit the server sidecar mode and trigger a large "
+            "embedding refresh (`ensure_graph_tool` always follows the server mode).",
             "- Use embedding-enabled full rebuilds only for explicit embedding-quality "
             "or end-to-end maintenance work after stating the reason.",
             "- Exact identifier lookup can still rely on FTS; use semantic search for "
@@ -98,8 +106,9 @@ def _embedding_context_lines(
             f"Installed with remote embeddings (`--mode remote-embedding --provider {provider}`).",
             "",
             "- MCP search defaults to the configured provider when matching embeddings exist.",
-            "- Read `search_mode`, `rerank_intent`, and per-result `source` before "
-            "judging search quality.",
+            "- Read `search_mode`, `embedding_health.requested_text_mode`, and "
+            '(at `detail_level="standard"`) per-result `source` before judging '
+            "search quality.",
             "- `build_or_update_graph_tool()` refreshes graph and FTS data; run "
             f'`embed_graph_tool(provider="{provider}")` after graph refresh when hybrid '
             "search is required.",
@@ -115,7 +124,8 @@ def _embedding_context_lines(
             "- Treat `semantic_search_nodes_tool` as keyword/FTS search, not vector "
             "semantic search.",
             "- `search_mode` should normally be `fts_only`; `keyword_fallback` means "
-            "the FTS index is absent and should be refreshed before quality claims.",
+            "neither FTS nor vectors matched and LIKE matching ran; try other terms, "
+            "and check `dagayn status` before claiming the index is missing.",
             "- Prefer exact symbols, file names, graph relationships, and one targeted "
             "`rg` for literals.",
             "- Do not rebuild embeddings unless the user explicitly changes install mode.",
@@ -170,8 +180,10 @@ def generate_skills(
 ) -> Path:
     """Generate Claude Code skill files.
 
-    Reads ``skills/<name>/SKILL.md`` from the dagayn package and writes
-    each one as ``<skills_dir>/<name>.md`` (Claude Code's flat layout).
+    Writes each ``skills/<name>/SKILL.md`` of the dagayn package as
+    ``<skills_dir>/<name>/SKILL.md``, the layout Claude Code loads skills
+    from. Earlier versions wrote flat ``<skills_dir>/<name>.md`` files,
+    which Claude Code never loaded; those are removed.
 
     Args:
         repo_root: Repository root directory.
@@ -190,30 +202,55 @@ def generate_skills(
     """
     if skills_dir is None:
         skills_dir = repo_root / ".claude" / "skills"
-    skills_dir.mkdir(parents=True, exist_ok=True)
-
+    _install_skill_tree(
+        skills_dir,
+        embedding_mode=embedding_mode,
+        embedding_preset=embedding_preset,
+        embedding_provider=embedding_provider,
+    )
     source_dir = _resolve_source_skills_dir()
-    if source_dir is None:
-        logger.warning("No skills/ directory found alongside dagayn; nothing installed.")
-        return skills_dir
-
-    for entry in sorted(source_dir.iterdir()):
-        if not entry.is_dir():
-            continue
-        skill_file = entry / "SKILL.md"
-        if not skill_file.is_file():
-            continue
-        target = skills_dir / f"{entry.name}.md"
-        content = _render_skill_content(
-            skill_file.read_text(encoding="utf-8"),
-            embedding_mode=embedding_mode,
-            embedding_preset=embedding_preset,
-            embedding_provider=embedding_provider,
-        )
-        write_text_atomic(target, content, encoding="utf-8")
-        logger.info("Wrote skill: %s", target)
-
+    names = [entry.name for entry in source_dir.iterdir()] if source_dir else []
+    for name in [*names, *_RETIRED_SKILLS]:
+        _remove_dagayn_skill(skills_dir / f"{name}.md", name)
     return skills_dir
+
+
+def _remove_dagayn_skill(path: Path, name: str) -> bool:
+    """Remove ``path`` (a flat ``<name>.md`` or a ``<name>/`` directory) when
+    it is a dagayn skill of that name, judged by its frontmatter; any other
+    file is the user's and stays. Returns whether it was removed."""
+    skill_file = path / "SKILL.md" if path.is_dir() else path
+    try:
+        head = skill_file.read_text(encoding="utf-8", errors="replace")[:500]
+    except OSError:
+        return False
+    if not (head.startswith("---\n") and f"\nname: {name}\n" in head):
+        return False
+    if path.is_dir():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
+    logger.info("Removed stale dagayn skill: %s", path)
+    return True
+
+
+def remove_repo_local_skills(repo_root: Path) -> int:
+    """Remove the dagayn skills an earlier install wrote into
+    ``<repo>/.claude/skills``. Claude Code loads both that directory and
+    ``~/.claude/skills``, so a repo-local copy next to the global one is
+    listed twice in every session. Skills that are not dagayn's stay.
+    Returns how many were removed."""
+    skills_dir = repo_root / ".claude" / "skills"
+    if not skills_dir.is_dir():
+        return 0
+    source_dir = _resolve_source_skills_dir()
+    names = [entry.name for entry in source_dir.iterdir()] if source_dir else []
+    removed = 0
+    for name in [*names, *_RETIRED_SKILLS]:
+        for path in (skills_dir / name, skills_dir / f"{name}.md"):
+            if path.exists() and _remove_dagayn_skill(path, name):
+                removed += 1
+    return removed
 
 
 def _install_skill_tree(
@@ -237,6 +274,8 @@ def _install_skill_tree(
         logger.warning("No skills/ directory found alongside dagayn; nothing installed.")
         return target_dir
 
+    for name in _RETIRED_SKILLS:
+        _remove_dagayn_skill(target_dir / name, name)
     for entry in sorted(source_dir.iterdir()):
         if not entry.is_dir() or not (entry / "SKILL.md").is_file():
             continue
@@ -268,9 +307,9 @@ def install_global_skills(
 ) -> Path:
     """Install Claude Code skills into ``~/.claude/skills/``.
 
-    Mirrors the source ``skills/`` tree as flat ``<name>.md`` files under
-    the user home so the writing/reading-markdown-document skills (and the
-    other dagayn skills) are available across all projects.
+    Mirrors the source ``skills/`` tree as ``<name>/SKILL.md`` directories
+    under the user home so the writing/reading-markdown-document skills (and
+    the other dagayn skills) are available across all projects.
     """
     target = Path.home() / ".claude" / "skills"
     return generate_skills(

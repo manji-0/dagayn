@@ -1,96 +1,100 @@
 ---
 name: reading-markdown-document
-description: Read a Markdown document with full dependency context — query the dagayn graph first, pre-read referenced docs and code by edge type, then read the body.
+description: Read a Markdown document — design doc, ADR, RFC, spec, runbook, README, or one section of it — with its dependency context — use the dagayn graph to see its sections, which docs it depends on and which depend on it, and the code that implements it, then read the prose. Consult this skill before opening the file whenever the user asks what a doc or spec says, requires, or promises, asks for a summary or explanation of documentation, asks what implements a section, or is about to edit a doc others depend on.
 argument-hint: "[doc path]"
 ---
 
 # Reading a Markdown Document
 
-Read a Markdown doc the way dagayn indexes it: load its dependency graph first, pre-read what the doc relies on, then read the prose with that context already in mind. This avoids the common failure mode of rediscovering "what does this section even mean" mid-read.
+Load the doc's dependency graph first, pre-read what it relies on, then read
+the prose with that context in mind. That avoids stopping mid-read to work out
+what a section is built on.
 
 ## Stage 0 — Prerequisites
 
-1. Confirm `[doc path]` was provided. If not, ask the user before continuing.
-2. Run `get_minimal_context_tool` once (or `list_graph_stats_tool` on the
-   advanced surface). If `graph_health` is empty / `last_updated` is `null`,
-   **or** the doc's mtime (`stat <path>`) is newer than `last_updated`, run
-   `ensure_graph_tool()` (or `ensure_graph_tool(force=True)` when the graph
-   already exists) and wait for it to finish before Stage 1.
-3. **Skip-to-prose shortcut.** Run a quick check:
-   ```
-   wc -l <path>
-   rg -n '<!--|`[^`]+`|]\(' <path> | wc -l
-   ```
-   If line count < 100 **and** the second grep returns 0, jump straight to Stage 3 — there are no graph-relevant constructs to pre-read.
+1. Confirm a doc path was given; ask if not.
+2. Run `get_minimal_context_tool` once. If `graph_health.status` is `empty` or
+   `sync.state` is `unbuilt`, call `ensure_graph_tool()`; if the doc has
+   uncommitted edits (the graph doesn't index a dirty worktree on its own),
+   call `ensure_graph_tool(force=True)`. Wait for it before Stage 1.
+3. **Short-doc shortcut**: `wc -l <path>` and
+   `rg -n '<!--|`[^`]+`|]\(' <path> | wc -l`. Under 100 lines with no matches
+   means nothing to pre-read: go to Stage 3.
 
 ## Stage 1 — Graph snapshot
 
-Take a structural snapshot before opening the file:
+1. **Sections**: `query_graph_tool(pattern="file_summary", target="<doc.md>")`.
+   Use the `DocSection` rows (their `name` is the slug); `DocBody` rows are the
+   section bodies. If it's empty, refresh once with
+   `ensure_graph_tool(force=True)`; still empty means a brand-new file — read
+   it as plain text. For a question about one heading, fetch just that section
+   with `query_graph_tool(pattern="source_of", target="<doc.md>::<slug>")`.
+2. **Who depends on it**: `query_graph_tool(pattern="importers_of",
+   target="<doc.md>")`. It always answers at file level (a `doc.md::slug`
+   target is widened to the file), so it can't tell you which section is
+   cited. Ignore the doc's own row, which comes from its in-page anchor links.
+   Pass `depth` (up to 6) for transitive dependents.
+3. **What it depends on**: `query_graph_tool(pattern="imports_of",
+   target="<doc.md>")` lists the files its directives and links point to.
+4. **Implementations** (specs, or when asked):
+   `query_graph_tool(pattern="implementations_of", target="<doc.md>::<section-slug>")`;
+   weigh each hit by `evidence_type` and `missingness`. From a code symbol, the reverse is
+   `query_graph_tool(pattern="docs_for", target="<path::symbol>")`.
+5. **Blast radius** only when the task is about changing the doc:
+   `review_tool(mode="impact", changed_files=["<doc.md>"])`.
 
-1. **Section list** — `query_graph_tool(pattern="file_summary", target="<doc.md>", detail_level="minimal")` to get every heading and its slug. This is the table of contents.
-   - If this returns empty (the doc isn't yet in the graph), Stage 0 missed an update — re-run `ensure_graph_tool(force=True)` once. If still empty, the file is brand new; treat it as a plain text read and skip to Stage 3.
-   - If the question is about one heading, fetch that section with `query_graph_tool(pattern="source_of", target="<doc.md>::<slug>")` and skip Stage 3's full-file read for that path unless the span is truncated or neighbors are required.
-2. **Inbound edges** — `query_graph_tool(pattern="importers_of", target="<doc.md>", detail_level="minimal")`. **Use the file path only**, not `<doc.md>::<section>` — `importers_of` resolves to file paths; section-form targets silently return zero hits.
-3. **Outbound file-level imports** — `query_graph_tool(pattern="imports_of", target="<doc.md>", detail_level="minimal")` to list cross-doc `IMPORTS_FROM` edges (directives + links targeting other files).
-4. **Documentation bridges** — if the doc is a spec or the user asks about implementations, run `query_graph_tool(pattern="implementations_of", target="<doc.md>::<section-slug>", detail_level="minimal")` for the relevant contract section(s). Check `evidence_type` and `missingness` before treating a bridge as contract evidence.
-5. **Outbound blast radius** — call `review_tool(mode="impact", changed_files=["<doc.md>"], detail_level="minimal")` only when the task is about change impact, dependents, or editing the doc. Skip it for ordinary reading/summarization.
-
-Tool-call budget for Stage 1: ≤ 3 calls for ordinary reads (file_summary + importers + imports), plus ≤ 1 `implementations_of` and ≤ 1 impact call when those questions are in scope. Stop here before any pre-reading.
+About three calls for an ordinary read, plus one each for implementations and
+impact when they're in scope.
 
 ## Stage 2 — Pre-read by dependency type
 
-The directives, links, and code-spans in the doc itself are the authoritative outbound-edge list (`crates/dagayn-parser/src/markdown.rs` plus `crates/dagayn-parser/src/documentation_directives.rs`). Before reading prose, scan the raw file with one pass and build a per-edge-type triage list:
+Scan the raw file once:
 
 ```
 rg -n '<!-- *(constrained-by|blocked-by|supersedes|derived-from)' <path>   # DEPENDS_ON / IMPORTS_FROM
-rg -n 'dagayn:' <path>                                                     # CROSS_ARTIFACT documentation directives
+rg -n 'dagayn:' <path>                                                     # documentation directives
 rg -n '\[[^]]+\]\([^)]+\)' <path>                                          # IMPORTS_FROM / REFERENCES
-rg -n '`[A-Za-z_][A-Za-z0-9_.]*`' <path>                                   # CROSS_ARTIFACT (candidates)
+rg -n '`[A-Za-z_][A-Za-z0-9_.]*`' <path>                                   # code-span candidates
 ```
 
-Then handle each type with a fixed budget:
+The `dagayn:` scan also matches examples inside code fences and backticks —
+and the parser turns those into real edges too, so a surprising link may come
+from an example.
 
-| Edge kind | What you found | Action before reading the body |
-|-----------|----------------|--------------------------------|
-| `DEPENDS_ON` — `constrained-by` directive | hard prerequisite | Fetch the cited section with `query_graph_tool(pattern="source_of", target="<doc.md>::<slug>")`. This is the only kind that is *always* worth pre-reading. Open the target file only if the span is truncated, stale, or neighboring sections are required. |
-| `DEPENDS_ON` — `derived-from` / `blocked-by` / `supersedes` | softer dependency | One-line mental summary from the directive comment itself; only open the target if the doc body later references it explicitly. |
-| `IMPORTS_FROM` / `REFERENCES` | inline / reference-style links | Fetch the target section once with `source_of`, depth 1 only. Do not chase its onward links unless the linking sentence in *this* doc contains "see", "refer to", or a clearly imperative pointer. |
-| `CROSS_ARTIFACT` — `dagayn:` directive | explicit doc/code/documentation bridge | Respect the authored direction. For `implemented-by`, `discusses-artifact`, or `raises-issue-for`, inspect the targeted code point with `source_of` when it affects the question. For code-authored inverse links into this doc, prefer the Stage-1 `implementations_of` result. Record `evidence_type` (`authored`, `extracted`, or `heuristic_reachable`) when it affects confidence. |
-| `CROSS_ARTIFACT` | backticked symbols | **Cap: top 3 most-frequent symbols.** For each, run `query_graph_tool(pattern="source_of", target="<path::symbol>", detail_level="minimal")` to inspect the body; add `callers_of` only when usage/call-site context is needed. Skip the rest unless the body specifically asks you to look them up. |
-| `CONTAINS` | heading hierarchy | No tool calls. Hold the section tree from Stage 1 step 1 in mind as a TOC. |
+| What you found | Before reading the body |
+|---|---|
+| `constrained-by` | Hard prerequisite: fetch the cited section of the **target** doc with `source_of` (target `<target.md>::<slug>`, its path taken relative to the directory of the doc you're reading). Always worth it. |
+| `derived-from` / `blocked-by` / `supersedes` | Note the relationship; open the target only if the body leans on it. |
+| Links | Fetch the linked section once with `source_of`; don't chase its onward links unless this doc explicitly points you there. |
+| `dagayn:` directives | Respect the authored direction. For `implemented-by`, `discusses`, or `raises-issue-for`, inspect the code target with `source_of` when it matters; a target that doesn't exist still shows up as an authored edge. |
+| Backticked symbols | Top three by frequency: `source_of` on `<path::symbol>`; add `callers_of` only for call-site questions. |
+| Headings | No calls: keep Stage 1's section list as the table of contents. |
 
-Code-to-Markdown section directives such as `# dagayn: implements docs/auth-spec.md#Token Refresh` are not visible in the Markdown file body. Use `implementations_of` on the doc section to find them. When you start from a code point instead, use `query_graph_tool(pattern="docs_for", target="<path::symbol>", detail_level="minimal")` to find linked specs, runbooks, explanations, and issue notes before reading prose.
+Code-side directives (`# dagayn: implements docs/spec.md#Section` in Python or
+Terraform, `//` / `///` in C#) don't appear in the Markdown file; Stage 1's
+`implementations_of` finds them.
 
-Tool-call budget for Stage 2: ≤ 1 `source_of` per `constrained-by` target + ≤ 1 `source_of` per linked section actually fetched + ≤ 1 `source_of` per explicit `dagayn:` code target that affects the question + ≤ 3 `source_of` / `callers_of` calls for code symbols. If your triage list exceeds this, prioritize `constrained-by` first, then explicit documentation bridges, then linked sections, then symbols.
+Prioritize `constrained-by`, then documentation bridges, then linked sections,
+then symbols, if the list is long.
 
 ## Stage 3 — Read the body
 
-Now read the file top-to-bottom:
+1. Compare the headings to Stage 1's section list; if they differ, the prose
+   wins and the graph is stale — note it and continue.
+2. Read each section with the Stage-2 context loaded.
+3. For a directive or symbol you didn't pre-read, note it as unverified rather
+   than tool-calling mid-read; keep any `zero_result_reason` / `next_action`
+   from an empty query with the note instead of calling the link absent.
+4. Collect surprises: places where the prose says something the dependency
+   context didn't predict.
 
-1. **Sanity check the section list.** Compare the headings you see in the file to Stage 1's `file_summary` output. If they differ (added / renamed / deleted sections), the graph is stale relative to the file; the prose is the source of truth — make a mental note and continue.
-2. **Read each section** with the Stage-2 dependency context already loaded. When you encounter a directive or link, you should already have its target's gist.
-3. **When you hit a `dagayn:` directive or backticked `` `Symbol` ``**, recall the bridge/context slice from Stage 2 if it was prioritized; otherwise note it as "unverified" and continue — don't tool-call mid-read. If the prior graph query was empty or not found, keep its `zero_result_reason` and `next_action` with the note instead of treating the edge as absent.
-4. **Flag surprises.** If a section says something the dependency context did not predict, that's the *interesting* part — note it in a running list. Do not stop and dig in mid-doc.
+Report a one-paragraph summary plus the surprises list.
 
-Stage 3 done when: you reach EOF, you've read every section, and your "surprises" list is captured. The list is the output of this skill — surface it back to the user along with a one-paragraph summary.
-
-## CLI Fallback
-
-Default MCP already exposes `get_minimal_context_tool`, `ensure_graph_tool`,
-`query_graph_tool`, and `review_tool`. Use `dagayn tool` when the server
-allow-list omitted them; `list_graph_stats_tool` is advanced-only:
+## CLI fallback
 
 ```bash
-dagayn tool ensure_graph_tool
 dagayn tool query_graph_tool --arg pattern='"file_summary"' --arg target='"docs/adr.md"'
 dagayn tool query_graph_tool --arg pattern='"source_of"' --arg target='"docs/adr.md::context"'
 dagayn tool query_graph_tool --arg pattern='"implementations_of"' --arg target='"docs/adr.md::contract-section"'
-dagayn tool query_graph_tool --arg pattern='"docs_for"' --arg target='"src/app.py::handler"'
-dagayn tool review_tool --arg mode='"impact"' --arg 'changed_files=["docs/adr.md"]' --arg detail_level='"minimal"'
+dagayn tool query_graph_tool --arg pattern='"importers_of"' --arg target='"docs/adr.md"' --arg depth=3
 ```
-
-## Token Efficiency Rules
-
-- For ad-hoc graph exploration *outside* the per-stage calls listed above, start with `get_minimal_context_tool(task="<your task>")` first.
-- Always pass `detail_level="minimal"` unless you've established that minimal is missing what you need.
-- Hard ceiling for one full read end-to-end: ≤ 12 tool calls, ≤ 2,000 tokens of graph-tool output. If you're approaching it (typically: a doc with many code spans), drop to a depth-0 read and report the budget squeeze to the user.

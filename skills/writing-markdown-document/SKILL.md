@@ -1,12 +1,15 @@
 ---
 name: writing-markdown-document
-description: Author Markdown documents (READMEs, design docs, RFCs) so dagayn extracts correct dependency edges. Four-stage flow — outline & sort, draft & verify, polish, summary.
+description: Write or edit Markdown (design docs, ADRs, RFCs, specs, runbooks, READMEs) so dagayn indexes it correctly — dependency directives between docs, links with the right section slugs, and documentation links between doc sections and the code that implements them — in a four-stage outline → draft-and-verify → polish → summary flow. Use this whenever the user asks to write, draft, restructure, or update a Markdown document in a repository dagayn indexes, including updating docs after a code change or linking a spec to its implementation.
 argument-hint: "[doc path]"
 ---
 
 # Writing a Markdown Document
 
-Write Markdown that dagayn can index correctly so the document becomes a first-class node in the knowledge graph, with dependency edges to other docs and to code.
+A document dagayn can index becomes part of the knowledge graph: other docs and
+code can depend on it, reviews flag it when the code it describes changes, and
+readers can jump from a section to its implementation. That only works when
+directives, links, and slugs resolve, so this flow verifies each one.
 
 <!-- dagayn skill embedding context -->
 ## Installed Search Mode
@@ -18,170 +21,153 @@ correctly.
 
 ## Stage 0 — Prerequisites
 
-Run **once** at the start, regardless of what the rest of the flow says:
-
-1. `get_minimal_context_tool` (or `list_graph_stats_tool` on the advanced
-   surface) — if `graph_health.status` is `empty`, `last_updated` is `null`, or
-   `nodes == 0`, run `ensure_graph_tool()` and stop until that returns.
-2. Resolve the doc path:
-   - If `[doc path]` was provided and the file exists → that's your target.
-   - If it was provided but the file is new → continue (Stage 1 will create it).
-   - If no arg → ask the user for the doc's purpose, audience, and intended path before going further. Do not invent a path.
+1. `get_minimal_context_tool` once; if `graph_health.status` is `empty` or
+   `sync.state` is `unbuilt`, call `ensure_graph_tool()` and wait for it.
+2. Resolve the path: an existing file is the target; a new path is created in
+   Stage 1; with no path, ask the user for purpose, audience, and location
+   instead of inventing one.
 
 ## dagayn Markdown reference
 
-dagayn's Markdown parser (`crates/dagayn-parser/src/markdown.rs`) extracts edges from these constructs. Use them deliberately:
+| Construct | Syntax | Edges |
+|---|---|---|
+| Heading | `## Section Title` | `CONTAINS` (file → section → subsection) |
+| Dependency directive | `<!-- constrained-by ./other.md#Section -->` | `DEPENDS_ON`, plus `IMPORTS_FROM` when the target is another file |
+| Documentation directive | an HTML comment whose text is `dagayn: <kind> <target>` | `CROSS_ARTIFACT` from the enclosing section |
+| Link, no anchor | `[text](./other.md)` | `IMPORTS_FROM` |
+| Link with anchor | `[text](./other.md#Section)` | `IMPORTS_FROM` and `REFERENCES` (section → section) |
+| Reference link | `[label]: ./other.md#Section` | same as inline links |
+| Code span | `` `BridgeDetector` `` | `CROSS_ARTIFACT` to a code symbol, resolved in post-processing |
 
-| Construct | Syntax | Edges produced |
-|-----------|--------|----------------|
-| **Heading** | `## Section Title` | `CONTAINS` (file → section, section → subsection) |
-| **Dependency directive** (HTML comment, case-insensitive) | `<!-- constrained-by ./other.md#Section -->` | `DEPENDS_ON` always; **plus** `IMPORTS_FROM` when the target is a different file |
-| **Documentation directive** (`dagayn:` HTML comment) | `<!-- dagayn: implemented-by services/auth.py::refresh_token -->` | `CROSS_ARTIFACT` from the enclosing Markdown section to a code/doc/artifact target |
-| **Inline link, no anchor** | `[text](./other.md)` | `IMPORTS_FROM` only |
-| **Inline link, with anchor** | `[text](./other.md#Section)` | `IMPORTS_FROM` (file→file) **and** `REFERENCES` (section→section) |
-| **Reference-style link** | `[label]: ./other.md#Section` | Same as inline links — same regex path |
-| **Code span** | `` `BridgeDetector` `` | `CROSS_ARTIFACT` (resolved to a code symbol during postprocessing) |
+Dependency kinds: `constrained-by`, `blocked-by`, `supersedes`, `derived-from`
+(case-insensitive; the kind is kept as metadata).
 
-Directive kinds: `constrained-by`, `blocked-by`, `supersedes`, `derived-from`. All four emit identical edge kinds — the kind is preserved as metadata.
+**Paths resolve differently by construct.** Dependency directives and links
+resolve every path relative to **the document's own directory** (with or
+without `./`), and a leading `/` path is dropped. `dagayn:` directives resolve
+`./` and `../` relative to the document but treat any other path as
+**repo-root**-relative. So in `docs/design/api.md`, a dependency directive
+naming `docs/x.md` points at `docs/design/docs/x.md`, while a `dagayn:` directive
+naming the same text points at `docs/x.md`.
 
-Directive / link target shapes:
-- `#Section` — local section in the same doc (slug after `#` is itself slugified, so `#My Section` and `#my-section` are equivalent)
-- `./relative/path.md` — whole-file dependency
-- `./relative/path.md#Section` — specific section in another doc
+**Slugs** (`markdown_slugify`, `crates/dagayn-parser/src/markdown.rs`): letters
+and digits are lowercased (non-ASCII letters such as `é` or `日本` are kept),
+spaces and hyphens become `-`, underscores stay, other symbols are dropped, and
+duplicate headings get `-1`, `-2`, … in order. `## What's new?` → `whats-new`;
+`## Stage 1 — Outline` → `stage-1--outline`.
 
-**Slug rules** (`markdown_slugify`, `crates/dagayn-parser/src/markdown.rs:568`):
-- Alphanumerics are lowercased.
-- Spaces and hyphens both become `-`.
-- Underscores are **preserved** (not converted to `-`).
-- All other characters (punctuation, em-dashes, unicode symbols) are **stripped**.
-- Duplicate headings get `-1`, `-2`, … suffixes appended in document order.
-
-Worked examples:
-- `## API Reference` → `api-reference`
-- `## user_id lookup` → `user_id-lookup`
-- `## What's new?` → `whats-new`
-- `## Stage 1 — Outline` → `stage-1--outline` (em-dash stripped, two surrounding spaces both become `-`)
-
-**Code-span identifier rules** (`crates/dagayn-parser/src/markdown.rs`):
-- Regex: `^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$` — dots only allowed *between* identifier segments (so `module.Class` is fine, `..foo` or `foo.` are not).
-- Identifiers shorter than 3 chars are skipped.
-- Identifiers without `_` or `.` need ≥ 10 chars (filters generic English words like `list` / `parser`).
-
-**Postprocessing** (`dagayn.postprocessing._resolve_markdown_artifact_refs` and
-`crates/dagayn-graph/src/search_markdown.rs::resolve_markdown_artifact_refs`):
-each unresolved Markdown-sourced `CROSS_ARTIFACT` edge is resolved against the
-code graph by symbol name. **One non-Markdown match → target is promoted to that
-node's qualified name with HIGH/0.8 confidence.**
-
-For implicit backticked code spans, **zero or 2+ matches delete the edge** because the span is likely ordinary vocabulary. For explicit `dagayn:` documentation directives, **zero or 2+ matches keep or demote the edge to `<unresolved:Symbol>` with LOW/0.2 confidence** so a future graph update can resolve it; in this case the `markdown_artifact_refs_dropped` counter means "demoted", not deleted. Use distinctive, ideally qualified, symbol names, or use explicit `dagayn:` directives when the link is intentional.
+**Code spans** become candidate links only when the identifier is at least 3
+characters, and identifiers without `_` or `.` need at least 10 characters.
+Post-processing resolves a span by the symbol's **bare name**: exactly one
+non-Markdown node with that name promotes the edge at MEDIUM/0.4 (shown as
+`heuristic_reachable`); zero or several matches delete it. A dotted span
+(`module.Class`, `Class.method`) never matches a code symbol, because nodes are
+matched by bare `name`. For an intentional link, use a documentation directive
+instead.
 
 ## Markdown ↔ code documentation links
 
-Use `dagayn:` documentation directives for intentional documentation/code obligations. Use ordinary backticked code spans only for low-intent prose mentions that may resolve to `describes_symbol`.
+Use documentation directives for intentional obligations between docs and code;
+use plain code spans only for low-intent mentions. The directive belongs to the
+artifact that owns the assertion.
 
-Direction rule: the source should be the artifact that owns the assertion.
+The examples below give the comment **text**. In a real document, wrap that
+text in an HTML comment (`<!--` … `-->`). They are written this way because the
+parser reads `dagayn:` directives even inside code fences and backticks, so a
+complete example in a doc would create a real edge to a target that doesn't
+exist.
 
-| Authoring site | Preferred syntax | Stored role | Use when |
-|----------------|------------------|-------------|----------|
-| Markdown contract/spec section | `<!-- dagayn: implemented-by services/auth.py::refresh_token -->` | `implemented_by` | The doc section defines intent and code realizes it. |
-| Markdown explanation/problem section | `<!-- dagayn: discusses-artifact services/auth.py::refresh_token -->` or `<!-- dagayn: raises-issue-for services/auth.py::refresh_token -->` | `discusses_artifact`, `raises_issue_for` | The doc owns the discussion, audit note, or issue statement about code. |
-| Code or Terraform line comment | `# dagayn: implements docs/auth-spec.md#Token Refresh` | `implements_contract` | The implementation is the stable place to declare conformance to a doc section. |
-| Code or Terraform line comment | `# dagayn: explained-by docs/auth-runbook.md#Refresh Failures` | `explained_by` | The implementation points to rationale, behavior notes, or background. |
-| Code or Terraform line comment | `# dagayn: has-runbook docs/infra-runbook.md#Graph Store Bucket` | `has_runbook` | The implementation points to an operational runbook. |
-| Code or Terraform line comment | `# dagayn: problem-described-by docs/audits/auth.md#Stale Cache` | `problem_described_by` | The implementation points to an audit, incident, or known issue. |
+| Authoring site | Comment text | Stored role | Use when |
+|---|---|---|---|
+| Markdown contract/spec section | `dagayn: implemented-by services/auth.py::refresh_token` | `implemented_by` | The doc defines intent and code realizes it. |
+| Markdown explanation or issue | `dagayn: discusses services/auth.py::refresh_token`, `dagayn: raises-issue-for …` | `discusses_artifact`, `raises_issue_for` | The doc owns the discussion or issue. |
+| Markdown section about one symbol | `dagayn: describes services/auth.py::refresh_token` | `describes_symbol` | A precise replacement for an ambiguous code span. |
+| Code comment | `# dagayn: implements docs/auth-spec.md#Token Refresh` | `implements_contract` | The code declares conformance to a doc section. |
+| Code comment | `# dagayn: explained-by docs/auth-runbook.md#Refresh Failures` | `explained_by` | The code points to rationale. |
+| Code comment | `# dagayn: has-runbook docs/infra-runbook.md#Graph Store Bucket` | `has_runbook` | The code points to an operational runbook. |
+| Code comment | `# dagayn: problem-described-by docs/audits/auth.md#Stale Cache` | `problem_described_by` | The code points to an audit or known issue. |
 
-Supported directive kinds are `implemented-by`, `implements`, `explained-by`, `has-runbook`, `problem-described-by`, `discussed-by`, `discusses`, `discusses-artifact`, `raises-issue-for`, `describes`, and `describes-symbol`.
+All kinds: `implemented-by`, `implements`, `explained-by`, `has-runbook`,
+`problem-described-by`, `discussed-by`, `discusses` (or `discusses-artifact`),
+`raises-issue-for`, `describes` (or `describes-symbol`).
 
-Target rules:
-- Markdown → code point: prefer a concrete graph node target in `path::symbol` form, e.g. `services/auth.py::AuthService.refresh_token`. Verify the exact node exists before writing the directive. When you need to confirm the implementation matches the claim, fetch it with `query_graph_tool(pattern="source_of")`. A bare symbol target is allowed but starts LOW/0.2 as `<unresolved:Symbol>` until postprocessing finds exactly one non-Markdown node with that `name`.
-- Code → Markdown section: always include a Markdown path plus `#Heading`, e.g. `docs/auth-spec.md#Token Refresh` or `../docs/auth-spec.md#Token Refresh`. The parser slugifies the heading and stores the target as `docs/auth-spec.md::token-refresh`.
-- In `dagayn:` directives, `./` and `../` paths are resolved relative to the source file; other file paths are treated as repo-root-relative and normalized.
-- `#Local Heading` is valid for Markdown-authored same-document targets. Do not use a bare `#Heading` in code comments; from code it would target the code file, not a Markdown document.
-- Code-authored line comments are currently extracted from Python `#` comments and Terraform `#` / `//` comments. Put the directive inside the implementation node or directly above the following function/resource/block; the parser attaches it to the nearest enclosing node or a following node within 3 lines.
+Targets:
+- Markdown → code: a concrete `path::symbol` node (e.g.
+  `services/auth.py::AuthService.refresh_token`); confirm it exists with
+  `query_graph_tool(pattern="source_of")` before writing it. A dangling target
+  is **not** flagged: the edge stays authored and HIGH, so an
+  `implementations_of` hit doesn't prove the target exists. A bare symbol
+  starts as `<unresolved:Symbol>` (LOW) until exactly one node has that name.
+- Code → Markdown: always a Markdown path plus `#Heading`; the heading is
+  slugified (`docs/auth-spec.md#Token Refresh` → `docs/auth-spec.md::token-refresh`).
+  From code, a bare `#Heading` would point at the code file.
+- Code-side directives are read from Python `#` comments, Terraform `#` / `//`,
+  and C# `//` / `///` comments, attached to the enclosing node or one within
+  the next 3 lines.
+- Author one direction per fact; query tools show the inverse, and duplicate
+  inverse edges go stale on incremental updates.
 
-Verification rules:
-- Starting from a Markdown contract section, run `query_graph_tool(pattern="implementations_of", target="<doc.md>::<section-slug>", detail_level="minimal")` and check both doc-authored `implemented_by` and code-authored `implements_contract` edges. Treat those as `authored` contract evidence.
-- Starting from a code point, run `query_graph_tool(pattern="docs_for", target="<path::symbol>", detail_level="minimal")` to find specs, explanations, runbooks, and issue notes linked by documentation roles. Check each result's `evidence_type`: explanatory roles are usually `extracted`, and unresolved/low-confidence links are `heuristic_reachable`.
-- If a verification query returns zero results or `status="not_found"`, keep its `zero_result_reason`, `next_action`, and `missingness` in the draft notes instead of assuming the target or relationship cannot exist.
-- Do not author both directions for the same fact unless there are genuinely two separate assertions. Query tools expose inverse labels; duplicate inverse edges become stale during incremental updates.
+## Stage 1 — Outline and order sections
 
-## Stage 1 — Outline & sort sections
+1. List the sections.
+2. For each, list its dependencies and verify them:
+   - Sections of existing docs: `query_graph_tool(pattern="file_summary",
+     target="<doc.md>")` and use the `DocSection` rows' slugs.
+   - Code symbols to backtick: `semantic_search_nodes_tool(query="<symbol>")`
+     and require exactly one exact symbol match (`exactness.exact_match_count
+     == 1`). Ignore semantic near-matches: only exact `name` matches count.
+     With several exact matches, use a `describes` directive with a
+     `path::symbol` target instead of the span.
+   - Directive targets: confirm the `path::symbol` exists.
+3. Order sections so each comes after everything it depends on. If a cycle
+   survives splitting sections, ask the user which dependency to break rather
+   than writing a forward reference.
 
-1. Draft a section list (one line per section, in any order).
-2. For each prospective section, list its dependencies:
-   - **Existing docs you intend to depend on** — for each candidate doc that is *already in the repo*, run `query_graph_tool(pattern="file_summary", target="<doc.md>", detail_level="minimal")` to confirm the section slug you plan to cite actually exists.
-   - **Code symbols you plan to backtick** — run `semantic_search_nodes_tool(query="<symbol>", detail_level="minimal")` and require **exactly one exact symbol match**. With hybrid search, ignore fuzzy/semantic hits whose `name` or `qualified_name` does not exactly match the symbol you will write. If zero exact matches remain, the symbol will stay unresolved (don't rely on it as an obligation). If multiple exact matches remain, qualify the prose mention if possible, or switch to an explicit `dagayn:` directive with a concrete `path::symbol` target.
-   - **Code points you plan to target from `dagayn:` directives** — run `query_graph_tool(pattern="file_summary", target="<path>", detail_level="minimal")` or `semantic_search_nodes_tool(query="<symbol>", detail_level="minimal")` and verify the exact `path::symbol` target exists.
-3. Topologically sort sections so each appears **after** every section it depends on. If a cycle remains after splitting offending sections in two, **stop and ask the user** which dependency to break — do not silently emit a forward reference.
+## Stage 2 — Draft and verify each section
 
-Stage 1 done when: every prospective dependency is verified (or explicitly noted as "external — not in graph"), and the section list is acyclic.
-
-Tool-call budget for Stage 1: ≤ 1 call per existing dependency + 1 per code symbol. Bound it by counting deps before you start.
-
-## Stage 2 — Draft each section & verify edges
-
-For each section, in dependency order:
-
-1. **Draft the prose.**
-2. **Express dependencies explicitly:**
-   - Hard prerequisites → `<!-- constrained-by ./prereq.md#Section -->` near the top of the section.
-   - Material this section is derived from → `<!-- derived-from … -->`.
-   - Inline narrative references → `[text](./other.md#Section)`.
-   - Intentional Markdown → code obligations → `<!-- dagayn: implemented-by path::symbol -->`, `<!-- dagayn: discusses-artifact path::symbol -->`, or `<!-- dagayn: raises-issue-for path::symbol -->`.
-   - Low-intent code mentions → backtick the symbol exactly as it appears in code.
-3. **Save the file** and run `ensure_graph_tool(force=True)`
-   for Markdown/parser/FTS refresh. Prefer ensure on the default MCP surface;
-   it uses `postprocess="minimal"` and inherits serve `--local-embedding`. Use
-   `build_or_update_graph_tool(local_embedding="none")` only when you need full
-   postprocess or other maintenance controls on the advanced surface.
-4. **Verify the edges resolved:**
-   - `query_graph_tool(pattern="importers_of", target="<doc.md>", detail_level="minimal")` — file-level inbound edges. **Use the file path only — `importers_of` resolves the target to a file path; `<doc.md>::<section>` will silently return zero hits**.
-   - `review_tool(mode="impact", changed_files=["<doc.md>"], detail_level="minimal")` — outbound blast radius for the whole file.
-   - For explicit Markdown → code directives, `query_graph_tool(pattern="implementations_of", target="<doc.md>::<section-slug>", detail_level="minimal")` — confirms linked implementation/artifact targets.
-5. **If a directive looks like it didn't take effect**, re-read your slug against the rules in the reference table above (most common bug: punctuation in heading not accounted for, or section slug typo). Fix and re-run step 3 + 4.
-
-Tool-call budget for Stage 2: ≤ 3 calls per section in the happy path (build + importers_of + impact), plus ≤ 1 `implementations_of` call when the section has explicit Markdown → code directives. Allow 1 extra retry per section for slug fixes.
-
-Stage 2 done for the section when: dependency/link directives appear either as inbound edges on the cited section or as outbound entries in the file's impact radius, and explicit documentation directives appear in `implementations_of` / `docs_for` as appropriate.
+1. Draft the prose.
+2. Express dependencies: `constrained-by` for hard prerequisites near the top
+   of the section, `derived-from` for source material, links for narrative
+   references, documentation directives for code obligations, and backticks
+   for exact low-intent symbol mentions.
+3. Save and run `ensure_graph_tool(force=True)` (minimal post-processing, which
+   includes Markdown link resolution). Use
+   `build_or_update_graph_tool(local_embedding="none")` only when you need the
+   advanced build controls.
+4. Verify:
+   - `query_graph_tool(pattern="importers_of", target="<doc.md>")` for inbound
+     edges (file level only: a `doc.md::slug` target is widened to the file).
+   - `review_tool(mode="impact", changed_files=["<doc.md>"])` for outbound reach.
+   - `query_graph_tool(pattern="implementations_of", target="<doc.md>::<section-slug>")`
+     for code links; `docs_for` from the code side.
+   Keep `zero_result_reason`, `next_action`, and `missingness` from any empty
+   result in your notes instead of assuming the link can't exist.
+5. If a link didn't take effect, recheck the slug and the path base. A link to
+   a misspelled anchor leaves its `REFERENCES` edge at LOW, so look for that;
+   dangling dependency directives and `dagayn:` targets show no such signal.
 
 ## Stage 3 — Polish
 
-1. Re-read the full draft top-to-bottom; tighten prose; merge or split sections if Stage 2 surfaced badly-balanced ones.
-2. For every backticked `Symbol`, run `semantic_search_nodes_tool(query="<symbol>", detail_level="minimal")` and require exactly one exact symbol match. Ignore semantic near-matches when embeddings are enabled; only exact `name` / `qualified_name` matches count for Markdown code-span `CROSS_ARTIFACT` promotion. If multiple exact matches remain, qualify (`module.Symbol`); if still multiple after qualification, **accept that this edge will remain LOW/0.2 and unresolved** and either (a) leave the backticks for prose readability and add a `<!-- TODO: ambiguous symbol — qualify when API stabilizes -->` comment, or (b) remove the backticks and use plain text.
-3. Run `ensure_graph_tool(force=True)` once more, then `review_tool(mode="impact")` again. Compare its output to Stage 2's. **Done criterion: no edge that was present in Stage 2 has disappeared.**
+1. Re-read top to bottom; tighten prose, rebalance sections.
+2. Re-check every backticked symbol for exactly one exact symbol match; if
+   ambiguous, switch to a `describes` directive or plain text.
+3. `ensure_graph_tool(force=True)`, then `review_tool(mode="impact")` again: no
+   edge present in Stage 2 should have disappeared. (`markdown_artifact_refs_dropped`
+   counts both deleted code spans and demoted directives.)
 
-Tool-call budget for Stage 3: ≤ 1 call per backticked symbol + 2 final builds.
+## Stage 4 — Summary and conclusion
 
-## Stage 4 — Summary / Conclusion
+Add these last. In the summary, give each recap a dependency directive such as
+`<!-- derived-from #section-slug -->` so the graph shows what it summarizes; if
+the document replaces another, say `<!-- supersedes ./old-design.md -->`. Then
+`file_summary` should list every section.
 
-Add the wrap-up sections **last**, once the rest of the body is stable:
-
-- **Summary** — recap each major section with `<!-- derived-from #stage-N-title -->` so the graph shows the summary depends on the sections it summarizes (use the actual slugs, not the human title).
-- **Conclusion** — if this document supersedes or extends another, declare it: `<!-- supersedes ./old-design.md -->`. List external follow-ups with explicit links.
-
-Final check: `query_graph_tool(pattern="file_summary", target="<doc.md>")` should list every section. Done.
-
-## CLI Fallback
-
-Default MCP already exposes `ensure_graph_tool`, `query_graph_tool`,
-`review_tool`, and `semantic_search_nodes_tool`. Use `dagayn tool` when the
-server allow-list omitted them, or for maintenance `build_or_update_graph_tool`:
+## CLI fallback
 
 ```bash
 dagayn tool ensure_graph_tool --arg force=true
-dagayn tool build_or_update_graph_tool --arg local_embedding='"none"'
 dagayn tool query_graph_tool --arg pattern='"file_summary"' --arg target='"docs/design.md"'
-dagayn tool query_graph_tool --arg pattern='"source_of"' --arg target='"src/app.py::handler"'
 dagayn tool query_graph_tool --arg pattern='"implementations_of"' --arg target='"docs/design.md::contract-section"'
-dagayn tool query_graph_tool --arg pattern='"docs_for"' --arg target='"src/app.py::handler"'
 dagayn tool review_tool --arg mode='"impact"' --arg 'changed_files=["docs/design.md"]' --arg detail_level='"minimal"'
 dagayn tool semantic_search_nodes_tool --arg query='"BridgeDetector"' --arg detail_level='"minimal"'
 ```
-
-## Token Efficiency Rules (graph exploration only)
-
-These bound the *graph-tool* spend; they don't apply to drafting prose or to the per-section verification loops which have their own budgets above.
-
-- Before any *exploratory* graph call (i.e., not one of the per-stage targeted calls listed above), run `get_minimal_context_tool(task="<your task>")`.
-- Use `detail_level="minimal"` on every call unless minimal omits something you specifically need.
-- Hard ceiling for one full document end-to-end (Stages 0–4): ≤ 30 tool calls and ≤ 5,000 output tokens of graph-tool output across the session. If you're approaching it, stop and ask the user whether to continue.

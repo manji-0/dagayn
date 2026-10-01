@@ -1,13 +1,14 @@
 ---
 name: semantic-search
-description: Configure, build, and verify dagayn embeddings and hybrid semantic search without losing FTS fallback behavior.
+description: Find code by meaning with dagayn's hybrid search (FTS + embeddings) when the name is unknown, read why each hit ranked, hand the best hit to graph tools, and set up or refresh embeddings when recall is poor. Consult this skill before calling semantic_search_nodes_tool or grep whenever the user wants "the code that does X" without knowing its name, describes behavior instead of an identifier, search results look wrong or thin, search_mode is not hybrid, or embeddings need building, switching, or fixing.
 argument-hint: "[query]"
 ---
 
 # Semantic Search
 
-Use this when semantic search quality, embedding setup, or hybrid search status
-matters.
+Search finds a starting node; the graph proves what that node does. Read how a
+result was found before trusting it, then move to `source_of` and relationship
+queries.
 
 <!-- dagayn skill embedding context -->
 ## Installed Search Mode
@@ -20,90 +21,83 @@ the selected embedding mode so agents can avoid stale or wasteful search advice.
 
 <!-- derived-from ../../docs/ARCHITECTURE.md#hybrid-search -->
 
-1. Start with graph freshness via the default MCP surface:
-   ```bash
-   dagayn tool get_minimal_context_tool --arg 'task="semantic search setup"'
-   dagayn tool ensure_graph_tool
-   ```
-   If `graph_health.status` is already healthy, skip ensure. Use
-   `list_graph_stats_tool` only when the advanced surface is available and you
-   need detailed counts.
-2. Run the intended search and read `search_mode` / per-result `source`:
-   ```bash
-   dagayn tool semantic_search_nodes_tool --arg query='"auth handler"' --arg detail_level='"minimal"'
-   ```
-   `search_mode="hybrid"` means embeddings and FTS were merged. `fts_only`
-   is still valid, but semantic recall is lower. `embedding_only` means the
-   vector path ran while FTS was unavailable, and `keyword_fallback` means the
-   FTS index was absent and only LIKE matching ran.
-   - For exact symbol/name lookup, trust exact `name` / `qualified_name` hits
-     even when `search_mode` is `fts_only`.
-   - For fuzzy purpose searches, prefer high-ranked hits with `source="both"`
-     or `source="embedding"`.
-   - For process-pattern prose, check `rerank_intent="process_pattern"`; this
-     routes to narrative embeddings when they are available.
-   - Use per-result `source` to explain why a hit ranked: `fts`, `embedding`,
-     `both`, or `keyword`.
-3. Hand off the best hit to graph tools:
-   - If exactly one result matches the intended `name` or `qualified_name`,
-     fetch it with `query_graph_tool(pattern="source_of")`, then run
-     relationship queries as needed.
-   - If several fuzzy hits look plausible, inspect the top hits with
-     `query_graph_tool(pattern="source_of")` or `file_summary` before
-     drawing conclusions.
-   - If the user wants callers, callees, tests, docs, imports, or children, use
-     `query_graph_tool`; use `traverse_graph_tool` only for a bounded
-     neighborhood after the start node is clear.
-   - If the search result has a `next_action`, follow it before widening the
-     query.
-4. If embeddings are missing or stale, build them through maintenance tools
-   (`dagayn serve --tools all` or `dagayn tool`):
-   - Incremental local refresh: `build_or_update_graph_tool(local_embedding="bge-m3")`
-   - Dedicated embedding pass: `embed_graph_tool`
-   - Full local refresh: `build_or_update_graph_tool(full_rebuild=True, local_embedding="bge-m3")` only when explicitly doing embedding-quality or end-to-end maintenance work.
-   Before any embedding-enabled full rebuild, state the reason and get explicit
-   confirmation from the user; do not use it for parser, flow, documentation, or
-   ordinary implementation verification. Prefer `ensure_graph_tool` /
-   `dagayn session prepare` when serve already runs with `--local-embedding`;
-   otherwise use `build_or_update_graph_tool` / `embed_graph_tool` for an
-   explicit embedding refresh.
-5. For CLI fallback:
-   ```bash
-   dagayn build --local-embedding
-   dagayn update --local-embedding
-   dagayn session prepare --local-embedding
-   dagayn tool embed_graph_tool
-   ```
-6. Re-run the same `semantic_search_nodes_tool` query and compare result count,
-   `search_mode`, `rerank_intent`, and whether high-value hits now have
-   `source="embedding"` or `source="both"`.
+1. **Check the graph** with `get_minimal_context_tool`; skip ensure when
+   `graph_health.status` is `ok`, and follow `recommended_action` when it is
+   `empty`.
+2. **Search and read how it ranked**:
+   `semantic_search_nodes_tool(query="auth handler")`.
+   - `search_mode="hybrid"`: FTS and embeddings were merged. `fts_only` is
+     still fine for names, with lower fuzzy recall. `embedding_only`: only the
+     vector arm hit. `keyword_fallback`: neither FTS nor vectors returned
+     anything, so LIKE matching ran — the index may exist with no match, so
+     check `fts_health` (standard output) before refreshing anything. `empty`:
+     nothing matched.
+   - Per-result `source` (`fts`, `embedding`, `both`, `keyword`, `doc` for
+     Markdown sections) explains each hit. It is only in the default
+     `detail_level="standard"`; `"minimal"` keeps name, kind, location, score,
+     and `evidence_type` for the top five.
+   - `exactness.exact_match_count` says how many hits match the query as a
+     `name` / `qualified_name` exactly; `ambiguity:
+     "multiple_exact_matches"` means you must pick one.
+   - `embedding_health.requested_text_mode` shows how the query was routed:
+     `narrative` for process-pattern prose (calls, reads, writes, loops),
+     `material` otherwise.
+3. **Hand off the best hit to graph tools**:
+   - One exact match → `query_graph_tool(pattern="source_of")`, then the
+     relationship you need (callers, callees, tests, docs, imports, children).
+   - Several plausible fuzzy hits → `source_of` or `file_summary` on the top
+     few before concluding.
+   - A `next_action` in the result comes first.
+   - `traverse_graph_tool` (advanced surface: `dagayn serve --tools all` or
+     `dagayn tool`) is for a bounded neighborhood once the start node is clear.
+   Treat semantic search as start-node discovery, not final proof.
+4. **Refresh embeddings only when recall actually matters** (advanced surface or
+   `dagayn tool`):
+   - Incremental: `build_or_update_graph_tool(local_embedding="bge-m3")`, or a
+     dedicated pass with `embed_graph_tool`.
+   - Process-pattern recall needs narrative vectors: run an extra embedding
+     pass with `DAGAYN_EMBEDDING_TEXT_MODE=narrative` (vectors are kept per
+     provider and text mode).
+   - An embedding-enabled full rebuild (`full_rebuild=True,
+     local_embedding="bge-m3"`) is only for when you are
+     explicitly doing embedding-quality or end-to-end maintenance work: it is slow and touches
+     every vector, so state the reason and get the user's go-ahead first, and
+     never use it for parser, flow, or doc verification.
+   - When `dagayn serve` already runs with `--local-embedding`,
+     `ensure_graph_tool` / `dagayn session prepare` keep vectors current.
+5. **Prove the change**: re-run the same query and compare result count,
+   `search_mode`, `requested_text_mode`, and how many top hits now come from
+   `embedding` or `both`.
+
+## Embedding modes
+
+| Mode | CLI | Notes |
+|---|---|---|
+| None (FTS only) | `--local-embedding none` | fastest; fine for exact names |
+| BGE-M3 (default local) | `--local-embedding` / `--mode bge-m3` | managed llama.cpp sidecar, port 18080 |
+| Qwen3 | `--local-embedding llama-qwen3` (or `low`) | managed sidecar, port 18081 |
+| Remote | `dagayn install --mode remote-embedding --provider openai\|google\|minimax` | network calls per embedding |
+
+`dagayn session prepare --embedding auto|defer|skip|inline` controls when a
+session refresh embeds.
 
 ## Troubleshooting
 
-- `fts_only` is acceptable for exact symbol/name lookup; do not rebuild
-  embeddings just to find a precise identifier.
-- `keyword_fallback` means the FTS index is absent; refresh graph/FTS before
-  drawing conclusions about search quality.
-- `provider_mismatch` or `missing_vectors` in embedding health means the query
-  did not find matching vectors for the selected provider/text mode. Refresh
-  embeddings only when the task actually needs fuzzy recall.
-- Use local BGE-M3 for reusable developer environments when embeddings are
-  useful; use FTS-only when startup time or memory is tight.
-- If Qwen sidecar startup fails, check the local server binary (`auto` or
-  `llama-server`), port, and timeout before changing graph data.
-- If provider imports are unavailable, keep going with FTS and report the
-  reduced recall instead of blocking unrelated work.
+- Don't rebuild embeddings to find a precise identifier; `fts_only` handles it.
+- `provider_mismatch` / `missing_vectors` in `embedding_health`: no vectors for
+  this provider and text mode. Refresh only if the task needs fuzzy recall.
+- A sidecar that won't start: check the server binary (`auto` /
+  `llama-server`), the port, and the timeout before touching graph data.
+- Provider imports unavailable: continue on FTS and report the reduced recall.
+- Untracked files are indexed (git's tracked + untracked, minus ignored); if
+  they're missing, refresh with `ensure_graph_tool(force=True)` instead of an
+  embedding rebuild.
 
-## Efficiency Rules
+## CLI
 
-- Use FTS-only results for exact names; use material embeddings for fuzzy
-  purpose concepts; use narrative embeddings/process-pattern intent for queries
-  about behavior such as calls, reads, writes, loops, returns, or merges.
-- Treat semantic search as start-node discovery, not final proof. Confirm
-  behavior with `query_graph_tool(pattern="source_of")`, then relationships or
-  coverage with `query_graph_tool`, `flow_tool`, or `review_tool`.
-- Do one before/after query to prove search quality changed. Do not rebuild the
-  graph repeatedly without a changed file set or a failed verification.
-- Never use an embedding-enabled full rebuild to compensate for untracked files
-  not appearing in graph queries. Stage or otherwise expose the files first,
-  then run the smallest non-embedding graph refresh that proves the claim.
+```bash
+dagayn tool semantic_search_nodes_tool --arg query='"auth handler"'
+dagayn tool embed_graph_tool
+dagayn build --local-embedding
+dagayn session prepare --local-embedding
+```

@@ -1,85 +1,80 @@
 ---
 name: install-dagayn
-description: Install or repair dagayn MCP integration, skills, hooks, and instruction files across Codex and other AI coding tools.
+description: Install, upgrade, or repair dagayn's integration with AI coding tools — MCP server config, skills, hooks, instruction files, and the embedding mode — for Claude Code, Codex, Cursor, and the other supported platforms. Consult this skill before inspecting config files whenever dagayn tools or skills are missing from a tool, the graph never updates on edits, the user upgraded dagayn, wants to switch embedding mode, or wants dagayn set up or removed.
 argument-hint: "[platform]"
 ---
 
 # Install Dagayn
 
-Use this when setting up or repairing dagayn itself: MCP config, global skills,
-hooks, instruction injection, or embedding mode selection.
+`dagayn install` writes MCP config, skills, hooks, and instruction blocks for
+the platforms it detects. Re-running it after an upgrade is the supported way
+to refresh all of them; the steps below keep the change as narrow as the user
+wants and verify it landed.
 
 ## Workflow
 
-1. Check the installed version and current tool surface:
-   ```bash
-   dagayn --version
-   dagayn tool --list
-   ```
-2. Prefer the smallest platform target that matches the request:
-   - Codex global only: `dagayn install --platform codex --mode local-embedding --no-instructions -y`
+1. **Check the version**: `dagayn --version`. (`dagayn tool --list` lists every
+   CLI-callable tool; the MCP server exposes only the 9 workflow tools unless
+   started with `--tools all`.)
+2. **Pick the narrowest target**. `--mode` is required with `-y` or without a
+   TTY:
    - All detected tools: `dagayn install --platform all --mode local-embedding -y`
-   - Managed Qwen sidecar: `dagayn install --platform <platform> --mode local-embedding-llama --preset low -y`
-   - No embeddings: `dagayn install --platform <platform> --mode fts-only -y`
-3. Use `--dry-run` before changing instruction files or when the user cares
-   about repo-local files:
-   ```bash
-   dagayn install --platform codex --mode local-embedding --no-instructions --dry-run
-   ```
-4. Verify the result:
-   - Codex MCP config: `~/.codex/config.toml` should contain `dagayn serve`.
-   - Local embeddings: the serve args should include `--local-embedding`.
-   - Codex hooks: `~/.codex/hooks.json` should run `dagayn update --skip-flows`.
-   - Skills: `~/.codex/skills/<skill>/SKILL.md` should exist for packaged skills.
-   - Markdown/code traceability guidance: installed writing/review/explore
-     skills should mention `docs_for`, `implementations_of`, and `dagayn:`
-     documentation directives.
-5. Run `dagayn status` or `get_minimal_context_tool` in a target repo. If the
-   graph is missing / `graph_health` is empty, run `ensure_graph_tool()`. Use
-   `list_graph_stats_tool` only when the advanced surface is available.
-6. For worktree / parallel-agent hosts, verify bootstrap wiring in the **main**
-   checkout (see the Worktree section below, or the `worktree-sync` skill).
+   - One platform: `--platform claude` (or `codex`, `cursor`, `windsurf`, `zed`,
+     `continue`, `opencode`, `antigravity`, `qwen`, `kiro`, `qoder`, `pi`,
+     `hermes`)
+   - Managed Qwen sidecar: `--mode local-embedding-llama --preset low`
+   - Remote embeddings: `--mode remote-embedding --provider openai|google|minimax`
+   - No embeddings: `--mode fts-only`
+   - Leave parts out: `--no-skills`, `--no-hooks`, `--no-instructions`
+3. **Preview first** when instruction files or repo-local files matter:
+   `dagayn install --platform <p> --mode <m> --dry-run`.
+4. **Verify what landed**:
+   - Claude Code: MCP in the repo's `.mcp.json`; skills only in
+     `~/.claude/skills/<name>/SKILL.md` (Claude Code also loads
+     `<repo>/.claude/skills`, so install removes dagayn copies there to avoid
+     listing every skill twice; `/skill-doctor` should show each once); hooks
+     in `~/.claude/settings.json`
+     (PostToolUse `Edit|Write` queues `dagayn queue add update`, SessionStart
+     runs `dagayn session prepare`); a git pre-commit hook.
+   - Codex: `~/.codex/config.toml` has the `dagayn serve` server and
+     `hooks = true`; `~/.codex/hooks.json` queues `dagayn queue add update`
+     after edits and runs `dagayn session prepare` at session start; skills in
+     `~/.codex/skills/<name>/SKILL.md`.
+   - Embedding mode: the serve args carry `--local-embedding` (or
+     `--remote-embedding <provider>`) for the chosen mode.
+   - The server command may be `dagayn serve`, `uvx dagayn serve`,
+     `uv run dagayn serve`, or `python -m dagayn serve`, depending on how
+     dagayn was installed.
+5. **Check a repository**: `dagayn status` or `get_minimal_context_tool`; if the
+   graph is empty, `ensure_graph_tool()` (or `dagayn build`; add `--scip` to let
+   installed SCIP indexers settle call targets).
+6. **Tell the user to restart** their AI tool: running `dagayn serve` processes
+   keep the old version until restarted.
 
 ## Worktree bootstrap
 
-`dagayn install` should leave the main checkout ready for linked worktrees:
+Install leaves the main checkout ready for linked worktrees: `.worktreeinclude`
+lists gitignored MCP config so Claude Code copies it into new worktrees (commit
+it), and `.cursor/worktrees.json` runs `dagayn session prepare` in Cursor's
+parallel-agent worktrees. Inside a worktree, `dagayn worktree info` then
+`dagayn worktree sync`; prefer sync over a rebuild when the main checkout's
+graph is healthy (see the `worktree-sync` skill).
 
-- `.worktreeinclude` — managed block listing gitignored MCP paths such as
-  `.cursor/mcp.json` (Claude Code copies matches into new worktrees; commit it)
-- `.cursor/worktrees.json` — contains `dagayn worktree sync` (Cursor runs it in
-  each parallel-agent worktree)
+## Repo-local files
 
-When an agent is already inside a worktree:
+Every install ensures `.gitignore` ignores `.dagayn/` and may write
+`.worktreeinclude`; `--platform all` or `claude` also writes repo-local MCP
+config. For a global-only Codex setup use
+`dagayn install --platform codex --mode local-embedding --no-instructions -y`,
+then check `git status --short`. When
+cleaning up, remove only files that are clearly dagayn-generated.
 
-```bash
-dagayn worktree info
-dagayn worktree sync
-```
+## Safety
 
-Then `get_minimal_context_tool`. Prefer sync over a full rebuild when the main
-checkout already has a healthy graph. Details: the `worktree-sync` skill.
-
-## Repo-Local Files
-
-`--platform all` may create repo-local config for tools such as Claude Code,
-Kiro, Qoder, OpenCode, Cursor, or Antigravity. If the user wants global-only
-Codex behavior, use `--platform codex --no-instructions` and do not create
-repo-local `.mcp.json`, `.opencode.json`, `.kiro/`, `.qoder/`, or `AGENTS.md`.
-
-If a previous install created unwanted repo-local files, remove only files that
-are clearly dagayn-generated and verify with `git status --short`.
-
-## Safety Rules
-
-- Do not overwrite user-authored instruction files blindly. Use `--dry-run`
-  and inspect the exact target list first.
-- If a file already has dagayn headings but lacks markers, prefer marker repair
-  over appending a duplicate block.
-- After changing install behavior, run `uv run pytest tests/test_skills.py -q`.
-
-## Efficiency Rules
-
-- For ordinary Codex setup, target 4 shell checks: version, dry-run, install,
-  verify config.
-- Avoid reading broad home directories. Inspect only the platform config paths
-  named by the installer output.
+- Don't overwrite user-authored instruction files blindly: dry-run and read the
+  target list first. Installs replace their own marked blocks; if a file has
+  dagayn headings without markers, repair the markers instead of appending.
+- Installs replace dagayn's own skills (and remove retired ones) but leave
+  other skills alone.
+- After changing install behavior in the dagayn repo, run
+  `uv run pytest tests/test_skills.py -q`.

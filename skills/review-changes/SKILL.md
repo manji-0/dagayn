@@ -1,104 +1,93 @@
 ---
 name: review-changes
-description: Perform a structured code review using change detection and impact
+description: Structured, risk-ranked code review of a branch or change set with the dagayn knowledge graph — blast radius, affected flows, missing tests, and linked docs that need updating — ending in a merge recommendation. Use this whenever the user asks to review a branch, a set of commits, "my changes before I merge", or wants to know what a change breaks, which tests to run, or which docs are now stale. For a quick look at just the uncommitted delta use review-delta; for a GitHub PR by number or URL use review-pr.
 ---
 
-## Review Changes
+# Review Changes
 
-Perform a thorough, risk-aware code review using the knowledge graph.
+The graph already knows who calls the changed code, which flows pass through
+it, which tests cover it, and which docs are linked to it. Read that summary
+first and open source only where it can change the verdict.
 
-### Steps
+## Steps
 
-1. Run `get_minimal_context_tool(task="<review goal>")` to check graph freshness,
-   risk, and suggested next tools. If `graph_health.status` is `empty` (or
-   `ensure_graph_tool` is the first next-tool hint), call `ensure_graph_tool()`
-   and re-orient before any review call.
-2. Run `review_tool(mode="changes")` to get risk-scored change analysis. Read
-   `analysis_summary` first; it includes reason codes, recommended tests,
-   affected-flow rankings, documentation update candidates, hotspot proximity,
-   and architecture risks in changed scopes.
-3. Call `review_tool(mode="context")` when change-set snippets are needed.
-   For one named symbol, use `query_graph_tool(pattern="source_of")` instead of
-   opening the file.
-4. Call `review_tool(mode="affected_flows")`, `review_tool(mode="impact")`, or
-   `query_graph_tool(pattern="tests_for")` only when `analysis_summary` points to a
-   concrete flow, blast-radius, or coverage question.
-5. Follow documentation bridge edges when they can change the review outcome:
-   - For changed code or Terraform nodes, use `query_graph_tool(pattern="docs_for", target="<path::symbol>", detail_level="minimal")` to find linked specs, runbooks, explanations, or issue notes from `dagayn:` documentation directives.
-   - For changed Markdown contract sections, use `query_graph_tool(pattern="implementations_of", target="<doc.md>::<section-slug>", detail_level="minimal")` to find code linked by Markdown `implemented-by` or code `implements` directives.
-6. For any remaining untested changes, suggest specific test cases.
-7. **Docs update after code change** — when `analysis_summary` lists documentation
-   update candidates, or `docs_for` returns authored contract/runbook links for
-   changed symbols, do not stop at "docs may be stale":
-   1. Rank candidates: `implemented_by` / `implements_contract` first, then
+1. **Orient**: `get_minimal_context_tool(task="<review goal>")`. If
+   `graph_health.status` is `empty` or `sync.state` is `unbuilt` /
+   `commit_drift`, follow `recommended_action`; call `ensure_graph_tool()`
+   only when you must wait for the refresh. A dirty worktree is not refreshed
+   automatically: use `ensure_graph_tool(force=True)` when uncommitted edits
+   matter and hooks have not caught up.
+2. **Summarize the change**: `review_tool(mode="changes", base=...)`. Change
+   detection is the `base` diff (default `HEAD~1`) plus staged, unstaged, and
+   untracked files, so pass `base="main"` (or the merge base) to review a whole
+   branch. At `detail_level="minimal"` the result is flat: read `risk_level`,
+   `reason_codes`, `recommended_tests`, `affected_flow_rankings`,
+   `documentation_update_candidates`, `stability_contracts`, `guidance`,
+   `architecture_delta`, and `next_drill_downs`. Use the default `"standard"`
+   when you need the nested `analysis_summary` (it adds hotspot and
+   cross-artifact proximity).
+3. **Fetch source only where needed**: `review_tool(mode="context")` for
+   change-set snippets, `query_graph_tool(pattern="source_of")` for one symbol.
+4. **Drill down only on a concrete question**: `review_tool(mode="impact")` for
+   blast radius (`max_depth` sets the hops), `mode="affected_flows"` for flows,
+   `query_graph_tool(pattern="tests_for")` for uncertain coverage, and
+   `callers_of` with `depth` up to 6 for transitive callers.
+5. **Follow documentation links**: `docs_for` on changed code symbols,
+   `implementations_of` on changed Markdown sections (`<doc.md>::<section-slug>`).
+6. **Suggest tests** for changed behavior that nothing covers.
+7. **Docs update after code change**: when doc candidates or authored
+   `docs_for` links appear, don't stop at "docs may be stale":
+   1. Rank them: `implemented_by` / `implements_contract` first, then
       `explained_by` / `has_runbook` / `problem_described_by`, then weaker
       `extracted` / `heuristic_reachable` hits.
-   2. Fetch only the docs that affect the merge decision. Prefer
-      `query_graph_tool(pattern="source_of")` on a DocSection; open the file
-      only if the span is truncated, stale, or neighbors are required.
-   3. Edit them with the `writing-markdown-document` skill (keep `dagayn:`
-      directives and heading slugs accurate).
-   4. `ensure_graph_tool(force=True)`, then re-check
-      `query_graph_tool(pattern="docs_for" | "implementations_of")` or
-      `review_tool(mode="impact")` on the touched doc paths.
-   If docs work is deferred, say so explicitly in the review output with the
-   doc path and role that still needs an update.
+   2. Fetch only the sections that affect the decision (`source_of` on the
+      DocSection).
+   3. Edit them with the `writing-markdown-document` skill, keeping `dagayn:`
+      directives and heading slugs accurate.
+   4. `ensure_graph_tool(force=True)`, then re-check `docs_for` /
+      `implementations_of` on the touched paths.
+   If the docs work is deferred, list each doc path and role in the review.
 
-### Output Format
+## Output
 
-Provide findings grouped by risk level (high/medium/low) with:
-- What changed and why it matters
-- Test coverage status
-- Documentation updates required or deferred (path + role)
-- Suggested improvements
-- Overall merge recommendation
+Group findings by risk (high / medium / low), each with what changed and why it
+matters, test coverage, documentation updates required or deferred (path +
+role), and suggested improvements; end with a merge recommendation.
 
-### Evidence Rules
+## Evidence
 
-- Base risk claims on changed-node count, blast radius, affected flows, test
-  coverage, `analysis_summary.reason_codes`, and public API/dependency
-  direction changes.
-- Treat `concern_separation` and `function_concern_pressure` as refactoring
-  prioritization evidence, not correctness evidence. Read role, threshold,
-  reason codes, purity-likelihood evidence, missingness, and suggested action
-  before deciding whether to mention it. Boundary/coordinator functions may
-  legitimately have side effects.
-- Do not report a function concern profile as a bug by itself. For a review
-  finding, confirm source behavior with `source_of`, contract impact, missing
-  tests, or a concrete maintainability risk. Otherwise frame it as a follow-up
-  refactor lead.
-- Treat `CROSS_ARTIFACT` documentation roles as typed evidence, not duplicate
-  inverse facts. Check each result's `evidence_type`: `implemented_by` and
-  `implements_contract` are authored contract evidence; explanatory roles such
-  as `describes_symbol` are usually `extracted`; unresolved or low-confidence
-  candidates are `heuristic_reachable` and should stay tentative. Cite the
-  stored role and the query pattern (`docs_for` or `implementations_of`) used.
-- For zero-result or not-found graph queries, read `zero_result_reason`,
-  `next_action`, `answerability`, and `missingness` before claiming absence.
-- Report `truncated`, `total`, or approximation metadata when a tool response is
-  incomplete.
-- Confirm behavior with `query_graph_tool(pattern="source_of")` before reporting
-  a behavioral bug; graph structure alone is not enough. Read the file only when
-  that span is truncated, stale, unreadable, or neighbors are required.
+- Tie each risk label to a metric: `reason_codes`, blast-radius counts, an
+  affected flow, a test gap, a changed public surface, or a dependency
+  direction change.
+- Confirm behavior with `source_of` before calling something a bug; graph
+  structure alone shows reach, not correctness.
+- `CROSS_ARTIFACT` documentation roles are typed evidence, not duplicate
+  inverse facts: `implemented_by` / `implements_contract` are authored
+  contracts, explanatory roles are usually `extracted`, and
+  `heuristic_reachable` stays tentative. Cite the role and the query used.
+- Before claiming something is absent, read `zero_result_reason`,
+  `next_action`, `answerability`, and `missingness`; report `truncated` /
+  `total` when a result is incomplete. Unresolved (`LOW`) calls can hide
+  callers — `dagayn build --scip` settles them where SCIP indexers exist.
+- Function concern profiles (`concern_separation`, the
+  `function_concern_pressure` reason code) come from
+  `refactor_tool(mode="suggest")`, not from review, and are
+  not correctness evidence.
+  Do not report a function concern profile as a bug by itself; if you ran it,
+  mention it as a refactor lead.
 
-## CLI Fallback
+## Output budget
 
-Default MCP already exposes `review_tool` and `query_graph_tool`. Use
-`dagayn tool` when the server allow-list omitted them:
+Start with `get_minimal_context_tool`, stay on the `changes` summary until it
+raises a concrete question, and aim for about five graph calls after the graph
+is ready.
+
+## CLI fallback
 
 ```bash
-dagayn tool review_tool --arg mode='"changes"' --arg detail_level='"minimal"'
+dagayn tool review_tool --arg mode='"changes"' --arg base='"main"' --arg detail_level='"minimal"'
 dagayn tool review_tool --arg mode='"context"' --arg detail_level='"minimal"'
-dagayn tool query_graph_tool --arg pattern='"source_of"' --arg target='"src/app.py::handler"'
-dagayn tool review_tool --arg mode='"affected_flows"' --arg 'changed_files=["src/app.py"]'
 dagayn tool review_tool --arg mode='"impact"' --arg 'changed_files=["src/app.py"]' --arg detail_level='"minimal"'
+dagayn tool query_graph_tool --arg pattern='"source_of"' --arg target='"src/app.py::handler"'
 dagayn tool query_graph_tool --arg pattern='"docs_for"' --arg target='"src/app.py::handler"'
-dagayn tool query_graph_tool --arg pattern='"implementations_of"' --arg target='"docs/spec.md::contract-section"'
 ```
-
-## Token Efficiency Rules
-- ALWAYS start with `get_minimal_context_tool(task="<your task>")` before any other graph tool.
-- If the graph was empty, count tool calls **after** `ensure_graph_tool` returns.
-- Use `detail_level="minimal"` on all calls. Only escalate to "standard" when minimal is insufficient.
-- Target: complete any review/debug/refactor task in ≤5 tool calls and ≤800 total output tokens
-  after ensure.

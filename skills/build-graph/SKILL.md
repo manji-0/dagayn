@@ -1,12 +1,16 @@
 ---
 name: build-graph
-description: Build or update the code review knowledge graph. Run this first to initialize, or let hooks keep it updated automatically.
+description: Build, refresh, or repair the dagayn code knowledge graph — first-time bootstrap, catching up after a branch switch or pull, filling in missing flows and communities, rebuilding from scratch, or letting SCIP indexers settle call targets with `dagayn build --scip`. Use this whenever the graph is empty or stale, graph tools return nothing or look out of date, flows/communities are missing, the user asks to "index", "build", or "rebuild" the graph, or before relying on graph results in a repository dagayn has not indexed yet.
 argument-hint: "[full]"
 ---
 
 # Build Graph
 
-Build or incrementally update the persistent code knowledge graph for this repository.
+Most of the time the graph keeps itself current: edit hooks queue incremental
+updates and session start runs `dagayn session prepare`. Build explicitly when
+the graph is missing, has fallen behind, or lacks the post-processing a question
+needs. Pass `full` (or ask for a clean rebuild) to run `dagayn build`, with
+`--force-full-build` to start from an empty database.
 
 <!-- dagayn skill embedding context -->
 ## Installed Search Mode
@@ -17,74 +21,56 @@ the selected embedding mode so graph builds refresh the right retrieval indexes.
 
 ## Steps
 
-1. **Check graph status** with `get_minimal_context_tool` (or
-   `list_graph_stats_tool` when the advanced surface is available).
-   - If `graph_health.status` is `empty` / `last_updated` is null, proceed with
-     bootstrap.
-   - If the graph exists, prefer hooks/`dagayn update` for routine refresh.
-
+1. **Check the state** with `get_minimal_context_tool` (or `dagayn status`,
+   which prints `Graph state:` and embedding coverage). Read
+   `graph_health.status` (`ok` / `degraded` / `empty`) and `sync.state`:
+   - `unbuilt` (empty graph) or `commit_drift` (HEAD moved): follow
+     `recommended_action`; the server has usually queued a refresh already.
+   - `worktree_behind` (uncommitted edits not indexed yet): refresh with
+     `ensure_graph_tool(force=True)`.
+   - `worktree_ahead` / `commit_synced`: already current; nothing to build.
 2. **Bootstrap or refresh**:
-   - Default MCP surface (preferred): `ensure_graph_tool()` for first-time /
-     empty graphs, or when `sync.status` is `git_drift` / `dirty_worktree`.
-     `ensure_graph_tool(force=True)` always runs an incremental refresh.
-     Uses `postprocess="minimal"` and inherits `dagayn serve --local-embedding`.
-   - CLI: `dagayn session prepare` (hooks use `--budget-seconds 45`).
-   - Maintenance / advanced surface: `build_or_update_graph_tool` when you need
-     full postprocess, embeddings, or explicit rebuild controls:
-     - First-time: `build_or_update_graph_tool(full_rebuild=True, local_embedding="none")`
-     - Routine: `build_or_update_graph_tool(local_embedding="none")`
-   - Do not run embedding-enabled full rebuilds as a routine verification step.
-     When the MCP server was started with `--local-embedding`, omitting
+   - Default MCP surface: `ensure_graph_tool()`, or `force=True` for
+     uncommitted edits (an empty graph still gets a full parse). It inherits
+     the server's embedding mode and runs **minimal** post-processing: structure
+     and search, but no flows or communities.
+   - Flows or communities missing (`graph_health.status` is `degraded`, or
+     `flow_tool` / the architecture overview come back empty right after a
+     bootstrap): run `dagayn postprocess` (`run_postprocess_tool()` on the
+     advanced surface).
+   - CLI, full build with post-processing: `dagayn build`; add `--scip` to let
+     installed SCIP indexers (rust-analyzer, scip-typescript, scip-go,
+     scip-python, ...) settle call targets. Missing indexers print `hint:` lines
+     and that language keeps dagayn's own resolution. The overlay runs only on a
+     full build; the MCP build tool has no SCIP option, so use the CLI.
+   - Advanced surface: `build_or_update_graph_tool(full_rebuild=True,
+     local_embedding="none")` for explicit rebuild controls.
+   - Don't run embedding-enabled full rebuilds as routine verification. When
+     the server was started with `--local-embedding`, omitting
      `local_embedding` on `build_or_update_graph_tool` may inherit that mode and
-     trigger a large embedding refresh. Pass `local_embedding="bge-m3"` only when
-     the task explicitly requires embedding quality or hybrid-search freshness,
-     and state that reason first.
-
-3. **Verify** with `get_minimal_context_tool` (or `list_graph_stats_tool`) and
-   report:
-   - Number of files parsed
-   - Number of nodes and edges created
-   - Languages detected
-   - Any errors encountered
-
-## When to Use
-
-- First time setting up the graph for a repository
-- After major refactoring or branch switches
-- If the graph seems stale or out of sync
-- Before semantic search evaluation, wiki generation, or cross-repo comparison
-- The graph auto-updates via hooks on edit/commit, so manual builds are rarely needed
+     trigger a large embedding refresh. Pass `local_embedding="bge-m3"` only
+     when the task needs fresh embeddings, and say why first.
+3. **Report** from the build result rather than reading the database: files
+   parsed, nodes, edges, `errors`, and any SCIP `hint:` or warning lines. Use
+   `dagayn status` or `list_graph_stats_tool` (advanced) for languages.
 
 ## Notes
 
-- The graph is stored as a SQLite database (`.dagayn/graph.db`) in the repo root
-- Binary files, generated files, and patterns in `.dagaynignore` are skipped
-- Supported languages evolve with the parser registry; check `README.md`
-  "Supported languages and file types" rather than relying on this skill as the
-  authoritative language list.
+- The graph lives in `.dagayn/graph.db` (or under `CRG_DATA_DIR`). Indexed
+  files are git's tracked and untracked files minus gitignored ones;
+  `.dagaynignore` narrows that further.
+- Edit hooks enqueue `dagayn queue add update` (check `dagayn queue status` if
+  the graph seems behind); hooks never rebuild flows or communities.
+- Check `README.md` "Supported languages and file types" for the language list.
 
-## CLI Fallback
-
-Default MCP already exposes `ensure_graph_tool` and `get_minimal_context_tool`.
-Use `dagayn tool` for advanced/maintenance tools such as `list_graph_stats_tool`,
-`build_or_update_graph_tool`, and `run_postprocess_tool`:
+## CLI
 
 ```bash
+dagayn build                     # full parse + full post-processing
+dagayn build --force-full-build  # delete graph.db first
+dagayn build --scip              # also settle call targets with SCIP indexers
+dagayn update                    # incremental, from the graph's own commit
+dagayn postprocess               # flows, communities, FTS on an existing graph
+dagayn status                    # graph state and embedding coverage
 dagayn tool ensure_graph_tool
-dagayn tool list_graph_stats_tool
-dagayn tool build_or_update_graph_tool --arg full_rebuild=true
-dagayn tool run_postprocess_tool --arg fts=true
 ```
-
-## Efficiency Rules
-
-- Prefer `ensure_graph_tool()` / `dagayn session prepare` on the default MCP /
-  hook surface; use incremental `build_or_update_graph_tool()` only when
-  maintenance options are required.
-- For parser, flow, documentation-edge, or review verification that must not
-  touch vectors, keep `local_embedding="none"` on advanced build tools.
-  `ensure_graph_tool` follows the serve embedding mode instead.
-- Use `postprocess="minimal"` while iterating; run full postprocess only when
-  flow/community freshness matters.
-- Report node, edge, file, language, and error counts instead of reading the
-  graph database or generated artifacts directly.

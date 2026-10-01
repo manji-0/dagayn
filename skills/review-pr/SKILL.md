@@ -1,14 +1,14 @@
 ---
 name: review-pr
-description: Review a PR or branch diff using the knowledge graph for full structural context. Outputs a structured review with blast-radius analysis.
+description: Review a pull request (by number, URL, or branch name) with the dagayn knowledge graph — risk ranking, blast radius across every commit in the PR, missing tests, breaking public-API changes, and linked docs — and write a structured PR review. Use this whenever the user hands you a PR number or link, says "review PR 123", "review this branch against main", or asks for a pre-merge review of someone else's branch. For your own uncommitted edits use review-delta; for a general branch review with a merge recommendation use review-changes.
 argument-hint: "[PR number or branch name]"
 ---
 
 # Review PR
 
-Perform a comprehensive code review of a pull request or branch diff using the knowledge graph.
-
-**Token optimization:** Before starting, call `get_docs_section_tool(section_name="review-pr")` for the optimized workflow. Never include full files unless explicitly asked.
+A PR review has to cover every commit on the branch, not just the last one,
+and has to compare against where the branch actually left `main`. Get that
+base right first; then let the graph rank what deserves attention.
 
 <!-- dagayn skill embedding context -->
 ## Installed Search Mode
@@ -20,131 +20,96 @@ retrieval setup.
 
 ## Steps
 
-1. **Orient first** by calling `get_minimal_context_tool(task="<PR review>")`.
-
-2. **Identify the changes** for the PR:
-   - If a PR number or branch is provided, use `git diff main...<branch>` to get changed files
-   - Otherwise auto-detect from the current branch vs main/master
-
-3. **Refresh only when needed**:
-   - If `graph_health.status` is `empty`, call `ensure_graph_tool()`.
-   - If the branch diverged heavily, hooks look skipped, or results look stale,
-     call `ensure_graph_tool(force=True)` on the default surface, or
-     `build_or_update_graph_tool(base="main")` when the advanced surface is
-     available and you need that explicit base ref.
-   - Otherwise skip ensure and go to review.
-
-4. **Get risk and review priorities** by calling `review_tool(mode="changes", base="main")`:
-   - This uses `main` (or the specified base branch) as the diff base
-   - Returns all changed files across all commits in the PR
-   - Read `analysis_summary` for risk reasons, recommended tests, affected-flow
-     rankings, documentation update candidates, hotspot proximity, and
-     architecture risks in changed scopes
-
-5. **Fetch focused source context** by calling `review_tool(mode="context", base="main")`
-   for the files or functions that need change-set snippets. For one concrete
-   `qualified_name`, prefer `query_graph_tool(pattern="source_of")` over a
-   full-file read.
-
-6. **Analyze impact** by using `analysis_summary` first, then calling
-   `review_tool(mode="impact", base="main")` only when a wider view is needed:
-   - Review the blast radius across the entire PR
-   - Identify high-risk areas (widely depended-upon code)
-   - Follow documentation bridges only when relevant to the changed surface:
-     `query_graph_tool(pattern="docs_for", target=<path::symbol>)` for changed
-     code/Terraform nodes, and
-     `query_graph_tool(pattern="implementations_of", target=<doc.md>::<section-slug>)`
-     for changed Markdown contract sections
-
-7. **Deep-dive highest-risk changes only** (from `analysis_summary`):
-   - Start with `review_tool(mode="context")` snippets or
-     `query_graph_tool(pattern="source_of")` for a concrete `qualified_name`;
-     read a full file only when that span is truncated, stale, or neighbors
-     are required
-   - Use `query_graph_tool(pattern="callers_of", target=<func>)` for high-risk functions
-   - Start with `analysis_summary.recommended_tests`; use
-     `query_graph_tool(pattern="tests_for", target=<func>)` to verify uncertain coverage
-   - Check for breaking changes in public APIs
-   - When `dagayn:` documentation directives are present, interpret direction
-     by authoring site: Markdown `implemented-by` means the doc owns the
-     contract; code `implements` means the implementation declares conformance;
-     `explained-by`, `has-runbook`, and `problem-described-by` mean linked docs
-     may be stale after code changes. Check each result's `evidence_type`
-     (`authored`, `extracted`, or `heuristic_reachable`) before treating it as
-     contract evidence. Do not expect duplicate inverse edges.
-
-8. **Generate structured review output**:
+1. **Orient**: `get_minimal_context_tool(task="<PR review>")`.
+2. **Check out the PR and find its base**. `review_tool` diffs `base` against
+   the current working tree, so the PR branch must be checked out
+   (`gh pr checkout <number>` or `git switch <branch>`). Use the merge base as
+   `base`: `git merge-base main HEAD`. Plain `base="main"` is only right when
+   the branch is up to date with `main`; otherwise commits that landed on
+   `main` after the branch point show up as reversed changes.
+3. **Refresh only when needed**: if `graph_health.status` is `empty` or
+   `sync.state` is `unbuilt` / `commit_drift` (e.g. right after the checkout),
+   follow `recommended_action`, or call `ensure_graph_tool(force=True)` to wait
+   for the refresh. Otherwise skip ensure and go to review.
+   Do not call `ensure_graph_tool(force=True)` on every PR when the graph is
+   already current — it re-parses the changed files each time.
+4. **Rank the change**: `review_tool(mode="changes", base="<merge-base>")`. At
+   the default `detail_level="standard"` read `analysis_summary`: reason codes,
+   `recommended_tests`, affected-flow rankings, documentation update
+   candidates, hotspot proximity, and architecture risks. At `"minimal"` the
+   same fields are flattened to the top level (`risk_level`, `reason_codes`,
+   `recommended_tests`, `affected_flow_rankings`,
+   `documentation_update_candidates`, `review_priorities`, `next_drill_downs`)
+   and lists are capped at five.
+5. **Read only the risky parts**: `review_tool(mode="context",
+   base="<merge-base>")` for change-set snippets; for one `qualified_name`,
+   `query_graph_tool(pattern="source_of")`. Open a whole file only when that
+   span is truncated, stale, or you need its neighbors.
+6. **Drill into the highest-risk changes**:
+   - Blast radius: `review_tool(mode="impact", base=...)`; flows:
+     `review_tool(mode="affected_flows", base=...)` or `flow_tool(mode="get",
+     flow_name=...)`.
+   - Callers of a changed public function:
+     `query_graph_tool(pattern="callers_of", target=..., depth=3)` (up to 6) —
+     check `reachability` before calling it the full set. Call targets marked
+     `resolved_by: "scip"` are index-backed; when call accuracy matters and SCIP
+     indexers are installed, `dagayn build --scip` settles the rest.
+   - Coverage: start with `recommended_tests`, confirm doubtful cases with
+     `query_graph_tool(pattern="tests_for")`.
+   - Renamed or moved symbols: check every caller was updated.
+   - Docs: `docs_for` on changed code, `implementations_of` on changed
+     Markdown sections. Markdown `implemented-by` means the doc owns the
+     contract; code `implements` means the code declares conformance;
+     `explained-by` / `has-runbook` / `problem-described-by` docs may now be
+     stale. Weigh each result by `evidence_type` (`authored`, `extracted`,
+     `heuristic_reachable`).
+7. **Write the review**:
 
    ```
    ## PR Review: <title>
 
    ### Summary
-   <1-3 sentence overview>
+   <1-3 sentences>
 
    ### Risk Assessment
-   - **Overall risk**: Low / Medium / High
-   - **Blast radius**: X files, Y functions impacted
-   - **Test coverage**: N changed functions covered / M total
+   - Overall risk: Low / Medium / High (and the metric behind it)
+   - Blast radius: X files, Y functions impacted
+   - Test coverage: N of M changed functions covered
 
    ### File-by-File Review
    #### <file_path>
-   - Changes: <description>
-   - Impact: <who depends on this>
-   - Issues: <bugs, style, concerns>
+   - Changes / Impact (who depends on it) / Issues
 
    ### Missing Tests
-   - <function_name> in <file> - no test coverage found
+   - <function> in <file>
+
+   ### Docs to Update (or deferred, with path + role)
 
    ### Recommendations
    1. <actionable suggestion>
-   2. <actionable suggestion>
    ```
 
-## Tips
+## Judgment
 
-- For large PRs, focus on the highest-impact files first (most dependents)
-- Use `semantic_search_nodes_tool` for conceptual or fuzzy related-code search.
-  For exact renamed or moved symbols, prefer `query_graph_tool` relationships or
-  a targeted `rg` literal check after graph triage.
-- Check if renamed/moved functions have updated all callers
-- Prefer `review_tool(mode="changes").analysis_summary` before calling drill-down
-  review tools.
-- Use graph risk labels as prioritization, not proof. Confirm behavioral issues
-  with `source_of` or tests before reporting them as findings.
-- Include `truncated`, `total`, approximation, or threshold metadata in the
-  review when a tool's output is bounded.
-- Cite `CROSS_ARTIFACT` documentation roles and query patterns when they drive a
-  finding: `docs_for` for code→docs context, `implementations_of` for
-  doc→implementation context.
-- For empty or not-found graph results, report `zero_result_reason`,
-  `next_action`, `answerability`, and `missingness` instead of concluding the
-  symbol or relationship is absent.
+- Risk labels prioritize; they don't prove. Confirm a behavioral issue with
+  `source_of` or a test before reporting it as a finding.
+- When a result is bounded (`truncated`, `total`, thresholds) say so in the
+  review; when a query comes back empty, report `zero_result_reason` and
+  `next_action` rather than concluding the thing doesn't exist.
+- On large PRs, triage from the summary and cap drill-downs to the top few
+  impacted functions per risk area; list the rest as residual uncertainty.
+- For doc candidates, follow "Docs update after code change" in review-changes,
+  or list each deferred doc path and role.
+- Use `semantic_search_nodes_tool` for fuzzy related-code questions; for exact
+  renamed symbols, relationship queries (or a literal `rg`) are more reliable.
 
-## Efficiency Rules
-
-- Review highest-risk files first from `analysis_summary`; do not read every
-  changed file before triage on large PRs.
-- Use `review_tool(mode="context")` for change-set snippets and
-  `query_graph_tool(pattern="source_of")` for one symbol. Full file reads only
-  when those spans are truncated, stale, or neighbors are required.
-- For broad PRs, cap graph drill-down to the top few impacted functions per
-  risk area before reporting residual uncertainty.
-- Do not call `ensure_graph_tool(force=True)` on every PR when `graph_health`
-  is already healthy and the branch looks fresh.
-- When `analysis_summary` lists documentation update candidates, follow
-  **Docs update after code change** in the `review-changes` skill, or record
-  each deferred doc path + role in the PR review output.
-
-## CLI Fallback
-
-Default MCP already exposes `review_tool`, `query_graph_tool`, and `flow_tool`.
-Use `dagayn tool` when the server allow-list omitted them:
+## CLI fallback
 
 ```bash
-dagayn tool review_tool --arg mode='"changes"' --arg base='"main"' --arg detail_level='"minimal"'
-dagayn tool review_tool --arg mode='"context"' --arg base='"main"' --arg detail_level='"minimal"'
+BASE=$(git merge-base main HEAD)
+dagayn tool review_tool --arg mode='"changes"' --arg base="\"$BASE\"" --arg detail_level='"minimal"'
+dagayn tool review_tool --arg mode='"context"' --arg base="\"$BASE\"" --arg detail_level='"minimal"'
 dagayn tool query_graph_tool --arg pattern='"source_of"' --arg target='"src/app.py::handler"'
-dagayn tool review_tool --arg mode='"impact"' --arg base='"main"' --arg detail_level='"minimal"'
+dagayn tool query_graph_tool --arg pattern='"callers_of"' --arg target='"src/app.py::handler"' --arg depth=3
 dagayn tool query_graph_tool --arg pattern='"docs_for"' --arg target='"src/app.py::handler"'
-dagayn tool query_graph_tool --arg pattern='"implementations_of"' --arg target='"docs/spec.md::contract-section"'
 ```

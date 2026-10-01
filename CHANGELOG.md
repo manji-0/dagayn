@@ -2,6 +2,49 @@
 
 All notable changes to `dagayn` are documented here.
 
+## Unreleased
+
+### Fixed
+
+- `callers_of` on a package name (`subprocess`, `std`, `builtins`,
+  `net/http`) lists the callers of that package, as
+  `docs/CALL-RESOLUTION.md` promises; it used to search for a symbol of that
+  name and answer `ambiguous`.
+- A `dagayn:` directive shown inside a Markdown code span or fenced block is an
+  example and creates no edge (guides and README translations had created
+  `HIGH` links to `path::symbol`). Markdown files re-parse once on the next
+  update.
+- A `dagayn:` directive or a Markdown dependency comment whose target is not in
+  the graph is demoted to `LOW` after Markdown reference resolution, so
+  `implementations_of` no longer reports it as an authored contract. Edges to
+  things that are never nodes (commands, files a program writes, Terraform
+  providers) keep their tiers.
+- `cross_repo_search_tool` applies `limit` per repository, as documented; the
+  merged list was cut to `limit` overall, so one repository's higher score
+  scale could hide every hit from the others.
+- `dagayn install` says Cursor worktrees run `dagayn session prepare`, which is
+  what it writes to `.cursor/worktrees.json`.
+
+- `dagayn install` writes dagayn's Claude Code skills to `~/.claude/skills`
+  only and removes the copies earlier installs put in `<repo>/.claude/skills`:
+  Claude Code loads both, so every skill was listed twice. The repository
+  copy is written only when the home directory is not writable.
+- `dagayn install` now writes Claude Code skills as `<name>/SKILL.md`
+  directories, the layout Claude Code loads. Earlier versions wrote flat
+  `~/.claude/skills/<name>.md` files that Claude Code never loaded, so the
+  dagayn skills were invisible there; an upgrade removes those files and the
+  retired `wiki-research` skill, keeping any skill that is not dagayn's.
+- The packaged skills match the current tools: review skills read the flat
+  `detail_level="minimal"` fields (`analysis_summary` exists only at
+  `standard`), `apply_refactor_tool` is described as same-session only, graph
+  freshness uses `sync.state`, `ensure_graph_tool` bootstraps are noted to
+  lack flows and communities until `dagayn postprocess`, search guidance reads
+  `embedding_health.requested_text_mode` instead of the never-returned
+  `rerank_intent`, and `dagayn build --scip`, `depth`, and `importers_of`
+  section widening are covered. Example `dagayn:` directives in the skills no
+  longer create real edges, and every skill description now says when to use
+  it.
+
 ## 7.1.0 — 2026-10-01
 
 ### Added

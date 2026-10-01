@@ -57,21 +57,21 @@ from dagayn.skills.platforms import (
 from dagayn.skills.skill_files import _resolve_source_skills_dir
 
 EXPECTED_SKILLS = [
-    "architecture-analysis.md",
-    "build-graph.md",
-    "cross-repo-workflows.md",
-    "debug-issue.md",
-    "explore-codebase.md",
-    "implement-feature.md",
-    "install-dagayn.md",
-    "reading-markdown-document.md",
-    "refactor-safely.md",
-    "review-changes.md",
-    "review-delta.md",
-    "review-pr.md",
-    "semantic-search.md",
-    "worktree-sync.md",
-    "writing-markdown-document.md",
+    "architecture-analysis",
+    "build-graph",
+    "cross-repo-workflows",
+    "debug-issue",
+    "explore-codebase",
+    "implement-feature",
+    "install-dagayn",
+    "reading-markdown-document",
+    "refactor-safely",
+    "review-changes",
+    "review-delta",
+    "review-pr",
+    "semantic-search",
+    "worktree-sync",
+    "writing-markdown-document",
 ]
 
 LEGACY_MCP_TOOL_NAMES = [
@@ -118,7 +118,7 @@ class TestGenerateSkills:
     def test_skill_files_have_frontmatter(self, tmp_path):
         skills_dir = generate_skills(tmp_path)
         for path in skills_dir.iterdir():
-            content = path.read_text()
+            content = (path / "SKILL.md").read_text()
             assert content.startswith("---\n")
             assert "name:" in content
             assert "description:" in content
@@ -138,15 +138,15 @@ class TestGenerateSkills:
     def test_markdown_skills_present(self, tmp_path):
         """The two markdown skills must ship with every install."""
         skills_dir = generate_skills(tmp_path)
-        assert (skills_dir / "writing-markdown-document.md").is_file()
-        assert (skills_dir / "reading-markdown-document.md").is_file()
+        assert (skills_dir / "writing-markdown-document" / "SKILL.md").is_file()
+        assert (skills_dir / "reading-markdown-document" / "SKILL.md").is_file()
 
     def test_operational_skills_cover_3_0_surfaces(self, tmp_path):
         """Install target should cover setup, embeddings, wiki, and cross-repo work."""
         skills_dir = generate_skills(tmp_path)
-        install = (skills_dir / "install-dagayn.md").read_text()
-        semantic = (skills_dir / "semantic-search.md").read_text()
-        cross_repo = (skills_dir / "cross-repo-workflows.md").read_text()
+        install = (skills_dir / "install-dagayn" / "SKILL.md").read_text()
+        semantic = (skills_dir / "semantic-search" / "SKILL.md").read_text()
+        cross_repo = (skills_dir / "cross-repo-workflows" / "SKILL.md").read_text()
 
         assert "dagayn install --platform codex" in install
         assert "--no-instructions" in install
@@ -157,10 +157,10 @@ class TestGenerateSkills:
 
     def test_new_workflow_skills_cover_worktree_and_feature(self, tmp_path):
         skills_dir = generate_skills(tmp_path)
-        worktree = (skills_dir / "worktree-sync.md").read_text()
-        feature = (skills_dir / "implement-feature.md").read_text()
-        install = (skills_dir / "install-dagayn.md").read_text()
-        review = (skills_dir / "review-changes.md").read_text()
+        worktree = (skills_dir / "worktree-sync" / "SKILL.md").read_text()
+        feature = (skills_dir / "implement-feature" / "SKILL.md").read_text()
+        install = (skills_dir / "install-dagayn" / "SKILL.md").read_text()
+        review = (skills_dir / "review-changes" / "SKILL.md").read_text()
 
         assert "dagayn session prepare" in worktree
         assert "worktree info" in worktree
@@ -174,10 +174,10 @@ class TestGenerateSkills:
 
     def test_search_skills_are_mode_neutral_without_install_context(self, tmp_path):
         skills_dir = generate_skills(tmp_path)
-        semantic = (skills_dir / "semantic-search.md").read_text()
-        explore = (skills_dir / "explore-codebase.md").read_text()
-        build = (skills_dir / "build-graph.md").read_text()
-        writing = (skills_dir / "writing-markdown-document.md").read_text()
+        semantic = (skills_dir / "semantic-search" / "SKILL.md").read_text()
+        explore = (skills_dir / "explore-codebase" / "SKILL.md").read_text()
+        build = (skills_dir / "build-graph" / "SKILL.md").read_text()
+        writing = (skills_dir / "writing-markdown-document" / "SKILL.md").read_text()
 
         assert "mode-neutral" in semantic
         assert "mode-neutral" in explore
@@ -189,9 +189,9 @@ class TestGenerateSkills:
     def test_exploration_skills_encode_search_to_traversal_ladder(self, tmp_path):
         """Agents should learn search -> relationship query -> bounded traversal."""
         skills_dir = generate_skills(tmp_path)
-        explore = (skills_dir / "explore-codebase.md").read_text()
-        semantic = (skills_dir / "semantic-search.md").read_text()
-        debug = (skills_dir / "debug-issue.md").read_text()
+        explore = (skills_dir / "explore-codebase" / "SKILL.md").read_text()
+        semantic = (skills_dir / "semantic-search" / "SKILL.md").read_text()
+        debug = (skills_dir / "debug-issue" / "SKILL.md").read_text()
 
         assert "## Decision Model" in explore
         assert "Unknown entity, fuzzy concept" in explore
@@ -220,9 +220,11 @@ class TestGenerateSkills:
             "writing-markdown-document.md",
             "cross-repo-workflows.md",
         )
-        combined = "\n".join((skills_dir / name).read_text() for name in names)
+        combined = "\n".join(
+            (skills_dir / name.removesuffix(".md") / "SKILL.md").read_text() for name in names
+        )
         for name in names:
-            assert "source_of" in (skills_dir / name).read_text()
+            assert "source_of" in (skills_dir / name.removesuffix(".md") / "SKILL.md").read_text()
         assert "or source reads" not in combined
         assert "source read third" not in combined
         assert "trigger a source read" not in combined
@@ -232,17 +234,18 @@ class TestGenerateSkills:
             tmp_path,
             embedding_mode="local-embedding",
         )
-        semantic = (skills_dir / "semantic-search.md").read_text()
-        debug = (skills_dir / "debug-issue.md").read_text()
-        build = (skills_dir / "build-graph.md").read_text()
-        writing = (skills_dir / "writing-markdown-document.md").read_text()
-        review_pr = (skills_dir / "review-pr.md").read_text()
+        semantic = (skills_dir / "semantic-search" / "SKILL.md").read_text()
+        debug = (skills_dir / "debug-issue" / "SKILL.md").read_text()
+        build = (skills_dir / "build-graph" / "SKILL.md").read_text()
+        writing = (skills_dir / "writing-markdown-document" / "SKILL.md").read_text()
+        review_pr = (skills_dir / "review-pr" / "SKILL.md").read_text()
 
         assert "--mode local-embedding" in semantic
         assert "BGE-M3" in semantic
         assert 'local_embedding="none"' in semantic
         assert "embedding-enabled full rebuild" in semantic
-        assert "`search_mode`, `rerank_intent`, and per-result `source`" in semantic
+        assert "`search_mode`, `embedding_health.requested_text_mode`" in semantic
+        assert "rerank_intent" not in semantic
         assert "Process-pattern prose should use narrative embeddings" in semantic
         assert "mode-neutral" not in semantic
         assert "--mode local-embedding" in debug
@@ -261,24 +264,26 @@ class TestGenerateSkills:
             embedding_mode="local-embedding-llama",
             embedding_preset="low",
         )
-        semantic = (skills_dir / "semantic-search.md").read_text()
-        build = (skills_dir / "build-graph.md").read_text()
+        semantic = (skills_dir / "semantic-search" / "SKILL.md").read_text()
+        build = (skills_dir / "build-graph" / "SKILL.md").read_text()
 
         assert "--mode local-embedding-llama --preset low" in semantic
         assert "managed Qwen3" in semantic
-        assert "`search_mode`, `rerank_intent`, and per-result `source`" in semantic
+        assert "`search_mode`, `embedding_health.requested_text_mode`" in semantic
+        assert "rerank_intent" not in semantic
         assert 'local_embedding="none"' in build
         assert "server sidecar mode" in build
 
     def test_generate_skills_renders_fts_context(self, tmp_path):
         skills_dir = generate_skills(tmp_path, embedding_mode="fts-only")
-        semantic = (skills_dir / "semantic-search.md").read_text()
-        cross_repo = (skills_dir / "cross-repo-workflows.md").read_text()
-        build = (skills_dir / "build-graph.md").read_text()
+        semantic = (skills_dir / "semantic-search" / "SKILL.md").read_text()
+        cross_repo = (skills_dir / "cross-repo-workflows" / "SKILL.md").read_text()
+        build = (skills_dir / "build-graph" / "SKILL.md").read_text()
 
         assert "FTS-only mode" in semantic
         assert "Do not rebuild embeddings" in semantic
-        assert "`keyword_fallback` means the FTS index is absent" in semantic
+        assert "`keyword_fallback` means neither FTS nor vectors matched" in semantic
+        assert "FTS index is absent" not in semantic
         assert "keyword/FTS search" in cross_repo
         assert "FTS-only mode" in build
         assert "Do not rebuild embeddings" in build
@@ -289,12 +294,13 @@ class TestGenerateSkills:
             embedding_mode="remote-embedding",
             embedding_provider="openai",
         )
-        semantic = (skills_dir / "semantic-search.md").read_text()
-        cross_repo = (skills_dir / "cross-repo-workflows.md").read_text()
-        review_pr = (skills_dir / "review-pr.md").read_text()
+        semantic = (skills_dir / "semantic-search" / "SKILL.md").read_text()
+        cross_repo = (skills_dir / "cross-repo-workflows" / "SKILL.md").read_text()
+        review_pr = (skills_dir / "review-pr" / "SKILL.md").read_text()
 
         assert "--mode remote-embedding --provider openai" in semantic
-        assert "`search_mode`, `rerank_intent`, and per-result `source`" in semantic
+        assert "`search_mode`, `embedding_health.requested_text_mode`" in semantic
+        assert "rerank_intent" not in semantic
         assert 'embed_graph_tool(provider="openai")' in semantic
         assert "remote embedding calls" in cross_repo
         assert "--mode remote-embedding --provider openai" in review_pr
@@ -302,9 +308,9 @@ class TestGenerateSkills:
     def test_review_skills_use_composed_analysis_outputs(self, tmp_path):
         """Generated review skills should point agents at composed Tier 1 output."""
         skills_dir = generate_skills(tmp_path)
-        review_changes = (skills_dir / "review-changes.md").read_text()
-        review_delta = (skills_dir / "review-delta.md").read_text()
-        review_pr = (skills_dir / "review-pr.md").read_text()
+        review_changes = (skills_dir / "review-changes" / "SKILL.md").read_text()
+        review_delta = (skills_dir / "review-delta" / "SKILL.md").read_text()
+        review_pr = (skills_dir / "review-pr" / "SKILL.md").read_text()
 
         assert "analysis_summary" in review_changes
         assert "analysis_summary" in review_delta
@@ -318,8 +324,8 @@ class TestGenerateSkills:
 
     def test_refactor_skills_explain_function_concern_profiles(self, tmp_path):
         skills_dir = generate_skills(tmp_path)
-        refactor = (skills_dir / "refactor-safely.md").read_text()
-        review = (skills_dir / "review-changes.md").read_text()
+        refactor = (skills_dir / "refactor-safely" / "SKILL.md").read_text()
+        review = (skills_dir / "review-changes" / "SKILL.md").read_text()
 
         assert "Function Concern Separation Profiles" in refactor
         assert "evidence.concern_separation" in refactor
@@ -333,7 +339,7 @@ class TestGenerateSkills:
     def test_generated_skills_use_current_mcp_tool_names(self, tmp_path):
         """Packaged skills should match the 3.0 MCP dispatcher interface."""
         skills_dir = generate_skills(tmp_path)
-        combined = "\n".join(path.read_text() for path in skills_dir.iterdir())
+        combined = "\n".join((path / "SKILL.md").read_text() for path in skills_dir.iterdir())
 
         for tool_name in CURRENT_MCP_TOOL_NAMES:
             assert tool_name in combined
@@ -350,13 +356,13 @@ class TestGenerateSkills:
             "architecture-analysis.md",
             "refactor-safely.md",
         ):
-            content = (skills_dir / name).read_text()
+            content = (skills_dir / name.removesuffix(".md") / "SKILL.md").read_text()
             assert "ensure_graph_tool" in content
             assert "graph_health.status" in content
 
     def test_explore_skill_follows_decision_model_not_architecture_first(self, tmp_path):
         skills_dir = generate_skills(tmp_path)
-        content = (skills_dir / "explore-codebase.md").read_text()
+        content = (skills_dir / "explore-codebase" / "SKILL.md").read_text()
         assert "Pick **one** next move from the Decision Model" in content
         assert "open with architecture overview unless" in content
         steps = content.split("### Steps", 1)[1]
@@ -367,8 +373,8 @@ class TestGenerateSkills:
 
     def test_review_skills_refresh_only_when_needed(self, tmp_path):
         skills_dir = generate_skills(tmp_path)
-        delta = (skills_dir / "review-delta.md").read_text()
-        pr = (skills_dir / "review-pr.md").read_text()
+        delta = (skills_dir / "review-delta" / "SKILL.md").read_text()
+        pr = (skills_dir / "review-pr" / "SKILL.md").read_text()
         for content in (delta, pr):
             assert "Refresh only when needed" in content
             assert "Otherwise skip ensure" in content
@@ -377,14 +383,14 @@ class TestGenerateSkills:
     def test_explore_skill_uses_architecture_health(self, tmp_path):
         """Generated exploration skill should use the composed architecture surface."""
         skills_dir = generate_skills(tmp_path)
-        content = (skills_dir / "explore-codebase.md").read_text()
+        content = (skills_dir / "explore-codebase" / "SKILL.md").read_text()
         assert "architecture_health" in content
         assert "architecture_analysis_tool" in content
         assert "flow_tool" in content
 
     def test_architecture_skill_uses_dispatcher_modes(self, tmp_path):
         skills_dir = generate_skills(tmp_path)
-        content = (skills_dir / "architecture-analysis.md").read_text()
+        content = (skills_dir / "architecture-analysis" / "SKILL.md").read_text()
         assert 'architecture_analysis_tool(mode="overview"' in content
         assert "sdp_violations" in content
         assert "sap_violations" in content
@@ -392,8 +398,8 @@ class TestGenerateSkills:
 
     def test_debug_and_explore_list_flows_before_get(self, tmp_path):
         skills_dir = generate_skills(tmp_path)
-        debug = (skills_dir / "debug-issue.md").read_text()
-        explore = (skills_dir / "explore-codebase.md").read_text()
+        debug = (skills_dir / "debug-issue" / "SKILL.md").read_text()
+        explore = (skills_dir / "explore-codebase" / "SKILL.md").read_text()
 
         assert 'flow_tool(mode="list"' in debug
         assert 'flow_tool(mode="get")' in debug
@@ -403,20 +409,23 @@ class TestGenerateSkills:
 
     def test_markdown_reading_prefers_rg_for_raw_scans(self, tmp_path):
         skills_dir = generate_skills(tmp_path)
-        content = (skills_dir / "reading-markdown-document.md").read_text()
+        content = (skills_dir / "reading-markdown-document" / "SKILL.md").read_text()
 
         assert "rg -n '<!--" in content
         assert "grep -nE" not in content
 
     def test_generated_skills_include_markdown_code_traceability_guidance(self, tmp_path):
         skills_dir = generate_skills(tmp_path)
-        writing = (skills_dir / "writing-markdown-document.md").read_text()
-        reading = (skills_dir / "reading-markdown-document.md").read_text()
-        review = (skills_dir / "review-changes.md").read_text()
-        explore = (skills_dir / "explore-codebase.md").read_text()
+        writing = (skills_dir / "writing-markdown-document" / "SKILL.md").read_text()
+        reading = (skills_dir / "reading-markdown-document" / "SKILL.md").read_text()
+        review = (skills_dir / "review-changes" / "SKILL.md").read_text()
+        explore = (skills_dir / "explore-codebase" / "SKILL.md").read_text()
 
         assert "Markdown ↔ code documentation links" in writing
-        assert "<!-- dagayn: implemented-by services/auth.py::refresh_token -->" in writing
+        # Examples show the comment text only: a full `<!-- dagayn: ... -->`
+        # example would itself be parsed into a real edge.
+        assert "dagayn: implemented-by services/auth.py::refresh_token" in writing
+        assert "<!-- dagayn: implemented-by" not in writing
         assert "# dagayn: implements docs/auth-spec.md#Token Refresh" in writing
         assert 'query_graph_tool(pattern="implementations_of"' in reading
         assert 'query_graph_tool(pattern="docs_for"' in reading
@@ -433,7 +442,7 @@ class TestGenerateSkills:
     def test_reinstall_updates_existing_flat_skill_content(self, tmp_path):
         generate_skills(tmp_path)
         skills_dir = tmp_path / ".claude" / "skills"
-        target = skills_dir / "writing-markdown-document.md"
+        target = skills_dir / "writing-markdown-document" / "SKILL.md"
         target.write_text("stale skill content", encoding="utf-8")
 
         generate_skills(tmp_path)
@@ -516,13 +525,13 @@ class TestInstallGlobalSkills:
         with patch("pathlib.Path.home", return_value=tmp_path):
             install_global_skills()
         target = tmp_path / ".claude" / "skills"
-        assert (target / "writing-markdown-document.md").is_file()
-        assert (target / "reading-markdown-document.md").is_file()
+        assert (target / "writing-markdown-document" / "SKILL.md").is_file()
+        assert (target / "reading-markdown-document" / "SKILL.md").is_file()
 
     def test_renders_embedding_context(self, tmp_path):
         with patch("pathlib.Path.home", return_value=tmp_path):
             install_global_skills(embedding_mode="local-embedding")
-        target = tmp_path / ".claude" / "skills" / "semantic-search.md"
+        target = tmp_path / ".claude" / "skills" / "semantic-search" / "SKILL.md"
         content = target.read_text()
         assert "--mode local-embedding" in content
         assert "BGE-M3" in content
@@ -545,6 +554,86 @@ class TestInstallGlobalSkills:
             install_global_skills()
         assert unrelated.is_file()
         assert unrelated.read_text() == "# my own skill"
+
+    def test_upgrade_removes_flat_and_retired_dagayn_skills_only(self, tmp_path):
+        """Earlier versions wrote flat `<name>.md` files Claude Code never
+        loaded; an upgrade replaces them and drops retired skills, keeping
+        anything that is not a dagayn skill."""
+        target = tmp_path / ".claude" / "skills"
+        target.mkdir(parents=True)
+        (target / "explore-codebase.md").write_text(
+            "---\nname: explore-codebase\ndescription: old\n---\nold body\n"
+        )
+        (target / "wiki-research.md").write_text(
+            "---\nname: wiki-research\ndescription: old\n---\nold body\n"
+        )
+        (target / "wiki-research").mkdir()
+        (target / "wiki-research" / "SKILL.md").write_text(
+            "---\nname: wiki-research\ndescription: old\n---\nold body\n"
+        )
+        # Same name, not dagayn's frontmatter: the user's.
+        (target / "review-pr.md").write_text("# my own review notes\n")
+        with patch("pathlib.Path.home", return_value=tmp_path):
+            install_global_skills()
+        assert not (target / "explore-codebase.md").exists()
+        assert (target / "explore-codebase" / "SKILL.md").is_file()
+        assert not (target / "wiki-research.md").exists()
+        assert not (target / "wiki-research").exists()
+        assert (target / "review-pr.md").read_text() == "# my own review notes\n"
+
+    def test_remove_repo_local_skills_keeps_the_users_own(self, tmp_path):
+        """Claude Code loads repo and global skills; dagayn keeps its own in
+        one place, so repo-local dagayn copies go and anything else stays."""
+        from dagayn.skills import remove_repo_local_skills
+
+        skills = tmp_path / ".claude" / "skills"
+        generate_skills(tmp_path, skills_dir=skills)
+        (skills / "my-team-skill").mkdir()
+        (skills / "my-team-skill" / "SKILL.md").write_text(
+            "---\nname: my-team-skill\ndescription: ours\n---\n"
+        )
+        removed = remove_repo_local_skills(tmp_path)
+        assert removed == len(EXPECTED_SKILLS)
+        assert sorted(p.name for p in skills.iterdir()) == ["my-team-skill"]
+        assert remove_repo_local_skills(tmp_path / "elsewhere") == 0
+
+    def test_init_installs_claude_skills_globally_only(self, tmp_path, capsys):
+        import argparse
+
+        from dagayn.cli.commands.init import handle
+
+        home = tmp_path / "home"
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        generate_skills(repo)  # what an earlier install left behind
+        args = argparse.Namespace(
+            repo=str(repo),
+            dry_run=False,
+            platform="claude",
+            yes=True,
+            no_skills=False,
+            no_hooks=True,
+            no_instructions=True,
+            skills=False,
+            hooks=False,
+            install_all=False,
+            mode="fts-only",
+            preset=None,
+            provider=None,
+        )
+        with (
+            patch("pathlib.Path.home", return_value=home),
+            patch("dagayn.incremental.find_repo_root", return_value=repo),
+            patch("dagayn.skills.install_platform_configs", return_value=[]),
+            patch(
+                "dagayn.incremental.ensure_repo_gitignore_excludes_crg",
+                return_value="already",
+            ),
+        ):
+            handle(args)
+        assert (home / ".claude" / "skills" / "explore-codebase" / "SKILL.md").is_file()
+        assert not any((repo / ".claude" / "skills").iterdir())
+        assert "repo-local dagayn skill(s)" in capsys.readouterr().out
 
     def test_init_handle_survives_permission_error(self, tmp_path, capsys):
         """dagayn install must complete even when ~/.claude/skills/ is not writable.
@@ -640,7 +729,7 @@ class TestInstallTreeSkills:
             result = install_codex_skills()
 
         installed = [path.name for path in result.iterdir() if path.is_dir()]
-        assert sorted(installed) == sorted(path[:-3] for path in EXPECTED_SKILLS)
+        assert sorted(installed) == sorted(EXPECTED_SKILLS)
 
     def test_reinstall_updates_existing_tree_skill_content(self, tmp_path):
         with patch("pathlib.Path.home", return_value=tmp_path):
@@ -2965,3 +3054,20 @@ class TestInstallOpenCodePlugin:
         # Should be readable as UTF-8 without errors
         content = result.read_text(encoding="utf-8")
         assert len(content) > 0
+
+
+def test_skill_descriptions_survive_yaml_parsing():
+    """An unquoted ` #` in a description starts a YAML comment and silently
+    truncates the trigger text Claude sees."""
+    import yaml
+
+    from dagayn.skills.skill_files import _resolve_source_skills_dir
+
+    source = _resolve_source_skills_dir()
+    assert source is not None
+    for skill in sorted(source.iterdir()):
+        text = (skill / "SKILL.md").read_text()
+        frontmatter = text.split("---", 2)[1]
+        raw = next(line for line in frontmatter.splitlines() if line.startswith("description:"))
+        parsed = yaml.safe_load(frontmatter)["description"]
+        assert parsed == raw[len("description:") :].strip(), skill.name

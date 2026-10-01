@@ -1,120 +1,62 @@
 ---
 name: review-delta
-description: Review only changes since last commit using impact analysis. Token-efficient delta review with automatic blast-radius detection.
+description: Fast review of just the working delta — the last commit plus uncommitted edits — and what it reaches, using the dagayn knowledge graph. Consult this skill before running git diff or git status whenever the user asks to look over, sanity-check, or double-check what they just changed, staged, or are about to commit or push, asks whether an edit still works or broke callers or tests, or names one changed file or function to check. For a full branch review with a merge recommendation use review-changes.
 argument-hint: "[file or function name]"
 ---
 
 # Review Delta
 
-Perform a focused, token-efficient code review of only the changed code and its blast radius.
-
-**Token optimization:** Before starting, call `get_docs_section_tool(section_name="review-delta")` for the optimized workflow. Use ONLY changed nodes + 2-hop neighbors in context.
+Review only what changed and what it reaches, so the review stays small enough
+to run after every edit. `get_docs_section_tool(section_name="review-delta")`
+has the compact workflow if you want it in context.
 
 ## Steps
 
-1. **Orient first** by calling `get_minimal_context_tool(task="<review goal>")`.
+1. **Orient**: `get_minimal_context_tool(task="<review goal>")`.
+2. **Refresh only when needed**: if `graph_health.status` is `empty` or
+   `sync.state` is `unbuilt` / `commit_drift`, follow `recommended_action`. If
+   the working tree is newer than the graph (edit hooks only queue an async
+   update; `dagayn queue status` shows it), call
+   `ensure_graph_tool(force=True)`. Otherwise skip ensure and go straight to
+   review. Do not call `ensure_graph_tool(force=True)` on every review: a
+   forced refresh re-parses the changed files each time.
+3. **Get the risk summary**: `review_tool(mode="changes",
+   detail_level="minimal")`. The default `base="HEAD~1"` covers the last commit
+   plus staged, unstaged, and untracked files; pass `base=` to widen it. Read
+   the flat fields: `risk_level`, `reason_codes`, `changed_node_count`,
+   `impacted_node_count`, `recommended_tests`, `affected_flow_rankings`,
+   `documentation_update_candidates`, `architecture_delta`, `next_drill_downs`
+   (the default `"standard"` nests the full set under `analysis_summary`).
+4. **Fetch source only for what can change the verdict**:
+   `review_tool(mode="context")` for the change set, `query_graph_tool(
+   pattern="source_of")` for one symbol.
+5. **Check the blast radius** when the summary points at it:
+   `review_tool(mode="impact")` (`max_depth`, default 2, is the hop count).
+   Look for callers that depend on changed signatures or behavior, subclasses
+   of changed classes, files with many dependents, and linked docs
+   (`docs_for` on code, `implementations_of` on a Markdown section).
+6. **Check coverage**: take `recommended_tests` first; use
+   `query_graph_tool(pattern="tests_for")` only where coverage is unclear, and
+   flag changed functions nothing tests.
 
-2. **Refresh only when needed**:
-   - If `graph_health.status` is `empty`, call `ensure_graph_tool()`.
-   - If the working tree looks newer than the graph (hooks skipped, untracked
-     files needed, or results look stale), call `ensure_graph_tool(force=True)`.
-   - Otherwise skip ensure and go straight to review — hooks/`dagayn update`
-     usually keep a healthy graph current.
+## Report
 
-3. **Get risk and review priorities** by calling `review_tool(mode="changes")`.
-   Read `analysis_summary` first. It returns:
-   - Risk level, risk score, and reason codes
-   - Changed/impacted node and file counts
-   - Recommended tests
-   - Affected-flow rankings
-   - Documentation update candidates
-   - Hotspot proximity
-   - Architecture risks in changed scopes
+- **Summary**: one line.
+- **Risk**: low / medium / high, with the metric behind it.
+- **Issues**: bugs (confirmed with `source_of`), missing tests, style.
+- **Blast radius**: impacted files and functions.
+- **Docs**: linked docs to update, or explicit deferrals.
 
-4. **Fetch source context only when needed**:
-   - Change-set snippets: `review_tool(mode="context")`
-   - One named function or class: `query_graph_tool(pattern="source_of")`
-   Read the file only when that span is truncated, stale, or neighbors are
-   required.
+Doc candidates are not optional reading: update them (see the "Docs update
+after code change" steps in review-changes) or list them as deferred. Before
+claiming something is missing, read `zero_result_reason`, `next_action`,
+`answerability`, and `missingness`, and narrow truncated results first.
 
-5. **Analyze the blast radius** by reviewing the impact fields in
-   `analysis_summary` and, when needed, calling `review_tool(mode="impact")`.
-   Focus on:
-   - Functions whose callers changed (may need signature/behavior verification)
-   - Classes with inheritance changes (Liskov substitution concerns)
-   - Files with many dependents (high-risk changes)
-   - `CROSS_ARTIFACT` documentation links where changed code points have linked
-     specs/runbooks (`query_graph_tool(pattern="docs_for", target=<path::symbol>)`)
-     or changed Markdown sections have linked implementations
-     (`query_graph_tool(pattern="implementations_of", target=<doc.md>::<section-slug>)`)
-
-6. **Perform the review** using the context. For each changed file:
-   - Review the `context` snippet or `source_of` span for correctness, style,
-     and potential bugs
-   - Check if impacted callers/dependents need updates
-   - Prefer `analysis_summary.recommended_tests` first, then verify uncertain
-     coverage using `query_graph_tool(pattern="tests_for", target=<function_name>)`
-   - If a `dagayn:` documentation directive links the changed surface to a
-     Markdown section or code point, verify whether that linked artifact also
-     needs review or an update. Use the stored role (`implemented_by`,
-     `implements_contract`, `explained_by`, `has_runbook`,
-     `problem_described_by`, `discusses_artifact`, `raises_issue_for`) as the
-     reason, check `evidence_type` (`authored`, `extracted`, or
-     `heuristic_reachable`), and avoid assuming duplicate inverse edges exist.
-   - Flag any untested changed functions
-
-7. **Report findings** in a structured format:
-   - **Summary**: One-line overview of the changes
-   - **Risk level**: Low / Medium / High (based on blast radius)
-   - **Issues found**: Bugs, style issues, missing tests
-   - **Blast radius**: List of impacted files/functions
-   - **Recommendations**: Actionable suggestions
-
-## Advantages Over Full-Repo Review
-
-- Uses composed change analysis before fetching source snippets
-- Automatically identifies blast radius without manual file searching
-- Provides structural context (who calls what, inheritance chains)
-- Recommends likely tests and flags untested functions automatically
-
-## Efficiency Rules
-
-- Stay on `review_tool(mode="changes")` and `analysis_summary` until there is a
-  concrete source, flow, impact, or coverage question.
-- Fetch snippets with `review_tool(mode="context")` only for files that can
-  change the review outcome. For one `qualified_name`, use `source_of` instead
-  of opening the file.
-- Prefer recommended tests first; use `query_graph_tool(pattern="tests_for")`
-  only for uncertain coverage.
-- Do not call `ensure_graph_tool(force=True)` on every review when
-  `graph_health` is already healthy.
-- When documentation candidates appear, either update them (see review-changes
-  **Docs update after code change**) or list them as explicit deferrals — do not
-  silently ignore authored contract links.
-
-## Evidence Rules
-
-- Cite the concrete metric behind each risk label:
-  `analysis_summary.reason_codes`, blast-radius count, affected flow,
-  dependency direction, test gap, or changed public surface.
-- Treat missing tests as a lead until `tests_for` and `source_of` (or a file
-  read if that span is truncated/stale) are checked.
-- Treat zero-result graph queries as graph-limited leads. Read
-  `zero_result_reason`, `next_action`, `answerability`, and `missingness` before
-  claiming absence.
-- If a graph result is truncated, narrow it before making a final review claim.
-
-## CLI Fallback
-
-Default MCP already exposes `review_tool` and `query_graph_tool`. Use
-`dagayn tool` when the server allow-list omitted them:
+## CLI fallback
 
 ```bash
 dagayn tool review_tool --arg mode='"changes"' --arg detail_level='"minimal"'
 dagayn tool review_tool --arg mode='"context"' --arg detail_level='"minimal"'
-dagayn tool query_graph_tool --arg pattern='"source_of"' --arg target='"src/app.py::handler"'
 dagayn tool review_tool --arg mode='"impact"' --arg detail_level='"minimal"'
 dagayn tool query_graph_tool --arg pattern='"tests_for"' --arg target='"src/app.py::handler"'
-dagayn tool query_graph_tool --arg pattern='"docs_for"' --arg target='"src/app.py::handler"'
-dagayn tool query_graph_tool --arg pattern='"implementations_of"' --arg target='"docs/spec.md::contract-section"'
 ```

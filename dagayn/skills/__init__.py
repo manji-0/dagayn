@@ -43,6 +43,7 @@ from .skill_files import (
     install_opencode_skills,
     install_pi_skills,
     install_qoder_skills,
+    remove_repo_local_skills,
 )
 
 __all__ = [
@@ -61,6 +62,7 @@ __all__ = [
     "install_cursor_worktree_setup",
     "install_git_hook",
     "install_global_skills",
+    "remove_repo_local_skills",
     "install_hermes_hooks",
     "install_hermes_skills",
     "install_hooks",

@@ -1,13 +1,14 @@
 ---
 name: cross-repo-workflows
-description: Register repositories, maintain multi-repo graph freshness, and search across repos with dagayn.
+description: Work across several repositories with dagayn — register repos, keep their graphs fresh with the watch daemon, search all of them at once for a symbol or concept, then confirm hits in the owning repo. Use this whenever a task spans multiple repositories, a shared library and its consumers, a client and a server in different checkouts, or the user asks "who else uses this", "where is this defined in our other repos", or wants to set up the multi-repo registry or daemon.
 argument-hint: "[repo or query]"
 ---
 
 # Cross-Repo Workflows
 
-Use this when a task spans multiple repositories, shared libraries, downstream
-consumers, or a multi-repo watch daemon.
+Cross-repo search narrows candidates across every registered repository; the
+owning repo's own graph then confirms them. Each repo needs its own graph for
+search to see it.
 
 <!-- dagayn skill embedding context -->
 ## Installed Search Mode
@@ -19,45 +20,35 @@ retrieval setup.
 
 ## Workflow
 
-1. List known repositories:
-   ```bash
-   dagayn tool list_repos_tool
-   dagayn repos
-   ```
-2. Register missing repos explicitly:
+1. **See what is registered**: `dagayn repos` (or `dagayn tool list_repos_tool`).
+2. **Register and build missing repos**. `register` feeds cross-repo search;
+   `daemon add` only feeds the watch daemon, so run both if you want both:
    ```bash
    dagayn register /path/to/repo --alias short-name
+   dagayn build --repo /path/to/repo   # once; search skips repos without a graph
    dagayn daemon add /path/to/repo
    ```
-3. Keep graphs fresh:
-   ```bash
-   dagayn daemon status
-   dagayn daemon start
-   dagayn daemon logs
-   ```
-4. Search structurally across repos:
+3. **Keep graphs fresh**: `dagayn daemon status`, `dagayn daemon start`,
+   `dagayn daemon logs`.
+4. **Search across repos**:
    ```bash
    dagayn tool cross_repo_search_tool --arg query='"billing client"'
    ```
-5. After cross-repo candidates are identified, switch back to the relevant repo
-   and use local graph tools such as `query_graph_tool`, `review_tool`, or
-   `semantic_search_nodes_tool`. After a concrete `qualified_name`, fetch the
-   span with `query_graph_tool(pattern="source_of")` before opening the file.
+   Check `repos_searched`, `repos_skipped` (`no_graph`, `stale_registry_entry`,
+   `search_failed`), and `missingness`: a skipped repo means absence there is
+   not evidence. Scores from different `repo_search_modes` are not comparable.
+5. **Confirm in the owning repo** without switching checkouts: every local tool
+   takes `repo_root`, so pass the hit's `repo_path`, e.g.
+   `query_graph_tool(pattern="source_of", target=..., repo_root="<repo_path>")`.
+   Refresh that repo first with `ensure_graph_tool(repo_root="<repo_path>")`
+   (`force=True` only for uncommitted edits there).
 
-## Safety Rules
+## Rules
 
-- Never assume a registered repo is fresh. Check daemon status, or on the
-  default MCP surface run `ensure_graph_tool(force=True)` in that repo before
-  relying on a result. Use `build_or_update_graph_tool()` only when the
-  advanced surface is available and you need explicit rebuild/embedding controls.
-- Cross-repo search is for candidate discovery. Confirm behavior in the owning
-  repo before recommending edits.
-- Use aliases in reports so users can tell which repo each finding came from.
-
-## Efficiency Rules
-
-- Use cross-repo search to narrow the candidate set before any broad `rg` across
-  multiple checkout roots.
-- After a concrete `qualified_name` in the owning repo, confirm with
-  `query_graph_tool(pattern="source_of")`. Keep any leftover file reads
-  repo-local and targeted.
+- A registered repo is not necessarily fresh: check `dagayn daemon status` or
+  ensure it before relying on its results.
+- Cross-repo search is candidate discovery; confirm behavior in the owning repo
+  before recommending edits.
+- Report each finding with its repo alias so the user can tell where it lives.
+- Use cross-repo search before any broad `rg` across several checkouts, and
+  keep the file reads that remain targeted and repo-local.

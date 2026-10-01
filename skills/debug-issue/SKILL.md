@@ -1,11 +1,13 @@
 ---
 name: debug-issue
-description: Systematically debug issues using graph-powered code navigation
+description: Debug a bug, failing test, error message, stack trace, crash, or unexpected behavior in a repository dagayn has indexed — locate the code behind the symptom, trace callers and callees, check affected flows and recent changes, and confirm the failing path in source. Consult this skill before running the failing test, grepping for the error text, or calling graph tools whenever the user reports something broken or asks why X happens, where an error comes from, or why a tool or command returns the wrong result — even a one-line "why does this fail" question.
 ---
 
-## Debug Issue
+# Debug Issue
 
-Use the knowledge graph to systematically trace and debug issues.
+The graph turns a symptom into a short list of code points and the paths
+between them. Use it to decide where to look, then prove the cause in source:
+centrality or a call edge alone never establishes a root cause.
 
 <!-- dagayn skill embedding context -->
 ## Installed Search Mode
@@ -14,82 +16,60 @@ This packaged skill is mode-neutral. `dagayn install` rewrites this section with
 the selected embedding mode so bug searches balance semantic recall with speed.
 <!-- /dagayn skill embedding context -->
 
-### Steps
+## Steps
 
-1. Run `get_minimal_context_tool(task="<bug or symptom>")` to check graph freshness,
-   risk, and suggested next tools. If `graph_health.status` is `empty` (or
-   `ensure_graph_tool` is the first next-tool hint), call `ensure_graph_tool()`
-   and re-orient before search or traversal.
-2. Use `semantic_search_nodes_tool` to find code related to the issue.
-3. Fetch the suspected function with `query_graph_tool(pattern="source_of")`.
-   Then use `callers_of` and `callees_of` to trace call chains; `callers_of`
-   with `depth` returns the whole caller chain in one call.
-4. Use `traverse_graph_tool` only after selecting a concrete suspected node,
-   only when a bounded neighborhood is more useful than a specific caller,
-   callee, import, test, or documentation relationship, and only when the
-   advanced MCP surface (or `dagayn tool`) exposes it.
-5. Use `flow_tool(mode="list", detail_level="minimal")` or
-   `review_tool(mode="affected_flows")` to identify candidate flow names before
-   calling `flow_tool(mode="get")`. A stored flow is a CALLS reachable set
-   (BFS visit order), not an ordered execution path; read `truncated`.
-6. If the suspected code point has documentation bridges, use
-   `query_graph_tool(pattern="docs_for", target="<path::symbol>", detail_level="minimal")`
-   to pull in linked specs, runbooks, explanations, and issue notes. If the bug
-   report starts from a Markdown contract section, use
-   `query_graph_tool(pattern="implementations_of", target="<doc.md>::<section-slug>", detail_level="minimal")`
-   to find the implementation nodes linked by `implemented_by` /
-   `implements_contract`.
-7. Run `review_tool(mode="changes")` to check if recent changes caused the issue. Read
-   `analysis_summary` for risk reasons, affected-flow rankings, hotspot
-   proximity, and recommended tests.
-8. Use `review_tool(mode="impact")` on suspected files only when `analysis_summary` or
-   the call trace leaves the blast radius unclear.
-9. Fetch the likely failing span with
-   `query_graph_tool(pattern="source_of")`. Read the file only when that span
-   is truncated, stale, unreadable, or you need neighboring code.
+1. **Orient**: `get_minimal_context_tool(task="<bug or symptom>")`. If
+   `graph_health.status` is `empty` or `sync.state` is `unbuilt` /
+   `commit_drift`, follow `recommended_action` (call `ensure_graph_tool()` when
+   you need to wait for it).
+2. **Find the code**: `semantic_search_nodes_tool` for the symptom; for a log
+   line, CLI command, or UI string, one `rg` to map the literal to a node, then
+   back to graph tools.
+3. **Read and trace**: `query_graph_tool(pattern="source_of")` for the suspect,
+   then `callers_of` / `callees_of`. `callers_of` with `depth` (up to 6) walks
+   the caller chain in one call; check `reachability` before calling it the
+   whole chain. Calls into packages (`subprocess`, `std`, `builtins`) appear in
+   `unresolved_targets` because packages are not nodes — that is expected, not
+   a gap. If a target is `status="ambiguous"`, re-query with a
+   `qualified_name` from `candidates`.
+4. **Find the entry point**: `flow_tool(mode="list", detail_level="minimal")`
+   or `review_tool(mode="affected_flows")`, then `flow_tool(mode="get")` with
+   the chosen `flow_name` (or `flow_id`). A flow is a reachable set in BFS order, not an execution
+   trace; read `truncated`. Flows exist only after full post-processing — if
+   the list is empty right after a bootstrap, run `dagayn postprocess`.
+5. **Check recent changes**: `review_tool(mode="changes",
+   detail_level="minimal")` and read `risk_level`, `reason_codes`,
+   `affected_flow_rankings`, and `recommended_tests`; use `mode="impact"` only
+   when the blast radius is still unclear.
+6. **Follow linked docs** when they can explain the behavior: `docs_for` from
+   the suspect code point (runbooks and problem statements are often more
+   useful than another caller hop), `implementations_of` when the report starts
+   from a Markdown contract section.
+7. **Confirm the failing span** with `source_of`; open the file only when the
+   span is truncated or stale, or you need the surrounding code.
 
-### Tips
+## Tips
 
-- Check both callers and callees to understand the full context.
 - Prefer relationship queries over raw traversal when the question names a
-  relationship. Raw traversal is for "what else is nearby?" after the likely
-  node is known.
-- Look at affected flows to find the entry point that triggers the bug.
-- Recent changes are the most common source of new issues.
-- When the symptom starts from a log line, CLI command, or UI action, use `rg`
-  once to map that literal string to a graph node, then return to graph tools.
-- Treat `dagayn:` documentation directives as typed traceability evidence. Code
-  comments such as `# dagayn: explained-by docs/runbook.md#Failure Mode` can
-  point to runbooks or problem statements that are more useful than another
-  caller hop.
-- For documentation bridge query results, check `evidence_type`: `authored`
-  contract links are stronger than `extracted` explanatory links, while
-  `heuristic_reachable` links require `source_of` confirmation.
-- If `query_graph_tool` returns no result or `status="not_found"`, read
-  `zero_result_reason`, `next_action`, `answerability`, and `missingness`
-  before ruling out a path.
-- Do not infer root cause from graph centrality alone; require an observed
-  failing path, changed behavior, or source-level defect.
+  relationship; `traverse_graph_tool` (advanced surface) is for "what else is
+  nearby?" once the likely node is known.
+- Check both directions: callers show how the bad input arrives, callees show
+  what the code depends on.
+- Doc links carry `evidence_type`: `authored` contracts beat `extracted`
+  explanations; `heuristic_reachable` needs source confirmation.
+- If a query returns nothing, read `zero_result_reason`, `next_action`,
+  `answerability`, and `missingness` before ruling a path out. Unresolved
+  (`LOW`) calls can hide the real callee; where SCIP indexers are installed,
+  `dagayn build --scip` settles them (settled edges carry `resolved_by: "scip"`).
+- Pass `detail_level="minimal"` to tools that take it; use `"standard"` on
+  `query_graph_tool` when you need every related node.
 
-## CLI Fallback
-
-Default MCP already exposes `get_minimal_context_tool`, `flow_tool`,
-`review_tool`, and `query_graph_tool`. Use `dagayn tool` when the server
-allow-list omitted them, or for advanced helpers such as `traverse_graph_tool`:
+## CLI fallback
 
 ```bash
 dagayn tool get_minimal_context_tool --arg 'task="debug login timeout"'
 dagayn tool flow_tool --arg mode='"list"' --arg detail_level='"minimal"'
 dagayn tool flow_tool --arg mode='"get"' --arg 'flow_name="handle_request"'
-dagayn tool review_tool --arg mode='"impact"' --arg 'changed_files=["src/auth.py"]'
+dagayn tool query_graph_tool --arg pattern='"callers_of"' --arg target='"src/auth.py::handler"' --arg depth=4
 dagayn tool query_graph_tool --arg pattern='"source_of"' --arg target='"src/auth.py::handler"'
-dagayn tool query_graph_tool --arg pattern='"docs_for"' --arg target='"src/auth.py::handler"'
-dagayn tool query_graph_tool --arg pattern='"implementations_of"' --arg target='"docs/auth.md::login-contract"'
 ```
-
-## Token Efficiency Rules
-- ALWAYS start with `get_minimal_context_tool(task="<your task>")` before any other graph tool.
-- If the graph was empty, count tool calls **after** `ensure_graph_tool` returns.
-- Use `detail_level="minimal"` on all calls. Only escalate to "standard" when minimal is insufficient.
-- Target: complete any review/debug/refactor task in ≤5 tool calls and ≤800 total output tokens
-  after ensure.

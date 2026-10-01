@@ -1,89 +1,72 @@
 ---
 name: architecture-analysis
-description: Evaluate architecture signals through the unified dagayn dispatcher
+description: Assess a repository's architecture with the dagayn knowledge graph — module boundaries and communities, coupling, hubs and bridges (blast-radius hotspots), dependency cycles (ADP), stability direction (SDP), abstraction balance (SAP), and knowledge gaps — with counts and thresholds behind every claim. Use this whenever the user asks about architecture, layering, modularity, coupling, cyclic dependencies, "what are the riskiest parts of this codebase", where boundaries should be, or wants an architecture review or health check.
 ---
 
-## Architecture Analysis
+# Architecture Analysis
 
-Use `architecture_analysis_tool` as the single MCP entry point for architecture
-evaluation. Start broad, then drill down only when the overview or a concrete
-question points to a signal.
+`architecture_analysis_tool` is the single entry point. Start with the overview,
+then open one metric mode only when the overview or the user's question points
+at a specific signal: each mode answers a narrow question, and running them all
+buries the answer.
 
-### Steps
+## Steps
 
-1. Run `get_minimal_context_tool(task="<architecture goal>")` to check graph
-   freshness, risk, and suggested next tools. If `graph_health.status` is
-   `empty` (or `ensure_graph_tool` is the first next-tool hint), call
-   `ensure_graph_tool()` and re-orient before architecture analysis.
-2. Run `architecture_analysis_tool(mode="overview", detail_level="minimal")`.
-   Read `architecture_health.reason_codes`, counts, examples, and
-   `drill_downs`.
-3. Choose one follow-up mode only when there is a specific question:
-   - `communities`: boundaries, large clusters, cohesion, coupling shape
-   - `community`: one community's metadata or member sample
-   - `hubs`: high-degree hotspots with broad blast radius
-   - `bridges`: betweenness chokepoints between regions
+1. **Orient**: `get_minimal_context_tool(task="<architecture goal>")`. If
+   `graph_health.status` is `empty` or `sync.state` is `unbuilt` /
+   `commit_drift`, follow `recommended_action`.
+   Community and hub results need full post-processing: right after an
+   `ensure_graph_tool` bootstrap (minimal post-processing) they come back empty
+   and `graph_health.status` is `degraded`. Run `dagayn postprocess` first.
+2. **Overview**: `architecture_analysis_tool(mode="overview",
+   detail_level="minimal")`. Read `architecture_health.reason_codes`, `counts`,
+   `top_examples`, `guidance`, and `drill_downs`.
+3. **One follow-up mode** for a specific question:
+   - `communities` / `community`: boundaries, large clusters, cohesion
+   - `hubs` / `bridges`: high-degree hotspots and betweenness chokepoints
    - `knowledge_gaps`: isolated nodes, thin communities, untested hotspots
    - `surprising_connections`: unexpected cross-boundary coupling
    - `adp_violations`: dependency cycles
    - `sdp_metrics` / `sdp_violations`: dependency stability direction
-   - `sap_metrics` / `sap_violations`: abstraction/stability balance
-4. Use `query_graph_tool` only after the metric output identifies a concrete
-   node, edge, community, package, or file to verify. For one node's body, use
-   `pattern="source_of"` before opening the file.
-5. Use `traverse_graph_tool` only as a bounded neighborhood drill-down after a
-   concrete hub, bridge, surprising edge, or violating scope is chosen, and only
-   when the advanced MCP surface (or `dagayn tool`) exposes it. Prefer
-   `query_graph_tool` when the follow-up is a specific relationship.
-6. For architecture questions that cross documentation/code boundaries, use
-   `query_graph_tool(pattern="docs_for", target="<path::symbol>", detail_level="minimal")`
-   from code/Terraform nodes and
-   `query_graph_tool(pattern="implementations_of", target="<doc.md>::<section-slug>", detail_level="minimal")`
-   from Markdown contract sections. Treat `CROSS_ARTIFACT` documentation roles
-   as typed traceability evidence, not automatic architectural coupling; read
-   `evidence_type` and `missingness` before treating a doc edge as contract
-   evidence.
+   - `sap_metrics` / `sap_violations`: abstraction / stability balance
+   Structural modes default to `artifact_scope="code"` (no docs, no tests);
+   pass `"docs"` for documentation cycles or `"all"` for the mixed graph. For
+   ADP / SDP / SAP, `dependency_profile` chooses the edges: `strict_static`
+   (imports, inheritance, `DEPENDS_ON`; default), `implementation` (+ calls),
+   `infra_dataflow` (+ Terraform references), `artifact_trace` (+ high-
+   confidence doc links). `granularity="file" | "package"` sets the unit.
+4. **Verify the concrete thing** the metric named with `query_graph_tool`
+   (`callers_of`, `importers_of` with `depth` for transitive reach,
+   `source_of` for one node's body). `traverse_graph_tool` (advanced surface)
+   is for a bounded neighborhood around one chosen hub or bridge.
+5. **Doc ↔ code boundaries**: `docs_for` from code or Terraform nodes,
+   `implementations_of` from a Markdown section. These are traceability links,
+   not architectural coupling.
 
-### Evidence Rules
+## Evidence
 
-- Treat architecture signals as leads, not proof of a design bug.
-- Cite counts, thresholds, reason codes, `total`, `truncated`, and approximation
-  metadata when making claims.
-- Prefer `detail_level="minimal"` and small `top_n` values first. Increase only
-  when the result is too narrow to answer the question.
-- Keep the path from broad to narrow: overview first, metric mode second,
-  relationship query or `source_of` third.
-- Verify behavior with `query_graph_tool(pattern="source_of")` before turning
-  graph structure into a correctness or refactor recommendation. Read the file
-  only when that span is truncated, stale, or neighbors are required.
-- When citing Markdown ↔ code relationships, name the stored role
-  (`implemented_by`, `implements_contract`, `explained_by`, `has_runbook`,
-  `problem_described_by`, `discusses_artifact`, or `raises_issue_for`) and
-  whether it came from Markdown or code. Include `evidence_type` when it affects
-  the strength of the claim.
-- For zero-result graph queries, include `zero_result_reason` and `next_action`
-  rather than treating the result as proof of no relationship.
+- Architecture signals are leads, not proof of a design bug: cite counts,
+  thresholds, reason codes, and `total` / `truncated`.
+- Start with small `top_n`; a truncated `adp_violations` result's first
+  `next_tool_suggestions` entry repeats the call with the full count.
+  `sap_metrics` lists scopes the metric doesn't apply to under
+  `inapplicable_metrics`.
+- Go broad to narrow: overview, one metric mode, then a relationship query or
+  `source_of` before turning structure into a recommendation.
+- Name the stored role when citing a doc link (`implemented_by`,
+  `implements_contract`, `describes_symbol`, `explained_by`, `has_runbook`,
+  `problem_described_by`, `discusses_artifact`, `discussed_by`,
+  `raises_issue_for`) and its `evidence_type`.
+- For a zero-result query, cite `zero_result_reason` and `next_action` rather
+  than treating it as proof that no relationship exists.
+- Call-based profiles (`implementation`) are only as good as call resolution;
+  `dagayn build --scip` makes them compiler-accurate where indexers exist.
 
-## CLI Fallback
-
-Default MCP already exposes `architecture_analysis_tool` and `query_graph_tool`.
-Use `dagayn tool` when the server allow-list omitted them, or for advanced
-helpers such as `traverse_graph_tool`:
+## CLI fallback
 
 ```bash
 dagayn tool architecture_analysis_tool --arg mode='"overview"' --arg detail_level='"minimal"'
-dagayn tool architecture_analysis_tool --arg mode='"sdp_violations"' --arg top_n=10
+dagayn tool architecture_analysis_tool --arg mode='"adp_violations"' --arg dependency_profile='"implementation"'
 dagayn tool architecture_analysis_tool --arg mode='"community"' --arg community_name='"auth"'
 dagayn tool query_graph_tool --arg pattern='"source_of"' --arg target='"src/app.py::handler"'
-dagayn tool query_graph_tool --arg pattern='"docs_for"' --arg target='"src/app.py::handler"'
-dagayn tool query_graph_tool --arg pattern='"implementations_of"' --arg target='"docs/spec.md::contract-section"'
 ```
-
-## Token Efficiency Rules
-
-- ALWAYS start with `get_minimal_context_tool(task="<your task>")`.
-- If the graph was empty, count tool calls **after** `ensure_graph_tool` returns.
-- Use `architecture_analysis_tool(mode="overview", detail_level="minimal")`
-  before any architecture drill-down mode.
-- Target: answer architecture questions in ≤5 tool calls after ensure unless a
-  concrete source verification step requires more.

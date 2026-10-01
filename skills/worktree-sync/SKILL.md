@@ -1,74 +1,52 @@
 ---
 name: worktree-sync
-description: Make a git worktree usable for dagayn MCP — inherit the main checkout's graph and MCP config, then catch up the branch diff.
+description: Make a git worktree or jj workspace usable with dagayn — inherit the main checkout's graph and MCP config instead of rebuilding, then catch up the branch diff. Use this whenever an agent works in a linked worktree (Claude Code EnterWorktree, Cursor parallel agents, `git worktree add`, `jj workspace add`), or when dagayn tools in a worktree return an empty graph, the wrong checkout's results, or no MCP server at all.
 argument-hint: "[worktree path]"
 ---
 
 # Worktree Sync
 
-Use this when an agent opens a Claude Code / Cursor parallel worktree, or when
-MCP tools in a linked worktree look empty, missing, or pointed at the wrong
-checkout.
-
-## When to Use
-
-- Cursor created a worktree for a parallel agent
-- Claude Code entered a worktree and graph/MCP config is missing
-- `get_minimal_context_tool` shows an empty graph in a worktree that should
-  inherit from the main checkout
-- After `git worktree add` for a feature branch
+A linked worktree starts without `.dagayn/` or the gitignored MCP config.
+Rebuilding from scratch works but is slow; seeding from the main checkout's
+graph and catching up only the branch diff takes seconds.
 
 ## Steps
 
-1. Confirm you are in a linked worktree:
-   ```bash
-   dagayn worktree info
-   ```
-   If this is the main checkout, stop — use `ensure_graph_tool` / `build-graph`
-   instead of worktree inheritance.
-
-2. Sync config + graph from the main checkout:
-   ```bash
-   dagayn session prepare --budget-seconds 45
-   # or explicitly: dagayn worktree sync
-   ```
-   Session prepare seeds a linked worktree (config + graph), then catches up
-   HEAD/worktree drift within a short budget. `dagayn worktree sync` remains
-   available for an explicit inherit + catch-up without the prepare budget.
-
-   Options for `worktree sync`:
-   - `--seed-only` — inherit the graph without the incremental catch-up
-   - `--no-copy-config` — skip MCP/skill file copy when config is already present
-
-3. Orient with MCP:
-   - `get_minimal_context_tool(task="worktree session")` (enqueues prepare when empty/stale; call `ensure_graph_tool` to wait)
-   - If `sync.status` / `graph_health.status` is still `empty`, call `ensure_graph_tool()` once
-   - Prefer review / explore tools after the graph is healthy
-
-4. If install never wired host bootstrap, fix that in the **main** checkout:
-   ```bash
-   dagayn install --platform cursor   # or claude / all
-   ```
-   Expect:
-   - `.worktreeinclude` listing `.cursor/mcp.json` (and related MCP paths)
-   - `.cursor/worktrees.json` containing `dagayn session prepare --budget-seconds 45`
-   Commit `.worktreeinclude` (and force-add `.cursor/worktrees.json` when the
-   team wants Cursor auto-sync). Do not commit local `.cursor/mcp.json`.
+1. **Confirm where you are**: `dagayn worktree info`. In the main checkout,
+   stop and use `ensure_graph_tool` / the build-graph skill instead. jj
+   workspaces count as linked worktrees too.
+2. **Check whether a hook already did it**. Claude Code installs a PostToolUse
+   hook on `EnterWorktree|ExitWorktree` that runs `dagayn session prepare
+   --from-hook`, and Cursor's `.cursor/worktrees.json` runs `dagayn session
+   prepare` in each parallel-agent worktree. If `get_minimal_context_tool`
+   already shows a healthy graph, skip to step 4.
+3. **Seed and catch up**: `dagayn session prepare --budget-seconds 45` seeds the
+   worktree (config + graph) and catches up HEAD and worktree drift within the
+   budget. For an explicit inherit without the budget, use
+   `dagayn worktree sync`:
+   - `--build-if-missing` — build here when the main checkout has no graph
+     (without it, sync stops with "No graph available")
+   - `--seed-only` — inherit the graph, skip the incremental catch-up
+   - `--no-copy-config` — skip copying MCP/skill files that are already there
+   - `--base <ref>` — catch up from a specific base
+4. **Orient**: `get_minimal_context_tool(task="worktree session")`. If
+   `graph_health.status` is still `empty` or `sync.state` is `unbuilt`, call
+   `ensure_graph_tool()` once; then review and explore as usual.
+5. **If no host wiring exists**, fix it in the **main** checkout:
+   `dagayn install --platform claude` (or `cursor`, `all`). That writes
+   `.worktreeinclude`, listing whichever MCP config files exist and are
+   gitignored (e.g. `.mcp.json`, `.cursor/mcp.json`) so new worktrees get a
+   copy — commit it — and `.cursor/worktrees.json` for Cursor. Don't commit
+   local MCP config itself.
 
 ## Notes
 
-- `dagayn serve` / `dagayn update` / `dagayn status` / `dagayn session prepare`
-  also seed a worktree graph automatically unless `DAGAYN_WORKTREE_SEED=0`.
+- `dagayn serve`, `update`, `status`, and `session prepare` also seed a
+  worktree automatically unless `DAGAYN_WORKTREE_SEED=0`;
+  `session prepare --no-seed-worktree` skips it for one run.
+- `CRG_DATA_DIR` keeps graph data outside the working tree; each repository and
+  each worktree gets its own subdirectory (and its own graph) there.
 - Git hooks live in the shared hooks directory, so one install covers every
-  worktree of the same main checkout.
-- After sync, treat the worktree like a normal branch: review against the PR
-  base, not against an empty graph.
-
-## Efficiency Rules
-
-- Prefer `dagayn session prepare` / `dagayn worktree sync` over a full
-  `ensure_graph_tool` / `dagayn build` when the main checkout already has a
-  healthy graph.
-- One `worktree info` + one `session prepare` + one `get_minimal_context_tool`
-  is enough for most sessions.
-- Do not start embedding-enabled rebuilds to "fix" an empty worktree graph.
+  worktree of a checkout.
+- After sync, review against the PR base, not against an empty graph. Don't
+  start embedding-enabled rebuilds to "fix" an empty worktree graph.

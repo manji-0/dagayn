@@ -226,11 +226,12 @@ def _install_worktree_support(repo_root: Path, main_root: Path | None, cursor: b
         state = install_cursor_worktree_setup(root)
         if state in ("created", "updated"):
             print(f"{state.capitalize()} {root / '.cursor' / 'worktrees.json'}")
-            print("  Cursor worktrees now run 'dagayn worktree sync' on creation.")
+            print("  Cursor worktrees now run 'dagayn session prepare' on creation.")
         elif state == "manual":
             print(
                 f"{root / '.cursor' / 'worktrees.json'} uses a setup script — "
-                "add 'dagayn worktree sync' to it so Cursor worktrees keep the graph."
+                "add 'dagayn session prepare --budget-seconds 45' to it so Cursor "
+                "worktrees keep the graph."
             )
 
 
@@ -364,17 +365,14 @@ def handle(args: argparse.Namespace) -> None:
         install_pi_hooks,
         install_pi_skills,
         install_qoder_skills,
+        remove_repo_local_skills,
     )
 
     if not skip_skills:
         if target in ("all", "claude"):
-            skills_dir = generate_skills(
-                repo_root,
-                embedding_mode=mode,
-                embedding_preset=preset,
-                embedding_provider=provider,
-            )
-            print(f"Generated skills in {skills_dir}")
+            # Claude Code loads both ~/.claude/skills and <repo>/.claude/skills,
+            # so dagayn's skills live in one place: the global directory, with
+            # the repository copy only as the fallback when home is not writable.
             try:
                 global_skills_dir = install_global_skills(
                     embedding_mode=mode,
@@ -382,8 +380,21 @@ def handle(args: argparse.Namespace) -> None:
                     embedding_provider=provider,
                 )
                 print(f"Installed global skills to {global_skills_dir}")
+                removed = remove_repo_local_skills(repo_root)
+                if removed:
+                    print(
+                        f"Removed {removed} repo-local dagayn skill(s) from "
+                        f"{repo_root / '.claude' / 'skills'}: the global copies replace them"
+                    )
             except OSError as e:
                 print(f"Skipped global skills install ({e})", file=sys.stderr)
+                skills_dir = generate_skills(
+                    repo_root,
+                    embedding_mode=mode,
+                    embedding_preset=preset,
+                    embedding_provider=provider,
+                )
+                print(f"Generated skills in {skills_dir}")
         configured_platforms = set(configured)
         if target == "codex" or (target == "all" and "Codex" in configured_platforms):
             try:
