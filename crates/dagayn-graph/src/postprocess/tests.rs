@@ -2197,3 +2197,150 @@ fn enum_variant_calls_construct_their_enum() {
     );
     let _ = std::fs::remove_file(path);
 }
+
+#[test]
+fn calls_on_what_an_observed_method_returned_follow_its_package() {
+    // `Statement::query_map` twice and `Connection::prepare` twice on typed
+    // receivers; `conn.prepare(..)?` on an untyped `conn` is rusqlite's only
+    // once every other pass ran, and `.query_map(..)` on its result follows.
+    let path = temp_db("returned-observed");
+    let mut store = GraphStore::open(&path).expect("open");
+    let typed = |symbol: &str, line: i64| EdgeInput {
+        extra: json!({"external": true, "external_package": "rusqlite",
+                      "external_symbol": symbol, "confidence_tier": "MEDIUM"}),
+        ..edge("CALLS", "src/a.rs::run", "rusqlite", "src/a.rs", line)
+    };
+    store
+        .store_file_nodes_edges(
+            "src/a.rs",
+            &[file_node("src/a.rs"), function_node("run", "src/a.rs")],
+            &[
+                typed("Connection::prepare", 1),
+                typed("Connection::prepare", 2),
+                EdgeInput {
+                    extra: json!({"receiver_unknown": true}),
+                    ..edge("CALLS", "src/a.rs::run", "prepare", "src/a.rs", 10)
+                },
+                EdgeInput {
+                    extra: json!({"receiver_unknown": true,
+                                  "receiver_from": {"call": "prepare", "line": 10, "unwrap": true}}),
+                    ..edge("CALLS", "src/a.rs::run", "query_map", "src/a.rs", 11)
+                },
+            ],
+            "",
+            0,
+        )
+        .expect("store");
+    store.resolve_bare_call_targets().unwrap();
+    let rows = store
+        .conn
+        .prepare(
+            "SELECT line, target_qualified, json_extract(extra, '$.external_symbol') \
+             FROM edges WHERE kind = 'CALLS' AND line >= 10 ORDER BY line",
+        )
+        .unwrap()
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })
+        .unwrap()
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(
+        rows,
+        vec![
+            (10, "rusqlite".to_string(), Some("prepare".to_string())),
+            (
+                11,
+                "rusqlite".to_string(),
+                Some("prepare()::query_map".to_string())
+            ),
+        ]
+    );
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn python_standard_library_calls_of_known_return_type_type_their_result() {
+    // `conn.execute(..).fetchall()` (a `sqlite3.Cursor`), `re.match(..)
+    // .group()` (a `re.Match`). `path.read_text().splitlines()` is `str`'s
+    // (builtins), not pathlib's; `pytest.importorskip("numpy").array()`
+    // anything, so it stays. `close`
+    // is a function `app.py` declares, so a call on a result is left to it.
+    let path = temp_db("returned-python-stdlib");
+    let mut store = GraphStore::open(&path).expect("open");
+    let stdlib = |package: &str, symbol: &str, line: i64| EdgeInput {
+        extra: json!({"external": true, "external_package": package, "stdlib": true,
+                      "external_symbol": symbol, "confidence_tier": "MEDIUM"}),
+        ..edge("CALLS", "app.py::run", package, "app.py", line)
+    };
+    let from = |method: &str, call: &str, line: i64| EdgeInput {
+        extra: json!({"receiver_unknown": true,
+                      "receiver_from": {"call": call, "line": line, "unwrap": false}}),
+        ..edge("CALLS", "app.py::run", method, "app.py", line)
+    };
+    store
+        .store_file_nodes_edges(
+            "app.py",
+            &[
+                file_node("app.py"),
+                function_node("run", "app.py"),
+                function_node("close", "app.py"),
+            ],
+            &[
+                stdlib("sqlite3", "execute", 1),
+                from("fetchall", "execute", 1),
+                stdlib("re", "re.match", 2),
+                from("group", "match", 2),
+                stdlib("pathlib", "pathlib.Path.read_text", 3),
+                from("splitlines", "read_text", 3),
+                EdgeInput {
+                    extra: json!({"external": true, "external_package": "pytest",
+                                  "external_symbol": "pytest.importorskip"}),
+                    ..edge("CALLS", "app.py::run", "pytest", "app.py", 4)
+                },
+                from("array", "importorskip", 4),
+                stdlib("sqlite3", "connect", 5),
+                from("close", "connect", 5),
+            ],
+            "",
+            0,
+        )
+        .expect("store");
+    store.resolve_bare_call_targets().unwrap();
+    let rows = store
+        .conn
+        .prepare(
+            "SELECT line, target_qualified, json_extract(extra, '$.external_symbol') \
+             FROM edges WHERE kind = 'CALLS' \
+               AND json_extract(extra, '$.receiver_from') IS NOT NULL ORDER BY line",
+        )
+        .unwrap()
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })
+        .unwrap()
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .unwrap();
+    let row = |line: i64, target: &str, symbol: Option<&str>| {
+        (line, target.to_string(), symbol.map(str::to_string))
+    };
+    assert_eq!(
+        rows,
+        vec![
+            row(1, "sqlite3", Some("sqlite3.Cursor.fetchall")),
+            row(2, "re", Some("re.Match.group")),
+            row(3, "builtins", Some("splitlines")),
+            row(4, "array", None),
+            row(5, "app.py::close", None),
+        ]
+    );
+    let _ = std::fs::remove_file(path);
+}

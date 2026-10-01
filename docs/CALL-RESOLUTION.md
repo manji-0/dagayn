@@ -206,7 +206,12 @@ transaction:
      external to the type's package (the declaring file's imports, glob
      imports included, package qualifiers such as `http.Client` against
      `net/http`, and each language's built-in types). A Rust method of what
-     a package call returned belongs to that package. `MEDIUM`.
+     a package call returned belongs to that package. A Python
+     standard-library call of known return type (`re.match` a `re.Match`,
+     `execute` a `sqlite3.Cursor`, `hashlib.sha256` a hash object) types
+     its result; a method on what any other package call returned is left
+     to the passes below, since it is often a builtin's
+     (`path.read_text().splitlines()`). `MEDIUM`.
    - *PyO3.* A Python call on a `receiver_type` that a Rust
      `#[pyclass(name = ...)]` exports binds to its `#[pymethods]` method.
    - *Glob-imported crate names.* A Rust name a `use super::*` brings in from
@@ -225,7 +230,9 @@ transaction:
    reach (`child.kind()` is `tree_sitter`'s), unless a function of that
    name is visible to the calling file. Only receivers whose type is written
    count as observations. `MEDIUM`, `inferred_from: "observed_method"`.
-7. **`TESTED_BY`**: see below.
+7. **Return types again**, for `receiver_from` calls whose origin step 6
+   typed (`conn.prepare(..)?.query_map(..)` once `prepare` is `rusqlite`'s).
+8. **`TESTED_BY`**: see below.
 
 Native-binding resolution, which runs later in the pipeline, reads the
 called name of an `external` Python call from `external_symbol`, so calls

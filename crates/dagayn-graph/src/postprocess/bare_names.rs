@@ -720,6 +720,9 @@ impl GraphStore {
         resolved += bind_bare_call_targets(&tx, &index, &import_targets, &visibility, true)?;
         // Last: what every other pass typed is what it learns from.
         mark_observed_method_calls(&tx)?;
+        // A call it typed (`conn.prepare(..)` as `rusqlite`'s) is the origin
+        // a call on its result (`.query_map(..)`) waits for.
+        resolve_returned_receivers(&tx)?;
         sync_tested_by_with_calls(&tx)?;
         reconcile_tested_by_with_calls(&tx)?;
         tx.commit()?;

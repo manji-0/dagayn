@@ -10,7 +10,11 @@
 //! (`-> sqlite3.Connection`, `-> Result<Self>`) types the receiver: a class
 //! of the repository resolves the method, a type of the standard library or
 //! of a package points the call at it. A call bound this way can type the
-//! next one in a chain, so the pass repeats until nothing changes.
+//! next one in a chain, so the pass repeats until nothing changes. A call
+//! the origin binds to a package types the receiver too: a Rust method of
+//! what a package returned is one of its types, and a Python
+//! standard-library function of known return type (`re.match` a
+//! `re.Match`) types its result.
 //!
 //! Python calls on a class that a Rust extension defines (`#[pyclass(name =
 //! "GraphStore")]`, `ffi_export` `abi: "pyo3"`) bind to its `#[pymethods]`.
@@ -45,6 +49,67 @@ const RUST_STD_TYPES: &[&str] = &[
     "RwLock", "String", "Vec", "VecDeque", "bool", "char", "f32", "f64", "i8", "i16", "i32", "i64",
     "i128", "isize", "str", "u8", "u16", "u32", "u64", "u128", "usize",
 ];
+
+/// Python standard-library functions by `(package, function)` and the type
+/// they return. A method on what any other one returned is left alone: the
+/// result is often a builtin (`path.read_text().splitlines()` is `str`'s,
+/// `json.loads(text).get(..)` a `dict`'s), or anything at all
+/// (`importlib.import_module`, `pytest.importorskip`). `execute` is
+/// `sqlite3.Connection`'s and `sqlite3.Cursor`'s alike; `match` is `re`'s
+/// and `re.Pattern`'s.
+const PYTHON_STDLIB_RETURNS: &[(&str, &str, &str)] = &[
+    ("argparse", "ArgumentParser", "argparse.ArgumentParser"),
+    ("argparse", "add_argument_group", "argparse._ArgumentGroup"),
+    (
+        "argparse",
+        "add_mutually_exclusive_group",
+        "argparse._MutuallyExclusiveGroup",
+    ),
+    ("argparse", "add_parser", "argparse.ArgumentParser"),
+    ("argparse", "add_subparsers", "argparse._SubParsersAction"),
+    ("hashlib", "blake2b", "hashlib.blake2b"),
+    ("hashlib", "md5", "hashlib._Hash"),
+    ("hashlib", "new", "hashlib._Hash"),
+    ("hashlib", "sha1", "hashlib._Hash"),
+    ("hashlib", "sha256", "hashlib._Hash"),
+    ("hashlib", "sha512", "hashlib._Hash"),
+    ("logging", "getLogger", "logging.Logger"),
+    ("pathlib", "Path", "pathlib.Path"),
+    ("pathlib", "absolute", "pathlib.Path"),
+    ("pathlib", "expanduser", "pathlib.Path"),
+    ("pathlib", "joinpath", "pathlib.Path"),
+    ("pathlib", "open", "io.IOBase"),
+    ("pathlib", "relative_to", "pathlib.Path"),
+    ("pathlib", "resolve", "pathlib.Path"),
+    ("pathlib", "with_name", "pathlib.Path"),
+    ("pathlib", "with_suffix", "pathlib.Path"),
+    ("re", "compile", "re.Pattern"),
+    ("re", "fullmatch", "re.Match"),
+    ("re", "match", "re.Match"),
+    ("re", "search", "re.Match"),
+    ("sqlite3", "connect", "sqlite3.Connection"),
+    ("sqlite3", "cursor", "sqlite3.Cursor"),
+    ("sqlite3", "execute", "sqlite3.Cursor"),
+    ("sqlite3", "executemany", "sqlite3.Cursor"),
+    ("sqlite3", "executescript", "sqlite3.Cursor"),
+    ("subprocess", "Popen", "subprocess.Popen"),
+    ("subprocess", "run", "subprocess.CompletedProcess"),
+    ("threading", "Thread", "threading.Thread"),
+];
+
+/// What the Python standard-library call `symbol` of `package` returns.
+fn python_stdlib_returned(package: &str, symbol: &str) -> Option<Returned> {
+    let function = symbol.rsplit('.').next().unwrap_or(symbol);
+    let (_, _, type_path) = PYTHON_STDLIB_RETURNS
+        .iter()
+        .find(|(owner, name, _)| *owner == package && *name == function)?;
+    let type_package = type_path.split('.').next().unwrap_or(type_path);
+    Some(Returned::External(
+        type_package.to_string(),
+        true,
+        type_path.to_string(),
+    ))
+}
 
 /// What a returned type is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -989,6 +1054,21 @@ pub(crate) fn resolve_returned_receivers(tx: &Transaction<'_>) -> Result<i64> {
                     stdlib,
                     format!("{symbol}()"),
                 ))
+            } else if family == "python"
+                && inner_extra.get("stdlib").and_then(Value::as_bool) == Some(true)
+                && !graph.visible(family, &method, &file, &import_targets)
+            {
+                // A Python standard-library function whose return type is
+                // known (`conn.execute(..).fetchall()` is a `sqlite3.Cursor`'s).
+                let package = inner_extra
+                    .get("external_package")
+                    .and_then(Value::as_str)
+                    .unwrap_or(&inner_target);
+                let symbol = inner_extra
+                    .get("external_symbol")
+                    .and_then(Value::as_str)
+                    .unwrap_or(name);
+                python_stdlib_returned(package, symbol)
             } else {
                 None
             };

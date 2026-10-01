@@ -2,6 +2,27 @@
 
 All notable changes to `dagayn` are documented here.
 
+## Unreleased
+
+### Added
+
+- A method on the result of a Python standard-library call of known return
+  type points at that type's package: `conn.execute(..).fetchall()` is
+  `CALLS -> sqlite3` (`external_symbol` `sqlite3.Cursor.fetchall`),
+  `re.match(..).group()` `re`, `hashlib.sha256(..).hexdigest()` `hashlib`,
+  `parser.add_subparsers().add_parser(..)` `argparse`, `path.open().close()`
+  `io`. A method on what any other package call returned stays to later
+  passes (`path.read_text().splitlines()` is `builtins`').
+
+### Fixed
+
+- A call on the result of a call that observed-method inference typed
+  (`conn.prepare(..)?.query_map(..)` with an untyped `conn`) now follows
+  it: return-type resolution runs once more after that inference.
+
+On this repository's v7.0.0 sources, calls left unresolved (`LOW`) went
+from 3,070 to 2,627.
+
 ## 7.0.0 — 2026-10-01
 
 ### Added
