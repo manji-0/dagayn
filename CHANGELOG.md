@@ -13,15 +13,30 @@ All notable changes to `dagayn` are documented here.
   `parser.add_subparsers().add_parser(..)` `argparse`, `path.open().close()`
   `io`. A method on what any other package call returned stays to later
   passes (`path.read_text().splitlines()` is `builtins`').
+- The same for JavaScript and TypeScript packages:
+  `vscode.window.createOutputChannel(..).appendLine(..)` is `CALLS ->
+  vscode` (`vscode.OutputChannel.appendLine`),
+  `workspace.getConfiguration(..).get(..)` `vscode`,
+  `d3.select(..).append(..).attr(..)` `d3` down the chain, and
+  `spawn(..).on(..)` `node:child_process`. Calls typed by either table
+  carry `inferred_from: "return_table"`.
+- More Rust methods only the standard library defines point at `std` on an
+  untyped receiver: `cmp`, `partial_cmp`, `total_cmp`, `then_with`,
+  `as_ptr`, `to_ascii_lowercase`, `is_ascii_digit`, `trim_end_matches`,
+  `round`, `clamp`, `get_unchecked`, and others.
 
 ### Fixed
 
 - A call on the result of a call that observed-method inference typed
   (`conn.prepare(..)?.query_map(..)` with an untyped `conn`) now follows
   it: return-type resolution runs once more after that inference.
+- Calls a return table typed no longer teach observed-method inference:
+  `config.get(..)` on a `vscode.WorkspaceConfiguration` would otherwise
+  have taken every untyped `map.get(key)` for `vscode`'s. Only types the
+  code writes count as observations.
 
 On this repository's v7.0.0 sources, calls left unresolved (`LOW`) went
-from 3,070 to 2,627.
+from 3,070 to 2,364.
 
 ## 7.0.0 — 2026-10-01
 

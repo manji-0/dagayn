@@ -12,9 +12,10 @@
 //! of a package points the call at it. A call bound this way can type the
 //! next one in a chain, so the pass repeats until nothing changes. A call
 //! the origin binds to a package types the receiver too: a Rust method of
-//! what a package returned is one of its types, and a Python
-//! standard-library function of known return type (`re.match` a
-//! `re.Match`) types its result.
+//! what a package returned is one of its types, and a Python or JavaScript
+//! package function of known return type (`re.match` a `re.Match`,
+//! `vscode.workspace.getConfiguration` a `vscode.WorkspaceConfiguration`)
+//! types its result.
 //!
 //! Python calls on a class that a Rust extension defines (`#[pyclass(name =
 //! "GraphStore")]`, `ffi_export` `abi: "pyo3"`) bind to its `#[pymethods]`.
@@ -97,16 +98,87 @@ const PYTHON_STDLIB_RETURNS: &[(&str, &str, &str)] = &[
     ("threading", "Thread", "threading.Thread"),
 ];
 
-/// What the Python standard-library call `symbol` of `package` returns.
-fn python_stdlib_returned(package: &str, symbol: &str) -> Option<Returned> {
-    let function = symbol.rsplit('.').next().unwrap_or(symbol);
-    let (_, _, type_path) = PYTHON_STDLIB_RETURNS
+/// JavaScript / TypeScript package functions by `(package, function)` and
+/// the type they return, on the same terms as [`PYTHON_STDLIB_RETURNS`]
+/// (`fs.readFileSync(p).toString()` is a `String`'s, so `node:fs` is not
+/// here). [`SAME_TYPE`] marks a method that returns its receiver's type
+/// (`selection.attr(..).attr(..)`, `zoom().scaleExtent(..).on(..)`).
+const JAVASCRIPT_PACKAGE_RETURNS: &[(&str, &str, &str)] = &[
+    ("d3", "append", SAME_TYPE),
+    ("d3", "attr", SAME_TYPE),
+    ("d3", "call", SAME_TYPE),
+    ("d3", "classed", SAME_TYPE),
+    ("d3", "data", SAME_TYPE),
+    ("d3", "delay", SAME_TYPE),
+    ("d3", "drag", "d3.DragBehavior"),
+    ("d3", "duration", SAME_TYPE),
+    ("d3", "enter", SAME_TYPE),
+    ("d3", "exit", SAME_TYPE),
+    ("d3", "force", SAME_TYPE),
+    ("d3", "forceSimulation", "d3.Simulation"),
+    ("d3", "insert", SAME_TYPE),
+    ("d3", "join", SAME_TYPE),
+    ("d3", "on", SAME_TYPE),
+    ("d3", "scaleExtent", SAME_TYPE),
+    ("d3", "select", "d3.Selection"),
+    ("d3", "selectAll", "d3.Selection"),
+    ("d3", "style", SAME_TYPE),
+    ("d3", "text", SAME_TYPE),
+    ("d3", "transition", "d3.Transition"),
+    ("d3", "zoom", "d3.ZoomBehavior"),
+    (
+        "node:child_process",
+        "spawn",
+        "node:child_process.ChildProcess",
+    ),
+    (
+        "vscode",
+        "createFileSystemWatcher",
+        "vscode.FileSystemWatcher",
+    ),
+    ("vscode", "createOutputChannel", "vscode.OutputChannel"),
+    ("vscode", "createStatusBarItem", "vscode.StatusBarItem"),
+    ("vscode", "createTerminal", "vscode.Terminal"),
+    ("vscode", "createTreeView", "vscode.TreeView"),
+    ("vscode", "createWebviewPanel", "vscode.WebviewPanel"),
+    (
+        "vscode",
+        "getConfiguration",
+        "vscode.WorkspaceConfiguration",
+    ),
+];
+
+/// A returned type that is the receiver's own.
+const SAME_TYPE: &str = "";
+
+/// What the package call `symbol` of `package` returns, by the table of
+/// `family`. `symbol` is the call's `external_symbol` (`re.match`,
+/// `d3.Selection.attr`) or the function's name; a [`SAME_TYPE`] method
+/// returns the type before its name.
+fn package_returned(family: &str, package: &str, stdlib: bool, symbol: &str) -> Option<Returned> {
+    let table = match family {
+        "python" => PYTHON_STDLIB_RETURNS,
+        "javascript" => JAVASCRIPT_PACKAGE_RETURNS,
+        _ => return None,
+    };
+    let (owner, function) = symbol.rsplit_once('.').unwrap_or(("", symbol));
+    let (_, _, type_path) = table
         .iter()
-        .find(|(owner, name, _)| *owner == package && *name == function)?;
+        .find(|(declaring, name, _)| *declaring == package && *name == function)?;
+    let type_path = if *type_path == SAME_TYPE {
+        owner
+            .strip_prefix(package)
+            .is_some_and(|rest| rest.starts_with('.'))
+            .then_some(owner)?
+    } else {
+        type_path
+    };
+    // A type of another module of the same library (`pathlib`'s `open` an
+    // `io` object) is the standard library's when the call was.
     let type_package = type_path.split('.').next().unwrap_or(type_path);
     Some(Returned::External(
         type_package.to_string(),
-        true,
+        stdlib,
         type_path.to_string(),
     ))
 }
@@ -1029,6 +1101,9 @@ pub(crate) fn resolve_returned_receivers(tx: &Transaction<'_>) -> Result<i64> {
                 continue;
             };
             let separator = if family == "rust" { "::" } else { "." };
+            // Typed by a table of package return types, not by a type the
+            // code writes: observed-method inference does not learn from it.
+            let mut by_table = false;
             let returned = if graph.nodes.contains(&inner_target) {
                 returned_by(&graph, &inner_target, unwrap)
             } else if family == "rust"
@@ -1054,21 +1129,27 @@ pub(crate) fn resolve_returned_receivers(tx: &Transaction<'_>) -> Result<i64> {
                     stdlib,
                     format!("{symbol}()"),
                 ))
-            } else if family == "python"
-                && inner_extra.get("stdlib").and_then(Value::as_bool) == Some(true)
+            } else if matches!(family, "python" | "javascript")
+                && inner_extra.get("external").and_then(Value::as_bool) == Some(true)
                 && !graph.visible(family, &method, &file, &import_targets)
             {
-                // A Python standard-library function whose return type is
-                // known (`conn.execute(..).fetchall()` is a `sqlite3.Cursor`'s).
+                // A package function whose return type is known
+                // (`conn.execute(..).fetchall()` is a `sqlite3.Cursor`'s,
+                // `vscode.window.createOutputChannel(..).appendLine(..)` a
+                // `vscode.OutputChannel`'s). A JavaScript call names its
+                // function in the target (`vscode::window.createOutputChannel`).
                 let package = inner_extra
                     .get("external_package")
                     .and_then(Value::as_str)
                     .unwrap_or(&inner_target);
+                let stdlib = inner_extra.get("stdlib").and_then(Value::as_bool) == Some(true);
                 let symbol = inner_extra
                     .get("external_symbol")
                     .and_then(Value::as_str)
+                    .or_else(|| inner_target.split_once("::").map(|(_, symbol)| symbol))
                     .unwrap_or(name);
-                python_stdlib_returned(package, symbol)
+                by_table = true;
+                package_returned(family, package, stdlib, symbol)
             } else {
                 None
             };
@@ -1115,6 +1196,9 @@ pub(crate) fn resolve_returned_receivers(tx: &Transaction<'_>) -> Result<i64> {
                         stdlib,
                         format!("{type_name}{separator}{method}"),
                     );
+                    if by_table {
+                        extra["inferred_from"] = json!("return_table");
+                    }
                     update_call(tx, id, &package, &extra)?;
                     round += 1;
                 }

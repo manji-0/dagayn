@@ -2344,3 +2344,127 @@ fn python_standard_library_calls_of_known_return_type_type_their_result() {
     );
     let _ = std::fs::remove_file(path);
 }
+
+#[test]
+fn javascript_package_calls_of_known_return_type_type_their_result() {
+    // `vscode.workspace.getConfiguration(..).get(..)` is a
+    // `vscode.WorkspaceConfiguration`'s; `d3.select(..).append(..).attr(..)`
+    // stays a `d3.Selection` down the chain. `fs.readFileSync(p).toString()`
+    // is a `String`'s, not `node:fs`'s. Calls the table typed teach
+    // observed-method inference nothing: `cache.get(key)` stays unresolved
+    // however many configurations were read.
+    let path = temp_db("returned-javascript");
+    let mut store = GraphStore::open(&path).expect("open");
+    let package = |target: &str, package: &str, line: i64| EdgeInput {
+        extra: json!({"external": true, "external_package": package}),
+        ..edge("CALLS", "src/a.ts::run", target, "src/a.ts", line)
+    };
+    let from = |method: &str, call: &str, line: i64| EdgeInput {
+        extra: json!({"receiver_unknown": true,
+                      "receiver_from": {"call": call, "line": line, "unwrap": false}}),
+        ..edge("CALLS", "src/a.ts::run", method, "src/a.ts", line)
+    };
+    store
+        .store_file_nodes_edges(
+            "src/a.ts",
+            &[file_node("src/a.ts"), function_node("run", "src/a.ts")],
+            &[
+                package("vscode::workspace.getConfiguration", "vscode", 1),
+                from("get", "getConfiguration", 1),
+                package("d3::select", "d3", 2),
+                from("append", "select", 2),
+                from("attr", "append", 2),
+                package("node:fs::readFileSync", "node:fs", 3),
+                from("toString", "readFileSync", 3),
+                package("vscode::workspace.getConfiguration", "vscode", 4),
+                from("get", "getConfiguration", 4),
+                EdgeInput {
+                    extra: json!({"receiver_unknown": true}),
+                    ..edge("CALLS", "src/a.ts::run", "get", "src/a.ts", 5)
+                },
+            ],
+            "",
+            0,
+        )
+        .expect("store");
+    store.resolve_bare_call_targets().unwrap();
+    let rows = store
+        .conn
+        .prepare(
+            "SELECT line, target_qualified, json_extract(extra, '$.external_symbol') \
+             FROM edges WHERE kind = 'CALLS' \
+               AND json_extract(extra, '$.receiver_from') IS NOT NULL ORDER BY line, id",
+        )
+        .unwrap()
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })
+        .unwrap()
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .unwrap();
+    let row = |line: i64, target: &str, symbol: Option<&str>| {
+        (line, target.to_string(), symbol.map(str::to_string))
+    };
+    assert_eq!(
+        rows,
+        vec![
+            row(1, "vscode", Some("vscode.WorkspaceConfiguration.get")),
+            row(2, "d3", Some("d3.Selection.append")),
+            row(2, "d3", Some("d3.Selection.attr")),
+            row(3, "globalThis", Some("toString")),
+            row(4, "vscode", Some("vscode.WorkspaceConfiguration.get")),
+        ]
+    );
+    let cache_get: String = store
+        .conn
+        .query_row(
+            "SELECT target_qualified FROM edges WHERE kind = 'CALLS' AND line = 5",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(cache_get, "get");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn rust_orderings_compared_by_name_are_the_standard_librarys() {
+    // `a.cmp(&b).then_with(..)` on untyped `a`: `cmp` is `Ord`'s and
+    // `then_with` `Ordering`'s.
+    let path = temp_db("rust-ordering");
+    let mut store = GraphStore::open(&path).expect("open");
+    store
+        .store_file_nodes_edges(
+            "src/a.rs",
+            &[file_node("src/a.rs"), function_node("run", "src/a.rs")],
+            &[
+                EdgeInput {
+                    extra: json!({"receiver_unknown": true}),
+                    ..edge("CALLS", "src/a.rs::run", "cmp", "src/a.rs", 1)
+                },
+                EdgeInput {
+                    extra: json!({"receiver_unknown": true,
+                                  "receiver_from": {"call": "cmp", "line": 1, "unwrap": false}}),
+                    ..edge("CALLS", "src/a.rs::run", "then_with", "src/a.rs", 1)
+                },
+            ],
+            "",
+            0,
+        )
+        .expect("store");
+    store.resolve_bare_call_targets().unwrap();
+    let targets = store
+        .conn
+        .prepare("SELECT target_qualified FROM edges WHERE kind = 'CALLS' ORDER BY id")
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(targets, vec!["std".to_string(), "std".to_string()]);
+    let _ = std::fs::remove_file(path);
+}

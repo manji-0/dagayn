@@ -45,7 +45,7 @@ parser; "post-processing" means the passes in
 | `external_symbol` | extractor, post-processing | What was called, as written or resolved: `subprocess.run`, `pathlib.Path.read_text`, `Vec::new`, `format!`, `http.Client.Get`. Rust chains spell the receiver's call: `PathBuf::canonicalize()::ok()::map`. |
 | `confidence_tier` / `confidence` | extractor, post-processing | `HIGH` / `0.9` or `MEDIUM` / `0.6`; see [Confidence tiers](#confidence-tiers). |
 | `paths` | extractor | On a Rust `IMPORTS_FROM` to a crate: the paths one `use` imports from it (`["std::collections::HashMap", "std::collections::HashSet"]`). |
-| `inferred_from` | post-processing | `"observed_method"` when the package was inferred from typed calls of the same method name. |
+| `inferred_from` | post-processing | `"observed_method"` when the package was inferred from typed calls of the same method name; `"return_table"` when the receiver was typed by a table of package return types (`re.match(..)` a `re.Match`). |
 | `receiver_type` | extractor, post-processing | The receiver's type when it is a class of another file (`store: GraphStore`). The target is the bare method name until resolution binds it. |
 | `receiver_unknown` | extractor | The receiver's type is unknown (`x.m()` with `x` untyped). The call is never bound to a same-named function of the file. |
 | `receiver_from` | extractor | `{"call": name, "line": L, "unwrap": bool}`: the receiver is the result of the call `name` on line `L` of the same caller (`store_conn(s).execute()`, or a variable assigned from it). `unwrap` is set when the result was taken out of a wrapper (`?`, `.unwrap()`, `await`, `try`, Go's first of several results). |
@@ -206,12 +206,16 @@ transaction:
      external to the type's package (the declaring file's imports, glob
      imports included, package qualifiers such as `http.Client` against
      `net/http`, and each language's built-in types). A Rust method of what
-     a package call returned belongs to that package. A Python
-     standard-library call of known return type (`re.match` a `re.Match`,
-     `execute` a `sqlite3.Cursor`, `hashlib.sha256` a hash object) types
-     its result; a method on what any other package call returned is left
-     to the passes below, since it is often a builtin's
-     (`path.read_text().splitlines()`). `MEDIUM`.
+     a package call returned belongs to that package. In Python and
+     JavaScript / TypeScript, a package call of known return type types its
+     result by a table (`re.match` a `re.Match`, `execute` a
+     `sqlite3.Cursor`, `vscode.workspace.getConfiguration` a
+     `vscode.WorkspaceConfiguration`, d3's `select` a `d3.Selection` that
+     `.attr(..)` and `.append(..)` return again), `inferred_from:
+     "return_table"`; a method on what any other package call returned is
+     left to the passes below, since it is often a builtin's
+     (`path.read_text().splitlines()`, `fs.readFileSync(p).toString()`).
+     `MEDIUM`.
    - *PyO3.* A Python call on a `receiver_type` that a Rust
      `#[pyclass(name = ...)]` exports binds to its `#[pymethods]` method.
    - *Glob-imported crate names.* A Rust name a `use super::*` brings in from
@@ -229,7 +233,8 @@ transaction:
    least two, and at least 90 %, of the typed calls of the same method name
    reach (`child.kind()` is `tree_sitter`'s), unless a function of that
    name is visible to the calling file. Only receivers whose type is written
-   count as observations. `MEDIUM`, `inferred_from: "observed_method"`.
+   count as observations, not those a return table typed (a
+   `WorkspaceConfiguration.get` would take every untyped `map.get(key)`). `MEDIUM`, `inferred_from: "observed_method"`.
 7. **Return types again**, for `receiver_from` calls whose origin step 6
    typed (`conn.prepare(..)?.query_map(..)` once `prepare` is `rusqlite`'s).
 8. **`TESTED_BY`**: see below.
