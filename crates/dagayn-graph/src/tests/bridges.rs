@@ -307,3 +307,94 @@ fn markdown_resolver_retiers_resolved_code_span_bridges_left_at_high() {
     );
     let _ = std::fs::remove_file(path);
 }
+
+#[test]
+fn directives_to_missing_targets_are_no_longer_authored_evidence() {
+    // `implemented-by` to a renamed symbol and `constrained-by` to a missing
+    // file drop to LOW; the live directive and a command a program runs keep
+    // their tiers.
+    let path = temp_db("markdown-dangling-directives");
+    let mut store = GraphStore::open(&path).expect("open graph store");
+    let node = |name: &str, file: &str, kind: &str| NodeInput {
+        kind: kind.to_string(),
+        name: name.to_string(),
+        file_path: file.to_string(),
+        line_start: 1,
+        line_end: 10,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test: false,
+        extra: Value::Object(Default::default()),
+    };
+    let edge = |kind: &str, target: &str, extra: Value| EdgeInput {
+        kind: kind.to_string(),
+        source: "docs/spec.md::contract".to_string(),
+        target: target.to_string(),
+        file_path: "docs/spec.md".to_string(),
+        line: 3,
+        extra,
+    };
+    let directive = json!({
+        "bridge_kind": "documentation", "evidence_source": "dagayn_directive",
+        "relationship_role": "implemented_by", "confidence": 0.8, "confidence_tier": "HIGH",
+    });
+    store
+        .store_file_batch(&[(
+            "docs/spec.md".to_string(),
+            vec![
+                node("docs/spec.md", "docs/spec.md", "File"),
+                node("refresh", "auth.py", "Function"),
+            ],
+            vec![
+                edge("CROSS_ARTIFACT", "auth.py::refresh", directive.clone()),
+                edge("CROSS_ARTIFACT", "auth.py::renamed_away", directive),
+                edge(
+                    "DEPENDS_ON",
+                    "docs/missing.md",
+                    json!({"markdown_directive_kind": "constrained-by"}),
+                ),
+                edge(
+                    "CROSS_ARTIFACT",
+                    "git",
+                    json!({"bridge_kind": "subprocess", "confidence_tier": "HIGH"}),
+                ),
+            ],
+            "hash".to_string(),
+            0,
+        )])
+        .unwrap();
+    store
+        .conn
+        .execute(
+            "UPDATE edges SET confidence = 0.8, confidence_tier = 'HIGH'",
+            [],
+        )
+        .unwrap();
+
+    let (_, demoted, _, _) = store.resolve_markdown_artifact_refs().unwrap();
+    assert_eq!(demoted, 2);
+    let tiers = store
+        .conn
+        .prepare("SELECT target_qualified, confidence_tier FROM edges ORDER BY id")
+        .unwrap()
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .unwrap()
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .unwrap();
+    let tier = |target: &str| {
+        tiers
+            .iter()
+            .find(|(qualified, _)| qualified == target)
+            .map(|(_, tier)| tier.as_str())
+    };
+    assert_eq!(tier("auth.py::refresh"), Some("HIGH"));
+    assert_eq!(tier("auth.py::renamed_away"), Some("LOW"));
+    assert_eq!(tier("docs/missing.md"), Some("LOW"));
+    assert_eq!(tier("git"), Some("HIGH"));
+    let _ = std::fs::remove_file(path);
+}

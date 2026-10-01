@@ -24,11 +24,18 @@ obligation between prose and another artifact:
 <!-- dagayn: implemented-by dagayn/tools/query.py::traverse_graph_func -->
 ```
 
-In Python or Terraform, point the other way from the implementation:
+In Python, Terraform, or C#, point the other way from the implementation:
 
 ```python
 # dagayn: implements docs/auth-spec.md#Token Refresh
 ```
+
+Directives and dependency comments shown inside a code span or a fenced code
+block are examples and create no edge, so a guide can show the syntax safely.
+A directive whose target does not exist (a renamed symbol, a heading typo, a
+missing file) stays in the graph at `LOW` rather than as authored evidence;
+`implementations_of` or `docs_for` returning it at `LOW` is the sign to fix the
+target.
 
 Use ordinary backticks for display text, command names, file names, and short
 examples that should not create a durable obligation. When a report mentions a

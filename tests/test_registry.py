@@ -279,6 +279,51 @@ class TestCrossRepoSearch:
         assert not gone.exists()
         assert not (gone / ".dagayn").exists()
 
+    def test_cross_repo_search_limit_applies_per_repo(self, tmp_path):
+        """`limit` bounds each repository; one repository's higher score scale
+        must not crowd every hit of another out of the merged results."""
+        from dagayn.tools import cross_repo_search_func
+
+        repos = []
+        for name in ("loud", "quiet"):
+            repo = tmp_path / name
+            repo.mkdir()
+            repos.append({"path": str(repo), "alias": name})
+
+        def fake_search(store, query, **kwargs):
+            scale = 10.0 if store.alias == "loud" else 0.1
+            return {
+                "mode": "fts_only",
+                "results": [
+                    {"name": f"hit{i}", "score": scale - i * 0.01} for i in range(kwargs["limit"])
+                ],
+            }
+
+        class FakeStore:
+            def __init__(self, path):
+                self.alias = Path(path).parent.parent.name
+
+            def close(self):
+                pass
+
+        with (
+            patch("dagayn.registry.Registry") as mock_registry_cls,
+            patch(
+                "dagayn.tools.registry_tools.db_path_for",
+                side_effect=lambda repo: tmp_path / repo.name / ".dagayn" / "graph.db",
+            ),
+            patch("dagayn.tools.registry_tools.GraphStore", FakeStore),
+            patch("dagayn.tools.registry_tools.hybrid_search", side_effect=fake_search),
+        ):
+            for repo in repos:
+                (Path(repo["path"]) / ".dagayn").mkdir()
+                (Path(repo["path"]) / ".dagayn" / "graph.db").write_text("")
+            mock_registry_cls.return_value.list_repos.return_value = repos
+            result = cross_repo_search_func(query="client", limit=2)
+
+        assert result["status"] == "ok"
+        assert sorted(r["repo"] for r in result["results"]) == ["loud", "loud", "quiet", "quiet"]
+
 
 class TestCaseVariantRegistration:
     """One repository, one entry -- however the path is spelled.

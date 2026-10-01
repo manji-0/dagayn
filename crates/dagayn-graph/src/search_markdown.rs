@@ -266,6 +266,22 @@ impl GraphStore {
             }
         }
 
+        // An authored directive whose target is no node (a renamed symbol, a
+        // heading typo, a missing file) stays recorded but is no longer
+        // authored evidence: `implementations_of` must not report it as a
+        // contract. Edges to things that are never nodes (commands, files a
+        // program writes, Terraform providers) carry no directive marker.
+        demoted += tx.execute(
+            "UPDATE edges SET confidence = MIN(confidence, 0.2), confidence_tier = 'LOW' \
+             WHERE ((kind = 'CROSS_ARTIFACT' \
+                     AND json_extract(extra, '$.evidence_source') = 'dagayn_directive') \
+                    OR (kind = 'DEPENDS_ON' \
+                        AND json_extract(extra, '$.markdown_directive_kind') IS NOT NULL)) \
+               AND COALESCE(confidence_tier, '') <> 'LOW' \
+               AND NOT EXISTS (SELECT 1 FROM nodes n \
+                               WHERE n.qualified_name = edges.target_qualified)",
+            [],
+        )? as i64;
         tx.commit()?;
         Ok((resolved, demoted, re_resolved, still_unresolved))
     }

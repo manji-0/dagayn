@@ -186,7 +186,9 @@ def cross_repo_search_func(
         return make_response(
             "ok",
             summary,
-            results=all_results[:limit],
+            # `limit` bounds each repository's hits; capping the merged list
+            # too would let one repository's score scale crowd out the rest.
+            results=all_results,
             repos_searched=searched_repos,
             repos_skipped=skipped_repos,
             repo_search_modes=repo_modes,

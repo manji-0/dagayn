@@ -23,6 +23,13 @@ pub struct ExtractorVersion {
 /// treated as never changing their output.
 pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
     ExtractorVersion {
+        // 1: a `dagayn:` directive inside a code span or fence is an example
+        // and creates no edge.
+        extractor: "markdown",
+        version: 1,
+        languages: &["markdown"],
+    },
+    ExtractorVersion {
         // Passes every file's output goes through after its extractor
         // (`parse_file_in_repo`), so every language re-parses when they change.
         // 1: nodes sharing a qualified name merge into one

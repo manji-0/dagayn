@@ -408,12 +408,15 @@ def query_graph_guidance(
 
 
 def is_external_package_target(store: Any, target: str) -> bool:
-    """Whether *target* is an external package symbol (``react::useState``).
+    """Whether *target* is an external package or package symbol: a package
+    a call targets (``subprocess``, ``std``, ``builtins``) or a JavaScript
+    package symbol (``react::useState``).
 
-    Such targets are not nodes; they exist only as the target of edges the
-    JavaScript / TypeScript extractor marks with ``extra.external``.
+    Such targets are not nodes; they exist only as the target of edges marked
+    with ``extra.external``. A bare name only some unresolved call uses is not
+    one.
     """
-    if "::" not in target:
+    if not target:
         return False
     return any(is_external_package_edge(edge) for edge in store.get_edges_by_target(target))
 

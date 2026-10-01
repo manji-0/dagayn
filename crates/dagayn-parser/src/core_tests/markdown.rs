@@ -54,3 +54,25 @@ Call `build_graph`.
         edge.kind == "CROSS_ARTIFACT" && edge.target == "<unresolved:build_graph>"
     }));
 }
+
+#[test]
+fn dagayn_directives_shown_as_code_create_no_edges() {
+    // The second and third directives are examples a guide shows, not claims.
+    let source = b"# Contract
+
+<!-- dagayn: implemented-by src/auth.py::refresh -->
+
+Write `<!-- dagayn: implemented-by src/example.py::shown -->` to link code.
+
+```markdown
+<!-- dagayn: implemented-by src/example.py::fenced -->
+```
+";
+    let (_, edges) = parse_markdown("spec.md", source);
+    let targets = edges
+        .iter()
+        .filter(|edge| edge.kind == "CROSS_ARTIFACT")
+        .map(|edge| edge.target.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(targets, vec!["src/auth.py::refresh"]);
+}

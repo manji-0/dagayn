@@ -216,8 +216,10 @@ pub(crate) fn parse_markdown_with_parser(
         extract_markdown_directives_from_text(&line_context, &masked, &mut edges);
         extract_markdown_reference_links_from_text(&line_context, &masked, &mut edges);
     }
-    extract_markdown_inline_links(&line_context, &mask_markdown_code(&text), &mut edges);
-    extract_markdown_dagayn_directives(&line_context, &text, &mut edges);
+    let code_masked = mask_markdown_code(&text);
+    extract_markdown_inline_links(&line_context, &code_masked, &mut edges);
+    // A directive shown in a code span or fence is an example, not a claim.
+    extract_markdown_dagayn_directives(&line_context, &code_masked, &mut edges);
     extract_markdown_code_spans(&line_context, &text, &mut edges);
     (nodes, dedupe_edges(edges))
 }

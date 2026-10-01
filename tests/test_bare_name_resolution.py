@@ -457,6 +457,31 @@ class TestExternalPackageSymbols:
         assert [item["qualified_name"] for item in external_callers["results"]] == [test_qn]
 
 
+def test_callers_of_a_standard_library_package_lists_its_callers(tmp_path):
+    """`callers_of("subprocess")` names a package, not a symbol: it lists the
+    callers of the package instead of searching for a node named like it."""
+    from dagayn.incremental import full_build
+    from dagayn.postprocessing import run_post_processing
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    (repo / "tool.py").write_text(
+        "import subprocess\n\ndef run_git():\n    subprocess.run(['git'])\n\n"
+        "def test_subprocess_wrapper():\n    run_git()\n",
+        encoding="utf-8",
+    )
+    store = GraphStore(repo / ".dagayn" / "graph.db")
+    full_build(repo, store)
+    run_post_processing(store)
+    store.close()
+
+    result = query_graph(pattern="callers_of", target="subprocess", repo_root=str(repo))
+    assert result["status"] == "ok", result
+    assert result["resolution"] == "external_package"
+    assert [item["qualified_name"] for item in result["results"]] == ["tool.py::run_git"]
+
+
 class TestQueryGraphBareNameBinding:
     @pytest.fixture(autouse=True)
     def _setup_store(self, tmp_path):
