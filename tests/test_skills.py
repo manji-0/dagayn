@@ -3136,10 +3136,13 @@ def test_docs_trust_section_is_served_whole():
 def test_default_tool_docstrings_stay_within_budget():
     """Tool descriptions are sent on every session; long guidance belongs in
     ``get_docs_section_tool`` sections instead."""
+    import inspect
+
     import dagayn.server.main as server
 
+    # cleandoc: Python 3.13+ strips docstring indentation at compile time.
     total = 0
     for name in server._DEFAULT_MCP_TOOL_NAMES:
         tool = getattr(server, name)
-        total += len(getattr(tool, "fn", tool).__doc__ or "")
+        total += len(inspect.cleandoc(getattr(tool, "fn", tool).__doc__ or ""))
     assert total <= 8500, total
