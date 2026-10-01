@@ -47,6 +47,26 @@ has the compact workflow if you want it in context.
 - **Blast radius**: impacted files and functions.
 - **Docs**: linked docs to update, or explicit deferrals.
 
+## Evidence
+
+<!-- dagayn trust tiers -->
+Reach comes from the graph, correctness from `source_of`, and user-visible
+effect from a reproduction; keep them apart in a claim. Full rules:
+`get_docs_section_tool(section_name="trust")`.
+
+- **Highest** — on a current graph (`sync.state` is `commit_synced` or
+  `worktree_ahead`): `HIGH` and `EXTRACTED` edges, whether the parser or a
+  SCIP index (`resolved_by: "scip"`) settled them; `source_of` spans;
+  authored doc contracts (`evidence_type=authored`).
+- **Medium** — structure, not correctness: `MEDIUM` (inferred) edges,
+  `reason_codes`, blast radius, flows, communities, metrics, suggestions,
+  explanatory doc links, and search hits.
+- **Low** — a hypothesis until `source_of` or a reproduction confirms it:
+  `LOW` edges, `heuristic_reachable` links, a file-level `tests_for` of 0,
+  `truncated` or `ambiguous` results, and answers about files changed since
+  the graph was built (`sync.state` `commit_drift` or `worktree_behind`).
+<!-- /dagayn trust tiers -->
+
 Doc candidates are not optional reading: update them (see the "Docs update
 after code change" steps in review-changes) or list them as deferred. Before
 claiming something is missing, read `zero_result_reason`, `next_action`,

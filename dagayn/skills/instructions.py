@@ -12,6 +12,7 @@ from pathlib import Path
 
 from ..atomic_write import write_text_atomic
 from .platforms import logger, normalize_platform_target
+from .trust import TRUST_TIERS_BLOCK
 
 _CLAUDE_MD_SECTION_MARKER = "<!-- dagayn MCP tools -->"
 _MARKDOWN_POLICY_MARKER = "<!-- dagayn markdown policy -->"
@@ -175,11 +176,12 @@ advanced/maintenance tools.
 
 ### How to judge analysis output
 
-- Treat graph insights as **evidence-ranked leads**, not automatic truth.
+{TRUST_TIERS_BLOCK}
+
 - Prefer outputs that expose metrics, thresholds, counts, reason codes, and
   `truncated`/`total` fields; mention those numbers when making recommendations.
 - Check test coverage with `query_graph_tool` pattern=\"tests_for\" before claiming a
-  code path is untested.
+  code path is untested; a file-level zero is Low trust, not proof.
 - For refactors, verify public APIs, dynamic dispatch, generated code, test
   artifacts, and framework entry points before editing.
 - If an output is truncated or approximate, narrow with `top_n`, `detail_level`,

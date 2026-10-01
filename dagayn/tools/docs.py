@@ -254,7 +254,7 @@ def get_docs_section(
     section needed, keeping token usage minimal (90%+ savings).
 
     Args:
-        section_name: Exact section name. One of: usage, review-delta,
+        section_name: Exact section name. One of: usage, trust, review-delta,
                       review-pr, commands, legal, watch, embeddings,
                       languages, troubleshooting.
         repo_root: Repository root path. Auto-detected from current

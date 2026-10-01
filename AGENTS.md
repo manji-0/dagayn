@@ -17,6 +17,9 @@ This repository ships `dagayn`, a fork of `code-review-graph` with extra emphasi
 - treat graph analysis as evidence-ranked leads: cite thresholds, counts,
   reason codes, truncation state, `answerability`, and `missingness` when
   drawing conclusions
+- rank trust with the tiers under "How to judge analysis output" below
+  (full rules: `get_docs_section_tool(section_name="trust")`); reach,
+  correctness, and user-visible effect are separate claims
 - treat `query_graph_tool` zero-result and not-found responses as graph-limited:
   read `zero_result_reason`, `next_action`, and missingness before concluding
   absence
@@ -73,7 +76,9 @@ dagayn serve
 - Knowledge-gap hotspots are based on repository-relative degree thresholds and
   explicit test/documentation exclusions.
 - Architecture analysis modes should expose their metric formulas or reason
-  codes; use them as review leads, not automatic edit approval.
+  codes; use them as **Medium** review leads, not automatic edit approval.
+- Call edges with `resolved_by: "scip"` at `HIGH`/`EXTRACTED` are **Highest**
+  for reach; confirm behavior with `source_of` before calling it a bug.
 - Refactor suggestions must be verified against public APIs, dynamic dispatch,
   generated code, test artifacts, and framework entry points before applying.
 
@@ -182,11 +187,28 @@ advanced/maintenance tools.
 
 ### How to judge analysis output
 
-- Treat graph insights as **evidence-ranked leads**, not automatic truth.
+<!-- dagayn trust tiers -->
+Reach comes from the graph, correctness from `source_of`, and user-visible
+effect from a reproduction; keep them apart in a claim. Full rules:
+`get_docs_section_tool(section_name="trust")`.
+
+- **Highest** — on a current graph (`sync.state` is `commit_synced` or
+  `worktree_ahead`): `HIGH` and `EXTRACTED` edges, whether the parser or a
+  SCIP index (`resolved_by: "scip"`) settled them; `source_of` spans;
+  authored doc contracts (`evidence_type=authored`).
+- **Medium** — structure, not correctness: `MEDIUM` (inferred) edges,
+  `reason_codes`, blast radius, flows, communities, metrics, suggestions,
+  explanatory doc links, and search hits.
+- **Low** — a hypothesis until `source_of` or a reproduction confirms it:
+  `LOW` edges, `heuristic_reachable` links, a file-level `tests_for` of 0,
+  `truncated` or `ambiguous` results, and answers about files changed since
+  the graph was built (`sync.state` `commit_drift` or `worktree_behind`).
+<!-- /dagayn trust tiers -->
+
 - Prefer outputs that expose metrics, thresholds, counts, reason codes, and
   `truncated`/`total` fields; mention those numbers when making recommendations.
 - Check test coverage with `query_graph_tool` pattern="tests_for" before claiming a
-  code path is untested.
+  code path is untested; a file-level zero is Low trust, not proof.
 - For refactors, verify public APIs, dynamic dispatch, generated code, test
   artifacts, and framework entry points before editing.
 - If an output is truncated or approximate, narrow with `top_n`, `detail_level`,

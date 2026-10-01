@@ -429,6 +429,11 @@ async def get_minimal_context_tool(
     the repair. Call ``ensure_graph_tool`` if you must wait. Offloaded via
     ``asyncio.to_thread`` so sqlite/flock cannot stall the stdio loop.
 
+    Trust: ``sync.state`` ``commit_drift`` / ``worktree_behind`` means answers
+    about files changed since the build are hypotheses until refreshed; risk,
+    community, and flow hints are structure, not correctness
+    (``get_docs_section_tool(section_name="trust")``).
+
     Args:
         task: What you are doing (e.g. "review PR #42", "debug login timeout").
         changed_files: Explicit list of changed files. Auto-detected if omitted.
@@ -491,6 +496,11 @@ def query_graph_tool(
     An import edge is a file's own import statement: ``from pkg import sub``
     points at the submodule, and ``import a.b`` does not count
     ``a/__init__.py``.
+
+    Trust: ``HIGH`` / ``EXTRACTED`` edges and ``source_of`` spans are firm,
+    ``MEDIUM`` edges are inferred, and ``LOW`` edges, a file-level
+    ``tests_for`` of 0, and ``truncated`` / ``ambiguous`` results are
+    hypotheses (``get_docs_section_tool(section_name="trust")``).
     """
     return _tool("query_graph")(
         pattern=pattern,
@@ -518,6 +528,9 @@ def semantic_search_nodes_tool(
     or an OpenAI-compatible "openai" / "google" / "minimax" provider configured
     on the server. Falls back to FTS5 / keyword matching when no matching
     embeddings exist for the given provider.
+
+    Trust: hits are discovery, not proof; read the chosen node's ``source_of``
+    before asserting behavior.
 
     Args:
         query: Search string to match against node names.
@@ -612,8 +625,9 @@ def get_docs_section_tool(
     Returns only the requested section content for minimal token usage.
     Use this before answering any user question about the plugin.
 
-    Available sections: usage, review-delta, review-pr, commands, legal,
-    watch, embeddings, languages, troubleshooting.
+    Available sections: usage, trust, review-delta, review-pr, commands, legal,
+    watch, embeddings, languages, troubleshooting. ``trust`` says how much each
+    kind of graph answer proves.
 
     Args:
         section_name: The section to retrieve (e.g. "review-delta", "usage").
@@ -695,7 +709,14 @@ def architecture_analysis_tool(
         "artifact_trace",
     ] = "strict_static",
 ) -> ToolPayload:
-    """Run architecture analysis through a single mode-based dispatcher."""
+    """Run architecture analysis through a single mode-based dispatcher.
+
+    Modes cover overview health, communities, hubs/bridges, knowledge gaps,
+    surprising connections, and ADP/SDP/SAP metrics or violations.
+
+    Trust: reason codes, rankings, and metrics are structure leads, not design
+    bugs; cite their counts and thresholds.
+    """
     return _tool("architecture_analysis_func")(
         mode=mode,
         detail_level=detail_level,
@@ -730,7 +751,17 @@ async def review_tool(
     repo_root: Optional[str] = None,
     detail_level: Literal["minimal", "standard", "verbose"] = "standard",
 ) -> ToolPayload:
-    """Run review analysis through a single mode-based dispatcher."""
+    """Run review analysis through a single mode-based dispatcher.
+
+    Modes:
+    - changes: risk summary, reason_codes, recommended tests, doc candidates
+    - context: change-set source snippets
+    - impact: blast-radius walk (``max_depth`` hops)
+    - affected_flows: flows touched by the change set
+
+    Trust: reason codes, blast radius, and flows show reach, not correctness;
+    confirm a bug with ``source_of`` or a reproduction.
+    """
     return await asyncio.to_thread(
         _tool("review_func"),
         mode=mode,
@@ -796,6 +827,10 @@ def refactor_tool(
       importers, and not entry points).
     - suggest: Get graph-backed refactoring suggestions, including remove,
       move, split, and document candidates.
+
+    Trust: suggestions and dead-code hits are leads; public APIs, dynamic
+    dispatch, and entry points often have no static caller, so verify with
+    ``source_of`` before removing or moving.
 
     Args:
         mode: Operation mode: "rename", "dead_code", or "suggest".

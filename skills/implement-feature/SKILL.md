@@ -51,13 +51,34 @@ retrieval setup.
    deliberate new entry point, the high-risk blast radius is understood, and
    linked specs or runbooks are updated or explicitly deferred.
 
+## Evidence
+
+<!-- dagayn trust tiers -->
+Reach comes from the graph, correctness from `source_of`, and user-visible
+effect from a reproduction; keep them apart in a claim. Full rules:
+`get_docs_section_tool(section_name="trust")`.
+
+- **Highest** — on a current graph (`sync.state` is `commit_synced` or
+  `worktree_ahead`): `HIGH` and `EXTRACTED` edges, whether the parser or a
+  SCIP index (`resolved_by: "scip"`) settled them; `source_of` spans;
+  authored doc contracts (`evidence_type=authored`).
+- **Medium** — structure, not correctness: `MEDIUM` (inferred) edges,
+  `reason_codes`, blast radius, flows, communities, metrics, suggestions,
+  explanatory doc links, and search hits.
+- **Low** — a hypothesis until `source_of` or a reproduction confirms it:
+  `LOW` edges, `heuristic_reachable` links, a file-level `tests_for` of 0,
+  `truncated` or `ambiguous` results, and answers about files changed since
+  the graph was built (`sync.state` `commit_drift` or `worktree_behind`).
+<!-- /dagayn trust tiers -->
+
 ## Notes
 
 - `callers_of` / `importers_of` take `depth` (up to 6) for transitive reach.
   Calls into packages target the package name and show up in `callees_of` as
   `unresolved_targets` (packages are not nodes).
 - Where SCIP indexers are installed, `dagayn build --scip` makes call targets
-  compiler-accurate; unresolved (`LOW`) calls are leads, not absence.
+  compiler-accurate; unresolved (`LOW`) calls are **Low** trust leads, not
+  absence.
 - Keep discovery to about three search or relationship calls before editing,
   and prefer one `review_tool(mode="changes")` afterwards over repeated impact
   drills.

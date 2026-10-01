@@ -48,10 +48,28 @@ edit set, and verify impact afterwards.
 
 ## Judging suggestions
 
-Suggestions are leads. Public APIs, dynamic dispatch, generated code, test
-fixtures, and framework entry points often have no static caller, so verify
-before removing or moving. Prefer suggestions that carry counts, thresholds,
-callers, and reason codes over bare names.
+<!-- dagayn trust tiers -->
+Reach comes from the graph, correctness from `source_of`, and user-visible
+effect from a reproduction; keep them apart in a claim. Full rules:
+`get_docs_section_tool(section_name="trust")`.
+
+- **Highest** — on a current graph (`sync.state` is `commit_synced` or
+  `worktree_ahead`): `HIGH` and `EXTRACTED` edges, whether the parser or a
+  SCIP index (`resolved_by: "scip"`) settled them; `source_of` spans;
+  authored doc contracts (`evidence_type=authored`).
+- **Medium** — structure, not correctness: `MEDIUM` (inferred) edges,
+  `reason_codes`, blast radius, flows, communities, metrics, suggestions,
+  explanatory doc links, and search hits.
+- **Low** — a hypothesis until `source_of` or a reproduction confirms it:
+  `LOW` edges, `heuristic_reachable` links, a file-level `tests_for` of 0,
+  `truncated` or `ambiguous` results, and answers about files changed since
+  the graph was built (`sync.state` `commit_drift` or `worktree_behind`).
+<!-- /dagayn trust tiers -->
+
+Suggestions are **Medium** leads. Public APIs, dynamic dispatch, generated
+code, test fixtures, and framework entry points often have no static caller,
+so verify before removing or moving. Prefer suggestions that carry counts,
+thresholds, callers, and reason codes over bare names.
 
 ### Function Concern Separation Profiles
 

@@ -20,6 +20,53 @@ worktree span for one node (capped). Prefer it over opening the whole file.
 Use `dagayn` in all user-facing guidance.
 </section>
 
+<section name="trust">
+How much a graph answer proves. Reach comes from the graph, correctness from
+`source_of`, and user-visible effect from a reproduction or CLI output; a claim
+should say which of the three it rests on.
+
+Freshness first: `get_minimal_context_tool` reports `sync.state`. On
+`commit_synced` or `worktree_ahead` the graph describes the working tree. On
+`commit_drift` or `worktree_behind`, edges of files changed since the build may
+be out of date, so answers about those files are Low until
+`ensure_graph_tool(force=True)` refreshes them. `graph_health.status` of
+`degraded` usually means post-processing is missing (flows, communities), not
+that edges are wrong.
+
+Highest (state it as fact):
+- `HIGH` and `EXTRACTED` edges. The parser settles them from what the code
+  writes (same-file definitions, imports, typed receivers, standard-library and
+  package calls); `dagayn build --scip` lets a compiler-grade index settle them
+  (`resolved_by: "scip"`). Both count.
+- `source_of` spans: the live source of a node.
+- Authored doc contracts: `implemented_by` / `implements_contract` links with
+  `evidence_type=authored` whose target exists (a section or symbol missing
+  from an indexed file is demoted to `LOW`).
+
+Medium (structure, not correctness):
+- `MEDIUM` edges: inferred from usage (observed methods, return-type tables).
+- `review_tool` `reason_codes`, blast radius, affected flows; architecture
+  metrics and rankings; refactor suggestions and dead-code candidates.
+- `TESTED_BY` edges: they follow the calls a test makes, so they are as good
+  as those calls.
+- Explanatory doc links (`explained_by`, `has_runbook`, `describes_symbol`, …)
+  and directive dependencies.
+- Search hits: discovery, not proof, whether hybrid or `fts_only`.
+
+Low (a hypothesis until `source_of` or a reproduction confirms it):
+- `LOW` edges: calls nothing settled; possible hidden callers.
+- `heuristic_reachable` doc links (bare code-span mentions).
+- A file-level `tests_for` of 0, an empty `callers_of`, or any other absence:
+  read `zero_result_reason`, `next_action`, and `missingness` before claiming
+  something does not exist.
+- `truncated` results (narrow first) and `status="ambiguous"` (pick a
+  candidate first).
+- Answers about files changed since the build (see freshness).
+
+Promote a Medium or Low lead by confirming it: `source_of` for behavior, a
+test or CLI run for an effect.
+</section>
+
 <section name="review-delta">
 Recommended sequence for reviewing a delta:
 
