@@ -49,10 +49,11 @@ The persisted / Python form remains the uppercase string.
 `TESTED_BY` edges are directed from the covered production symbol to the test
 symbol that exercises it. For example, `src/auth.py::login -> tests/test_auth.py::test_login`.
 Parsers derive them from the test's `CALLS` edges (same file and line), so a
-bare call target first gives a bare `TESTED_BY` source. When post-processing's
-bare-name resolution binds the call, the `TESTED_BY` edge takes the same
-qualified target and confidence; a bare edge whose call is still unresolved
-stays bare.
+bare call target first gives a bare `TESTED_BY` source. When post-processing
+binds the call, the `TESTED_BY` edge takes the same qualified target and
+confidence; one whose tested symbol is still not a node is dropped, and a
+call a later update resolves gets its `TESTED_BY` back (see
+[CALL-RESOLUTION.md](./CALL-RESOLUTION.md#tested_by)).
 
 Bare-name resolution binds a `CALLS`, `INHERITS`, or `IMPLEMENTS` target only
 when exactly one candidate is visible to the source file, and grades the edge
@@ -73,6 +74,14 @@ none is visible (a Ruby `require` or a namespace-less C# file does not make a
 file visible) a single such method is bound at `MEDIUM`. A type with no such
 method in the repository (`Math.Max`) leaves the call unbound rather than
 binding it to an unrelated function of the same name.
+
+Calls into a package (the standard library or a dependency) target the
+package itself with `extra.external`, `external_package`, `external_symbol`,
+and, for the standard library, `stdlib`; receivers are typed through
+`receiver_type`, `receiver_unknown`, and `receiver_from`, and functions
+record their declared `return_type`. [CALL-RESOLUTION.md](./CALL-RESOLUTION.md)
+specifies these keys, the package names per language, the post-processing
+passes that read them, and their confidence tiers.
 
 `query_graph_tool` reports `confidence: "high"` when every returned edge is
 `EXACT`, `EXTRACTED`, or `HIGH`, and `"medium"` otherwise.

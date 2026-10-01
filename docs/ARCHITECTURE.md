@@ -76,6 +76,11 @@ importing Rust bindings directly or reading a SQLite handle.
 
 Optional post-processing layers add:
 
+- call-target resolution across files: re-exports, bare names, enum
+  variants, declared return types, PyO3 classes, standard-library and
+  package methods, and `TESTED_BY` reconciliation, in the order
+  [CALL-RESOLUTION.md](./CALL-RESOLUTION.md#post-processing-passes) gives
+
 - communities
 - execution flows (CALLS reachable sets from entry points; `path` / `steps` are BFS visit order, not a call sequence; truncation is disclosed)
 - search indexes (FTS5 virtual table `nodes_fts`, always available after `build`)

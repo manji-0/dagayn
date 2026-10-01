@@ -598,9 +598,14 @@ target lines up with the file's `IMPORTS_FROM` edge:
 - a local that shadows an import (`const pick = ...; pick()`) is the local,
   so it produces no edge.
 
-**Standard library.** Node.js builtin modules and the language's globals
-are the standard library, and their edges target the package itself, the
-way every language's standard library does:
+**Standard library.**
+
+<!-- constrained-by ./CALL-RESOLUTION.md#package-names -->
+
+Node.js builtin modules and the language's globals are the standard
+library, and their edges target the package itself, the way every
+language's standard library does (the rules shared by every language are in
+[CALL-RESOLUTION.md](./CALL-RESOLUTION.md)):
 
 - a builtin module, with or without the `node:` prefix and with a subpath
   (`fs`, `node:fs`, `fs/promises`), is the package `node:<module>`:

@@ -8,6 +8,7 @@
 <!-- constrained-by ./FEATURES.md -->
 <!-- constrained-by ./EVALUATION-SEMANTICS.md -->
 <!-- constrained-by ./SESSION-GRAPH-FRESHNESS.md -->
+<!-- constrained-by ./CALL-RESOLUTION.md -->
 
 This directory documents the fork as `dagayn`.
 
@@ -18,6 +19,7 @@ This directory documents the fork as `dagayn`.
 - [FEATURES.md](./FEATURES.md) — fork-specific capabilities and practical strengths
 - [ARCHITECTURE.md](./ARCHITECTURE.md) — parser, storage, and post-processing pipeline
 - [SCHEMA.md](./SCHEMA.md) — graph entities, tables, and stored metadata
+- [CALL-RESOLUTION.md](./CALL-RESOLUTION.md) — how call targets resolve: standard-library and package edges, receiver typing, post-processing passes, and confidence tiers in every language
 - [TYPESCRIPT-EXTRACTION.md](./TYPESCRIPT-EXTRACTION.md) — TypeScript / JavaScript node and edge model, name resolution, and coverage matrix
 - [MARKDOWN-AUTHORING.md](./MARKDOWN-AUTHORING.md) — graph-aware Markdown dependency and directive guidance
 - [EVALUATION-SEMANTICS.md](./EVALUATION-SEMANTICS.md) — metric roles,
