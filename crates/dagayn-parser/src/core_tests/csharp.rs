@@ -441,7 +441,14 @@ fn csharp_static_calls_record_the_receiver_type() {
             .cloned()
     };
     assert_eq!(receiver("Total"), Some(serde_json::json!("Native")));
-    assert_eq!(receiver("ReadAllText"), Some(serde_json::json!("File")));
+    // A call into the base class library targets its namespace, and keeps
+    // the receiver type.
+    let read = edges
+        .iter()
+        .find(|edge| edge.extra["external_symbol"] == "System.IO.File.ReadAllText")
+        .expect("no call to File.ReadAllText");
+    assert_eq!(read.target, "System.IO");
+    assert_eq!(read.extra["receiver_type"], "File");
     assert_eq!(receiver("Compute"), None);
     // `var local = new Helper()`, `Helper` declared in another file.
     assert_eq!(receiver("Run"), Some(serde_json::json!("Helper")));
@@ -474,7 +481,181 @@ fn csharp_variables_of_other_file_types_record_the_receiver_type() {
     assert_eq!(receivers("Native"), vec![native.clone()]);
     assert_eq!(receivers("Mean"), vec![native.clone()]);
     assert_eq!(receivers("Max"), vec![native.clone()]);
-    // `made` is out of scope in `Other`, and `string` is not a type to match.
+    // `made` is out of scope in `Other`.
     assert_eq!(receivers("Total"), vec![native, None]);
-    assert_eq!(receivers("Trim"), vec![None]);
+    // `string` is not a type to match: its methods are the base class
+    // library's.
+    let trim = edges
+        .iter()
+        .find(|edge| edge.kind == "CALLS" && edge.extra["external_symbol"] == "string.Trim")
+        .expect("no call to string.Trim");
+    assert_eq!(trim.target, "System");
+    assert_eq!(trim.extra.get("receiver_type"), None);
+}
+
+#[test]
+fn csharp_standard_library_calls_target_their_package() {
+    let source = br#"using System;
+using System.Text;
+using System.Collections.Generic;
+using Acme.Utils;
+
+class Path { public static string Combine(string a, string b) { return a; } }
+
+class Report
+{
+    void Run(List<int> xs, Native native)
+    {
+        Console.WriteLine("x");
+        string.Join(",", xs);
+        System.IO.File.ReadAllText("x");
+        var sb = new StringBuilder();
+        sb.Append(1);
+        new StringBuilder().Append(2);
+        xs.Add(1);
+        Math.Max(1, 2);
+        int.Parse("1");
+        Path.Combine("a", "b");
+        native.Total();
+        Helpers.Join(xs);
+        File.ReadAllText("y");
+    }
+}
+"#;
+    let (_, edges) = parse_csharp("Report.cs", source);
+    let calls = edges
+        .iter()
+        .filter(|edge| edge.kind == "CALLS")
+        .map(|edge| {
+            (
+                edge.target.as_str(),
+                edge.extra["external_symbol"].as_str().unwrap_or_default(),
+                edge.extra["confidence_tier"].as_str().unwrap_or_default(),
+            )
+        })
+        .collect::<Vec<_>>();
+    for expected in [
+        ("System", "Console.WriteLine", "HIGH"),
+        ("System", "string.Join", "HIGH"),
+        ("System.IO", "System.IO.File.ReadAllText", "HIGH"),
+        ("System.Text", "StringBuilder", "HIGH"),
+        ("System.Text", "StringBuilder.Append", "MEDIUM"),
+        ("System.Text", "StringBuilder.Append", "HIGH"),
+        ("System.Collections.Generic", "List.Add", "MEDIUM"),
+        ("System", "Math.Max", "HIGH"),
+        ("System", "int.Parse", "HIGH"),
+    ] {
+        assert!(calls.contains(&expected), "{expected:?} not in {calls:?}");
+    }
+    // The file's own `Path`, a repository type, and — with `using
+    // Acme.Utils` possibly bringing its own `File` — an unqualified `File`.
+    assert!(
+        calls.contains(&("Report.cs::Path.Combine", "", "")),
+        "{calls:?}"
+    );
+    assert!(calls.contains(&("Total", "", "")), "{calls:?}");
+    assert!(calls.contains(&("Join", "", "")), "{calls:?}");
+    assert!(calls.contains(&("ReadAllText", "", "")), "{calls:?}");
+
+    let import = |target: &str| {
+        edges
+            .iter()
+            .find(|edge| edge.kind == "IMPORTS_FROM" && edge.target == target)
+            .unwrap_or_else(|| panic!("no import {target}"))
+    };
+    let text = import("System.Text");
+    assert_eq!(text.extra["stdlib"], true);
+    assert_eq!(text.extra["confidence_tier"], "HIGH");
+    assert_eq!(import("Acme.Utils").extra.get("stdlib"), None);
+
+    // Without a `using` from elsewhere, .NET's implicit global usings make
+    // an unqualified `File` likely `System.IO`'s.
+    let (_, edges) = parse_csharp(
+        "Tool.cs",
+        b"class Tool { void Run() { File.ReadAllText(\"x\"); } }\n",
+    );
+    let read = edges
+        .iter()
+        .find(|edge| edge.kind == "CALLS")
+        .expect("no call");
+    assert_eq!(read.target, "System.IO");
+    assert_eq!(read.extra["external_symbol"], "File.ReadAllText");
+    assert_eq!(read.extra["confidence_tier"], "MEDIUM");
+}
+
+#[test]
+fn csharp_receivers_record_the_call_they_came_from() {
+    let source = br#"using Acme.Data;
+
+class Service
+{
+    private Repo _repo;
+    private Cache Cache { get; } = new Cache();
+
+    async Task<User> Users(Store store)
+    {
+        store.Open().Fetch();
+        var conn = factory.Connect();
+        conn.Execute();
+        var user = await LoadAsync();
+        user.Rename();
+        (await GetAsync()).Touch();
+        _repo.Save();
+        this._repo.Flush();
+        new Repo().Load();
+        Cache.Get();
+        plugin.Run();
+        return null;
+    }
+}
+
+class Cache
+{
+    public object Get() { return null; }
+}
+"#;
+    let (nodes, edges) = parse_csharp("Service.cs", source);
+    let call = |target: &str| {
+        edges
+            .iter()
+            .find(|edge| edge.kind == "CALLS" && edge.target == target)
+            .unwrap_or_else(|| panic!("no {target} in {edges:#?}"))
+    };
+    let users = nodes
+        .iter()
+        .find(|node| node.name == "Users")
+        .expect("Users");
+    assert_eq!(users.return_type.as_deref(), Some("Task<User>"));
+    // Declared as a type of another file: parameter, field, `this.` field,
+    // constructor.
+    assert_eq!(call("Open").extra["receiver_type"], "Store");
+    assert_eq!(call("Save").extra["receiver_type"], "Repo");
+    assert_eq!(call("Flush").extra["receiver_type"], "Repo");
+    assert_eq!(call("Load").extra["receiver_type"], "Repo");
+    // A property typed by a class of this file binds its method.
+    assert_eq!(
+        call("Service.cs::Cache.Get").extra.get("receiver_unknown"),
+        None
+    );
+    // An untyped receiver.
+    assert_eq!(call("Run").extra["receiver_unknown"], true);
+    assert_eq!(call("Run").extra.get("receiver_from"), None);
+    // Receivers that are call results, directly, awaited, or through a
+    // variable.
+    assert_eq!(
+        call("Fetch").extra["receiver_from"],
+        serde_json::json!({"call": "Open", "line": 10, "unwrap": false})
+    );
+    assert_eq!(
+        call("Execute").extra["receiver_from"],
+        serde_json::json!({"call": "Connect", "line": 11, "unwrap": false})
+    );
+    assert_eq!(
+        call("Rename").extra["receiver_from"],
+        serde_json::json!({"call": "LoadAsync", "line": 13, "unwrap": true})
+    );
+    assert_eq!(
+        call("Touch").extra["receiver_from"],
+        serde_json::json!({"call": "GetAsync", "line": 15, "unwrap": true})
+    );
 }

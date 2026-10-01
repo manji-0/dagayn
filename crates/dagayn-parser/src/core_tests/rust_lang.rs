@@ -63,7 +63,10 @@ fn helper() {}
     assert!(node_names.contains(&("Function", "load", Some("Foo"))));
     assert!(node_names.contains(&("Function", "helper", None)));
     assert!(edges.iter().any(|edge| {
-        edge.kind == "IMPORTS_FROM" && edge.source == "src/lib.rs" && edge.target == "std::fs"
+        edge.kind == "IMPORTS_FROM"
+            && edge.source == "src/lib.rs"
+            && edge.target == "std"
+            && edge.extra["paths"] == serde_json::json!(["std::fs"])
     }));
     assert!(edges.iter().any(|edge| {
         edge.kind == "IMPORTS_FROM"

@@ -650,7 +650,7 @@ function main() {
         (3, "src/single.js", "require"),
         (4, "src/esm.ts", "require"),
         (5, "src/helpers.js", "require"),
-        (6, "path", "require"),
+        (6, "node:path", "require"),
         (15, "src/inner.js", "require"),
         (16, "src/lazy.js", "dynamic"),
     ] {
@@ -714,7 +714,7 @@ export function run() {
         vec![
             (1, "src/helpers.js", Some("import_equals")),
             (2, "src/typed.ts", Some("import_equals")),
-            (3, "fs", Some("import_equals")),
+            (3, "node:fs", Some("import_equals")),
         ],
         "{edges:?}"
     );
@@ -861,7 +861,15 @@ function shadow() {
     external(22, "react::useState", "react");
     // A default import's members are the module's (CommonJS interop).
     external(23, "react::useEffect", "react");
-    external(24, "node:fs::readFile", "node:fs");
+    // A Node.js builtin is the standard library: its package, with the
+    // symbol as written.
+    let read = call_at(24);
+    let (_, extra) = read
+        .iter()
+        .find(|(target, _)| *target == "node:fs")
+        .unwrap_or_else(|| panic!("{read:#?}"));
+    assert_eq!(extra["stdlib"], true);
+    assert_eq!(extra["external_symbol"], "fs.readFile");
     // The target keeps the specifier as written; the package drops the subpath.
     external(25, "lodash/fp::map", "lodash");
     external(26, "zod::z.object", "zod");

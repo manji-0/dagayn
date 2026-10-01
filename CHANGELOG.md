@@ -35,6 +35,21 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- `TESTED_BY` follows resolution: a test's call that stays unresolved
+  (a bare `helper`, a package) no longer leaves a `TESTED_BY` from a symbol
+  that is not a node, and a call a later update resolves gets its
+  `TESTED_BY` back. Dead-code analysis reads a test's unresolved calls from
+  `CALLS`.
+- Python: calls to a name imported relatively (`from .graph import
+  helper`) resolve like those of an absolute import; they were left bare.
+  Bare names also see what a package's `__init__.py` imports.
+- Rust: dependencies declared as `tree-sitter.workspace = true` count as
+  the package's dependencies, and `let Some(x) = ...` no longer types `x`
+  as the `Option` it came from.
+- Python: a method call on a receiver of unknown type (`plugin.run()`,
+  `make().read_text()`) no longer binds to a same-named function of the
+  file, and neither does a call on a receiver typed by a class of another
+  file (`store.close()` with `store: GraphStore` to a test's `_NoClose.close`).
 - Rust: a method call on a receiver of unknown type (`tx.commit()`) no
   longer binds to a same-named method of this repository, a bare call no
   longer resolves to a method or to a function of another module (`mod
@@ -71,16 +86,124 @@ All notable changes to `dagayn` are documented here.
   provider-side import id, and `moved` no longer links two raw addresses.
 - After an extractor version bump, the incremental update also indexes
   files the new version owns that the graph does not hold yet.
+- Calls and imports into a language's standard library point at its
+  package, in every language: `subprocess.run(...)` is `CALLS ->
+  subprocess`, `len(x)` `CALLS -> builtins`, `Vec::new()` / `format!` /
+  `Some(x)` `CALLS -> std`, `fmt.Println` `CALLS -> fmt`,
+  `System.out.println` `CALLS -> java.lang`, `Console.WriteLine` `CALLS ->
+  System`, `fs.readFile` `CALLS -> node:fs`, `console.log` `CALLS ->
+  globalThis`, `printf` `CALLS -> libc`, `std::sort` `CALLS -> std`,
+  `Enum.map` `CALLS -> Enum`, and so on for Kotlin, Scala, Objective-C,
+  PHP, Ruby, Perl, R, Julia, Dart, Swift, GDScript, Lua, Zig, and Bash.
+  `use std::collections::{HashMap, HashSet}` is one `IMPORTS_FROM -> std`
+  with the imported `paths`. The edges carry `external: true`, `stdlib:
+  true`, `external_package`, and `external_symbol` with the name they
+  resolve to (`subprocess.run`, `pathlib.Path.read_text`, `Vec::new`), so
+  `callers_of("subprocess")` lists them. They are `HIGH` when named through
+  the standard library (an import of it, a path rooted at it) and `MEDIUM`
+  when inferred from a builtin name alone or from a variable's binding, and
+  post-processing no longer demotes them to `LOW` for having no node.
+  Before, they were bare names mixed in with the calls resolution missed,
+  and bound by name to this repository: `subprocess.run(...)` to a local
+  `def run`, `Path(p).read_bytes()` to a local `read_bytes`,
+  `parts.join("/")` on a `Vec` to a local `fn join`. They make no
+  TESTED_BY. A Go package of the repository's own module (`go.mod`) is
+  never the standard library, even under a root like `crypto/`.
+- Calls and imports into third-party packages are `external` with the
+  package as the target too: Rust crates the package's `Cargo.toml` depends
+  on (`serde_json::to_string`, `node.kind()` with `use tree_sitter::Node`;
+  workspace crates stay in the repository), and Python modules that are
+  neither the standard library nor the repository's (`yaml.safe_load`,
+  `from pytest import raises`). Rust and JavaScript / TypeScript external
+  edges are `HIGH` (named through an import of the package), Python ones
+  `MEDIUM` (the module may be the repository's under a layout the resolver
+  misses). Post-processing keeps the tier of any external edge its
+  extractor gave one.
+- A method call on a receiver of unknown type whose name is a method of a
+  standard type (`names.iter()`, `line.strip()`, `data.get("k")`,
+  `items.map()`) points at the package, `MEDIUM`, unless a function of that
+  name is visible to the calling file (declared there, or in a file it
+  imports or reaches through re-exports), which it may be instead. In Rust, a name a `use super::*` brings in from a
+  module that imported it from a crate (`HashMap::new()` in `mod tests`)
+  points at that crate.
+- Python member calls are typed by parameter annotations (`store:
+  GraphStore`, `Optional[T]`, `T | None`) and by the attributes a class
+  gives `self` (`self.store = GraphStore(...)`, `self.root: Path`, class-body
+  annotations, `self.x = param`): a class of another module is
+  `receiver_type`, which resolution across files binds (`store.upsert_node()`
+  to `GraphStore.upsert_node`), and a receiver of unknown type is
+  `receiver_unknown`, as in Rust and JavaScript. In tests and `conftest.py`,
+  unannotated parameters named after a pytest fixture take its type
+  (`tmp_path` a `pathlib.Path`, `monkeypatch` a `pytest.MonkeyPatch`), and a
+  type of a third-party package types a receiver as calls into it.
+- Rust calls on a type the extractor could not follow reach the standard
+  library: a method a repository type lacks is that of the standard type it
+  dereferences to (`impl Deref for FilePath { type Target = str; }`,
+  `file_path.as_str()`), or of the `Result` a fallible constructor returns
+  (`GraphStore::open(p).expect(..)`). A type written with its crate
+  (`node: tree_sitter::Node<'_>`) types its variable as a `use` of it would.
+- A member call on the result of another call is typed by the return type
+  that call's function declares: `store_conn(s).execute()` and `conn =
+  store_conn(s); conn.commit()` with `def store_conn(...) ->
+  sqlite3.Connection` are `sqlite3`'s, `make_store().pool().get()` follows
+  `-> Store` and `-> Pool` to `Pool.get`, and `Store::open(p)?.save()`
+  unwraps `-> Result<Self>` to `Store.save`. Rust functions record their
+  `return_type`; a Rust method of what a package returned
+  (`map.entry(k).or_default().push(v)`) is the package's. Such a call is no
+  longer bound by a visible name first (`store_conn(s).commit()` was a
+  protocol's `commit`).
+- A method call on a receiver of unknown type (a loop variable, a closure
+  parameter) takes the package nearly every call of that method on a
+  typed receiver reaches (`child.kind()` in `for child in
+  node.children(..)` is `tree_sitter`'s when `Node::kind` is 95% of the
+  `kind` calls seen), `MEDIUM` with `inferred_from: "observed_method"`,
+  unless a function of that name is visible to the calling file. The
+  return-type pass also reads a package a declaring file imports through a
+  glob (`use crate::*`), follows unwrapped package results
+  (`stmt(..)?.query_map(..)`), and calls in macro arguments record their
+  receiver's call too.
+- A Rust call of an enum variant (`JvmReceiver::Local(x)`) is a call of
+  the enum it constructs, with the variant in `enum_variant`, as
+  `Store::new(..)` is of its type; enums record their `variants`.
+- A Rust closure bound by `let` in a function body (`let call = |x| ...;`)
+  is a function of that body (`run.call`), as a nested `fn` is: `call(x)`
+  binds to it, and the calls in the closure are its own, as for a Python
+  `name = lambda`.
+- Every language with member calls types their receivers the same way:
+  JavaScript / TypeScript, Java, Kotlin, Scala, C#, Go, Swift, Dart, C++,
+  Objective-C, PHP, Ruby, Lua, Perl, Julia, Zig, and GDScript record the
+  functions' declared `return_type` where the language has one, a
+  receiver typed by a declaration of another file as `receiver_type`
+  (parameters, locals, fields, `new T()` and constructor calls), and any
+  other receiver as `receiver_unknown` with `receiver_from` when it is a
+  call's result. Resolution across files reads return types in each
+  language's syntax (`(*Store, error)`, `Store?`, `const Repo&`,
+  `std::unique_ptr<Store>`, `!Store`, `?Store`), unwraps `Promise` /
+  `Task` / `Future` / `Optional` on `await` / `try`, types a package
+  qualifier by the import it names (`*http.Client` with `import
+  "net/http"`), and knows each language's built-in types (`String` of
+  `java.lang`, `List` of `kotlin`, `Array` of JavaScript, `Future` of
+  `dart:core`).
+- Python calls on a class a Rust extension exports (`#[pyclass(name =
+  "GraphStore")]`) that no Python class of the name answers bind to its
+  `#[pymethods]` (`store.upsert_node()` to `PyGraphStore.upsert_node`).
+- A symbol named through a package that only re-exports it resolves to its
+  declaration: `from dagayn.parser import NodeInfo` was
+  `dagayn/parser/__init__.py::NodeInfo`, a node that does not exist; the
+  `__init__.py`'s own imports (named, star, and `_LAZY_EXPORTS`-style tables
+  of a module `__getattr__`) lead to `dagayn/parser/_base/types.py::NodeInfo`,
+  and a class the module `__getattr__` defines is reached too.
 
 ### Changed
 
 - JavaScript / TypeScript parsing is about 20% faster: the type walk no
   longer re-descends from the root for every node.
 - Extractor versions: a new `shared` version covers every language (the
-  passes applied after each extractor); Java 2, Kotlin 2, Dart 2, Python 4,
-  Go 5, Rust 10, Lua 2, Julia 2, Zig 2, C / C++ / Objective-C 4; Swift,
-  Perl, Elixir, Scala, R, and Terraform are tracked from version 1. Existing
-  graphs re-parse once on the next update.
+  passes applied after each extractor), now 2; JavaScript / TypeScript 8,
+  Java 4, Kotlin 4, C# 5, Dart 4, Python 8, Go 7, Rust 17, Lua 4, Julia 4,
+  Zig 4, Ruby 5, C / C++ / Objective-C 6, Swift 3, Perl 3, Elixir 2,
+  Scala 3, R 2, PHP 2, GDScript 2; Terraform and Bash are tracked from
+  version 1. Existing graphs re-parse once on the next update.
 
 ## 6.2.0 — 2026-09-30
 

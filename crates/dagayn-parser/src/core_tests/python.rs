@@ -187,7 +187,8 @@ def run(xs):
     };
     assert_eq!(receiver("helper"), Some(serde_json::json!("core2")));
     assert_eq!(receiver("other"), Some(serde_json::json!("_core")));
-    assert_eq!(receiver("getenv"), Some(serde_json::json!("os")));
+    // A call into the standard library targets its package.
+    assert_eq!(receiver("os"), Some(serde_json::json!("os")));
     assert_eq!(receiver("fast_sum"), None);
 }
 
@@ -268,4 +269,374 @@ fn an_unparseable_notebook_keeps_its_file_node() {
     let (nodes, _) = parser.parse_file("draft.ipynb", b"{\"cells\": [");
     assert_eq!(nodes.len(), 1);
     assert_eq!(nodes[0].kind, NodeKind::File);
+}
+
+#[test]
+fn python_standard_library_calls_target_their_package() {
+    let source = br#"import importlib
+import subprocess
+from pathlib import Path
+from os.path import join
+
+def run(cmd):
+    plugin = importlib.import_module(cmd)
+    plugin.read_text()
+    subprocess.run(cmd)
+    Path("x").read_bytes()
+    p = Path("y")
+    p.read_text()
+    p = make()
+    p.read_text()
+    join("a", "b")
+    len(cmd)
+    sorted(cmd)
+    open(cmd).read()
+    format.upper()
+
+def read_bytes():
+    pass
+
+def read_text():
+    pass
+
+def sorted(xs):
+    pass
+"#;
+    let (_, edges) = parse_python("app.py", source);
+    let calls = edges
+        .iter()
+        .filter(|edge| edge.kind == "CALLS" && edge.source == "app.py::run")
+        .map(|edge| {
+            (
+                edge.target.as_str(),
+                edge.extra["external_symbol"].as_str().unwrap_or_default(),
+            )
+        })
+        .collect::<Vec<_>>();
+    // `p` was reassigned and `plugin` is any module: receivers of unknown
+    // type, never this file's `read_text`.
+    let unknown = edges
+        .iter()
+        .filter(|edge| edge.kind == "CALLS" && edge.target == "read_text")
+        .filter(|edge| edge.extra["receiver_unknown"] == true)
+        .count();
+    assert_eq!(unknown, 2, "{calls:?}");
+    assert!(!calls.contains(&("app.py::read_text", "")), "{calls:?}");
+    for expected in [
+        ("subprocess", "subprocess.run"),
+        ("pathlib", "pathlib.Path.read_bytes"),
+        ("pathlib", "pathlib.Path"),
+        ("pathlib", "pathlib.Path.read_text"),
+        ("os", "os.path.join"),
+        ("builtins", "len"),
+        ("builtins", "open.read"),
+        // A builtin the file shadows is its own function.
+        ("app.py::sorted", ""),
+        // A variable named like a builtin is not one.
+        ("upper", ""),
+        // `import_module` returns any module, not one of the standard library.
+        ("importlib", "importlib.import_module"),
+    ] {
+        assert!(calls.contains(&expected), "{expected:?} not in {calls:?}");
+    }
+    // Rooted at an import: certain; a builtin or a bound variable: likely.
+    let tier = |symbol: &str| {
+        edges
+            .iter()
+            .find(|edge| edge.extra["external_symbol"] == symbol)
+            .map(|edge| edge.extra["confidence_tier"].clone())
+            .unwrap_or_else(|| panic!("no call to {symbol}"))
+    };
+    assert_eq!(tier("subprocess.run"), "HIGH");
+    assert_eq!(tier("pathlib.Path.read_bytes"), "HIGH");
+    assert_eq!(tier("os.path.join"), "HIGH");
+    assert_eq!(tier("pathlib.Path.read_text"), "MEDIUM");
+    assert_eq!(tier("len"), "MEDIUM");
+    // The standard library's `run` / `read_bytes` are not this file's.
+    assert!(!calls.contains(&("app.py::run", "")), "{calls:?}");
+    assert!(!calls.contains(&("app.py::read_bytes", "")), "{calls:?}");
+    assert!(
+        edges
+            .iter()
+            .filter(|edge| edge.extra["external"] == true)
+            .all(|edge| edge.extra["external_package"] == edge.target.as_str())
+    );
+
+    let import = edges
+        .iter()
+        .find(|edge| edge.kind == "IMPORTS_FROM" && edge.extra["module"] == "os.path")
+        .expect("import of os.path");
+    assert_eq!(import.target, "os");
+    assert_eq!(import.extra["external"], true);
+}
+
+#[test]
+fn python_standard_library_calls_are_not_tested_by() {
+    let source = br#"import json
+
+def test_dump():
+    json.dumps({})
+    len([])
+"#;
+    let (_, edges) = parse_python("tests/test_app.py", source);
+    assert!(
+        edges
+            .iter()
+            .any(|edge| edge.kind == "CALLS" && edge.target == "json")
+    );
+    assert!(
+        !edges.iter().any(|edge| edge.kind == "TESTED_BY"),
+        "{edges:?}"
+    );
+}
+
+#[test]
+fn python_receivers_are_typed_by_annotations_and_attributes() {
+    let source = br#"from pathlib import Path
+from typing import Any
+from app.graph import GraphStore
+
+class Repo:
+    def save(self):
+        pass
+
+class Service:
+    cache: Repo
+
+    def __init__(self, store: GraphStore, root: Path):
+        self.store = store
+        self.root = root
+        self.local = Repo()
+
+    def run(self, names: list[str], anything: Any, maybe: GraphStore | None):
+        self.store.upsert_node()
+        self.root.read_text()
+        self.local.save()
+        self.cache.save()
+        names.append("x")
+        anything.save()
+        maybe.commit()
+        other = GraphStore()
+        other.close()
+"#;
+    let (_, edges) = parse_python("app/service.py", source);
+    let calls = edges
+        .iter()
+        .filter(|edge| edge.kind == "CALLS" && edge.source == "app/service.py::Service.run")
+        .map(|edge| {
+            (
+                edge.target.as_str(),
+                edge.extra["receiver_type"].as_str().unwrap_or_default(),
+                edge.extra["receiver_unknown"] == true,
+                edge.extra["external_symbol"].as_str().unwrap_or_default(),
+            )
+        })
+        .collect::<Vec<_>>();
+    for expected in [
+        // A class of another module: resolved across files by its type.
+        ("upsert_node", "GraphStore", false, ""),
+        ("commit", "GraphStore", false, ""),
+        ("close", "GraphStore", false, ""),
+        // Standard-library types of an attribute or a parameter.
+        ("pathlib", "", false, "pathlib.Path.read_text"),
+        ("builtins", "", false, "list.append"),
+        // A class of this file, through `self.x = Repo()` and a class-body
+        // annotation.
+        ("app/service.py::Repo.save", "", false, ""),
+        // `Any` says nothing about methods.
+        ("save", "", true, ""),
+    ] {
+        assert!(calls.contains(&expected), "{expected:?} not in {calls:?}");
+    }
+    assert_eq!(
+        calls
+            .iter()
+            .filter(|call| call.0 == "app/service.py::Repo.save")
+            .count(),
+        2,
+        "{calls:?}"
+    );
+}
+
+#[test]
+fn python_third_party_calls_target_their_package() {
+    // `yaml` and `numpy` are in neither the repository nor the standard
+    // library; `app` is the repository's own package.
+    let mut root = std::env::temp_dir();
+    root.push(format!("dagayn-python-third-party-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("app")).unwrap();
+    std::fs::write(root.join("app/__init__.py"), "").unwrap();
+    std::fs::write(root.join("app/util.py"), "def helper():\n    pass\n").unwrap();
+    let source = b"import yaml\nimport numpy as np\nfrom pytest import raises\nfrom app.util import helper\n\ndef run():\n    yaml.safe_load('x')\n    np.array([1])\n    raises(ValueError)\n    helper()\n";
+    std::fs::write(root.join("app/main.py"), source).unwrap();
+    let mut parser = RustOwnedParser::new();
+    let (_, edges) = parser.parse_file_in_repo(Some(&root), "app/main.py", source);
+    let external = edges
+        .iter()
+        .filter(|edge| edge.extra["external"] == true)
+        .map(|edge| {
+            (
+                edge.kind.as_str(),
+                edge.target.as_str(),
+                edge.extra["external_symbol"].as_str().unwrap_or_default(),
+                edge.extra["confidence_tier"].as_str().unwrap_or_default(),
+            )
+        })
+        .collect::<Vec<_>>();
+    for expected in [
+        ("IMPORTS_FROM", "yaml", "", "MEDIUM"),
+        ("IMPORTS_FROM", "numpy", "", "MEDIUM"),
+        ("CALLS", "yaml", "yaml.safe_load", "MEDIUM"),
+        ("CALLS", "numpy", "numpy.array", "MEDIUM"),
+        ("CALLS", "pytest", "pytest.raises", "MEDIUM"),
+    ] {
+        assert!(
+            external.contains(&expected),
+            "{expected:?} not in {external:?}"
+        );
+    }
+    assert!(
+        !edges
+            .iter()
+            .any(|edge| edge.extra["external"] == true && edge.extra["stdlib"] == true),
+        "{external:?}"
+    );
+    assert!(
+        !external.iter().any(|(_, target, _, _)| *target == "app"),
+        "{external:?}"
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn python_lazy_exports_are_imports() {
+    let mut root = std::env::temp_dir();
+    root.push(format!("dagayn-python-lazy-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("pkg")).unwrap();
+    std::fs::write(root.join("pkg/types.py"), "class Node:\n    pass\n").unwrap();
+    std::fs::write(root.join("pkg/core.py"), "class Parser:\n    pass\n").unwrap();
+    let source = b"_LAZY = {\n    \"Node\": (\".types\", \"Node\"),\n    \"CodeParser\": (\".core\", \"Parser\"),\n}\n\ndef __getattr__(name):\n    module_name, attr_name = _LAZY[name]\n    return attr_name\n";
+    std::fs::write(root.join("pkg/__init__.py"), source).unwrap();
+    let mut parser = RustOwnedParser::new();
+    let (_, edges) = parser.parse_file_in_repo(Some(&root), "pkg/__init__.py", source);
+    let imports = edges
+        .iter()
+        .filter(|edge| edge.kind == "IMPORTS_FROM")
+        .map(|edge| (edge.target.as_str(), edge.extra["names"].clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        imports,
+        vec![
+            ("pkg/types.py", serde_json::json!([["Node", "Node"]])),
+            ("pkg/core.py", serde_json::json!([["Parser", "CodeParser"]])),
+        ]
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn python_typed_receivers_never_bind_to_another_class_of_the_file() {
+    // `store: GraphStore` of another module: its `close` is not the
+    // `close` of a class this file declares.
+    let source = b"from app.graph import GraphStore\n\nclass _NoClose:\n    def close(self):\n        pass\n\ndef run(store: GraphStore):\n    store.close()\n";
+    let (_, edges) = parse_python("tests/test_store.py", source);
+    let call = edges
+        .iter()
+        .find(|edge| edge.kind == "CALLS" && edge.source == "tests/test_store.py::run")
+        .expect("call");
+    assert_eq!(call.target, "close");
+    assert_eq!(call.extra["receiver_type"], "GraphStore");
+}
+
+#[test]
+fn python_pytest_fixtures_type_their_parameters() {
+    let source = br#"import pytest
+
+def test_run(tmp_path, monkeypatch, capsys, other):
+    tmp_path.mkdir()
+    monkeypatch.setattr("a.b", 1)
+    capsys.readouterr()
+    other.setattr("x", 1)
+
+def helper(mp: pytest.MonkeyPatch):
+    mp.setenv("A", "1")
+"#;
+    let (_, edges) = parse_python("tests/test_app.py", source);
+    let calls = edges
+        .iter()
+        .filter(|edge| edge.kind == "CALLS")
+        .map(|edge| {
+            (
+                edge.target.as_str(),
+                edge.extra["external_symbol"].as_str().unwrap_or_default(),
+            )
+        })
+        .collect::<Vec<_>>();
+    for expected in [
+        ("pathlib", "pathlib.Path.mkdir"),
+        ("pytest", "pytest.MonkeyPatch.setattr"),
+        ("pytest", "pytest.CaptureFixture.readouterr"),
+        // No fixture of that name: unknown.
+        ("setattr", ""),
+    ] {
+        assert!(calls.contains(&expected), "{expected:?} not in {calls:?}");
+    }
+    // Outside a test file, a parameter named like a fixture is not one.
+    let (_, edges) = parse_python("app/run.py", b"def run(tmp_path):\n    tmp_path.mkdir()\n");
+    assert!(
+        edges
+            .iter()
+            .any(|edge| edge.kind == "CALLS" && edge.target == "mkdir"),
+        "{edges:?}"
+    );
+}
+
+#[test]
+fn python_relative_imports_resolve_calls() {
+    // `from .graph import helper` binds `helper` as `from pkg.graph import
+    // helper` does.
+    let mut root = std::env::temp_dir();
+    root.push(format!("dagayn-python-relative-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("pkg")).unwrap();
+    std::fs::write(root.join("pkg/__init__.py"), "").unwrap();
+    std::fs::write(root.join("pkg/graph.py"), "def helper():\n    pass\n").unwrap();
+    let source = b"from .graph import helper\n\ndef run():\n    helper()\n";
+    std::fs::write(root.join("pkg/app.py"), source).unwrap();
+    let mut parser = RustOwnedParser::new();
+    let (_, edges) = parser.parse_file_in_repo(Some(&root), "pkg/app.py", source);
+    assert!(
+        edges
+            .iter()
+            .any(|edge| edge.kind == "CALLS" && edge.target == "pkg/graph.py::helper"),
+        "{edges:?}"
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn python_receivers_record_the_call_they_came_from() {
+    let source = b"def run(store):\n    store_conn(store).execute('x')\n    conn = store_conn(store)\n    conn.commit()\n    store.pool().get()\n";
+    let (_, edges) = parse_python("app.py", source);
+    let from = |method: &str| {
+        edges
+            .iter()
+            .find(|edge| edge.kind == "CALLS" && edge.target == method)
+            .map(|edge| edge.extra["receiver_from"].clone())
+            .unwrap_or_else(|| panic!("no {method}"))
+    };
+    assert_eq!(
+        from("execute"),
+        serde_json::json!({"call": "store_conn", "line": 2, "unwrap": false})
+    );
+    assert_eq!(
+        from("commit"),
+        serde_json::json!({"call": "store_conn", "line": 3, "unwrap": false})
+    );
+    assert_eq!(
+        from("get"),
+        serde_json::json!({"call": "pool", "line": 5, "unwrap": false})
+    );
 }

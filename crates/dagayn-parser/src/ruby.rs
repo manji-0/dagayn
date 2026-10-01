@@ -1,5 +1,15 @@
-use serde_json::json;
+use std::cell::RefCell;
+use std::collections::HashSet;
 
+use serde_json::{Value, json};
+
+use super::member_calls::{CallOrigin, MemberCallBindings};
+
+use super::stdlib::ruby::{
+    is_ruby_core_constant, is_ruby_kernel_method, is_ruby_stdlib_library, ruby_library_root,
+    ruby_stdlib_constant_library,
+};
+use super::stdlib::{StdlibEvidence, mark_stdlib_edge};
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{is_test_file, line_count, node_text, strip_matching_quotes};
 use super::{qualify, resolve_rust_call_targets};
@@ -30,15 +40,24 @@ pub(super) fn parse_ruby_with_parser(
     if let Some(parser) = parser
         && let Some(tree) = parser.parse(source, None)
     {
+        let mut class_names = HashSet::new();
+        ruby_collect_class_names(tree.root_node(), source, &mut class_names);
+        let context = RubyContext {
+            source,
+            file_path: &file_path,
+            bindings: RefCell::new(MemberCallBindings::with_types(class_names.clone())),
+            class_names,
+        };
         ruby_walk_children(
             tree.root_node(),
-            source,
-            &file_path,
+            &context,
             None,
             None,
             &mut nodes,
             &mut edges,
         );
+        ruby_mark_stdlib_calls(tree.root_node(), source, &nodes, &mut edges);
+        ruby_resolve_local_receivers(&nodes, &mut edges);
         let edges = resolve_rust_call_targets(&nodes, edges, &file_path);
         return (nodes, edges);
     }
@@ -46,15 +65,25 @@ pub(super) fn parse_ruby_with_parser(
     (nodes, edges)
 }
 
+/// What the walk of one file shares: the source, and the types of the
+/// variables in scope (`store = Store.new`), which type member calls.
+struct RubyContext<'a> {
+    source: &'a [u8],
+    file_path: &'a FilePath,
+    bindings: RefCell<MemberCallBindings>,
+    /// Classes and modules the file declares, by name.
+    class_names: HashSet<String>,
+}
+
 fn ruby_walk_children(
     node: tree_sitter::Node<'_>,
-    source: &[u8],
-    file_path: &FilePath,
+    context: &RubyContext<'_>,
     enclosing_class: Option<&str>,
     enclosing_func: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
+    let (source, file_path) = (context.source, context.file_path);
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         match child.kind() {
@@ -73,22 +102,18 @@ fn ruby_walk_children(
                         Some(parent) => format!("{parent}.{name}"),
                         None => name.clone(),
                     };
-                    ruby_walk_children(child, source, file_path, Some(&path), None, nodes, edges);
+                    let saved = context.bindings.borrow().snapshot();
+                    ruby_walk_children(child, context, Some(&path), None, nodes, edges);
+                    context.bindings.borrow_mut().restore(saved);
                     continue;
                 }
             }
             "method" | "singleton_method" => {
                 if let Some(name) = ruby_method_name(child, source) {
                     ruby_emit_function(child, file_path, &name, enclosing_class, nodes, edges);
-                    ruby_walk_children(
-                        child,
-                        source,
-                        file_path,
-                        enclosing_class,
-                        Some(&name),
-                        nodes,
-                        edges,
-                    );
+                    let saved = context.bindings.borrow().snapshot();
+                    ruby_walk_children(child, context, enclosing_class, Some(&name), nodes, edges);
+                    context.bindings.borrow_mut().restore(saved);
                     continue;
                 }
             }
@@ -98,21 +123,27 @@ fn ruby_walk_children(
                 {
                     ruby_emit_attached_function(child, source, file_path, class, nodes, edges);
                 }
-                ruby_emit_call(
+                ruby_emit_call(child, context, enclosing_class, enclosing_func, edges);
+            }
+            "assignment" => {
+                // The value is walked first: `store = store.reload` calls
+                // `reload` on the previous `store`.
+                ruby_walk_children(
                     child,
-                    source,
-                    file_path,
+                    context,
                     enclosing_class,
                     enclosing_func,
+                    nodes,
                     edges,
                 );
+                ruby_bind_assignment(child, context);
+                continue;
             }
             _ => {}
         }
         ruby_walk_children(
             child,
-            source,
-            file_path,
+            context,
             enclosing_class,
             enclosing_func,
             nodes,
@@ -356,12 +387,12 @@ fn ruby_ffi_library(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String
 
 fn ruby_emit_call(
     node: tree_sitter::Node<'_>,
-    source: &[u8],
-    file_path: &FilePath,
+    context: &RubyContext<'_>,
     enclosing_class: Option<&str>,
     enclosing_func: Option<&str>,
     edges: &mut Vec<ParsedEdge>,
 ) {
+    let (source, file_path) = (context.source, context.file_path);
     let call_name = ruby_call_name(node, source);
     let caller = match (enclosing_func, enclosing_class) {
         (Some(func), _) => qualify(file_path, func, enclosing_class),
@@ -372,43 +403,390 @@ fn ruby_emit_call(
         if (call_name == "require" || call_name == "require_relative")
             && let Some(target) = ruby_first_string_arg(node, source)
         {
-            edges.push(ParsedEdge {
+            let mut edge = ParsedEdge {
                 kind: crate::core::types::EdgeKind::ImportsFrom,
                 source: file_path.to_string(),
                 target,
                 file_path: file_path.clone(),
                 line: node.start_position().row as i64 + 1,
                 extra: json!({}),
-            });
+            };
+            // `require 'json'` loads a library shipped with Ruby;
+            // `require_relative` always names a file of this repository.
+            if call_name == "require" && is_ruby_stdlib_library(&edge.target) {
+                let package = edge.target.clone();
+                mark_stdlib_edge(
+                    &mut edge.target,
+                    &mut edge.extra,
+                    &package,
+                    StdlibEvidence::Certain,
+                );
+            }
+            edges.push(edge);
         }
         if ruby_is_declarative_call(&call_name) {
             return;
         }
-        // `Fast.fast_sum(...)` / `A::B.run(...)`: the module or class the
-        // method is called on, so a call into another file resolves to it.
-        let receiver_type = node
-            .child_by_field_name("receiver")
-            .filter(|receiver| matches!(receiver.kind(), "constant" | "scope_resolution"))
-            .map(|receiver| {
-                let text = node_text(receiver, source);
-                text.rsplit("::").next().unwrap_or(&text).to_string()
-            });
+        let receiver = node.child_by_field_name("receiver");
+        let mut extra = json!({});
+        if let Some(receiver) = receiver {
+            ruby_mark_receiver(receiver, &call_name, context, &mut extra);
+        }
+        // Read (and dropped) by `ruby_mark_stdlib_calls`.
+        match receiver.map(|receiver| ruby_stdlib_receiver(receiver, context)) {
+            None => extra["stdlib_bare"] = json!(true),
+            Some(Some(path)) => extra["stdlib_receiver"] = json!(path),
+            Some(None) => {}
+        }
         edges.push(ParsedEdge {
             kind: crate::core::types::EdgeKind::Calls,
             source: caller.clone(),
             target: call_name,
             file_path: file_path.clone(),
             line: node.start_position().row as i64 + 1,
-            extra: match receiver_type {
-                Some(receiver_type) => json!({"receiver_type": receiver_type}),
-                None => json!({}),
-            },
+            extra,
         });
     }
     if let Some(signature) = ruby_call_signature(node, source)
         && let Some(edge) = ruby_bridge_edge(node, source, file_path, &caller, &signature)
     {
         edges.push(edge);
+    }
+}
+
+/// The constant a call's receiver names, as the standard-library lookup
+/// reads it: `JSON`, `Net::HTTP` (and `::File` as `File`), or `Set.new` for
+/// a value the constant constructed, just now (`Set.new(xs).include?(x)`)
+/// or into a variable (`set = Set.new(xs)`, then `set.include?(x)`). Any
+/// other expression names nothing.
+fn ruby_stdlib_receiver(
+    receiver: tree_sitter::Node<'_>,
+    context: &RubyContext<'_>,
+) -> Option<String> {
+    let source = context.source;
+    match receiver.kind() {
+        "constant" | "scope_resolution" => Some(ruby_constant_path(receiver, source)),
+        "call" => {
+            let method = receiver.child_by_field_name("method")?;
+            if node_text(method, source) != "new" {
+                return None;
+            }
+            let inner = receiver.child_by_field_name("receiver")?;
+            if !matches!(inner.kind(), "constant" | "scope_resolution") {
+                return None;
+            }
+            Some(format!("{}.new", ruby_constant_path(inner, source)))
+        }
+        "identifier" => context
+            .bindings
+            .borrow()
+            .foreign_type(&node_text(receiver, source))
+            .map(|path| format!("{path}.new")),
+        _ => None,
+    }
+}
+
+/// A constant as written, without a leading `::` (`::File` is `File`).
+fn ruby_constant_path(node: tree_sitter::Node<'_>, source: &[u8]) -> String {
+    node_text(node, source)
+        .trim()
+        .trim_start_matches("::")
+        .to_string()
+}
+
+/// The type of a call's receiver, as far as the file says.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RubyReceiverType {
+    /// A class or module this file declares (`Repo.create`, or `repo`
+    /// after `repo = Repo.new`), by name.
+    Local(String),
+    /// A constant of another file or of the standard library, by its path
+    /// as written (`Net::HTTP`, `Store`).
+    Other(String),
+}
+
+/// What `receiver` is: a constant (`Fast`, `A::B`), a value a constant
+/// just constructed (`Store.new(x)`), or a variable bound to one. A
+/// constant of this file is `Local`, any other `Other`.
+fn ruby_receiver_type(
+    receiver: tree_sitter::Node<'_>,
+    context: &RubyContext<'_>,
+) -> Option<RubyReceiverType> {
+    let source = context.source;
+    let of_constant = |constant: tree_sitter::Node<'_>| {
+        let path = ruby_constant_path(constant, source);
+        let last = path.rsplit("::").next().unwrap_or(&path).to_string();
+        if context.class_names.contains(&last) {
+            RubyReceiverType::Local(last)
+        } else {
+            RubyReceiverType::Other(path)
+        }
+    };
+    match receiver.kind() {
+        "constant" | "scope_resolution" => Some(of_constant(receiver)),
+        "call" => {
+            let method = receiver.child_by_field_name("method")?;
+            let inner = receiver.child_by_field_name("receiver")?;
+            (node_text(method, source) == "new"
+                && matches!(inner.kind(), "constant" | "scope_resolution"))
+            .then(|| of_constant(inner))
+        }
+        "identifier" => {
+            let name = node_text(receiver, source);
+            let bindings = context.bindings.borrow();
+            if let Some(bound) = bindings.bound_type(&name) {
+                return Some(RubyReceiverType::Local(bound.to_string()));
+            }
+            bindings
+                .foreign_type(&name)
+                .map(|path| RubyReceiverType::Other(path.to_string()))
+        }
+        _ => None,
+    }
+}
+
+/// Scratch key on a `CALLS` edge: the class of this file its receiver is
+/// (or is an instance of), consumed by [`ruby_resolve_local_receivers`].
+const RUBY_LOCAL_TYPE_KEY: &str = "ruby_local_type";
+
+/// Records what a method call's receiver says: its class or module when
+/// the file says (`Fast.fast_sum` / `store = Store.new; store.save`:
+/// `receiver_type: "Fast"` / `"Store"` for a constant of another file),
+/// or `receiver_unknown` for any other value (`user.save`, `@db.query`,
+/// `find(id).save`), with the call it came from when it is a call's
+/// result (`receiver_from`), so no same-named method of the file is taken
+/// for it. `self` and `super` are the enclosing class.
+fn ruby_mark_receiver(
+    receiver: tree_sitter::Node<'_>,
+    method: &str,
+    context: &RubyContext<'_>,
+    extra: &mut Value,
+) {
+    match ruby_receiver_type(receiver, context) {
+        Some(RubyReceiverType::Local(type_name)) => {
+            extra[RUBY_LOCAL_TYPE_KEY] = json!(type_name);
+        }
+        Some(RubyReceiverType::Other(path)) => {
+            extra["receiver_type"] = json!(path.rsplit("::").next().unwrap_or(&path));
+        }
+        None if matches!(receiver.kind(), "self" | "super") => {}
+        None => {
+            extra["receiver_unknown"] = json!(true);
+            if let Some(origin) = ruby_call_origin(receiver, Some(method), context) {
+                extra["receiver_from"] = origin.to_json();
+            }
+        }
+    }
+}
+
+/// The call an expression is the result of (`find(id)`, `repo.find(id)`),
+/// or of which a variable holds the result (`user = find(id)`). In a chain
+/// repeating `method` (`q.where(a).where(b)`) it is the call before the
+/// repeats, since the repeats share one edge per line.
+fn ruby_call_origin(
+    expression: tree_sitter::Node<'_>,
+    method: Option<&str>,
+    context: &RubyContext<'_>,
+) -> Option<CallOrigin> {
+    match expression.kind() {
+        "call" => {
+            let name = ruby_call_name(expression, context.source)?;
+            if method == Some(name.as_str()) {
+                let inner = expression.child_by_field_name("receiver")?;
+                return ruby_call_origin(inner, method, context);
+            }
+            Some(CallOrigin {
+                name,
+                line: expression.start_position().row as i64 + 1,
+                unwrap: false,
+            })
+        }
+        "identifier" => context
+            .bindings
+            .borrow()
+            .returned_by(&node_text(expression, context.source))
+            .cloned(),
+        _ => None,
+    }
+}
+
+/// Binds the variable an assignment sets to what its value says: the class
+/// it constructs (`store = Store.new`), the variable it copies, or the call
+/// it is the result of (`user = find(id)`).
+fn ruby_bind_assignment(node: tree_sitter::Node<'_>, context: &RubyContext<'_>) {
+    let Some(left) = node
+        .child_by_field_name("left")
+        .filter(|left| left.kind() == "identifier")
+    else {
+        return;
+    };
+    let var = node_text(left, context.source);
+    let Some(right) = node.child_by_field_name("right") else {
+        context.bindings.borrow_mut().forget_foreign(&var);
+        return;
+    };
+    let typed = matches!(right.kind(), "call" | "identifier")
+        .then(|| ruby_receiver_type(right, context))
+        .flatten();
+    match typed {
+        Some(RubyReceiverType::Local(type_name)) => {
+            context.bindings.borrow_mut().bind(var, type_name);
+        }
+        Some(RubyReceiverType::Other(path)) => {
+            context.bindings.borrow_mut().bind_any(var, path);
+        }
+        None => match ruby_call_origin(right, None, context) {
+            Some(origin) => context.bindings.borrow_mut().bind_returned(var, origin),
+            None => context.bindings.borrow_mut().forget_foreign(&var),
+        },
+    }
+}
+
+/// Points a call on a class of this file (`Repo.create`, `repo.save` after
+/// `repo = Repo.new`) at `Repo::create` when the class defines the method,
+/// which same-file resolution binds; a method it does not define (`new`,
+/// one inherited from another file) keeps `receiver_type`.
+fn ruby_resolve_local_receivers(nodes: &[ParsedNode], edges: &mut [ParsedEdge]) {
+    for edge in edges.iter_mut() {
+        let Some(type_name) = edge
+            .extra
+            .as_object_mut()
+            .and_then(|extra| extra.remove(RUBY_LOCAL_TYPE_KEY))
+            .and_then(|value| value.as_str().map(str::to_string))
+        else {
+            continue;
+        };
+        let suffix = format!(".{type_name}");
+        let defined = nodes.iter().any(|node| {
+            node.kind == crate::core::types::NodeKind::Function
+                && node.name == edge.target
+                && node
+                    .parent_name
+                    .as_deref()
+                    .is_some_and(|parent| parent == type_name || parent.ends_with(&suffix))
+        });
+        if defined {
+            edge.target = format!("{type_name}::{}", edge.target);
+        } else {
+            edge.extra["receiver_type"] = json!(type_name);
+        }
+    }
+}
+
+/// Names of the classes and modules declared anywhere in the file.
+fn ruby_collect_class_names(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    names: &mut HashSet<String>,
+) {
+    if matches!(node.kind(), "class" | "module")
+        && let Some(name) = ruby_class_name(node, source)
+    {
+        names.insert(name);
+    }
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        ruby_collect_class_names(child, source, names);
+    }
+}
+
+/// Points the calls into Ruby's standard library at it: a call on a
+/// constant of a library shipped with Ruby at that library (`JSON.parse` at
+/// `json`; certain once the file requires it, likely otherwise, since
+/// another file may), on a core class at `core` (`File.read`), and a bare
+/// `Kernel` method at `core` (`puts`, likely: a superclass elsewhere may
+/// define one). A constant or method this file defines is its own, and a
+/// method called on a variable is left alone.
+fn ruby_mark_stdlib_calls(
+    root: tree_sitter::Node<'_>,
+    source: &[u8],
+    nodes: &[ParsedNode],
+    edges: &mut [ParsedEdge],
+) {
+    let defined_methods = nodes
+        .iter()
+        .filter(|node| node.kind == crate::core::types::NodeKind::Function)
+        .map(|node| node.name.as_str())
+        .collect::<HashSet<_>>();
+    let mut defined_constants = nodes
+        .iter()
+        .filter(|node| node.kind == crate::core::types::NodeKind::Class)
+        .map(|node| node.name.clone())
+        .collect::<HashSet<_>>();
+    ruby_collect_constant_assignments(root, source, &mut defined_constants);
+    let mut required = edges
+        .iter()
+        .filter(|edge| {
+            edge.kind == crate::core::types::EdgeKind::ImportsFrom && edge.extra["stdlib"] == true
+        })
+        .map(|edge| ruby_library_root(&edge.target).to_string())
+        .collect::<HashSet<_>>();
+    // `yaml` is Psych.
+    if required.contains("yaml") {
+        required.insert("psych".to_string());
+    }
+    for edge in edges.iter_mut() {
+        if edge.kind != crate::core::types::EdgeKind::Calls {
+            continue;
+        }
+        let Some(extra) = edge.extra.as_object_mut() else {
+            continue;
+        };
+        let bare = extra.remove("stdlib_bare").is_some();
+        let receiver = extra
+            .remove("stdlib_receiver")
+            .and_then(|value| value.as_str().map(str::to_string));
+        let (package, evidence, symbol) = match receiver {
+            Some(path) => {
+                let constant = path.strip_suffix(".new").unwrap_or(&path);
+                let root = constant.split("::").next().unwrap_or(constant);
+                if defined_constants.contains(root) {
+                    continue;
+                }
+                let symbol = format!("{path}.{}", edge.target);
+                if let Some(library) = ruby_stdlib_constant_library(constant) {
+                    let evidence = if required.contains(ruby_library_root(library)) {
+                        StdlibEvidence::Certain
+                    } else {
+                        StdlibEvidence::Likely
+                    };
+                    (library, evidence, symbol)
+                } else if is_ruby_core_constant(root) {
+                    ("core", StdlibEvidence::Certain, symbol)
+                } else {
+                    continue;
+                }
+            }
+            None if bare
+                && is_ruby_kernel_method(&edge.target)
+                && !defined_methods.contains(edge.target.as_str()) =>
+            {
+                ("core", StdlibEvidence::Likely, edge.target.clone())
+            }
+            None => continue,
+        };
+        edge.target = symbol;
+        mark_stdlib_edge(&mut edge.target, &mut edge.extra, package, evidence);
+    }
+}
+
+/// Constants assigned anywhere in the file (`Point = Struct.new(:x)`),
+/// which shadow a standard-library constant of the same name.
+fn ruby_collect_constant_assignments(
+    root: tree_sitter::Node<'_>,
+    source: &[u8],
+    constants: &mut HashSet<String>,
+) {
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "assignment"
+            && let Some(left) = node.child_by_field_name("left")
+            && left.kind() == "constant"
+        {
+            constants.insert(node_text(left, source).trim().to_string());
+        }
+        let mut cursor = node.walk();
+        stack.extend(node.named_children(&mut cursor));
     }
 }
 

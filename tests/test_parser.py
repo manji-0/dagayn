@@ -455,7 +455,11 @@ class TestCodeParser:
     def test_parse_vue_calls(self):
         nodes, edges = self.parser.parse_file(FIXTURES / "sample_vue.vue")
         calls = [e for e in edges if e.kind == "CALLS"]
-        call_targets = {e.target for e in calls}
+        # A call into the standard library targets its package and keeps
+        # the name in `external_symbol` (`console.log` -> `globalThis`).
+        call_targets = {e.target for e in calls} | {
+            e.extra["external_symbol"] for e in calls if e.extra.get("external_symbol")
+        }
         assert (
             "log" in call_targets
             or "console.log" in call_targets
@@ -590,8 +594,16 @@ class TestCodeParser:
         calls = [e for e in edges if e.kind == "CALLS"]
         assert calls, "expected at least one CALLS edge for Dart"
         targets = [e.target for e in calls]
-        # Builtin print is called at least twice in sample.dart
-        assert sum(1 for t in targets if t == "print") >= 2
+        # Builtin print is called at least twice in sample.dart, as calls
+        # into `dart:core`
+        assert (
+            sum(
+                1
+                for e in calls
+                if e.target == "dart:core" and e.extra.get("external_symbol") == "print"
+            )
+            >= 2
+        )
         # _run() is called inside Dog.fetch(); the call target should
         # either be the bare name "_run" or a qualified form ending in
         # "::Dog._run" once the call resolver has run.
@@ -1204,7 +1216,9 @@ class TestModuleScopeCalls:
         top_level = [
             e
             for e in edges
-            if e.kind == "CALLS" and e.source == str(path) and e.target.endswith("puts")
+            if e.kind == "CALLS"
+            and e.source == str(path)
+            and str((e.extra or {}).get("external_symbol") or e.target).endswith("puts")
         ]
         assert len(top_level) == 1
 
@@ -1837,7 +1851,8 @@ class TestTypeRoleAndImplements:
         calls = {e.line: e for e in edges if e.kind == "CALLS"}
         expected = {
             7: ("react::useState", "react"),
-            8: ("node:fs::readFile", "node:fs"),
+            # A Node.js builtin module is the standard library: its package.
+            8: ("node:fs", "node:fs"),
             9: ("@testing-library/react::render", "@testing-library/react"),
             10: ("express::default", "express"),
         }

@@ -261,7 +261,9 @@ class TestJavaImportResolution:
         _, edges = parser.parse_file(app_dir / "App.java")
         imports = [e for e in edges if e.kind == "IMPORTS_FROM"]
         assert len(imports) == 1
-        assert imports[0].target == "java.util.*"
+        # A class-library import targets its package.
+        assert imports[0].target == "java.util"
+        assert imports[0].extra["external_symbol"] == "java.util.*"
 
 
 class TestCParsing:
@@ -286,8 +288,10 @@ class TestCParsing:
 
     def test_finds_imports(self):
         imports = [e for e in self.edges if e.kind == "IMPORTS_FROM"]
-        targets = {e.target for e in imports}
-        assert "stdio.h" in targets
+        # A standard header is an import of the C library.
+        stdio = [e for e in imports if e.target == "libc"]
+        assert stdio
+        assert stdio[0].extra["external_symbol"] == "stdio.h"
 
 
 class TestCppParsing:
@@ -397,7 +401,10 @@ class TestPHPParsing:
     def test_finds_calls(self):
         calls = [e for e in self.edges if e.kind == "CALLS"]
         targets = {e.target for e in calls}
-        target_names = {t.split("::")[-1].split(".")[-1] for t in targets}
+        # Calls into PHP's builtins target `php` and keep the name in
+        # `external_symbol`.
+        symbols = {e.extra.get("external_symbol", e.target) for e in calls}
+        target_names = {t.split("::")[-1].split(".")[-1].lstrip("\\") for t in targets | symbols}
 
         run_queries_targets = {
             e.target for e in calls if e.source.endswith("::ExtendedRepo.runQueries")
@@ -444,8 +451,10 @@ class TestKotlinParsing:
     def test_finds_calls(self):
         calls = [e for e in self.edges if e.kind == "CALLS"]
         targets = {c.target for c in calls}
-        # Simple call: println(...)
-        assert "println" in targets
+        # Simple call: println(...), into the Kotlin standard library
+        assert any(
+            c.target == "kotlin" and c.extra.get("external_symbol") == "println" for c in calls
+        )
         # Method call: repo.save(user)
         assert any("save" in t for t in targets)
 
@@ -546,12 +555,14 @@ class TestScalaParsing:
 
     def test_finds_imports(self):
         imports = [e for e in self.edges if e.kind == "IMPORTS_FROM"]
-        targets = {e.target for e in imports}
-        assert "scala.util.Try" in targets
-        assert "scala.collection.mutable" in targets
-        assert "scala.collection.mutable.HashMap" in targets
-        assert "scala.collection.mutable.ListBuffer" in targets
-        assert "scala.concurrent.*" in targets
+        # Standard-library imports target their package and keep the path.
+        symbols = {e.extra.get("external_symbol", e.target) for e in imports}
+        assert "scala.util.Try" in symbols
+        assert "scala.collection.mutable" in symbols
+        assert "scala.collection.mutable.HashMap" in symbols
+        assert "scala.collection.mutable.ListBuffer" in symbols
+        assert "scala.concurrent.*" in symbols
+        assert all(e.extra.get("stdlib") for e in imports)
         assert len(imports) >= 3
 
     def test_finds_inheritance(self):
@@ -783,7 +794,8 @@ class TestPerlParsing:
         assert any(
             t == "speak" or t.endswith(("::speak", ".speak")) for t in targets
         )  # $self->speak() — method_call_expression
-        assert "bless" in targets  # ambiguous_function_call_expression
+        # ambiguous_function_call_expression: the builtin `bless`
+        assert any(e.target == "CORE" and e.extra.get("external_symbol") == "bless" for e in calls)
 
     def test_finds_contains(self):
         contains = [e for e in self.edges if e.kind == "CONTAINS"]
@@ -813,7 +825,10 @@ class TestXSParsing:
         imports = [e for e in self.edges if e.kind == "IMPORTS_FROM"]
         targets = {e.target for e in imports}
         assert "XSUB.h" in targets
-        assert "string.h" in targets
+        # A standard header is an import of the C library.
+        assert any(
+            e.target == "libc" and e.extra.get("external_symbol") == "string.h" for e in imports
+        )
 
     def test_finds_calls(self):
         calls = [e for e in self.edges if e.kind == "CALLS"]
@@ -876,7 +891,11 @@ class TestLuaParsing:
 
     def test_finds_calls(self):
         calls = [e for e in self.edges if e.kind == "CALLS"]
-        targets = {e.target for e in calls}
+        # Base functions are calls into `_G`, named in `external_symbol`.
+        targets = {e.target for e in calls} | {
+            e.extra["external_symbol"] for e in calls if e.extra.get("external_symbol")
+        }
+        assert "_G" in targets
         assert "print" in targets
         assert "setmetatable" in targets
         assert "assert" in targets
@@ -985,8 +1004,11 @@ class TestObjectiveCParsing:
         assert any(t.endswith("::Calculator.logResult") for t in targets)
         # [Calculator sharedCalculator] from main should also resolve
         assert any(t.endswith("::Calculator.sharedCalculator") for t in targets)
-        # External NSLog(...) call_expression should be captured too
-        assert "NSLog" in targets
+        # External NSLog(...) call_expression should be captured too, as a
+        # call into Foundation
+        assert any(
+            e.target == "Foundation" and e.extra.get("external_symbol") == "NSLog" for e in calls
+        )
 
 
 class TestBashParsing:
@@ -1069,8 +1091,8 @@ class TestBashParsing:
         CALLS edge keyed on its command_name (#197)."""
         calls = [e for e in self.edges if e.kind == "CALLS"]
         targets = {e.target for e in calls}
-        # Built-ins and external commands kept as bare names
-        assert "echo" in targets
+        # Built-ins are calls into `bash`; external commands keep bare names
+        assert any(e.target == "bash" and e.extra.get("external_symbol") == "echo" for e in calls)
         assert "mkdir" in targets
         # Internal function calls should resolve to qualified names
         assert any(t.endswith("::log_info") for t in targets)
@@ -1178,23 +1200,26 @@ class TestGDScriptParsing:
     def test_finds_extends_as_import(self):
         """``extends Node`` is the GDScript analogue of an import — parent class."""
         imports = [e for e in self.edges if e.kind == "IMPORTS_FROM"]
-        targets = {e.target for e in imports}
-        assert "Node" in targets, f"expected Node in imports, got {targets}"
+        # An engine class is an import of `godot`, named in `external_symbol`.
+        symbols = {e.extra.get("external_symbol", e.target) for e in imports}
+        assert "Node" in symbols, f"expected Node in imports, got {symbols}"
 
     def test_finds_direct_calls(self):
         """Bare calls (``range(...)``, ``_load_items()``) produce CALLS edges."""
         calls = [e for e in self.edges if e.kind == "CALLS"]
-        targets = {e.target for e in calls}
-        assert "range" in targets
+        symbols = {e.extra.get("external_symbol", e.target) for e in calls}
+        assert "range" in symbols
 
     def test_finds_attribute_calls(self):
         """``obj.method(...)`` calls live inside ``attribute`` nodes as ``attribute_call``."""
         calls = [e for e in self.edges if e.kind == "CALLS"]
-        targets = {e.target for e in calls}
-        # timer.start(), items.append(item), item_added.emit(item)
-        assert "start" in targets
-        assert "append" in targets
-        assert "emit" in targets
+        # timer.start(), items.append(item), item_added.emit(item); calls on
+        # an engine type (`timer: Timer`, an `Array`) are calls into `godot`
+        # named in `external_symbol`.
+        names = {e.extra.get("external_symbol", e.target).rsplit(".", 1)[-1] for e in calls}
+        assert "start" in names
+        assert "append" in names
+        assert "emit" in names
 
     def test_internal_calls_resolve_to_qualified_names(self):
         """A bare ``_load_items()`` call inside _ready should resolve to the
@@ -1702,7 +1727,8 @@ class TestZigParsing:
         assert (f"{q}Point.manhattan", f"{q}Point.axis") in calls
         assert (f"{q}Point.Origin.get", f"{q}Point.init") in calls
         assert (f"{q}main", f"{q}Point.init") in calls
-        assert (f"{q}main", "std.debug.print") in calls
+        # A call through `@import("std")` targets `std`.
+        assert (f"{q}main", "std") in calls
         assert (f"{q}Point.manhattan", "util.abs") in calls
 
     def test_tested_by(self):

@@ -1321,8 +1321,9 @@ def test_calls_on_a_type_resolve_across_files(tmp_path: Path) -> None:
         )
         assert calls["lib/report.rb::monthly"] == "lib/fast.rb::Fast.fast_sum"
         assert calls["app/Report.cs::Report.Monthly"] == "app/Native.cs::Native.Total"
-        # `Math` is not in the repository: `Math.Max` must not bind to `Util.Max`.
-        assert calls["app/Report.cs::Report.Biggest"] == "Max"
+        # `Math` is not in the repository: `Math.Max` must not bind to `Util.Max`;
+        # it is a call into the base class library.
+        assert calls["app/Report.cs::Report.Biggest"] == "System"
         stats = {
             row["target_qualified"]
             for row in store_conn(store).execute(

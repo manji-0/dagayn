@@ -1,7 +1,12 @@
-use std::collections::HashMap;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 
-use serde_json::json;
+use serde_json::{Value, json};
 
+use super::member_calls::{CallOrigin, MemberCallBindings};
+
+use super::stdlib::perl::{is_perl_builtin, is_perl_core_module, perl_default_exports};
+use super::stdlib::{StdlibEvidence, mark_stdlib_edge};
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{is_test_file, line_count, node_text, strip_matching_quotes};
 use super::{add_tested_by_edges, is_test_function, qualify};
@@ -31,11 +36,17 @@ pub(super) fn parse_perl_with_parser(
     let context = PerlParseContext {
         source,
         file_path: file_path.clone(),
+        imports: RefCell::default(),
+        packages: HashSet::new(),
+        bindings: RefCell::default(),
     };
 
     if let Some(parser) = parser
         && let Some(tree) = parser.parse(source, None)
     {
+        let mut context = context;
+        perl_collect_packages(tree.root_node(), source, &mut context.packages);
+        context.bindings = RefCell::new(MemberCallBindings::with_types(context.packages.clone()));
         perl_walk_children(
             tree.root_node(),
             &context,
@@ -44,6 +55,7 @@ pub(super) fn parse_perl_with_parser(
             &mut nodes,
             &mut edges,
         );
+        perl_mark_stdlib_calls(&nodes, &mut edges, &context.imports.borrow());
         let mut edges = resolve_perl_call_targets(&nodes, edges, &file_path);
         add_tested_by_edges(&nodes, &mut edges);
         return (nodes, edges);
@@ -55,6 +67,14 @@ pub(super) fn parse_perl_with_parser(
 struct PerlParseContext<'a> {
     source: &'a [u8],
     file_path: FilePath,
+    /// Sub names a `use` brings into the file, with the module they come
+    /// from (`floor` → `POSIX` after `use POSIX qw(floor)`).
+    imports: RefCell<HashMap<String, String>>,
+    /// Packages the file declares (`package Store;`).
+    packages: HashSet<String>,
+    /// The classes of the variables in scope (`my $s = Store->new`), and
+    /// the calls they hold the result of (`my $c = connect()`).
+    bindings: RefCell<MemberCallBindings>,
 }
 
 /// Walks `node`, tracking the current package. A `package X;` statement
@@ -107,7 +127,9 @@ fn perl_walk_children(
                         Some(package) => format!("{package}.{name}"),
                         None => name.clone(),
                     };
+                    let saved = context.bindings.borrow().snapshot();
                     perl_walk_children(child, context, package, Some(&scope), nodes, edges);
+                    context.bindings.borrow_mut().restore(saved);
                 }
                 continue;
             }
@@ -125,6 +147,11 @@ fn perl_walk_children(
             _ => {}
         }
         perl_walk_children(child, context, package, enclosing_func, nodes, edges);
+        // After its value is walked: `$s = $s->next` calls `next` on the
+        // previous `$s`.
+        if child.kind() == "assignment_expression" {
+            perl_bind_assignment(child, context);
+        }
     }
 }
 
@@ -152,18 +179,30 @@ fn perl_push_import(
     target: String,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    edges.push(ParsedEdge {
+    let mut edge = ParsedEdge {
         kind: crate::core::types::EdgeKind::ImportsFrom,
         source: context.file_path.to_string(),
         target,
         file_path: context.file_path.clone(),
         line: node.start_position().row as i64 + 1,
         extra: json!({}),
-    });
+    };
+    if is_perl_core_module(&edge.target) {
+        let package = edge.target.clone();
+        mark_stdlib_edge(
+            &mut edge.target,
+            &mut edge.extra,
+            &package,
+            StdlibEvidence::Certain,
+        );
+    }
+    edges.push(edge);
 }
 
 /// `use Module ...` imports the module; `use parent`/`use base` declare
-/// superclasses of the current package instead.
+/// superclasses of the current package instead. Pragmas (`strict`,
+/// `warnings`, `constant`) change how the file compiles and import nothing,
+/// so they make no edge, standard library or not.
 fn perl_emit_use(
     node: tree_sitter::Node<'_>,
     context: &PerlParseContext<'_>,
@@ -181,7 +220,38 @@ fn perl_emit_use(
     if PERL_PRAGMAS.contains(&module.as_str()) {
         return;
     }
+    perl_record_imported_names(node, context, &module);
     perl_push_import(node, context, module, edges);
+}
+
+/// The subs `use Module LIST` imports: the words of its list, or what the
+/// module exports by default when there is none (`use Data::Dumper;`
+/// brings `Dumper`). `use Module ()` imports nothing, and a tag (`:all`)
+/// names no sub.
+fn perl_record_imported_names(
+    node: tree_sitter::Node<'_>,
+    context: &PerlParseContext<'_>,
+    module: &str,
+) {
+    let mut cursor = node.walk();
+    let has_list = node
+        .named_children(&mut cursor)
+        .any(|child| !matches!(child.kind(), "package" | "version" | "comment"));
+    let names = if has_list {
+        perl_string_values(node, context.source)
+    } else {
+        perl_default_exports(module)
+            .iter()
+            .map(|name| name.to_string())
+            .collect()
+    };
+    let mut imports = context.imports.borrow_mut();
+    for name in names {
+        let name = name.trim_start_matches('&');
+        if perl_is_sub_name(name) && !name.contains("::") {
+            imports.insert(name.to_string(), module.to_string());
+        }
+    }
 }
 
 fn perl_emit_isa_assignment(
@@ -329,16 +399,194 @@ fn perl_emit_call(
     let caller = enclosing_func
         .map(|func| qualify(&context.file_path, func, None))
         .unwrap_or_else(|| context.file_path.to_string());
+    // `$obj->print(...)`: a method of a value of unknown class, never a
+    // builtin. Read (and dropped) by `perl_mark_stdlib_calls`.
+    let on_value =
+        node.kind() == "method_call_expression" && perl_direct_child(node, &["bareword"]).is_none();
+    let mut target = call_name.to_string();
+    let mut extra = if on_value {
+        json!({"stdlib_method": true})
+    } else {
+        json!({})
+    };
+    if on_value {
+        perl_mark_receiver(node, context, &mut target, &mut extra);
+    }
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Calls,
         source: caller.clone(),
-        target: call_name.to_string(),
+        target,
         file_path: context.file_path.clone(),
         line: node.start_position().row as i64 + 1,
-        extra: json!({}),
+        extra,
     });
-    if let Some(edge) = perl_bridge_edge(node, context, &caller, call_name) {
+    // `$obj->exec(...)` is a method, not the builtin.
+    if !on_value && let Some(edge) = perl_bridge_edge(node, context, &caller, call_name) {
         edges.push(edge);
+    }
+}
+
+/// Names of the packages declared anywhere in the file.
+fn perl_collect_packages(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    packages: &mut HashSet<String>,
+) {
+    if matches!(
+        node.kind(),
+        "package_statement" | "class_statement" | "role_statement"
+    ) && let Some(name) = perl_package_name(node, source)
+    {
+        packages.insert(name);
+    }
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        perl_collect_packages(child, source, packages);
+    }
+}
+
+/// Invocants that are the enclosing package or an instance of it.
+fn perl_is_self_invocant(text: &str) -> bool {
+    matches!(text, "$self" | "$this" | "$class" | "shift" | "__PACKAGE__")
+}
+
+/// The class a `Class->new(...)` constructs (`Store`, `My::Store`).
+fn perl_constructed_class(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    if node.kind() != "method_call_expression" {
+        return None;
+    }
+    let class = perl_direct_child_text(node, source, &["bareword"])?;
+    (perl_direct_child_text(node, source, &["method"])? == "new").then_some(class)
+}
+
+/// The call an expression is the result of (`connect($dsn)`,
+/// `$db->handle`), or of which a variable holds the result. In a chain
+/// repeating `method` (`$q->where(a)->where(b)`) it is the call before the
+/// repeats, since the repeats share one edge per line.
+fn perl_call_origin(
+    expression: tree_sitter::Node<'_>,
+    method: Option<&str>,
+    context: &PerlParseContext<'_>,
+) -> Option<CallOrigin> {
+    let source = context.source;
+    let name = match expression.kind() {
+        "method_call_expression" => perl_direct_child_text(expression, source, &["method"])?,
+        "function_call_expression" | "ambiguous_function_call_expression" => {
+            let name = perl_call_name(expression, source)?;
+            name.rsplit("::").next().unwrap_or(&name).to_string()
+        }
+        "scalar" => {
+            return context
+                .bindings
+                .borrow()
+                .returned_by(&node_text(expression, source))
+                .cloned();
+        }
+        _ => return None,
+    };
+    if expression.kind() == "method_call_expression" && method == Some(name.as_str()) {
+        let invocant = expression.child_by_field_name("invocant")?;
+        return perl_call_origin(invocant, method, context);
+    }
+    Some(CallOrigin {
+        name,
+        line: expression.start_position().row as i64 + 1,
+        unwrap: false,
+    })
+}
+
+/// Binds the scalar an assignment sets to what its value says: the class
+/// it constructs (`my $s = Store->new`), the scalar it copies, or the call
+/// it is the result of (`my $c = connect($dsn)`).
+fn perl_bind_assignment(node: tree_sitter::Node<'_>, context: &PerlParseContext<'_>) {
+    let source = context.source;
+    let Some(left) = node.child_by_field_name("left") else {
+        return;
+    };
+    let scalar = match left.kind() {
+        "scalar" => left,
+        "variable_declaration" => match left.child_by_field_name("variable") {
+            Some(variable) if variable.kind() == "scalar" => variable,
+            _ => return,
+        },
+        _ => return,
+    };
+    let var = node_text(scalar, source);
+    let Some(right) = node.child_by_field_name("right") else {
+        return;
+    };
+    if let Some(class) = perl_constructed_class(right, source) {
+        let mut bindings = context.bindings.borrow_mut();
+        if context.packages.contains(&class) {
+            bindings.forget_foreign(&var);
+            bindings.bind(var, class);
+        } else {
+            bindings.bind_any(var, class);
+        }
+        return;
+    }
+    if right.kind() == "scalar" {
+        let other = node_text(right, source);
+        let mut bindings = context.bindings.borrow_mut();
+        if let Some(bound) = bindings.bound_type(&other).map(str::to_string) {
+            bindings.bind(var, bound);
+            return;
+        }
+        if let Some(foreign) = bindings.foreign_type(&other).map(str::to_string) {
+            bindings.bind_any(var, foreign);
+            return;
+        }
+    }
+    let origin = perl_call_origin(right, None, context);
+    let mut bindings = context.bindings.borrow_mut();
+    match origin {
+        Some(origin) => bindings.bind_returned(var, origin),
+        None => bindings.forget_foreign(&var),
+    }
+}
+
+/// Rewrites a method call on a value by what its invocant says: an
+/// instance of a package of this file calls the package's sub
+/// (`$s->save` after `my $s = Store->new` is `Store::save`); of a package
+/// of another file, the bare method with `receiver_type`; of an unknown
+/// class (a parameter, `$self->{db}`, a call's result), the bare method
+/// with `receiver_unknown` (and `receiver_from` for a call's result).
+/// `$self`, `$class`, and `shift` are the enclosing package.
+fn perl_mark_receiver(
+    node: tree_sitter::Node<'_>,
+    context: &PerlParseContext<'_>,
+    target: &mut String,
+    extra: &mut Value,
+) {
+    let source = context.source;
+    let Some(invocant) = node.child_by_field_name("invocant") else {
+        return;
+    };
+    let text = node_text(invocant, source);
+    if perl_is_self_invocant(text.trim()) {
+        return;
+    }
+    let class = match invocant.kind() {
+        "scalar" => {
+            let bindings = context.bindings.borrow();
+            bindings
+                .bound_type(&text)
+                .or_else(|| bindings.foreign_type(&text))
+                .map(str::to_string)
+        }
+        _ => perl_constructed_class(invocant, source),
+    };
+    match class {
+        Some(class) if context.packages.contains(&class) => {
+            *target = format!("{class}::{target}");
+        }
+        Some(class) => extra["receiver_type"] = json!(class),
+        None => {
+            extra["receiver_unknown"] = json!(true);
+            if let Some(origin) = perl_call_origin(invocant, Some(target.as_str()), context) {
+                extra["receiver_from"] = origin.to_json();
+            }
+        }
     }
 }
 
@@ -488,6 +736,67 @@ fn perl_first_descendant_text(
     None
 }
 
+/// Points the calls into Perl's standard library at it: a sub of a core
+/// module named through it (`POSIX::floor`, `File::Spec->catfile`) or
+/// imported from it (`floor` after `use POSIX qw(floor)`) at the module,
+/// certain; a builtin (`print`, `push`, `join`) at `CORE`, likely unless the
+/// file declares a sub of that name or imports one from another module.
+/// `CORE::say` is certain. A package this file declares is its own.
+fn perl_mark_stdlib_calls(
+    nodes: &[ParsedNode],
+    edges: &mut [ParsedEdge],
+    imports: &HashMap<String, String>,
+) {
+    let defined_subs = nodes
+        .iter()
+        .filter(|node| matches!(node.kind.as_str(), "Function" | "Test"))
+        .map(|node| node.name.as_str())
+        .collect::<HashSet<_>>();
+    let defined_packages = nodes
+        .iter()
+        .filter(|node| node.kind.as_str() == "Class")
+        .map(|node| node.name.as_str())
+        .collect::<HashSet<_>>();
+    for edge in edges.iter_mut() {
+        if edge.kind != crate::core::types::EdgeKind::Calls {
+            continue;
+        }
+        let on_value = edge
+            .extra
+            .as_object_mut()
+            .and_then(|extra| extra.remove("stdlib_method"))
+            .is_some();
+        if on_value {
+            continue;
+        }
+        let (package, evidence) = match edge.target.rsplit_once("::") {
+            Some((module, _)) if module == "CORE" || module.starts_with("CORE::") => {
+                ("CORE".to_string(), StdlibEvidence::Certain)
+            }
+            Some((module, _))
+                if is_perl_core_module(module) && !defined_packages.contains(module) =>
+            {
+                (module.to_string(), StdlibEvidence::Certain)
+            }
+            Some(_) => continue,
+            None => match imports.get(&edge.target) {
+                Some(module) if is_perl_core_module(module) => {
+                    edge.target = format!("{module}::{}", edge.target);
+                    (module.clone(), StdlibEvidence::Certain)
+                }
+                Some(_) => continue,
+                None if is_perl_builtin(&edge.target)
+                    && !defined_subs.contains(edge.target.as_str()) =>
+                {
+                    ("CORE".to_string(), StdlibEvidence::Likely)
+                }
+                None => continue,
+            },
+        };
+        mark_stdlib_edge(&mut edge.target, &mut edge.extra, &package, evidence);
+    }
+}
+
 fn resolve_perl_call_targets(
     nodes: &[ParsedNode],
     edges: Vec<ParsedEdge>,
@@ -515,7 +824,13 @@ fn resolve_perl_call_targets(
     edges
         .into_iter()
         .map(|mut edge| {
-            if edge.kind != "CALLS" {
+            if edge.kind != "CALLS" || edge.extra["external"] == true {
+                return edge;
+            }
+            // A method of a value (`$conn->close`) is none of the file's
+            // subs, unless its class is a package of the file, which
+            // `perl_mark_receiver` already wrote as `Store::save`.
+            if edge.extra["receiver_unknown"] == true || edge.extra.get("receiver_type").is_some() {
                 return edge;
             }
             if let Some(target) = by_path.get(&edge.target) {

@@ -122,12 +122,15 @@ Nodes that are **not** created:
   binding, not to the optional inner expression name.
 - **External package symbols** are not nodes. `CALLS` and `REFERENCES` to
   a name imported from an external package use `<specifier>::<path>`
-  (`react::useState`, `express::default`, `node:fs::readFile`,
+  (`react::useState`, `express::default`,
   `@testing-library/react::render`) and carry `extra.external: true` and
   `extra.external_package` (§7.6). The `::` keeps these targets away from
   the bare-name resolver, so they are never attached to an unrelated local
-  symbol of the same name. Post-processing marks them LOW because no node
-  exists.
+  symbol of the same name. They are `HIGH` (named through an import of the
+  package), which post-processing keeps although no node exists. Calls into
+  the standard library (Node.js builtin modules and
+  globals) target the package itself instead (`node:fs`, `globalThis`,
+  §7.6).
 - **Synthetic tests** keep the existing `runner:description@Lline` form
   (§5.4).
 
@@ -397,11 +400,11 @@ its names stay bare.
   export index, receiver bindings) carry no confidence override (`EXTRACTED`).
 - Bare names resolved in post-processing through import visibility are
   `MEDIUM`.
-- Targets without a node (`pkg::symbol`, unresolved names) become `LOW`
-  through `demote_unresolved_endpoint_edges`. There is no separate tier for
-  external packages: `LOW` says "no node in this graph", and
-  `extra.external: true` tells an external dependency apart from a dangling
-  in-repo name (§7.6).
+- Unresolved names become `LOW` through `demote_unresolved_endpoint_edges`:
+  `LOW` says "no node in this graph". External packages are not dangling
+  names: named through an import, they are `HIGH`, and a global inferred
+  from its name alone is `MEDIUM`; `extra.external: true` tells them apart
+  from a dangling in-repo name, and demotion keeps their tier (§7.6).
 
 ## 7. Decisions
 
@@ -576,9 +579,9 @@ target lines up with the file's `IMPORTS_FROM` edge:
 - named import: the exported name (`import { useState as useLocal }` gives
   `react::useState`), and member chains keep the path
   (`z.object()` from `zod` gives `zod::z.object`)
-- namespace import: the member path (`fs.readFile()` gives
-  `node:fs::readFile`, `path.posix.join()` gives `path::posix.join`); the
-  namespace alone is not callable and stays bare
+- namespace import: the member path (`_.chunk()` gives `lodash::chunk`,
+  `z.object()` gives `zod::z.object`); the namespace alone is not callable
+  and stays bare
 - default import and `require` binding: alone it is `pkg::default`
   (`express()` gives `express::default`); its members are the module's own,
   as for in-repo default imports (CommonJS interop), so `React.useEffect()`
@@ -595,11 +598,32 @@ target lines up with the file's `IMPORTS_FROM` edge:
 - a local that shadows an import (`const pick = ...; pick()`) is the local,
   so it produces no edge.
 
+**Standard library.** Node.js builtin modules and the language's globals
+are the standard library, and their edges target the package itself, the
+way every language's standard library does:
+
+- a builtin module, with or without the `node:` prefix and with a subpath
+  (`fs`, `node:fs`, `fs/promises`), is the package `node:<module>`:
+  `fs.readFile()` is `CALLS -> node:fs` with `external_symbol:
+  "fs.readFile"`, and its `IMPORTS_FROM` targets `node:fs`. Certain
+  (`HIGH`).
+- a global (`console.log()`, `JSON.parse()`, `new Map()`, `setTimeout()`)
+  is `CALLS -> globalThis`, unless the file declares, imports, or binds a
+  parameter of that name. The name alone is the evidence, so it is
+  `MEDIUM`.
+
+`REFERENCES` into builtin modules keep the `node:fs::X` shape.
+
 **Metadata.** These edges carry `extra.external: true` and
 `extra.external_package`, the package name without a subpath
-(`@testing-library/react`, `lodash` for `lodash/fp`, `node:fs`). Rust call
-targets (`serde_json::to_string`) already use the same `crate::path` shape
-without the flag; Python and Go keep bare names.
+(`@testing-library/react`, `lodash` for `lodash/fp`). Standard-library
+edges, in every language (`node:fs`, `globalThis`, `subprocess`,
+`builtins`, `std`, `fmt`, `java.util`, `System`, `libc`, ...), also carry
+`extra.stdlib: true`, the name in `extra.external_symbol`, and the tier
+their evidence gives them: `HIGH` when named through the standard library
+(an import of it, a path rooted at it), `MEDIUM` when inferred from a
+builtin name alone. Other Rust crates keep the `crate::path` shape
+(`serde_json::to_string`) without the flag.
 
 **Consumers.**
 
@@ -608,8 +632,9 @@ without the flag; Python and Go keep bare names.
   the code under test).
 - Post-processing: `resolve_bare_call_targets` and
   `load_bare_name_index` only consider targets without `::`, so external
-  targets are never re-bound. `demote_unresolved_endpoint_edges` makes them
-  `LOW` (§6.4).
+  targets are never re-bound. `demote_unresolved_endpoint_edges` (§6.4)
+  keeps the tier the extractor gave an external edge (`HIGH` for a package,
+  `MEDIUM` for a global) instead of making it `LOW`.
 - Dead code and the query-time name fallback of `callers_of` /
   `inheritors_of` ignore external edges, so `date-fns::format` no longer
   keeps a project `format` alive or shows up as its caller.
@@ -631,7 +656,7 @@ with a `pkg::Type` variant, they would add 107 edges on `dagayn-vscode/`
 (102 of them `vscode::*`, +33% over its 320 in-repo type edges) and 1 on
 the TypeScript parity fixture, all `LOW`.
 
-**Measured impact.** The TypeScript parity fixture keeps 400 edges: 8
+**Measured impact** (before builtin modules moved to their package). The TypeScript parity fixture keeps 400 edges: 8
 `CALLS` and 6 decorator `REFERENCES` change target (`react::useState`,
 `express::Router`, `@nestjs/common::Get`, ...). On `dagayn-vscode/` (49
 TypeScript files) 833 `CALLS` and 2 `REFERENCES` become external (388
@@ -643,7 +668,7 @@ packages disappear. `MEDIUM` edges and flows do not change there, since no
 imported package name matched a project symbol. In the sample project the
 test's `render` is a global; with
 `import { render } from "@testing-library/react"` added, the call becomes
-`@testing-library/react::render` (`LOW`) and the `ClassComp.render` `CALLS`
+`@testing-library/react::render` (`HIGH`) and the `ClassComp.render` `CALLS`
 / `TESTED_BY` edges are gone.
 
 ### 7.7 Decorators are metadata plus `REFERENCES`
@@ -857,7 +882,8 @@ QNs omit the `file::` prefix.
 | JSX intrinsic `<div />` | no edge | implemented (existing) |
 | Express `app.get(...)` on `const app = express()` | never resolved to an unrelated object-literal method; bare `get` with `receiver_unknown` (the value's type is unknown); `express()` is `CALLS -> express::default` | implemented (#8, #25) |
 | external `useState(0)` | `CALLS -> react::useState` (`external`, `external_package: "react"`) | implemented (#25) |
-| external namespace / default members `fs.readFile()`, `React.useEffect()`, `z.object()` | `CALLS -> node:fs::readFile` / `react::useEffect` / `zod::z.object` | implemented (#25) |
+| external namespace / default members `React.useEffect()`, `z.object()` | `CALLS -> react::useEffect` / `zod::z.object` | implemented (#25) |
+| Node.js builtin `fs.readFile()` (`fs` or `node:fs`), global `console.log()` | `CALLS -> node:fs` (`external_symbol: "fs.readFile"`, `HIGH`) / `CALLS -> globalThis` (`MEDIUM`) | implemented |
 | `require("pkg")` bindings, subpaths `lodash/fp`, scoped packages | `CALLS -> pkg::default` / `lodash/fp::map` (`external_package: "lodash"`) / `@scope/name::x` | implemented (#25) |
 | external JSX `<Button />`, `<Form.Item />`, decorators `@Injectable()` | `CALLS -> antd::Form.Item`; `REFERENCES -> @nestjs/common::Injectable` | implemented (#25) |
 | tagged template | `CALLS -> tag` | implemented (existing) |

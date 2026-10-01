@@ -436,7 +436,7 @@ pub(super) fn javascript_emit_bound_function(
             language: context.language.to_string(),
             parent_name: owner_path.map(str::to_string),
             params: javascript_child_text(function_node, context.source, "formal_parameters"),
-            return_type: javascript_child_text(function_node, context.source, "type_annotation"),
+            return_type: javascript_return_type(function_node, context.source),
             modifiers: javascript_modifiers(&[declaration, function_node]),
             is_test,
             extra,
@@ -493,7 +493,7 @@ pub(super) fn javascript_emit_function_node(
             } else {
                 javascript_child_text(node, context.source, "formal_parameters")
             },
-            return_type: javascript_child_text(node, context.source, "type_annotation"),
+            return_type: javascript_return_type(node, context.source),
             modifiers: javascript_modifiers(&[node]),
             is_test,
             extra,
@@ -768,11 +768,7 @@ pub(super) fn javascript_emit_variable_functions(
                 language: context.language.to_string(),
                 parent_name: owner_path.map(str::to_string),
                 params: javascript_child_text(function_node, context.source, "formal_parameters"),
-                return_type: javascript_child_text(
-                    function_node,
-                    context.source,
-                    "type_annotation",
-                ),
+                return_type: javascript_return_type(function_node, context.source),
                 modifiers: javascript_modifiers(&[function_node]),
                 is_test,
                 extra,
@@ -901,7 +897,7 @@ pub(super) fn javascript_emit_field_function(
             language: context.language.to_string(),
             parent_name: owner_path.map(str::to_string),
             params: javascript_child_text(function_node, context.source, "formal_parameters"),
-            return_type: javascript_child_text(function_node, context.source, "type_annotation"),
+            return_type: javascript_return_type(function_node, context.source),
             modifiers: javascript_modifiers(&[node, function_node]),
             is_test,
             extra,
@@ -1061,4 +1057,16 @@ fn javascript_class_child_is_property_only(
         }
     }
     true
+}
+
+/// The declared return type of a function, method, or signature as written,
+/// without the `:` (`Promise<User>`, `User | null`, `x is Repo`), which
+/// resolution across files reads to type what a call returns
+/// (`receiver_from`): `async load(): Promise<User>` makes
+/// `(await load()).save()` a call of `User.save`.
+fn javascript_return_type(function_node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let annotation = function_node.child_by_field_name("return_type")?;
+    let written = node_text(annotation, source);
+    let written = written.trim().trim_start_matches(':').trim();
+    (!written.is_empty()).then(|| written.to_string())
 }

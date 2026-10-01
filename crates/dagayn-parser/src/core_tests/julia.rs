@@ -102,11 +102,11 @@ end # module
             && node.name.starts_with("testset:Arithmetic@L")
             && node.parent_name.as_deref() == Some("SampleModule")
     }));
-    assert!(
-        edges
-            .iter()
-            .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "Statistics.mean" })
-    );
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "IMPORTS_FROM"
+            && edge.target == "Statistics"
+            && edge.extra["external_symbol"] == "Statistics.mean"
+    }));
     assert!(
         edges
             .iter()
@@ -216,4 +216,100 @@ fn julia_local_short_function_calls_come_from_its_node() {
         "{} not in {qualified:?}",
         helper.source
     );
+}
+
+#[test]
+fn julia_standard_library_calls_target_their_package() {
+    let source = br#"using LinearAlgebra
+using Statistics: mean
+using DataFrames
+
+function stats(xs)
+    m = mean(xs)
+    n = norm(xs)
+    top = Base.max(m, n)
+    println("mean=", m)
+    push!(xs, top)
+    nrow(xs)
+    return sum(xs)
+end
+
+sum(xs) = 0
+"#;
+    let (_, edges) = parse_julia("stats.jl", source);
+    let tier = |kind: &str, target: &str, symbol: &str| {
+        edges
+            .iter()
+            .find(|edge| {
+                edge.kind == kind
+                    && edge.target == target
+                    && edge.extra["external_symbol"].as_str().unwrap_or_default() == symbol
+            })
+            .map(|edge| edge.extra["confidence_tier"].as_str().unwrap_or_default())
+    };
+    // Imports of stdlib modules: certain; a registered package is not.
+    assert_eq!(tier("IMPORTS_FROM", "LinearAlgebra", ""), Some("HIGH"));
+    assert_eq!(
+        tier("IMPORTS_FROM", "Statistics", "Statistics.mean"),
+        Some("HIGH")
+    );
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "IMPORTS_FROM"
+            && edge.target == "DataFrames"
+            && edge.extra.get("stdlib").is_none()
+    }));
+    // Named through the module or imported by name: certain.
+    assert_eq!(tier("CALLS", "Base", "Base.max"), Some("HIGH"));
+    assert_eq!(tier("CALLS", "Statistics", "Statistics.mean"), Some("HIGH"));
+    // Exported by a `using`'d module, or by `Base`: likely.
+    assert_eq!(
+        tier("CALLS", "LinearAlgebra", "LinearAlgebra.norm"),
+        Some("MEDIUM")
+    );
+    assert_eq!(tier("CALLS", "Base", "println"), Some("MEDIUM"));
+    assert_eq!(tier("CALLS", "Base", "push!"), Some("MEDIUM"));
+    // A name the file defines, and a package's, stay as they were.
+    let calls = edges
+        .iter()
+        .filter(|edge| edge.kind == "CALLS" && edge.extra.get("stdlib").is_none())
+        .map(|edge| edge.target.as_str())
+        .collect::<Vec<_>>();
+    for expected in ["stats.jl::sum", "nrow"] {
+        assert!(calls.contains(&expected), "{expected:?} not in {calls:?}");
+    }
+}
+
+#[test]
+fn julia_receivers_record_the_call_they_came_from() {
+    let source = b"struct Repo end\nfunction make(x::Int)::Store\n    Store(x)\nend\nshort(x)::Repo = Repo()\nsave(x) = x\nfunction run(s::Store, r::Repo, q)\n    s.save(1)\n    r.save(1)\n    q.save()\n    c = make(1)\n    c.close()\n    Base.max(1, 2)\nend\n";
+    let (nodes, edges) = parse_julia("src/app.jl", source);
+    let returns = |name: &str| {
+        nodes
+            .iter()
+            .find(|node| node.name == name)
+            .and_then(|node| node.return_type.clone())
+    };
+    assert_eq!(returns("make").as_deref(), Some("Store"));
+    assert_eq!(returns("short").as_deref(), Some("Repo"));
+    assert_eq!(returns("save"), None);
+    let call = |target: &str, line: i64| {
+        edges
+            .iter()
+            .find(|edge| edge.kind == "CALLS" && edge.target == target && edge.line == line)
+            .unwrap_or_else(|| panic!("no {target} at {line} in {edges:?}"))
+    };
+    assert_eq!(call("save", 8).extra["receiver_type"], "Store");
+    // `Repo` is this file's.
+    assert!(
+        call("src/app.jl::save", 9)
+            .extra
+            .get("receiver_type")
+            .is_none()
+    );
+    assert_eq!(call("save", 10).extra["receiver_unknown"], true);
+    assert_eq!(
+        call("close", 12).extra["receiver_from"],
+        serde_json::json!({"call": "make", "line": 11, "unwrap": false})
+    );
+    assert!(call("Base", 13).extra.get("receiver_unknown").is_none());
 }

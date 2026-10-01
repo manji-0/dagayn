@@ -16,6 +16,28 @@ pub(super) struct MemberCallBindings {
     /// Native()` with `Native` in another file): the type name only, which
     /// resolution across files matches (`receiver_type`).
     foreign: HashMap<String, String>,
+    /// Variables holding what a call returned, of a type the file does not
+    /// say (`conn = store_conn(store)`): the call, whose declared return
+    /// type resolution across files reads.
+    returned: HashMap<String, CallOrigin>,
+}
+
+/// A call whose result a receiver is: the called name as written
+/// (`store_conn`, `open`), the line of the call, and whether the result was
+/// unwrapped (`?`, `.unwrap()`, `.expect(..)`), which takes the `T` out of a
+/// `Result<T, _>` / `Option<T>`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct CallOrigin {
+    pub(super) name: String,
+    pub(super) line: i64,
+    pub(super) unwrap: bool,
+}
+
+impl CallOrigin {
+    /// The `receiver_from` metadata of a member call on this result.
+    pub(super) fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({"call": self.name, "line": self.line, "unwrap": self.unwrap})
+    }
 }
 
 /// The bindings in scope, saved around a nested scope.
@@ -23,6 +45,7 @@ pub(super) struct MemberCallBindings {
 pub(super) struct BindingsSnapshot {
     bindings: HashMap<String, String>,
     foreign: HashMap<String, String>,
+    returned: HashMap<String, CallOrigin>,
 }
 
 impl MemberCallBindings {
@@ -37,12 +60,14 @@ impl MemberCallBindings {
         BindingsSnapshot {
             bindings: self.bindings.clone(),
             foreign: self.foreign.clone(),
+            returned: self.returned.clone(),
         }
     }
 
     pub(super) fn restore(&mut self, snapshot: BindingsSnapshot) {
         self.bindings = snapshot.bindings;
         self.foreign = snapshot.foreign;
+        self.returned = snapshot.returned;
     }
 
     pub(super) fn bind(&mut self, var: impl Into<String>, type_name: impl Into<String>) {
@@ -50,8 +75,23 @@ impl MemberCallBindings {
         if self.type_names.contains(type_name.as_str()) {
             let var = var.into();
             self.foreign.remove(&var);
+            self.returned.remove(&var);
             self.bindings.insert(var, type_name);
         }
+    }
+
+    /// Binds `var` to the result of a call whose type the file does not
+    /// say (see [`CallOrigin`]).
+    pub(super) fn bind_returned(&mut self, var: impl Into<String>, origin: CallOrigin) {
+        let var = var.into();
+        self.bindings.remove(&var);
+        self.foreign.remove(&var);
+        self.returned.insert(var, origin);
+    }
+
+    /// The call `var` holds the result of.
+    pub(super) fn returned_by(&self, var: &str) -> Option<&CallOrigin> {
+        self.returned.get(var)
     }
 
     /// Binds `var` to `type_name` whether or not this file declares it: a
@@ -59,12 +99,20 @@ impl MemberCallBindings {
     /// by name for [`Self::foreign_type`].
     pub(super) fn bind_any(&mut self, var: impl Into<String>, type_name: impl Into<String>) {
         let (var, type_name) = (var.into(), type_name.into());
+        self.returned.remove(&var);
         if self.type_names.contains(type_name.as_str()) {
             self.bind(var, type_name);
         } else {
             self.bindings.remove(&var);
             self.foreign.insert(var, type_name);
         }
+    }
+
+    /// Drops `var`'s binding to a type this file does not declare, when it is
+    /// assigned something else.
+    pub(super) fn forget_foreign(&mut self, var: &str) {
+        self.foreign.remove(var);
+        self.returned.remove(var);
     }
 
     /// The name of the type in another file `var` is bound to.

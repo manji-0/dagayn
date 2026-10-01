@@ -1,6 +1,10 @@
-use std::collections::HashMap;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 
 use serde_json::json;
+
+use super::stdlib::elixir::{elixir_kernel_module, is_elixir_stdlib_module, is_erlang_otp_module};
+use super::stdlib::{StdlibEvidence, mark_stdlib_edge};
 
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{is_test_file, line_count, node_text, set_namespaces_from_type_names};
@@ -31,6 +35,7 @@ pub(super) fn parse_elixir_with_parser(
     let context = ElixirParseContext {
         source,
         file_path: file_path.clone(),
+        imports: RefCell::default(),
     };
 
     if let Some(parser) = parser
@@ -45,6 +50,7 @@ pub(super) fn parse_elixir_with_parser(
             &mut edges,
         );
         set_namespaces_from_type_names(&mut nodes);
+        elixir_mark_stdlib_calls(&nodes, &mut edges, &context.imports.borrow());
         let mut edges = resolve_elixir_call_targets(&nodes, edges, &file_path);
         add_tested_by_edges(&nodes, &mut edges);
         return (nodes, edges);
@@ -56,6 +62,18 @@ pub(super) fn parse_elixir_with_parser(
 struct ElixirParseContext<'a> {
     source: &'a [u8],
     file_path: FilePath,
+    imports: RefCell<ElixirImports>,
+}
+
+/// What the file's `alias` / `import` directives bring into scope.
+#[derive(Default)]
+struct ElixirImports {
+    /// Functions imported by name, with their module (`map` → `Enum` after
+    /// `import Enum, only: [map: 2]`).
+    names: HashMap<String, String>,
+    /// Names an `alias` binds to a module of this repository (`String`
+    /// after `alias MyApp.String`), which no longer name the stdlib's.
+    shadowing_aliases: HashSet<String>,
 }
 
 fn elixir_walk_children(
@@ -164,14 +182,16 @@ fn elixir_handle_call(
         "alias" | "import" | "require" | "use" => {
             if let Some(arguments) = elixir_direct_child(node, &["arguments"]) {
                 for module_name in elixir_import_targets(arguments, context.source) {
-                    edges.push(ParsedEdge {
+                    let mut edge = ParsedEdge {
                         kind: crate::core::types::EdgeKind::ImportsFrom,
                         source: context.file_path.to_string(),
                         target: module_name,
                         file_path: context.file_path.clone(),
                         line: node.start_position().row as i64 + 1,
                         extra: json!({}),
-                    });
+                    };
+                    elixir_record_import(&ident, arguments, context, &mut edge);
+                    edges.push(edge);
                 }
             }
             true
@@ -193,6 +213,145 @@ fn elixir_handle_call(
             }
             true
         }
+    }
+}
+
+/// Records what an `alias` / `import` brings into scope, and marks a
+/// directive naming an Elixir module (`require Logger`, `import Enum`)
+/// certain. An alias of a repository module shadows the stdlib module of
+/// its last name (`alias MyApp.String` makes `String.x` the repository's).
+fn elixir_record_import(
+    directive: &str,
+    arguments: tree_sitter::Node<'_>,
+    context: &ElixirParseContext<'_>,
+    edge: &mut ParsedEdge,
+) {
+    let mut imports = context.imports.borrow_mut();
+    let alias_as = elixir_keyword_value(arguments, context.source, "as")
+        .map(|value| node_text(value, context.source).replace(' ', ""));
+    if !is_elixir_stdlib_module(&edge.target) {
+        if directive == "alias" {
+            let short = alias_as.unwrap_or_else(|| {
+                edge.target
+                    .rsplit('.')
+                    .next()
+                    .unwrap_or(&edge.target)
+                    .to_string()
+            });
+            imports.shadowing_aliases.insert(short);
+        }
+        return;
+    }
+    if directive == "import"
+        && let Some(only) = elixir_keyword_value(arguments, context.source, "only")
+        && only.kind() == "list"
+    {
+        for name in elixir_keyword_keys(only, context.source) {
+            imports.names.insert(name, edge.target.clone());
+        }
+    }
+    let module = edge.target.clone();
+    mark_stdlib_edge(
+        &mut edge.target,
+        &mut edge.extra,
+        &module,
+        StdlibEvidence::Certain,
+    );
+}
+
+/// The value of `key:` in a directive's trailing keyword list
+/// (`only: [map: 2]`, `as: Str`).
+fn elixir_keyword_value<'a>(
+    arguments: tree_sitter::Node<'a>,
+    source: &[u8],
+    key: &str,
+) -> Option<tree_sitter::Node<'a>> {
+    let keywords = elixir_direct_child(arguments, &["keywords"])?;
+    let mut cursor = keywords.walk();
+    keywords
+        .named_children(&mut cursor)
+        .filter(|pair| pair.kind() == "pair")
+        .find(|pair| {
+            pair.child_by_field_name("key")
+                .is_some_and(|name| node_text(name, source).trim().trim_end_matches(':') == key)
+        })
+        .and_then(|pair| pair.child_by_field_name("value"))
+}
+
+/// The keys of a keyword list (`[map: 2, filter: 2]` → `map`, `filter`).
+fn elixir_keyword_keys(list: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
+    let Some(keywords) = elixir_direct_child(list, &["keywords"]) else {
+        return Vec::new();
+    };
+    let mut cursor = keywords.walk();
+    keywords
+        .named_children(&mut cursor)
+        .filter_map(|pair| pair.child_by_field_name("key"))
+        .map(|key| {
+            node_text(key, source)
+                .trim()
+                .trim_end_matches(':')
+                .to_string()
+        })
+        .collect()
+}
+
+/// Points the calls into the standard library at their module: a remote
+/// call on an Elixir module (`Enum.map` at `Enum`, `IO.ANSI.red` at
+/// `IO.ANSI`) or an Erlang/OTP one (`:lists.reverse` at `:lists`), and a
+/// function imported with `import Enum, only: [...]`, certainly; a bare
+/// `Kernel` function or macro (`is_nil`, `raise`, `if`), likely. A module
+/// this file defines or aliases to its own, and a function it defines,
+/// are the repository's.
+fn elixir_mark_stdlib_calls(
+    nodes: &[ParsedNode],
+    edges: &mut [ParsedEdge],
+    imports: &ElixirImports,
+) {
+    let defined_functions = nodes
+        .iter()
+        .filter(|node| matches!(node.kind.as_str(), "Function" | "Test"))
+        .map(|node| node.name.as_str())
+        .collect::<HashSet<_>>();
+    let defined_modules = nodes
+        .iter()
+        .filter(|node| node.kind.as_str() == "Class")
+        .map(|node| node.name.rsplit('.').next().unwrap_or(&node.name))
+        .collect::<HashSet<_>>();
+    for edge in edges.iter_mut() {
+        if edge.kind != crate::core::types::EdgeKind::Calls {
+            continue;
+        }
+        let (module, evidence) = match edge.target.rsplit_once('.') {
+            Some((module, _)) => {
+                if let Some(erlang) = module.strip_prefix(':') {
+                    if !is_erlang_otp_module(erlang) {
+                        continue;
+                    }
+                } else {
+                    let root = module.split('.').next().unwrap_or(module);
+                    if !is_elixir_stdlib_module(module)
+                        || defined_modules.contains(root)
+                        || imports.shadowing_aliases.contains(root)
+                    {
+                        continue;
+                    }
+                }
+                (module.to_string(), StdlibEvidence::Certain)
+            }
+            None if defined_functions.contains(edge.target.as_str()) => continue,
+            None => {
+                if let Some(module) = imports.names.get(&edge.target) {
+                    edge.target = format!("{module}.{}", edge.target);
+                    (module.clone(), StdlibEvidence::Certain)
+                } else if let Some(module) = elixir_kernel_module(&edge.target) {
+                    (module.to_string(), StdlibEvidence::Likely)
+                } else {
+                    continue;
+                }
+            }
+        };
+        mark_stdlib_edge(&mut edge.target, &mut edge.extra, &module, evidence);
     }
 }
 
@@ -449,7 +608,8 @@ fn resolve_elixir_call_targets(
     edges
         .into_iter()
         .map(|mut edge| {
-            if edge.kind == "CALLS" && !edge.target.contains("::") {
+            if edge.kind == "CALLS" && !edge.target.contains("::") && edge.extra["external"] != true
+            {
                 let nested = elixir_source_module(&edge.source, file_path)
                     .map(|module| format!("{module}.{}", edge.target))
                     .and_then(|dotted| dotted_functions.get(&dotted));

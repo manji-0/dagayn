@@ -31,8 +31,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // Symbols with an empty or multi-line name or target (error recovery
         // in a file mid-edit) are dropped; an unparseable notebook keeps its
         // File node.
+        // 2: same-file resolution leaves calls on a receiver typed by a class of
+        // another file (`receiver_type`) to resolution across files.
         extractor: "shared",
-        version: 1,
+        version: 2,
         languages: &[
             "bash",
             "c",
@@ -78,8 +80,15 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // `calls_wasm_export`.
         // 5: `Deno.dlopen(...)` and Bun's `dlopen(...)` emit
         // `loads_shared_library`.
+        // 6: Node.js builtin modules (`fs`, `node:fs`) and globals (`console`,
+        // `JSON`, `setTimeout`) are the standard library: edges target the
+        // package (`node:fs`, `globalThis`).
+        // 7: calls into external packages carry `HIGH`.
+        // 8: member calls record what types their receiver (`receiver_type` for a
+        // class of another file, `receiver_unknown`, and `receiver_from` for the
+        // call it came from) and functions their declared `return_type`.
         extractor: "javascript",
-        version: 5,
+        version: 8,
         languages: &["javascript", "typescript", "tsx", "vue", "svelte"],
     },
     ExtractorVersion {
@@ -91,8 +100,21 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // and `calls_wasm_export`.
         // 4: a call binds to a function nested in the caller before any other
         // of that name (`b`'s `helper()` bound to `a.helper`).
+        // 5: calls and imports into the standard library target its package
+        // (`subprocess`, `builtins`), marked `external` with the name in
+        // `external_symbol`, and add no TESTED_BY.
+        // 6: receivers are typed by parameter annotations and `self` attributes
+        // (`receiver_type` for a class of another module, `receiver_unknown`
+        // otherwise); calls and imports into third-party packages are
+        // `external`; `_LAZY_EXPORTS`-style tables of a module `__getattr__`
+        // are IMPORTS_FROM with the names they lend.
+        // 7: names of relative imports (`from .graph import helper`) resolve
+        // calls; pytest fixtures (`tmp_path`, `monkeypatch`) and third-party
+        // types type their receivers.
+        // 8: a member call on the result of another call records it
+        // (`receiver_from`), for its declared return type to type the receiver.
         extractor: "python",
-        version: 4,
+        version: 8,
         languages: &["python", "notebook"],
     },
     ExtractorVersion {
@@ -124,8 +146,25 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // calls carry `receiver_type` / `module_file` / `receiver_unknown`,
         // macros are `name!`, and calls inside macro arguments are extracted.
         // Types of other files are referenced; supertraits are INHERITS.
+        // 11: calls and `use`s into the standard library target its crate
+        // (`std`, `core`, `alloc`), marked `external`; calls keep the name in
+        // `external_symbol`, `use`s the imported `paths`.
+        // 12: calls and `use`s into the package's `Cargo.toml` dependencies target
+        // the crate (`external`, `serde_json`).
+        // 13: `name.workspace = true` dependencies count; types record their
+        // `deref_target`; a destructuring `let Some(x)` binds no type; types
+        // written with their crate (`tree_sitter::Node`) type their variables.
+        // 14: functions record their `return_type`; a member call on the result of
+        // another call records it (`receiver_from`, `unwrap` for `?` /
+        // `.unwrap()`).
+        // 15: calls in macro arguments record the call their receiver came
+        // from, and a chain repeating a method (`.flag(a).flag(b)`) takes the
+        // receiver before the repeats.
+        // 16: a closure bound by `let` in a function body is a function of it
+        // (`run.call`), whose calls are its own.
+        // 17: enums record their `variants`.
         extractor: "rust",
-        version: 10,
+        version: 17,
         languages: &["rust"],
     },
     ExtractorVersion {
@@ -140,8 +179,13 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 5: a member of a type declared in another file is CONTAINED by the
         // File node, not by a `file::Type` node that does not exist.
         // Types in a function body are `fn.Type`.
+        // 6: calls and imports into the standard library target its package
+        // (`fmt`, `net/http`; predeclared functions `builtin`).
+        // 7: member calls record what types their receiver (`receiver_type` for a
+        // class of another file, `receiver_unknown`, and `receiver_from` for the
+        // call it came from) and functions their declared `return_type`.
         extractor: "go",
-        version: 5,
+        version: 7,
         languages: &["go"],
     },
     ExtractorVersion {
@@ -164,8 +208,13 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // Objective-C++ `.mm` files are parsed (as Objective-C). An
         // out-of-line `Widget::draw` whose class is declared in another file
         // is CONTAINED by the File node.
+        // 5: standard headers and calls into them target `libc`, `posix`, `std`, or
+        // the Apple framework (`Foundation`).
+        // 6: member calls record what types their receiver (`receiver_type` for a
+        // class of another file, `receiver_unknown`, and `receiver_from` for the
+        // call it came from) and functions their declared `return_type`.
         extractor: "c_like",
-        version: 4,
+        version: 6,
         languages: &["c", "cpp", "objc"],
     },
     ExtractorVersion {
@@ -173,16 +222,26 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 2: base classes and interfaces are named without type arguments
         // (`JpaRepository`, not `JpaRepository<User, Integer>`); a local
         // class is `Outer.method.Local`.
+        // 3: calls and imports into the class library target the package
+        // (`java.util`, `java.lang`), with the qualifier kept.
+        // 4: member calls record what types their receiver (`receiver_type` for a
+        // class of another file, `receiver_unknown`, and `receiver_from` for the
+        // call it came from) and functions their declared `return_type`.
         extractor: "java",
-        version: 2,
+        version: 4,
         languages: &["java"],
     },
     ExtractorVersion {
         // 1: `external fun` records `ffi_import` with its JNI symbol.
         // 2: bases are the constructed / named type (`B` of `B<String>()`),
         // not the last type argument.
+        // 3: calls and imports into the standard library target the package
+        // (`kotlin`, `java.io`).
+        // 4: member calls record what types their receiver (`receiver_type` for a
+        // class of another file, `receiver_unknown`, and `receiver_from` for the
+        // call it came from) and functions their declared `return_type`.
         extractor: "kotlin",
-        version: 2,
+        version: 4,
         languages: &["kotlin"],
     },
     ExtractorVersion {
@@ -192,8 +251,13 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // `receiver_type`.
         // 3: so do calls on a variable of a type declared in another file
         // (`var n = new Native(); n.Total()`) and `new Native()` itself.
+        // 4: calls and `using`s into the base class library target the namespace
+        // (`System`, `System.Collections.Generic`).
+        // 5: member calls record what types their receiver (`receiver_type` for a
+        // class of another file, `receiver_unknown`, and `receiver_from` for the
+        // call it came from) and functions their declared `return_type`.
         extractor: "csharp",
-        version: 3,
+        version: 5,
         languages: &["csharp"],
     },
     ExtractorVersion {
@@ -203,8 +267,13 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // File node, not by a `file::Type` node that does not exist.
         // Calls in a local `f(x) = ...` come from its `outer.f` node, and a
         // call binds to a function nested in the caller first.
+        // 3: calls and imports into `Base` and the standard library target the
+        // module (`Base`, `LinearAlgebra`).
+        // 4: member calls record what types their receiver (`receiver_type` for a
+        // class of another file, `receiver_unknown`, and `receiver_from` for the
+        // call it came from) and functions their declared `return_type`.
         extractor: "julia",
-        version: 2,
+        version: 4,
         languages: &["julia"],
     },
     ExtractorVersion {
@@ -212,8 +281,12 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 2: a member of a type declared in another file is CONTAINED by the
         // File node, not by a `file::Type` node that does not exist.
         // `local function f` in a function body is `outer.f`.
+        // 3: calls into the standard libraries target them (`string`, `_G`).
+        // 4: member calls record what types their receiver (`receiver_type` for a
+        // class of another file, `receiver_unknown`, and `receiver_from` for the
+        // call it came from) and functions their declared `return_type`.
         extractor: "lua",
-        version: 2,
+        version: 4,
         languages: &["lua"],
     },
     ExtractorVersion {
@@ -222,42 +295,65 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 2: type arguments are no longer bases, and `implements` emits
         // IMPLEMENTS (role `implements`), `with` INHERITS (role `mixin`);
         // local functions are `outer.f`.
+        // 3: calls and imports into `dart:` libraries target them (`dart:core`,
+        // `dart:io`).
+        // 4: member calls record what types their receiver (`receiver_type` for a
+        // class of another file, `receiver_unknown`, and `receiver_from` for the
+        // call it came from) and functions their declared `return_type`.
         extractor: "dart",
-        version: 2,
+        version: 4,
         languages: &["dart"],
     },
     ExtractorVersion {
         // 1: type arguments of a base (`Q<Int>`) are no longer bases, and
         // nested functions are `outer.f`.
+        // 2: calls and imports into the standard library and Apple frameworks
+        // target them (`Swift`, `Foundation`).
+        // 3: member calls record what types their receiver (`receiver_type` for a
+        // class of another file, `receiver_unknown`, and `receiver_from` for the
+        // call it came from) and functions their declared `return_type`.
         extractor: "swift",
-        version: 1,
+        version: 3,
         languages: &["swift"],
     },
     ExtractorVersion {
         // 1: a callee is a sub name; error recovery no longer turns an
         // expression (`input_avail && do { ... }`) into a call target.
+        // 2: calls and imports into core modules and builtins target them
+        // (`POSIX`, `CORE`).
+        // 3: member calls record what types their receiver (`receiver_type` for a
+        // class of another file, `receiver_unknown`, and `receiver_from` for the
+        // call it came from) and functions their declared `return_type`.
         extractor: "perl",
-        version: 1,
+        version: 3,
         languages: &["perl"],
     },
     ExtractorVersion {
         // 1: `fun.(x)` (an anonymous function in a variable) is not a call
         // edge with an empty target.
+        // 2: calls and imports into the standard library target the module
+        // (`Enum`, `IO`, `:lists`, `Kernel`).
         extractor: "elixir",
-        version: 1,
+        version: 2,
         languages: &["elixir"],
     },
     ExtractorVersion {
         // 1: a `def` nested in a function body is `outer.f`, local to it.
+        // 2: calls and imports into the standard library target the package
+        // (`scala`, `scala.collection.mutable`).
+        // 3: member calls record what types their receiver (`receiver_type` for a
+        // class of another file, `receiver_unknown`, and `receiver_from` for the
+        // call it came from) and functions their declared `return_type`.
         extractor: "scala",
-        version: 1,
+        version: 3,
         languages: &["scala"],
     },
     ExtractorVersion {
         // 1: `f <- function` in a function body is `outer.f`, local to it,
         // and a call binds to a function nested in the caller first.
+        // 2: calls and imports into base R packages target them (`base`, `stats`).
         extractor: "r",
-        version: 1,
+        version: 2,
         languages: &["r"],
     },
     ExtractorVersion {
@@ -273,8 +369,12 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // `ffi_import`, and calls through an `@cImport` constant record
         // `c_import`.
         // 2: a type declared in a function body is `fn.Type`, local to it.
+        // 3: `@import("std")` and calls through it target `std`.
+        // 4: member calls record what types their receiver (`receiver_type` for a
+        // class of another file, `receiver_unknown`, and `receiver_from` for the
+        // call it came from) and functions their declared `return_type`.
         extractor: "zig",
-        version: 2,
+        version: 4,
         languages: &["zig"],
     },
     ExtractorVersion {
@@ -283,9 +383,39 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 2: ffi gem `attach_function` defines the module method, recording
         // `ffi_import` with the `ffi_lib` library.
         // 3: calls on a constant (`Fast.fast_sum`) record `receiver_type`.
+        // 4: calls and requires into core and the standard library target them
+        // (`core`, `json`).
+        // 5: member calls record what types their receiver (`receiver_type` for a
+        // class of another file, `receiver_unknown`, and `receiver_from` for the
+        // call it came from) and functions their declared `return_type`.
         extractor: "ruby",
-        version: 3,
+        version: 5,
         languages: &["ruby"],
+    },
+    ExtractorVersion {
+        // 1: shell builtins (`echo`, `printf`) are calls into `bash`.
+        extractor: "bash",
+        version: 1,
+        languages: &["bash"],
+    },
+    ExtractorVersion {
+        // 1: global functions, built-in types, and engine classes (`print`,
+        // `Vector2`, `extends Node`) target `godot`.
+        // 2: member calls record what types their receiver (`receiver_type` for a
+        // class of another file, `receiver_unknown`, and `receiver_from` for the
+        // call it came from) and functions their declared `return_type`.
+        extractor: "gdscript",
+        version: 2,
+        languages: &["gdscript"],
+    },
+    ExtractorVersion {
+        // 1: builtin functions and classes (`strlen`, `\DateTime`) target `php`.
+        // 2: member calls record what types their receiver (`receiver_type` for a
+        // class of another file, `receiver_unknown`, and `receiver_from` for the
+        // call it came from) and functions their declared `return_type`.
+        extractor: "php",
+        version: 2,
+        languages: &["php"],
     },
 ];
 

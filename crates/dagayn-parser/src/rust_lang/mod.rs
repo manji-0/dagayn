@@ -6,7 +6,11 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde_json::json;
 
-use super::member_calls::MemberCallBindings;
+use super::member_calls::{CallOrigin, MemberCallBindings};
+use super::stdlib::rust::{
+    is_rust_prelude_function, is_rust_prelude_type, is_rust_std_macro, rust_std_crate,
+};
+use super::stdlib::{StdlibEvidence, mark_external_edge, mark_stdlib_edge};
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{is_test_file, line_count, node_text};
 use super::{add_tested_by_edges, is_test_function, qualify, resolve_rust_call_targets};
@@ -59,6 +63,7 @@ pub(super) fn parse_rust_with_parser(
             scope: scope.as_ref(),
             uses: RefCell::new(HashMap::new()),
             repo_glob: std::cell::Cell::new(false),
+            any_glob: std::cell::Cell::new(false),
             free_functions: &free_functions,
             struct_fields: &struct_fields,
             locals: RefCell::new(Vec::new()),
@@ -66,7 +71,9 @@ pub(super) fn parse_rust_with_parser(
             bindings: RefCell::new(MemberCallBindings::with_types(type_names)),
             component_bindings: rust_uses_component_bindings(source),
         };
+        rust_note_qualified_types(root, &context);
         rust_walk_children(root, &context, None, None, &mut nodes, &mut edges);
+        rust_mark_std_calls(&mut edges, &context);
         let component_bindings = context.component_bindings;
         rust_wasm_host_edges(
             root,
@@ -78,6 +85,7 @@ pub(super) fn parse_rust_with_parser(
             &mut edges,
         );
         record_neon_exported_functions(root, source, &mut nodes);
+        record_rust_deref_targets(root, source, &mut nodes);
         if let Some(namespace) = rust_uniffi_namespace(root, source) {
             nodes[0].extra["uniffi_namespace"] = json!(namespace);
         }
@@ -281,7 +289,9 @@ fn rust_walk_children(
                         language: "rust".to_string(),
                         parent_name: owner().map(str::to_string),
                         params,
-                        return_type: None,
+                        return_type: child
+                            .child_by_field_name("return_type")
+                            .map(|return_type| node_text(return_type, context.source)),
                         modifiers: None,
                         is_test,
                         extra,
@@ -322,11 +332,49 @@ fn rust_walk_children(
                     continue;
                 }
             }
+            // `let call = |x| ...;` in a function body: a function of that
+            // body (`run.call`), as a nested `fn call` would be, so
+            // `call(x)` binds to it and the closure's calls are its own.
+            "let_declaration"
+                if enclosing_func.is_some()
+                    && let Some((name, closure)) = rust_closure_binding(child, context.source) =>
+            {
+                let qualified = qualify(&context.file_path, &name, owner());
+                nodes.push(ParsedNode {
+                    kind: crate::core::types::NodeKind::Function,
+                    name: name.clone(),
+                    file_path: context.file_path.clone(),
+                    line_start: child.start_position().row as i64 + 1,
+                    line_end: child.end_position().row as i64 + 1,
+                    language: "rust".to_string(),
+                    parent_name: owner().map(str::to_string),
+                    params: closure
+                        .child_by_field_name("parameters")
+                        .map(|parameters| node_text(parameters, context.source)),
+                    return_type: closure
+                        .child_by_field_name("return_type")
+                        .map(|return_type| node_text(return_type, context.source)),
+                    modifiers: None,
+                    is_test: false,
+                    extra: json!({"rust_kind": "closure"}),
+                });
+                edges.push(ParsedEdge {
+                    kind: crate::core::types::EdgeKind::Contains,
+                    source: rust_container(&context.file_path, owner()),
+                    target: qualified,
+                    file_path: context.file_path.clone(),
+                    line: child.start_position().row as i64 + 1,
+                    extra: json!({}),
+                });
+                rust_walk_children(child, context, owner(), Some(&name), nodes, edges);
+                continue;
+            }
             "use_declaration" => rust_emit_use(child, context, edges),
             "call_expression" | "macro_invocation" => {
                 let bound = rust_bound_member_target(child, context);
                 // `x.m()` on a receiver whose type is unknown must not bind to
                 // some other type's `m` by name.
+                let bound_receiver = bound.is_some();
                 let receiver_unknown = bound.is_none()
                     && child
                         .child_by_field_name("function")
@@ -347,7 +395,23 @@ fn rust_walk_children(
                         file_path: context.file_path.clone(),
                         line: child.start_position().row as i64 + 1,
                         extra: if receiver_unknown {
-                            json!({"receiver_unknown": true})
+                            // The call the receiver is the result of, whose
+                            // declared return type resolution reads.
+                            match child
+                                .child_by_field_name("function")
+                                .and_then(|function| function.child_by_field_name("value"))
+                                .and_then(|receiver| {
+                                    rust_receiver_origin(receiver, &call_name, context)
+                                }) {
+                                Some(origin) => json!({
+                                    "receiver_unknown": true,
+                                    "receiver_from": origin.to_json(),
+                                }),
+                                None => json!({"receiver_unknown": true}),
+                            }
+                        } else if bound_receiver {
+                            // Read (and dropped) by `rust_mark_std_calls`.
+                            json!({"bound_receiver": true})
                         } else {
                             json!({})
                         },
@@ -411,6 +475,8 @@ struct RustParseContext<'a> {
     uses: RefCell<HashMap<String, Vec<String>>>,
     /// A `use ...::*` of a module of this repository is in effect.
     repo_glob: std::cell::Cell<bool>,
+    /// Any `use ...::*` is in effect: a glob may shadow a prelude name.
+    any_glob: std::cell::Cell<bool>,
     /// Free functions of this file (not methods), by name.
     free_functions: &'a HashSet<String>,
     /// Field types of the structs this file declares: struct -> field -> type.
@@ -445,6 +511,12 @@ fn collect_rust_defined_names(
         "function_item" | "function_signature_item" => {
             if let Some(name) = rust_identifier_child(node, source) {
                 names.insert(name);
+            }
+        }
+        // `macro_rules! format` shadows `std::format!`.
+        "macro_definition" => {
+            if let Some(name) = node.child_by_field_name("name") {
+                names.insert(format!("{}!", node_text(name, source)));
             }
         }
         _ => {}
@@ -561,6 +633,23 @@ fn rust_type_extra(node: tree_sitter::Node<'_>, source: &[u8]) -> serde_json::Va
         if rust_is_value_container(type_role, node, source) {
             map.insert("container_role".to_string(), json!("data_container"));
             map.insert("value_semantics".to_string(), json!(true));
+        }
+    }
+    // An enum's variants: `Kind::File(..)` constructs the enum, so a call
+    // of a variant is a call of the enum (resolution across files reads
+    // this).
+    if node.kind() == "enum_item"
+        && let Some(body) = node.child_by_field_name("body")
+    {
+        let mut cursor = body.walk();
+        let variants = body
+            .named_children(&mut cursor)
+            .filter(|variant| variant.kind() == "enum_variant")
+            .filter_map(|variant| variant.child_by_field_name("name"))
+            .map(|name| node_text(name, source))
+            .collect::<Vec<_>>();
+        if !variants.is_empty() {
+            extra["variants"] = json!(variants);
         }
     }
     if let Some(derive_traits) = rust_derive_traits(node, source) {
@@ -847,6 +936,7 @@ fn rust_finish_call_targets(
     for edge in edges.iter_mut() {
         if edge.kind != crate::core::types::EdgeKind::Calls
             || edge.target.starts_with(file_path.as_str())
+            || edge.extra["external"] == true
         {
             continue;
         }
@@ -898,6 +988,126 @@ fn rust_finish_call_targets(
             edge.target = method;
         }
     }
+}
+
+/// Points the calls into the standard library at its crate (`std`, `core`,
+/// `alloc`), marked `external` so no resolution binds them to a same-named
+/// symbol of this repository (`parts.join("/")` on a `Vec` to a local `fn
+/// join`). See [`rust_std_package`].
+fn rust_mark_std_calls(edges: &mut [ParsedEdge], context: &RustParseContext<'_>) {
+    let uses = context.uses.borrow();
+    for edge in edges.iter_mut() {
+        if edge.kind != crate::core::types::EdgeKind::Calls
+            || edge.target.starts_with(context.file_path.as_str())
+        {
+            continue;
+        }
+        let bound_receiver = edge
+            .extra
+            .as_object_mut()
+            .and_then(|extra| extra.remove("bound_receiver"))
+            .is_some();
+        // A variable's type is only as sure as the binding it came from
+        // (`Some(raw)` binds `raw` to `Option`).
+        let evidence_of = |evidence| {
+            if bound_receiver {
+                StdlibEvidence::Likely
+            } else {
+                evidence
+            }
+        };
+        if let Some((package, evidence)) = rust_std_package(
+            &edge.target,
+            &uses,
+            context.defined_names,
+            context.any_glob.get(),
+        ) {
+            mark_stdlib_edge(
+                &mut edge.target,
+                &mut edge.extra,
+                package,
+                evidence_of(evidence),
+            );
+        } else if let Some(package) = rust_dependency_crate(&edge.target, &uses, context) {
+            mark_external_edge(
+                &mut edge.target,
+                &mut edge.extra,
+                &package,
+                evidence_of(StdlibEvidence::Certain),
+            );
+        }
+    }
+}
+
+/// The crate a call target is written through when the package depends on
+/// it: a path rooted at it (`serde_json::to_string`,
+/// `tree_sitter::Parser::new`) or at a name a `use` of it brought in
+/// (`Node::kind` after `use tree_sitter::Node`, `json!` after `use
+/// serde_json::json`). Unknown without the repository root.
+fn rust_dependency_crate(
+    target: &str,
+    uses: &HashMap<String, Vec<String>>,
+    context: &RustParseContext<'_>,
+) -> Option<String> {
+    let scope = context.scope?;
+    let path = target.strip_suffix('!').unwrap_or(target);
+    let first = path.split("::").next()?.trim();
+    let root = match uses.get(first) {
+        Some(path) => path.first()?.as_str(),
+        None if context.defined_names.contains(first) => return None,
+        None => first,
+    };
+    scope.is_dependency(root).then(|| root.to_string())
+}
+
+/// The standard-library crate a call target names: a path through `std` /
+/// `core` / `alloc`, written out or brought in by a `use`
+/// (`std::fs::read`, `fs::read` after `use std::fs`, `HashMap::new` after
+/// `use std::collections::HashMap`), a prelude type or primitive
+/// (`Vec::new`, `u32::from`, a method of a variable bound to one), a prelude
+/// function or variant (`Some`, `drop`), or a `std` macro (`format!`). A
+/// name this file declares or imports from elsewhere is not the prelude's.
+///
+/// A path is certain; a prelude name or macro is too, unless a glob import
+/// (`use other::*`) may bring in one of the same name.
+fn rust_std_package(
+    target: &str,
+    uses: &HashMap<String, Vec<String>>,
+    defined_names: &HashSet<String>,
+    any_glob: bool,
+) -> Option<(&'static str, StdlibEvidence)> {
+    let (path, macro_call) = match target.strip_suffix('!') {
+        Some(path) => (path, true),
+        None => (target, false),
+    };
+    let mut segments: Vec<String> = path
+        .split("::")
+        .map(|segment| segment.trim().to_string())
+        .collect();
+    let first = segments.first()?.clone();
+    if let Some(path) = uses.get(&first) {
+        let mut expanded = path.clone();
+        expanded.extend(segments.drain(1..));
+        return rust_std_crate(&expanded).map(|krate| (krate, StdlibEvidence::Certain));
+    }
+    if let Some(krate) = rust_std_crate(&segments) {
+        return Some((krate, StdlibEvidence::Certain));
+    }
+    if defined_names.contains(&first) || defined_names.contains(target) {
+        return None;
+    }
+    let std = match (macro_call, segments.len()) {
+        (true, 1) => is_rust_std_macro(&first),
+        (true, _) => false,
+        (false, 1) => is_rust_prelude_function(&first),
+        (false, _) => is_rust_prelude_type(&first),
+    };
+    let evidence = if any_glob {
+        StdlibEvidence::Likely
+    } else {
+        StdlibEvidence::Certain
+    };
+    std.then_some(("std", evidence))
 }
 
 fn rust_scope_join(enclosing: Option<&str>, name: &str) -> String {
@@ -979,8 +1189,9 @@ type UseGroup = (String, Vec<(String, String)>, bool);
 
 /// One IMPORTS_FROM per module a `use` names: the module's file when it is
 /// in this repository (`use crate::util::node_text` -> `src/util.rs`, with
-/// `names: [["node_text", "node_text"]]`), else the path as written
-/// (`std::collections::HashMap`). `pub use` re-exports and `*` globs are
+/// `names: [["node_text", "node_text"]]`), the crate for the standard
+/// library or a dependency of the package (`std`, with `paths:
+/// ["std::collections::HashMap"]`; `serde_json`), else the path as written. `pub use` re-exports and `*` globs are
 /// marked so name resolution can see through them.
 fn rust_emit_use(
     node: tree_sitter::Node<'_>,
@@ -993,11 +1204,16 @@ fn rust_emit_use(
     let line = node.start_position().row as i64 + 1;
     // file -> (module as written, [(name, alias)], glob)
     let mut by_file: BTreeMap<String, UseGroup> = BTreeMap::new();
+    // external crate -> (standard library, the paths imported from it)
+    let mut from_crates: BTreeMap<String, (bool, Vec<String>)> = BTreeMap::new();
     for (path, alias) in rust_use_targets(node, context.source) {
         let segments: Vec<String> = path.split("::").map(|s| s.trim().to_string()).collect();
         let local = alias
             .clone()
             .unwrap_or_else(|| segments.last().cloned().unwrap_or_default());
+        if local == "*" {
+            context.any_glob.set(true);
+        }
         if local != "*" && local != "_" {
             context
                 .uses
@@ -1020,15 +1236,52 @@ fn rust_emit_use(
                     None => {}
                 }
             }
-            None => edges.push(ParsedEdge {
-                kind: crate::core::types::EdgeKind::ImportsFrom,
-                source: context.file_path.to_string(),
-                target: path,
-                file_path: context.file_path.clone(),
-                line,
-                extra: json!({}),
-            }),
+            None => match rust_std_crate(&segments) {
+                Some(krate) => from_crates
+                    .entry(krate.to_string())
+                    .or_insert_with(|| (true, Vec::new()))
+                    .1
+                    .push(path),
+                None if context
+                    .scope
+                    .is_some_and(|scope| scope.is_dependency(&segments[0])) =>
+                {
+                    from_crates
+                        .entry(segments[0].clone())
+                        .or_insert_with(|| (false, Vec::new()))
+                        .1
+                        .push(path)
+                }
+                None => edges.push(ParsedEdge {
+                    kind: crate::core::types::EdgeKind::ImportsFrom,
+                    source: context.file_path.to_string(),
+                    target: path,
+                    file_path: context.file_path.clone(),
+                    line,
+                    extra: json!({}),
+                }),
+            },
         }
+    }
+    for (krate, (stdlib, paths)) in from_crates {
+        let mut target = String::new();
+        let mut extra = json!({"paths": paths});
+        if re_export {
+            extra["re_export"] = json!(true);
+        }
+        if stdlib {
+            mark_stdlib_edge(&mut target, &mut extra, &krate, StdlibEvidence::Certain);
+        } else {
+            mark_external_edge(&mut target, &mut extra, &krate, StdlibEvidence::Certain);
+        }
+        edges.push(ParsedEdge {
+            kind: crate::core::types::EdgeKind::ImportsFrom,
+            source: context.file_path.to_string(),
+            target,
+            file_path: context.file_path.clone(),
+            line,
+            extra,
+        });
     }
     for (file, (module, names, glob)) in by_file {
         let mut extra = json!({"module": module});
@@ -1171,6 +1424,30 @@ fn collect_rust_struct_fields(
 /// so they are read from the tokens: a path followed by `(...)` is a call, a
 /// `.name(...)` a method call, a `name!(...)` a nested macro. Tagged
 /// `in_macro`.
+/// The call before `.method(` among a macro's tokens (`f(x).method(..)`,
+/// `a.f(x).method(..)`): the name before the parenthesised arguments that
+/// end right before the dot, and its line.
+fn rust_token_call_origin(
+    tokens: &[tree_sitter::Node<'_>],
+    method_at: usize,
+    source: &[u8],
+) -> Option<CallOrigin> {
+    // `name` `(...)` `.` `method`: the argument list is one token tree.
+    let arguments = tokens.get(method_at.checked_sub(2)?)?;
+    if arguments.kind() != "token_tree" || !node_text(*arguments, source).starts_with('(') {
+        return None;
+    }
+    let name = tokens.get(method_at.checked_sub(3)?)?;
+    if name.kind() != "identifier" {
+        return None;
+    }
+    Some(CallOrigin {
+        name: node_text(*name, source),
+        line: name.start_position().row as i64 + 1,
+        unwrap: false,
+    })
+}
+
 fn rust_emit_token_tree_calls(
     tree: tree_sitter::Node<'_>,
     context: &RustParseContext<'_>,
@@ -1269,8 +1546,22 @@ fn rust_emit_token_tree_calls(
                         .map(|ty| format!("{ty}::{method}"))
                 })
             }) {
-                Some(bound) => (bound, json!({})),
-                None => (method, json!({"receiver_unknown": true})),
+                Some(bound) => (bound, json!({"bound_receiver": true})),
+                None => {
+                    // The call the receiver is the result of: a variable
+                    // holding one, or `f(..).method(..)` in the tokens.
+                    let origin = match &receiver {
+                        Some(receiver) => bindings.returned_by(receiver).cloned(),
+                        None => rust_token_call_origin(&tokens, start, source),
+                    };
+                    match origin {
+                        Some(origin) => (
+                            method,
+                            json!({"receiver_unknown": true, "receiver_from": origin.to_json()}),
+                        ),
+                        None => (method, json!({"receiver_unknown": true})),
+                    }
+                }
             }
         } else {
             (
@@ -1419,6 +1710,16 @@ fn rust_bind_let(node: tree_sitter::Node<'_>, context: &RustParseContext<'_>) {
     if node.kind() != "let_declaration" {
         return;
     }
+    // `let Some(x) = ...` / `let (a, b) = ...`: the value's type is not the
+    // type of what the pattern takes out of it.
+    if let Some(pattern) = node.child_by_field_name("pattern")
+        && !matches!(pattern.kind(), "identifier" | "mut_pattern")
+    {
+        if let Some(name) = rust_identifier_child(pattern, context.source) {
+            context.bindings.borrow_mut().forget_foreign(&name);
+        }
+        return;
+    }
     let mut ident = node.child_by_field_name("pattern").and_then(|pattern| {
         if pattern.kind() == "identifier" {
             Some(node_text(pattern, context.source))
@@ -1477,6 +1778,98 @@ fn rust_bind_let(node: tree_sitter::Node<'_>, context: &RustParseContext<'_>) {
     }
     if let Some(type_name) = annotated {
         context.bindings.borrow_mut().bind(ident, type_name);
+        return;
+    }
+    // `let conn = store.connection();`: the type is the call's return type.
+    if let Some(origin) = value.and_then(|value| rust_call_origin(value, context)) {
+        context.bindings.borrow_mut().bind_returned(ident, origin);
+    }
+}
+
+/// The call a method call's receiver is the result of, past calls of the
+/// same method: one line holds a single edge per target, so in
+/// `Build::new().flag(a).flag(b)` the edge of `flag` stands for both and
+/// its receiver is what `new` returned.
+fn rust_receiver_origin(
+    mut receiver: tree_sitter::Node<'_>,
+    method: &str,
+    context: &RustParseContext<'_>,
+) -> Option<CallOrigin> {
+    while receiver.kind() == "call_expression"
+        && let Some(function) = receiver.child_by_field_name("function")
+        && function.kind() == "field_expression"
+        && function
+            .child_by_field_name("field")
+            .is_some_and(|field| node_text(field, context.source) == method)
+    {
+        receiver = function.child_by_field_name("value")?;
+    }
+    rust_call_origin(receiver, context)
+}
+
+/// `let name = |..| ..;` / `let name = move |..| ..;`: the name and the
+/// closure.
+fn rust_closure_binding<'tree>(
+    node: tree_sitter::Node<'tree>,
+    source: &[u8],
+) -> Option<(String, tree_sitter::Node<'tree>)> {
+    let pattern = node.child_by_field_name("pattern")?;
+    let value = node.child_by_field_name("value")?;
+    (pattern.kind() == "identifier" && value.kind() == "closure_expression")
+        .then(|| (node_text(pattern, source), value))
+}
+
+/// Methods that take the value out of a `Result` / `Option`.
+const RUST_UNWRAP_METHODS: &[&str] = &[
+    "expect",
+    "unwrap",
+    "unwrap_or_default",
+    "unwrap_or",
+    "unwrap_or_else",
+];
+
+/// The call an expression is the result of: `store.connection()`,
+/// `Store::open(p)?` / `.unwrap()` / `.expect(..)` (unwrapped), or a
+/// variable bound to one (`let conn = store.connection();`).
+fn rust_call_origin(
+    expression: tree_sitter::Node<'_>,
+    context: &RustParseContext<'_>,
+) -> Option<CallOrigin> {
+    match expression.kind() {
+        "try_expression" => {
+            let mut origin = rust_call_origin(expression.named_child(0)?, context)?;
+            origin.unwrap = true;
+            Some(origin)
+        }
+        "call_expression" => {
+            let function = expression.child_by_field_name("function")?;
+            if function.kind() == "field_expression"
+                && let Some(field) = function.child_by_field_name("field")
+                && RUST_UNWRAP_METHODS.contains(&node_text(field, context.source).as_str())
+            {
+                let mut origin = rust_call_origin(function.child_by_field_name("value")?, context)?;
+                origin.unwrap = true;
+                return Some(origin);
+            }
+            let name = match function.kind() {
+                "generic_function" => function
+                    .child_by_field_name("function")
+                    .and_then(|inner| rust_rightmost_identifier(inner, context.source)),
+                _ => rust_rightmost_identifier(function, context.source)
+                    .or_else(|| Some(node_text(function, context.source))),
+            }?;
+            Some(CallOrigin {
+                name,
+                line: expression.start_position().row as i64 + 1,
+                unwrap: false,
+            })
+        }
+        "identifier" => context
+            .bindings
+            .borrow()
+            .returned_by(&node_text(expression, context.source))
+            .cloned(),
+        _ => None,
     }
 }
 
@@ -1958,6 +2351,89 @@ fn decode_rust_string_literal(node: tree_sitter::Node<'_>, source: &[u8]) -> Str
         .trim_matches('"')
         .trim_matches('`')
         .to_string()
+}
+
+/// Records on each type of the file what it dereferences to (`impl Deref
+/// for FilePath { type Target = str; }` gives `deref_target: "str"`): a
+/// method the type lacks is the target's (`file_path.as_str()`), which
+/// resolution across files falls back on.
+fn record_rust_deref_targets(root: tree_sitter::Node<'_>, source: &[u8], nodes: &mut [ParsedNode]) {
+    fn visit(node: tree_sitter::Node<'_>, source: &[u8], targets: &mut Vec<(String, String)>) {
+        if node.kind() == "impl_item"
+            && rust_impl_trait_name(node, source).as_deref() == Some("Deref")
+            && let Some(type_name) = rust_impl_type_name(node, source)
+            && let Some(body) = node.child_by_field_name("body")
+        {
+            let mut cursor = body.walk();
+            for item in body.named_children(&mut cursor) {
+                if item.kind() == "type_item"
+                    && item
+                        .child_by_field_name("name")
+                        .is_some_and(|name| node_text(name, source) == "Target")
+                    && let Some(target) = item.child_by_field_name("type")
+                {
+                    let text = node_text(target, source);
+                    let text = text.trim().trim_start_matches('&').trim();
+                    let target = if text.starts_with('[') {
+                        "slice".to_string()
+                    } else {
+                        let base = text.split('<').next().unwrap_or(text);
+                        base.rsplit("::").next().unwrap_or(base).trim().to_string()
+                    };
+                    if !target.is_empty() {
+                        targets.push((type_name.clone(), target));
+                    }
+                }
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            visit(child, source, targets);
+        }
+    }
+    let mut targets = Vec::new();
+    visit(root, source, &mut targets);
+    for (type_name, target) in targets {
+        for node in nodes.iter_mut().filter(|node| {
+            node.kind == crate::core::types::NodeKind::Class && node.name == type_name
+        }) {
+            node.extra["deref_target"] = json!(target);
+        }
+    }
+}
+
+/// Types written with their crate (`node: tree_sitter::Node<'_>`,
+/// `std::path::Path`) as if a `use` had brought them in: a variable typed
+/// by one binds the bare name (`Node`), whose calls (`node.kind()`) then
+/// know their crate. A name the file declares or `use`s is left alone.
+fn rust_note_qualified_types(root: tree_sitter::Node<'_>, context: &RustParseContext<'_>) {
+    fn visit(node: tree_sitter::Node<'_>, context: &RustParseContext<'_>) {
+        if node.kind() == "scoped_type_identifier"
+            && let (Some(path), Some(name)) = (
+                node.child_by_field_name("path"),
+                node.child_by_field_name("name"),
+            )
+        {
+            let mut segments: Vec<String> = node_text(path, context.source)
+                .split("::")
+                .map(|segment| segment.trim().to_string())
+                .collect();
+            let name = node_text(name, context.source);
+            let external = rust_std_crate(&segments).is_some()
+                || context
+                    .scope
+                    .is_some_and(|scope| scope.is_dependency(&segments[0]));
+            if external && !context.defined_names.contains(&name) {
+                segments.push(name.clone());
+                context.uses.borrow_mut().entry(name).or_insert(segments);
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            visit(child, context);
+        }
+    }
+    visit(root, context);
 }
 
 #[cfg(test)]

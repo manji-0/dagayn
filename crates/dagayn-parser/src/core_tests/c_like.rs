@@ -31,8 +31,8 @@ void run() {}
     assert_eq!(
         includes,
         vec![
-            // A system header matches no repo file and keeps its literal name.
-            "vector",
+            // A standard header matches no repo file: its package, `std`.
+            "std",
             // Sibling header, resolved against the including directory.
             "src/net/socket.h",
             // Found by walking up to the directory holding `include/`.
@@ -139,11 +139,9 @@ static inline int user_id(User *user) {
             .iter()
             .any(|node| node.kind == "Function" && node.name == "user_id")
     );
-    assert!(
-        edges
-            .iter()
-            .any(|edge| edge.kind == "IMPORTS_FROM" && edge.target == "stdint.h")
-    );
+    assert!(edges.iter().any(|edge| edge.kind == "IMPORTS_FROM"
+        && edge.target == "libc"
+        && edge.extra["external_symbol"] == "stdint.h"));
 }
 
 #[test]
@@ -189,9 +187,9 @@ int main() {
             .any(|node| { node.kind == "Function" && node.name == "create_user" })
     );
     assert!(
-        edges
-            .iter()
-            .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "stdio.h" })
+        edges.iter().any(|edge| {
+            edge.kind == "IMPORTS_FROM" && edge.extra["external_symbol"] == "stdio.h"
+        })
     );
     assert!(edges.iter().any(|edge| {
         edge.kind == "CALLS"
@@ -264,11 +262,9 @@ void Dog::extra() { make_animal(1); }
     assert!(nodes.iter().any(|node| {
         node.kind == "Function" && node.name == "Dog" && node.parent_name.as_deref() == Some("Dog")
     }));
-    assert!(
-        edges
-            .iter()
-            .any(|edge| { edge.kind == "IMPORTS_FROM" && edge.target == "iostream" })
-    );
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "IMPORTS_FROM" && edge.extra["external_symbol"] == "iostream"
+    }));
     assert!(edges.iter().any(|edge| {
         edge.kind == "INHERITS" && edge.source == "sample.cpp::Dog" && edge.target == "Animal"
     }));
@@ -358,11 +354,11 @@ int main(int argc, const char * argv[]) {
     assert!(nodes.iter().any(|node| {
         node.kind == "Function" && node.name == "main" && node.parent_name.is_none()
     }));
-    assert!(
-        edges.iter().any(|edge| {
-            edge.kind == "IMPORTS_FROM" && edge.target == "Foundation/Foundation.h"
-        })
-    );
+    assert!(edges.iter().any(|edge| {
+        edge.kind == "IMPORTS_FROM"
+            && edge.target == "Foundation"
+            && edge.extra["external_symbol"] == "Foundation/Foundation.h"
+    }));
     assert!(edges.iter().any(|edge| {
         edge.kind == "CALLS"
             && edge.source == "sample.m::Calculator.add"
@@ -379,7 +375,10 @@ int main(int argc, const char * argv[]) {
             && edge.target == "sample.m::Calculator.add"
     }));
     assert!(edges.iter().any(|edge| {
-        edge.kind == "CALLS" && edge.source == "sample.m::main" && edge.target == "NSLog"
+        edge.kind == "CALLS"
+            && edge.source == "sample.m::main"
+            && edge.target == "Foundation"
+            && edge.extra["external_symbol"] == "NSLog"
     }));
 }
 
@@ -623,4 +622,406 @@ fn duplicate_qualified_names_merge_into_one_node() {
         .filter(|edge| edge.kind == "CONTAINS" && edge.target == "p.c::pick")
         .count();
     assert_eq!(contains, 1);
+}
+
+/// `(target, external_symbol, confidence_tier)` of each CALLS edge from
+/// `source`, or of each IMPORTS_FROM edge with `source` empty.
+fn stdlib_edges(edges: &[ParsedEdge], kind: &str) -> Vec<(String, String, String)> {
+    edges
+        .iter()
+        .filter(|edge| edge.kind == kind)
+        .map(|edge| {
+            (
+                edge.target.clone(),
+                edge.extra["external_symbol"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string(),
+                edge.extra["confidence_tier"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string(),
+            )
+        })
+        .collect()
+}
+
+fn has(found: &[(String, String, String)], target: &str, symbol: &str, tier: &str) -> bool {
+    found
+        .iter()
+        .any(|(t, s, c)| t == target && s == symbol && c == tier)
+}
+
+#[test]
+fn c_standard_library_calls_target_their_package() {
+    let source = br#"#include <stdio.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include "local.h"
+#include <gtest/gtest.h>
+
+#define log_line(msg) puts(msg)
+
+static int helper(int x) { return x; }
+int strlen(const char *s);
+
+int main(void) {
+    printf("hi");
+    malloc(4);
+    fork();
+    socket(1, 2, 3);
+    helper(1);
+    strlen("x");
+    log_line("x");
+    return 0;
+}
+"#;
+    let (_, edges) = parse_c("main.c", source);
+    let imports = stdlib_edges(&edges, "IMPORTS_FROM");
+    assert!(has(&imports, "libc", "stdio.h", "HIGH"), "{imports:?}");
+    assert!(has(&imports, "posix", "unistd.h", "HIGH"), "{imports:?}");
+    assert!(
+        has(&imports, "posix", "sys/socket.h", "HIGH"),
+        "{imports:?}"
+    );
+    // Quoted and third-party includes are not the standard library.
+    assert!(has(&imports, "local.h", "", ""), "{imports:?}");
+    assert!(has(&imports, "gtest/gtest.h", "", ""), "{imports:?}");
+
+    let calls = stdlib_edges(&edges, "CALLS");
+    // Declared by an included header: certain.
+    assert!(has(&calls, "libc", "printf", "HIGH"), "{calls:?}");
+    assert!(has(&calls, "posix", "fork", "HIGH"), "{calls:?}");
+    assert!(has(&calls, "posix", "socket", "HIGH"), "{calls:?}");
+    // `<stdlib.h>` is not included: the name alone.
+    assert!(has(&calls, "libc", "malloc", "MEDIUM"), "{calls:?}");
+    // The file's own function, prototype and macro are not libc's.
+    assert!(has(&calls, "main.c::helper", "", ""), "{calls:?}");
+    assert!(has(&calls, "strlen", "", ""), "{calls:?}");
+    assert!(has(&calls, "log_line", "", ""), "{calls:?}");
+    let marked = edges
+        .iter()
+        .find(|edge| edge.extra["external_symbol"] == "printf")
+        .unwrap();
+    assert_eq!(marked.extra["external"], true);
+    assert_eq!(marked.extra["stdlib"], true);
+    assert_eq!(marked.extra["external_package"], "libc");
+}
+
+#[test]
+fn cpp_standard_library_calls_target_their_package() {
+    let source = br#"#include <vector>
+#include <memory>
+#include <cstdio>
+#include <boost/format.hpp>
+#include "widget.h"
+using namespace std;
+
+class Widget {
+    std::vector<int> items;
+    std::unique_ptr<Widget> next;
+    void add(int x);
+    void reverse();
+};
+
+void Widget::add(int x) {
+    std::vector<int> xs;
+    xs.push_back(x);
+    this->items.push_back(x);
+    std::sort(xs.begin(), xs.end());
+    auto w = std::make_shared<Widget>();
+    std::chrono::steady_clock::now();
+    std::string("x").size();
+    next->add(1);
+    sort(xs.begin(), xs.end());
+    reverse();
+    printf("%d", x);
+    boost::format("x");
+    unknown.push_back(1);
+}
+"#;
+    let (_, edges) = parse_cpp("widget.cpp", source);
+    let imports = stdlib_edges(&edges, "IMPORTS_FROM");
+    assert!(has(&imports, "std", "vector", "HIGH"), "{imports:?}");
+    assert!(has(&imports, "std", "cstdio", "HIGH"), "{imports:?}");
+    assert!(has(&imports, "boost/format.hpp", "", ""), "{imports:?}");
+    assert!(has(&imports, "widget.h", "", ""), "{imports:?}");
+
+    let calls = stdlib_edges(&edges, "CALLS");
+    // Qualified through `std`: certain, the qualifier kept.
+    assert!(has(&calls, "std", "std::sort", "HIGH"), "{calls:?}");
+    assert!(has(&calls, "std", "std::make_shared", "HIGH"), "{calls:?}");
+    assert!(
+        has(&calls, "std", "std::chrono::steady_clock::now", "HIGH"),
+        "{calls:?}"
+    );
+    // A member of a `std` temporary.
+    assert!(has(&calls, "std", "std::string::size", "HIGH"), "{calls:?}");
+    // `<cstdio>` declares `printf`.
+    assert!(has(&calls, "libc", "printf", "HIGH"), "{calls:?}");
+    // Methods of variables typed by their declaration, and a bare name
+    // under `using namespace std;`: likely.
+    assert_eq!(
+        calls
+            .iter()
+            .filter(|(target, symbol, tier)| {
+                target == "std" && symbol == "std::vector::push_back" && tier == "MEDIUM"
+            })
+            .count(),
+        2,
+        "{calls:?}"
+    );
+    assert!(has(&calls, "std", "std::sort", "MEDIUM"), "{calls:?}");
+    // The class's own `reverse`, the pointee of a smart pointer, a
+    // third-party namespace, and an untyped receiver stay unmarked.
+    assert!(has(&calls, "reverse", "", ""), "{calls:?}");
+    assert!(has(&calls, "widget.cpp::Widget.add", "", ""), "{calls:?}");
+    assert!(has(&calls, "format", "", ""), "{calls:?}");
+    assert!(has(&calls, "push_back", "", ""), "{calls:?}");
+}
+
+#[test]
+fn objc_standard_library_calls_target_their_package() {
+    let source = br#"#import <Foundation/Foundation.h>
+#import "Logger.h"
+@import UIKit;
+#include <stdlib.h>
+
+@interface NSWidget : NSObject
+@end
+
+int main(void) {
+    NSString *name = [NSString stringWithFormat:@"%d", 1];
+    [name length];
+    NSMutableArray *items = [[NSMutableArray alloc] init];
+    [NSWidget create];
+    [logger flush];
+    NSLog(@"x");
+    CGRectMake(0, 0, 1, 1);
+    CAMediaTimingFunction *f = [CAMediaTimingFunction functionWithName:nil];
+    free(NULL);
+    return 0;
+}
+"#;
+    let (_, edges) = parse_objc("main.m", source);
+    let imports = stdlib_edges(&edges, "IMPORTS_FROM");
+    assert!(
+        has(&imports, "Foundation", "Foundation/Foundation.h", "HIGH"),
+        "{imports:?}"
+    );
+    assert!(has(&imports, "UIKit", "", "HIGH"), "{imports:?}");
+    assert!(has(&imports, "libc", "stdlib.h", "HIGH"), "{imports:?}");
+    assert!(has(&imports, "Logger.h", "", ""), "{imports:?}");
+
+    let calls = stdlib_edges(&edges, "CALLS");
+    assert!(
+        has(&calls, "Foundation", "NSString.stringWithFormat", "HIGH"),
+        "{calls:?}"
+    );
+    assert!(
+        has(&calls, "Foundation", "NSMutableArray.alloc", "HIGH"),
+        "{calls:?}"
+    );
+    assert!(
+        has(&calls, "Foundation", "NSMutableArray.init", "HIGH"),
+        "{calls:?}"
+    );
+    assert!(has(&calls, "Foundation", "NSLog", "HIGH"), "{calls:?}");
+    // UIKit imports CoreGraphics.
+    assert!(
+        has(&calls, "CoreGraphics", "CGRectMake", "HIGH"),
+        "{calls:?}"
+    );
+    assert!(has(&calls, "libc", "free", "HIGH"), "{calls:?}");
+    // A variable typed by its declaration, and a framework not imported.
+    assert!(
+        has(&calls, "Foundation", "NSString.length", "MEDIUM"),
+        "{calls:?}"
+    );
+    assert!(
+        has(
+            &calls,
+            "QuartzCore",
+            "CAMediaTimingFunction.functionWithName",
+            "MEDIUM"
+        ),
+        "{calls:?}"
+    );
+    // The file's own `NS` class, and a receiver of unknown type.
+    assert!(has(&calls, "create", "", ""), "{calls:?}");
+    assert!(has(&calls, "flush", "", ""), "{calls:?}");
+}
+
+/// The CALLS edge to `target` on `line`.
+fn call_at<'a>(edges: &'a [ParsedEdge], target: &str, line: i64) -> &'a ParsedEdge {
+    edges
+        .iter()
+        .find(|edge| edge.kind == "CALLS" && edge.target == target && edge.line == line)
+        .unwrap_or_else(|| panic!("no CALLS {target} on line {line} in {edges:?}"))
+}
+
+#[test]
+fn c_functions_record_their_return_type() {
+    let source = b"Store* open_store(void) { return 0; }\nstatic const char *name(void) { return \"\"; }\nvoid run(Store *s) { s->ops->save(s); open_store(); }\n";
+    let (nodes, edges) = parse_c("store.c", source);
+    let returns = |name: &str| {
+        nodes
+            .iter()
+            .find(|node| node.name == name)
+            .and_then(|node| node.return_type.clone())
+    };
+    assert_eq!(returns("open_store").as_deref(), Some("Store*"));
+    assert_eq!(returns("name").as_deref(), Some("const char*"));
+    // A C function pointer field is no member call.
+    assert!(
+        call_at(&edges, "save", 3)
+            .extra
+            .get("receiver_unknown")
+            .is_none()
+    );
+    assert_eq!(
+        call_at(&edges, "store.c::open_store", 3).extra,
+        serde_json::json!({})
+    );
+}
+
+#[test]
+fn cpp_receivers_record_the_call_they_came_from() {
+    let source = br#"#include "repo.h"
+class Svc {
+public:
+    Repo* repo_;
+    void run(Factory& factory, Widget* other);
+};
+class Local { public: void save() {} };
+std::unique_ptr<Store> makeStore() { return nullptr; }
+const Repo& Svc::get() const { return *repo_; }
+auto build() -> Repo* { return nullptr; }
+void Svc::run(Factory& factory, Widget* other) {
+    this->repo_->save();
+    Repo repo; repo.load();
+    auto r = new Repo(); r->flush();
+    auto s = makeStore(); s->close();
+    factory.create()->commit();
+    Local l; l.save();
+    other.value().value().reset();
+    auto p = std::make_unique<Repo>(); p->open();
+    auto q = unknown; q.drop();
+}
+"#;
+    let (nodes, edges) = parse_cpp("svc.cpp", source);
+    let returns = |name: &str| {
+        nodes
+            .iter()
+            .find(|node| node.name == name)
+            .and_then(|node| node.return_type.clone())
+    };
+    assert_eq!(
+        returns("makeStore").as_deref(),
+        Some("std::unique_ptr<Store>")
+    );
+    assert_eq!(returns("get").as_deref(), Some("const Repo&"));
+    assert_eq!(returns("build").as_deref(), Some("Repo*"));
+    let run = nodes
+        .iter()
+        .find(|node| node.name == "run" && node.line_start == 11)
+        .expect("Svc::run");
+    assert_eq!(run.return_type.as_deref(), Some("void"));
+    // Typed by a field, a local, `new`, and `std::make_unique` of a class
+    // of another file.
+    assert_eq!(call_at(&edges, "save", 12).extra["receiver_type"], "Repo");
+    assert_eq!(call_at(&edges, "load", 13).extra["receiver_type"], "Repo");
+    assert_eq!(call_at(&edges, "flush", 14).extra["receiver_type"], "Repo");
+    assert_eq!(call_at(&edges, "open", 19).extra["receiver_type"], "Repo");
+    // The result of a call, directly or through a variable.
+    assert_eq!(
+        call_at(&edges, "close", 15).extra,
+        serde_json::json!({
+            "receiver_unknown": true,
+            "receiver_from": {"call": "makeStore", "line": 15, "unwrap": false},
+        })
+    );
+    assert_eq!(
+        call_at(&edges, "commit", 16).extra["receiver_from"],
+        serde_json::json!({"call": "create", "line": 16, "unwrap": false})
+    );
+    assert_eq!(
+        call_at(&edges, "create", 16).extra["receiver_type"],
+        "Factory"
+    );
+    // A repeated method points past its repeats.
+    assert_eq!(
+        call_at(&edges, "reset", 18).extra["receiver_from"]["call"],
+        "value"
+    );
+    assert_eq!(
+        call_at(&edges, "value", 18).extra["receiver_type"],
+        "Widget"
+    );
+    // A class of this file keeps the same-file binding.
+    assert_eq!(
+        call_at(&edges, "svc.cpp::Local.save", 17).extra,
+        serde_json::json!({})
+    );
+    // Unknown type, no call behind it.
+    assert_eq!(
+        call_at(&edges, "drop", 20).extra,
+        serde_json::json!({"receiver_unknown": true})
+    );
+}
+
+#[test]
+fn objc_receivers_record_the_call_they_came_from() {
+    let source = br#"#import "Repo.h"
+@interface Calc : NSObject
+@end
+@implementation Calc
+- (Store *)store { return nil; }
+- (void)run:(Repo *)repo {
+    [repo save];
+    [[self store] flush];
+    id t = [self store]; [t commit];
+    [self helper];
+    [thing go];
+    [Repo shared];
+    [[[Repo alloc] init] reset];
+    Store *s = [self store]; [s close];
+}
+- (void)helper {}
+@end
+"#;
+    let (nodes, edges) = parse_objc("Calc.m", source);
+    let store = nodes
+        .iter()
+        .find(|node| node.name == "store")
+        .expect("store");
+    assert_eq!(store.return_type.as_deref(), Some("(Store *)"));
+    assert_eq!(call_at(&edges, "save", 7).extra["receiver_type"], "Repo");
+    assert_eq!(
+        call_at(&edges, "flush", 8).extra,
+        serde_json::json!({
+            "receiver_unknown": true,
+            "receiver_from": {"call": "store", "line": 8, "unwrap": false},
+        })
+    );
+    assert_eq!(
+        call_at(&edges, "commit", 9).extra["receiver_from"],
+        serde_json::json!({"call": "store", "line": 9, "unwrap": false})
+    );
+    assert_eq!(
+        call_at(&edges, "Calc.m::Calc.store", 8).extra,
+        serde_json::json!({})
+    );
+    assert_eq!(
+        call_at(&edges, "Calc.m::Calc.helper", 10).extra,
+        serde_json::json!({})
+    );
+    assert_eq!(
+        call_at(&edges, "go", 11).extra,
+        serde_json::json!({"receiver_unknown": true})
+    );
+    // A message to a class is a static call.
+    assert_eq!(call_at(&edges, "shared", 12).extra, serde_json::json!({}));
+    assert_eq!(call_at(&edges, "reset", 13).extra["receiver_type"], "Repo");
+    assert_eq!(call_at(&edges, "close", 14).extra["receiver_type"], "Store");
 }

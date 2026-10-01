@@ -426,8 +426,9 @@ class TestExternalPackageSymbols:
         }
         assert set(calls) == {"@testing-library/react::render", "src/ClassComp.tsx::ClassComp"}
         external = calls["@testing-library/react::render"]
-        # External, unresolved in-repo: LOW, identified by `extra.external`.
-        assert external["confidence_tier"] == "LOW"
+        # External, named through an import of the package: it keeps the
+        # HIGH its extractor gave it, identified by `extra.external`.
+        assert external["confidence_tier"] == "HIGH"
         assert '"external_package":"@testing-library/react"' in external["extra"]
         tested_by = {
             row["source_qualified"]

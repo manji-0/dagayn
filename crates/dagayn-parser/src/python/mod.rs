@@ -10,7 +10,11 @@ use super::documentation_directives::{
     extract_line_comment_dagayn_directives, nearest_documentation_source,
     push_documentation_directive_edge,
 };
-use super::member_calls::MemberCallBindings;
+use super::member_calls::{CallOrigin, MemberCallBindings};
+use super::stdlib::python::{
+    is_python_builtin, python_constructs_stdlib_value, python_stdlib_package,
+};
+use super::stdlib::{StdlibEvidence, mark_external_edge, mark_stdlib_edge};
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{is_test_file, line_count, node_text};
 use super::{qualify, resolve_rust_call_targets};
@@ -25,6 +29,10 @@ pub(super) use notebook::{
 mod bridges;
 
 use bridges::*;
+
+mod receivers;
+
+use receivers::*;
 
 pub(super) fn parse_python_with_parser(
     file_path: &str,
@@ -75,6 +83,11 @@ fn parse_python_module_with_parser(
         let class_names = collect_python_class_names(root, source);
         let mut import_aliases = HashMap::new();
         collect_python_import_aliases(root, source, &mut import_aliases);
+        let stdlib_aliases = python_stdlib_aliases(&import_aliases, file_path, repo_root);
+        let external_aliases = python_external_aliases(&import_aliases, file_path, repo_root);
+        let mut defined_names = HashSet::new();
+        collect_python_defined_names(root, source, &mut defined_names);
+        let attribute_types = collect_python_attribute_types(root, source);
         let context = PythonParseContext {
             source,
             file_path: file_path.clone(),
@@ -83,9 +96,17 @@ fn parse_python_module_with_parser(
             top_level_defined_names: &top_level_defined_names,
             protocol_names: &protocol_names,
             import_aliases: &import_aliases,
-            bindings: RefCell::new(MemberCallBindings::with_types(class_names)),
+            stdlib_aliases: &stdlib_aliases,
+            external_aliases: &external_aliases,
+            defined_names: &defined_names,
+            class_names: &class_names,
+            attribute_types: &attribute_types,
+            pytest_file: is_test_file(file_path.as_str())
+                || file_path.as_str().rsplit('/').next() == Some("conftest.py"),
+            bindings: RefCell::new(MemberCallBindings::with_types(class_names.clone())),
         };
         python_walk_children(root, &context, None, None, &mut nodes, &mut edges);
+        python_emit_lazy_exports(root, &context, &mut edges);
         extract_python_documentation_directives(file_path, source, &nodes, &mut edges);
         let edges = resolve_python_call_targets(&nodes, edges, file_path);
         let edges = add_python_tested_by_edges(&nodes, edges, file_path);
@@ -127,6 +148,26 @@ struct PythonParseContext<'a> {
     /// (`_core.parse(...)`) records the receiver so native-binding
     /// resolution can tell which module the attribute came from.
     import_aliases: &'a HashMap<String, String>,
+    /// The import aliases that name the standard library (and no module of
+    /// this repository): local name -> (package, what it names), `run` ->
+    /// (`subprocess`, `subprocess.run`).
+    stdlib_aliases: &'a HashMap<String, (&'static str, String)>,
+    /// The import aliases that name a module neither of this repository nor
+    /// of the standard library (`yaml`, `np` of `import numpy as np`): local
+    /// name -> (package, what it names). Only known with a repository root.
+    external_aliases: &'a HashMap<String, (String, String)>,
+    /// Functions and classes declared anywhere in the file, which shadow the
+    /// builtins of the same name.
+    defined_names: &'a HashSet<String>,
+    /// Classes declared anywhere in the file.
+    class_names: &'a HashSet<String>,
+    /// The types a class gives the attributes of `self`.
+    attribute_types: &'a AttributeTypes,
+    /// A test file or `conftest.py`, whose functions pytest calls with its
+    /// fixtures.
+    pytest_file: bool,
+    /// Variables bound to a standard-library value (`p = Path(x)`) are
+    /// `foreign` bindings to the name it resolves to (`pathlib.Path`).
     bindings: RefCell<MemberCallBindings>,
 }
 
@@ -291,6 +332,15 @@ fn python_walk_children(
                             .borrow_mut()
                             .bind_implicit_receivers(class_name);
                     }
+                    if let Some(parameters) = child.child_by_field_name("parameters") {
+                        for (name, type_name) in python_parameter_types(parameters, context.source)
+                        {
+                            python_bind_type(&name, &type_name, context);
+                        }
+                        if context.pytest_file {
+                            python_bind_pytest_fixtures(parameters, context);
+                        }
+                    }
                     python_walk_children(
                         child,
                         context,
@@ -341,6 +391,28 @@ fn python_walk_children(
                     &context.file_path,
                     context.repo_root,
                 ) {
+                    let (mut target, mut extra) = (target, extra);
+                    // Unresolved (`target` is the module as written) and of
+                    // the standard library: an import of its package.
+                    if extra["module"].as_str() == Some(target.as_str()) {
+                        if let Some(package) = python_stdlib_package(&target) {
+                            mark_stdlib_edge(
+                                &mut target,
+                                &mut extra,
+                                package,
+                                StdlibEvidence::Certain,
+                            );
+                        } else if let Some(package) =
+                            python_external_package(&target, &context.file_path, context.repo_root)
+                        {
+                            mark_external_edge(
+                                &mut target,
+                                &mut extra,
+                                &package,
+                                StdlibEvidence::Likely,
+                            );
+                        }
+                    }
                     edges.push(ParsedEdge {
                         kind: crate::core::types::EdgeKind::ImportsFrom,
                         source: context.file_path.to_string(),
@@ -354,12 +426,40 @@ fn python_walk_children(
             "call" => {
                 if let Some(call_name) = python_call_name(child, context.source) {
                     let caller = enclosing_qualified.unwrap_or(&context.file_path);
-                    let target = python_bound_member_target(child, context)
-                        .or_else(|| python_resolve_imported_call_target(&call_name, context))
-                        .unwrap_or(call_name);
-                    let extra = match python_import_receiver(child, context) {
+                    let resolved = python_bound_member_target(child, context)
+                        .or_else(|| python_resolve_imported_call_target(&call_name, context));
+                    let mut extra = match python_import_receiver(child, context) {
                         Some(receiver) => json!({"receiver": receiver}),
                         None => json!({}),
+                    };
+                    let callee = child.child_by_field_name("function");
+                    let target = match resolved {
+                        Some(target) => target,
+                        None => match callee
+                            .and_then(|callee| python_stdlib_name(callee, context, true))
+                        {
+                            Some((package, mut symbol, evidence)) => {
+                                mark_stdlib_edge(&mut symbol, &mut extra, package, evidence);
+                                symbol
+                            }
+                            None => match callee
+                                .and_then(|callee| python_external_name(callee, context))
+                            {
+                                Some((package, mut symbol)) => {
+                                    mark_external_edge(
+                                        &mut symbol,
+                                        &mut extra,
+                                        &package,
+                                        StdlibEvidence::Likely,
+                                    );
+                                    symbol
+                                }
+                                None => {
+                                    python_mark_receiver(callee, context, &mut extra);
+                                    call_name
+                                }
+                            },
+                        },
                     };
                     edges.push(ParsedEdge {
                         kind: crate::core::types::EdgeKind::Calls,
@@ -669,7 +769,8 @@ fn collect_python_import_names(
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         match child.kind() {
-            "dotted_name" if !seen_import => {
+            // `from pkg.mod import x` and `from .mod import x`.
+            "dotted_name" | "relative_import" if !seen_import => {
                 module = Some(node_text(child, source));
             }
             "import" => {
@@ -1123,6 +1224,164 @@ fn python_import_receiver(
         .then_some(receiver)
 }
 
+/// The import aliases of `import_aliases` that name a standard-library
+/// module, or a name imported from one, that no module of this repository
+/// shadows (a local `json.py` is imported instead of the standard `json`).
+fn python_stdlib_aliases(
+    import_aliases: &HashMap<String, String>,
+    file_path: &FilePath,
+    repo_root: Option<&Path>,
+) -> HashMap<String, (&'static str, String)> {
+    let mut shadowed = HashMap::new();
+    import_aliases
+        .iter()
+        .filter_map(|(local, origin)| {
+            let package = python_stdlib_package(origin)?;
+            let in_repo = *shadowed.entry(package).or_insert_with(|| {
+                python_resolve_module_to_file(package, file_path, repo_root).is_some()
+            });
+            (!in_repo).then(|| (local.clone(), (package, origin.clone())))
+        })
+        .collect()
+}
+
+/// Whether the repository has a module or package named `top`: a
+/// `top.py` or `top/` beside the file or in a directory above it, or under
+/// `src/` (the src layout).
+fn python_top_module_in_repo(top: &str, file_path: &FilePath, repo_root: &Path) -> bool {
+    let exists = |dir: &Path| {
+        let base = repo_root.join(dir);
+        base.join(format!("{top}.py")).is_file() || base.join(top).is_dir()
+    };
+    let mut dir = Path::new(file_path.as_str()).parent();
+    while let Some(current) = dir {
+        if exists(current) {
+            return true;
+        }
+        dir = current.parent();
+    }
+    exists(Path::new("")) || exists(Path::new("src"))
+}
+
+/// The third-party package an absolute module belongs to (its top-level
+/// module): neither the standard library nor a module of the repository.
+/// Unknown without a repository root.
+fn python_external_package(
+    module: &str,
+    file_path: &FilePath,
+    repo_root: Option<&Path>,
+) -> Option<String> {
+    let repo_root = repo_root?;
+    if module.starts_with('.') || python_stdlib_package(module).is_some() {
+        return None;
+    }
+    let top = module.split('.').next().filter(|top| !top.is_empty())?;
+    (!python_top_module_in_repo(top, file_path, repo_root)).then(|| top.to_string())
+}
+
+/// The import aliases that name a third-party module or a name imported
+/// from one (see [`python_external_package`]).
+fn python_external_aliases(
+    import_aliases: &HashMap<String, String>,
+    file_path: &FilePath,
+    repo_root: Option<&Path>,
+) -> HashMap<String, (String, String)> {
+    let mut packages: HashMap<String, Option<String>> = HashMap::new();
+    import_aliases
+        .iter()
+        .filter_map(|(local, origin)| {
+            let top = origin.split('.').next()?.to_string();
+            let package = packages
+                .entry(top.clone())
+                .or_insert_with(|| python_external_package(&top, file_path, repo_root))
+                .clone()?;
+            Some((local.clone(), (package, origin.clone())))
+        })
+        .collect()
+}
+
+/// The third-party package and dotted name a callee is written through: an
+/// import alias of a third-party module (`yaml.safe_load`, `np.array`) or a
+/// name imported from one (`from pytest import raises`).
+fn python_external_name(
+    node: tree_sitter::Node<'_>,
+    context: &PythonParseContext<'_>,
+) -> Option<(String, String)> {
+    match node.kind() {
+        "identifier" => {
+            let name = node_text(node, context.source);
+            if context.defined_names.contains(&name) {
+                return None;
+            }
+            context.external_aliases.get(&name).cloned()
+        }
+        "attribute" => {
+            let object = node.child_by_field_name("object")?;
+            if !matches!(object.kind(), "identifier" | "attribute") {
+                return None;
+            }
+            let attribute = node_text(node.child_by_field_name("attribute")?, context.source);
+            // A value of a third-party type (`monkeypatch.setattr` with
+            // `monkeypatch: pytest.MonkeyPatch` or pytest's fixture).
+            if let Some(PythonType::External(package, symbol)) =
+                python_receiver_type(object, context)
+            {
+                return Some((package, format!("{symbol}.{attribute}")));
+            }
+            let (package, base) = python_external_name(object, context)?;
+            Some((package, format!("{base}.{attribute}")))
+        }
+        _ => None,
+    }
+}
+
+/// The standard-library package and dotted name an expression resolves to:
+/// an import alias of the standard library (`subprocess`, `run` of `from
+/// subprocess import run`), an attribute of one (`os.path.join`), a variable
+/// bound to a standard-library value, or the value a call constructs
+/// (`Path(p).open`, `open(p).read`, not `importlib.import_module(m).run`).
+/// A builtin (`len`) counts when `bare_builtin` or when it is called
+/// (`str(x).strip`); a bare variable named like one is too often a local
+/// (`format`, `id`) to count.
+///
+/// The evidence is certain when the name is rooted at an import of the
+/// standard library; a builtin (a local may shadow it) or a variable bound
+/// to a standard-library value (it may be reassigned in a branch) is likely.
+fn python_stdlib_name(
+    node: tree_sitter::Node<'_>,
+    context: &PythonParseContext<'_>,
+    bare_builtin: bool,
+) -> Option<(&'static str, String, StdlibEvidence)> {
+    match node.kind() {
+        "identifier" => {
+            let name = node_text(node, context.source);
+            if let Some((package, origin)) = context.stdlib_aliases.get(&name) {
+                return Some((package, origin.clone(), StdlibEvidence::Certain));
+            }
+            if let Some(PythonType::Stdlib(package, symbol)) = python_receiver_type(node, context) {
+                return Some((package, symbol, StdlibEvidence::Likely));
+            }
+            let builtin = bare_builtin
+                && is_python_builtin(&name)
+                && !context.defined_names.contains(&name)
+                && !context.import_aliases.contains_key(&name);
+            builtin.then_some(("builtins", name, StdlibEvidence::Likely))
+        }
+        "attribute" => {
+            if let Some(PythonType::Stdlib(package, symbol)) = python_receiver_type(node, context) {
+                return Some((package, symbol, StdlibEvidence::Likely));
+            }
+            let object = node.child_by_field_name("object")?;
+            let attribute = node_text(node.child_by_field_name("attribute")?, context.source);
+            let (package, base, evidence) = python_stdlib_name(object, context, false)?;
+            Some((package, format!("{base}.{attribute}"), evidence))
+        }
+        "call" => python_stdlib_name(node.child_by_field_name("function")?, context, true)
+            .filter(|(package, symbol, _)| python_constructs_stdlib_value(package, symbol)),
+        _ => None,
+    }
+}
+
 fn python_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     let mut cursor = node.walk();
     let first = node.children(&mut cursor).next()?;
@@ -1144,6 +1403,13 @@ fn python_bound_member_target(
     }
     let method = rust_rightmost_identifier(first, context.source)?;
     let receiver = python_first_child(first)?;
+    if receiver.kind() == "attribute" {
+        // `self.store.save()` with `self.store = Store()`, `Store` of this file.
+        return match python_receiver_type(receiver, context)? {
+            PythonType::Local(type_name) => Some(format!("{type_name}::{method}")),
+            _ => None,
+        };
+    }
     if receiver.kind() != "identifier" {
         return None;
     }
@@ -1164,6 +1430,15 @@ fn python_bind_assignment(node: tree_sitter::Node<'_>, context: &PythonParseCont
         return;
     }
     let var = node_text(lhs, context.source);
+    // A value of the standard library: `p = Path(x)`, `f = open(x)`.
+    context.bindings.borrow_mut().forget_foreign(&var);
+    if let Some(rhs) = python_last_value_child(node)
+        && rhs.kind() == "call"
+        && let Some((_, symbol, _)) = python_stdlib_name(rhs, context, true)
+    {
+        context.bindings.borrow_mut().bind_any(var, symbol);
+        return;
+    }
     if let Some(rhs) = python_last_value_child(node)
         && rhs.kind() == "call"
         && let Some(call_name) = python_call_name(rhs, context.source)
@@ -1177,17 +1452,254 @@ fn python_bind_assignment(node: tree_sitter::Node<'_>, context: &PythonParseCont
             context.bindings.borrow_mut().bind(var.clone(), type_name);
             return;
         }
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if !matches!(child.kind(), "type" | "type_annotation") {
-            continue;
-        }
-        if let Some(type_name) = python_identifier_child(child, context.source)
-            .or_else(|| python_base_name(child, context.source))
+        // A class imported from another module of the repository:
+        // `store = GraphStore(path)`.
+        if let Some(callee) = rhs.child_by_field_name("function")
+            && matches!(callee.kind(), "identifier" | "attribute")
         {
-            context.bindings.borrow_mut().bind(var, type_name);
+            let callee = node_text(callee, context.source);
+            let root = callee.split('.').next().unwrap_or(&callee);
+            let is_class = callee
+                .rsplit('.')
+                .next()
+                .is_some_and(|name| name.starts_with(|c: char| c.is_ascii_uppercase()));
+            if is_class && context.import_aliases.contains_key(root) {
+                python_bind_type(&var, &callee, context);
+                return;
+            }
+        }
+    }
+    if let Some(annotation) = node
+        .child_by_field_name("type")
+        .and_then(|annotation| python_annotation_type(annotation, context.source))
+    {
+        python_bind_type(&var, &annotation, context);
+        return;
+    }
+    // `conn = store_conn(store)`: the type is the call's return type.
+    if let Some(origin) =
+        python_last_value_child(node).and_then(|rhs| python_call_origin(rhs, context))
+    {
+        context.bindings.borrow_mut().bind_returned(var, origin);
+    }
+}
+
+/// The call an expression is the result of (`store_conn(store)`,
+/// `self.store.connection()`), or of which a variable holds the result.
+fn python_call_origin(
+    expression: tree_sitter::Node<'_>,
+    context: &PythonParseContext<'_>,
+) -> Option<CallOrigin> {
+    match expression.kind() {
+        "call" => {
+            let function = expression.child_by_field_name("function")?;
+            let name = match function.kind() {
+                "identifier" => node_text(function, context.source),
+                "attribute" => {
+                    node_text(function.child_by_field_name("attribute")?, context.source)
+                }
+                _ => return None,
+            };
+            Some(CallOrigin {
+                name,
+                line: expression.start_position().row as i64 + 1,
+                unwrap: false,
+            })
+        }
+        "identifier" => context
+            .bindings
+            .borrow()
+            .returned_by(&node_text(expression, context.source))
+            .cloned(),
+        _ => None,
+    }
+}
+
+/// What a type written in the file is: a class of this file, a type of the
+/// standard library (package, dotted name), a type of a third-party package
+/// (package, dotted name), or a class of another module of the repository
+/// (by its name, which resolution across files matches).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PythonType {
+    Local(String),
+    Stdlib(&'static str, String),
+    External(String, String),
+    Foreign(String),
+}
+
+/// A variable bound to a third-party type is remembered as
+/// `package:dotted.name`; no Python name has a `:`.
+const EXTERNAL_BINDING_SEPARATOR: char = ':';
+
+/// The types pytest injects into a test or fixture for a parameter of this
+/// name (`def test_x(tmp_path, monkeypatch)`), when it has no annotation.
+fn python_pytest_fixture_type(name: &str) -> Option<PythonType> {
+    let external = |symbol: &str| Some(PythonType::External("pytest".into(), symbol.into()));
+    match name {
+        "tmp_path" => Some(PythonType::Stdlib("pathlib", "pathlib.Path".into())),
+        "tmp_path_factory" => external("pytest.TempPathFactory"),
+        "monkeypatch" => external("pytest.MonkeyPatch"),
+        "capsys" | "capfd" | "capsysbinary" | "capfdbinary" => external("pytest.CaptureFixture"),
+        "caplog" => external("pytest.LogCaptureFixture"),
+        "request" => external("pytest.FixtureRequest"),
+        "recwarn" => external("pytest.WarningsRecorder"),
+        "pytestconfig" => external("pytest.Config"),
+        _ => None,
+    }
+}
+
+/// Classifies `type_name` as written (`GraphStore`, `Path`, `pathlib.Path`,
+/// `list`). Protocol types of `typing` / `collections.abc` (`Any`,
+/// `Iterable`) say nothing about the methods and are none of these.
+fn python_type_of(type_name: &str, context: &PythonParseContext<'_>) -> Option<PythonType> {
+    let (root, rest) = match type_name.split_once('.') {
+        Some((root, rest)) => (root, Some(rest)),
+        None => (type_name, None),
+    };
+    let last = type_name.rsplit('.').next().unwrap_or(type_name);
+    if let Some((package, origin)) = context.stdlib_aliases.get(root) {
+        if matches!(*package, "typing" | "typing_extensions")
+            || origin.starts_with("collections.abc")
+        {
+            return None;
+        }
+        let symbol = match rest {
+            Some(rest) => format!("{origin}.{rest}"),
+            None => origin.clone(),
+        };
+        return Some(PythonType::Stdlib(package, symbol));
+    }
+    if rest.is_none() && python_constructs_stdlib_value("builtins", type_name) {
+        return Some(PythonType::Stdlib("builtins", type_name.to_string()));
+    }
+    if rest.is_none() && context.class_names.contains(type_name) {
+        return Some(PythonType::Local(type_name.to_string()));
+    }
+    if let Some((package, origin)) = context.external_aliases.get(root) {
+        let symbol = match rest {
+            Some(rest) => format!("{origin}.{rest}"),
+            None => origin.clone(),
+        };
+        return Some(PythonType::External(package.clone(), symbol));
+    }
+    let is_class = last.starts_with(|c: char| c.is_ascii_uppercase());
+    let known = context.import_aliases.contains_key(root) || context.class_names.contains(last);
+    (is_class && known).then(|| PythonType::Foreign(last.to_string()))
+}
+
+/// Binds `var` to the type `type_name` names (see [`python_type_of`]).
+fn python_bind_type(var: &str, type_name: &str, context: &PythonParseContext<'_>) {
+    if let Some(python_type) = python_type_of(type_name, context) {
+        python_bind(var, python_type, context);
+    }
+}
+
+fn python_bind(var: &str, python_type: PythonType, context: &PythonParseContext<'_>) {
+    let mut bindings = context.bindings.borrow_mut();
+    match python_type {
+        PythonType::Local(type_name) => bindings.bind(var, type_name),
+        PythonType::Stdlib(_, symbol) => bindings.bind_any(var, symbol),
+        PythonType::External(package, symbol) => bindings.bind_any(
+            var,
+            format!("{package}{EXTERNAL_BINDING_SEPARATOR}{symbol}"),
+        ),
+        PythonType::Foreign(type_name) => bindings.bind_any(var, type_name),
+    }
+}
+
+/// The type of a receiver: a variable bound to one, or an attribute of
+/// `self` its class types.
+fn python_receiver_type(
+    node: tree_sitter::Node<'_>,
+    context: &PythonParseContext<'_>,
+) -> Option<PythonType> {
+    let bindings = context.bindings.borrow();
+    match node.kind() {
+        "identifier" => {
+            let name = node_text(node, context.source);
+            if let Some(bound) = bindings.bound_type(&name).filter(|ty| !ty.contains("::")) {
+                return Some(PythonType::Local(bound.to_string()));
+            }
+            let symbol = bindings.foreign_type(&name)?;
+            // Standard-library values are bound to their dotted name
+            // (`pathlib.Path`, `str`), third-party ones to
+            // `package:dotted.name`, classes of other modules to theirs.
+            if let Some((package, symbol)) = symbol.split_once(EXTERNAL_BINDING_SEPARATOR) {
+                return Some(PythonType::External(
+                    package.to_string(),
+                    symbol.to_string(),
+                ));
+            }
+            if let Some(package) = python_stdlib_package(symbol) {
+                return Some(PythonType::Stdlib(package, symbol.to_string()));
+            }
+            if python_constructs_stdlib_value("builtins", symbol) || is_python_builtin(symbol) {
+                return Some(PythonType::Stdlib("builtins", symbol.to_string()));
+            }
+            Some(PythonType::Foreign(symbol.to_string()))
+        }
+        "attribute" => {
+            let object = node.child_by_field_name("object")?;
+            if object.kind() != "identifier" || node_text(object, context.source) != "self" {
+                return None;
+            }
+            let class_path = bindings.bound_type("self")?;
+            let class_name = class_path.rsplit('.').next().unwrap_or(class_path);
+            let attribute = node_text(node.child_by_field_name("attribute")?, context.source);
+            let type_name = context
+                .attribute_types
+                .get(class_name)?
+                .get(&attribute)?
+                .clone();
+            drop(bindings);
+            python_type_of(&type_name, context)
+        }
+        _ => None,
+    }
+}
+
+/// Records what a member call's receiver says when nothing resolved the
+/// call: `receiver_type` for a class of another module (`store:
+/// GraphStore`), or `receiver_unknown` when the receiver's type is unknown
+/// (`plugin.run()`, `make().save()`), so no same-named function of the file
+/// is taken for it. A module (`helpers.run()`), `self` / `cls`, a class
+/// (`Repo.create()`), and `super()` are known receivers.
+fn python_mark_receiver(
+    callee: Option<tree_sitter::Node<'_>>,
+    context: &PythonParseContext<'_>,
+    extra: &mut Value,
+) {
+    let Some(callee) = callee.filter(|callee| callee.kind() == "attribute") else {
+        return;
+    };
+    let Some(receiver) = callee.child_by_field_name("object") else {
+        return;
+    };
+    match python_receiver_type(receiver, context) {
+        Some(PythonType::Foreign(type_name)) => {
+            extra["receiver_type"] = json!(type_name);
             return;
+        }
+        Some(_) => return,
+        None => {}
+    }
+    let known = match receiver.kind() {
+        "identifier" => {
+            let name = node_text(receiver, context.source);
+            matches!(name.as_str(), "self" | "cls")
+                || context.import_aliases.contains_key(&name)
+                || context.class_names.contains(&name)
+                || context.bindings.borrow().is_bound(&name)
+        }
+        "call" => receiver
+            .child_by_field_name("function")
+            .is_some_and(|function| node_text(function, context.source) == "super"),
+        _ => false,
+    };
+    if !known {
+        extra["receiver_unknown"] = json!(true);
+        if let Some(origin) = python_call_origin(receiver, context) {
+            extra["receiver_from"] = origin.to_json();
         }
     }
 }
@@ -1196,6 +1708,23 @@ fn collect_python_class_names(node: tree_sitter::Node<'_>, source: &[u8]) -> Has
     let mut names = HashSet::new();
     collect_python_class_names_into(node, source, &mut names);
     names
+}
+
+/// Names of the functions and classes declared anywhere in the file.
+fn collect_python_defined_names(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    names: &mut HashSet<String>,
+) {
+    if matches!(node.kind(), "function_definition" | "class_definition")
+        && let Some(name) = python_identifier_child(node, source)
+    {
+        names.insert(name);
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_python_defined_names(child, source, names);
+    }
 }
 
 fn collect_python_class_names_into(
@@ -1276,7 +1805,11 @@ fn add_python_tested_by_edges(
     let mut out = edges;
     let tested_by_edges = out
         .iter()
-        .filter(|edge| edge.kind == "CALLS" && test_qnames.contains(&edge.source))
+        .filter(|edge| {
+            edge.kind == "CALLS"
+                && test_qnames.contains(&edge.source)
+                && edge.extra["external"] != true
+        })
         .map(|edge| ParsedEdge {
             kind: crate::core::types::EdgeKind::TestedBy,
             source: edge.target.clone(),
@@ -1371,4 +1904,120 @@ fn decode_python_string_literal(node: tree_sitter::Node<'_>, source: &[u8]) -> S
         .trim_matches('\'')
         .trim_matches('`')
         .to_string()
+}
+
+/// Lazy re-exports of a package (`__init__.py` with a module `__getattr__`,
+/// PEP 562) written as a table of `name: (module, attribute)` pairs:
+///
+/// ```python
+/// _LAZY_EXPORTS = {"GraphNode": (".types", "GraphNode")}
+///
+/// def __getattr__(name):
+///     module_name, attr_name = _LAZY_EXPORTS[name]
+///     return getattr(import_module(module_name, __name__), attr_name)
+/// ```
+///
+/// Each module of the table is an IMPORTS_FROM with the names it lends
+/// (`lazy_export`), as a `from .types import GraphNode` would be, so
+/// `from pkg import GraphNode` resolves to the declaration.
+fn python_emit_lazy_exports(
+    root: tree_sitter::Node<'_>,
+    context: &PythonParseContext<'_>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let source = context.source;
+    let mut cursor = root.walk();
+    let statements = root.named_children(&mut cursor).collect::<Vec<_>>();
+    let has_getattr = statements.iter().any(|statement| {
+        statement.kind() == "function_definition"
+            && python_identifier_child(*statement, source).as_deref() == Some("__getattr__")
+    });
+    if !has_getattr {
+        return;
+    }
+    // (module, [(attribute, exported name)], line), in order of appearance.
+    type LazyModule = (String, Vec<(String, String)>, i64);
+    let mut by_module: Vec<LazyModule> = Vec::new();
+    for statement in statements {
+        let assignment = if statement.kind() == "expression_statement" {
+            statement.named_child(0)
+        } else {
+            Some(statement)
+        };
+        let Some(dictionary) = assignment
+            .filter(|assignment| assignment.kind() == "assignment")
+            .and_then(|assignment| assignment.child_by_field_name("right"))
+            .filter(|right| right.kind() == "dictionary")
+        else {
+            continue;
+        };
+        let mut pairs = dictionary.walk();
+        for pair in dictionary.named_children(&mut pairs) {
+            if pair.kind() != "pair" {
+                continue;
+            }
+            let (Some(key), Some(value)) = (
+                pair.child_by_field_name("key"),
+                pair.child_by_field_name("value"),
+            ) else {
+                continue;
+            };
+            if key.kind() != "string" || value.kind() != "tuple" {
+                continue;
+            }
+            let mut items = value.walk();
+            let items = value.named_children(&mut items).collect::<Vec<_>>();
+            let [module, attribute] = items.as_slice() else {
+                continue;
+            };
+            if module.kind() != "string" || attribute.kind() != "string" {
+                continue;
+            }
+            let name = decode_python_string_literal(key, source);
+            let module = decode_python_string_literal(*module, source);
+            let attribute = decode_python_string_literal(*attribute, source);
+            let line = pair.start_position().row as i64 + 1;
+            match by_module.iter_mut().find(|(known, _, _)| *known == module) {
+                Some((_, names, _)) => names.push((attribute, name)),
+                None => by_module.push((module, vec![(attribute, name)], line)),
+            }
+        }
+    }
+    for (module, names, line) in by_module {
+        let Some(target) =
+            python_resolve_module_to_file(&module, &context.file_path, context.repo_root)
+        else {
+            continue;
+        };
+        edges.push(ParsedEdge {
+            kind: crate::core::types::EdgeKind::ImportsFrom,
+            source: context.file_path.to_string(),
+            target,
+            file_path: context.file_path.clone(),
+            line,
+            extra: json!({"module": module, "names": names, "lazy_export": true}),
+        });
+    }
+}
+
+/// Binds the parameters of a test or fixture named after a pytest fixture
+/// and left unannotated (`tmp_path`, `monkeypatch`, `capsys`) to the type
+/// pytest injects, unless the file declares a fixture of that name itself.
+fn python_bind_pytest_fixtures(
+    parameters: tree_sitter::Node<'_>,
+    context: &PythonParseContext<'_>,
+) {
+    let mut cursor = parameters.walk();
+    for parameter in parameters.named_children(&mut cursor) {
+        if parameter.kind() != "identifier" {
+            continue;
+        }
+        let name = node_text(parameter, context.source);
+        if context.defined_names.contains(&name) {
+            continue;
+        }
+        if let Some(fixture_type) = python_pytest_fixture_type(&name) {
+            python_bind(&name, fixture_type, context);
+        }
+    }
 }

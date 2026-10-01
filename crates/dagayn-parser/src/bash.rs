@@ -1,7 +1,10 @@
+use std::collections::HashSet;
 use std::path::Path;
 
 use serde_json::json;
 
+use super::stdlib::bash::is_bash_builtin;
+use super::stdlib::{StdlibEvidence, mark_stdlib_edge};
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{
     is_test_file, line_count, node_text, normalize_relative_path, strip_matching_quotes,
@@ -39,6 +42,7 @@ pub(super) fn parse_bash_with_parser(
         bash_walk_children(
             root, source, &file_path, repo_root, None, &mut nodes, &mut edges,
         );
+        bash_mark_builtin_calls(&nodes, &mut edges);
         let edges = resolve_rust_call_targets(&nodes, edges, &file_path);
         return (nodes, edges);
     }
@@ -109,6 +113,32 @@ fn bash_walk_children(
             nodes,
             edges,
         );
+    }
+}
+
+/// Points the calls of shell builtins (`echo`, `cd`, `read`) at the package
+/// `bash`, so no resolution binds them to a same-named function elsewhere in
+/// the repository. A function this file defines takes precedence over a
+/// builtin (`cd() { builtin cd "$@"; }`), and is left to resolve to itself.
+/// The name is all the evidence there is: likely.
+fn bash_mark_builtin_calls(nodes: &[ParsedNode], edges: &mut [ParsedEdge]) {
+    let defined = nodes
+        .iter()
+        .filter(|node| node.kind == crate::core::types::NodeKind::Function)
+        .map(|node| node.name.as_str())
+        .collect::<HashSet<_>>();
+    for edge in edges.iter_mut() {
+        if edge.kind == crate::core::types::EdgeKind::Calls
+            && is_bash_builtin(&edge.target)
+            && !defined.contains(edge.target.as_str())
+        {
+            mark_stdlib_edge(
+                &mut edge.target,
+                &mut edge.extra,
+                "bash",
+                StdlibEvidence::Likely,
+            );
+        }
     }
 }
 

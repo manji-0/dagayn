@@ -173,6 +173,9 @@ pub(super) struct JavaScriptParseContext<'a> {
     pub(super) repo_root: Option<&'a Path>,
     pub(super) caches: JavaScriptCaches<'a>,
     pub(super) bindings: RefCell<MemberCallBindings>,
+    /// Every name the file binds anywhere ([`collect_javascript_bound_names`]):
+    /// a global of the same name (`const console = logger`) is not the host's.
+    pub(super) bound_names: &'a HashSet<String>,
 }
 
 pub(super) fn collect_javascript_defined_names(
@@ -236,6 +239,104 @@ pub(super) fn collect_javascript_defined_names(
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         collect_javascript_defined_names(child, source, import_map, names);
+    }
+}
+
+/// Every name `node` binds at any depth: declarations (`function f`,
+/// `class C`, `enum E`), variables (`const { a, b: [c] } = x`), parameters
+/// (`(req, { body }) => ...`), `catch (err)`, and `for (const x of xs)`
+/// targets. Coarser than scopes on purpose: a standard-library global is
+/// marked only when the file never binds its name
+/// ([`super::js_calls::javascript_global_call`]).
+pub(super) fn collect_javascript_bound_names(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    names: &mut HashSet<String>,
+) {
+    match node.kind() {
+        "function_declaration"
+        | "generator_function_declaration"
+        | "function_expression"
+        | "function"
+        | "generator_function"
+        | "class_declaration"
+        | "abstract_class_declaration"
+        | "class"
+        | "enum_declaration"
+        | "interface_declaration"
+        | "internal_module" => {
+            if let Some(name) = node
+                .child_by_field_name("name")
+                .filter(|name| matches!(name.kind(), "identifier" | "type_identifier"))
+            {
+                names.insert(node_text(name, source));
+            }
+        }
+        "variable_declarator" => {
+            if let Some(name) = node.child_by_field_name("name") {
+                collect_javascript_pattern_names(name, source, names);
+            }
+        }
+        "formal_parameters" => {
+            let mut cursor = node.walk();
+            for parameter in node.named_children(&mut cursor) {
+                let pattern = match parameter.kind() {
+                    "required_parameter" | "optional_parameter" => {
+                        parameter.child_by_field_name("pattern")
+                    }
+                    _ => Some(parameter),
+                };
+                if let Some(pattern) = pattern {
+                    collect_javascript_pattern_names(pattern, source, names);
+                }
+            }
+        }
+        "arrow_function" | "catch_clause" => {
+            if let Some(parameter) = node.child_by_field_name("parameter") {
+                collect_javascript_pattern_names(parameter, source, names);
+            }
+        }
+        "for_in_statement" => {
+            if let Some(left) = node.child_by_field_name("left") {
+                collect_javascript_pattern_names(left, source, names);
+            }
+        }
+        _ => {}
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_javascript_bound_names(child, source, names);
+    }
+}
+
+/// The names a binding pattern introduces (`a`, `{ a, b: c, ...rest }`,
+/// `[x = 1, y]`), without its defaults or type annotations.
+fn collect_javascript_pattern_names(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    names: &mut HashSet<String>,
+) {
+    match node.kind() {
+        "identifier" | "shorthand_property_identifier_pattern" => {
+            names.insert(node_text(node, source));
+        }
+        "pair_pattern" => {
+            if let Some(value) = node.child_by_field_name("value") {
+                collect_javascript_pattern_names(value, source, names);
+            }
+        }
+        "assignment_pattern" | "object_assignment_pattern" => {
+            if let Some(left) = node.child_by_field_name("left") {
+                collect_javascript_pattern_names(left, source, names);
+            }
+        }
+        "object_pattern" | "array_pattern" | "rest_pattern" => {
+            let mut cursor = node.walk();
+            for child in node.named_children(&mut cursor) {
+                collect_javascript_pattern_names(child, source, names);
+            }
+        }
+        _ => {}
     }
 }
 

@@ -91,6 +91,8 @@ mod ruby;
 mod rust_lang;
 #[path = "scala.rs"]
 mod scala;
+#[path = "stdlib/mod.rs"]
+mod stdlib;
 #[path = "swift.rs"]
 mod swift;
 #[path = "terraform.rs"]
@@ -316,6 +318,7 @@ impl RustOwnedParser {
                 file_path,
                 source,
                 parser_slot(&mut self.go_parser, new_go_parser),
+                repo_root,
             ),
             RustOwnedPathKind::Java => java::parse_java_with_parser(
                 file_path,
@@ -785,7 +788,7 @@ pub fn parse_bash(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<Parse
 
 pub fn parse_go(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let mut parser = new_go_parser();
-    go::parse_go_with_parser(file_path, source, parser.as_mut())
+    go::parse_go_with_parser(file_path, source, parser.as_mut(), None)
 }
 
 pub fn parse_java(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
@@ -905,9 +908,12 @@ pub(super) fn resolve_rust_call_targets(
         .map(|mut edge| {
             // A member call whose receiver the extractor could not type
             // (`res.json()`) must not bind to a same-named declaration, nor
-            // may a call into an external package (`react::render`).
+            // may a call into an external package (`react::render`), nor one
+            // on a receiver typed by a class of another file (`store:
+            // GraphStore`), which resolution across files binds by type.
             if matches!(edge.kind, EdgeKind::Calls | EdgeKind::References)
                 && edge.extra["receiver_unknown"] != true
+                && edge.extra.get("receiver_type").is_none()
                 && !is_external_call(&edge.extra)
                 && let Some(target) = resolve_same_file_call_target(
                     file_path,

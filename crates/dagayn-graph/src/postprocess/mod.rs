@@ -5,8 +5,11 @@
 
 mod bare_names;
 mod endpoints;
+mod external_calls;
 mod manifest;
 mod native_bindings;
+mod reexports;
+mod returned;
 mod terraform;
 mod tested_by;
 

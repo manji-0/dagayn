@@ -556,6 +556,42 @@ class _DeadCodeLookups:
         self.unresolved_entrypoint_by_name = unresolved_entrypoint_by_name
 
 
+def _bare_calls_from_tests(
+    store: GraphStore,
+    bare_calls_by_name: dict[str, list[GraphEdge]],
+) -> dict[str, list[GraphEdge]]:
+    """The bare calls made by a test, by called name.
+
+    Post-processing keeps ``TESTED_BY`` only for tested symbols that are
+    nodes, so a test's call that resolution could not bind is known by its
+    bare ``CALLS`` edge alone.
+    """
+    sources = sorted(
+        {edge.source_qualified for edges in bare_calls_by_name.values() for edge in edges}
+    )
+    if not sources:
+        return {}
+    tests = {
+        qualified_name
+        for qualified_name, node in store.get_nodes_by_qualified_names(sources).items()
+        if node.is_test
+    }
+    by_name: dict[str, list[GraphEdge]] = {}
+    for name, edges in bare_calls_by_name.items():
+        # Assertion / mock APIs and external packages cover nothing, as at
+        # parse time.
+        from_tests = [
+            edge
+            for edge in edges
+            if edge.source_qualified in tests
+            and not is_external_package_edge(edge)
+            and not (edge.extra or {}).get("test_api")
+        ]
+        if from_tests:
+            by_name[name] = from_tests
+    return by_name
+
+
 def _collect_dead_code_context(
     store: GraphStore,
     kind: Optional[str],
@@ -616,7 +652,7 @@ def _collect_dead_code_context(
     tested_by_source_qn = store.get_edges_by_sources(incoming_qns, ["TESTED_BY"])
 
     # Bare-name edges: CALLS/INHERITS edges whose target is an unqualified name,
-    # and TESTED_BY edges whose source is one.
+    # and, among the calls, those a test makes.
     survivor_names_list = list(survivor_names_set)
     bare_calls_by_name: dict[str, list[GraphEdge]] = {}
     bare_inherits_by_name: dict[str, list[GraphEdge]] = {}
@@ -629,7 +665,7 @@ def _collect_dead_code_context(
                 bare_calls_by_name.setdefault(target_name, []).append(edge)
             else:
                 bare_inherits_by_name.setdefault(target_name, []).append(edge)
-    bare_tested_by_name = store.get_edges_by_sources(survivor_names_list, ["TESTED_BY"])
+    bare_tested_by_name = _bare_calls_from_tests(store, bare_calls_by_name)
 
     # Qualified CALLS edges indexed by normalized target_name. This replaces
     # suffix LIKE scans over target_qualified when matching by bare symbol name.

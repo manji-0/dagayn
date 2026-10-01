@@ -177,3 +177,196 @@ public class Sum {
     );
     assert_eq!(symbol("total"), None);
 }
+
+#[test]
+fn java_standard_library_calls_target_their_package() {
+    let source = br#"package com.example;
+
+import static java.lang.Math.max;
+import java.util.List;
+import java.io.*;
+import com.acme.util.Strings;
+
+class Report {
+    static String valueOf(Object o) { return ""; }
+
+    void run(List<String> names, int n) {
+        System.out.println(n);
+        Math.min(1, 2);
+        max(1, 2);
+        Integer.parseInt("1");
+        java.util.Arrays.asList(1);
+        new StringBuilder().append("x");
+        names.add("a");
+        var copy = new ArrayList<String>();
+        copy.add("b");
+        new File("x").exists();
+        valueOf(n);
+        Strings.join(names);
+        helper.add("c");
+        "x".trim();
+    }
+}
+"#;
+    let (_, edges) = parse_java("src/com/example/Report.java", source);
+    let calls = edges
+        .iter()
+        .filter(|edge| edge.kind == "CALLS")
+        .map(|edge| {
+            (
+                edge.target.as_str(),
+                edge.extra["external_symbol"].as_str().unwrap_or_default(),
+                edge.extra["confidence_tier"].as_str().unwrap_or_default(),
+            )
+        })
+        .collect::<Vec<_>>();
+    for expected in [
+        ("java.lang", "System.out.println", "HIGH"),
+        ("java.lang", "Math.min", "HIGH"),
+        ("java.lang", "Math.max", "HIGH"),
+        ("java.lang", "Integer.parseInt", "HIGH"),
+        ("java.util", "java.util.Arrays.asList", "HIGH"),
+        ("java.lang", "StringBuilder.append", "HIGH"),
+        ("java.util", "List.add", "MEDIUM"),
+        ("java.io", "File.exists", "HIGH"),
+        ("java.lang", "String.trim", "HIGH"),
+    ] {
+        assert!(calls.contains(&expected), "{expected:?} not in {calls:?}");
+    }
+    // `ArrayList` is not imported (only `java.util.List` is).
+    assert!(calls.contains(&("add", "", "")), "{calls:?}");
+    // The file's own `valueOf`, a repository class, and an untyped receiver.
+    assert!(calls.contains(&("src/com/example/Report.java::Report.valueOf", "", "")));
+    assert!(calls.contains(&("join", "", "")), "{calls:?}");
+    assert_eq!(
+        edges
+            .iter()
+            .filter(|edge| edge.kind == "CALLS" && edge.extra["stdlib"] == true)
+            .count(),
+        9
+    );
+
+    let import = |symbol: &str| {
+        edges
+            .iter()
+            .find(|edge| {
+                edge.kind == "IMPORTS_FROM"
+                    && edge
+                        .extra
+                        .get("external_symbol")
+                        .map_or(edge.target == symbol, |written| written == symbol)
+            })
+            .unwrap_or_else(|| panic!("no import {symbol}"))
+    };
+    let list = import("java.util.List");
+    assert_eq!(list.target, "java.util");
+    assert_eq!(list.extra["stdlib"], true);
+    assert_eq!(list.extra["confidence_tier"], "HIGH");
+    assert_eq!(import("java.lang.Math.max").target, "java.lang");
+    assert_eq!(import("java.io.*").target, "java.io");
+    let third_party = import("com.acme.util.Strings");
+    assert_eq!(third_party.extra.get("stdlib"), None);
+}
+
+#[test]
+fn java_classes_of_its_own_are_not_the_class_library() {
+    let source = br#"import com.acme.*;
+
+class Math { static int max(int a, int b) { return a; } }
+
+class Use {
+    void run() {
+        Math.max(1, 2);
+        System.exit(0);
+    }
+}
+"#;
+    let (_, edges) = parse_java("Use.java", source);
+    let call = |name: &str| {
+        edges
+            .iter()
+            .find(|edge| {
+                edge.kind == "CALLS"
+                    && (edge.target.ends_with(name) || edge.extra["external_symbol"] == name)
+            })
+            .unwrap_or_else(|| panic!("no call {name}"))
+    };
+    assert_eq!(call("max").target, "Use.java::Math.max");
+    // `com.acme.*` may bring in a `System` of its own.
+    let exit = call("System.exit");
+    assert_eq!(exit.target, "java.lang");
+    assert_eq!(exit.extra["confidence_tier"], "MEDIUM");
+}
+
+#[test]
+fn java_receivers_record_the_call_they_came_from() {
+    let source = br#"package app;
+
+import com.acme.Repo;
+
+class Service {
+    private Repo repo;
+    private final Cache cache = new Cache();
+
+    List<User> users(Store store, T item) {
+        store.open().fetch();
+        var conn = factory.connect();
+        conn.execute();
+        repo.save();
+        this.repo.flush();
+        new Repo().load();
+        cache.get();
+        Repo.create();
+        plugin.run();
+        b.with(1).with(2);
+        return null;
+    }
+}
+
+class Cache {
+    Object get() { return null; }
+}
+"#;
+    let (nodes, edges) = parse_java("src/app/Service.java", source);
+    let call = |target: &str| {
+        edges
+            .iter()
+            .find(|edge| edge.kind == "CALLS" && edge.target == target)
+            .unwrap_or_else(|| panic!("no {target} in {edges:#?}"))
+    };
+    let users = nodes
+        .iter()
+        .find(|node| node.name == "users")
+        .expect("users");
+    assert_eq!(users.return_type.as_deref(), Some("List<User>"));
+    // Declared as a class of another file: parameter, field, `this.` field,
+    // constructor.
+    assert_eq!(call("open").extra["receiver_type"], "Store");
+    assert_eq!(call("save").extra["receiver_type"], "Repo");
+    assert_eq!(call("flush").extra["receiver_type"], "Repo");
+    assert_eq!(call("load").extra["receiver_type"], "Repo");
+    // A class of this file keeps the same-file binding.
+    assert_eq!(
+        call("src/app/Service.java::Cache.get")
+            .extra
+            .get("receiver_unknown"),
+        None
+    );
+    // A static call and an untyped receiver.
+    assert_eq!(call("create").extra.get("receiver_unknown"), None);
+    assert_eq!(call("run").extra["receiver_unknown"], true);
+    assert_eq!(call("run").extra.get("receiver_from"), None);
+    assert_eq!(call("connect").extra["receiver_unknown"], true);
+    // Receivers that are call results, directly or through a variable.
+    assert_eq!(
+        call("fetch").extra["receiver_from"],
+        serde_json::json!({"call": "open", "line": 10, "unwrap": false})
+    );
+    assert_eq!(
+        call("execute").extra["receiver_from"],
+        serde_json::json!({"call": "connect", "line": 11, "unwrap": false})
+    );
+    // A repeated method is skipped back to the receiver before it.
+    assert_eq!(call("with").extra.get("receiver_from"), None);
+    assert_eq!(call("with").extra["receiver_unknown"], true);
+}

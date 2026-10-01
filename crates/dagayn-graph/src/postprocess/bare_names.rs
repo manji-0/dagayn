@@ -1,10 +1,17 @@
 use crate::helpers::*;
+use crate::postprocess::external_calls::{
+    mark_deref_calls, mark_glob_imported_external_calls, mark_observed_method_calls,
+    mark_stdlib_method_calls, resolve_enum_variant_calls,
+};
+use crate::postprocess::reexports::resolve_reexported_targets;
+use crate::postprocess::returned::{resolve_pyo3_methods, resolve_returned_receivers};
 use crate::postprocess::sync_tested_by_with_calls;
+use crate::postprocess::tested_by::reconcile_tested_by_with_calls;
 use crate::*;
 
-const DIRECT_IMPORT_CONFIDENCE: f64 = 0.9;
+pub(crate) const DIRECT_IMPORT_CONFIDENCE: f64 = 0.9;
 
-const INFERRED_CONFIDENCE: f64 = 0.6;
+pub(crate) const INFERRED_CONFIDENCE: f64 = 0.6;
 
 const BARE_UNRESOLVED_CONFIDENCE: f64 = 0.3;
 
@@ -230,15 +237,18 @@ pub(crate) fn symbol_visibility(conn: &rusqlite::Connection) -> Result<SymbolVis
 ///
 /// Besides the files it imports directly, a file sees what those files
 /// re-export (Rust `pub use child::*` / `pub(crate) use child::item`, marked
-/// `re_export` on the edge), transitively, and everything a module it
-/// glob-imports (`use super::*`, `glob`) itself imports.
+/// `re_export` on the edge, and whatever a Python package's `__init__.py`
+/// imports, which its importers reach as the package's attributes),
+/// transitively, and everything a module it glob-imports (`use super::*`,
+/// `glob`) itself imports.
 fn import_targets_conn(conn: &rusqlite::Connection) -> Result<HashMap<String, HashSet<String>>> {
     let mut direct: HashMap<String, HashSet<String>> = HashMap::new();
     let mut re_exports: HashMap<String, HashSet<String>> = HashMap::new();
     let mut globs: HashMap<String, HashSet<String>> = HashMap::new();
     let mut stmt = conn.prepare(
         "SELECT DISTINCT file_path, target_qualified, \
-                COALESCE(json_extract(extra, '$.re_export'), 0), \
+                COALESCE(json_extract(extra, '$.re_export'), 0) \
+                    OR file_path LIKE '%/__init__.py' OR file_path = '__init__.py', \
                 COALESCE(json_extract(extra, '$.glob'), 0) \
          FROM edges WHERE kind = 'IMPORTS_FROM'",
     )?;
@@ -307,7 +317,7 @@ fn import_targets_conn(conn: &rusqlite::Connection) -> Result<HashMap<String, Ha
     Ok(import_targets)
 }
 
-fn import_targets_tx(tx: &Transaction<'_>) -> Result<HashMap<String, HashSet<String>>> {
+pub(crate) fn import_targets_tx(tx: &Transaction<'_>) -> Result<HashMap<String, HashSet<String>>> {
     import_targets_conn(tx)
 }
 
@@ -346,17 +356,27 @@ fn is_plausible_bare_edge(
 pub(crate) fn language_family(file_path: &str) -> Option<&'static str> {
     let ext = file_path.rsplit_once('.')?.1.to_ascii_lowercase();
     Some(match ext.as_str() {
-        "py" | "pyi" => "python",
+        "py" | "pyi" | "ipynb" => "python",
         "rs" => "rust",
         "c" | "h" | "cc" | "cpp" | "cxx" | "hh" | "hpp" | "hxx" | "m" | "mm" => "c",
-        "js" | "jsx" | "mjs" | "cjs" | "ts" | "tsx" | "mts" | "cts" => "javascript",
-        "java" | "kt" | "kts" | "scala" => "jvm",
+        "js" | "jsx" | "mjs" | "cjs" | "ts" | "tsx" | "mts" | "cts" | "vue" | "svelte" => {
+            "javascript"
+        }
+        "java" | "kt" | "kts" | "scala" | "sc" => "jvm",
         "cs" => "csharp",
         "go" => "go",
         "rb" => "ruby",
         "php" => "php",
         "swift" => "swift",
         "dart" => "dart",
+        "lua" => "lua",
+        "pl" | "pm" => "perl",
+        "r" => "r",
+        "jl" => "julia",
+        "ex" | "exs" => "elixir",
+        "zig" => "zig",
+        "gd" => "gdscript",
+        "sh" | "bash" | "zsh" => "bash",
         _ => return None,
     })
 }
@@ -379,6 +399,111 @@ fn file_is_visible(
             .get(source_file)
             .is_some_and(|targets| targets.contains(target_file))
         || visibility.can_see(source_file, target_file)
+}
+
+/// Binds bare call targets by name: through a module path, the receiver's
+/// type, or import visibility. Calls on the result of another call
+/// (`receiver_from`) wait for that call's return type to type them, so they
+/// are bound by name only when `on_returned_values`, after that pass could
+/// not (an untyped `makeBox()` in JavaScript).
+fn bind_bare_call_targets(
+    tx: &Transaction<'_>,
+    index: &HashMap<String, Vec<String>>,
+    import_targets: &HashMap<String, HashSet<String>>,
+    visibility: &SymbolVisibility,
+    on_returned_values: bool,
+) -> Result<i64> {
+    let edges = {
+        let mut stmt = tx.prepare(
+            "SELECT id, source_qualified, target_qualified, file_path, \
+                    json_extract(extra, '$.receiver_type'), \
+                    json_extract(extra, '$.module_file'), \
+                    COALESCE(json_extract(extra, '$.receiver_unknown'), 0) \
+             FROM edges \
+             WHERE (kind = 'CALLS' \
+                    OR (kind = 'REFERENCES' \
+                        AND COALESCE(json_extract(extra, '$.value_reference'), 0) = 1)) \
+               AND target_qualified NOT LIKE '%::%' \
+               AND COALESCE(json_extract(extra, '$.external'), 0) = 0 \
+               AND (json_extract(extra, '$.receiver_from') IS NULL) = ?",
+        )?;
+        let mapped = stmt.query_map([!on_returned_values], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, Option<String>>(5)?,
+                row.get::<_, i64>(6)? != 0,
+            ))
+        })?;
+        mapped.collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    let mut resolved = 0_i64;
+    for (
+        edge_id,
+        source_qualified,
+        target_qualified,
+        file_path,
+        receiver_type,
+        module_file,
+        receiver_unknown,
+    ) in edges
+    {
+        if looks_like_file_target(&target_qualified) {
+            continue;
+        }
+        let src_file = node_file_from_qualified(&source_qualified, &file_path);
+        let rust = language_family(&src_file) == Some("rust");
+        // Rust `x.m()` on a receiver of unknown type: the extractor already
+        // typed every receiver the syntax gives away, and binding the rest
+        // to whichever `m` is visible is usually wrong (`tx.commit()`).
+        if rust && receiver_unknown {
+            continue;
+        }
+        let mut candidates = index.get(&target_qualified).cloned().unwrap_or_default();
+        // A bare Rust call names a function a `use` brought in, i.e. one at
+        // the top of its module file, never a method or a function of an
+        // inline module such as `mod tests`.
+        if receiver_type.is_none() && rust {
+            candidates.retain(|qn| {
+                !qn.split_once("::")
+                    .is_some_and(|(_, symbol)| symbol.contains('.'))
+            });
+        }
+        if candidates.is_empty() {
+            continue;
+        }
+        let resolution = match (receiver_type.as_deref(), module_file.as_deref()) {
+            (_, Some(module_file)) => resolve_in_module(&candidates, module_file, import_targets),
+            (Some(receiver_type), None) => resolve_type_receiver(
+                &candidates,
+                &target_qualified,
+                receiver_type,
+                &src_file,
+                import_targets,
+                visibility,
+            ),
+            (None, None) => resolve_via_imports(&candidates, &src_file, import_targets, visibility),
+        };
+        let Some((qualified, confidence, tier)) = resolution else {
+            continue;
+        };
+        tx.execute(
+            "UPDATE edges SET target_qualified = ?, target_name = ?, \
+             confidence = ?, confidence_tier = ? WHERE id = ?",
+            params![
+                qualified,
+                edge_target_name(&qualified),
+                confidence,
+                tier.as_str(),
+                edge_id
+            ],
+        )?;
+        resolved += 1;
+    }
+    Ok(resolved)
 }
 
 fn load_bare_name_index(
@@ -566,106 +691,39 @@ impl GraphStore {
         Ok(symbol_visibility(&self.conn)?.as_string_lists())
     }
 
+    /// Resolves the call targets a single file could not: symbols named
+    /// through a module that re-exports them (`pkg/__init__.py::NodeInfo`),
+    /// then bare names (by import visibility, declaring class, receiver
+    /// type, or module), then calls on the result of another call (by its
+    /// declared return type) and on a class a Rust extension exports to
+    /// Python, then methods of receivers of unknown type that only the
+    /// standard library defines. `TESTED_BY` then follows the calls.
+    /// Returns how many targets were resolved (bare names and re-exports).
     pub fn resolve_bare_call_targets(&mut self) -> Result<i64> {
         let tx = write_tx(&mut self.conn)?;
+        let re_exported = resolve_reexported_targets(&tx)?;
         let import_targets = import_targets_tx(&tx)?;
         let visibility = symbol_visibility(&tx)?;
         let index = load_bare_name_index(&tx, &["Function", "Test", "Class"])?;
-        let edges = {
-            let mut stmt = tx.prepare(
-                "SELECT id, source_qualified, target_qualified, file_path, \
-                        json_extract(extra, '$.receiver_type'), \
-                        json_extract(extra, '$.module_file'), \
-                        COALESCE(json_extract(extra, '$.receiver_unknown'), 0) \
-                 FROM edges \
-                 WHERE (kind = 'CALLS' \
-                        OR (kind = 'REFERENCES' \
-                            AND COALESCE(json_extract(extra, '$.value_reference'), 0) = 1)) \
-                   AND target_qualified NOT LIKE '%::%'",
-            )?;
-            let mapped = stmt.query_map([], |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, Option<String>>(4)?,
-                    row.get::<_, Option<String>>(5)?,
-                    row.get::<_, i64>(6)? != 0,
-                ))
-            })?;
-            mapped.collect::<std::result::Result<Vec<_>, _>>()?
-        };
-        let mut resolved = 0_i64;
-        for (
-            edge_id,
-            source_qualified,
-            target_qualified,
-            file_path,
-            receiver_type,
-            module_file,
-            receiver_unknown,
-        ) in edges
-        {
-            if looks_like_file_target(&target_qualified) {
-                continue;
-            }
-            let src_file = node_file_from_qualified(&source_qualified, &file_path);
-            let rust = language_family(&src_file) == Some("rust");
-            // Rust `x.m()` on a receiver of unknown type: the extractor already
-            // typed every receiver the syntax gives away, and binding the rest
-            // to whichever `m` is visible is usually wrong (`tx.commit()`).
-            if rust && receiver_unknown {
-                continue;
-            }
-            let mut candidates = index.get(&target_qualified).cloned().unwrap_or_default();
-            // A bare Rust call names a function a `use` brought in, i.e. one at
-            // the top of its module file, never a method or a function of an
-            // inline module such as `mod tests`.
-            if receiver_type.is_none() && rust {
-                candidates.retain(|qn| {
-                    !qn.split_once("::")
-                        .is_some_and(|(_, symbol)| symbol.contains('.'))
-                });
-            }
-            if candidates.is_empty() {
-                continue;
-            }
-            let resolution = match (receiver_type.as_deref(), module_file.as_deref()) {
-                (_, Some(module_file)) => {
-                    resolve_in_module(&candidates, module_file, &import_targets)
-                }
-                (Some(receiver_type), None) => resolve_type_receiver(
-                    &candidates,
-                    &target_qualified,
-                    receiver_type,
-                    &src_file,
-                    &import_targets,
-                    &visibility,
-                ),
-                (None, None) => {
-                    resolve_via_imports(&candidates, &src_file, &import_targets, &visibility)
-                }
-            };
-            let Some((qualified, confidence, tier)) = resolution else {
-                continue;
-            };
-            tx.execute(
-                "UPDATE edges SET target_qualified = ?, target_name = ?, \
-                 confidence = ?, confidence_tier = ? WHERE id = ?",
-                params![
-                    qualified,
-                    edge_target_name(&qualified),
-                    confidence,
-                    tier.as_str(),
-                    edge_id
-                ],
-            )?;
-            resolved += 1;
+        let mut resolved =
+            bind_bare_call_targets(&tx, &index, &import_targets, &visibility, false)?;
+        resolved += resolve_enum_variant_calls(&tx)?;
+        // Twice: a call these passes type (`repo_root.join(x)` as `std`) is
+        // the origin a call on its result (`.exists()`) waits for.
+        for _ in 0..2 {
+            resolve_returned_receivers(&tx)?;
+            resolve_pyo3_methods(&tx)?;
+            mark_glob_imported_external_calls(&tx)?;
+            mark_deref_calls(&tx)?;
+            mark_stdlib_method_calls(&tx)?;
         }
+        resolved += bind_bare_call_targets(&tx, &index, &import_targets, &visibility, true)?;
+        // Last: what every other pass typed is what it learns from.
+        mark_observed_method_calls(&tx)?;
         sync_tested_by_with_calls(&tx)?;
+        reconcile_tested_by_with_calls(&tx)?;
         tx.commit()?;
-        Ok(resolved)
+        Ok(resolved + re_exported)
     }
 
     pub fn resolve_bare_inheritance_targets(&mut self) -> Result<i64> {

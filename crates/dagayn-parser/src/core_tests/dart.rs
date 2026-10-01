@@ -160,7 +160,8 @@ Dog createDog(String name) {
     assert!(edges.iter().any(|edge| {
         edge.kind == "CALLS"
             && edge.source == "sample.dart::SwimmingMixin.swim"
-            && edge.target == "print"
+            && edge.target == "dart:core"
+            && edge.extra["external_symbol"] == "print"
     }));
     assert!(
         edges
@@ -197,4 +198,157 @@ int plain() => 0;
     assert_eq!(symbol("fastSum").as_deref(), Some("fast_sum"));
     assert_eq!(symbol("version").as_deref(), Some("version"));
     assert_eq!(symbol("plain"), None);
+}
+
+#[test]
+fn dart_standard_library_calls_target_their_package() {
+    let source = br#"import 'dart:io';
+import 'dart:convert' as convert;
+import 'dart:math' show max;
+import 'package:http/http.dart' as http;
+
+class Logger {
+  void log(String m) {}
+}
+
+void jsonEncode(Object o) {}
+
+void main(List<String> args) {
+  final f = File('x');
+  print(convert.jsonEncode({}));
+  var d = DateTime.now();
+  int.parse('1');
+  max(1, 2);
+  sqrt(4);
+  http.get(Uri.parse('x'));
+  jsonEncode({});
+  final logger = Logger();
+  logger.log('x');
+}
+"#;
+    let (_nodes, edges) = parse_dart("lib/main.dart", source);
+    let find = |kind: &str, symbol: &str| {
+        edges
+            .iter()
+            .find(|edge| {
+                edge.kind == kind
+                    && (edge.extra["external_symbol"] == symbol
+                        || (edge.target == symbol && edge.extra.get("external_symbol").is_none()))
+            })
+            .unwrap_or_else(|| panic!("no {kind} {symbol} in {edges:#?}"))
+    };
+    // `dart:` imports: certain; `package:` imports are not the standard library.
+    for library in ["dart:io", "dart:convert", "dart:math"] {
+        let import = find("IMPORTS_FROM", library);
+        assert_eq!(import.target, library);
+        assert_eq!(import.extra["stdlib"], true);
+        assert_eq!(import.extra["confidence_tier"], "HIGH");
+    }
+    let http = find("IMPORTS_FROM", "package:http/http.dart");
+    assert!(http.extra.get("stdlib").is_none(), "{http:?}");
+    // A call through a `dart:` import prefix: certain.
+    let encode = find("CALLS", "convert.jsonEncode");
+    assert_eq!(encode.target, "dart:convert");
+    assert_eq!(encode.extra["confidence_tier"], "HIGH");
+    // `dart:core` names and names of unprefixed `dart:` imports: likely.
+    for (symbol, library) in [
+        ("print", "dart:core"),
+        ("DateTime.now", "dart:core"),
+        ("int.parse", "dart:core"),
+        ("Uri.parse", "dart:core"),
+        ("File", "dart:io"),
+        ("max", "dart:math"),
+    ] {
+        let call = find("CALLS", symbol);
+        assert_eq!(call.target, library, "{symbol}");
+        assert_eq!(call.extra["confidence_tier"], "MEDIUM", "{symbol}");
+    }
+    // `show max` leaves `sqrt` out of scope; this file's own `jsonEncode`
+    // and `Logger.log` are not the library's; a third-party prefix stays.
+    for target in [
+        "sqrt",
+        "lib/main.dart::jsonEncode",
+        "get",
+        "lib/main.dart::Logger.log",
+    ] {
+        let call = find("CALLS", target);
+        assert!(call.extra.get("stdlib").is_none(), "{call:?}");
+    }
+    assert!(
+        edges
+            .iter()
+            .all(|edge| edge.extra.get("dart_callee_qualifier").is_none()),
+        "{edges:#?}"
+    );
+}
+
+#[test]
+fn dart_receivers_record_the_call_they_came_from() {
+    let source = br#"import 'models.dart' as m;
+class Store {
+  void save() {}
+}
+class Service {
+  final Repo repo;
+  Future<Store> open(String p) async => Store();
+  void run(Cache cache) async {
+    var s = await open("a");
+    s.save();
+    (await open("b")).save();
+    open("c").save();
+    final local = Store();
+    local.save();
+    cache.flush();
+    repo.find();
+    this.repo.find();
+    final z = load();
+    z?.go();
+    m.Repo().find();
+    Repo.shared();
+  }
+}
+"#;
+    let (nodes, edges) = parse_dart("lib/service.dart", source);
+    let call = |target: &str, line: i64| {
+        edges
+            .iter()
+            .find(|edge| edge.kind == "CALLS" && edge.target == target && edge.line == line)
+            .unwrap_or_else(|| panic!("no {target} at {line} in {edges:#?}"))
+    };
+    let open = nodes.iter().find(|node| node.name == "open").expect("open");
+    assert_eq!(open.return_type.as_deref(), Some("Future<Store>"));
+    // `await` unwraps the `Future`.
+    assert_eq!(
+        call("save", 10).extra["receiver_from"],
+        serde_json::json!({"call": "open", "line": 9, "unwrap": true})
+    );
+    assert_eq!(call("save", 10).extra["receiver_unknown"], true);
+    assert_eq!(
+        call("save", 11).extra["receiver_from"],
+        serde_json::json!({"call": "open", "line": 11, "unwrap": true})
+    );
+    assert_eq!(
+        call("save", 12).extra["receiver_from"],
+        serde_json::json!({"call": "open", "line": 12, "unwrap": false})
+    );
+    // A type of this library declaring the method: the method itself.
+    assert_eq!(
+        call("lib/service.dart::Store.save", 14)
+            .extra
+            .get("receiver_unknown"),
+        None
+    );
+    // Types of other libraries: a parameter, a field, `this.field`, a
+    // constructor through an import prefix.
+    assert_eq!(call("flush", 15).extra["receiver_type"], "Cache");
+    assert_eq!(call("find", 16).extra["receiver_type"], "Repo");
+    assert_eq!(call("find", 17).extra["receiver_type"], "Repo");
+    assert_eq!(call("find", 20).extra["receiver_type"], "Repo");
+    // `?.` unwraps the nullable result.
+    assert_eq!(
+        call("go", 19).extra["receiver_from"],
+        serde_json::json!({"call": "load", "line": 18, "unwrap": true})
+    );
+    // A member of a type is no unknown receiver.
+    assert_eq!(call("shared", 21).extra.get("receiver_unknown"), None);
 }

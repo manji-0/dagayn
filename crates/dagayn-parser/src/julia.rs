@@ -1,7 +1,13 @@
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
+
 use serde_json::{Value, json};
 
+use super::member_calls::{CallOrigin, MemberCallBindings};
+use super::stdlib::julia::{is_julia_base_export, is_julia_stdlib_module, julia_module_exports};
+use super::stdlib::{StdlibEvidence, mark_stdlib_edge};
 use super::types::{FilePath, ParsedEdge, ParsedNode};
-use std::path::Path;
 
 use super::util::{
     is_test_file, line_count, node_text, resolve_import_path, set_namespaces_from_type_names,
@@ -32,15 +38,21 @@ pub(super) fn parse_julia_with_parser(
         extra: json!({}),
     }];
     let mut edges = Vec::new();
-    let context = JuliaParseContext {
+    let mut context = JuliaParseContext {
         source,
         file_path: file_path.clone(),
         repo_root,
+        imports: RefCell::default(),
+        types: HashSet::new(),
+        values: RefCell::default(),
+        bindings: RefCell::default(),
     };
 
     if let Some(parser) = parser
         && let Some(tree) = parser.parse(source, None)
     {
+        julia_collect_types(tree.root_node(), source, &mut context.types);
+        context.bindings = RefCell::new(MemberCallBindings::with_types(context.types.clone()));
         julia_walk_children(
             tree.root_node(),
             &context,
@@ -50,6 +62,7 @@ pub(super) fn parse_julia_with_parser(
             &mut edges,
         );
         set_namespaces_from_type_names(&mut nodes);
+        julia_mark_stdlib_calls(&nodes, &mut edges, &context.imports.borrow());
         let mut edges = resolve_rust_call_targets(&nodes, edges, &file_path);
         add_tested_by_edges(&nodes, &mut edges);
         return (nodes, edges);
@@ -62,6 +75,26 @@ struct JuliaParseContext<'a> {
     source: &'a [u8],
     file_path: FilePath,
     repo_root: Option<&'a Path>,
+    imports: RefCell<JuliaImports>,
+    /// Types the file declares (`struct Store`), by name.
+    types: HashSet<String>,
+    /// Parameters and variables of the function being walked, which hold
+    /// values rather than name modules.
+    values: RefCell<HashSet<String>>,
+    /// The declared types of the parameters in scope (`s::Store`), and the
+    /// calls variables hold the result of (`c = connect()`).
+    bindings: RefCell<MemberCallBindings>,
+}
+
+/// What the file's `using` / `import` statements bring into scope.
+#[derive(Default)]
+struct JuliaImports {
+    /// Names imported one by one, with their module (`mean` → `Statistics`
+    /// after `using Statistics: mean`).
+    names: HashMap<String, String>,
+    /// Modules whose exports a `using` brings in whole (`using
+    /// LinearAlgebra`).
+    modules: Vec<String>,
 }
 
 fn julia_walk_children(
@@ -117,14 +150,16 @@ fn julia_visit(
         }
         "using_statement" | "import_statement" => {
             for target in julia_import_targets(child, context.source) {
-                edges.push(ParsedEdge {
+                let mut edge = ParsedEdge {
                     kind: crate::core::types::EdgeKind::ImportsFrom,
                     source: context.file_path.to_string(),
                     target,
                     file_path: context.file_path.clone(),
                     line: child.start_position().row as i64 + 1,
                     extra: json!({}),
-                });
+                };
+                julia_record_import(child, context, &mut edge);
+                edges.push(edge);
             }
             return;
         }
@@ -184,6 +219,7 @@ fn julia_visit(
                 julia_emit_function(child, context, &name, parent.as_deref(), nodes, edges);
                 julia_emit_owner_reference(child, context, &name, parent.as_deref(), edges);
                 if let Some(block) = julia_direct_child(child, &["block"]) {
+                    let saved = julia_enter_function(child, context);
                     julia_walk_children(
                         block,
                         context,
@@ -192,6 +228,7 @@ fn julia_visit(
                         nodes,
                         edges,
                     );
+                    julia_leave_function(saved, context);
                 }
                 return;
             }
@@ -254,6 +291,10 @@ fn julia_visit(
         nodes,
         edges,
     );
+    // After its value is walked: `c = c.next()` reads the `c` before it.
+    if child.kind() == "assignment" {
+        julia_bind_assignment(child, context);
+    }
 }
 
 fn julia_handle_short_function(
@@ -273,6 +314,7 @@ fn julia_handle_short_function(
     let parent = julia_function_parent(enclosing_class, enclosing_func);
     julia_emit_function(node, context, &name, parent.as_deref(), nodes, edges);
     julia_emit_owner_reference(node, context, &name, parent.as_deref(), edges);
+    let saved = julia_enter_function(node, context);
     let mut seen_operator = false;
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
@@ -286,6 +328,7 @@ fn julia_handle_short_function(
         // calls come from `outer.f` when `f(x) = ...` is local to `outer`.
         julia_visit(child, context, parent.as_deref(), Some(&name), nodes, edges);
     }
+    julia_leave_function(saved, context);
     true
 }
 
@@ -407,7 +450,7 @@ fn julia_emit_function(
         language: "julia".to_string(),
         parent_name: parent_name.map(str::to_string),
         params: None,
-        return_type: None,
+        return_type: julia_return_type(node, context.source),
         modifiers: None,
         is_test,
         extra: json!({}),
@@ -435,16 +478,275 @@ fn julia_emit_call(
     let caller = enclosing_func
         .map(|func| qualify(&context.file_path, func, enclosing_class))
         .unwrap_or_else(|| context.file_path.to_string());
+    // `Base.max(...)` / `LinearAlgebra.norm(...)`: the path the call is
+    // named by, which `call_name` drops. Read (and dropped) by
+    // `julia_mark_stdlib_calls`.
+    let mut extra = match julia_call_signature(node, context.source) {
+        Some(path) if path.contains('.') => json!({"stdlib_path": path}),
+        _ => json!({}),
+    };
+    julia_mark_receiver(node, context, &mut extra);
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Calls,
         source: caller.clone(),
         target: call_name.to_string(),
         file_path: context.file_path.clone(),
         line: node.start_position().row as i64 + 1,
-        extra: json!({}),
+        extra,
     });
     if let Some(edge) = julia_bridge_edge(node, context, &caller, call_name) {
         edges.push(edge);
+    }
+}
+
+/// The bindings saved around a function body.
+type JuliaSavedScope = (HashSet<String>, crate::core::member_calls::BindingsSnapshot);
+
+/// Enters a function body: its parameters are values, typed ones bound to
+/// their type (`s::Store`).
+fn julia_enter_function(
+    node: tree_sitter::Node<'_>,
+    context: &JuliaParseContext<'_>,
+) -> JuliaSavedScope {
+    let saved = (
+        context.values.borrow().clone(),
+        context.bindings.borrow().snapshot(),
+    );
+    let call = match node.kind() {
+        "assignment" => julia_assignment_lhs_call(node),
+        _ => julia_direct_child(node, &["signature"])
+            .and_then(|signature| julia_first_descendant(signature, &["call_expression"])),
+    };
+    if let Some(arguments) = call.and_then(|call| julia_direct_child(call, &["argument_list"])) {
+        let mut cursor = arguments.walk();
+        for argument in arguments.named_children(&mut cursor) {
+            let (name, type_name) = match argument.kind() {
+                "identifier" => (node_text(argument, context.source), None),
+                "typed_expression" => {
+                    let mut cursor = argument.walk();
+                    let parts = argument.named_children(&mut cursor).collect::<Vec<_>>();
+                    match parts.as_slice() {
+                        [name, type_name]
+                            if name.kind() == "identifier" && type_name.kind() == "identifier" =>
+                        {
+                            (
+                                node_text(*name, context.source),
+                                Some(node_text(*type_name, context.source)),
+                            )
+                        }
+                        _ => continue,
+                    }
+                }
+                _ => continue,
+            };
+            let mut bindings = context.bindings.borrow_mut();
+            bindings.forget_foreign(&name);
+            if let Some(type_name) = type_name {
+                bindings.bind_any(name.clone(), type_name);
+            }
+            context.values.borrow_mut().insert(name);
+        }
+    }
+    saved
+}
+
+fn julia_leave_function(saved: JuliaSavedScope, context: &JuliaParseContext<'_>) {
+    *context.values.borrow_mut() = saved.0;
+    context.bindings.borrow_mut().restore(saved.1);
+}
+
+/// Binds the variable an assignment sets (`c = connect()`): a value,
+/// holding the result of the call when it is one.
+fn julia_bind_assignment(node: tree_sitter::Node<'_>, context: &JuliaParseContext<'_>) {
+    let Some(left) = julia_first_named_child(node).filter(|left| left.kind() == "identifier")
+    else {
+        return;
+    };
+    let var = node_text(left, context.source);
+    let mut cursor = node.walk();
+    let value = node.named_children(&mut cursor).last();
+    let origin = value
+        .filter(|value| value.kind() == "call_expression")
+        .and_then(|value| {
+            Some(CallOrigin {
+                name: julia_call_name(value, context.source)?,
+                line: value.start_position().row as i64 + 1,
+                unwrap: false,
+            })
+        });
+    let mut bindings = context.bindings.borrow_mut();
+    match origin {
+        Some(origin) => bindings.bind_returned(var.clone(), origin),
+        None => bindings.forget_foreign(&var),
+    }
+    context.values.borrow_mut().insert(var);
+}
+
+/// Records what the value a function stored in a field is called on says
+/// (`s.save(x)`): `receiver_type` for a parameter typed by a type of
+/// another file (`s::Store`), or `receiver_unknown` for any other value
+/// (`q.go()`, `c.close()` after `c = connect()`, with `receiver_from`), so
+/// no same-named function of the file is taken for it. A module
+/// (`Base.max`, `Mod.f`) is not a value.
+fn julia_mark_receiver(
+    node: tree_sitter::Node<'_>,
+    context: &JuliaParseContext<'_>,
+    extra: &mut Value,
+) {
+    let Some(field) =
+        julia_first_named_child(node).filter(|first| first.kind() == "field_expression")
+    else {
+        return;
+    };
+    let Some(receiver) = field.child_by_field_name("value") else {
+        return;
+    };
+    if receiver.kind() != "identifier" {
+        return;
+    }
+    let name = node_text(receiver, context.source);
+    let bindings = context.bindings.borrow();
+    if bindings.is_bound(&name) {
+        return;
+    }
+    if let Some(type_name) = bindings.foreign_type(&name) {
+        extra["receiver_type"] = json!(type_name);
+        return;
+    }
+    if !context.values.borrow().contains(&name) {
+        return;
+    }
+    extra["receiver_unknown"] = json!(true);
+    if let Some(origin) = bindings.returned_by(&name) {
+        extra["receiver_from"] = origin.to_json();
+    }
+}
+
+/// The declared return type of a function: `Store` for `function
+/// make()::Store` or `make()::Store = ...` (also before a `where`).
+fn julia_return_type(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut head = match node.kind() {
+        "assignment" => julia_first_named_child(node)?,
+        _ => julia_first_named_child(julia_direct_child(node, &["signature"])?)?,
+    };
+    if head.kind() == "where_expression" {
+        head = julia_first_named_child(head)?;
+    }
+    if head.kind() != "typed_expression" {
+        return None;
+    }
+    let mut cursor = head.walk();
+    let parts = head.named_children(&mut cursor).collect::<Vec<_>>();
+    match parts.as_slice() {
+        [call, return_type] if call.kind() == "call_expression" => {
+            Some(node_text(*return_type, source))
+        }
+        _ => None,
+    }
+}
+
+/// Names of the types declared anywhere in the file.
+fn julia_collect_types(node: tree_sitter::Node<'_>, source: &[u8], types: &mut HashSet<String>) {
+    if matches!(node.kind(), "struct_definition" | "abstract_definition")
+        && let Some(name) = julia_type_name(node, source)
+    {
+        types.insert(name);
+    }
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        julia_collect_types(child, source, types);
+    }
+}
+
+/// Records what an import of a stdlib module brings into scope, and marks
+/// its edge: `using LinearAlgebra` at `LinearAlgebra`, `using Statistics:
+/// mean` at `Statistics` (`Statistics.mean` its symbol), both certain.
+fn julia_record_import(
+    statement: tree_sitter::Node<'_>,
+    context: &JuliaParseContext<'_>,
+    edge: &mut ParsedEdge,
+) {
+    let (module, name) = match edge.target.split_once('.') {
+        Some((module, name)) => (module.to_string(), Some(name.to_string())),
+        None => (edge.target.clone(), None),
+    };
+    if !is_julia_stdlib_module(&module) {
+        return;
+    }
+    let mut imports = context.imports.borrow_mut();
+    match name {
+        Some(name) => {
+            imports.names.insert(name, module.clone());
+        }
+        // `import LinearAlgebra` binds the module alone; `using` its exports.
+        None if statement.kind() == "using_statement" => imports.modules.push(module.clone()),
+        None => {}
+    }
+    mark_stdlib_edge(
+        &mut edge.target,
+        &mut edge.extra,
+        &module,
+        StdlibEvidence::Certain,
+    );
+}
+
+/// Points the calls into Julia's standard library at its module: a path
+/// through a stdlib module (`Base.max`, `LinearAlgebra.norm`) or a name
+/// imported from one (`mean` after `using Statistics: mean`), certainly; a
+/// name exported by a module the file is `using` (`norm` after `using
+/// LinearAlgebra`), or by `Base` (`println`, `push!`, `@time`), likely. A
+/// name or module this file defines is its own.
+fn julia_mark_stdlib_calls(nodes: &[ParsedNode], edges: &mut [ParsedEdge], imports: &JuliaImports) {
+    let defined = nodes
+        .iter()
+        .filter(|node| matches!(node.kind.as_str(), "Function" | "Test" | "Class"))
+        .map(|node| node.name.as_str())
+        .collect::<HashSet<_>>();
+    for edge in edges.iter_mut() {
+        if edge.kind != crate::core::types::EdgeKind::Calls {
+            continue;
+        }
+        let path = edge
+            .extra
+            .as_object_mut()
+            .and_then(|extra| extra.remove("stdlib_path"))
+            .and_then(|path| path.as_str().map(str::to_string));
+        let (module, evidence, symbol) = match path {
+            Some(path) => {
+                let root = path.split('.').next().unwrap_or(&path).to_string();
+                if !is_julia_stdlib_module(&root) || defined.contains(root.as_str()) {
+                    continue;
+                }
+                (root, StdlibEvidence::Certain, path)
+            }
+            None if defined.contains(edge.target.as_str()) => continue,
+            None => {
+                let name = edge.target.as_str();
+                if let Some(module) = imports.names.get(name) {
+                    (
+                        module.clone(),
+                        StdlibEvidence::Certain,
+                        format!("{module}.{name}"),
+                    )
+                } else if let Some(module) = imports
+                    .modules
+                    .iter()
+                    .find(|module| julia_module_exports(module, name))
+                {
+                    (
+                        module.clone(),
+                        StdlibEvidence::Likely,
+                        format!("{module}.{name}"),
+                    )
+                } else if is_julia_base_export(name) {
+                    ("Base".to_string(), StdlibEvidence::Likely, name.to_string())
+                } else {
+                    continue;
+                }
+            }
+        };
+        edge.target = symbol;
+        mark_stdlib_edge(&mut edge.target, &mut edge.extra, &module, evidence);
     }
 }
 

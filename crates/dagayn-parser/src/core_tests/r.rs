@@ -96,3 +96,62 @@ run_dynamic <- function(cmd) {
             && edge.extra["confidence_tier"] == "LOW"
     }));
 }
+
+#[test]
+fn r_standard_library_calls_target_their_package() {
+    let source = br#"library(stats)
+library(dplyr)
+source("helpers.R")
+
+summarize_scores <- function(x) {
+  m <- stats::median(x)
+  s <- sd(x)
+  label <- paste0("n=", length(x))
+  top <- head(x)
+  out <- dplyr::filter(x, x > m)
+  paste(label, m)
+}
+
+paste <- function(...) "shadowed"
+"#;
+    let (_, edges) = parse_r("scores.R", source);
+    let find = |target: &str, symbol: &str| {
+        edges
+            .iter()
+            .find(|edge| {
+                edge.target == target
+                    && edge.extra["external_symbol"].as_str().unwrap_or_default() == symbol
+            })
+            .map(|edge| {
+                (
+                    edge.kind.as_str(),
+                    edge.extra["confidence_tier"].as_str().unwrap_or_default(),
+                )
+            })
+    };
+    // A base package attached: certain; a CRAN package or a script is not
+    // the standard library.
+    assert_eq!(find("stats", ""), Some(("IMPORTS_FROM", "HIGH")));
+    for target in ["dplyr", "helpers.R"] {
+        assert!(edges.iter().any(|edge| {
+            edge.kind == "IMPORTS_FROM"
+                && edge.target == target
+                && edge.extra.get("stdlib").is_none()
+        }));
+    }
+    // `pkg::f`: certain; a bare name of an attached base package: likely.
+    assert_eq!(find("stats", "stats::median"), Some(("CALLS", "HIGH")));
+    assert_eq!(find("stats", "sd"), Some(("CALLS", "MEDIUM")));
+    assert_eq!(find("base", "paste0"), Some(("CALLS", "MEDIUM")));
+    assert_eq!(find("base", "length"), Some(("CALLS", "MEDIUM")));
+    assert_eq!(find("utils", "head"), Some(("CALLS", "MEDIUM")));
+    // A function the file assigns, and a CRAN package's, stay as they were.
+    let calls = edges
+        .iter()
+        .filter(|edge| edge.kind == "CALLS" && edge.extra.get("stdlib").is_none())
+        .map(|edge| edge.target.as_str())
+        .collect::<Vec<_>>();
+    for expected in ["scores.R::paste", "dplyr::filter"] {
+        assert!(calls.contains(&expected), "{expected:?} not in {calls:?}");
+    }
+}

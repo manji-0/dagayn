@@ -9,7 +9,7 @@
 //! for the whole batch.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::LazyLock;
@@ -29,6 +29,8 @@ pub(crate) struct RustModuleCache {
     crates: RefCell<HashMap<String, Rc<CrateModules>>>,
     /// Library crate name (`dagayn_graph`) -> root file, for the repository.
     libraries: RefCell<Option<Rc<HashMap<String, String>>>>,
+    /// Package directory -> the crates its `Cargo.toml` depends on.
+    dependencies: RefCell<HashMap<String, Rc<HashSet<String>>>>,
 }
 
 /// Where the file being parsed sits.
@@ -41,6 +43,9 @@ pub(crate) struct RustModuleScope<'a> {
     /// Library crate of the same package, reachable by name from a binary,
     /// example, test, or bench target.
     own_library: Option<(String, String)>,
+    /// Crates the package depends on (`[dependencies]`, dev and build),
+    /// by the name code uses (`serde_json`).
+    dependencies: Rc<HashSet<String>>,
 }
 
 /// A resolved `use` / path prefix: the file holding the module, and the
@@ -305,6 +310,21 @@ impl RustModuleCache {
         modules
     }
 
+    fn dependencies(&self, repo_root: &Path, package: &str) -> Rc<HashSet<String>> {
+        if let Some(dependencies) = self.dependencies.borrow().get(package) {
+            return Rc::clone(dependencies);
+        }
+        let dependencies = Rc::new(
+            std::fs::read_to_string(repo_root.join(join(package, "Cargo.toml")))
+                .map(|manifest| manifest_dependencies(&manifest))
+                .unwrap_or_default(),
+        );
+        self.dependencies
+            .borrow_mut()
+            .insert(package.to_string(), Rc::clone(&dependencies));
+        dependencies
+    }
+
     fn libraries(&self, repo_root: &Path) -> Rc<HashMap<String, String>> {
         if let Some(libraries) = self.libraries.borrow().as_ref() {
             return Rc::clone(libraries);
@@ -312,6 +332,71 @@ impl RustModuleCache {
         let libraries = Rc::new(build_libraries(repo_root));
         *self.libraries.borrow_mut() = Some(Rc::clone(&libraries));
         libraries
+    }
+}
+
+/// The crates a `Cargo.toml` depends on, by the name code uses: the keys of
+/// its `[dependencies]`, `[dev-dependencies]`, and `[build-dependencies]`
+/// tables (target-specific ones too, and dotted keys such as
+/// `tree-sitter.workspace = true`) and of `[dependencies.name]` tables, with
+/// `-` read as `_`.
+fn manifest_dependencies(manifest: &str) -> HashSet<String> {
+    let is_dependency_table = |table: &str| {
+        let last = table.rsplit('.').next().unwrap_or(table);
+        matches!(
+            last,
+            "dependencies" | "dev-dependencies" | "build-dependencies"
+        )
+    };
+    let mut dependencies = HashSet::new();
+    let mut in_table = false;
+    for line in manifest.lines() {
+        let line = line.trim();
+        if let Some(table) = line
+            .strip_prefix('[')
+            .and_then(|rest| rest.strip_suffix(']'))
+        {
+            let table = table.trim();
+            in_table = is_dependency_table(table);
+            // `[dependencies.serde]`
+            if !in_table
+                && let Some((parent, name)) = table.rsplit_once('.')
+                && is_dependency_table(parent)
+            {
+                dependencies.insert(name.trim_matches('"').replace('-', "_"));
+            }
+            continue;
+        }
+        if !in_table || line.starts_with('#') {
+            continue;
+        }
+        if let Some((key, _)) = line.split_once('=') {
+            // `tree-sitter.workspace = true` names `tree-sitter`.
+            let name = key
+                .split('.')
+                .next()
+                .unwrap_or(key)
+                .trim()
+                .trim_matches('"');
+            if !name.is_empty() {
+                dependencies.insert(name.replace('-', "_"));
+            }
+        }
+    }
+    dependencies
+}
+
+/// The directory of the package (the nearest `Cargo.toml`) holding `file`.
+fn package_dir(repo_root: &Path, file: &str) -> Option<String> {
+    let mut dir = parent_dir(file).to_string();
+    loop {
+        if exists(repo_root, &join(&dir, "Cargo.toml")) {
+            return Some(dir);
+        }
+        if dir.is_empty() {
+            return None;
+        }
+        dir = parent_dir(&dir).to_string();
     }
 }
 
@@ -376,13 +461,32 @@ impl<'a> RustModuleScope<'a> {
                 .find(|(_, lib)| **lib == root)
                 .map(|(name, lib)| (name.clone(), lib.clone()))
         });
+        let dependencies = package_dir(repo_root, file)
+            .map(|package| cache.dependencies(repo_root, &package))
+            .unwrap_or_default();
         Self {
             repo_root,
             cache,
             crate_modules,
             module,
             own_library,
+            dependencies,
         }
+    }
+
+    /// Whether `name` is a crate the package depends on from outside the
+    /// repository: not a library crate of the workspace (a path dependency
+    /// such as `dagayn_graph`), nor a module of this crate (a child module
+    /// shadows a crate of the same name).
+    pub(crate) fn is_dependency(&self, name: &str) -> bool {
+        if !self.dependencies.contains(name)
+            || self.cache.libraries(self.repo_root).contains_key(name)
+        {
+            return false;
+        }
+        let mut child = self.module.clone();
+        child.push(name.to_string());
+        !self.crate_modules.by_path.contains_key(&child)
     }
 
     /// Resolves `segments` (a `use` path or the module part of a call path)

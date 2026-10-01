@@ -83,12 +83,8 @@ fn main() { inner::deep(); }
     def test_grouped_use_is_split(self, parse):
         _, edges, _ = parse("lib.rs", self.SOURCE)
         imports = {t for k, _, t in edges if k == "IMPORTS_FROM"}
-        assert imports == {
-            "std::collections::HashMap",
-            "std::collections::HashSet",
-            "crate::a::run",
-            "crate::a",
-        }
+        # Paths into the standard library are one import of its crate.
+        assert imports == {"std", "crate::a::run", "crate::a"}
 
     def test_inline_modules_scope_items(self, parse):
         names, edges, _ = parse("lib.rs", self.SOURCE)
@@ -572,7 +568,8 @@ end
 
     def test_keyword_do_body_and_multi_alias(self, parse):
         _, edges, _ = parse("m.ex", self.SOURCE)
-        assert ("CALLS", "<f>::MyApp.Accounts.Helper.fmt", "trim") in edges
+        # `String.trim` is a call into the standard library's `String`.
+        assert ("CALLS", "<f>::MyApp.Accounts.Helper.fmt", "String") in edges
         assert ("IMPORTS_FROM", "<f>", "MyApp.Repo") in edges
         assert ("IMPORTS_FROM", "<f>", "MyApp.User") in edges
 

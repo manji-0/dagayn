@@ -16,8 +16,8 @@ use super::js_declarations::{
 use super::js_decorators::{javascript_decorator_is_owned, javascript_emit_decorator};
 use super::js_members::{collect_javascript_class_table, collect_javascript_type_paths};
 use super::js_modules::{
-    JavaScriptCaches, JavaScriptParseContext, collect_javascript_defined_names,
-    collect_javascript_import_map, collect_javascript_type_names,
+    JavaScriptCaches, JavaScriptParseContext, collect_javascript_bound_names,
+    collect_javascript_defined_names, collect_javascript_import_map, collect_javascript_type_names,
     javascript_dynamic_import_specifier, javascript_import_equals, javascript_import_targets,
     javascript_named_child, javascript_require_specifier,
 };
@@ -34,6 +34,8 @@ use super::js_types::{
 };
 use super::member_calls::MemberCallBindings;
 use super::parsers::*;
+use super::stdlib::javascript::node_builtin_package;
+use super::stdlib::{StdlibEvidence, mark_stdlib_edge};
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{
     ends_with_ascii_ignore_case, line_count, node_text, starts_with_ascii_ignore_case,
@@ -126,6 +128,8 @@ pub(super) fn parse_javascript_like_interned(
         let exported_names = collect_javascript_local_exports(root, source);
         let class_table = collect_javascript_class_table(root, source);
         let type_paths = collect_javascript_type_paths(root, source);
+        let mut bound_names = HashSet::new();
+        collect_javascript_bound_names(root, source, &mut bound_names);
         let context = JavaScriptParseContext {
             source,
             file_path: file_path.clone(),
@@ -146,6 +150,7 @@ pub(super) fn parse_javascript_like_interned(
             repo_root,
             caches,
             bindings: RefCell::new(MemberCallBindings::with_types(type_names)),
+            bound_names: &bound_names,
         };
         javascript_walk_children(root, &context, None, None, &mut nodes, &mut edges);
         javascript_collapse_duplicate_nodes(&mut nodes, &mut edges);
@@ -168,6 +173,10 @@ pub(super) fn parse_javascript_like_interned(
 /// alone. Post-processing already skips `::` targets. Symbols of a relative
 /// module missing from the repository (`./spec::name`) carry
 /// `unresolved_module` instead.
+///
+/// A call into a Node.js builtin module is a standard-library call: its
+/// target is the module's package (`fs.readFileSync(p)` -> `node:fs`, with
+/// `external_symbol: "fs.readFileSync"`), certain since the file imports it.
 fn javascript_mark_external_edges(edges: &mut [ParsedEdge], context: &JavaScriptParseContext<'_>) {
     let packages = context.external_packages;
     if packages.is_empty() {
@@ -187,14 +196,32 @@ fn javascript_mark_external_edges(edges: &mut [ParsedEdge], context: &JavaScript
         else {
             continue;
         };
+        if edge.kind == crate::core::types::EdgeKind::Calls
+            && let Some(builtin) = node_builtin_package(package)
+            && let Some((module, path)) = edge.target.split_once("::")
+        {
+            let module = module.strip_prefix("node:").unwrap_or(module);
+            edge.target = format!("{module}.{path}");
+            mark_stdlib_edge(
+                &mut edge.target,
+                &mut edge.extra,
+                &builtin,
+                StdlibEvidence::Certain,
+            );
+            continue;
+        }
         if let Some(map) = edge.extra.as_object_mut() {
             if package.starts_with('.') {
                 // A relative module the repository does not contain: not a
                 // package, but the specifier still names where it comes from.
                 map.insert("unresolved_module".to_string(), json!(package));
             } else {
+                // Named through an import of the package: as sure as a
+                // standard-library call, so post-processing keeps the tier.
                 map.insert("external".to_string(), json!(true));
                 map.insert("external_package".to_string(), json!(package));
+                map.insert("confidence_tier".to_string(), json!("HIGH"));
+                map.insert("confidence".to_string(), json!(0.9));
             }
         }
     }
@@ -783,13 +810,22 @@ fn javascript_push_import(
         context.caches,
     )
     .unwrap_or_else(|| specifier.to_string());
+    let mut extra = import_kind.map_or_else(|| json!({}), |kind| json!({ "import_kind": kind }));
+    let mut target = target;
+    // A Node.js builtin the repository does not shadow (a tsconfig alias
+    // resolving `fs` to a file): its package, `node:fs` for `fs/promises`.
+    if target == specifier
+        && let Some(builtin) = node_builtin_package(specifier)
+    {
+        mark_stdlib_edge(&mut target, &mut extra, &builtin, StdlibEvidence::Certain);
+    }
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::ImportsFrom,
         source: context.file_path.to_string(),
         target,
         file_path: context.file_path.clone(),
         line: node.start_position().row as i64 + 1,
-        extra: import_kind.map_or_else(|| json!({}), |kind| json!({ "import_kind": kind })),
+        extra,
     });
 }
 

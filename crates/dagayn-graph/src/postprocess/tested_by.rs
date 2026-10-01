@@ -1,3 +1,4 @@
+use crate::helpers::*;
 use crate::*;
 
 /// Last name segment of an edge endpoint: `helper` for `helper`,
@@ -95,4 +96,74 @@ pub(crate) fn sync_tested_by_with_calls(tx: &Transaction<'_>) -> Result<i64> {
         changed += 1;
     }
     Ok(changed)
+}
+
+/// Keeps `TESTED_BY` in step with the calls tests make once resolution is
+/// done: drops the edges whose tested symbol is not a node (a bare `helper`,
+/// a call into a package), which say nothing about any code of the
+/// repository, and adds `TESTED_BY target -> test` for each call a test
+/// makes to a node that has none (a call an earlier run could not resolve,
+/// whose bare `TESTED_BY` that run dropped). Calls to assertion / mock APIs
+/// and external packages make none, as at parse time. Returns how many
+/// edges were dropped and added.
+pub(crate) fn reconcile_tested_by_with_calls(tx: &Transaction<'_>) -> Result<(i64, i64)> {
+    let dropped = tx.execute(
+        "DELETE FROM edges WHERE kind = 'TESTED_BY' \
+           AND NOT EXISTS (SELECT 1 FROM nodes n \
+                           WHERE n.qualified_name = edges.source_qualified)",
+        [],
+    )? as i64;
+    let missing = {
+        let mut stmt = tx.prepare(
+            "SELECT c.target_qualified, c.source_qualified, c.file_path, c.line, \
+                    c.confidence, c.confidence_tier \
+             FROM edges c \
+             JOIN nodes test ON test.qualified_name = c.source_qualified AND test.is_test = 1 \
+             JOIN nodes target ON target.qualified_name = c.target_qualified \
+             WHERE c.kind = 'CALLS' \
+               AND COALESCE(json_extract(c.extra, '$.external'), 0) = 0 \
+               AND COALESCE(json_extract(c.extra, '$.test_api'), 0) = 0 \
+               AND NOT EXISTS ( \
+                   SELECT 1 FROM edges tb \
+                   WHERE tb.kind = 'TESTED_BY' AND tb.source_qualified = c.target_qualified \
+                     AND tb.target_qualified = c.source_qualified \
+                     AND tb.file_path = c.file_path AND tb.line = c.line)",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, f64>(4)?,
+                row.get::<_, String>(5)?,
+            ))
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    let now = now_seconds()?;
+    let mut added = 0_i64;
+    let mut seen = HashSet::new();
+    for (target, test, file_path, line, confidence, tier) in missing {
+        if !seen.insert((target.clone(), test.clone(), file_path.clone(), line)) {
+            continue;
+        }
+        tx.execute(
+            "INSERT INTO edges (kind, source_qualified, target_qualified, target_name, \
+                                file_path, line, extra, confidence, confidence_tier, updated_at) \
+             VALUES ('TESTED_BY', ?, ?, ?, ?, ?, '{}', ?, ?, ?)",
+            params![
+                target,
+                test,
+                edge_target_name(&test),
+                file_path,
+                line,
+                confidence,
+                tier,
+                now
+            ],
+        )?;
+        added += 1;
+    }
+    Ok((dropped, added))
 }

@@ -1,4 +1,9 @@
+use std::collections::HashSet;
+
 use serde_json::json;
+
+use super::stdlib::r::{is_r_base_package, r_default_package};
+use super::stdlib::{StdlibEvidence, mark_stdlib_edge};
 
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{is_test_file, line_count, node_text, strip_matching_quotes};
@@ -42,6 +47,7 @@ pub(super) fn parse_r_with_parser(
             &mut nodes,
             &mut edges,
         );
+        r_mark_stdlib_calls(&nodes, &mut edges);
         let mut edges = resolve_rust_call_targets(&nodes, edges, &file_path);
         add_tested_by_edges(&nodes, &mut edges);
         return (nodes, edges);
@@ -170,14 +176,26 @@ fn r_handle_call(
 
     if matches!(call_name.as_str(), "library" | "require" | "source") {
         if let Some(target) = r_import_target(node, context.source) {
-            edges.push(ParsedEdge {
+            let mut edge = ParsedEdge {
                 kind: crate::core::types::EdgeKind::ImportsFrom,
                 source: context.file_path.to_string(),
                 target,
                 file_path: context.file_path.clone(),
                 line: node.start_position().row as i64 + 1,
                 extra: json!({}),
-            });
+            };
+            // `library(stats)` attaches a package shipped with R;
+            // `source()` always reads a script.
+            if call_name != "source" && is_r_base_package(&edge.target) {
+                let package = edge.target.clone();
+                mark_stdlib_edge(
+                    &mut edge.target,
+                    &mut edge.extra,
+                    &package,
+                    StdlibEvidence::Certain,
+                );
+            }
+            edges.push(edge);
         }
         return true;
     }
@@ -197,6 +215,40 @@ fn r_handle_call(
     );
     r_walk_children(node, context, enclosing_class, enclosing_func, nodes, edges);
     true
+}
+
+/// Points the calls into R's base packages at the package: `stats::median`
+/// (or `:::`) certainly, and a bare name of a package R attaches by default
+/// (`paste` → `base`, `sd` → `stats`, `head` → `utils`) likely, since a
+/// package attached later may mask it. A function this file assigns
+/// (`paste <- function`) is its own.
+fn r_mark_stdlib_calls(nodes: &[ParsedNode], edges: &mut [ParsedEdge]) {
+    let defined = nodes
+        .iter()
+        .filter(|node| matches!(node.kind.as_str(), "Function" | "Test"))
+        .map(|node| node.name.as_str())
+        .collect::<HashSet<_>>();
+    for edge in edges.iter_mut() {
+        if edge.kind != crate::core::types::EdgeKind::Calls {
+            continue;
+        }
+        let qualified = edge
+            .target
+            .split_once(":::")
+            .or_else(|| edge.target.split_once("::"));
+        let (package, evidence) = match qualified {
+            Some((package, _)) if is_r_base_package(package) => {
+                (package.to_string(), StdlibEvidence::Certain)
+            }
+            Some(_) => continue,
+            None if defined.contains(edge.target.as_str()) => continue,
+            None => match r_default_package(&edge.target) {
+                Some(package) => (package.to_string(), StdlibEvidence::Likely),
+                None => continue,
+            },
+        };
+        mark_stdlib_edge(&mut edge.target, &mut edge.extra, &package, evidence);
+    }
 }
 
 fn r_is_class_constructor(call_name: &str) -> bool {

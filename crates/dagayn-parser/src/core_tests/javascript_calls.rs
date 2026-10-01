@@ -612,3 +612,225 @@ fn emscripten_ccall_and_cwrap_emit_calls_wasm_export() {
         .collect();
     assert_eq!(calls, vec!["add", "sub"]);
 }
+
+#[test]
+fn javascript_standard_library_calls_target_their_package() {
+    let source = br#"import fs from "fs";
+import { readFile } from "node:fs/promises";
+import * as path from "node:path";
+import React, { useState } from "react";
+const cp = require("child_process");
+
+export function load(p) {
+  fs.readFileSync(p);
+  readFile(p);
+  path.join("a", "b");
+  cp.execSync("ls");
+  console.log(JSON.parse("{}"));
+  const n = parseInt("1", 10);
+  Math.max(n, 2);
+  Object.keys({}).map(String);
+  setTimeout(() => {}, 1);
+  new Map();
+  [1].map((x) => x);
+  useState(0);
+  React.useEffect(() => {});
+}
+
+function report(Promise) {
+  Promise.resolve(1);
+  structuredClone(1);
+}
+
+function Set() {}
+export function shadowed() {
+  new Set();
+}
+"#;
+    let (_nodes, edges) = parse_javascript_like("src/load.js", source, "javascript");
+    let edge = |kind: &str, symbol: &str| {
+        edges
+            .iter()
+            .find(|edge| {
+                edge.kind == kind
+                    && (edge.extra["external_symbol"] == symbol
+                        || (edge.target == symbol && edge.extra.get("external_symbol").is_none()))
+            })
+            .unwrap_or_else(|| panic!("no {kind} {symbol} in {edges:#?}"))
+    };
+    // Imports of Node.js builtins: the package, with or without `node:`,
+    // without a subpath.
+    for (symbol, package) in [
+        ("fs", "node:fs"),
+        ("node:fs/promises", "node:fs"),
+        ("node:path", "node:path"),
+        ("child_process", "node:child_process"),
+    ] {
+        let import = edge("IMPORTS_FROM", symbol);
+        assert_eq!(import.target, package, "{symbol}");
+        assert_eq!(import.extra["stdlib"], true, "{symbol}");
+        assert_eq!(import.extra["confidence_tier"], "HIGH", "{symbol}");
+    }
+    let import = edge("IMPORTS_FROM", "node:path");
+    assert!(import.extra.get("external_symbol").is_none(), "{import:?}");
+    // Calls through an import of a builtin: certain.
+    for (symbol, package) in [
+        ("fs.readFileSync", "node:fs"),
+        ("fs/promises.readFile", "node:fs"),
+        ("path.join", "node:path"),
+        ("child_process.execSync", "node:child_process"),
+    ] {
+        let call = edge("CALLS", symbol);
+        assert_eq!(call.target, package, "{symbol}");
+        assert_eq!(call.extra["external_package"], package, "{symbol}");
+        assert_eq!(call.extra["confidence_tier"], "HIGH", "{symbol}");
+    }
+    // Globals the file never binds: likely.
+    for symbol in [
+        "console.log",
+        "JSON.parse",
+        "parseInt",
+        "Math.max",
+        "Object.keys",
+        "setTimeout",
+        "Map",
+        "structuredClone",
+    ] {
+        let call = edge("CALLS", symbol);
+        assert_eq!(call.target, "globalThis", "{symbol}");
+        assert_eq!(call.extra["stdlib"], true, "{symbol}");
+        assert_eq!(call.extra["confidence_tier"], "MEDIUM", "{symbol}");
+        assert!(call.extra.get("receiver_unknown").is_none(), "{symbol}");
+    }
+    // A parameter or declaration of the name is not the global; a method of
+    // an unknown receiver stays as it was.
+    let resolve = edge("CALLS", "resolve");
+    assert_eq!(resolve.extra["receiver_unknown"], true);
+    assert!(resolve.extra.get("stdlib").is_none());
+    assert!(
+        edges
+            .iter()
+            .any(|edge| edge.kind == "CALLS" && edge.target == "src/load.js::Set"),
+        "{edges:#?}"
+    );
+    let map = edges
+        .iter()
+        .filter(|edge| edge.kind == "CALLS" && edge.target == "map")
+        .collect::<Vec<_>>();
+    assert_eq!(map.len(), 2, "{map:#?}");
+    assert!(
+        map.iter()
+            .all(|edge| edge.extra["receiver_unknown"] == true)
+    );
+    // Third-party packages keep their `pkg::symbol` targets.
+    for target in ["react::useState", "react::useEffect"] {
+        let call = edge("CALLS", target);
+        assert_eq!(call.extra["external_package"], "react");
+        assert!(call.extra.get("stdlib").is_none());
+    }
+    assert!(edge("IMPORTS_FROM", "react").extra.get("stdlib").is_none());
+}
+
+#[test]
+fn javascript_receivers_record_the_call_they_came_from() {
+    let source = br#"import { makeStore, openStore, load } from "./store";
+export async function run(p) {
+  makeStore().save();
+  const s = makeStore();
+  s.flush();
+  let t = await openStore(p);
+  t.close();
+  (await openStore(p)).reset();
+  await load(p).then(done);
+  builder().add(1).add(2).build();
+  db.connect().query();
+  local().ignore();
+  function local() {}
+}
+"#;
+    let (_nodes, edges) = parse_javascript_like("src/run.js", source, "javascript");
+    let from = |method: &str| {
+        let edge = edges
+            .iter()
+            .find(|edge| edge.kind == "CALLS" && edge.target == method)
+            .unwrap_or_else(|| panic!("no {method} in {edges:?}"));
+        assert_eq!(edge.extra["receiver_unknown"], true, "{edge:?}");
+        edge.extra["receiver_from"].clone()
+    };
+    let origin = |call: &str, line: i64, unwrap: bool| serde_json::json!({"call": call, "line": line, "unwrap": unwrap});
+    assert_eq!(from("save"), origin("makeStore", 3, false));
+    assert_eq!(from("flush"), origin("makeStore", 4, false));
+    assert_eq!(from("close"), origin("openStore", 6, true));
+    assert_eq!(from("reset"), origin("openStore", 8, true));
+    assert_eq!(from("then"), origin("load", 9, false));
+    // Repeats of one method share an edge: `add` on `add(1)` points past it.
+    assert_eq!(from("add"), origin("builder", 10, false));
+    assert_eq!(from("build"), origin("add", 10, false));
+    assert_eq!(from("query"), origin("connect", 11, false));
+    // A local function has no CALLS edge to point at.
+    assert_eq!(from("ignore"), serde_json::Value::Null);
+}
+
+#[test]
+fn typescript_records_return_types_and_foreign_receiver_types() {
+    let source = br#"declare const x: number;
+export async function findUser(id: string): Promise<User> { return lookup(id); }
+export function maybe(): User | null { return null; }
+export const index = (): Map<string, Node> => new Map();
+export function isRepo(value: unknown): value is Repo { return true; }
+export class Service {
+  private repo: Repo;
+  constructor(private readonly store: GraphStore) {}
+  items<T>(item: T, el: HTMLElement, cache: Map<string, Repo>) {
+    this.repo.find();
+    this.store.save();
+    item.use();
+    el.focus();
+    cache.get("a");
+  }
+  async load(): Promise<void> {
+    const user: User = await findUser("1");
+    user.greet();
+  }
+}
+function use(repo: Repo) { repo.find(); }
+"#;
+    let (nodes, edges) = parse_javascript_like("src/service.ts", source, "typescript");
+    let return_type = |name: &str| {
+        nodes
+            .iter()
+            .find(|node| node.name == name)
+            .unwrap_or_else(|| panic!("{name}: {nodes:?}"))
+            .return_type
+            .clone()
+    };
+    assert_eq!(return_type("findUser").as_deref(), Some("Promise<User>"));
+    assert_eq!(return_type("maybe").as_deref(), Some("User | null"));
+    assert_eq!(return_type("index").as_deref(), Some("Map<string, Node>"));
+    assert_eq!(return_type("isRepo").as_deref(), Some("value is Repo"));
+    assert_eq!(return_type("load").as_deref(), Some("Promise<void>"));
+    assert_eq!(return_type("items"), None);
+    let call = |method: &str, line: i64| {
+        edges
+            .iter()
+            .find(|edge| edge.kind == "CALLS" && edge.target == method && edge.line == line)
+            .unwrap_or_else(|| panic!("no {method}@{line} in {edges:?}"))
+    };
+    for (method, line, type_name) in [
+        ("find", 10, "Repo"),
+        ("save", 11, "GraphStore"),
+        ("greet", 18, "User"),
+        ("find", 21, "Repo"),
+    ] {
+        let edge = call(method, line);
+        assert_eq!(edge.extra["receiver_type"], type_name, "{edge:?}");
+        assert!(edge.extra.get("receiver_unknown").is_none(), "{edge:?}");
+    }
+    // A type parameter, a DOM type, and a library generic are no class of
+    // the repository.
+    for (method, line) in [("use", 12), ("focus", 13), ("get", 14)] {
+        let edge = call(method, line);
+        assert!(edge.extra.get("receiver_type").is_none(), "{edge:?}");
+        assert_eq!(edge.extra["receiver_unknown"], true, "{edge:?}");
+    }
+}

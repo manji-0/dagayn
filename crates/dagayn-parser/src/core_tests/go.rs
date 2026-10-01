@@ -239,3 +239,199 @@ fn blank_identifier_declarations_are_not_nodes() {
             .any(|edge| edge.kind == "CALLS" && edge.source == "p.go" && edge.target == "helper")
     );
 }
+
+#[test]
+fn go_standard_library_calls_target_their_package() {
+    let source = br#"package main
+
+import (
+	"fmt"
+	"net/http"
+	str "strings"
+	"math/rand/v2"
+	"github.com/acme/tool"
+	"myapp/internal/fmtutil"
+)
+
+func min(a, b int) int { return a }
+
+func run(items []string) {
+	fmt.Println(len(items))
+	http.Get("x")
+	str.ToUpper("a")
+	str.NewReader("a").Read(nil)
+	rand.IntN(3)
+	tool.Do()
+	fmtutil.Format()
+	min(1, 2)
+	helper()
+}
+"#;
+    let (_, edges) = parse_go("cmd/main.go", source);
+    let calls = edges
+        .iter()
+        .filter(|edge| edge.kind == "CALLS")
+        .map(|edge| {
+            (
+                edge.target.as_str(),
+                edge.extra["external_symbol"].as_str().unwrap_or_default(),
+                edge.extra["confidence_tier"].as_str().unwrap_or_default(),
+            )
+        })
+        .collect::<Vec<_>>();
+    for expected in [
+        ("fmt", "fmt.Println", "HIGH"),
+        ("net/http", "net/http.Get", "HIGH"),
+        // A renamed import names the package it imports.
+        ("strings", "strings.ToUpper", "HIGH"),
+        // A member of a value the package just built.
+        ("strings", "strings.NewReader.Read", "HIGH"),
+        ("math/rand/v2", "math/rand/v2.IntN", "HIGH"),
+        // A predeclared function is inferred from its name alone.
+        ("builtin", "len", "MEDIUM"),
+        // Third-party and repository packages are not the standard library,
+        // and `min` is this file's own function.
+        ("Do", "", ""),
+        ("Format", "", ""),
+        ("cmd/main.go::min", "", ""),
+        ("helper", "", ""),
+    ] {
+        assert!(calls.contains(&expected), "{expected:?} not in {calls:?}");
+    }
+    let import = |target: &str| {
+        edges
+            .iter()
+            .find(|edge| edge.kind == "IMPORTS_FROM" && edge.target == target)
+            .unwrap_or_else(|| panic!("no import {target}"))
+            .extra
+            .clone()
+    };
+    assert_eq!(import("net/http")["stdlib"], true);
+    assert_eq!(import("net/http")["external_package"], "net/http");
+    assert_eq!(import("net/http")["confidence_tier"], "HIGH");
+    assert_eq!(import("github.com/acme/tool").get("stdlib"), None);
+    assert_eq!(import("myapp/internal/fmtutil").get("stdlib"), None);
+}
+
+#[test]
+fn go_packages_of_the_own_module_are_not_the_standard_library() {
+    // A module named like a standard package root (`crypto/...` has no dot)
+    // is this repository's, as `go.mod` says.
+    let mut root = std::env::temp_dir();
+    root.push(format!("dagayn-go-module-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("cmd")).unwrap();
+    std::fs::write(root.join("go.mod"), "module crypto/vault\n\ngo 1.22\n").unwrap();
+    let source = b"package main\n\nimport (\n\t\"crypto/sha256\"\n\t\"crypto/vault/store\"\n)\n\nfunc main() {\n\tsha256.Sum256(nil)\n\tstore.Open()\n}\n";
+    std::fs::write(root.join("cmd/main.go"), source).unwrap();
+    let mut parser = RustOwnedParser::new();
+    let (_, edges) = parser.parse_file_in_repo(Some(&root), "cmd/main.go", source);
+    let imports = edges
+        .iter()
+        .filter(|edge| edge.kind == "IMPORTS_FROM")
+        .map(|edge| (edge.target.as_str(), edge.extra["stdlib"] == true))
+        .collect::<Vec<_>>();
+    assert!(imports.contains(&("crypto/sha256", true)), "{imports:?}");
+    assert!(
+        imports.contains(&("crypto/vault/store", false)),
+        "{imports:?}"
+    );
+    assert!(
+        !edges
+            .iter()
+            .any(|edge| edge.kind == "CALLS" && edge.target == "crypto/vault/store"),
+        "{edges:?}"
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn go_receivers_record_the_call_they_came_from() {
+    let source = br#"package app
+
+import "net/http"
+
+type Store struct {
+	repo Repo
+}
+
+func Open(p string) (*Store, error) { return nil, nil }
+func (s *Store) Save() error { return s.repo.Find() }
+func run(r *Repo, req *http.Request, p string) {
+	s, err := Open(p)
+	s.Save()
+	NewConn(p).Close()
+	c := NewConn(p)
+	c.Close()
+	local := &Store{}
+	local.Save()
+	r.Find()
+	req.Cookie("id")
+	b := NewBuilder()
+	b.Flag(1).Flag(2)
+	models.Helper()
+	_ = err
+}
+"#;
+    let (nodes, edges) = parse_go("app/run.go", source);
+    let call = |target: &str, line: i64| {
+        edges
+            .iter()
+            .find(|edge| edge.kind == "CALLS" && edge.target == target && edge.line == line)
+            .unwrap_or_else(|| panic!("no {target} at {line} in {edges:#?}"))
+    };
+    let open = nodes.iter().find(|node| node.name == "Open").expect("Open");
+    assert_eq!(open.return_type.as_deref(), Some("(*Store, error)"));
+    // `s, err := Open(p)` takes the first result.
+    assert_eq!(
+        call("Save", 13).extra["receiver_from"],
+        serde_json::json!({"call": "Open", "line": 12, "unwrap": true})
+    );
+    assert_eq!(call("Save", 13).extra["receiver_unknown"], true);
+    assert_eq!(
+        call("Close", 14).extra["receiver_from"],
+        serde_json::json!({"call": "NewConn", "line": 14, "unwrap": false})
+    );
+    assert_eq!(
+        call("Close", 16).extra["receiver_from"],
+        serde_json::json!({"call": "NewConn", "line": 15, "unwrap": false})
+    );
+    // A type of this file declaring the method: the method itself.
+    assert_eq!(
+        call("app/run.go::Store.Save", 18)
+            .extra
+            .get("receiver_unknown"),
+        None
+    );
+    // A type of another file, also through a field of the receiver's struct.
+    assert_eq!(call("Find", 19).extra["receiver_type"], "Repo");
+    assert_eq!(call("Find", 10).extra["receiver_type"], "Repo");
+    // A standard-library type stays the standard library's.
+    assert!(edges.iter().any(|edge| edge.kind == "CALLS"
+        && edge.line == 20
+        && edge.extra["external_symbol"] == "net/http.Request.Cookie"));
+    // A chain repeating a method points past the repeats.
+    assert!(
+        edges
+            .iter()
+            .filter(|edge| edge.target == "Flag")
+            .all(|edge| {
+                edge.extra["receiver_from"]
+                    == serde_json::json!({"call": "NewBuilder", "line": 21, "unwrap": false})
+            })
+    );
+    // A package qualifier is no receiver.
+    assert_eq!(call("Helper", 23).extra, serde_json::json!({}));
+}
+
+#[test]
+fn go_variables_copied_from_a_call_result_keep_its_origin() {
+    // `b := a` where `a := Open(p)`: `b.Save()` came from `Open` too.
+    let source = b"package main\n\nfunc run(p string) {\n\ta := Open(p)\n\tb := a\n\tb.Save()\n}\n";
+    let (_, edges) = parse_go("main.go", source);
+    let save = edges
+        .iter()
+        .find(|edge| edge.kind == "CALLS" && edge.target == "Save")
+        .expect("Save");
+    assert_eq!(save.extra["receiver_from"]["call"], "Open");
+}

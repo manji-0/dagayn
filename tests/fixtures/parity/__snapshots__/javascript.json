@@ -30,7 +30,7 @@
 {"confidence":1.0,"confidence_tier":"EXTRACTED","extra":{},"file_path":"esm.mjs","kind":"IMPORTS_FROM","line":1,"source":"esm.mjs","target":"helpers.js"},
 {"confidence":1.0,"confidence_tier":"EXTRACTED","extra":{"import_kind":"require"},"file_path":"legacy.js","kind":"IMPORTS_FROM","line":2,"source":"legacy.js","target":"helpers.js"},
 {"confidence":1.0,"confidence_tier":"EXTRACTED","extra":{"import_kind":"require"},"file_path":"legacy.js","kind":"IMPORTS_FROM","line":3,"source":"legacy.js","target":"helpers.js"},
-{"confidence":1.0,"confidence_tier":"EXTRACTED","extra":{"import_kind":"require"},"file_path":"legacy.js","kind":"IMPORTS_FROM","line":1,"source":"legacy.js","target":"path"},
+{"confidence":0.9,"confidence_tier":"HIGH","extra":{"confidence":0.9,"confidence_tier":"HIGH","external":true,"external_package":"node:path","external_symbol":"path","import_kind":"require","stdlib":true},"file_path":"legacy.js","kind":"IMPORTS_FROM","line":1,"source":"legacy.js","target":"node:path"},
 {"confidence":1.0,"confidence_tier":"EXTRACTED","extra":{"relationship_role":"extends","syntax_source":"class_declaration"},"file_path":"legacy.js","kind":"INHERITS","line":4,"source":"legacy.js::Legacy","target":"Base"},
 {"confidence":1.0,"confidence_tier":"EXTRACTED","extra":{},"file_path":"helpers.js","kind":"REFERENCES","line":3,"source":"helpers.js","target":"helpers.js::helper"},
 {"confidence":1.0,"confidence_tier":"EXTRACTED","extra":{},"file_path":"helpers.js","kind":"REFERENCES","line":3,"source":"helpers.js","target":"helpers.js::other"},

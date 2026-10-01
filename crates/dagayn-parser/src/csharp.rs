@@ -9,7 +9,11 @@ use super::documentation_directives::{
     extract_line_comment_dagayn_directives, nearest_documentation_source,
     push_documentation_directive_edge,
 };
-use super::member_calls::MemberCallBindings;
+use super::member_calls::{CallOrigin, MemberCallBindings};
+use super::stdlib::csharp::{
+    csharp_bcl_namespace, is_csharp_bcl_namespace, is_csharp_keyword_type,
+};
+use super::stdlib::{StdlibEvidence, mark_stdlib_edge};
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{
     collect_namespace_paths, is_test_file, line_count, node_text, set_declared_namespaces,
@@ -66,11 +70,13 @@ pub(super) fn parse_csharp_with_parser(
         let mut interface_names = HashSet::new();
         csharp_collect_interface_names(root, source, &mut interface_names);
         let type_names = csharp_collect_type_names(root, source);
+        let stdlib = CSharpStdlibScope::collect(root, source, type_names.clone());
         let context = CSharpParseContext {
             source,
             file_path: file_path.clone(),
             interface_names: &interface_names,
             bindings: RefCell::new(MemberCallBindings::with_types(type_names)),
+            stdlib,
         };
         csharp_walk_children(root, &context, None, None, &mut nodes, &mut edges);
         set_declared_namespaces(
@@ -97,6 +103,8 @@ struct CSharpParseContext<'a> {
     file_path: FilePath,
     interface_names: &'a HashSet<String>,
     bindings: RefCell<MemberCallBindings>,
+    /// The names that decide whether a call reaches the base class library.
+    stdlib: CSharpStdlibScope,
 }
 
 fn csharp_walk_children(
@@ -219,13 +227,21 @@ fn csharp_emit_import(
             extra: json!({}),
         });
     }
+    // A `using` of the base class library targets its namespace:
+    // `System.IO`, or `System` for `using static System.Math`.
+    let mut target = target;
+    let mut extra = json!({});
+    if is_csharp_bcl_namespace(&target) {
+        let namespace = csharp_type_namespace(&target).unwrap_or_else(|| target.clone());
+        mark_stdlib_edge(&mut target, &mut extra, &namespace, StdlibEvidence::Certain);
+    }
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::ImportsFrom,
         source: context.file_path.to_string(),
         target,
         file_path: context.file_path.clone(),
         line: node.start_position().row as i64 + 1,
-        extra: json!({}),
+        extra,
     });
 }
 
@@ -791,19 +807,42 @@ fn csharp_emit_call(
     } else {
         None
     };
+    let stdlib = match bound {
+        Some(_) => None,
+        None => csharp_stdlib_call(node, context),
+    };
+    let receiver_unknown = if bound.is_none() && receiver_type.is_none() && stdlib.is_none() {
+        csharp_unknown_receiver(node, context)
+    } else {
+        None
+    };
     if let Some(call_name) = bound.or_else(|| csharp_call_name(node, context.source)) {
+        // `Native.Total(...)`: the type the method is called on, so a
+        // call into another file resolves to that type's method.
+        let mut extra = match receiver_type {
+            Some(receiver_type) => json!({"receiver_type": receiver_type}),
+            None => json!({}),
+        };
+        // `plugin.Run()`, `Make().Save()`: no same-named method of the
+        // file is taken for it; resolution reads what the call returns.
+        if let Some(origin) = receiver_unknown {
+            extra["receiver_unknown"] = json!(true);
+            if let Some(origin) = origin {
+                extra["receiver_from"] = origin.to_json();
+            }
+        }
+        let mut target = call_name;
+        if let Some((namespace, evidence, symbol)) = stdlib {
+            target = symbol;
+            mark_stdlib_edge(&mut target, &mut extra, &namespace, evidence);
+        }
         edges.push(ParsedEdge {
             kind: crate::core::types::EdgeKind::Calls,
             source: caller.clone(),
-            target: call_name,
+            target,
             file_path: context.file_path.clone(),
             line: node.start_position().row as i64 + 1,
-            // `Native.Total(...)`: the type the method is called on, so a
-            // call into another file resolves to that type's method.
-            extra: match receiver_type {
-                Some(receiver_type) => json!({"receiver_type": receiver_type}),
-                None => json!({}),
-            },
+            extra,
         });
     }
     if let Some(signature) = csharp_call_signature(node, context.source)
@@ -843,6 +882,9 @@ fn csharp_bound_member_target(
     }
     let method = csharp_named_text(callee, context.source, "name")?;
     let receiver = callee.child_by_field_name("expression")?;
+    if let Some(field) = csharp_this_member(receiver, context.source) {
+        return context.bindings.borrow().resolve_member(&field, &method);
+    }
     if matches!(receiver.kind(), "identifier" | "this" | "base") {
         let receiver_name = node_text(receiver, context.source);
         return context
@@ -892,14 +934,113 @@ fn csharp_foreign_receiver(
         return None;
     }
     let receiver = callee.child_by_field_name("expression")?;
-    if receiver.kind() != "identifier" {
-        return None;
+    // `new Native().Total()`.
+    if receiver.kind() == "object_creation_expression" {
+        return csharp_foreign_receiver(receiver, context);
     }
+    let variable = match receiver.kind() {
+        "identifier" => node_text(receiver, context.source),
+        _ => csharp_this_member(receiver, context.source)?,
+    };
+    // A keyword type (`string label`) is the base class library's, which
+    // the call's target already says.
     context
         .bindings
         .borrow()
-        .foreign_type(&node_text(receiver, context.source))
+        .foreign_type(&variable)
+        .filter(|type_name| !is_csharp_keyword_type(type_name))
         .map(str::to_string)
+}
+
+/// `repo` of `this.repo`, a field or property of the enclosing class.
+fn csharp_this_member(receiver: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    (receiver.kind() == "member_access_expression"
+        && receiver
+            .child_by_field_name("expression")
+            .is_some_and(|object| object.kind() == "this"))
+    .then(|| csharp_named_text(receiver, source, "name"))
+    .flatten()
+}
+
+/// A member call on a receiver whose type is unknown: `Some` with the call
+/// the receiver is the result of, if any (`Make().Save()`, `var s =
+/// Make(); s.Save()`, `(await LoadAsync()).Run()`). A type (`Native.Total`),
+/// `this` / `base`, and a variable of a known type are not; neither are
+/// the variables a nested scope declared, once out of it.
+fn csharp_unknown_receiver(
+    node: tree_sitter::Node<'_>,
+    context: &CSharpParseContext<'_>,
+) -> Option<Option<CallOrigin>> {
+    if node.kind() != "invocation_expression" {
+        return None;
+    }
+    let callee =
+        csharp_callee(node).filter(|callee| callee.kind() == "member_access_expression")?;
+    let method = csharp_named_text(callee, context.source, "name")?;
+    let mut receiver = callee.child_by_field_name("expression")?;
+    // One line holds a single edge per target, so in `b.With(1).With(2)`
+    // the edge of `With` stands for both and its receiver is `b`.
+    while receiver.kind() == "invocation_expression"
+        && let Some(inner) = csharp_callee(receiver)
+        && inner.kind() == "member_access_expression"
+        && csharp_named_text(inner, context.source, "name").as_deref() == Some(method.as_str())
+    {
+        receiver = inner.child_by_field_name("expression")?;
+    }
+    csharp_expression_unknown(receiver, context)
+}
+
+fn csharp_expression_unknown(
+    receiver: tree_sitter::Node<'_>,
+    context: &CSharpParseContext<'_>,
+) -> Option<Option<CallOrigin>> {
+    let source = context.source;
+    let variable = match receiver.kind() {
+        "identifier" => Some(node_text(receiver, source)),
+        "member_access_expression" => csharp_this_member(receiver, source),
+        _ => None,
+    };
+    if let Some(variable) = variable {
+        let bindings = context.bindings.borrow();
+        if let Some(origin) = bindings.returned_by(&variable) {
+            return Some(Some(origin.clone()));
+        }
+        let known = bindings.is_bound(&variable)
+            || bindings.foreign_type(&variable).is_some()
+            || (receiver.kind() == "identifier" && csharp_is_type_name(&variable));
+        return (!known).then_some(None);
+    }
+    match receiver.kind() {
+        // `a.b.Run()`: a member of a value; `Acme.Util.Run()` is a type,
+        // which `receiver_type` already names.
+        "member_access_expression" => {
+            let name = csharp_named_text(receiver, source, "name")?;
+            (!csharp_is_type_name(&name)).then_some(None)
+        }
+        "invocation_expression" | "await_expression" => Some(csharp_call_origin(receiver, source)),
+        "parenthesized_expression" => csharp_expression_unknown(receiver.named_child(0)?, context),
+        "element_access_expression" | "conditional_expression" => Some(None),
+        _ => None,
+    }
+}
+
+/// The call an expression is the result of: `Load()` / `store.Load()`,
+/// or `await LoadAsync()` (unwrapped, so a declared `Task<T>` gives `T`).
+fn csharp_call_origin(expression: tree_sitter::Node<'_>, source: &[u8]) -> Option<CallOrigin> {
+    match expression.kind() {
+        "invocation_expression" => Some(CallOrigin {
+            name: csharp_call_name(expression, source)?,
+            line: expression.start_position().row as i64 + 1,
+            unwrap: false,
+        }),
+        "await_expression" => {
+            let mut origin = csharp_call_origin(expression.named_child(0)?, source)?;
+            origin.unwrap = true;
+            Some(origin)
+        }
+        "parenthesized_expression" => csharp_call_origin(expression.named_child(0)?, source),
+        _ => None,
+    }
 }
 
 /// The type a static-looking call names: `Native.Total(...)` ->
@@ -1047,8 +1188,20 @@ fn csharp_bind_type_scope(node: tree_sitter::Node<'_>, context: &CSharpParseCont
     if let Some(body) = node.child_by_field_name("body") {
         let mut cursor = body.walk();
         for child in body.children(&mut cursor) {
-            if child.kind() == "field_declaration" {
-                csharp_bind_field_declaration(child, context);
+            match child.kind() {
+                "field_declaration" => csharp_bind_field_declaration(child, context),
+                // `Repo Store { get; }`: `Store.Save()` is `Repo`'s.
+                "property_declaration" => {
+                    if let (Some(var), Some(type_name)) = (
+                        csharp_named_text(child, context.source, "name"),
+                        child
+                            .child_by_field_name("type")
+                            .and_then(|ty| csharp_type_ident(ty, context.source)),
+                    ) {
+                        csharp_bind_typed(context, var, type_name);
+                    }
+                }
+                _ => {}
             }
         }
     }
@@ -1127,8 +1280,22 @@ fn csharp_bind_one_declarator(
             }
         }
     }
-    if let Some(type_name) = annotated {
-        csharp_bind_typed(context, var, type_name);
+    match annotated {
+        Some(type_name) if type_name != "var" => csharp_bind_typed(context, var, type_name),
+        // `var conn = store.Connect()`, `var user = await LoadAsync()`:
+        // what the call returns.
+        _ => {
+            let mut cursor = declarator.walk();
+            let origin = declarator
+                .children(&mut cursor)
+                .skip_while(|child| child.kind() != "=")
+                .find(|child| child.is_named())
+                .and_then(|value| csharp_call_origin(value, context.source));
+            match origin {
+                Some(origin) => context.bindings.borrow_mut().bind_returned(var, origin),
+                None => context.bindings.borrow_mut().forget_foreign(&var),
+            }
+        }
     }
 }
 
@@ -1156,9 +1323,10 @@ fn csharp_bind_parameter(node: tree_sitter::Node<'_>, context: &CSharpParseConte
 }
 
 /// `T var`: a declared type binds as before; a PascalCase type from
-/// another file is remembered by name (not `var`, `int`, `string`).
+/// another file is remembered by name (not `var`), and so is a keyword
+/// type (`string label`), whose methods are the base class library's.
 fn csharp_bind_typed(context: &CSharpParseContext<'_>, var: String, type_name: String) {
-    if type_name != "var" && csharp_is_type_name(&type_name) {
+    if type_name != "var" && csharp_is_type_name(&type_name) || is_csharp_keyword_type(&type_name) {
         context.bindings.borrow_mut().bind_any(var, type_name);
     } else {
         context.bindings.borrow_mut().bind(var, type_name);
@@ -1167,7 +1335,7 @@ fn csharp_bind_typed(context: &CSharpParseContext<'_>, var: String, type_name: S
 
 fn csharp_type_ident(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     match node.kind() {
-        "identifier" => Some(node_text(node, source)),
+        "identifier" | "predefined_type" => Some(node_text(node, source)),
         "generic_name" => Some(node_text(csharp_generic_base(node), source)),
         "qualified_name" => csharp_rightmost_identifier(node, source),
         "nullable_type" | "array_type" | "pointer_type" | "ref_type" => {
@@ -1212,5 +1380,174 @@ fn csharp_extract_documentation_directives(
             &directive,
             "comment_directive",
         );
+    }
+}
+
+/// The names of a file that decide whether a call reaches the base class
+/// library: the types it declares, and the namespaces its `using`s bring in.
+struct CSharpStdlibScope {
+    /// Types and `using` aliases this file declares: a `File` of its own is
+    /// never `System.IO`'s.
+    declared: HashSet<String>,
+    /// Namespaces of the base class library this file has a `using` of.
+    usings: HashSet<String>,
+    /// A `using` of a namespace from elsewhere (`using Acme.IO;`) may bring
+    /// in a type named like one of the base class library.
+    foreign_usings: bool,
+}
+
+impl CSharpStdlibScope {
+    fn collect(root: tree_sitter::Node<'_>, source: &[u8], declared: HashSet<String>) -> Self {
+        let mut scope = Self {
+            declared,
+            usings: HashSet::new(),
+            foreign_usings: false,
+        };
+        scope.collect_usings(root, source);
+        scope
+    }
+
+    fn collect_usings(&mut self, node: tree_sitter::Node<'_>, source: &[u8]) {
+        if node.kind() == "using_directive" {
+            if csharp_using_alias_name(node, source).is_none()
+                && let Some(target) = csharp_using_target(node, source)
+            {
+                let target = target.trim_start_matches("global::").to_string();
+                if is_csharp_bcl_namespace(&target) {
+                    self.usings.insert(target);
+                } else {
+                    self.foreign_usings = true;
+                }
+            }
+            return;
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if !CSHARP_TYPE_KINDS.contains(&child.kind()) {
+                self.collect_usings(child, source);
+            }
+        }
+    }
+
+    /// The namespace of a type named without it (`Console`, `File`,
+    /// `string`), and how sure that is: a keyword or a type of `System`
+    /// itself, or of a namespace the file has a `using` of, is certain;
+    /// another is only likely (.NET's implicit global usings bring in
+    /// `System.IO`, `System.Linq`, ...), and not even that when a `using`
+    /// from elsewhere may bring in a type of the same name.
+    fn resolve_type(&self, name: &str) -> Option<(String, StdlibEvidence)> {
+        if self.declared.contains(name) {
+            return None;
+        }
+        if is_csharp_keyword_type(name) {
+            return Some(("System".to_string(), StdlibEvidence::Certain));
+        }
+        let namespace = csharp_bcl_namespace(name)?;
+        let evidence = if namespace == "System" || self.usings.contains(namespace) {
+            StdlibEvidence::Certain
+        } else if !self.foreign_usings {
+            StdlibEvidence::Likely
+        } else {
+            return None;
+        };
+        Some((namespace.to_string(), evidence))
+    }
+}
+
+/// The namespace a dotted name through the base class library is in: the
+/// part before its first known type (`System.IO` for `System.IO.File` and
+/// `System.IO.File.ReadAllText`, `System` for `System.Console.Out`).
+fn csharp_type_namespace(path: &str) -> Option<String> {
+    let segments: Vec<&str> = path.split('.').collect();
+    (1..segments.len())
+        .find(|&index| {
+            csharp_bcl_namespace(segments[index])
+                .is_some_and(|namespace| namespace == segments[..index].join("."))
+        })
+        .map(|index| segments[..index].join("."))
+}
+
+/// The base-class-library namespace a call reaches, how sure that is, and
+/// the call as written or resolved (`Console.WriteLine`, `string.Join`,
+/// `StringBuilder.Append`):
+///
+/// - a constructor or a static member of a library type (`new
+///   StringBuilder()`, `Console.WriteLine`, `File.Out.Flush`), certain or
+///   likely as [`CSharpStdlibScope::resolve_type`] says;
+/// - a fully qualified name (`System.IO.File.ReadAllText`), or a keyword
+///   type (`string.Join`, `int.Parse`);
+/// - a member of a value it just constructed (`new StringBuilder().Append`)
+///   or of a string literal;
+/// - only likely: a method of a variable declared or constructed as a
+///   library type (`List<int> xs; xs.Add(1)`).
+fn csharp_stdlib_call(
+    node: tree_sitter::Node<'_>,
+    context: &CSharpParseContext<'_>,
+) -> Option<(String, StdlibEvidence, String)> {
+    let (source, scope) = (context.source, &context.stdlib);
+    if matches!(
+        node.kind(),
+        "object_creation_expression" | "implicit_object_creation_expression"
+    ) {
+        let class = csharp_call_name(node, source)?;
+        let (namespace, evidence) = scope.resolve_type(&class)?;
+        return Some((namespace, evidence, class));
+    }
+    let callee = csharp_callee(node)?;
+    if callee.kind() != "member_access_expression" {
+        return None;
+    }
+    let method = csharp_named_text(callee, source, "name")?;
+    let receiver = callee.child_by_field_name("expression")?;
+    let written = || format!("{}.{method}", node_text(receiver, source).trim());
+    match receiver.kind() {
+        "predefined_type" => Some(("System".to_string(), StdlibEvidence::Certain, written())),
+        "string_literal" | "interpolated_string_expression" | "verbatim_string_literal" => Some((
+            "System".to_string(),
+            StdlibEvidence::Certain,
+            format!("string.{method}"),
+        )),
+        "object_creation_expression" => {
+            let class = csharp_call_name(receiver, source)?;
+            let (namespace, evidence) = scope.resolve_type(&class)?;
+            Some((namespace, evidence, format!("{class}.{method}")))
+        }
+        "identifier" | "member_access_expression" | "qualified_name" | "alias_qualified_name" => {
+            let text = node_text(receiver, source);
+            let path = text.trim().trim_start_matches("global::");
+            let segments: Vec<&str> = path.split('.').map(str::trim).collect();
+            let first = *segments.first()?;
+            let bindings = context.bindings.borrow();
+            if segments.len() == 1
+                && let Some(class) = bindings.foreign_type(first)
+            {
+                let (namespace, _) = scope.resolve_type(class)?;
+                return Some((
+                    namespace,
+                    StdlibEvidence::Likely,
+                    format!("{class}.{method}"),
+                ));
+            }
+            if bindings.is_bound(first) {
+                return None;
+            }
+            if first == "System" && segments.len() > 1 && !scope.declared.contains(first) {
+                // A type this table does not know is the receiver's last
+                // segment (`System.Net.Sockets.Socket`).
+                let namespace = csharp_type_namespace(path)
+                    .unwrap_or_else(|| segments[..segments.len() - 1].join("."));
+                return Some((
+                    namespace,
+                    StdlibEvidence::Certain,
+                    format!("{path}.{method}"),
+                ));
+            }
+            if !csharp_is_type_name(first) {
+                return None;
+            }
+            let (namespace, evidence) = scope.resolve_type(first)?;
+            Some((namespace, evidence, format!("{path}.{method}")))
+        }
+        _ => None,
     }
 }

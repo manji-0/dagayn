@@ -14,7 +14,10 @@ use super::js_modules::{
 use super::js_tests::{
     JavaScriptTestCall, javascript_is_test_api_call, javascript_test_call, javascript_test_title,
 };
+use super::member_calls::CallOrigin;
 use super::qualify;
+use super::stdlib::javascript::is_javascript_global;
+use super::stdlib::{StdlibEvidence, mark_stdlib_edge};
 use super::types::{ParsedEdge, ParsedNode};
 use super::util::node_text;
 
@@ -76,13 +79,25 @@ pub(super) fn javascript_emit_call(
     let caller = enclosing_func
         .map(|func| qualify(&context.file_path, func, owner_path))
         .unwrap_or_else(|| context.file_path.to_string());
-    let (target, mut extra) = javascript_member_call_target(node, context, owner_path, &call_name)
-        .unwrap_or_else(|| {
+    let (mut target, mut extra) =
+        javascript_member_call_target(node, context, owner_path, &call_name).unwrap_or_else(|| {
             (
                 resolve_javascript_call_target(&call_name, context),
                 json!({}),
             )
         });
+    if let Some(symbol) = javascript_global_call(node, context, &target) {
+        if let Some(map) = extra.as_object_mut() {
+            map.remove("receiver_unknown");
+        }
+        target = symbol;
+        mark_stdlib_edge(
+            &mut target,
+            &mut extra,
+            "globalThis",
+            StdlibEvidence::Likely,
+        );
+    }
     if context.test_file
         && javascript_is_test_api_call(node, context.source)
         && let Some(map) = extra.as_object_mut()
@@ -102,6 +117,53 @@ pub(super) fn javascript_emit_call(
         edges.push(edge);
     }
     false
+}
+
+/// The global a call names, as written (`parseInt`, `new Map`, `JSON.parse`,
+/// `console.log`), when the file never binds that name
+/// ([`JavaScriptParseContext::bound_names`]) and nothing else resolved the
+/// call (`target` is still the bare name). Only the global itself or one
+/// member of it: `console.log.bind(x)` or `[1].map(f)` has no evidence of
+/// what it reaches. Likely, since a global can be reassigned or
+/// polyfilled.
+fn javascript_global_call(
+    node: tree_sitter::Node<'_>,
+    context: &JavaScriptParseContext<'_>,
+    target: &str,
+) -> Option<String> {
+    let callee = javascript_callee_node(node)?;
+    let (root, symbol) = match callee.kind() {
+        "identifier" => {
+            let name = node_text(callee, context.source);
+            (name.clone(), name)
+        }
+        "member_expression" => {
+            let object = callee
+                .child_by_field_name("object")
+                .filter(|object| object.kind() == "identifier")?;
+            let property = callee
+                .child_by_field_name("property")
+                .filter(|property| property.kind() == "property_identifier")?;
+            let (object, property) = (
+                node_text(object, context.source),
+                node_text(property, context.source),
+            );
+            if target != property {
+                return None;
+            }
+            let symbol = format!("{object}.{property}");
+            (object, symbol)
+        }
+        _ => return None,
+    };
+    if callee.kind() == "identifier" && target != root {
+        return None;
+    }
+    let shadowed = context.bound_names.contains(&root)
+        || context.defined_names.contains(&root)
+        || context.import_map.contains_key(&root)
+        || javascript_is_local_name(context, &root);
+    (is_javascript_global(&root) && !shadowed).then_some(symbol)
 }
 
 /// A synthetic `Test` node for a test-runner call: `runner:title@Lline`
@@ -388,11 +450,12 @@ fn javascript_member_call_target(
     {
         return Some((target, json!({})));
     }
-    let unknown = Some((call_name.to_string(), json!({"receiver_unknown": true})));
-    let (Some(object), Some(property)) = (
-        callee.child_by_field_name("object"),
-        callee.child_by_field_name("property"),
-    ) else {
+    let object = callee.child_by_field_name("object");
+    let unknown = Some((
+        call_name.to_string(),
+        javascript_unknown_receiver_extra(object, call_name, context),
+    ));
+    let (Some(object), Some(property)) = (object, callee.child_by_field_name("property")) else {
         return unknown;
     };
     if !matches!(
@@ -429,6 +492,241 @@ fn javascript_member_call_target(
         return Some((target, json!({})));
     }
     unknown
+}
+
+/// Metadata of a member call whose receiver has no class this file can
+/// resolve: `receiver_type` when the receiver is typed with a class of
+/// another file no import reaches (`store: GraphStore` from an ambient
+/// declaration), which resolution across files matches as
+/// `GraphStore.method`; otherwise `receiver_unknown`, with `receiver_from`
+/// when the receiver is what a call returned (`makeStore().save()`,
+/// `const s = await openStore(); s.save()`), whose declared return type
+/// resolution across files reads.
+fn javascript_unknown_receiver_extra(
+    object: Option<tree_sitter::Node<'_>>,
+    method: &str,
+    context: &JavaScriptParseContext<'_>,
+) -> Value {
+    if let Some(type_name) = object.and_then(|object| javascript_foreign_receiver(object, context))
+    {
+        return json!({"receiver_type": type_name});
+    }
+    let mut extra = json!({"receiver_unknown": true});
+    if let Some(origin) =
+        object.and_then(|object| javascript_receiver_origin(object, method, context))
+    {
+        extra["receiver_from"] = origin.to_json();
+    }
+    extra
+}
+
+/// The call a receiver is the result of, past calls of the same method: in
+/// `b.add(1).add(2).build()` both `add` calls share one edge per line, so
+/// `add` on `add(1)` points at what `b` holds, not at itself.
+fn javascript_receiver_origin(
+    mut receiver: tree_sitter::Node<'_>,
+    method: &str,
+    context: &JavaScriptParseContext<'_>,
+) -> Option<CallOrigin> {
+    while receiver.kind() == "call_expression"
+        && let Some(callee) = javascript_callee_node(receiver)
+        && callee.kind() == "member_expression"
+        && callee
+            .child_by_field_name("property")
+            .is_some_and(|property| node_text(property, context.source) == method)
+    {
+        receiver = callee.child_by_field_name("object")?;
+    }
+    javascript_call_origin(receiver, context)
+}
+
+/// The call an expression is the result of: `makeStore()`,
+/// `db.connect()` (called name `connect`), `await openStore()` (unwrapped,
+/// so a `Promise<Store>` return type gives `Store`), or a variable bound to
+/// one (`const s = makeStore()`). A call of a local function has no edge to
+/// point at, and `new X()` is typed by its class instead.
+fn javascript_call_origin(
+    expression: tree_sitter::Node<'_>,
+    context: &JavaScriptParseContext<'_>,
+) -> Option<CallOrigin> {
+    match expression.kind() {
+        "parenthesized_expression" | "non_null_expression" => {
+            javascript_call_origin(expression.named_child(0)?, context)
+        }
+        "await_expression" => {
+            let mut origin = javascript_call_origin(expression.named_child(0)?, context)?;
+            origin.unwrap = true;
+            Some(origin)
+        }
+        "call_expression" => {
+            let callee = javascript_callee_node(expression)?;
+            if !matches!(callee.kind(), "identifier" | "member_expression")
+                || (callee.kind() == "identifier"
+                    && javascript_is_local_name(context, &node_text(callee, context.source)))
+            {
+                return None;
+            }
+            Some(CallOrigin {
+                name: javascript_call_name(expression, context.source)?,
+                line: expression.start_position().row as i64 + 1,
+                unwrap: false,
+            })
+        }
+        "identifier" => context
+            .bindings
+            .borrow()
+            .returned_by(&node_text(expression, context.source))
+            .cloned(),
+        _ => None,
+    }
+}
+
+/// The class of another file a receiver is typed with, by name, when no
+/// import resolves it: a variable or parameter bound to one
+/// (`repo: Repo`), or a field declared with one in a class of this file
+/// (`private repo: Repo` for `this.repo`).
+fn javascript_foreign_receiver(
+    expression: tree_sitter::Node<'_>,
+    context: &JavaScriptParseContext<'_>,
+) -> Option<String> {
+    match expression.kind() {
+        "identifier" => context
+            .bindings
+            .borrow()
+            .foreign_type(&node_text(expression, context.source))
+            .map(str::to_string),
+        "member_expression" => {
+            let owner =
+                javascript_receiver_type(context, expression.child_by_field_name("object")?)?;
+            if owner.file != context.file_path.as_str() {
+                return None;
+            }
+            let field = node_text(expression.child_by_field_name("property")?, context.source);
+            let written = context.class_table.get(&owner.path)?.fields.get(&field)?;
+            if resolve_javascript_type_name(context, &owner.file, written).is_some()
+                || context
+                    .bindings
+                    .borrow()
+                    .constructor_type(written)
+                    .is_some()
+                || javascript_is_type_parameter(expression, written, context.source)
+            {
+                return None;
+            }
+            javascript_foreign_type_name(context, written)
+        }
+        "parenthesized_expression" | "non_null_expression" => {
+            javascript_foreign_receiver(expression.named_child(0)?, context)
+        }
+        _ => None,
+    }
+}
+
+/// The name resolution across files matches for a type written in this file
+/// that no declaration or import of it resolves (`Repo`, `models.Repo` ->
+/// `Repo`), or `None` for a type that is not a class of the repository: a
+/// global or a type of the TypeScript / DOM libraries (`Map`, `Partial`,
+/// `HTMLElement`), a type imported from a package, or a conventional type
+/// parameter (`T`).
+fn javascript_foreign_type_name(
+    context: &JavaScriptParseContext<'_>,
+    written: &str,
+) -> Option<String> {
+    let root = written.split('.').next().unwrap_or(written);
+    let name = written.rsplit('.').next().unwrap_or(written);
+    if name.chars().count() < 2
+        || !name.starts_with(|ch: char| ch.is_ascii_uppercase())
+        || is_javascript_global(root)
+        || JAVASCRIPT_LIB_TYPES.contains(&root)
+        || root.starts_with("HTML")
+        || root.starts_with("SVG")
+        || context
+            .import_map
+            .get(root)
+            .is_some_and(|binding| context.external_packages.contains_key(&binding.module))
+    {
+        return None;
+    }
+    Some(name.to_string())
+}
+
+/// Types of the TypeScript and DOM libraries that are not runtime globals
+/// ([`is_javascript_global`]): never a class of the repository.
+const JAVASCRIPT_LIB_TYPES: &[&str] = &[
+    "ArrayLike",
+    "AsyncGenerator",
+    "AsyncIterable",
+    "AsyncIterableIterator",
+    "AsyncIterator",
+    "Awaited",
+    "Blob",
+    "Document",
+    "Element",
+    "Event",
+    "EventTarget",
+    "Exclude",
+    "Extract",
+    "File",
+    "FormData",
+    "Function",
+    "Generator",
+    "Headers",
+    "InstanceType",
+    "Iterable",
+    "IterableIterator",
+    "Iterator",
+    "NodeJS",
+    "NonNullable",
+    "Omit",
+    "Parameters",
+    "Partial",
+    "Pick",
+    "PromiseLike",
+    "ReadableStream",
+    "Readonly",
+    "ReadonlyArray",
+    "ReadonlyMap",
+    "ReadonlySet",
+    "Record",
+    "Request",
+    "Required",
+    "Response",
+    "ReturnType",
+    "Storage",
+    "WeakMap",
+    "WeakRef",
+    "WeakSet",
+    "WebSocket",
+    "Window",
+    "Worker",
+    "WritableStream",
+];
+
+/// Whether `name` is a type parameter of a declaration enclosing `node`
+/// (`function load<Repo>(r: Repo)`): not a class of another file.
+fn javascript_is_type_parameter(node: tree_sitter::Node<'_>, name: &str, source: &[u8]) -> bool {
+    let mut current = Some(node);
+    while let Some(node) = current {
+        if let Some(parameters) = node.child_by_field_name("type_parameters")
+            && javascript_type_parameter_names(parameters, source).contains(name)
+        {
+            return true;
+        }
+        current = node.parent();
+    }
+    false
+}
+
+fn javascript_type_parameter_names(
+    parameters: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> std::collections::HashSet<String> {
+    let mut cursor = parameters.walk();
+    parameters
+        .named_children(&mut cursor)
+        .filter_map(|parameter| parameter.child_by_field_name("name"))
+        .map(|name| node_text(name, source))
+        .collect()
 }
 
 /// `fns.decl()` / `fns.api.get()` through a namespace import, and
@@ -560,15 +858,16 @@ pub(super) fn javascript_bind_declarator(
     if node.kind() != "variable_declarator" {
         return;
     }
-    let mut ident = None;
+    // The declared name only: `const { a } = x` binds no receiver.
+    let ident = node
+        .child_by_field_name("name")
+        .filter(|name| name.kind() == "identifier")
+        .map(|name| node_text(name, context.source));
     let mut annotated = None;
     let mut value = None;
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         match child.kind() {
-            "identifier" if ident.is_none() => {
-                ident = Some(node_text(child, context.source));
-            }
             "type_annotation" => {
                 annotated = annotation_type_name(child, context.source);
             }
@@ -581,21 +880,40 @@ pub(super) fn javascript_bind_declarator(
     let Some(ident) = ident else {
         return;
     };
+    // A redeclaration in a nested scope (`const s = other()`) drops what an
+    // outer `s` held.
+    context.bindings.borrow_mut().forget_foreign(&ident);
     if let Some(value) = value
         && let Some(type_name) = javascript_inferred_constructor(value, context)
     {
         javascript_bind_receiver(context, ident, type_name);
         return;
     }
-    if let Some(type_name) = annotated {
-        javascript_bind_type_name(context, ident, &type_name);
+    if let Some(type_name) = annotated
+        && javascript_bind_type_name(context, node, ident.clone(), &type_name)
+    {
+        return;
+    }
+    if let Some(origin) = node
+        .child_by_field_name("value")
+        .and_then(|value| javascript_call_origin(value, context))
+    {
+        context.bindings.borrow_mut().bind_returned(ident, origin);
     }
 }
 
 /// Binds `ident` to the type written as `type_name`: a class or interface of
 /// this file (by owner path) or of another module (by its `file::path`
-/// QN); other same-file types (enums, aliases) by name as before.
-fn javascript_bind_type_name(context: &JavaScriptParseContext<'_>, ident: String, type_name: &str) {
+/// QN); other same-file types (enums, aliases) by name as before; a type
+/// the file neither declares nor imports from a package (an ambient
+/// `declare class Repo`, an import no module resolution reaches) by name for
+/// `receiver_type`. `false` when nothing was bound (`x: string`, `x: T`).
+fn javascript_bind_type_name(
+    context: &JavaScriptParseContext<'_>,
+    node: tree_sitter::Node<'_>,
+    ident: String,
+    type_name: &str,
+) -> bool {
     match resolve_javascript_type_name(context, context.file_path.as_str(), type_name) {
         Some(ty) if ty.file == context.file_path.as_str() => {
             context.bindings.borrow_mut().bind_path(ident, ty.path);
@@ -604,8 +922,20 @@ fn javascript_bind_type_name(context: &JavaScriptParseContext<'_>, ident: String
             let qualified = format!("{}::{}", ty.file, ty.path);
             context.bindings.borrow_mut().bind_path(ident, qualified);
         }
-        None => context.bindings.borrow_mut().bind(ident, type_name),
+        None => {
+            let mut bindings = context.bindings.borrow_mut();
+            if bindings.constructor_type(type_name).is_some() {
+                bindings.bind(ident, type_name);
+            } else if let Some(foreign) = javascript_foreign_type_name(context, type_name)
+                && !javascript_is_type_parameter(node, type_name, context.source)
+            {
+                bindings.bind_any(ident, foreign);
+            } else {
+                return false;
+            }
+        }
     }
+    true
 }
 
 /// Binds the typed parameters of a function (`run(r: Repo)`,
@@ -635,7 +965,12 @@ pub(super) fn javascript_bind_parameters(
         ) else {
             continue;
         };
-        javascript_bind_type_name(context, node_text(pattern, context.source), &type_name);
+        javascript_bind_type_name(
+            context,
+            parameter,
+            node_text(pattern, context.source),
+            &type_name,
+        );
     }
 }
 
@@ -646,25 +981,25 @@ pub(super) fn javascript_bind_assignment(
     if node.kind() != "assignment_expression" {
         return;
     }
-    let mut ident = None;
-    let mut value = None;
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        match child.kind() {
-            "identifier" if ident.is_none() => {
-                ident = Some(node_text(child, context.source));
-            }
-            "new_expression" | "call_expression" => {
-                value = Some(child);
-            }
-            _ => {}
-        }
-    }
-    let (Some(ident), Some(value)) = (ident, value) else {
+    let (Some(left), Some(right)) = (
+        node.child_by_field_name("left")
+            .filter(|left| left.kind() == "identifier"),
+        node.child_by_field_name("right"),
+    ) else {
         return;
     };
-    if let Some(type_name) = javascript_inferred_constructor(value, context) {
+    let ident = node_text(left, context.source);
+    context.bindings.borrow_mut().forget_foreign(&ident);
+    if matches!(right.kind(), "new_expression" | "call_expression")
+        && let Some(type_name) = javascript_inferred_constructor(right, context)
+    {
         javascript_bind_receiver(context, ident, type_name);
+        return;
+    }
+    // `s = await openStore()`: `s.save()` below is a member of what
+    // `openStore` returns.
+    if let Some(origin) = javascript_call_origin(right, context) {
+        context.bindings.borrow_mut().bind_returned(ident, origin);
     }
 }
 

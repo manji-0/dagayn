@@ -835,10 +835,23 @@ fn calls_in_file(tx: &Transaction<'_>, file_path: &str) -> Result<Vec<CallRow>> 
     let mut calls = Vec::new();
     for row in rows {
         let (source, target, line, extra) = row?;
-        let receiver = parse_json_column(extra)?
+        let extra = parse_json_column(extra)?;
+        let receiver = extra
             .get("receiver")
             .and_then(Value::as_str)
             .map(str::to_string);
+        // A module no file of the repository is (a built extension such as
+        // `stats_ffi`) is an external package to the extractor: the edge
+        // targets the package, and the name called is its symbol's last
+        // segment (`stats_ffi.fast_sum`).
+        let target = match extra.get("external_symbol").and_then(Value::as_str) {
+            Some(symbol) if extra.get("stdlib").and_then(Value::as_bool) != Some(true) => symbol
+                .rsplit(['.', ':'])
+                .next()
+                .unwrap_or(symbol)
+                .to_string(),
+            _ => target,
+        };
         calls.push((source, target, line, receiver));
     }
     Ok(calls)

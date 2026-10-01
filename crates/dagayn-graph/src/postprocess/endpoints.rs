@@ -11,6 +11,11 @@ const NODE_QUALIFIED_EDGE_KINDS: [&str; 6] = [
 ];
 
 impl GraphStore {
+    /// Demotes to `LOW` the edges whose source or target is not a node.
+    /// Edges into an external package (the standard library or a
+    /// dependency, `extra.external`) whose extractor gave them a tier keep
+    /// it: their target is a package, never a node, and how sure the edge is
+    /// depends on the evidence, not on the graph.
     pub fn demote_unresolved_endpoint_edges(&mut self) -> Result<i64> {
         let tx = write_tx(&mut self.conn)?;
         let placeholders = std::iter::repeat_n("?", NODE_QUALIFIED_EDGE_KINDS.len())
@@ -22,6 +27,8 @@ impl GraphStore {
                  confidence_tier = 'LOW'
              WHERE kind IN ({placeholders})
                AND UPPER(COALESCE(confidence_tier, 'EXTRACTED')) NOT IN ('LOW', 'UNKNOWN')
+               AND NOT (COALESCE(json_extract(extra, '$.external'), 0) = 1
+                        AND json_extract(extra, '$.confidence_tier') IS NOT NULL)
                AND (
                  target_qualified LIKE '<unresolved:%'
                  OR source_qualified LIKE '<unresolved:%'

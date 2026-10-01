@@ -57,7 +57,8 @@ const doubled = computed(() => count.value * 2)
     assert!(edges.iter().any(|edge| {
         edge.kind == "CALLS"
             && edge.source == "sample.vue::onSelectUser"
-            && edge.target == "log"
+            && edge.target == "globalThis"
+            && edge.extra["external_symbol"] == "console.log"
             && edge.line == 23
     }));
 }
@@ -112,7 +113,8 @@ function selectUser(user: User) {
     assert!(edges.iter().any(|edge| {
         edge.kind == "CALLS"
             && edge.source == "sample.svelte::increment"
-            && edge.target == "log"
+            && edge.target == "globalThis"
+            && edge.extra["external_symbol"] == "console.log"
             && edge.line == 11
     }));
 }
