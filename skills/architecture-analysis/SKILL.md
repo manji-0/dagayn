@@ -45,8 +45,24 @@ buries the answer.
 
 ## Evidence
 
-- Architecture signals are leads, not proof of a design bug: cite counts,
-  thresholds, reason codes, and `total` / `truncated`.
+Reach comes from the graph; correctness from `source_of`; user-visible
+effect from a reproduction or CLI output. Do not mix those in one claim.
+
+- **Highest** — assert freely: on a graph whose orientation shows no
+  `graph_describes_another_commit` or `graph_built_by_older_extractor`,
+  `CALLS` / importer edges with `resolved_by: "scip"` at `HIGH` or
+  `EXTRACTED`; the `source_of` span those edges point at; authored
+  `CROSS_ARTIFACT` contracts (`implemented_by` / `implements_contract`,
+  `evidence_type=authored`).
+- **Medium** — structure only, not correctness: architecture
+  `reason_codes`, hub/bridge/knowledge-gap rankings, ADP/SDP/SAP metrics,
+  blast-style community structure; `EXTRACTED` directive dependencies; FTS
+  hits when embeddings are empty (keyword candidates, not semantic ranking).
+- **Low** — hypothesis until `source_of` or a reproduction: `MEDIUM` /
+  `LOW` or non-SCIP calls; `heuristic_reachable`; `truncated`,
+  `status="ambiguous"`, or absences on a degraded orientation.
+- Architecture signals are **Medium** leads, not proof of a design bug: cite
+  counts, thresholds, reason codes, and `total` / `truncated`.
 - Start with small `top_n`; a truncated `adp_violations` result's first
   `next_tool_suggestions` entry repeats the call with the full count.
   `sap_metrics` lists scopes the metric doesn't apply to under

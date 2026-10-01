@@ -91,6 +91,19 @@ retrieval setup.
 
 ## Judgment
 
+Reach comes from the graph; correctness from `source_of`; user-visible
+effect from a reproduction or CLI output. Do not mix those in one claim.
+
+- **Highest** — assert freely: on a fresh orientation,
+  `CALLS` / importer edges with `resolved_by: "scip"` at `HIGH` or
+  `EXTRACTED`; the `source_of` span those edges point at; authored
+  `CROSS_ARTIFACT` contracts (`implemented_by` / `implements_contract`).
+- **Medium** — structure only: `review_tool` `reason_codes`, blast radius,
+  affected flows; `EXTRACTED` `TESTED_BY` and directive dependencies; FTS
+  hits when embeddings are empty.
+- **Low** — hypothesis until `source_of` or a reproduction: `MEDIUM` /
+  `LOW` or non-SCIP calls; `heuristic_reachable`; file-level `tests_for`
+  of 0; `truncated` / `ambiguous` / degraded orientation.
 - Risk labels prioritize; they don't prove. Confirm a behavioral issue with
   `source_of` or a test before reporting it as a finding.
 - When a result is bounded (`truncated`, `total`, thresholds) say so in the

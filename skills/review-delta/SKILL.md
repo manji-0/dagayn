@@ -47,6 +47,21 @@ has the compact workflow if you want it in context.
 - **Blast radius**: impacted files and functions.
 - **Docs**: linked docs to update, or explicit deferrals.
 
+## Evidence
+
+Reach comes from the graph; correctness from `source_of`; user-visible
+effect from a reproduction or CLI output. Do not mix those in one claim.
+
+- **Highest** — assert freely: on a fresh orientation,
+  `CALLS` / importer edges with `resolved_by: "scip"` at `HIGH` or
+  `EXTRACTED`; the `source_of` span those edges point at; authored
+  `CROSS_ARTIFACT` contracts (`implemented_by` / `implements_contract`).
+- **Medium** — structure only: `review_tool` `reason_codes`, blast radius,
+  affected flows; `EXTRACTED` `TESTED_BY`; FTS hits when embeddings are empty.
+- **Low** — hypothesis until `source_of` or a reproduction: `MEDIUM` /
+  `LOW` or non-SCIP calls; `heuristic_reachable`; file-level `tests_for`
+  of 0; `truncated` / `ambiguous` / degraded orientation.
+
 Doc candidates are not optional reading: update them (see the "Docs update
 after code change" steps in review-changes) or list them as deferred. Before
 claiming something is missing, read `zero_result_reason`, `next_action`,

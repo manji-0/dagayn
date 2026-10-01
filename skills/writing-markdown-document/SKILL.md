@@ -107,6 +107,16 @@ Targets:
 - Author one direction per fact; query tools show the inverse, and duplicate
   inverse edges go stale on incremental updates.
 
+### Trust when reading these links later
+
+- **Highest** — authored `implemented_by` / `implements_contract` plus
+  `source_of` on the concrete target (confirm the target exists before you
+  write the directive).
+- **Medium** — explanatory / runbook / issue roles (`explained_by`,
+  `has_runbook`, `problem_described_by`, `discusses_artifact`, …).
+- **Low** — bare code-span `heuristic_reachable` mentions; do not treat them
+  as contracts.
+
 ## Stage 1 — Outline and order sections
 
 1. List the sections.

@@ -51,13 +51,30 @@ retrieval setup.
    deliberate new entry point, the high-risk blast radius is understood, and
    linked specs or runbooks are updated or explicitly deferred.
 
+## Evidence
+
+Reach comes from the graph; correctness from `source_of`; user-visible
+effect from a reproduction or CLI output. Do not mix those in one claim.
+
+- **Highest** — assert freely: on a fresh orientation,
+  `CALLS` / importer edges with `resolved_by: "scip"` at `HIGH` or
+  `EXTRACTED`; the `source_of` span those edges point at; authored
+  `CROSS_ARTIFACT` contracts (`implemented_by` / `implements_contract`).
+- **Medium** — structure only: `review_tool` `reason_codes`, blast radius,
+  affected flows; `EXTRACTED` `TESTED_BY` and directive dependencies; FTS
+  hits when embeddings are empty (keyword candidates, not semantic ranking).
+- **Low** — hypothesis until `source_of` or a reproduction: `MEDIUM` /
+  `LOW` or non-SCIP calls; `heuristic_reachable`; file-level `tests_for`
+  of 0; `truncated` / `ambiguous` / degraded orientation.
+
 ## Notes
 
 - `callers_of` / `importers_of` take `depth` (up to 6) for transitive reach.
   Calls into packages target the package name and show up in `callees_of` as
   `unresolved_targets` (packages are not nodes).
 - Where SCIP indexers are installed, `dagayn build --scip` makes call targets
-  compiler-accurate; unresolved (`LOW`) calls are leads, not absence.
+  compiler-accurate; unresolved (`LOW`) calls are **Low** trust leads, not
+  absence.
 - Keep discovery to about three search or relationship calls before editing,
   and prefer one `review_tool(mode="changes")` afterwards over repeated impact
   drills.

@@ -10,6 +10,21 @@ Search finds a starting node; the graph proves what that node does. Read how a
 result was found before trusting it, then move to `source_of` and relationship
 queries.
 
+## Evidence
+
+Reach comes from the graph; correctness from `source_of`; user-visible
+effect from a reproduction or CLI output. Do not mix those in one claim.
+
+- **Highest** — after you pick a hit: `source_of` on that node, plus SCIP
+  `HIGH` / `EXTRACTED` relationship edges on a fresh orientation; authored
+  `CROSS_ARTIFACT` contracts.
+- **Medium** — hybrid / embedding hits as discovery; FTS / `fts_only` as
+  keyword candidates when embeddings are empty; relationship structure after
+  handoff (`callers_of`, `tests_for`, …) until `source_of` confirms.
+- **Low** — `keyword_fallback`, `status="ambiguous"` /
+  `multiple_exact_matches` before you disambiguate, `truncated` results,
+  or any hit treated as behavioral proof without `source_of`.
+
 <!-- dagayn skill embedding context -->
 ## Installed Search Mode
 

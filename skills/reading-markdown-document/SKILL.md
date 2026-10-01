@@ -77,6 +77,21 @@ Terraform, `//` / `///` in C#) don't appear in the Markdown file; Stage 1's
 Prioritize `constrained-by`, then documentation bridges, then linked sections,
 then symbols, if the list is long.
 
+## Evidence
+
+Reach comes from the graph; correctness from `source_of`; user-visible
+effect from a reproduction or CLI output. Do not mix those in one claim.
+
+- **Highest** — authored `CROSS_ARTIFACT` contracts
+  (`implemented_by` / `implements_contract`, `evidence_type=authored`) and
+  the `source_of` span of the linked code on a fresh orientation.
+- **Medium** — `EXTRACTED` directive dependencies (`constrained-by`,
+  `blocked-by`, …), explanatory doc roles, and structural importers /
+  implementations lists.
+- **Low** — `heuristic_reachable` bridges, empty `implementations_of` /
+  `importers_of` on a degraded orientation, or treating prose as implemented
+  without a code `source_of`.
+
 ## Stage 3 — Read the body
 
 1. Compare the headings to Stage 1's section list; if they differ, the prose

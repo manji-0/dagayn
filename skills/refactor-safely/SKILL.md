@@ -48,10 +48,24 @@ edit set, and verify impact afterwards.
 
 ## Judging suggestions
 
-Suggestions are leads. Public APIs, dynamic dispatch, generated code, test
-fixtures, and framework entry points often have no static caller, so verify
-before removing or moving. Prefer suggestions that carry counts, thresholds,
-callers, and reason codes over bare names.
+Reach comes from the graph; correctness from `source_of`; user-visible
+effect from a reproduction or CLI output. Do not mix those in one claim.
+
+- **Highest** — assert freely: on a fresh orientation,
+  `CALLS` / importer edges with `resolved_by: "scip"` at `HIGH` or
+  `EXTRACTED`; the `source_of` span those edges point at; authored
+  `CROSS_ARTIFACT` contracts (`implemented_by` / `implements_contract`).
+- **Medium** — structure only: `refactor_tool` / `review_tool`
+  `reason_codes`, blast radius, concern-separation profiles, `EXTRACTED`
+  `TESTED_BY`; FTS hits when embeddings are empty.
+- **Low** — hypothesis until `source_of` or a reproduction: `MEDIUM` /
+  `LOW` or non-SCIP calls; dead-code with no static callers; file-level
+  `tests_for` of 0; `truncated` / `ambiguous` / degraded orientation.
+
+Suggestions are **Medium** leads. Public APIs, dynamic dispatch, generated
+code, test fixtures, and framework entry points often have no static caller,
+so verify before removing or moving. Prefer suggestions that carry counts,
+thresholds, callers, and reason codes over bare names.
 
 ### Function Concern Separation Profiles
 

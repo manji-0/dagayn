@@ -76,11 +76,28 @@ advanced/maintenance tools.
 
 ### How to judge analysis output
 
-- Treat graph insights as **evidence-ranked leads**, not automatic truth.
+Reach comes from the graph; correctness from `source_of`; user-visible
+effect from a reproduction or CLI output. Do not mix those in one claim.
+
+- **Highest** — assert freely: on a graph whose orientation shows no
+  `graph_describes_another_commit` or `graph_built_by_older_extractor`,
+  `CALLS` / importer edges with `resolved_by: "scip"` at `HIGH` or
+  `EXTRACTED`; the `source_of` span those edges point at; authored
+  `CROSS_ARTIFACT` contracts (`implemented_by` / `implements_contract`,
+  `evidence_type=authored`).
+- **Medium** — structure only, not correctness: `review_tool` /
+  architecture `reason_codes`, blast radius, affected flows; `EXTRACTED`
+  `TESTED_BY` and directive dependencies; FTS hits when embeddings are
+  empty or `embedding_health` is not available (keyword candidates, not
+  semantic ranking).
+- **Low** — hypothesis until `source_of` or a reproduction: `MEDIUM` /
+  `LOW` or non-SCIP calls; `heuristic_reachable`; a file-level
+  `tests_for` of 0; `truncated`, `status="ambiguous"`, or absences on a
+  degraded orientation.
 - Prefer outputs that expose metrics, thresholds, counts, reason codes, and
   `truncated`/`total` fields; mention those numbers when making recommendations.
 - Check test coverage with `query_graph_tool` pattern="tests_for" before claiming a
-  code path is untested.
+  code path is untested; a file-level zero is Low trust, not proof.
 - For refactors, verify public APIs, dynamic dispatch, generated code, test
   artifacts, and framework entry points before editing.
 - If an output is truncated or approximate, narrow with `top_n`, `detail_level`,
