@@ -780,10 +780,9 @@ Review and execution-flow drill-downs are also dispatcher-based in v3. Use
 `flow_tool(mode="list"|"get")` instead of the v2 split MCP/CLI tools.
 
 `refactor_tool(mode="suggest")` returns graph-backed remove, move, split, and
-document candidates. Treat them as **Medium** trust leads (structure, not
-correctness); verify with `source_of` / a reproduction before changing source.
-Reserve **Highest** for SCIP `HIGH`/`EXTRACTED` edges plus authored
-`CROSS_ARTIFACT` contracts on a fresh orientation. Verify public APIs,
+document candidates. They are leads (structure, not correctness): confirm them
+with `source_of` or a reproduction on a current graph (see the `trust` section
+of `get_docs_section_tool`). Verify public APIs,
 test artifacts, dynamic dispatch, and generated entry points before changing
 source. Suggestions include `execution_plan` with minimum safe steps, required
 tests, rollback guidance, and defer conditions. Suggestion payloads also include

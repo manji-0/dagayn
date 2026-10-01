@@ -79,18 +79,29 @@ then symbols, if the list is long.
 
 ## Evidence
 
-Reach comes from the graph; correctness from `source_of`; user-visible
-effect from a reproduction or CLI output. Do not mix those in one claim.
+<!-- dagayn trust tiers -->
+Reach comes from the graph, correctness from `source_of`, and user-visible
+effect from a reproduction; keep them apart in a claim. Full rules:
+`get_docs_section_tool(section_name="trust")`.
 
-- **Highest** — authored `CROSS_ARTIFACT` contracts
-  (`implemented_by` / `implements_contract`, `evidence_type=authored`) and
-  the `source_of` span of the linked code on a fresh orientation.
-- **Medium** — `EXTRACTED` directive dependencies (`constrained-by`,
-  `blocked-by`, …), explanatory doc roles, and structural importers /
-  implementations lists.
-- **Low** — `heuristic_reachable` bridges, empty `implementations_of` /
-  `importers_of` on a degraded orientation, or treating prose as implemented
-  without a code `source_of`.
+- **Highest** — on a current graph (`sync.state` is `commit_synced` or
+  `worktree_ahead`): `HIGH` and `EXTRACTED` edges, whether the parser or a
+  SCIP index (`resolved_by: "scip"`) settled them; `source_of` spans;
+  authored doc contracts (`evidence_type=authored`).
+- **Medium** — structure, not correctness: `MEDIUM` (inferred) edges,
+  `reason_codes`, blast radius, flows, communities, metrics, suggestions,
+  explanatory doc links, and search hits.
+- **Low** — a hypothesis until `source_of` or a reproduction confirms it:
+  `LOW` edges, `heuristic_reachable` links, a file-level `tests_for` of 0,
+  `truncated` or `ambiguous` results, and answers about files changed since
+  the graph was built (`sync.state` `commit_drift` or `worktree_behind`).
+<!-- /dagayn trust tiers -->
+
+In document terms: authored `implemented_by` / `implements_contract` links
+are Highest once the linked code's `source_of` confirms it; explanatory roles
+and directive dependencies are Medium; an empty `implementations_of` or
+`importers_of` is not proof that nothing depends on the doc.
+
 
 ## Stage 3 — Read the body
 

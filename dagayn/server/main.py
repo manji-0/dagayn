@@ -429,10 +429,10 @@ async def get_minimal_context_tool(
     the repair. Call ``ensure_graph_tool`` if you must wait. Offloaded via
     ``asyncio.to_thread`` so sqlite/flock cannot stall the stdio loop.
 
-    Trust: use orientation fields here before asserting. If orientation shows
-    ``graph_describes_another_commit`` or ``graph_built_by_older_extractor``,
-    treat later edges as Low until refreshed. Risk / community / flow hints
-    from this tool are Medium structure leads, not correctness proof.
+    Trust: ``sync.state`` ``commit_drift`` / ``worktree_behind`` means answers
+    about files changed since the build are hypotheses until refreshed; risk,
+    community, and flow hints are structure, not correctness
+    (``get_docs_section_tool(section_name="trust")``).
 
     Args:
         task: What you are doing (e.g. "review PR #42", "debug login timeout").
@@ -497,14 +497,10 @@ def query_graph_tool(
     points at the submodule, and ``import a.b`` does not count
     ``a/__init__.py``.
 
-    Trust ranking (do not mix in one claim):
-    - Highest: ``CALLS`` / importer edges with ``resolved_by: "scip"`` at
-      ``HIGH`` or ``EXTRACTED`` on a fresh orientation; ``source_of`` spans;
-      authored ``CROSS_ARTIFACT`` contracts.
-    - Medium: ``EXTRACTED`` ``TESTED_BY`` / directive deps; structural lists.
-    - Low: ``MEDIUM`` / ``LOW`` or non-SCIP calls; ``heuristic_reachable``;
-      file-level ``tests_for`` of 0; ``truncated`` / ``status="ambiguous"``.
-      Reach ≠ correctness ≠ user-visible effect.
+    Trust: ``HIGH`` / ``EXTRACTED`` edges and ``source_of`` spans are firm,
+    ``MEDIUM`` edges are inferred, and ``LOW`` edges, a file-level
+    ``tests_for`` of 0, and ``truncated`` / ``ambiguous`` results are
+    hypotheses (``get_docs_section_tool(section_name="trust")``).
     """
     return _tool("query_graph")(
         pattern=pattern,
@@ -533,11 +529,8 @@ def semantic_search_nodes_tool(
     on the server. Falls back to FTS5 / keyword matching when no matching
     embeddings exist for the given provider.
 
-    Trust: hits are discovery, not proof. Hybrid / embedding results are Medium
-    start-node leads; ``fts_only`` / keyword hits are Medium name candidates
-    (not semantic ranking). ``keyword_fallback``, ``ambiguous``, and
-    ``multiple_exact_matches`` are Low until disambiguated. Hand the best hit
-    to ``query_graph_tool(pattern="source_of")`` before asserting behavior.
+    Trust: hits are discovery, not proof; read the chosen node's ``source_of``
+    before asserting behavior.
 
     Args:
         query: Search string to match against node names.
@@ -632,8 +625,9 @@ def get_docs_section_tool(
     Returns only the requested section content for minimal token usage.
     Use this before answering any user question about the plugin.
 
-    Available sections: usage, review-delta, review-pr, commands, legal,
-    watch, embeddings, languages, troubleshooting.
+    Available sections: usage, trust, review-delta, review-pr, commands, legal,
+    watch, embeddings, languages, troubleshooting. ``trust`` says how much each
+    kind of graph answer proves.
 
     Args:
         section_name: The section to retrieve (e.g. "review-delta", "usage").
@@ -720,12 +714,8 @@ def architecture_analysis_tool(
     Modes cover overview health, communities, hubs/bridges, knowledge gaps,
     surprising connections, and ADP/SDP/SAP metrics or violations.
 
-    Trust: architecture ``reason_codes``, rankings, and metric scores are
-    **Medium** structure leads — cite thresholds/counts, do not treat them as
-    automatic design bugs. Promote to Highest only after ``source_of`` (and,
-    for call-based ``implementation`` profiles, SCIP ``HIGH``/``EXTRACTED``
-    edges) on a fresh orientation. ``truncated`` / empty results with
-    ``zero_result_reason`` stay Low for absence claims.
+    Trust: reason codes, rankings, and metrics are structure leads, not design
+    bugs; cite their counts and thresholds.
     """
     return _tool("architecture_analysis_func")(
         mode=mode,
@@ -769,12 +759,8 @@ async def review_tool(
     - impact: blast-radius walk (``max_depth`` hops)
     - affected_flows: flows touched by the change set
 
-    Trust: ``reason_codes``, blast radius, and affected flows are **Medium**
-    structure leads. Confirm bugs with ``source_of`` or a reproduction
-    (Highest when paired with SCIP ``HIGH``/``EXTRACTED`` edges on a fresh
-    orientation). File-level ``tests_for`` of 0, ``heuristic_reachable`` doc
-    hits, and ``truncated``/``ambiguous`` results are Low — not proof of
-    absence or of a defect.
+    Trust: reason codes, blast radius, and flows show reach, not correctness;
+    confirm a bug with ``source_of`` or a reproduction.
     """
     return await asyncio.to_thread(
         _tool("review_func"),
@@ -842,11 +828,9 @@ def refactor_tool(
     - suggest: Get graph-backed refactoring suggestions, including remove,
       move, split, and document candidates.
 
-    Trust: suggestions and dead-code hits are **Medium** leads. Public APIs,
-    dynamic dispatch, generated code, and framework entry points often lack
-    static callers — verify with ``source_of`` before removing or moving.
-    Concern-separation profiles are Medium pressure signals, not correctness
-    bugs. Non-SCIP / ``LOW`` call gaps are Low trust for "unused" claims.
+    Trust: suggestions and dead-code hits are leads; public APIs, dynamic
+    dispatch, and entry points often have no static caller, so verify with
+    ``source_of`` before removing or moving.
 
     Args:
         mode: Operation mode: "rename", "dead_code", or "suggest".

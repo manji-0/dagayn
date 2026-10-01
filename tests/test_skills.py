@@ -3088,3 +3088,58 @@ def test_skill_descriptions_survive_yaml_parsing():
         raw = next(line for line in frontmatter.splitlines() if line.startswith("description:"))
         parsed = yaml.safe_load(frontmatter)["description"]
         assert parsed == raw[len("description:") :].strip(), skill.name
+
+
+def test_skill_trust_tiers_match_the_canonical_block():
+    """Every skill that ranks graph evidence carries the one shared summary, so
+    the tiers cannot drift apart between skills or from the installed
+    instructions."""
+    from dagayn.skills.skill_files import _resolve_source_skills_dir
+    from dagayn.skills.trust import TRUST_TIERS_BLOCK, TRUST_TIERS_END, TRUST_TIERS_START
+
+    source = _resolve_source_skills_dir()
+    assert source is not None
+    carriers = []
+    for skill in sorted(source.iterdir()):
+        text = (skill / "SKILL.md").read_text()
+        if TRUST_TIERS_START not in text:
+            continue
+        carriers.append(skill.name)
+        start = text.index(TRUST_TIERS_START)
+        end = text.index(TRUST_TIERS_END) + len(TRUST_TIERS_END)
+        assert text[start:end] == TRUST_TIERS_BLOCK, skill.name
+    assert {"review-changes", "explore-codebase", "debug-issue"} <= set(carriers)
+    assert TRUST_TIERS_BLOCK in _instructions_module._CLAUDE_MD_SECTION
+
+
+def test_trust_tiers_name_only_visible_fields():
+    """Agents can only act on fields the tools return: orientation hides
+    ``graph_health.reason_codes``, and ``resolved_by`` exists only on SCIP
+    call edges."""
+    from dagayn.skills.trust import TRUST_TIERS
+
+    assert "graph_describes_another_commit" not in TRUST_TIERS
+    assert "importer" not in TRUST_TIERS
+    assert "sync.state" in TRUST_TIERS
+
+
+def test_docs_trust_section_is_served_whole():
+    from dagayn.tools.docs import get_docs_section
+
+    repo = Path(__file__).resolve().parent.parent
+    result = get_docs_section("trust", repo_root=str(repo))
+    content = result["content"]
+    assert "Highest" in content and "Low" in content
+    assert not content.endswith("(truncated)")
+
+
+def test_default_tool_docstrings_stay_within_budget():
+    """Tool descriptions are sent on every session; long guidance belongs in
+    ``get_docs_section_tool`` sections instead."""
+    import dagayn.server.main as server
+
+    total = 0
+    for name in server._DEFAULT_MCP_TOOL_NAMES:
+        tool = getattr(server, name)
+        total += len(getattr(tool, "fn", tool).__doc__ or "")
+    assert total <= 8500, total

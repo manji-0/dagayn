@@ -60,24 +60,23 @@ the selected embedding mode so exploration chooses the right search strategy.
 
 ## Evidence
 
-Reach comes from the graph; correctness from `source_of`; user-visible
-effect from a reproduction or CLI output. Do not mix those in one claim.
+<!-- dagayn trust tiers -->
+Reach comes from the graph, correctness from `source_of`, and user-visible
+effect from a reproduction; keep them apart in a claim. Full rules:
+`get_docs_section_tool(section_name="trust")`.
 
-- **Highest** — assert freely: on a graph whose orientation shows no
-  `graph_describes_another_commit` or `graph_built_by_older_extractor`,
-  `CALLS` / importer edges with `resolved_by: "scip"` at `HIGH` or
-  `EXTRACTED`; the `source_of` span those edges point at; authored
-  `CROSS_ARTIFACT` contracts (`implemented_by` / `implements_contract`,
-  `evidence_type=authored`).
-- **Medium** — structure only, not correctness: `review_tool`
-  `reason_codes`, blast radius, affected flows; `EXTRACTED` `TESTED_BY`
-  and directive dependencies; FTS hits when embeddings are empty or
-  `embedding_health` is not available (keyword candidates, not semantic
-  ranking).
-- **Low** — hypothesis until `source_of` or a reproduction: `MEDIUM` /
-  `LOW` or non-SCIP calls; `heuristic_reachable`; a file-level
-  `tests_for` of 0; `truncated`, `status="ambiguous"`, or absences on a
-  degraded orientation.
+- **Highest** — on a current graph (`sync.state` is `commit_synced` or
+  `worktree_ahead`): `HIGH` and `EXTRACTED` edges, whether the parser or a
+  SCIP index (`resolved_by: "scip"`) settled them; `source_of` spans;
+  authored doc contracts (`evidence_type=authored`).
+- **Medium** — structure, not correctness: `MEDIUM` (inferred) edges,
+  `reason_codes`, blast radius, flows, communities, metrics, suggestions,
+  explanatory doc links, and search hits.
+- **Low** — a hypothesis until `source_of` or a reproduction confirms it:
+  `LOW` edges, `heuristic_reachable` links, a file-level `tests_for` of 0,
+  `truncated` or `ambiguous` results, and answers about files changed since
+  the graph was built (`sync.state` `commit_drift` or `worktree_behind`).
+<!-- /dagayn trust tiers -->
 
 ## Tips
 

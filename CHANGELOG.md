@@ -6,6 +6,14 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- Skills, the installed agent instructions (`CLAUDE.md`, `AGENTS.md`, ...),
+  and the MCP tool descriptions share one trust ranking (Highest / Medium /
+  Low), with the full rules in `get_docs_section_tool(section_name="trust")`.
+  The earlier wording keyed freshness on orientation codes that
+  `get_minimal_context_tool` does not return (it now uses `sync.state`),
+  ranked every non-SCIP call edge as Low regardless of its tier, and cited a
+  `resolved_by` field on import edges that does not exist. The default tool
+  descriptions shrink back to one trust line each.
 - `callers_of` on a package name (`subprocess`, `std`, `builtins`,
   `net/http`) lists the callers of that package, as
   `docs/CALL-RESOLUTION.md` promises; it used to search for a symbol of that

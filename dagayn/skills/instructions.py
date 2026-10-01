@@ -12,6 +12,7 @@ from pathlib import Path
 
 from ..atomic_write import write_text_atomic
 from .platforms import logger, normalize_platform_target
+from .trust import TRUST_TIERS_BLOCK
 
 _CLAUDE_MD_SECTION_MARKER = "<!-- dagayn MCP tools -->"
 _MARKDOWN_POLICY_MARKER = "<!-- dagayn markdown policy -->"
@@ -175,24 +176,8 @@ advanced/maintenance tools.
 
 ### How to judge analysis output
 
-Reach comes from the graph; correctness from `source_of`; user-visible
-effect from a reproduction or CLI output. Do not mix those in one claim.
+{TRUST_TIERS_BLOCK}
 
-- **Highest** — assert freely: on a graph whose orientation shows no
-  `graph_describes_another_commit` or `graph_built_by_older_extractor`,
-  `CALLS` / importer edges with `resolved_by: "scip"` at `HIGH` or
-  `EXTRACTED`; the `source_of` span those edges point at; authored
-  `CROSS_ARTIFACT` contracts (`implemented_by` / `implements_contract`,
-  `evidence_type=authored`).
-- **Medium** — structure only, not correctness: `review_tool` /
-  architecture `reason_codes`, blast radius, affected flows; `EXTRACTED`
-  `TESTED_BY` and directive dependencies; FTS hits when embeddings are
-  empty or `embedding_health` is not available (keyword candidates, not
-  semantic ranking).
-- **Low** — hypothesis until `source_of` or a reproduction: `MEDIUM` /
-  `LOW` or non-SCIP calls; `heuristic_reachable`; a file-level
-  `tests_for` of 0; `truncated`, `status="ambiguous"`, or absences on a
-  degraded orientation.
 - Prefer outputs that expose metrics, thresholds, counts, reason codes, and
   `truncated`/`total` fields; mention those numbers when making recommendations.
 - Check test coverage with `query_graph_tool` pattern=\"tests_for\" before claiming a
