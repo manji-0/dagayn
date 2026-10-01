@@ -910,10 +910,12 @@ pub(super) fn resolve_rust_call_targets(
             // (`res.json()`) must not bind to a same-named declaration, nor
             // may a call into an external package (`react::render`), nor one
             // on a receiver typed by a class of another file (`store:
-            // GraphStore`), which resolution across files binds by type.
+            // GraphStore`), which resolution across files binds by type, nor
+            // one on an imported module (`receiver`: `query.get_impact()`).
             if matches!(edge.kind, EdgeKind::Calls | EdgeKind::References)
                 && edge.extra["receiver_unknown"] != true
                 && edge.extra.get("receiver_type").is_none()
+                && edge.extra.get("receiver").is_none()
                 && !is_external_call(&edge.extra)
                 && let Some(target) = resolve_same_file_call_target(
                     file_path,

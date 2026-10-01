@@ -113,8 +113,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // types type their receivers.
         // 8: a member call on the result of another call records it
         // (`receiver_from`), for its declared return type to type the receiver.
+        // 9: `super().m()` is typed by the enclosing class's first base
+        // (`receiver_type`), or unknown without one, never the caller's own `m`.
         extractor: "python",
-        version: 8,
+        version: 9,
         languages: &["python", "notebook"],
     },
     ExtractorVersion {
@@ -184,8 +186,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 7: member calls record what types their receiver (`receiver_type` for a
         // class of another file, `receiver_unknown`, and `receiver_from` for the
         // call it came from) and functions their declared `return_type`.
+        // 8: a cgo call (`C.f()`, `receiver: "C"`) never binds to a function
+        // of the file.
         extractor: "go",
-        version: 7,
+        version: 8,
         languages: &["go"],
     },
     ExtractorVersion {

@@ -183,6 +183,46 @@ fn package_returned(family: &str, package: &str, stdlib: bool, symbol: &str) -> 
     ))
 }
 
+/// Rust accessors whose result derefs to what the cell or lock holds
+/// (`Ref<T>`, `MutexGuard<T>`), as the owner and method an
+/// `external_symbol` spells; `borrow`, `borrow_mut`, and `lock` also
+/// without one.
+const RUST_GUARD_ACCESSORS: &[&str] = &[
+    "Mutex::get_mut",
+    "Mutex::lock",
+    "Mutex::try_lock",
+    "RefCell::borrow",
+    "RefCell::borrow_mut",
+    "RefCell::try_borrow",
+    "RefCell::try_borrow_mut",
+    "RwLock::read",
+    "RwLock::try_read",
+    "RwLock::try_write",
+    "RwLock::write",
+    "borrow",
+    "borrow_mut",
+    "lock",
+];
+
+/// Whether the value a Rust call chain gives (`external_symbol`
+/// `RefCell::borrow`, `Mutex::lock()::unwrap`) is a guard of a cell or a
+/// lock, unwrapped or not: a method on it is the contents'
+/// (`bindings.borrow().snapshot()` is the bindings type's), not the
+/// standard library's.
+fn derefs_to_contents(symbol: &str) -> bool {
+    let mut chain = symbol.trim_end_matches("()");
+    while let Some(rest) = ["()::unwrap", "()::expect"]
+        .iter()
+        .find_map(|suffix| chain.strip_suffix(suffix))
+    {
+        chain = rest;
+    }
+    let last = chain.rsplit("()::").next().unwrap_or(chain);
+    RUST_GUARD_ACCESSORS.iter().any(|accessor| {
+        last == *accessor || (accessor.contains("::") && last.ends_with(&format!("::{accessor}")))
+    })
+}
+
 /// What a returned type is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Returned {
@@ -1109,6 +1149,10 @@ pub(crate) fn resolve_returned_receivers(tx: &Transaction<'_>) -> Result<i64> {
             } else if family == "rust"
                 && inner_extra.get("external").and_then(Value::as_bool) == Some(true)
                 && (!unwrap || !graph.visible(family, &method, &file, &import_targets))
+                && !inner_extra
+                    .get("external_symbol")
+                    .and_then(Value::as_str)
+                    .is_some_and(derefs_to_contents)
             {
                 // A Rust method of what a package returned (`iter().map()`,
                 // `tree.root_node().kind()`) is one of the package's types.

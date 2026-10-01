@@ -463,6 +463,21 @@ fn bind_bare_call_targets(
             continue;
         }
         let mut candidates = index.get(&target_qualified).cloned().unwrap_or_default();
+        // `x.m()` on a receiver of unknown type is not a call on the
+        // caller's own object (`this.m()` / `self.m()` are typed), so a
+        // member of a class or function enclosing the caller is not its
+        // target: `this.item.show()` is the item's `show`, not the caller
+        // class's.
+        if receiver_unknown {
+            candidates.retain(|qn| {
+                let Some((file, symbol)) = qn.split_once("::") else {
+                    return true;
+                };
+                !symbol.rsplit_once('.').is_some_and(|(owner, _)| {
+                    source_qualified.starts_with(&format!("{file}::{owner}."))
+                })
+            });
+        }
         // A bare Rust call names a function a `use` brought in, i.e. one at
         // the top of its module file, never a method or a function of an
         // inline module such as `mod tests`.

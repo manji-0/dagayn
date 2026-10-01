@@ -178,6 +178,12 @@ carry no receiver metadata.
 A chain repeating a method (`Build::new().flag(a).flag(b)`) records the
 receiver before the repeats: one line holds a single edge per target.
 
+Python `super().m()` is typed by the enclosing class's first base
+(`receiver_type`), or `receiver_unknown` when the class names none; it
+never binds to the caller's own `m`. A call on an imported module
+(`receiver`, Python `query.run()`, Go's cgo `C.f()`) never binds to a
+function of the file.
+
 ## Post-processing passes
 
 <!-- derived-from ./ARCHITECTURE.md#post-processing -->
@@ -194,7 +200,9 @@ transaction:
    `receiver_type`, or import visibility (Python `__init__.py` imports
    count as re-exports), as [SCHEMA.md](./SCHEMA.md#edges) describes. Calls
    with `receiver_from` wait for step 4; Rust calls with `receiver_unknown`
-   are never bound by name.
+   are never bound by name, and those of other languages never to a member
+   of a class or function enclosing the caller (`this.item.show()` is not
+   the caller class's `show`).
 3. **Enum variants.** A Rust call of a variant (`receiver_type` naming an
    enum whose `variants` holds the name) binds to the enum. `HIGH`.
 4. **Twice, so a call typed in the first round can type the next:**
@@ -206,7 +214,10 @@ transaction:
      external to the type's package (the declaring file's imports, glob
      imports included, package qualifiers such as `http.Client` against
      `net/http`, and each language's built-in types). A Rust method of what
-     a package call returned belongs to that package. In Python and
+     a package call returned belongs to that package, except through a
+     cell or lock guard (`RefCell::borrow`, `borrow_mut`, `Mutex::lock`,
+     `RwLock::read` / `write`), whose value derefs to its contents
+     (`bindings.borrow().snapshot()` is not `std`'s). In Python and
      JavaScript / TypeScript, a package call of known return type types its
      result by a table (`re.match` a `re.Match`, `execute` a
      `sqlite3.Cursor`, `vscode.workspace.getConfiguration` a

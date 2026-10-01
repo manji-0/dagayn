@@ -1683,6 +1683,14 @@ fn python_mark_receiver(
         Some(_) => return,
         None => {}
     }
+    if receiver.kind() == "call"
+        && receiver
+            .child_by_field_name("function")
+            .is_some_and(|function| node_text(function, context.source) == "super")
+    {
+        python_mark_super_receiver(receiver, context, extra);
+        return;
+    }
     let known = match receiver.kind() {
         "identifier" => {
             let name = node_text(receiver, context.source);
@@ -1691,9 +1699,6 @@ fn python_mark_receiver(
                 || context.class_names.contains(&name)
                 || context.bindings.borrow().is_bound(&name)
         }
-        "call" => receiver
-            .child_by_field_name("function")
-            .is_some_and(|function| node_text(function, context.source) == "super"),
         _ => false,
     };
     if !known {
@@ -1701,6 +1706,33 @@ fn python_mark_receiver(
         if let Some(origin) = python_call_origin(receiver, context) {
             extra["receiver_from"] = origin.to_json();
         }
+    }
+}
+
+/// `super().m()` is a method of a base class, never the caller's own `m`:
+/// the receiver is typed by the enclosing class's first base
+/// (`class AuthService(BaseService)` gives `BaseService`), and is unknown
+/// when the class names none (`object`'s).
+fn python_mark_super_receiver(
+    receiver: tree_sitter::Node<'_>,
+    context: &PythonParseContext<'_>,
+    extra: &mut Value,
+) {
+    let mut ancestor = receiver.parent();
+    while let Some(node) = ancestor {
+        if node.kind() == "class_definition" {
+            break;
+        }
+        ancestor = node.parent();
+    }
+    let base = ancestor
+        .map(|class| python_class_base_names(class, context.source))
+        .and_then(|bases| bases.into_iter().next())
+        .map(|base| base.rsplit('.').next().unwrap_or(&base).to_string())
+        .filter(|base| base != "object");
+    match base {
+        Some(base) => extra["receiver_type"] = json!(base),
+        None => extra["receiver_unknown"] = json!(true),
     }
 }
 

@@ -35,8 +35,24 @@ All notable changes to `dagayn` are documented here.
   have taken every untyped `map.get(key)` for `vscode`'s. Only types the
   code writes count as observations.
 
+- A Rust method on a cell or lock guard (`self.bindings.borrow().snapshot()`,
+  `state.lock().unwrap().save()`) no longer points at `std`: the guard
+  derefs to its contents. On this repository 215 such calls had been
+  `std`'s.
+- A member call on a receiver of unknown type no longer binds to a method of
+  a class enclosing the caller (`this.item.dispose()` inside `StatusBar` was
+  `StatusBar.dispose`).
+- Python `super().m()` binds to the base class's `m`
+  (`super().__init__(name)` in `AuthService(BaseService)` was
+  `AuthService.__init__` itself), and a call on an imported module
+  (`query_module.get_impact_radius()`) no longer binds to a same-named
+  method of the file. Python and Go graphs re-parse once on the next
+  update.
+
 On this repository's v7.0.0 sources, calls left unresolved (`LOW`) went
-from 3,070 to 2,364.
+from 3,070 to 2,597; the last fixes turn about 230 wrong targets into
+unresolved ones, which a [SCIP comparison](docs/plans/SCIP-CALL-RESOLUTION.md)
+found.
 
 ## 7.0.0 — 2026-10-01
 

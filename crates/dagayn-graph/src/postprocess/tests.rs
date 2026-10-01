@@ -2468,3 +2468,132 @@ fn rust_orderings_compared_by_name_are_the_standard_librarys() {
     assert_eq!(targets, vec!["std".to_string(), "std".to_string()]);
     let _ = std::fs::remove_file(path);
 }
+
+#[test]
+fn methods_on_a_borrowed_cell_are_its_contents_not_the_standard_librarys() {
+    // `self.bindings.borrow().snapshot()`: `Ref<T>` derefs to the bindings
+    // type, so `snapshot` is not `std`'s. `std::fs::read(p)?.len()` still is.
+    let path = temp_db("returned-guard");
+    let mut store = GraphStore::open(&path).expect("open");
+    let package = |symbol: &str, line: i64| EdgeInput {
+        extra: json!({"external": true, "external_package": "std", "stdlib": true,
+                      "external_symbol": symbol}),
+        ..edge("CALLS", "src/a.rs::run", "std", "src/a.rs", line)
+    };
+    let from = |method: &str, call: &str, line: i64, unwrap: bool| EdgeInput {
+        extra: json!({"receiver_unknown": true,
+                      "receiver_from": {"call": call, "line": line, "unwrap": unwrap}}),
+        ..edge("CALLS", "src/a.rs::run", method, "src/a.rs", line)
+    };
+    store
+        .store_file_nodes_edges(
+            "src/a.rs",
+            &[file_node("src/a.rs"), function_node("run", "src/a.rs")],
+            &[
+                package("RefCell::borrow", 1),
+                from("snapshot", "borrow", 1, false),
+                package("Mutex::lock", 2),
+                from("restore", "lock", 2, true),
+                package("std::fs::read", 3),
+                from("len", "read", 3, true),
+            ],
+            "",
+            0,
+        )
+        .expect("store");
+    store.resolve_bare_call_targets().unwrap();
+    let rows = store
+        .conn
+        .prepare(
+            "SELECT line, target_qualified FROM edges WHERE kind = 'CALLS' \
+               AND json_extract(extra, '$.receiver_from') IS NOT NULL ORDER BY line",
+        )
+        .unwrap()
+        .query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })
+        .unwrap()
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(
+        rows,
+        vec![
+            (1, "snapshot".to_string()),
+            (2, "restore".to_string()),
+            (3, "std".to_string()),
+        ]
+    );
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn unknown_receivers_do_not_bind_to_the_callers_own_class() {
+    // `StatusBar.dispose` calls `this.item.dispose()`: the item's, not the
+    // class's own `dispose`. `reader.getStats()` still binds to the
+    // imported `Reader.getStats`.
+    let path = temp_db("unknown-receiver-own-class");
+    let mut store = GraphStore::open(&path).expect("open");
+    let unknown = |target: &str, line: i64| EdgeInput {
+        extra: json!({"receiver_unknown": true}),
+        ..edge(
+            "CALLS",
+            "src/bar.ts::StatusBar.dispose",
+            target,
+            "src/bar.ts",
+            line,
+        )
+    };
+    for (file, nodes, edges) in [
+        (
+            "src/reader.ts",
+            vec![
+                file_node("src/reader.ts"),
+                class_node("Reader", "src/reader.ts"),
+                method_node("getStats", "src/reader.ts", "Reader"),
+            ],
+            vec![],
+        ),
+        (
+            "src/bar.ts",
+            vec![
+                file_node("src/bar.ts"),
+                class_node("StatusBar", "src/bar.ts"),
+                method_node("dispose", "src/bar.ts", "StatusBar"),
+            ],
+            vec![
+                edge(
+                    "IMPORTS_FROM",
+                    "src/bar.ts",
+                    "src/reader.ts",
+                    "src/bar.ts",
+                    1,
+                ),
+                unknown("dispose", 2),
+                unknown("getStats", 3),
+            ],
+        ),
+    ] {
+        store
+            .store_file_nodes_edges(file, &nodes, &edges, "", 0)
+            .expect("store");
+    }
+    store.resolve_bare_call_targets().unwrap();
+    let rows = store
+        .conn
+        .prepare("SELECT line, target_qualified FROM edges WHERE kind = 'CALLS' ORDER BY line")
+        .unwrap()
+        .query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })
+        .unwrap()
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(
+        rows,
+        vec![
+            (2, "dispose".to_string()),
+            (3, "src/reader.ts::Reader.getStats".to_string()),
+        ]
+    );
+    let _ = std::fs::remove_file(path);
+}

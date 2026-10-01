@@ -640,3 +640,72 @@ fn python_receivers_record_the_call_they_came_from() {
         serde_json::json!({"call": "pool", "line": 5, "unwrap": false})
     );
 }
+
+#[test]
+fn python_super_calls_are_typed_by_the_base_class_never_the_callers_own() {
+    // `super().__init__(name)` in `AuthService(BaseService)` is
+    // `BaseService.__init__`, not `AuthService.__init__` itself; with no
+    // base it is `object`'s, so it binds to nothing in the file.
+    let source = br#"class BaseService:
+    def __init__(self, name):
+        self.name = name
+
+class AuthService(BaseService):
+    def __init__(self, name):
+        super().__init__(name)
+
+class Plain:
+    def __init__(self):
+        super().__init__()
+"#;
+    let (_, edges) = parse_python("svc.py", source);
+    let init_calls = edges
+        .iter()
+        .filter(|edge| edge.kind == EdgeKind::Calls && edge.target.ends_with("__init__"))
+        .map(|edge| {
+            (
+                edge.source.as_str(),
+                edge.target.as_str(),
+                edge.extra["receiver_type"].as_str(),
+                edge.extra["receiver_unknown"].as_bool(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        init_calls,
+        vec![
+            (
+                "svc.py::AuthService.__init__",
+                "__init__",
+                Some("BaseService"),
+                None
+            ),
+            ("svc.py::Plain.__init__", "__init__", None, Some(true)),
+        ]
+    );
+}
+
+#[test]
+fn python_calls_on_an_imported_module_never_bind_to_a_same_file_method() {
+    // `query_module.get_impact_radius()` is the module's function, not the
+    // `get_impact_radius` of a stub class the test declares.
+    let source = br#"from dagayn.tools import query as query_module
+
+class _DummyStore:
+    def get_impact_radius(self):
+        return {}
+
+def test_budget():
+    query_module.get_impact_radius()
+"#;
+    let (_, edges) = parse_python("tests/test_tools.py", source);
+    let call = edges
+        .iter()
+        .find(|edge| edge.kind == EdgeKind::Calls && edge.target.ends_with("get_impact_radius"))
+        .expect("call");
+    assert_ne!(
+        call.target,
+        "tests/test_tools.py::_DummyStore.get_impact_radius"
+    );
+    assert_eq!(call.extra["receiver"], "query_module");
+}
