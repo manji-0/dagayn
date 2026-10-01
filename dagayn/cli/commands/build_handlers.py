@@ -339,6 +339,7 @@ def handle_build_command(args: argparse.Namespace, repo_root: Path) -> None:
         full_rebuild=True,
         repo_root=str(repo_root),
         postprocess=pp,
+        scip=bool(getattr(args, "scip", False)),
         **_local_embedding_kwargs(args),
     )
     parsed = result.get("files_parsed", 0)
@@ -348,6 +349,13 @@ def handle_build_command(args: argparse.Namespace, repo_root: Path) -> None:
     if result.get("errors"):
         print(f"Errors: {len(result['errors'])}")
     _print_local_embedding_summary(result)
+    for run in result.get("scip_overlay") or []:
+        print(
+            f"SCIP overlay ({run.get('language')}): {run.get('calls', 0)} calls, "
+            f"{run.get('rewritten_to_node', 0)} to nodes, "
+            f"{run.get('rewritten_to_package', 0)} to packages, "
+            f"{run.get('confirmed', 0)} confirmed, {run.get('stale_skipped', 0)} stale"
+        )
     if pp != "none":
         _print_postprocess_summary(result)
     if result.get("status") == "error":

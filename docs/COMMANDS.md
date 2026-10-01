@@ -45,6 +45,22 @@ or `not_indexed`) and provider-level vector counts. It also prints the VCS
 branch/revision recorded at build time and warns when the working copy has
 moved to a different git branch/commit or SVN path/revision.
 
+### SCIP call resolution
+
+<!-- derived-from ./plans/SCIP-CALL-RESOLUTION.md -->
+
+`dagayn build --scip` settles call targets with the SCIP indexers this
+machine has before post-processing: `rust-analyzer scip` at a Cargo workspace
+root, and `scip-typescript` (through `npx`) in each directory holding a
+`tsconfig.json` and installed `node_modules`. The indexes are written under
+`.dagayn/scip/`. A missing indexer, a failed run, or a missing prerequisite
+skips that language with a warning and keeps the targets resolution gives.
+`DAGAYN_SCIP_RUST` and `DAGAYN_SCIP_TYPESCRIPT` replace the indexer commands,
+and `DAGAYN_SCIP_TIMEOUT` bounds each run (seconds, default 900). The overlay
+runs only on a full `build`; `update` re-resolves the files it re-parses as
+before, until the next `build --scip`. See
+[CALL-RESOLUTION.md](./CALL-RESOLUTION.md#scip-overlay).
+
 ### Local embedding refresh
 
 <!-- derived-from ./LOCAL-EMBEDDINGS.md -->

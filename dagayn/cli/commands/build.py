@@ -31,6 +31,14 @@ def register_commands(sub: argparse._SubParsersAction) -> CommandRegistry:
         action="store_true",
         help="Skip all post-processing (raw parse only)",
     )
+    build_cmd.add_argument(
+        "--scip",
+        action="store_true",
+        help=(
+            "Settle call targets with the SCIP indexers found on this machine "
+            "(rust-analyzer, scip-typescript) before post-processing"
+        ),
+    )
     _add_local_embedding_args(build_cmd)
 
     # update

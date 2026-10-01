@@ -701,7 +701,11 @@ pub(crate) fn mark_deref_calls(tx: &Transaction<'_>) -> Result<i64> {
 
 /// Calls of a method on a receiver of known type, by `(language family,
 /// method)`: how many reach each package, and whether it is the standard
-/// library.
+/// library. Calls a SCIP index settled (`resolved_by`) are not counted: the
+/// index types nearly every call of the files it covers, and a method name
+/// that one package's typed calls dominate there (`db.exec()` of
+/// better-sqlite3) would take every untyped call of that name elsewhere
+/// (`child_process.exec()`).
 type Observations = HashMap<(&'static str, String), HashMap<String, (usize, bool)>>;
 
 /// How many typed calls a method name needs before its unknown-receiver
@@ -719,7 +723,8 @@ fn observed_methods(tx: &Transaction<'_>) -> Result<Observations> {
                 json_extract(extra, '$.external_symbol') FROM edges \
          WHERE kind = 'CALLS' AND COALESCE(json_extract(extra, '$.external'), 0) = 1 \
            AND json_extract(extra, '$.external_symbol') IS NOT NULL \
-           AND COALESCE(json_extract(extra, '$.inferred_from'), '') = ''",
+           AND COALESCE(json_extract(extra, '$.inferred_from'), '') = '' \
+           AND json_extract(extra, '$.resolved_by') IS NULL",
     )?;
     let rows = stmt.query_map([], |row| {
         Ok((

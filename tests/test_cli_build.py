@@ -293,6 +293,7 @@ def test_handle_runs_full_build_without_postprocess(tmp_path, monkeypatch, capsy
             "full_rebuild": True,
             "repo_root": str(tmp_path),
             "postprocess": "none",
+            "scip": False,
             "local_embedding": "none",
             "local_embedding_mode": None,
             "local_embedding_port": None,
@@ -304,6 +305,36 @@ def test_handle_runs_full_build_without_postprocess(tmp_path, monkeypatch, capsy
         }
     ]
     assert "Full build: 3 files, 5 nodes, 7 edges (postprocess=none)" in capsys.readouterr().out
+
+
+def test_handle_passes_scip_to_the_build(tmp_path, monkeypatch, capsys):
+    from dagayn.tools import build as build_tools
+
+    calls = []
+
+    def fake_build_or_update_graph(**kwargs):
+        calls.append(kwargs)
+        return {
+            "files_parsed": 1,
+            "total_nodes": 1,
+            "total_edges": 1,
+            "errors": [],
+            "scip_overlay": [
+                {"language": "rust", "calls": 9, "rewritten_to_node": 2, "confirmed": 5}
+            ],
+        }
+
+    monkeypatch.setattr(build_tools, "build_or_update_graph", fake_build_or_update_graph)
+
+    args = _parser().parse_args(["build", "--repo", str(tmp_path), "--skip-postprocess", "--scip"])
+
+    handle(args)
+
+    assert calls[0]["scip"] is True
+    assert (
+        "SCIP overlay (rust): 9 calls, 2 to nodes, 0 to packages, 5 confirmed, 0 stale"
+        in capsys.readouterr().out
+    )
 
 
 def test_handle_prints_build_postprocess_result_without_rerunning(tmp_path, monkeypatch, capsys):

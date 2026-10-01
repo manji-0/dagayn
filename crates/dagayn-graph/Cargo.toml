@@ -12,7 +12,10 @@ rusqlite.workspace = true
 regex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 thiserror.workspace = true
+scip = "0.10"
+protobuf = "3.7"
 
 [dev-dependencies]
 dagayn-parser = { path = "../dagayn-parser" }

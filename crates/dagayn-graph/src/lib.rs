@@ -307,6 +307,8 @@ pub enum GraphError {
     Clock,
     #[error("invalid embedding data: {0}")]
     InvalidEmbedding(String),
+    #[error("scip index error: {0}")]
+    Scip(String),
 }
 
 pub type Result<T> = std::result::Result<T, GraphError>;
@@ -605,6 +607,7 @@ mod japanese_fts;
 mod maintenance;
 mod node_queries;
 mod postprocess;
+pub use postprocess::ScipOverlayStats;
 mod query;
 mod relationship_edges;
 mod relationship_traversal;

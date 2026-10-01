@@ -643,6 +643,7 @@ def build_or_update_graph(
     extra_files: list[str] | None = None,
     embed_pass_seconds: float | None = None,
     embed_files: list[str] | None = None,
+    scip: bool = False,
 ) -> BuildPayload:
     """Build or incrementally update the code knowledge graph.
 
@@ -651,6 +652,9 @@ def build_or_update_graph(
                       only re-parse files changed since ``base``.
         repo_root: Path to the repository root. Auto-detected if omitted.
         base: Git ref for incremental diff (default: HEAD~1).
+        scip: On a full build, settle ``CALLS`` edges by the SCIP indexers
+            available for the repository's languages before post-processing
+            (see ``dagayn.scip_overlay``).
         extra_files: Files to re-index in addition to the git diff, for
             content drift the diff cannot see (see ``incremental_update``).
         postprocess: Post-processing level after build:
@@ -797,6 +801,13 @@ def build_or_update_graph(
 
         # Pass changed_files for incremental flow/community detection.
         changed = build_result.changed_files if not full_rebuild else None
+        scip_warnings: list[str] = []
+        if scip and full_rebuild and not no_changes:
+            from dagayn.scip_overlay import run_scip_overlay
+
+            scip_report = run_scip_overlay(store, Path(root), Path(db_path).parent / "scip")
+            build_result.scip_overlay = scip_report.runs
+            scip_warnings = scip_report.warnings
         if not no_changes:
             if postprocess == "none":
                 warnings = _run_postprocess(
@@ -890,6 +901,8 @@ def build_or_update_graph(
                 )
             if warnings:
                 build_result.warnings = warnings
+            if scip_warnings:
+                build_result.warnings = [*(build_result.warnings or []), *scip_warnings]
             if _local_embedding_requested(local_embedding):
                 run_embedding = True
     finally:

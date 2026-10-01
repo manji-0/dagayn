@@ -405,7 +405,8 @@ fn file_is_visible(
 /// type, or import visibility. Calls on the result of another call
 /// (`receiver_from`) wait for that call's return type to type them, so they
 /// are bound by name only when `on_returned_values`, after that pass could
-/// not (an untyped `makeBox()` in JavaScript).
+/// not (an untyped `makeBox()` in JavaScript). A callee a SCIP index found
+/// to be a local or a parameter (`callee_local`) is never bound.
 fn bind_bare_call_targets(
     tx: &Transaction<'_>,
     index: &HashMap<String, Vec<String>>,
@@ -425,6 +426,7 @@ fn bind_bare_call_targets(
                         AND COALESCE(json_extract(extra, '$.value_reference'), 0) = 1)) \
                AND target_qualified NOT LIKE '%::%' \
                AND COALESCE(json_extract(extra, '$.external'), 0) = 0 \
+               AND COALESCE(json_extract(extra, '$.callee_local'), 0) = 0 \
                AND (json_extract(extra, '$.receiver_from') IS NULL) = ?",
         )?;
         let mapped = stmt.query_map([!on_returned_values], |row| {

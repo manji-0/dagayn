@@ -77,40 +77,51 @@ What the numbers say:
 
 ### Where SCIP edges enter
 
-A new post-processing step, **SCIP overlay**, runs after
-`resolve_bare_call_targets` (and so after `TESTED_BY` is synced) on a full
-`build`:
+Implemented for Rust and TypeScript as `dagayn build --scip`
+(`dagayn/scip_overlay.py` runs the indexers; `GraphStore::apply_scip_overlay`
+in `crates/dagayn-graph/src/postprocess/scip_overlay.rs` applies an index).
+The overlay runs on a full `build`, **before** post-processing:
 
-1. For each language with an available indexer, run it on the working tree
-   and record the content hash of every file it indexed at that moment.
-2. For every `CALLS` edge in an indexed file whose hash still matches, find
-   the SCIP occurrence at the called name's position (the join of the proof
-   of concept).
-3. Rewrite the edge from SCIP's answer:
-   - a definition in the repository → the node whose range holds it
-     (innermost), `HIGH`, `resolved_by: "scip"`;
+1. For each language with an available indexer, run it on the working tree.
+2. For every `CALLS` edge in an indexed file whose content hash still
+   matches the graph's, find the SCIP reference at the called name's
+   position (the join of the proof of concept).
+3. Settle the edge from SCIP's answer:
+   - a definition in the repository → the innermost node holding it whose
+     name is the symbol's, `HIGH`, `resolved_by: "scip"`; an edge at a node
+     holding the definition (a class for its constructor) is confirmed;
    - an external symbol → its package (`std`/`core`/`alloc` fold to `std`;
-     `@types/x` to `x`; `python-stdlib` keeps the module's top-level name),
-     `external_symbol` from the SCIP descriptor, `HIGH`, `resolved_by:
-     "scip"`;
-   - a `local` symbol → keep the edge but drop any inferred target and set
-     `callee_local: true` (a closure or a callable parameter: genuinely not
-     static);
-   - no occurrence or several → leave the edge as the passes left it.
-4. Re-run `TESTED_BY` sync for the rewritten edges.
+     `@types/x` to `x`; `typescript` to `globalThis`), `external_symbol` from
+     the SCIP descriptors, `HIGH`, `resolved_by: "scip"`; an edge already
+     external keeps its package name;
+   - a local, a parameter, or a type parameter (scip-typescript gives a
+     parameter a global symbol defined inside its function) → an unresolved
+     edge records `callee_local: true`;
+   - no reference or several → leave the edge for the passes.
+
+Running before the passes means `TESTED_BY` sync, flows, and communities see
+the overlay's targets, and the passes, which only take edges whose target is
+neither a node nor a package, leave them alone. Observed-method inference
+does not learn from them: on the v7.0.0 sources it otherwise took
+`child_process.exec()` for better-sqlite3's.
+
+On the v7.0.0 sources, the overlay leaves 1,126 calls unresolved (`LOW`),
+against 2,597 without it: Rust 1,167 → 14, TypeScript 483 → 194; the
+whole `build --scip` takes about 15 s.
 
 When SCIP and dagayn disagree, SCIP wins for Rust and TypeScript. For
-Python, SCIP only fills edges dagayn left `LOW` and confirms (raises to
-`HIGH`) edges where both agree; it never overrides a dagayn binding, because
-pyright's `Unknown` is common and the Rust-extension bridge is invisible to
-it.
+Python (not yet wired), SCIP would only fill edges dagayn left `LOW` and
+confirm edges where both agree; it would never override a dagayn binding,
+because pyright's `Unknown` is common and the Rust-extension bridge is
+invisible to it.
 
 ### Incremental updates
 
 SCIP indexes a whole project, so it does not fit the per-file hook update.
 The two layers split by time:
 
-- `build`: Tree-sitter extraction, the inference passes, then the overlay.
+- `build --scip`: Tree-sitter extraction, the overlay, then the inference
+  passes for what the overlay left.
 - `update` (hook or daemon): a changed file is re-extracted by Tree-sitter
   and its edges come from the inference passes again, as today. Its hash no
   longer matches the index, so the overlay leaves it alone until the next

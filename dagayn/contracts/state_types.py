@@ -649,6 +649,7 @@ class BuildResult(BaseModel):
     embedding_orphans_pruned: int | None = None
     local_embedding_skipped: JsonObject | None = None
     local_embedding: JsonObject | None = None
+    scip_overlay: list[JsonObject] | None = None
     postprocess: PostprocessResult = Field(default_factory=PostprocessResult)
 
 

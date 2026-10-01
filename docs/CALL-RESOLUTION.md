@@ -46,6 +46,8 @@ parser; "post-processing" means the passes in
 | `confidence_tier` / `confidence` | extractor, post-processing | `HIGH` / `0.9` or `MEDIUM` / `0.6`; see [Confidence tiers](#confidence-tiers). |
 | `paths` | extractor | On a Rust `IMPORTS_FROM` to a crate: the paths one `use` imports from it (`["std::collections::HashMap", "std::collections::HashSet"]`). |
 | `inferred_from` | post-processing | `"observed_method"` when the package was inferred from typed calls of the same method name; `"return_table"` when the receiver was typed by a table of package return types (`re.match(..)` a `re.Match`). |
+| `resolved_by` | SCIP overlay | `"scip"` when a SCIP index settled the edge: it moved it to the definition's node or the symbol's package, or agreed with it. |
+| `callee_local` | SCIP overlay | `true` on an unresolved call whose callee the index reports as a local, a parameter, or a type parameter (a closure, a callback): nothing static names it. |
 | `receiver_type` | extractor, post-processing | The receiver's type when it is a class of another file (`store: GraphStore`). The target is the bare method name until resolution binds it. |
 | `receiver_unknown` | extractor | The receiver's type is unknown (`x.m()` with `x` untyped). The call is never bound to a same-named function of the file. |
 | `receiver_from` | extractor | `{"call": name, "line": L, "unwrap": bool}`: the receiver is the result of the call `name` on line `L` of the same caller (`store_conn(s).execute()`, or a variable assigned from it). `unwrap` is set when the result was taken out of a wrapper (`?`, `.unwrap()`, `await`, `try`, Go's first of several results). |
@@ -245,7 +247,8 @@ transaction:
    reach (`child.kind()` is `tree_sitter`'s), unless a function of that
    name is visible to the calling file. Only receivers whose type is written
    count as observations, not those a return table typed (a
-   `WorkspaceConfiguration.get` would take every untyped `map.get(key)`). `MEDIUM`, `inferred_from: "observed_method"`.
+   `WorkspaceConfiguration.get` would take every untyped `map.get(key)`) nor
+   those the SCIP overlay settled. `MEDIUM`, `inferred_from: "observed_method"`.
 7. **Return types again**, for `receiver_from` calls whose origin step 6
    typed (`conn.prepare(..)?.query_map(..)` once `prepare` is `rusqlite`'s).
 8. **`TESTED_BY`**: see below.
@@ -253,6 +256,41 @@ transaction:
 Native-binding resolution, which runs later in the pipeline, reads the
 called name of an `external` Python call from `external_symbol`, so calls
 into an extension module the repository builds still bridge to it.
+
+## SCIP overlay
+
+<!-- derived-from ./plans/SCIP-CALL-RESOLUTION.md#design -->
+
+`dagayn build --scip` runs, before the passes above, an overlay that
+settles `CALLS` edges by a SCIP index (Rust and TypeScript so far; see
+[COMMANDS.md](./COMMANDS.md#scip-call-resolution)). Each edge is matched to
+the index's reference at its called name's position: its line, or one of the
+next eight for a chain the extractor records at the expression's first line.
+A member call (one with receiver metadata) matches the name only after `.`,
+`::`, or `->`, so `map.into_iter().map(..)` finds the method, not the
+variable. Edges of files whose content no longer matches what the graph
+parsed are skipped.
+
+- A definition of the repository: the innermost node holding it whose name
+  is the symbol's (`constructor`, or the class, for a TypeScript
+  `<constructor>`). An edge already at that node, or at one containing the
+  definition, is confirmed; any other is moved there. `HIGH`.
+- A symbol defined elsewhere: its package, `external`, with `external_symbol`
+  as `Type::method` / `Type.method` (`std`, `core`, `alloc` are `std`;
+  `@types/x` is `x`; TypeScript's own library is `globalThis`; `@types/node`
+  modules are `node:<module>`). An edge already external is confirmed and
+  keeps its package name. `HIGH`.
+- A local, a parameter, or a type parameter: an unresolved edge records
+  `callee_local`, and bare-name binding never binds it; others are left.
+- No reference at the name, or several different ones: the edge is left.
+
+Settled edges record `resolved_by: "scip"`; confirming raises `MEDIUM` and
+`LOW` to `HIGH` and leaves other tiers. The passes above only touch edges
+whose target is neither a node nor a package, so they leave the overlay's
+results alone, and observed-method inference does not count them as
+observations: the index types nearly every call of the files it covers, and
+a method one package dominates there (`db.exec()` of better-sqlite3) would
+take every untyped call of that name elsewhere.
 
 ## TESTED_BY
 

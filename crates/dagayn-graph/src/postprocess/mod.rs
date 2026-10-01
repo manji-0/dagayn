@@ -10,9 +10,11 @@ mod manifest;
 mod native_bindings;
 mod reexports;
 mod returned;
+mod scip_overlay;
 mod terraform;
 mod tested_by;
 
+pub use scip_overlay::ScipOverlayStats;
 pub(crate) use tested_by::sync_tested_by_with_calls;
 
 #[cfg(test)]

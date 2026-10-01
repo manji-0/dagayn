@@ -523,6 +523,24 @@ impl PyGraphStore {
         self.with_store_mut(|store| store.resolve_bare_call_targets())
     }
 
+    /// Settles CALLS edges by a SCIP index; returns the overlay's counts as
+    /// JSON.
+    fn apply_scip_overlay_json(
+        &self,
+        index_path: &str,
+        prefix: &str,
+        repo_root: &str,
+    ) -> PyResult<String> {
+        self.with_store_mut(|store| {
+            let stats = store.apply_scip_overlay(
+                std::path::Path::new(index_path),
+                prefix,
+                std::path::Path::new(repo_root),
+            )?;
+            Ok(serde_json::to_string(&stats)?)
+        })
+    }
+
     fn resolve_bare_inheritance_targets(&self) -> PyResult<i64> {
         self.with_store_mut(|store| store.resolve_bare_inheritance_targets())
     }
