@@ -2752,7 +2752,9 @@ fn a_scip_index_settles_calls_by_the_reference_at_their_name() {
         )
         .unwrap();
 
-    let stats = store.apply_scip_overlay(&index_path, "", &root).unwrap();
+    let stats = store
+        .apply_scip_overlay(&index_path, "", &root, true)
+        .unwrap();
     assert_eq!(
         stats,
         ScipOverlayStats {
@@ -2912,4 +2914,100 @@ fn a_callee_a_scip_index_found_local_is_not_bound_by_name() {
         .unwrap();
     assert_eq!(target, "reinitializeFolder");
     let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn a_filling_scip_index_keeps_resolutions_answer() {
+    use protobuf::{EnumOrUnknown, Message};
+    use scip::types::{Document, Index, Occurrence, PositionEncoding};
+
+    // `helper()` is bound to `Other.helper` by resolution and to the
+    // top-level `helper` by the index: a filling index leaves it. `save()`
+    // is unresolved: filled.
+    let root = std::env::temp_dir().join(format!("dagayn-scip-fill-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let source = "def helper(): pass\ndef save(): pass\ndef run(s):\n    helper()\n    s.save()\n";
+    std::fs::write(root.join("a.py"), source).unwrap();
+    let lines = source.lines().collect::<Vec<_>>();
+    let occurrence = |row: usize, name: &str, symbol: &str, roles: i32| {
+        let start = lines[row].find(name).unwrap() as i32;
+        Occurrence {
+            range: vec![row as i32, start, start + name.len() as i32],
+            symbol: symbol.to_string(),
+            symbol_roles: roles,
+            ..Occurrence::default()
+        }
+    };
+    let helper = "scip-python python demo 0.1.0 `a`/helper().";
+    let save = "scip-python python demo 0.1.0 `a`/Store#save().";
+    let index = Index {
+        documents: vec![Document {
+            relative_path: "a.py".to_string(),
+            position_encoding: EnumOrUnknown::new(
+                PositionEncoding::UTF8CodeUnitOffsetFromLineStart,
+            ),
+            occurrences: vec![
+                occurrence(0, "helper", helper, 1),
+                occurrence(1, "save", save, 1),
+                occurrence(3, "helper", helper, 0),
+                occurrence(4, "save", save, 0),
+            ],
+            ..Document::default()
+        }],
+        ..Index::default()
+    };
+    let index_path = root.join("index.scip");
+    std::fs::write(&index_path, index.write_to_bytes().unwrap()).unwrap();
+
+    let path = temp_db("scip-fill");
+    let mut store = GraphStore::open(&path).expect("open");
+    let ranged = |name: &str, line: i64, end: i64| NodeInput {
+        line_start: line,
+        line_end: end,
+        ..function_node(name, "a.py")
+    };
+    store
+        .store_file_nodes_edges(
+            "a.py",
+            &[
+                file_node("a.py"),
+                ranged("helper", 1, 1),
+                ranged("save", 2, 2),
+                ranged("run", 3, 5),
+                NodeInput {
+                    line_start: 7,
+                    line_end: 8,
+                    ..method_node("helper", "a.py", "Other")
+                },
+            ],
+            &[
+                edge("CALLS", "a.py::run", "a.py::Other.helper", "a.py", 4),
+                EdgeInput {
+                    extra: json!({"receiver_unknown": true}),
+                    ..edge("CALLS", "a.py::run", "save", "a.py", 5)
+                },
+            ],
+            &sha256_hex(source.as_bytes()),
+            0,
+        )
+        .expect("store");
+    let stats = store
+        .apply_scip_overlay(&index_path, "", &root, false)
+        .unwrap();
+    assert_eq!((stats.left, stats.rewritten_to_node), (1, 1));
+    let targets = store
+        .conn
+        .prepare("SELECT target_qualified FROM edges WHERE kind = 'CALLS' ORDER BY line")
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(
+        targets,
+        vec!["a.py::Other.helper".to_string(), "a.py::save".to_string()]
+    );
+    let _ = std::fs::remove_file(path);
+    let _ = std::fs::remove_dir_all(root);
 }

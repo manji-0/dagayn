@@ -15,6 +15,13 @@ All notable changes to `dagayn` are documented here.
   a callback record `callee_local`. Missing indexers are warnings. On this
   repository's v7.0.0 sources, unresolved calls drop from 2,597 to 1,126
   (Rust 1,167 → 14, TypeScript 483 → 194) in a 15 s build.
+- `build --scip` also runs scip-go, scip-python, scip-java (Java/Kotlin,
+  only with `DAGAYN_SCIP_ALLOW_BUILD=1`, since it runs the project's build),
+  scip-clang, scip-dotnet, scip-ruby, scip-dart, scip-php, and scip-r for the
+  projects that need them. Their answers fill: what the extractor resolved
+  is kept. A project whose indexer is missing gets a `hint:` with the install
+  command and keeps dagayn's own resolution. With scip-python, this
+  repository's v7.0.0 sources drop to 926 unresolved calls.
 
 - A method on the result of a Python standard-library call of known return
   type points at that type's package: `conn.execute(..).fetchall()` is

@@ -807,6 +807,7 @@ def build_or_update_graph(
 
             scip_report = run_scip_overlay(store, Path(root), Path(db_path).parent / "scip")
             build_result.scip_overlay = scip_report.runs
+            build_result.scip_hints = scip_report.hints or None
             scip_warnings = scip_report.warnings
         if not no_changes:
             if postprocess == "none":

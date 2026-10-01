@@ -109,11 +109,13 @@ On the v7.0.0 sources, the overlay leaves 1,126 calls unresolved (`LOW`),
 against 2,597 without it: Rust 1,167 → 14, TypeScript 483 → 194; the
 whole `build --scip` takes about 15 s.
 
-When SCIP and dagayn disagree, SCIP wins for Rust and TypeScript. For
-Python (not yet wired), SCIP would only fill edges dagayn left `LOW` and
-confirm edges where both agree; it would never override a dagayn binding,
-because pyright's `Unknown` is common and the Rust-extension bridge is
-invisible to it.
+When SCIP and dagayn disagree, SCIP wins for Rust and TypeScript. Every
+other indexer (Go, Python, Java/Kotlin, C/C++, C#, Ruby, Dart, PHP, R) only
+fills: it keeps what the extractor resolved and settles the rest before the
+inference passes. With Python wired this way, the v7.0.0 sources drop to 926
+unresolved calls (Python 807 → 607), and the 1,482 Python calls into the Rust
+extension are kept. A project whose indexer is not installed gets an install
+hint and keeps dagayn's own resolution.
 
 ### Incremental updates
 
@@ -133,10 +135,13 @@ needed.
 
 ### Availability
 
-The overlay is opt-in at first (`dagayn build --scip`, or a config key),
-and per language: a missing indexer, a failed run, or a project without the
-prerequisites (no `node_modules`, no venv) skips that language with a
-warning and keeps today's result. Indexers are run, not bundled.
+The overlay is opt-in (`dagayn build --scip`) and per project: a project
+whose indexer is not installed gets a `hint:` with the install command, and a
+failed run or a project without its prerequisites (no `node_modules`, no
+`compile_commands.json`) is a warning; both keep today's result. scip-java
+runs the project's build with `clean`, so it also needs
+`DAGAYN_SCIP_ALLOW_BUILD=1`. Indexers are run, not bundled; the per-language
+table is in [COMMANDS.md](../COMMANDS.md#scip-call-resolution).
 
 ### Freezing the inference layer
 
@@ -173,10 +178,12 @@ effect on them can be measured on any graph before deletion.
   only if the overlay becomes cheap enough to run per update (an indexer
   that indexes single files, or a long-running rust-analyzer).
 
-- **Other languages.** Indexers exist for Java/Kotlin/Scala (`scip-java`),
-  Go (`scip-go`), C/C++ (`scip-clang`), C# (`scip-dotnet`), Ruby
-  (`scip-ruby`). Each needs the comparison above on a representative
-  repository before it joins the overlay.
+- **Other languages.** Go, Java/Kotlin, C/C++, C#, Ruby, Dart, PHP, and R
+  are wired, but only to fill; Go was run on a small module only, the others
+  not at all. Each needs the comparison above on a representative
+  repository before it can be authoritative, and its package naming mapped
+  (only Go import paths and Python modules are) before it names packages.
+  Scala support in the current scip-java is unverified.
 - **Tier.** `HIGH` for overlay edges matches "evidence written in the code"
   only loosely: it is evidence a compiler derived. A distinct marker
   (`resolved_by: "scip"`) is proposed either way so consumers can tell.
@@ -186,5 +193,6 @@ effect on them can be measured on any graph before deletion.
 - **Cost.** 26 s and 2.1 GB for Rust on this repository is fine for an
   explicit `build`, not for a hook. Larger workspaces need measuring.
 - **Python environment.** Discovery needs the venv's distributions passed
-  explicitly; the overlay should generate the `--environment` file from the
-  interpreter dagayn runs under.
+  explicitly; the overlay generates the `--environment` file from the
+  project's `.venv`, the active virtualenv, or dagayn's own interpreter, in
+  that order.

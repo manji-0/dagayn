@@ -36,6 +36,7 @@
   source paths, `handler` / `entry_point`) with confidence/evidence metadata
 - Markdown heading, body, reference, directive, and `dagayn:` documentation-link extraction
 - namespace-aware call resolution (shared packages/namespaces, class-declaring files, include/URI imports)
+- optional SCIP-backed call resolution (`dagayn build --scip`) for Rust, TypeScript/JavaScript, Go, Python, Java/Kotlin, C/C++, C#, Ruby, Dart, PHP, and R, with install hints for missing indexers
 - stronger mixed-monorepo testing across docs, app code, and infra
 - updated CI stack using `ruff` and `pyrefly`
 

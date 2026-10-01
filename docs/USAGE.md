@@ -81,6 +81,14 @@ See [RECIPES.md](./RECIPES.md#single-repo-watch--session-prepare) for session
 prepare and MCP serve variants.
 Use `dagayn build --force-full-build` (or `--force`) to delete the existing
 graph database and SQLite sidecar files before running a clean full parse.
+Use `dagayn build --scip` to have SCIP indexers settle call targets during the
+full build: Rust and TypeScript answers replace the extractor's, other
+languages' fill what it left unresolved, and a project whose indexer is not
+installed prints a `hint:` and keeps dagayn's own resolution. `update` and
+`watch` do not run indexers; files they re-parse keep dagayn's resolution
+until the next `build --scip`. See
+[COMMANDS.md](./COMMANDS.md#scip-call-resolution) for the indexers, their
+prerequisites, and the `DAGAYN_SCIP_*` variables.
 Do not keep another GraphStore open across that rebuild. Postprocess uses the
 same connection; embeddings run after it is closed. MCP queries wait for an
 in-flight build, and a build waits for in-flight MCP queries.

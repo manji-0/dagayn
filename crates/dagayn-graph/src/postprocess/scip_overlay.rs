@@ -176,7 +176,7 @@ fn name_columns(line: &str, name: &str, encoding: Encoding, member: bool) -> Vec
 
 /// The package a SCIP symbol belongs to, as dagayn names it, whether it is
 /// the standard library, and the symbol as `Type::method` / `Type.method`.
-fn external_target(symbol: &str, rust: bool) -> Option<(String, bool, String)> {
+fn external_target(symbol: &str, separator: &str) -> Option<(String, bool, String)> {
     let parsed = ::scip::symbol::parse_symbol(symbol).ok()?;
     let package = parsed.package.into_option()?;
     let descriptors = parsed.descriptors;
@@ -191,10 +191,27 @@ fn external_target(symbol: &str, rust: bool) -> Option<(String, bool, String)> {
                 .unwrap_or_else(|| "node".to_string());
             (module, true)
         }
-        (_, name) => (
+        ("cargo" | "npm", name) => (
             name.strip_prefix("@types/").unwrap_or(name).to_string(),
             false,
         ),
+        // scip-go: the import path is the first namespace (`net/http`), the
+        // standard library the `github.com/golang/go/src` module.
+        ("gomod", module) => (
+            descriptors.first()?.name.clone(),
+            module == "github.com/golang/go/src",
+        ),
+        // scip-python: the module is the first namespace (`os.path`), named
+        // by its top-level package as dagayn names it (`os`, `yaml`).
+        ("python", distribution) => {
+            let module = &descriptors.first()?.name;
+            (
+                module.split('.').next().unwrap_or(module).to_string(),
+                distribution == "python-stdlib",
+            )
+        }
+        // Other indexers name packages in ways not mapped yet.
+        _ => return None,
     };
     // Namespaces and files are the path; the type and member the symbol.
     let named = descriptors
@@ -202,7 +219,6 @@ fn external_target(symbol: &str, rust: bool) -> Option<(String, bool, String)> {
         .filter(|descriptor| matches!(descriptor.suffix.value(), 2 | 3 | 4 | 9))
         .map(|descriptor| descriptor.name.as_str())
         .collect::<Vec<_>>();
-    let separator = if rust { "::" } else { "." };
     let tail = named.len().saturating_sub(2);
     Some((name, stdlib, named[tail..].join(separator)))
 }
@@ -293,12 +309,15 @@ impl GraphStore {
     /// Settles `CALLS` edges by the SCIP index at `index_path` (see the
     /// module docs). `prefix` turns its document paths into the graph's
     /// (`dagayn-vscode/` for an index made in that directory); `repo_root`
-    /// holds the files the graph parsed.
+    /// holds the files the graph parsed. An `authoritative` index moves any
+    /// edge it disagrees with; otherwise it only settles edges resolution
+    /// left unresolved and confirms the ones it agrees with.
     pub fn apply_scip_overlay(
         &mut self,
         index_path: &Path,
         prefix: &str,
         repo_root: &Path,
+        authoritative: bool,
     ) -> Result<ScipOverlayStats> {
         let index = read_index(index_path, prefix)?;
         let tx = write_tx(&mut self.conn)?;
@@ -446,6 +465,8 @@ impl GraphStore {
             let external = extra.get("external").and_then(Value::as_bool) == Some(true);
             let raise = matches!(tier, ConfidenceTier::Medium | ConfidenceTier::Low)
                 .then_some(ConfidenceTier::High);
+            // Resolution's own answer, which only an authoritative index moves.
+            let kept = !authoritative && (at_node.is_some() || external);
             if is_callee_local(symbol) {
                 if at_node.is_none() && !external {
                     extra["callee_local"] = json!(true);
@@ -466,6 +487,10 @@ impl GraphStore {
                     settle(&mut extra);
                     write_edge(&tx, id, &target, &extra, raise)?;
                     stats.confirmed += 1;
+                    continue;
+                }
+                if kept {
+                    stats.left += 1;
                     continue;
                 }
                 let Some(node) = node_at(definition_file, *definition_line, &defined_names(symbol))
@@ -489,9 +514,15 @@ impl GraphStore {
                 stats.confirmed += 1;
                 continue;
             }
-            let Some((package, stdlib, symbol_name)) =
-                external_target(symbol, file.ends_with(".rs"))
-            else {
+            if kept {
+                stats.left += 1;
+                continue;
+            }
+            let separator = match file.rsplit('.').next() {
+                Some("rs" | "cc" | "cpp" | "cxx" | "hpp" | "hh" | "h") => "::",
+                _ => ".",
+            };
+            let Some((package, stdlib, symbol_name)) = external_target(symbol, separator) else {
                 stats.left += 1;
                 continue;
             };
@@ -519,7 +550,8 @@ mod tests {
 
     #[test]
     fn packages_and_symbols_are_named_as_dagayn_names_them() {
-        let target = |symbol: &str, rust: bool| external_target(symbol, rust);
+        let target =
+            |symbol: &str, rust: bool| external_target(symbol, if rust { "::" } else { "." });
         assert_eq!(
             target("rust-analyzer cargo alloc 1.0.0 vec/Vec#push().", true),
             Some(("std".to_string(), true, "Vec::push".to_string()))
@@ -560,6 +592,38 @@ mod tests {
                 false
             ),
             Some(("globalThis".to_string(), true, "Array.map".to_string()))
+        );
+    }
+
+    #[test]
+    fn go_and_python_packages_are_their_import_paths() {
+        let target = |symbol: &str| external_target(symbol, ".");
+        assert_eq!(
+            target("scip-go gomod github.com/golang/go/src go1.22 `net/http`/ListenAndServe()."),
+            Some(("net/http".to_string(), true, "ListenAndServe".to_string()))
+        );
+        assert_eq!(
+            target(
+                "scip-go gomod github.com/spf13/cobra v1.8.0 `github.com/spf13/cobra`/Command#Execute()."
+            ),
+            Some((
+                "github.com/spf13/cobra".to_string(),
+                false,
+                "Command.Execute".to_string()
+            ))
+        );
+        assert_eq!(
+            target("scip-python python python-stdlib 3.11 `os.path`/join()."),
+            Some(("os".to_string(), true, "join".to_string()))
+        );
+        assert_eq!(
+            target("scip-python python PyYAML 6.0.3 `yaml`/safe_load()."),
+            Some(("yaml".to_string(), false, "safe_load".to_string()))
+        );
+        // An indexer whose package naming is not mapped names no package.
+        assert_eq!(
+            target("semanticdb maven jdk 17 java/lang/String#length()."),
+            None
         );
     }
 

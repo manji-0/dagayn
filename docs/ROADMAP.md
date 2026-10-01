@@ -17,6 +17,8 @@ Current direction:
 Areas that still need work:
 
 - deeper cross-language resolution in some ecosystems
+- measuring the SCIP overlay (`build --scip`) for Go, Java/Kotlin, C/C++, C#, Ruby, Dart, PHP, and R on representative repositories, and making each authoritative where it beats dagayn's own resolution ([plans/SCIP-CALL-RESOLUTION.md](./plans/SCIP-CALL-RESOLUTION.md))
+- Python support for the SCIP overlay beyond filling, and freezing the inference passes it makes redundant
 - broader flow coverage outside the strongest language integrations
 
 Shipped docs recipes for single-repo watch, multi-repo registry/daemon, and

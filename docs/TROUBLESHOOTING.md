@@ -90,6 +90,21 @@ dagayn status
 
 If the repository moved on disk, rebuild so stored metadata matches the current root.
 
+## `dagayn build --scip` printed a hint or a warning
+
+<!-- derived-from ./COMMANDS.md#scip-call-resolution -->
+
+A `hint:` line means a project of that language was found but its SCIP
+indexer is not installed (or, for Java/Kotlin, `DAGAYN_SCIP_ALLOW_BUILD=1`
+is not set, because scip-java runs the project's build with `clean`). The
+hint gives the install command; until then those calls keep dagayn's own
+resolution. A `SCIP overlay (...)` warning means the indexer ran and failed:
+its last output lines are in the warning. Most failures are a project that
+does not build or has no installed dependencies (`node_modules`, `vendor/`,
+`dotnet restore`, `dart pub get`, `compile_commands.json`). Set
+`DAGAYN_SCIP_<LANGUAGE>` to run a different command, or
+`DAGAYN_SCIP_TIMEOUT` (seconds) for a slow project.
+
 ## MCP tools cannot find docs sections
 
 Ensure `docs/LLM-OPTIMIZED-REFERENCE.md` exists in the repo or installed package layout.

@@ -650,6 +650,7 @@ class BuildResult(BaseModel):
     local_embedding_skipped: JsonObject | None = None
     local_embedding: JsonObject | None = None
     scip_overlay: list[JsonObject] | None = None
+    scip_hints: list[str] | None = None
     postprocess: PostprocessResult = Field(default_factory=PostprocessResult)
 
 

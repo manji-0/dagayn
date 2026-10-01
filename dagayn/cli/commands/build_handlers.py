@@ -356,6 +356,8 @@ def handle_build_command(args: argparse.Namespace, repo_root: Path) -> None:
             f"{run.get('rewritten_to_package', 0)} to packages, "
             f"{run.get('confirmed', 0)} confirmed, {run.get('stale_skipped', 0)} stale"
         )
+    for hint in result.get("scip_hints") or []:
+        print(f"hint: {hint}")
     if pp != "none":
         _print_postprocess_summary(result)
     if result.get("status") == "error":

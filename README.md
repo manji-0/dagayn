@@ -36,6 +36,7 @@ See [NOTICE](NOTICE) for upstream attribution and original author information.
 - MCP server for AI coding tools
 - graph queries for impact radius, review context, communities, flows, and refactors
 - native Rust graph store, parsers, FTS, flows, and post-processing (`dagayn._core`)
+- optional compiler-grade call resolution from SCIP indexers (`dagayn build --scip`: rust-analyzer, scip-typescript, scip-go, scip-python, and more), with install hints for the ones a project lacks
 - multi-repo registry and daemon workflows
 - GraphML, Mermaid C4, SVG, Cypher, and Obsidian graph exports
 
@@ -188,6 +189,11 @@ dagayn status
 
 Use `dagayn build --force-full-build` (or `--force`) when you want to delete the
 existing graph database before rebuilding from scratch.
+
+Use `dagayn build --scip` to settle call targets with the SCIP indexers this
+machine has (rust-analyzer, scip-typescript, scip-go, scip-python, ...). A
+project whose indexer is missing gets a `hint:` with the install command and
+keeps dagayn's own resolution. See `docs/COMMANDS.md#scip-call-resolution`.
 
 `status` confirms the graph exists and reports basic counts.
 

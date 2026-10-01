@@ -14,6 +14,12 @@
 
 The fork uses Tree-sitter where possible, plus targeted fallbacks for formats that need custom handling.
 
+Tree-sitter gives every node and structural edge per file, without a build
+environment. Call targets need types, which it does not see: post-processing
+infers them, and `dagayn build --scip` takes them from SCIP indexers where a
+project's indexer is installed
+([plans/SCIP-CALL-RESOLUTION.md](./plans/SCIP-CALL-RESOLUTION.md)).
+
 Important fork-specific parser work includes:
 
 - commit-pinned Terraform grammar support fetched from the fork
@@ -76,6 +82,9 @@ importing Rust bindings directly or reading a SQLite handle.
 
 Optional post-processing layers add:
 
+- with `build --scip`, first, a SCIP overlay that settles `CALLS` edges by
+  the indexes of the repository's projects
+  ([CALL-RESOLUTION.md](./CALL-RESOLUTION.md#scip-overlay))
 - call-target resolution across files: re-exports, bare names, enum
   variants, declared return types, PyO3 classes, standard-library and
   package methods, and `TESTED_BY` reconciliation, in the order

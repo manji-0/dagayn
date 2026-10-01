@@ -66,6 +66,8 @@ Important CLI commands:
 - `dagayn profile`
 - `dagayn register` / `dagayn repos` / `dagayn daemon`
 
+`dagayn build --scip` settles call targets with the SCIP indexers installed for the repository's projects (Rust and TypeScript answers replace the extractor's; Go, Python, Java/Kotlin, C/C++, C#, Ruby, Dart, PHP, and R fill what it left unresolved). Missing indexers print a `hint:` and keep dagayn's own resolution. Edges an index settled carry `resolved_by: "scip"`.
+
 `dagayn serve` exposes the compact workflow MCP surface by default. Use `--tools` when a deployment needs an exact allow-list; `--tools all` exposes every advanced/maintenance tool.
 
 Tool filtering is fixed at MCP server startup. For ad-hoc CLI access, use `dagayn tool <mcp-tool-name>` with

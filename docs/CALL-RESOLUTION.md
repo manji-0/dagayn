@@ -262,8 +262,13 @@ into an extension module the repository builds still bridge to it.
 <!-- derived-from ./plans/SCIP-CALL-RESOLUTION.md#design -->
 
 `dagayn build --scip` runs, before the passes above, an overlay that
-settles `CALLS` edges by a SCIP index (Rust and TypeScript so far; see
-[COMMANDS.md](./COMMANDS.md#scip-call-resolution)). Each edge is matched to
+settles `CALLS` edges by SCIP indexes (the indexers per language are in
+[COMMANDS.md](./COMMANDS.md#scip-call-resolution)). Rust and TypeScript
+indexes are authoritative. The others only *fill*: an edge the extractor
+already resolved (to a node or a package) is kept unless the index agrees,
+and only the rest are settled; they name a package only where their naming
+is mapped (Go import paths, Python top-level modules), and otherwise settle
+calls into the repository only. Each edge is matched to
 the index's reference at its called name's position: its line, or one of the
 next eight for a chain the extractor records at the expression's first line.
 A member call (one with receiver metadata) matches the name only after `.`,

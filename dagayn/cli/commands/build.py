@@ -36,7 +36,8 @@ def register_commands(sub: argparse._SubParsersAction) -> CommandRegistry:
         action="store_true",
         help=(
             "Settle call targets with the SCIP indexers found on this machine "
-            "(rust-analyzer, scip-typescript) before post-processing"
+            "(rust-analyzer, scip-typescript, scip-go, scip-python, ...) before "
+            "post-processing; prints install hints for missing ones"
         ),
     )
     _add_local_embedding_args(build_cmd)

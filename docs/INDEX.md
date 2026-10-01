@@ -53,3 +53,4 @@ This directory documents the fork as `dagayn`.
 
 - `docs/plans/README.md` — plan-note index
 - `docs/plans/TREESITTER-TERRAFORM-INTEGRATION.md` — Terraform grammar integration design note
+- [plans/SCIP-CALL-RESOLUTION.md](./plans/SCIP-CALL-RESOLUTION.md) — SCIP-backed call resolution: measured comparison, the `build --scip` overlay, and freezing the inference layer
