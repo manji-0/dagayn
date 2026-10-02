@@ -29,8 +29,9 @@ retrieval setup.
    `main` after the branch point show up as reversed changes.
 3. **Refresh only when needed**: if `graph_health.status` is `empty` or
    `sync.state` is `unbuilt` / `commit_drift` (e.g. right after the checkout),
-   follow `recommended_action`, or call `ensure_graph_tool(force=True)` to wait
-   for the refresh. Otherwise skip ensure and go to review.
+   follow `recommended_action`, or call `ensure_graph_tool()` to wait for the
+   refresh (it already re-syncs a moved HEAD; `force=True` is only for
+   uncommitted edits). Otherwise skip ensure and go to review.
    Do not call `ensure_graph_tool(force=True)` on every PR when the graph is
    already current — it re-parses the changed files each time.
 4. **Rank the change**: `review_tool(mode="changes", base="<merge-base>")`. At
@@ -99,14 +100,16 @@ effect from a reproduction; keep them apart in a claim. Full rules:
 - **Highest** — on a current graph (`sync.state` is `commit_synced` or
   `worktree_ahead`): `HIGH` and `EXTRACTED` edges, whether the parser or a
   SCIP index (`resolved_by: "scip"`) settled them; `source_of` spans;
-  authored doc contracts (`evidence_type=authored`).
+  authored doc contracts (`implemented_by` / `implements_contract` links whose
+  target exists — `evidence_type=authored` alone is on every Markdown result).
 - **Medium** — structure, not correctness: `MEDIUM` (inferred) edges,
   `reason_codes`, blast radius, flows, communities, metrics, suggestions,
   explanatory doc links, and search hits.
 - **Low** — a hypothesis until `source_of` or a reproduction confirms it:
-  `LOW` edges, `heuristic_reachable` links, a file-level `tests_for` of 0,
-  `truncated` or `ambiguous` results, and answers about files changed since
-  the graph was built (`sync.state` `commit_drift` or `worktree_behind`).
+  `LOW` edges, `heuristic_reachable` doc links whatever their edge confidence,
+  a file-level `tests_for` of 0, `truncated` or `ambiguous` results, and
+  answers about files changed since the graph was built (`sync.state`
+  `commit_drift` or `worktree_behind`).
 <!-- /dagayn trust tiers -->
 
 - Risk labels prioritize; they don't prove. Confirm a behavioral issue with

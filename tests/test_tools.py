@@ -2905,7 +2905,7 @@ class TestGetMinimalContext:
             assert result["next_tool_suggestions"][0] == "ensure_graph_tool"
             assert "ensure_graph_tool" in result["recommended_action"]
             assert result["confidence"] == "high"
-            assert result["_hints"]["next_steps"][0]["tool"] == "ensure_graph_tool"
+            assert "_hints" not in result
         finally:
             import shutil
 

@@ -20,14 +20,16 @@ effect from a reproduction; keep them apart in a claim. Full rules:
 - **Highest** — on a current graph (`sync.state` is `commit_synced` or
   `worktree_ahead`): `HIGH` and `EXTRACTED` edges, whether the parser or a
   SCIP index (`resolved_by: "scip"`) settled them; `source_of` spans;
-  authored doc contracts (`evidence_type=authored`).
+  authored doc contracts (`implemented_by` / `implements_contract` links whose
+  target exists — `evidence_type=authored` alone is on every Markdown result).
 - **Medium** — structure, not correctness: `MEDIUM` (inferred) edges,
   `reason_codes`, blast radius, flows, communities, metrics, suggestions,
   explanatory doc links, and search hits.
 - **Low** — a hypothesis until `source_of` or a reproduction confirms it:
-  `LOW` edges, `heuristic_reachable` links, a file-level `tests_for` of 0,
-  `truncated` or `ambiguous` results, and answers about files changed since
-  the graph was built (`sync.state` `commit_drift` or `worktree_behind`).
+  `LOW` edges, `heuristic_reachable` doc links whatever their edge confidence,
+  a file-level `tests_for` of 0, `truncated` or `ambiguous` results, and
+  answers about files changed since the graph was built (`sync.state`
+  `commit_drift` or `worktree_behind`).
 <!-- /dagayn trust tiers -->
 
 In search terms: hybrid or embedding hits are Medium discovery, `fts_only`
@@ -97,12 +99,12 @@ the selected embedding mode so agents can avoid stale or wasteful search advice.
 
 ## Embedding modes
 
-| Mode | CLI | Notes |
-|---|---|---|
-| None (FTS only) | `--local-embedding none` | fastest; fine for exact names |
-| BGE-M3 (default local) | `--local-embedding` / `--mode bge-m3` | managed llama.cpp sidecar, port 18080 |
-| Qwen3 | `--local-embedding llama-qwen3` (or `low`) | managed sidecar, port 18081 |
-| Remote | `dagayn install --mode remote-embedding --provider openai\|google\|minimax` | network calls per embedding |
+| Mode | `build` / `update` / `serve` flag | `dagayn install --mode` | Notes |
+|---|---|---|---|
+| None (FTS only) | `--local-embedding none` | `fts-only` | fastest; fine for exact names |
+| BGE-M3 (default local) | `--local-embedding` (or `--mode bge-m3`) | `local-embedding` | managed llama.cpp sidecar, port 18080 |
+| Qwen3 | `--local-embedding llama-qwen3` (or `low`) | `local-embedding-llama` | managed sidecar, port 18081 |
+| Remote | — | `remote-embedding --provider openai\|google\|minimax` | network calls per embedding |
 
 `dagayn session prepare --embedding auto|defer|skip|inline` controls when a
 session refresh embeds.

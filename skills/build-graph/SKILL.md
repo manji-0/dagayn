@@ -34,8 +34,9 @@ the selected embedding mode so graph builds refresh the right retrieval indexes.
      uncommitted edits (an empty graph still gets a full parse). It inherits
      the server's embedding mode and runs **minimal** post-processing: structure
      and search, but no flows or communities.
-   - Flows or communities missing (`graph_health.status` is `degraded`, or
-     `flow_tool` / the architecture overview come back empty right after a
+   - Flows or communities missing (`graph_health.reason_codes` lists
+     `missing_flows` / `missing_communities` — `status` can still read `ok` —
+     or `flow_tool` / the architecture overview come back empty right after a
      bootstrap): run `dagayn postprocess` (`run_postprocess_tool()` on the
      advanced surface).
    - CLI, full build with post-processing: `dagayn build`; add `--scip` to let

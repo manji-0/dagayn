@@ -191,6 +191,34 @@ class TestPromptsStayOnDefaultSurface:
             extra = named - set(_DEFAULT_MCP_TOOL_NAMES)
             assert not extra, extra
 
+    _MCP_TOOL_CALL = re.compile(r"`([a-z][a-z0-9_]*_tool)\(([^`]*)\)`")
+
+    def test_prompt_tool_calls_use_real_parameters(self):
+        """Every ``name(key=...)`` a prompt spells out must be a valid call."""
+        import inspect
+        import typing
+
+        from dagayn.server import main as server_main
+
+        prompts = [
+            review_changes_prompt("main"),
+            architecture_map_prompt(),
+            debug_issue_prompt("x"),
+            onboard_developer_prompt(),
+            pre_merge_check_prompt("main"),
+        ]
+        checked = 0
+        for messages in prompts:
+            for tool_name, args in self._MCP_TOOL_CALL.findall(messages[0]["content"]):
+                params = inspect.signature(getattr(server_main, tool_name)).parameters
+                for key, value in re.findall(r'(\w+)="([^"]*)"', args):
+                    assert key in params, f"{tool_name} has no parameter {key!r}"
+                    choices = typing.get_args(params[key].annotation)
+                    if choices and all(isinstance(c, str) for c in choices):
+                        assert value in choices, f"{tool_name}({key}={value!r})"
+                    checked += 1
+        assert checked > 10
+
 
 class TestTokenEfficiencyPreamble:
     """All prompts should include the token efficiency preamble."""

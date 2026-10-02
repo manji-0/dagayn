@@ -54,7 +54,7 @@ class TestMakeResponse:
         assert r["_hints"]["next_steps"] == [
             {
                 "tool": "query_graph_tool",
-                "suggestion": "inspect inbound callers",
+                "suggestion": "query_graph_tool callers_of -- inspect inbound callers",
             }
         ]
         assert r["_hints"]["related"] == []
@@ -298,7 +298,10 @@ class TestGuidanceItems:
             ]
         )
         assert hints["next_steps"] == [
-            {"tool": "query_graph_tool", "suggestion": "inspect inbound callers"}
+            {
+                "tool": "query_graph_tool",
+                "suggestion": "query_graph_tool callers_of -- inspect inbound callers",
+            }
         ]
         assert hints["warnings"] == ["ambiguous_symbol"]
 

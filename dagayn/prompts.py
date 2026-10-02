@@ -1,7 +1,7 @@
 """MCP prompt templates for Dagayn.
 
-Provides 5 pre-built prompt workflows, all enforcing token-efficient
-detail_level="minimal" first patterns with get_minimal_context_tool entry point.
+Provides 5 pre-built prompt workflows, all starting from
+get_minimal_context_tool and preferring detail_level="minimal" first.
 
 1. review_changes   - pre-commit review using review_tool
 2. architecture_map - architecture docs using communities, flows, Mermaid
@@ -24,15 +24,14 @@ _TOKEN_EFFICIENCY_PREAMBLE = (  # nosec B105 — prompt template, not a password
     """\
 ## Rules for Token-Efficient Graph Usage
 1. ALWAYS call `get_minimal_context_tool` first with a task description.
-2. Use `detail_level="minimal"` on all tool calls unless the minimal output \
-is insufficient.
-3. Only escalate to `detail_level="standard"` or `"verbose"` for the specific \
-entities that need deeper inspection.
-4. Never request more than 3 tool calls per turn unless absolutely necessary.
-5. Prefer targeted queries (query_graph_tool with a specific symbol) over broad \
+2. Start with `detail_level="minimal"` where a tool offers it; escalate to \
+`"standard"` only for the entities that need deeper inspection, or when you \
+need a complete list.
+3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad \
 architecture_analysis drill-downs.
-6. When reviewing changes: review_tool(mode="changes", detail_level="minimal") → only \
-expand on high-risk items.
+4. Graph reach is not correctness: treat reason codes, blast radius, flows, and \
+search hits as leads, and confirm a claim with \
+`query_graph_tool(pattern="source_of")` or a reproduction before stating it.
 """
 )
 
@@ -52,15 +51,18 @@ def review_changes_prompt(base: str = "HEAD~1") -> list[PromptMessage]:
                 f'1. Call `get_minimal_context_tool(task="review changes against '
                 f'{base}")` to get risk overview.\n'
                 f'2. If risk is "low": call '
-                f'`review_tool(mode="changes", detail_level="minimal")` → report summary '
+                f'`review_tool(mode="changes", base="{base}", detail_level="minimal")` '
+                f"→ report summary "
                 f"+ any test gaps.\n"
                 f'3. If risk is "medium" or "high":\n'
-                f'   a. Call `review_tool(mode="changes", detail_level="standard")` for '
+                f'   a. Call `review_tool(mode="changes", base="{base}", '
+                f'detail_level="standard")` for '
                 f"full change list.\n"
                 f"   b. For each high-risk function, call "
                 f'`query_graph_tool(pattern="callers_of", target=<func>, '
                 f'detail_level="minimal")`.\n'
-                f'   c. Call `review_tool(mode="affected_flows", detail_level="minimal")` '
+                f'   c. Call `review_tool(mode="affected_flows", base="{base}", '
+                f'detail_level="minimal")` '
                 f"only if >3 changed functions.\n"
                 f"4. Summarize: risk level, what changed, test gaps, "
                 f"specific improvements needed.\n\n"
@@ -159,19 +161,18 @@ def pre_merge_check_prompt(base: str = "HEAD~1") -> list[PromptMessage]:
             "content": (
                 f"{_TOKEN_EFFICIENCY_PREAMBLE}\n"
                 "## Pre-Merge Check Workflow\n"
-                '1. Call `get_minimal_context_tool(task="pre-merge check")`.\n'
-                '2. Call `review_tool(mode="changes", detail_level="minimal")` for risk '
-                "score and test gaps.\n"
+                f'1. Call `get_minimal_context_tool(task="pre-merge check against {base}")`.\n'
+                f'2. Call `review_tool(mode="changes", base="{base}", detail_level="minimal")` '
+                "for risk score and test gaps.\n"
                 "3. If risk > 0.4: call "
-                '`review_tool(mode="affected_flows", detail_level="minimal")`.\n'
+                f'`review_tool(mode="affected_flows", base="{base}", detail_level="minimal")`.\n'
                 "4. If test_gap_count > 0: call "
                 '`query_graph_tool(pattern="tests_for", '
                 'target=<each untested function>, detail_level="minimal")` '
                 "for up to 3 functions.\n"
-                '5. Call `refactor_tool(mode="dead_code", '
-                'detail_level="minimal")` to check for newly dead code.\n'
-                '6. Only call `refactor_tool(mode="suggest")` or `review_tool(mode="impact")` '
-                "if risk > 0.7.\n"
+                '5. Call `refactor_tool(mode="dead_code")` to check for newly dead code.\n'
+                '6. Only call `refactor_tool(mode="suggest")` or '
+                f'`review_tool(mode="impact", base="{base}")` if risk > 0.7.\n'
                 "7. Output: GO/NO-GO recommendation with 1-sentence "
                 "justification + list of required follow-ups."
             ),

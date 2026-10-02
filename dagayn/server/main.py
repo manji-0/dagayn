@@ -804,7 +804,7 @@ def flow_tool(
 
 @mcp.tool()
 def refactor_tool(
-    mode: RefactorMode = "rename",
+    mode: RefactorMode = "suggest",
     old_name: Optional[str] = None,
     new_name: Optional[str] = None,
     kind: Optional[str] = None,
@@ -818,22 +818,22 @@ def refactor_tool(
     refactoring suggestions.
 
     Modes:
-    - rename: Preview renaming a symbol. Returns an edit list and a
-      session-scoped refactor_id (expires after 10 min). Apply it with
-      ``apply_refactor_tool`` in the same ``dagayn serve`` MCP session
-      (advanced MCP surface: ``dagayn serve --tools all``). Requires
-      old_name and new_name.
+    - suggest (default): Get graph-backed refactoring suggestions, including
+      remove, move, split, and document candidates.
     - dead_code: Find unreferenced functions/classes (no callers, tests, or
       importers, and not entry points).
-    - suggest: Get graph-backed refactoring suggestions, including remove,
-      move, split, and document candidates.
+    - rename: Preview renaming a symbol. Requires old_name and new_name.
+      Returns an edit list and a session-scoped refactor_id (expires after
+      10 min). Apply it with ``apply_refactor_tool`` in the same
+      ``dagayn serve`` MCP session (advanced MCP surface:
+      ``dagayn serve --tools all``).
 
     Trust: suggestions and dead-code hits are leads; public APIs, dynamic
     dispatch, and entry points often have no static caller, so verify with
     ``source_of`` before removing or moving.
 
     Args:
-        mode: Operation mode: "rename", "dead_code", or "suggest".
+        mode: Operation mode: "suggest" (default), "dead_code", or "rename".
         old_name: (rename) Current symbol name to rename.
         new_name: (rename) Desired new name for the symbol.
         kind: (dead_code) Optional filter: Function or Class.

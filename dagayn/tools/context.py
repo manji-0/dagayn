@@ -193,9 +193,10 @@ def _graph_answerability(store: Any, stats: Any) -> AnswerabilityRecord:
     """Summarize whether the graph can answer review/exploration questions."""
     summary = graph_answerability_summary(store, stats)
     # get_minimal_context has a strict compactness budget; detailed counts are
-    # available from non-minimal dispatcher calls.
+    # available from non-minimal dispatcher calls. reason_codes stay: they are
+    # the only signal of *why* status is degraded (or which post-processing is
+    # missing while status still reads ok).
     summary.pop("counts", None)
-    summary.pop("reason_codes", None)
     return summary
 
 
@@ -524,21 +525,6 @@ def _get_minimal_context_body(
                 "ensure_graph_tool",
                 *[s for s in suggestions if s != "ensure_graph_tool"],
             ]
-            hints = response.get("_hints")
-            if isinstance(hints, dict):
-                next_steps = [
-                    {
-                        "tool": "ensure_graph_tool",
-                        "suggestion": "ensure_graph_tool",
-                    },
-                    *[
-                        step
-                        for step in hints.get("next_steps", [])
-                        if step.get("tool") != "ensure_graph_tool"
-                    ],
-                ]
-                hints["next_steps"] = next_steps[:3]
-                response["_hints"] = hints
         elif sync_state(sync) == "commit_drift":
             # worktree_behind / worktree_ahead are HEAD-aligned structure-ready;
             # do not loop on ensure_graph — edit hooks / session prepare handle

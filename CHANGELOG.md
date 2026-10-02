@@ -6,6 +6,25 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- The `pre_merge_check` MCP prompt told agents to call
+  `refactor_tool(mode="dead_code", detail_level=...)`, which the tool rejects,
+  and neither review prompt passed its `base` argument to `review_tool`; both
+  now do. A test checks every call a prompt spells out against the tool
+  signature. The prompt preamble drops the "at most 3 tool calls" rule and
+  adds the `source_of` confirmation step.
+- `refactor_tool` defaults to `mode="suggest"`; the old `rename` default
+  failed without `old_name` / `new_name`.
+- Hint `next_steps` keep the whole action (`review_tool mode="impact" --
+  ...`) instead of only the text after `--`, which lost the mode.
+  `get_minimal_context_tool` no longer repeats `next_tool_suggestions` as
+  `_hints`, and its `graph_health` keeps `reason_codes`.
+- The trust ranking no longer calls every `evidence_type=authored` result
+  Highest: every Markdown result carries that label, so only
+  `implemented_by` / `implements_contract` links whose target exists rank
+  there. Skills stop saying `degraded` means missing flows (`status` stays
+  `ok` with `missing_flows`; read `reason_codes`), review-changes uses the
+  merge base, review-pr drops an unneeded `force=True`, and the
+  semantic-search table lists the real `dagayn install --mode` names.
 - Skills, the installed agent instructions (`CLAUDE.md`, `AGENTS.md`, ...),
   and the MCP tool descriptions share one trust ranking (Highest / Medium /
   Low), with the full rules in `get_docs_section_tool(section_name="trust")`.

@@ -28,10 +28,12 @@ should say which of the three it rests on.
 Freshness first: `get_minimal_context_tool` reports `sync.state`. On
 `commit_synced` or `worktree_ahead` the graph describes the working tree. On
 `commit_drift` or `worktree_behind`, edges of files changed since the build may
-be out of date, so answers about those files are Low until
-`ensure_graph_tool(force=True)` refreshes them. `graph_health.status` of
-`degraded` usually means post-processing is missing (flows, communities), not
-that edges are wrong.
+be out of date, so answers about those files are Low until `ensure_graph_tool()`
+refreshes them (`force=True` for `worktree_behind`: a plain call leaves
+uncommitted edits to the edit hooks). `graph_health.reason_codes` says why the
+graph is short: `missing_flows` / `missing_communities` mean post-processing
+has not run (not that edges are wrong), and `status` can still read `ok` with
+them.
 
 Highest (state it as fact):
 - `HIGH` and `EXTRACTED` edges. The parser settles them from what the code
@@ -41,7 +43,8 @@ Highest (state it as fact):
 - `source_of` spans: the live source of a node.
 - Authored doc contracts: `implemented_by` / `implements_contract` links with
   `evidence_type=authored` whose target exists (a section or symbol missing
-  from an indexed file is demoted to `LOW`).
+  from an indexed file is demoted to `LOW`). `evidence_type=authored` alone
+  is not a contract: every Markdown result carries it, search hits included.
 
 Medium (structure, not correctness):
 - `MEDIUM` edges: inferred from usage (observed methods, return-type tables).

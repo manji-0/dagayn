@@ -672,14 +672,9 @@ def _hints_from_next_tool_suggestions(
 
     next_steps: list[ToolHintStep] = []
     for suggestion in filter_suggestions(next_tool_suggestions)[:3]:
-        head, _, tail = suggestion.partition(" -- ")
+        head = suggestion.partition(" -- ")[0]
         tool = head.split(" ", 1)[0].split("(", 1)[0]
-        next_steps.append(
-            {
-                "tool": tool,
-                "suggestion": tail or head,
-            }
-        )
+        next_steps.append({"tool": tool, "suggestion": suggestion})
     return {
         "next_steps": next_steps,
         "related": [],
@@ -724,10 +719,12 @@ def guidance_actions_to_hints(
             tool = str(action.get("tool") or "manual")
             suggestion = str(action.get("suggestion") or action.get("command") or tool)
         else:
+            # Keep the whole action text: the part before " -- " carries the
+            # mode/pattern arguments an agent needs to make the call.
             action_text = str(action or "")
-            head, _, tail = action_text.partition(" -- ")
+            head = action_text.partition(" -- ")[0]
             tool = head.split(" ", 1)[0].split("(", 1)[0] if head else "manual"
-            suggestion = tail or action_text
+            suggestion = action_text
         if not suggestion:
             continue
         next_steps.append({"tool": tool, "suggestion": suggestion})
@@ -1273,9 +1270,9 @@ def compact_response(
     if next_tool_suggestions:
         from ..tool_surface import filter_suggestions
 
-        filtered = filter_suggestions(next_tool_suggestions)
-        resp["next_tool_suggestions"] = filtered[:3]
-        resp["_hints"] = _hints_from_next_tool_suggestions(filtered)
+        # No ``_hints`` copy here: it would repeat these strings verbatim and
+        # this envelope exists to stay small.
+        resp["next_tool_suggestions"] = filter_suggestions(next_tool_suggestions)[:3]
     if detail_level != "minimal" and data:
         resp["data"] = data
     return resp

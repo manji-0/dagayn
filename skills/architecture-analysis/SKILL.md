@@ -17,7 +17,9 @@ buries the answer.
    `commit_drift`, follow `recommended_action`.
    Community and hub results need full post-processing: right after an
    `ensure_graph_tool` bootstrap (minimal post-processing) they come back empty
-   and `graph_health.status` is `degraded`. Run `dagayn postprocess` first.
+   and `graph_health.reason_codes` lists `missing_communities` /
+   `missing_flows` (`status` can still read `ok`). Run `dagayn postprocess`
+   first.
 2. **Overview**: `architecture_analysis_tool(mode="overview",
    detail_level="minimal")`. Read `architecture_health.reason_codes`, `counts`,
    `top_examples`, `guidance`, and `drill_downs`.
@@ -53,14 +55,16 @@ effect from a reproduction; keep them apart in a claim. Full rules:
 - **Highest** — on a current graph (`sync.state` is `commit_synced` or
   `worktree_ahead`): `HIGH` and `EXTRACTED` edges, whether the parser or a
   SCIP index (`resolved_by: "scip"`) settled them; `source_of` spans;
-  authored doc contracts (`evidence_type=authored`).
+  authored doc contracts (`implemented_by` / `implements_contract` links whose
+  target exists — `evidence_type=authored` alone is on every Markdown result).
 - **Medium** — structure, not correctness: `MEDIUM` (inferred) edges,
   `reason_codes`, blast radius, flows, communities, metrics, suggestions,
   explanatory doc links, and search hits.
 - **Low** — a hypothesis until `source_of` or a reproduction confirms it:
-  `LOW` edges, `heuristic_reachable` links, a file-level `tests_for` of 0,
-  `truncated` or `ambiguous` results, and answers about files changed since
-  the graph was built (`sync.state` `commit_drift` or `worktree_behind`).
+  `LOW` edges, `heuristic_reachable` doc links whatever their edge confidence,
+  a file-level `tests_for` of 0, `truncated` or `ambiguous` results, and
+  answers about files changed since the graph was built (`sync.state`
+  `commit_drift` or `worktree_behind`).
 <!-- /dagayn trust tiers -->
 
 - Architecture signals are **Medium** leads, not proof of a design bug: cite
