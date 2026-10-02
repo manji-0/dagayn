@@ -6,6 +6,18 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- The MCP server `instructions` describe dagayn (code, Markdown, and
+  Terraform in one graph), the `get_minimal_context_tool` entry point, the
+  review and trace tools, and the `source_of` / trust rule, instead of the
+  upstream one-line summary. Clients that never ran `dagayn install` get
+  them too.
+- `review_tool`, `flow_tool`, and `architecture_analysis_tool` describe their
+  modes and non-obvious parameters (`base` and the merge base, `flow_id` /
+  `flow_name`, `min_delta`, `min_distance`, `dependency_profile`, ...).
+  `semantic_search_nodes_tool` lists the `DocSection` / `DocBody` kinds.
+  Implementation notes (`asyncio.to_thread`, issue numbers) move out of tool
+  descriptions into code comments, and the default descriptions shrink to
+  about 7 KB in total.
 - The `pre_merge_check` MCP prompt told agents to call
   `refactor_tool(mode="dead_code", detail_level=...)`, which the tool rejects,
   and neither review prompt passed its `base` argument to `review_tool`; both

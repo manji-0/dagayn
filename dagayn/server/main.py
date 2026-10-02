@@ -256,12 +256,24 @@ def _tool(name: str) -> Any:
     return wrapped
 
 
+# Tool docstrings are what MCP clients show agents, so implementation notes
+# stay out of them. Blocking tools (builds, embedding, post-processing, wiki,
+# get_minimal_context) run via ``asyncio.to_thread`` so the stdio event loop
+# stays responsive: without it, long builds deadlocked on Windows when
+# ProcessPoolExecutor met the only event-loop thread (#46, #136).
 mcp = FastMCP(
     "dagayn",
     instructions=(
-        "Persistent incremental knowledge graph for token-efficient, "
-        "context-aware code reviews. Parses your codebase with Tree-sitter, "
-        "builds a structural graph, and provides smart impact analysis."
+        "dagayn is a knowledge graph of this repository: code, Markdown docs, "
+        "and Terraform are nodes, linked by calls, imports, tests, and doc "
+        "contracts. Start every task with get_minimal_context_tool(task=...): "
+        "it reports graph freshness (sync.state) and the next tool to call. "
+        'Review changes with review_tool(mode="changes"); trace relationships '
+        "with query_graph_tool before grepping; read a located node with "
+        'query_graph_tool(pattern="source_of") instead of the whole file. '
+        "Graph reach is not correctness: confirm a claim with source_of or a "
+        'reproduction. get_docs_section_tool(section_name="trust") ranks '
+        "which results to state as fact."
     ),
 )
 
@@ -286,13 +298,6 @@ async def build_or_update_graph_tool(
     Call this first to initialize the graph, or after making changes.
     By default performs an incremental update (only changed files).
     Set full_rebuild=True to re-parse every file.
-
-    Runs the blocking full_build / incremental_update work in a thread
-    via ``asyncio.to_thread`` so the stdio event loop stays responsive.
-    Without this wrapper, long builds deadlocked on Windows because
-    ``ProcessPoolExecutor`` (used by parallel parsing) interacted badly
-    with the sync handler blocking the only event-loop thread. See:
-    #46, #136.
 
     Args:
         full_rebuild: If True, re-parse all files. Default: False (incremental).
@@ -345,23 +350,14 @@ async def ensure_graph_tool(
     repo_root: Optional[str] = None,
     force: bool = False,
 ) -> ToolPayload:
-    """Ensure a usable+synced knowledge graph exists for analysis tools.
+    """Ensure the graph exists and matches HEAD before analysis.
 
-    Prefer this for bootstrap on the default MCP surface. Full rebuilds use
-    ``dagayn build``. Empty graphs get a full parse with ``postprocess="minimal"``. Graphs that
-    describe another commit, or that hold content the tree no longer has, are
-    refreshed. A merely dirty worktree is *not* auto-refreshed (edit hooks index
-    those); ``force=True`` always runs an incremental refresh. Local embedding mode inherits
-    ``dagayn serve --local-embedding`` (explicit ``none`` remains an opt-out
-    only via advanced build tools).
-
-    Offloaded via ``asyncio.to_thread`` like other long-running build tools.
-    See: #46, #136.
+    Builds an empty graph (minimal post-processing: no flows or communities) and
+    refreshes one that describes another commit. Uncommitted edits are left to
+    the edit hooks unless ``force=True``. Full rebuilds: ``dagayn build``.
 
     Args:
-        repo_root: Repository root path. Auto-detected if omitted.
-        force: If True, run an incremental refresh even when already synced.
-            Empty graphs still take the full-build path.
+        force: Run an incremental refresh even when already synced.
     """
     effective_local_embedding = _resolve_local_embedding(None) or "none"
     return await asyncio.to_thread(
@@ -392,10 +388,6 @@ async def run_postprocess_tool(
     Use after building with postprocess="none" or "minimal", or to re-run
     expensive steps independently. Signatures are always computed.
 
-    Offloaded to a thread via ``asyncio.to_thread`` so community
-    detection on large graphs doesn't block the MCP event loop. See:
-    #46, #136.
-
     Args:
         flows: Run flow detection. Default: True.
         communities: Run community detection. Default: True.
@@ -418,27 +410,21 @@ async def get_minimal_context_tool(
     repo_root: Optional[str] = None,
     base: str = "HEAD~1",
 ) -> ToolPayload:
-    """Get ultra-compact context for any task (~100 tokens). Always call this first.
+    """Get compact context for any task. Call this first.
 
-    Returns graph stats, risk score, top communities/flows, and suggested
-    next tools in a single compact response. Use this as the entry point
-    before any other graph tool to minimize token usage. When the graph is
-    empty or HEAD-drifted, enqueues a background ``session_prepare``
-    (inheriting the serve-time local embedding mode) and returns immediately
-    with ``sync`` plus ``repair``/``prepare`` queued state. Does not wait for
-    the repair. Call ``ensure_graph_tool`` if you must wait. Offloaded via
-    ``asyncio.to_thread`` so sqlite/flock cannot stall the stdio loop.
+    Returns ``sync.state``, ``graph_health`` (with ``reason_codes``), top
+    communities/flows, a ``recommended_action``, ``next_tool_suggestions``, and,
+    when there are changes, a risk level. An empty or HEAD-drifted graph queues a
+    background refresh and returns at once; call ``ensure_graph_tool`` to wait.
 
-    Trust: ``sync.state`` ``commit_drift`` / ``worktree_behind`` means answers
-    about files changed since the build are hypotheses until refreshed; risk,
-    community, and flow hints are structure, not correctness
-    (``get_docs_section_tool(section_name="trust")``).
+    Trust: on ``commit_drift`` / ``worktree_behind`` answers about changed files
+    are hypotheses; risk, community, and flow hints are structure, not
+    correctness.
 
     Args:
         task: What you are doing (e.g. "review PR #42", "debug login timeout").
-        changed_files: Explicit list of changed files. Auto-detected if omitted.
-        repo_root: Repository root path. Auto-detected if omitted.
-        base: Git ref for diff comparison. Default: HEAD~1.
+        changed_files: Explicit changed files. Auto-detected if omitted.
+        base: Git ref for change detection. Default: HEAD~1.
     """
     effective_local_embedding = _resolve_local_embedding(None) or "none"
     return await asyncio.to_thread(
@@ -461,46 +447,31 @@ def query_graph_tool(
     detail_level: str = "standard",
     depth: int = 1,
 ) -> ToolPayload:
-    """Run a predefined graph query to explore code relationships.
+    """Trace one relationship of a node: callers, callees, imports, tests, docs, source.
 
-    Available patterns:
-    - callers_of: Find functions that call the target
-    - callees_of: Find functions called by the target
-    - imports_of: Find what the target imports
-    - importers_of: Find files that import the target
-    - docs_for: Find docs linked to a code/Terraform/artifact node
-    - implementations_of: Find implementation artifacts linked to a document node
-    - children_of: Find nodes contained in a file or class
-    - tests_for: Find tests for the target
-    - inheritors_of: Find classes inheriting from the target
-    - file_summary: Get all nodes in a file
-    - source_of: Fetch the live worktree source span for one node
-    - bridges_from: Find high-confidence CROSS_ARTIFACT bridges from a node
+    Patterns: callers_of, callees_of, imports_of, importers_of, tests_for,
+    inheritors_of, children_of (members of a file or class), file_summary,
+    source_of (live source span; read it instead of the whole file), docs_for
+    (docs linked to code or Terraform), implementations_of (code linked to a
+    doc), bridges_from (high-confidence cross-artifact bridges).
 
     Args:
-        pattern: Query pattern name (see above).
-        target: Node name, qualified name, or file path to query.
-        repo_root: Repository root path. Auto-detected if omitted.
-        detail_level: "standard" (default) gives one row per related node with
-            edge lines folded in; "minimal" trims fields and guidance; "full"
-            adds one row per edge, ``edges``, and full answerability. Standard
-            and full list the same related nodes, and full hits the output
-            budget sooner, so keep standard for "list them all" questions.
-        depth: For callers_of and importers_of, hops to follow (1 to 6) so a
-            transitive answer comes back in one call. Default: 1 (direct only).
-            Pass 6 for "directly or indirectly" questions.
+        pattern: One of the patterns above.
+        target: Node name, qualified name, or file path.
+        detail_level: "standard" (default) lists every related node; "minimal"
+            trims fields and guidance; "full" adds per-edge rows and hits the
+            output budget sooner.
+        depth: (callers_of, importers_of) Hops to follow, 1-6. Default: 1. Pass 6
+            for "directly or indirectly"; ``next_action`` says when the set is
+            closed.
 
-    The response sets ``results_complete`` false when the output budget cut
-    rows. With ``depth`` above 1, ``reachability`` and ``next_action`` say
-    whether the set is closed; a closed set needs no per-node follow-up.
-    An import edge is a file's own import statement: ``from pkg import sub``
-    points at the submodule, and ``import a.b`` does not count
-    ``a/__init__.py``.
+    ``results_complete`` is false when the output budget cut rows. An import
+    edge is a file's own import statement: ``from pkg import sub`` points at the
+    submodule, and ``import a.b`` does not count ``a/__init__.py``.
 
     Trust: ``HIGH`` / ``EXTRACTED`` edges and ``source_of`` spans are firm,
-    ``MEDIUM`` edges are inferred, and ``LOW`` edges, a file-level
-    ``tests_for`` of 0, and ``truncated`` / ``ambiguous`` results are
-    hypotheses (``get_docs_section_tool(section_name="trust")``).
+    ``MEDIUM`` edges are inferred, and ``LOW`` edges, a file-level ``tests_for``
+    of 0, and ``truncated`` / ``ambiguous`` results are hypotheses.
     """
     return _tool("query_graph")(
         pattern=pattern,
@@ -521,29 +492,23 @@ def semantic_search_nodes_tool(
     provider: Optional[str] = None,
     detail_level: str = "standard",
 ) -> ToolPayload:
-    """Search for code entities by name, keyword, or semantic similarity.
+    """Find nodes by name, keyword, or meaning when the exact symbol is unknown.
 
-    Uses vector embeddings for semantic search when available. Embeddings come
-    from ``dagayn serve --local-embedding``, ``dagayn build --local-embedding``,
-    or an OpenAI-compatible "openai" / "google" / "minimax" provider configured
-    on the server. Falls back to FTS5 / keyword matching when no matching
-    embeddings exist for the given provider.
+    Hybrid search: FTS over names and doc text, plus embeddings when the server
+    has them (``--local-embedding`` or a remote provider); FTS alone otherwise.
+    Markdown sections are searchable too.
 
     Trust: hits are discovery, not proof; read the chosen node's ``source_of``
     before asserting behavior.
 
     Args:
-        query: Search string to match against node names.
-        kind: Optional filter: File, Class, Function, Type, or Test.
+        query: Name, keyword, or natural-language description.
+        kind: Filter: Function, Class, Type, Test, File, DocSection (a Markdown
+            heading), or DocBody (a Markdown section body).
         limit: Maximum results. Default: 20.
-        repo_root: Repository root path. Auto-detected if omitted.
-        model: Embedding model for query vectors. Must match the model used
-               during embed_graph. Falls back to CRG_OPENAI_MODEL for OpenAI-
-               compatible endpoints.
-        provider: Embedding provider: "openai", "google", or "minimax".
-                  Omit when the server was started with ``--local-embedding``
-                  or remote embedding defaults.
-        detail_level: "standard" for full output, "minimal" for compact summary. Default: standard.
+        model: Embedding model; must match the stored vectors.
+        provider: "openai", "google", or "minimax"; omit for the server default.
+        detail_level: "standard" (default) or "minimal".
     """
     return _tool("semantic_search_nodes")(
         query=query,
@@ -574,11 +539,6 @@ async def embed_graph_tool(
 
     After running this, semantic_search_nodes_tool will use vector similarity
     instead of keyword matching for much better results.
-
-    Runs the blocking Gemini / HTTP inference in a
-    thread via ``asyncio.to_thread`` so the stdio event loop stays
-    responsive — without this wrapper, embedding a large graph would
-    silently hang the MCP server on Windows. See: #46, #136.
 
     Args:
         repo_root: Repository root path. Auto-detected if omitted.
@@ -620,18 +580,15 @@ def get_docs_section_tool(
     repo_root: Optional[str] = None,
     max_chars: int = 4000,
 ) -> ToolPayload:
-    """Get a specific section from the LLM-optimized documentation reference.
+    """Get one section of dagayn's LLM-oriented reference.
 
-    Returns only the requested section content for minimal token usage.
-    Use this before answering any user question about the plugin.
-
-    Available sections: usage, trust, review-delta, review-pr, commands, legal,
-    watch, embeddings, languages, troubleshooting. ``trust`` says how much each
-    kind of graph answer proves.
+    Sections: usage, trust (how much each kind of graph answer proves),
+    review-delta, review-pr, commands, legal, watch, embeddings, languages,
+    troubleshooting. Read the relevant one before answering a question about
+    dagayn itself.
 
     Args:
-        section_name: The section to retrieve (e.g. "review-delta", "usage").
-        repo_root: Repository root path. Auto-detected if omitted.
+        section_name: Section to return (e.g. "trust").
         max_chars: Maximum characters to return. Default: 4000.
     """
     return _tool("get_docs_section")(
@@ -709,13 +666,30 @@ def architecture_analysis_tool(
         "artifact_trace",
     ] = "strict_static",
 ) -> ToolPayload:
-    """Run architecture analysis through a single mode-based dispatcher.
+    """Analyze architecture: health, clusters, hotspots, cycles, stability.
 
-    Modes cover overview health, communities, hubs/bridges, knowledge gaps,
-    surprising connections, and ADP/SDP/SAP metrics or violations.
+    Start with ``overview`` and read ``architecture_health``; run one drill-down
+    for a risk it names.
+
+    Modes: overview; communities, or one community by ``community_name`` /
+    ``community_id``; hubs and bridges (blast-radius hotspots); knowledge_gaps;
+    surprising_connections; adp_violations (dependency cycles); sdp_metrics and
+    sdp_violations (a unit depending on a less stable one by more than
+    ``min_delta``); sap_metrics and sap_violations (abstractness vs instability;
+    scopes farther than ``min_distance`` from the main sequence).
 
     Trust: reason codes, rankings, and metrics are structure leads, not design
     bugs; cite their counts and thresholds.
+
+    Args:
+        granularity: (adp, sdp) "package" (default) or "file".
+        scope_kind: (sap) "package" (default), "directory", or "file".
+        unit_filter: (sap_metrics) Scope-key prefixes to keep.
+        artifact_scope: "code" (default), "docs" (Markdown), or "all".
+        dependency_profile: (adp, sdp, sap) Edges counted: "strict_static"
+            (imports, inheritance; default), "implementation" (+ calls),
+            "infra_dataflow" (+ infra references), "artifact_trace"
+            (+ cross-artifact bridges).
     """
     return _tool("architecture_analysis_func")(
         mode=mode,
@@ -751,16 +725,26 @@ async def review_tool(
     repo_root: Optional[str] = None,
     detail_level: Literal["minimal", "standard", "verbose"] = "standard",
 ) -> ToolPayload:
-    """Run review analysis through a single mode-based dispatcher.
+    """Review a change set: risk, reason codes, tests, flows, blast radius.
 
-    Modes:
-    - changes: risk summary, reason_codes, recommended tests, doc candidates
-    - context: change-set source snippets
-    - impact: blast-radius walk (``max_depth`` hops)
-    - affected_flows: flows touched by the change set
+    Start with ``changes`` and read ``analysis_summary`` (flat at
+    ``detail_level="minimal"``); call another mode only where it points.
+
+    Modes: changes (risk, reason_codes, recommended tests, doc candidates),
+    context (source snippets), impact (blast radius, ``max_depth`` hops),
+    affected_flows (flows the change touches).
 
     Trust: reason codes, blast radius, and flows show reach, not correctness;
     confirm a bug with ``source_of`` or a reproduction.
+
+    Args:
+        base: Git ref to diff against, plus staged, unstaged, and untracked
+            files. Default: HEAD~1. For a branch pass ``git merge-base main HEAD``.
+        changed_files: Explicit file list instead of the git diff.
+        include_source: (context) Include source snippets.
+        max_depth: (impact) Hops to walk. Default: 2.
+        max_nodes: (impact, context) Node cap. Default: 50.
+        max_lines_per_file: (context) Lines per file. Default: 200.
     """
     return await asyncio.to_thread(
         _tool("review_func"),
@@ -788,7 +772,18 @@ def flow_tool(
     include_source: bool = False,
     repo_root: Optional[str] = None,
 ) -> ToolPayload:
-    """Run execution-flow analysis through a single mode-based dispatcher."""
+    """List or inspect flows: the nodes reachable from an entry point.
+
+    A flow is a reachable set in BFS order, not a call sequence; use
+    ``query_graph_tool`` callees_of for call order. ``list`` ranks flows by
+    ``sort_by``; ``get`` returns one flow's members with file and line.
+
+    Args:
+        kind: (list) Entry-point kind filter, e.g. "Function" or "Test".
+        flow_id: (get) Flow id from ``list``; wins over flow_name.
+        flow_name: (get) Partial name match.
+        include_source: (get) Add member source snippets.
+    """
     return _tool("flow_func")(
         mode=mode,
         sort_by=sort_by,
@@ -812,35 +807,23 @@ def refactor_tool(
     limit: int = 50,
     repo_root: Optional[str] = None,
 ) -> ToolPayload:
-    """Graph-powered refactoring operations.
-
-    Unified entry point for rename previews, dead code detection, and
-    refactoring suggestions.
+    """Plan refactors from the graph: suggestions, dead code, rename previews.
 
     Modes:
-    - suggest (default): Get graph-backed refactoring suggestions, including
-      remove, move, split, and document candidates.
-    - dead_code: Find unreferenced functions/classes (no callers, tests, or
-      importers, and not entry points).
-    - rename: Preview renaming a symbol. Requires old_name and new_name.
-      Returns an edit list and a session-scoped refactor_id (expires after
-      10 min). Apply it with ``apply_refactor_tool`` in the same
-      ``dagayn serve`` MCP session (advanced MCP surface:
-      ``dagayn serve --tools all``).
+    - suggest (default): remove, move, split, and document candidates.
+    - dead_code: functions/classes with no callers, tests, or importers that are
+      not entry points (filter with ``kind``, ``file_pattern``).
+    - rename: preview renaming ``old_name`` to ``new_name``. Returns edits and a
+      ``refactor_id`` (valid 10 min) for ``apply_refactor_tool`` in the same
+      ``dagayn serve`` session (advanced surface: ``dagayn serve --tools all``).
 
     Trust: suggestions and dead-code hits are leads; public APIs, dynamic
     dispatch, and entry points often have no static caller, so verify with
     ``source_of`` before removing or moving.
 
     Args:
-        mode: Operation mode: "suggest" (default), "dead_code", or "rename".
-        old_name: (rename) Current symbol name to rename.
-        new_name: (rename) Desired new name for the symbol.
-        kind: (dead_code) Optional filter: Function or Class.
-        file_pattern: (dead_code) Filter by file path substring.
-        limit: (dead_code, suggest) Maximum results to return. Default: 50.
-            When truncated, total shows the full count.
-        repo_root: Repository root path. Auto-detected if omitted.
+        limit: (dead_code, suggest) Maximum results. Default: 50; ``total``
+            shows the full count when truncated.
     """
     return _tool("refactor_func")(
         mode=mode,
@@ -875,7 +858,7 @@ def apply_refactor_tool(
             without touching any files. The refactor_id remains valid so
             the same preview can be applied in a follow-up call without
             dry_run. Use this for a human-in-the-loop review before
-            committing changes to disk. See: #176
+            committing changes to disk.
     """
     return _tool("apply_refactor_func")(
         refactor_id=refactor_id,
@@ -894,10 +877,6 @@ async def generate_wiki_tool(
     Creates a wiki page for each detected community and an index page.
     Pages are written to .dagayn/wiki/ inside the repository.
     Only regenerates pages whose content has changed unless force=True.
-
-    Offloaded to a thread via ``asyncio.to_thread`` — on large graphs
-    the page-generation loop touches every community and issues many
-    SQLite reads, which would block the MCP event loop. See: #46, #136.
 
     Args:
         repo_root: Repository root path. Auto-detected if omitted.
@@ -1015,8 +994,10 @@ def cross_repo_search_tool(
     the results by score. Register repos first with the CLI 'register' command.
 
     Args:
-        query: Search string to match against node names.
-        kind: Optional filter: File, Class, Function, Type, or Test.
+        query: Name, keyword, or natural-language description. Matches names,
+            signatures, and doc text (FTS), plus embeddings when present.
+        kind: Optional filter: Function, Class, Type, Test, File, DocSection
+            (a Markdown heading), or DocBody (a Markdown section body).
         limit: Maximum results per repo. Default: 20.
         model: Embedding model for hybrid search. Defaults to the server's
             embedding model when configured by ``dagayn serve``.
