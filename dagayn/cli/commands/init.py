@@ -130,7 +130,7 @@ def register_commands(sub: argparse._SubParsersAction) -> CommandRegistry:
     return {"install": install_cmd, "init": init_cmd}
 
 
-def _write_note(path: Path) -> str:
+def _write_note(path: Path, content: str = "") -> str:
     """Annotation for an existing instruction file in the install preview.
 
     Files managed by nix/home-manager or chezmoi are read-only symlinks into a
@@ -139,6 +139,8 @@ def _write_note(path: Path) -> str:
     """
     if not os.access(path, os.W_OK):
         return "(read-only — will be skipped)"
+    if "<!-- dagayn " in content:
+        return "(update)"
     return "(append)"
 
 
@@ -152,17 +154,27 @@ def _instruction_files_to_modify(
     """
     from ...skills import normalize_platform_target
     from ...skills.instructions import (
+        _CLAUDE_MD_SECTION,
         _CLAUDE_MD_SECTION_MARKER,
         _MARKDOWN_POLICY_MARKER,
+        _MARKDOWN_POLICY_SECTION,
         _PLATFORM_INSTRUCTION_FILES,
-        _has_instruction_section,
         _platform_instruction_paths,
+        _refresh_instruction_section,
     )
 
     def _needs_update(content: str) -> bool:
-        has_tools = _has_instruction_section(content, _CLAUDE_MD_SECTION_MARKER)
-        has_policy = _has_instruction_section(content, _MARKDOWN_POLICY_MARKER)
-        return not has_tools or not has_policy
+        # A marked section with older text counts too: the injector refreshes
+        # it in place, and an upgrade must not leave stale guidance behind.
+        for marker, section in (
+            (_CLAUDE_MD_SECTION_MARKER, _CLAUDE_MD_SECTION),
+            (_MARKDOWN_POLICY_MARKER, _MARKDOWN_POLICY_SECTION),
+        ):
+            if marker not in content:
+                return True
+            if _refresh_instruction_section(content, marker, section) != content:
+                return True
+        return False
 
     target = normalize_platform_target(target)
     targets: list[str] = []
@@ -172,7 +184,7 @@ def _instruction_files_to_modify(
         if claude_md.exists():
             content = claude_md.read_text(encoding="utf-8")
             if _needs_update(content):
-                targets.append(f"~/.claude/CLAUDE.md {_write_note(claude_md)}")
+                targets.append(f"~/.claude/CLAUDE.md {_write_note(claude_md, content)}")
         else:
             targets.append("~/.claude/CLAUDE.md (new)")
 
@@ -189,7 +201,7 @@ def _instruction_files_to_modify(
             if path.exists():
                 content = path.read_text(encoding="utf-8")
                 if _needs_update(content):
-                    targets.append(f"{display_name} {_write_note(path)}")
+                    targets.append(f"{display_name} {_write_note(path, content)}")
             else:
                 targets.append(f"{display_name} (new)")
 

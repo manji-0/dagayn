@@ -6,6 +6,10 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- `dagayn install` refreshes instruction sections whose text is out of date
+  (`~/.claude/CLAUDE.md`, `AGENTS.md`, ...). It used to treat any existing
+  dagayn section as current and skip it, so an upgrade kept the old guidance.
+  The preview labels such files `(update)`.
 - Agent context is smaller and repeats itself less. The installed
   instruction section (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, ...) drops
   from about 7.6 KB to 4.8 KB: one workflow, one table of the nine default

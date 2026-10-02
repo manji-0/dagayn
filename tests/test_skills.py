@@ -1644,6 +1644,24 @@ class TestInstructionFilesToModify:
 
         assert targets == ["~/.config/opencode/AGENTS.md (new)"]
 
+    def test_stale_marked_section_is_listed_and_current_one_is_not(self, tmp_path):
+        """An upgrade must refresh old instruction text, not skip it as present."""
+        from dagayn.cli.commands.init import _instruction_files_to_modify
+
+        claude_md = tmp_path / ".claude" / "CLAUDE.md"
+        claude_md.parent.mkdir(parents=True)
+        claude_md.write_text(
+            f"{_CLAUDE_MD_SECTION_MARKER}\n## MCP Tools: dagayn\n\nold text\n\n"
+            f"{_MARKDOWN_POLICY_MARKER}\n{_MARKDOWN_POLICY_HEADING}\n\nold policy\n"
+        )
+        with patch("dagayn.cli.commands.init.Path.home", return_value=tmp_path):
+            assert _instruction_files_to_modify(tmp_path, "claude") == [
+                "~/.claude/CLAUDE.md (update)"
+            ]
+            with patch("pathlib.Path.home", return_value=tmp_path):
+                inject_claude_md(tmp_path)
+            assert _instruction_files_to_modify(tmp_path, "claude") == []
+
     def test_all_preview_includes_global_agents_md_targets(self, tmp_path):
         from dagayn.cli.commands.init import _instruction_files_to_modify
 
