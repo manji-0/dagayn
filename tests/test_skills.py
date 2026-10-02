@@ -3113,9 +3113,9 @@ def test_skill_trust_tiers_match_the_canonical_block():
 
 
 def test_trust_tiers_name_only_visible_fields():
-    """Agents can only act on fields the tools return: orientation hides
-    ``graph_health.reason_codes``, and ``resolved_by`` exists only on SCIP
-    call edges."""
+    """Agents can only act on fields the tools return: orientation reports
+    ``sync.state`` (freshness codes stay out of the tiers), and
+    ``resolved_by`` exists only on SCIP call edges."""
     from dagayn.skills.trust import TRUST_TIERS
 
     assert "graph_describes_another_commit" not in TRUST_TIERS

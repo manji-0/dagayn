@@ -1,6 +1,6 @@
 ---
 name: architecture-analysis
-description: Assess a repository's architecture with the dagayn knowledge graph — module boundaries and communities, coupling, hubs and bridges (blast-radius hotspots), dependency cycles (ADP), stability direction (SDP), abstraction balance (SAP), and knowledge gaps — with counts and thresholds behind every claim. Use this whenever the user asks about architecture, layering, modularity, coupling, cyclic dependencies, "what are the riskiest parts of this codebase", where boundaries should be, or wants an architecture review or health check.
+description: Assess architecture with the dagayn graph — module boundaries, coupling, hubs and bridges, dependency cycles (ADP), stability (SDP), abstraction balance (SAP), knowledge gaps — citing counts and thresholds. Use when the user asks about architecture, layering, modularity, coupling, cycles, the riskiest parts of the codebase, or wants an architecture health check.
 ---
 
 # Architecture Analysis
@@ -47,25 +47,8 @@ buries the answer.
 
 ## Evidence
 
-<!-- dagayn trust tiers -->
-Reach comes from the graph, correctness from `source_of`, and user-visible
-effect from a reproduction; keep them apart in a claim. Full rules:
-`get_docs_section_tool(section_name="trust")`.
-
-- **Highest** — on a current graph (`sync.state` is `commit_synced` or
-  `worktree_ahead`): `HIGH` and `EXTRACTED` edges, whether the parser or a
-  SCIP index (`resolved_by: "scip"`) settled them; `source_of` spans;
-  authored doc contracts (`implemented_by` / `implements_contract` links whose
-  target exists — `evidence_type=authored` alone is on every Markdown result).
-- **Medium** — structure, not correctness: `MEDIUM` (inferred) edges,
-  `reason_codes`, blast radius, flows, communities, metrics, suggestions,
-  explanatory doc links, and search hits.
-- **Low** — a hypothesis until `source_of` or a reproduction confirms it:
-  `LOW` edges, `heuristic_reachable` doc links whatever their edge confidence,
-  a file-level `tests_for` of 0, `truncated` or `ambiguous` results, and
-  answers about files changed since the graph was built (`sync.state`
-  `commit_drift` or `worktree_behind`).
-<!-- /dagayn trust tiers -->
+Rank results with the Highest / Medium / Low trust tiers in the installed
+dagayn instructions (full rules: `get_docs_section_tool(section_name="trust")`).
 
 - Architecture signals are **Medium** leads, not proof of a design bug: cite
   counts, thresholds, reason codes, and `total` / `truncated`.

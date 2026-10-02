@@ -138,17 +138,10 @@ def _run_session_prepare(args: argparse.Namespace, budget: int | None) -> dict[s
 
 
 def _print_session_prepare_summary(result: dict[str, Any]) -> None:
+    # SessionStart hooks show this to the agent: the summary already carries
+    # sync state and phases, so print it once plus where to start.
     summary = result.get("summary") or "session prepare complete"
     print(summary)
-    sync = result.get("sync") or {}
-    if sync:
-        print(
-            f"Sync: {sync.get('status')} "
-            f"(repo={sync.get('repo_root')}, "
-            f"head={(sync.get('current_head_sha') or '')[:12]})"
-        )
-    phases = result.get("phases") or {}
-    if phases:
-        print(f"Phases: structure={phases.get('structure')} embedding={phases.get('embedding')}")
     if result.get("status") == "error":
         sys.exit(1)
+    print("dagayn: start graph work with get_minimal_context_tool(task=...).")

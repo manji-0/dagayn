@@ -1,6 +1,6 @@
 ---
 name: explore-codebase
-description: Explore and explain code in a repository dagayn has indexed — how a mechanism works end to end, where something is defined, what calls or imports it, what a file or module does, which tests and docs cover it — using graph relationships instead of reading whole files. Consult this skill before the first search, grep, or graph call whenever the user asks how something works, walks through a process, asks where X lives or what uses X, wants a module overview, or is onboarding onto the codebase.
+description: Explore and explain code in a repository dagayn indexes — how a mechanism works end to end, where something is defined, what calls or imports it, what a module does, which tests and docs cover it — through graph relationships instead of whole-file reads. Use before the first search when the user asks how something works, where X lives, what uses X, or is onboarding.
 ---
 
 # Explore Codebase

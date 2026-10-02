@@ -1,6 +1,6 @@
 ---
 name: worktree-sync
-description: Make a git worktree or jj workspace usable with dagayn — inherit the main checkout's graph and MCP config instead of rebuilding, then catch up the branch diff. Use this whenever an agent works in a linked worktree (Claude Code EnterWorktree, Cursor parallel agents, `git worktree add`, `jj workspace add`), or when dagayn tools in a worktree return an empty graph, the wrong checkout's results, or no MCP server at all.
+description: Make a git worktree or jj workspace usable with dagayn — inherit the main checkout's graph and MCP config instead of rebuilding, then catch up the branch diff. Use when an agent works in a linked worktree (EnterWorktree, Cursor parallel agents, `git worktree add`, `jj workspace add`) or dagayn there returns an empty graph, another checkout's results, or no MCP server.
 argument-hint: "[worktree path]"
 ---
 

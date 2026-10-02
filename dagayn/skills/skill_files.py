@@ -141,9 +141,60 @@ def _embedding_context_lines(
     ]
 
 
+# Skills that carry the full install-specific search guidance; every other
+# skill gets the two-line summary from ``_embedding_summary_lines`` so the
+# same paragraph is not loaded with each skill.
+_FULL_EMBEDDING_CONTEXT_SKILLS = frozenset({"semantic-search", "build-graph"})
+
+
+def _embedding_summary_lines(
+    embedding_mode: str | None = None,
+    embedding_preset: str | None = None,
+    embedding_provider: str | None = None,
+) -> list[str]:
+    """Return the short install-specific search note for non-search skills."""
+    details = "The semantic-search skill has the full search guidance."
+    if embedding_mode == "local-embedding":
+        body = (
+            "Installed with local embeddings (`--mode local-embedding`, managed BGE-M3 "
+            "sidecar): search is hybrid when vectors exist. Pass "
+            '`local_embedding="none"` to routine `build_or_update_graph_tool` refreshes '
+            "so they do not trigger an embedding refresh."
+        )
+    elif embedding_mode == "local-embedding-llama":
+        preset = embedding_preset or "low"
+        body = (
+            "Installed with managed Qwen3 embeddings "
+            f"(`--mode local-embedding-llama --preset {preset}`): search is hybrid when "
+            'vectors exist. Pass `local_embedding="none"` to routine '
+            "`build_or_update_graph_tool` refreshes so they do not trigger an embedding "
+            "refresh."
+        )
+    elif embedding_mode == "remote-embedding":
+        provider = embedding_provider or "openai"
+        body = (
+            "Installed with remote embeddings "
+            f"(`--mode remote-embedding --provider {provider}`): use FTS for exact "
+            "lookup and reserve remote embedding calls for fuzzy or conceptual searches."
+        )
+    elif embedding_mode == "fts-only":
+        body = (
+            "Installed in FTS-only mode (`--mode fts-only`): treat "
+            "`semantic_search_nodes_tool` as keyword/FTS search, and do not rebuild "
+            "embeddings unless the user changes the install mode."
+        )
+    else:
+        body = (
+            "This packaged skill is mode-neutral; check `search_mode` in a "
+            "`semantic_search_nodes_tool` result before assuming hybrid search."
+        )
+    return ["## Installed Search Mode", "", body, details]
+
+
 def _render_skill_content(
     content: str,
     *,
+    skill_name: str | None = None,
     embedding_mode: str | None = None,
     embedding_preset: str | None = None,
     embedding_provider: str | None = None,
@@ -156,8 +207,13 @@ def _render_skill_content(
     if end_index < 0:
         return content
 
+    render_lines = (
+        _embedding_context_lines
+        if skill_name is None or skill_name in _FULL_EMBEDDING_CONTEXT_SKILLS
+        else _embedding_summary_lines
+    )
     context = "\n".join(
-        _embedding_context_lines(
+        render_lines(
             embedding_mode=embedding_mode,
             embedding_preset=embedding_preset,
             embedding_provider=embedding_provider,
@@ -309,6 +365,7 @@ def _install_skill_tree(
             target_skill,
             _render_skill_content(
                 target_skill.read_text(encoding="utf-8"),
+                skill_name=entry.name,
                 embedding_mode=embedding_mode,
                 embedding_preset=embedding_preset,
                 embedding_provider=embedding_provider,
@@ -452,6 +509,7 @@ def install_qoder_skills(
                     target_skill,
                     _render_skill_content(
                         target_skill.read_text(encoding="utf-8"),
+                        skill_name=skill_dir.name,
                         embedding_mode=embedding_mode,
                         embedding_preset=embedding_preset,
                         embedding_provider=embedding_provider,

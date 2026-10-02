@@ -1,6 +1,6 @@
 ---
 name: writing-markdown-document
-description: Write or edit Markdown (design docs, ADRs, RFCs, specs, runbooks, READMEs) so dagayn indexes it correctly — dependency directives between docs, links with the right section slugs, and documentation links between doc sections and the code that implements them — in a four-stage outline → draft-and-verify → polish → summary flow. Use this whenever the user asks to write, draft, restructure, or update a Markdown document in a repository dagayn indexes, including updating docs after a code change or linking a spec to its implementation.
+description: Write or edit Markdown (design docs, ADRs, RFCs, specs, runbooks, READMEs) so dagayn indexes it correctly — dependency directives, links with the right section slugs, and links between doc sections and the code that implements them — in an outline, draft-and-verify, polish, summary flow. Use when the user asks to write, restructure, or update a doc, including after a code change.
 argument-hint: "[doc path]"
 ---
 

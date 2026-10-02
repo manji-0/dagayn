@@ -1,6 +1,6 @@
 ---
 name: debug-issue
-description: Debug a bug, failing test, error message, stack trace, crash, or unexpected behavior in a repository dagayn has indexed — locate the code behind the symptom, trace callers and callees, check affected flows and recent changes, and confirm the failing path in source. Consult this skill before running the failing test, grepping for the error text, or calling graph tools whenever the user reports something broken or asks why X happens, where an error comes from, or why a tool or command returns the wrong result — even a one-line "why does this fail" question.
+description: Debug a bug, failing test, error, stack trace, crash, or unexpected behavior in a repository dagayn indexes — reproduce it if that is cheap, locate the code behind the symptom, trace callers and callees, check recent changes, and confirm the failing path in source. Use whenever the user reports something broken or asks why X happens or where an error comes from.
 ---
 
 # Debug Issue

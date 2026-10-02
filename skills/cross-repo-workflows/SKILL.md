@@ -1,6 +1,6 @@
 ---
 name: cross-repo-workflows
-description: Work across several repositories with dagayn — register repos, keep their graphs fresh with the watch daemon, search all of them at once for a symbol or concept, then confirm hits in the owning repo. Use this whenever a task spans multiple repositories, a shared library and its consumers, a client and a server in different checkouts, or the user asks "who else uses this", "where is this defined in our other repos", or wants to set up the multi-repo registry or daemon.
+description: Work across several repositories with dagayn — register repos, keep their graphs fresh with the watch daemon, search all of them for a symbol or concept, then confirm hits in the owning repo. Use when a task spans repositories (a library and its consumers, a client and a server) or the user asks who else uses something or where it lives in other repos.
 argument-hint: "[repo or query]"
 ---
 

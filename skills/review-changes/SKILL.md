@@ -1,6 +1,6 @@
 ---
 name: review-changes
-description: Structured, risk-ranked code review of a branch or change set with the dagayn knowledge graph — blast radius, affected flows, missing tests, and linked docs that need updating — ending in a merge recommendation. Use this whenever the user asks to review a branch, a set of commits, "my changes before I merge", or wants to know what a change breaks, which tests to run, or which docs are now stale. For a quick look at just the uncommitted delta use review-delta; for a GitHub PR by number or URL use review-pr.
+description: Risk-ranked review of a branch or set of commits with the dagayn graph — blast radius, affected flows, missing tests, and stale linked docs — ending in a merge recommendation. Use when the user asks to review their branch or changes before merging, what a change breaks, or which tests to run. For only the uncommitted delta use review-delta; for a PR number or link use review-pr.
 ---
 
 # Review Changes

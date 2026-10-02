@@ -1,6 +1,6 @@
 ---
 name: refactor-safely
-description: Plan and execute safe refactors in a repository dagayn has indexed — renames, moves, splits, extracting functions, dead-code removal — by previewing every caller, import, test, and linked doc the change touches before editing. Consult this skill before running grep, sed, or any edit whenever the user asks to rename, move, split, inline, extract, or delete a symbol or module, shorten a long function, clean up unused code, asks whether something is still used before deleting it, or asks what breaks if X changes, even if they never say "refactor".
+description: Plan and execute refactors in a repository dagayn indexes — renames, moves, splits, extractions, dead-code removal — by previewing every caller, import, test, and linked doc the change touches before editing. Use before any grep, sed, or edit when the user asks to rename, move, split, extract, or delete something, whether it is still used, or what breaks if X changes.
 ---
 
 # Refactor Safely
@@ -48,25 +48,8 @@ edit set, and verify impact afterwards.
 
 ## Judging suggestions
 
-<!-- dagayn trust tiers -->
-Reach comes from the graph, correctness from `source_of`, and user-visible
-effect from a reproduction; keep them apart in a claim. Full rules:
-`get_docs_section_tool(section_name="trust")`.
-
-- **Highest** — on a current graph (`sync.state` is `commit_synced` or
-  `worktree_ahead`): `HIGH` and `EXTRACTED` edges, whether the parser or a
-  SCIP index (`resolved_by: "scip"`) settled them; `source_of` spans;
-  authored doc contracts (`implemented_by` / `implements_contract` links whose
-  target exists — `evidence_type=authored` alone is on every Markdown result).
-- **Medium** — structure, not correctness: `MEDIUM` (inferred) edges,
-  `reason_codes`, blast radius, flows, communities, metrics, suggestions,
-  explanatory doc links, and search hits.
-- **Low** — a hypothesis until `source_of` or a reproduction confirms it:
-  `LOW` edges, `heuristic_reachable` doc links whatever their edge confidence,
-  a file-level `tests_for` of 0, `truncated` or `ambiguous` results, and
-  answers about files changed since the graph was built (`sync.state`
-  `commit_drift` or `worktree_behind`).
-<!-- /dagayn trust tiers -->
+Rank results with the Highest / Medium / Low trust tiers in the installed
+dagayn instructions (full rules: `get_docs_section_tool(section_name="trust")`).
 
 Suggestions are **Medium** leads. Public APIs, dynamic dispatch, generated
 code, test fixtures, and framework entry points often have no static caller,

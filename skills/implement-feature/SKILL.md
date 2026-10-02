@@ -1,6 +1,6 @@
 ---
 name: implement-feature
-description: Add new behavior in a repository dagayn has indexed — a flag, option, command, endpoint, handler, tool, query pattern, integration, or UI flow — by finding the extension point that already does something similar, making the smallest change in that pattern, then verifying blast radius, tests, and linked docs. Consult this skill before searching or editing whenever the user asks to add, implement, support, or extend something, including "make X also handle Y" or "add support for Z like the others".
+description: Add behavior in a repository dagayn indexes — a flag, option, command, endpoint, handler, tool, integration, or UI flow — by finding the extension point that already does something similar, making the smallest change in that pattern, and checking blast radius, tests, and linked docs. Use when the user asks to add, implement, support, or extend something.
 argument-hint: "[feature goal]"
 ---
 
@@ -53,25 +53,8 @@ retrieval setup.
 
 ## Evidence
 
-<!-- dagayn trust tiers -->
-Reach comes from the graph, correctness from `source_of`, and user-visible
-effect from a reproduction; keep them apart in a claim. Full rules:
-`get_docs_section_tool(section_name="trust")`.
-
-- **Highest** — on a current graph (`sync.state` is `commit_synced` or
-  `worktree_ahead`): `HIGH` and `EXTRACTED` edges, whether the parser or a
-  SCIP index (`resolved_by: "scip"`) settled them; `source_of` spans;
-  authored doc contracts (`implemented_by` / `implements_contract` links whose
-  target exists — `evidence_type=authored` alone is on every Markdown result).
-- **Medium** — structure, not correctness: `MEDIUM` (inferred) edges,
-  `reason_codes`, blast radius, flows, communities, metrics, suggestions,
-  explanatory doc links, and search hits.
-- **Low** — a hypothesis until `source_of` or a reproduction confirms it:
-  `LOW` edges, `heuristic_reachable` doc links whatever their edge confidence,
-  a file-level `tests_for` of 0, `truncated` or `ambiguous` results, and
-  answers about files changed since the graph was built (`sync.state`
-  `commit_drift` or `worktree_behind`).
-<!-- /dagayn trust tiers -->
+Rank results with the Highest / Medium / Low trust tiers in the installed
+dagayn instructions (full rules: `get_docs_section_tool(section_name="trust")`).
 
 ## Notes
 

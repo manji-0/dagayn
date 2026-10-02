@@ -1,6 +1,6 @@
 ---
 name: review-delta
-description: Fast review of just the working delta — the last commit plus uncommitted edits — and what it reaches, using the dagayn knowledge graph. Consult this skill before running git diff or git status whenever the user asks to look over, sanity-check, or double-check what they just changed, staged, or are about to commit or push, asks whether an edit still works or broke callers or tests, or names one changed file or function to check. For a full branch review with a merge recommendation use review-changes.
+description: Fast review of the working delta — the last commit plus uncommitted edits — and what it reaches, with the dagayn graph. Use before git diff when the user asks to look over, sanity-check, or double-check what they just changed, staged, or are about to commit, or whether an edit broke callers or tests. For a whole branch with a merge recommendation use review-changes.
 argument-hint: "[file or function name]"
 ---
 
@@ -49,25 +49,8 @@ has the compact workflow if you want it in context.
 
 ## Evidence
 
-<!-- dagayn trust tiers -->
-Reach comes from the graph, correctness from `source_of`, and user-visible
-effect from a reproduction; keep them apart in a claim. Full rules:
-`get_docs_section_tool(section_name="trust")`.
-
-- **Highest** — on a current graph (`sync.state` is `commit_synced` or
-  `worktree_ahead`): `HIGH` and `EXTRACTED` edges, whether the parser or a
-  SCIP index (`resolved_by: "scip"`) settled them; `source_of` spans;
-  authored doc contracts (`implemented_by` / `implements_contract` links whose
-  target exists — `evidence_type=authored` alone is on every Markdown result).
-- **Medium** — structure, not correctness: `MEDIUM` (inferred) edges,
-  `reason_codes`, blast radius, flows, communities, metrics, suggestions,
-  explanatory doc links, and search hits.
-- **Low** — a hypothesis until `source_of` or a reproduction confirms it:
-  `LOW` edges, `heuristic_reachable` doc links whatever their edge confidence,
-  a file-level `tests_for` of 0, `truncated` or `ambiguous` results, and
-  answers about files changed since the graph was built (`sync.state`
-  `commit_drift` or `worktree_behind`).
-<!-- /dagayn trust tiers -->
+Rank results with the Highest / Medium / Low trust tiers in the installed
+dagayn instructions (full rules: `get_docs_section_tool(section_name="trust")`).
 
 Doc candidates are not optional reading: update them (see the "Docs update
 after code change" steps in review-changes) or list them as deferred. Before

@@ -234,7 +234,7 @@ fi
 
 output="$(DAGAYN_HOOK_UPDATE=1 dagayn session prepare \\
   --budget-seconds {_SESSION_PREPARE_BUDGET_SECONDS}{prepare_args} \\
-  --repo "$repo" 2>&1)" \\
+  --repo "$repo" 2>/dev/null)" \\
   || output="dagayn: session prepare failed — run 'dagayn session prepare'"
 
 # sessionStart accepts {{"additional_context": "..."}}; feed status to the agent.

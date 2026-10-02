@@ -1,6 +1,6 @@
 ---
 name: reading-markdown-document
-description: Read a Markdown document — design doc, ADR, RFC, spec, runbook, README, or one section of it — with its dependency context — use the dagayn graph to see its sections, which docs it depends on and which depend on it, and the code that implements it, then read the prose. Consult this skill before opening the file whenever the user asks what a doc or spec says, requires, or promises, asks for a summary or explanation of documentation, asks what implements a section, or is about to edit a doc others depend on.
+description: Read a Markdown document (design doc, ADR, RFC, spec, runbook, README, or one section) with its dependency context — its sections, the docs it depends on and that depend on it, and the code that implements it — then the prose. Use before opening the file when the user asks what a doc says or requires, what implements a section, or is about to edit a doc others depend on.
 argument-hint: "[doc path]"
 ---
 
@@ -79,25 +79,8 @@ then symbols, if the list is long.
 
 ## Evidence
 
-<!-- dagayn trust tiers -->
-Reach comes from the graph, correctness from `source_of`, and user-visible
-effect from a reproduction; keep them apart in a claim. Full rules:
-`get_docs_section_tool(section_name="trust")`.
-
-- **Highest** — on a current graph (`sync.state` is `commit_synced` or
-  `worktree_ahead`): `HIGH` and `EXTRACTED` edges, whether the parser or a
-  SCIP index (`resolved_by: "scip"`) settled them; `source_of` spans;
-  authored doc contracts (`implemented_by` / `implements_contract` links whose
-  target exists — `evidence_type=authored` alone is on every Markdown result).
-- **Medium** — structure, not correctness: `MEDIUM` (inferred) edges,
-  `reason_codes`, blast radius, flows, communities, metrics, suggestions,
-  explanatory doc links, and search hits.
-- **Low** — a hypothesis until `source_of` or a reproduction confirms it:
-  `LOW` edges, `heuristic_reachable` doc links whatever their edge confidence,
-  a file-level `tests_for` of 0, `truncated` or `ambiguous` results, and
-  answers about files changed since the graph was built (`sync.state`
-  `commit_drift` or `worktree_behind`).
-<!-- /dagayn trust tiers -->
+Rank results with the Highest / Medium / Low trust tiers in the installed
+dagayn instructions (full rules: `get_docs_section_tool(section_name="trust")`).
 
 In document terms: authored `implemented_by` / `implements_contract` links
 are Highest once the linked code's `source_of` confirms it; explanatory roles

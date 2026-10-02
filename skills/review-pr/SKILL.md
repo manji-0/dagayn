@@ -1,6 +1,6 @@
 ---
 name: review-pr
-description: Review a pull request (by number, URL, or branch name) with the dagayn knowledge graph — risk ranking, blast radius across every commit in the PR, missing tests, breaking public-API changes, and linked docs — and write a structured PR review. Use this whenever the user hands you a PR number or link, says "review PR 123", "review this branch against main", or asks for a pre-merge review of someone else's branch. For your own uncommitted edits use review-delta; for a general branch review with a merge recommendation use review-changes.
+description: Review a pull request by number or link, or someone else's branch, with the dagayn graph — risk ranking, blast radius across every commit, missing tests, breaking public-API changes, linked docs — and write a structured PR review. Use when the user hands over a PR or asks for a pre-merge review of another author's work. For your own branch use review-changes.
 argument-hint: "[PR number or branch name]"
 ---
 
@@ -92,25 +92,8 @@ retrieval setup.
 
 ## Judgment
 
-<!-- dagayn trust tiers -->
-Reach comes from the graph, correctness from `source_of`, and user-visible
-effect from a reproduction; keep them apart in a claim. Full rules:
-`get_docs_section_tool(section_name="trust")`.
-
-- **Highest** — on a current graph (`sync.state` is `commit_synced` or
-  `worktree_ahead`): `HIGH` and `EXTRACTED` edges, whether the parser or a
-  SCIP index (`resolved_by: "scip"`) settled them; `source_of` spans;
-  authored doc contracts (`implemented_by` / `implements_contract` links whose
-  target exists — `evidence_type=authored` alone is on every Markdown result).
-- **Medium** — structure, not correctness: `MEDIUM` (inferred) edges,
-  `reason_codes`, blast radius, flows, communities, metrics, suggestions,
-  explanatory doc links, and search hits.
-- **Low** — a hypothesis until `source_of` or a reproduction confirms it:
-  `LOW` edges, `heuristic_reachable` doc links whatever their edge confidence,
-  a file-level `tests_for` of 0, `truncated` or `ambiguous` results, and
-  answers about files changed since the graph was built (`sync.state`
-  `commit_drift` or `worktree_behind`).
-<!-- /dagayn trust tiers -->
+Rank results with the Highest / Medium / Low trust tiers in the installed
+dagayn instructions (full rules: `get_docs_section_tool(section_name="trust")`).
 
 - Risk labels prioritize; they don't prove. Confirm a behavioral issue with
   `source_of` or a test before reporting it as a finding.

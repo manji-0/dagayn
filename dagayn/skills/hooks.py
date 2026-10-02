@@ -263,13 +263,17 @@ def generate_hooks_config(
                     "hooks": [
                         {
                             "type": "command",
+                            # A missing repository and a failed prepare get
+                            # different messages: the old single fallback
+                            # reported every prepare error as "Not a git repo".
                             "command": (
                                 f"{repo_expr}"
-                                f" && DAGAYN_HOOK_UPDATE=1 dagayn session prepare"
+                                " || { echo 'dagayn: not a git repo, skipping'; exit 0; }; "
+                                f"DAGAYN_HOOK_UPDATE=1 dagayn session prepare"
                                 f" --budget-seconds {_SESSION_PREPARE_BUDGET_SECONDS}"
                                 f"{prepare_args}"
                                 ' --repo "$repo"'
-                                " || echo 'Not a git repo, skipping'"
+                                " || echo 'dagayn: session prepare failed; the graph may be stale'"
                             ),
                             "timeout": _STATUS_HOOK_TIMEOUT_SECONDS,
                         },

@@ -1,6 +1,6 @@
 ---
 name: install-dagayn
-description: Install, upgrade, or repair dagayn's integration with AI coding tools — MCP server config, skills, hooks, instruction files, and the embedding mode — for Claude Code, Codex, Cursor, and the other supported platforms. Consult this skill before inspecting config files whenever dagayn tools or skills are missing from a tool, the graph never updates on edits, the user upgraded dagayn, wants to switch embedding mode, or wants dagayn set up or removed.
+description: Install, upgrade, or repair dagayn's integration with AI coding tools — MCP config, skills, hooks, instruction files, and embedding mode — for Claude Code, Codex, Cursor, and the other platforms. Use when dagayn tools or skills are missing from a tool, the graph never updates on edits, after an upgrade, to switch embedding mode, or to set dagayn up or remove it.
 argument-hint: "[platform]"
 ---
 

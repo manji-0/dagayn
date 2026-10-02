@@ -1,6 +1,6 @@
 ---
 name: semantic-search
-description: Find code by meaning with dagayn's hybrid search (FTS + embeddings) when the name is unknown, read why each hit ranked, hand the best hit to graph tools, and set up or refresh embeddings when recall is poor. Consult this skill before calling semantic_search_nodes_tool or grep whenever the user wants "the code that does X" without knowing its name, describes behavior instead of an identifier, search results look wrong or thin, search_mode is not hybrid, or embeddings need building, switching, or fixing.
+description: Find code or docs by meaning when the name is unknown with dagayn's hybrid search (FTS + embeddings), read why each hit ranked, and set up or fix embeddings. Use when the user describes behavior instead of an identifier, search results look wrong or thin, `search_mode` is not hybrid, or embeddings need building or switching.
 argument-hint: "[query]"
 ---
 
@@ -12,25 +12,8 @@ queries.
 
 ## Evidence
 
-<!-- dagayn trust tiers -->
-Reach comes from the graph, correctness from `source_of`, and user-visible
-effect from a reproduction; keep them apart in a claim. Full rules:
-`get_docs_section_tool(section_name="trust")`.
-
-- **Highest** — on a current graph (`sync.state` is `commit_synced` or
-  `worktree_ahead`): `HIGH` and `EXTRACTED` edges, whether the parser or a
-  SCIP index (`resolved_by: "scip"`) settled them; `source_of` spans;
-  authored doc contracts (`implemented_by` / `implements_contract` links whose
-  target exists — `evidence_type=authored` alone is on every Markdown result).
-- **Medium** — structure, not correctness: `MEDIUM` (inferred) edges,
-  `reason_codes`, blast radius, flows, communities, metrics, suggestions,
-  explanatory doc links, and search hits.
-- **Low** — a hypothesis until `source_of` or a reproduction confirms it:
-  `LOW` edges, `heuristic_reachable` doc links whatever their edge confidence,
-  a file-level `tests_for` of 0, `truncated` or `ambiguous` results, and
-  answers about files changed since the graph was built (`sync.state`
-  `commit_drift` or `worktree_behind`).
-<!-- /dagayn trust tiers -->
+Rank results with the Highest / Medium / Low trust tiers in the installed
+dagayn instructions (full rules: `get_docs_section_tool(section_name="trust")`).
 
 In search terms: hybrid or embedding hits are Medium discovery, `fts_only`
 hits are keyword candidates, and `keyword_fallback` or

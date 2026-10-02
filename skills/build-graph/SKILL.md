@@ -1,6 +1,6 @@
 ---
 name: build-graph
-description: Build, refresh, or repair the dagayn code knowledge graph — first-time bootstrap, catching up after a branch switch or pull, filling in missing flows and communities, rebuilding from scratch, or letting SCIP indexers settle call targets with `dagayn build --scip`. Use this whenever the graph is empty or stale, graph tools return nothing or look out of date, flows/communities are missing, the user asks to "index", "build", or "rebuild" the graph, or before relying on graph results in a repository dagayn has not indexed yet.
+description: Build, refresh, or repair the dagayn graph — first bootstrap, catching up after a pull or branch switch, missing flows or communities, a rebuild, or SCIP-settled call targets (`dagayn build --scip`). Use when the graph is empty or stale, graph tools return nothing, or the user asks to index or rebuild. In a linked git worktree or jj workspace use worktree-sync instead.
 argument-hint: "[full]"
 ---
 

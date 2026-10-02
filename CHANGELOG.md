@@ -6,6 +6,23 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- Agent context is smaller and repeats itself less. The installed
+  instruction section (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, ...) drops
+  from about 7.6 KB to 4.8 KB: one workflow, one table of the nine default
+  tools (now including `get_docs_section_tool`), tool-neutral wording instead
+  of "Grep/Glob/Read", and a short Markdown directive policy that points at
+  the `writing-markdown-document` skill. Only review-changes,
+  explore-codebase, and debug-issue repeat the trust tiers; the other skills
+  point at them. Skills other than semantic-search and build-graph get a
+  two-line install search note instead of the full one, and skill
+  descriptions are about 30% shorter with clearer hand-offs (review-pr owns
+  PRs and other authors' branches, build-graph defers to worktree-sync,
+  semantic-search only when the name is unknown).
+- The Claude Code SessionStart hook says "not a git repo" only when there is
+  no repository; a failed `session prepare` now reports itself. Its output is
+  the summary line plus where to start, without the repeated `Sync:` and
+  `Phases:` lines. The Cursor hook keeps stderr logs out of the agent's
+  `additional_context`.
 - The MCP server `instructions` describe dagayn (code, Markdown, and
   Terraform in one graph), the `get_minimal_context_tool` entry point, the
   review and trace tools, and the `source_of` / trust rule, instead of the
