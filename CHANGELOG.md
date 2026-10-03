@@ -55,6 +55,10 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- `prompts/get` failed for all five MCP prompts with "messages[0] must be
+  Message or str" under fastmcp 4: the prompts returned plain dicts. They
+  return their message texts now, and `protocol.json` in the MCP snapshots
+  freezes each rendered prompt.
 - Native binding edges (`CROSS_ARTIFACT` from `native_bindings`) were
   stored in hash-map order, so the same graph got different edge ids on
   every build. They are now stored sorted.

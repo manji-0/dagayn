@@ -392,6 +392,127 @@ async def _list_surface(repo: Path, env: dict[str, str], tools: str | None) -> d
     }
 
 
+#: Raw JSON-RPC requests after the handshake, with the case name each reply is
+#: frozen under. They pin what the MCP layer itself answers (schemas,
+#: descriptions, prompt texts, argument errors, unknown names), which the
+#: tool payload snapshots do not cover.
+_PROTOCOL_REQUESTS: list[tuple[str, str, dict[str, Any]]] = [
+    ("tools_list", "tools/list", {}),
+    ("prompts_list", "prompts/list", {}),
+    *[
+        (case, "prompts/get", {"name": name, "arguments": arguments})
+        for case, name, arguments in [
+            ("prompt_review_changes", "review_changes", {}),
+            ("prompt_review_changes_base", "review_changes", {"base": "main"}),
+            ("prompt_architecture_map", "architecture_map", {}),
+            ("prompt_debug_issue", "debug_issue", {"description": "flaky login"}),
+            ("prompt_onboard_developer", "onboard_developer", {}),
+            ("prompt_pre_merge_check", "pre_merge_check", {}),
+        ]
+    ],
+    ("prompt_unknown", "prompts/get", {"name": "no_such_prompt", "arguments": {}}),
+    (
+        "call_missing_argument",
+        "tools/call",
+        {"name": "query_graph_tool", "arguments": {"pattern": "callers_of"}},
+    ),
+    (
+        "call_bad_type",
+        "tools/call",
+        {
+            "name": "query_graph_tool",
+            "arguments": {"pattern": "callers_of", "target": "x", "depth": "two"},
+        },
+    ),
+    (
+        "call_coerced_type",
+        "tools/call",
+        {
+            "name": "query_graph_tool",
+            "arguments": {"pattern": "callers_of", "target": "nope", "depth": "2"},
+        },
+    ),
+    (
+        "call_unknown_argument",
+        "tools/call",
+        {
+            "name": "query_graph_tool",
+            "arguments": {"pattern": "callers_of", "target": "x", "bogus": 1},
+        },
+    ),
+    ("call_unknown_tool", "tools/call", {"name": "no_such_tool", "arguments": {}}),
+    ("ping", "ping", {}),
+    ("resources_list", "resources/list", {}),
+    ("resource_templates_list", "resources/templates/list", {}),
+    ("logging_set_level", "logging/setLevel", {"level": "info"}),
+    ("unknown_method", "no/such_method", {}),
+]
+
+
+def _protocol_exchange(repo: Path, env: dict[str, str], tools: str | None) -> dict[str, Any]:
+    """Every reply to :data:`_PROTOCOL_REQUESTS`, keyed by case, as raw JSON-RPC."""
+    cmd = _server_cmd(repo, tools)
+    proc = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
+        cmd,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        env=env,
+        cwd=str(repo),
+        text=True,
+    )
+    assert proc.stdin is not None and proc.stdout is not None
+
+    def ask(request_id: int, method: str, params: dict[str, Any]) -> Any:
+        message = {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params}
+        proc.stdin.write(json.dumps(message) + "\n")
+        proc.stdin.flush()
+        while True:
+            line = proc.stdout.readline()
+            if not line:
+                raise RuntimeError(f"server closed the stream before answering {method}")
+            reply = json.loads(line)
+            if reply.get("id") == request_id:
+                return {key: value for key, value in reply.items() if key not in ("id", "jsonrpc")}
+
+    try:
+        replies = {
+            "initialize": ask(
+                0,
+                "initialize",
+                {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "mcp-snapshot", "version": "0"},
+                },
+            )
+        }
+        proc.stdin.write(
+            json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n"
+        )
+        proc.stdin.flush()
+        for request_id, (case, method, params) in enumerate(_PROTOCOL_REQUESTS, start=1):
+            replies[case] = ask(request_id, method, params)
+    finally:
+        proc.stdin.close()
+        proc.wait(timeout=30)
+    # The implementation's own version, not part of the contract.
+    server_info = replies["initialize"].get("result", {}).get("serverInfo", {})
+    if "version" in server_info:
+        server_info["version"] = "<VOLATILE>"
+    return normalize(replies, repo, Path(env["HOME"]))
+
+
+def snapshot_protocol() -> str:
+    """Raw MCP-layer replies for the default and the full tool surface."""
+    with built_fixture("python_only") as (repo, env):
+        surface = {
+            "default": _protocol_exchange(repo, env, None),
+            "all": _protocol_exchange(repo, env, "all"),
+        }
+    return canonical(surface)
+
+
 def fixture_cases(name: str) -> list[tuple[str, str, dict[str, Any]]]:
     return [*_COMMON_CASES, *FIXTURE_CASES[name]]
 
@@ -447,6 +568,8 @@ def regenerate(names: list[str]) -> None:
         print(f"{name}: {len(snapshots)} snapshots")
     _write(SNAPSHOT_DIR / "tools_list.json", snapshot_tools_list())
     print("tools_list.json")
+    _write(SNAPSHOT_DIR / "protocol.json", snapshot_protocol())
+    print("protocol.json")
 
 
 def check_determinism(names: list[str], report: Callable[[str], None] = print) -> bool:

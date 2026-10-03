@@ -44,6 +44,15 @@ def test_tool_and_prompt_listing_matches_snapshot() -> None:
     )
 
 
+def test_protocol_replies_match_snapshot() -> None:
+    path = mcp_snapshot.SNAPSHOT_DIR / "protocol.json"
+    if not path.exists():
+        pytest.skip(f"No protocol snapshot. Run:\n  {REGENERATE}")  # ty: ignore[too-many-positional-arguments]
+    assert mcp_snapshot.snapshot_protocol() == path.read_text(encoding="utf-8"), (
+        f"MCP protocol replies changed. If intended, run:\n  {REGENERATE}"
+    )
+
+
 class TestNormalize:
     def test_repo_paths_and_volatile_keys_become_placeholders(self, tmp_path: Path) -> None:
         payload = {

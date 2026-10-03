@@ -1,0 +1,2859 @@
+{
+  "all": {
+    "call_bad_type": {
+      "result": {
+        "content": [
+          {
+            "text": "1 validation error for call[query_graph_tool]\ndepth\n  Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='two', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.12/v/int_parsing",
+            "type": "text"
+          }
+        ],
+        "isError": true
+      }
+    },
+    "call_coerced_type": {
+      "result": {
+        "content": [
+          {
+            "text": "{\"status\":\"not_found\",\"summary\":\"No node found matching 'nope' in the current graph.\",\"result_count\":0,\"results\":[],\"zero_result_reason\":\"target_not_found_in_graph\",\"next_action\":{\"tool\":\"semantic_search_nodes_tool\",\"suggestion\":\"broaden the query or verify the graph is up to date\"},\"answerability\":{\"status\":\"ok\",\"score\":0.75,\"reason_codes\":[\"missing_test_edges\",\"stale_derived_structures\"],\"parse\":[3,1,true],\"counts\":{\"flows\":1,\"communities\":2,\"test_edges\":0,\"reportable_cross_artifact_edges\":0,\"reportable_unresolved_cross_artifact_edges\":0,\"stale_flow_memberships\":0,\"unassigned_nodes\":1,\"graph_head_sha\":\"23cba2c11ebc1e87d236f6c1276afadf3f6ee5fb\",\"current_head_sha\":\"23cba2c11ebc1e87d236f6c1276afadf3f6ee5fb\",\"worktree_dirty\":false},\"answerability\":[1,2,0,0,0.0]},\"missingness\":[{\"reason_code\":\"missing_test_edges\",\"severity\":\"medium\",\"claim_effect\":\"claims should be treated as graph-limited until this is resolved\"},{\"reason_code\":\"stale_derived_structures\",\"severity\":\"medium\",\"claim_effect\":\"claims should be treated as graph-limited until this is resolved\"},{\"reason_code\":\"target_not_found_in_graph\",\"severity\":\"medium\",\"claim_effect\":\"absence is graph-limited, not proof the symbol does not exist\"}],\"guidance\":[{\"claim\":\"No graph relationships matched 'callers_of' for 'nope'.\",\"evidence\":[{\"type\":\"computed\",\"pattern\":\"callers_of\",\"target\":\"nope\",\"result_count\":0}],\"confidence\":\"low\",\"missingness\":[{\"reason_code\":\"not_found_in_current_graph\",\"severity\":\"medium\",\"claim_effect\":\"absence is graph-limited, not proof the relationship does not exist\"}],\"action\":\"semantic_search_nodes_tool -- verify the target and refresh the graph\",\"reason_codes\":[\"zero_result\"],\"counts\":{\"result_count\":0}}],\"_hints\":{\"next_steps\":[{\"tool\":\"semantic_search_nodes_tool\",\"suggestion\":\"semantic_search_nodes_tool -- verify the target and refresh the graph\"}],\"related\":[],\"warnings\":[\"not_found_in_current_graph\"]},\"_repo\":{\"repo_root\":\"<REPO>\",\"db_path\":\"<REPO>/.dagayn/graph.db\",\"source\":\"explicit\"}}",
+            "type": "text"
+          }
+        ],
+        "isError": false,
+        "structuredContent": {
+          "_hints": {
+            "next_steps": [
+              {
+                "suggestion": "semantic_search_nodes_tool -- verify the target and refresh the graph",
+                "tool": "semantic_search_nodes_tool"
+              }
+            ],
+            "related": [],
+            "warnings": [
+              "not_found_in_current_graph"
+            ]
+          },
+          "_repo": {
+            "db_path": "<VOLATILE>",
+            "repo_root": "<REPO>",
+            "source": "explicit"
+          },
+          "answerability": {
+            "answerability": [
+              1,
+              2,
+              0,
+              0,
+              0.0
+            ],
+            "counts": {
+              "communities": 2,
+              "current_head_sha": "23cba2c11ebc1e87d236f6c1276afadf3f6ee5fb",
+              "flows": 1,
+              "graph_head_sha": "23cba2c11ebc1e87d236f6c1276afadf3f6ee5fb",
+              "reportable_cross_artifact_edges": 0,
+              "reportable_unresolved_cross_artifact_edges": 0,
+              "stale_flow_memberships": 0,
+              "test_edges": 0,
+              "unassigned_nodes": 1,
+              "worktree_dirty": false
+            },
+            "parse": [
+              3,
+              1,
+              true
+            ],
+            "reason_codes": [
+              "missing_test_edges",
+              "stale_derived_structures"
+            ],
+            "score": 0.75,
+            "status": "ok"
+          },
+          "guidance": [
+            {
+              "action": "semantic_search_nodes_tool -- verify the target and refresh the graph",
+              "claim": "No graph relationships matched 'callers_of' for 'nope'.",
+              "confidence": "low",
+              "counts": {
+                "result_count": 0
+              },
+              "evidence": [
+                {
+                  "pattern": "callers_of",
+                  "result_count": 0,
+                  "target": "nope",
+                  "type": "computed"
+                }
+              ],
+              "missingness": [
+                {
+                  "claim_effect": "absence is graph-limited, not proof the relationship does not exist",
+                  "reason_code": "not_found_in_current_graph",
+                  "severity": "medium"
+                }
+              ],
+              "reason_codes": [
+                "zero_result"
+              ]
+            }
+          ],
+          "missingness": [
+            {
+              "claim_effect": "claims should be treated as graph-limited until this is resolved",
+              "reason_code": "missing_test_edges",
+              "severity": "medium"
+            },
+            {
+              "claim_effect": "claims should be treated as graph-limited until this is resolved",
+              "reason_code": "stale_derived_structures",
+              "severity": "medium"
+            },
+            {
+              "claim_effect": "absence is graph-limited, not proof the symbol does not exist",
+              "reason_code": "target_not_found_in_graph",
+              "severity": "medium"
+            }
+          ],
+          "next_action": {
+            "suggestion": "broaden the query or verify the graph is up to date",
+            "tool": "semantic_search_nodes_tool"
+          },
+          "result_count": 0,
+          "results": [],
+          "status": "not_found",
+          "summary": "No node found matching 'nope' in the current graph.",
+          "zero_result_reason": "target_not_found_in_graph"
+        }
+      }
+    },
+    "call_missing_argument": {
+      "result": {
+        "content": [
+          {
+            "text": "1 validation error for call[query_graph_tool]\ntarget\n  Missing required argument [type=missing_argument, input_value={'pattern': 'callers_of'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.12/v/missing_argument",
+            "type": "text"
+          }
+        ],
+        "isError": true
+      }
+    },
+    "call_unknown_argument": {
+      "result": {
+        "content": [
+          {
+            "text": "1 validation error for call[query_graph_tool]\nbogus\n  Unexpected keyword argument [type=unexpected_keyword_argument, input_value=1, input_type=int]\n    For further information visit https://errors.pydantic.dev/2.12/v/unexpected_keyword_argument",
+            "type": "text"
+          }
+        ],
+        "isError": true
+      }
+    },
+    "call_unknown_tool": {
+      "result": {
+        "content": [
+          {
+            "text": "Unknown tool: 'no_such_tool'",
+            "type": "text"
+          }
+        ],
+        "isError": true
+      }
+    },
+    "initialize": {
+      "result": {
+        "capabilities": {
+          "logging": {},
+          "prompts": {
+            "listChanged": false
+          },
+          "resources": {
+            "listChanged": false,
+            "subscribe": false
+          },
+          "tools": {
+            "listChanged": true
+          }
+        },
+        "instructions": "dagayn is a knowledge graph of this repository: code, Markdown docs, and Terraform are nodes, linked by calls, imports, tests, and doc contracts. Start every task with get_minimal_context_tool(task=...): it reports graph freshness (sync.state) and the next tool to call. Review changes with review_tool(mode=\"changes\"); trace relationships with query_graph_tool before grepping; read a located node with query_graph_tool(pattern=\"source_of\") instead of the whole file. Graph reach is not correctness: confirm a claim with source_of or a reproduction. get_docs_section_tool(section_name=\"trust\") ranks which results to state as fact.",
+        "protocolVersion": "2025-06-18",
+        "serverInfo": {
+          "name": "dagayn",
+          "version": "<VOLATILE>"
+        }
+      }
+    },
+    "logging_set_level": {
+      "result": {}
+    },
+    "ping": {
+      "result": {}
+    },
+    "prompt_architecture_map": {
+      "result": {
+        "description": "Architecture documentation using communities, flows, and Mermaid diagrams.\n\nGenerates a comprehensive architecture map with module summaries and coupling warnings.",
+        "messages": [
+          {
+            "content": {
+              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Architecture Mapping Workflow\n1. Call `get_minimal_context_tool(task=\"map architecture\")`.\n2. Call `architecture_analysis_tool(mode=\"overview\", detail_level=\"minimal\")` for community coupling summary.\n3. Call `flow_tool(mode=\"list\", detail_level=\"minimal\")` for critical flow names + criticality scores.\n4. Only call `architecture_analysis_tool(mode=\"community\", community_name=<X>)` for the 1-2 communities the user is most interested in.\n5. Produce a concise Mermaid diagram showing communities as boxes and key flows as arrows.",
+              "type": "text"
+            },
+            "role": "user"
+          }
+        ]
+      }
+    },
+    "prompt_debug_issue": {
+      "result": {
+        "description": "Guided debugging using search, flow tracing, and recent changes.\n\nSystematic debugging workflow that traces execution paths and identifies root causes.",
+        "messages": [
+          {
+            "content": {
+              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Debug Workflow\n1. Call `get_minimal_context_tool(task=\"debug: flaky login\")`.\n2. Call `semantic_search_nodes_tool(query=<keywords from description>, detail_level=\"minimal\", limit=5)`.\n3. For the top 1-2 results, call `query_graph_tool(pattern=\"callers_of\", target=<name>, detail_level=\"minimal\")`.\n4. If the issue involves a reachable set from an entry point: call `flow_tool(mode=\"get\", flow_name=<relevant flow>)` for the single most relevant flow.\n5. Only call `review_tool(mode=\"context\")` or `review_tool(mode=\"impact\")` if you need to trace the blast radius of a specific change.",
+              "type": "text"
+            },
+            "role": "user"
+          }
+        ]
+      }
+    },
+    "prompt_onboard_developer": {
+      "result": {
+        "description": "New developer orientation using stats, architecture, and critical flows.\n\nCreates an onboarding guide covering codebase structure, key modules, and patterns.",
+        "messages": [
+          {
+            "content": {
+              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Onboarding Workflow\n1. Call `get_minimal_context_tool(task=\"onboard developer\")`.\n2. Call `architecture_analysis_tool(mode=\"overview\", detail_level=\"minimal\")` for the 30-second mental model.\n3. Call `architecture_analysis_tool(mode=\"communities\", detail_level=\"minimal\")` — present as a table of module names + sizes.\n4. Call `flow_tool(mode=\"list\", detail_level=\"minimal\")` — highlight the top 3 critical flows.\n5. Only drill into a specific community or flow if the developer asks.",
+              "type": "text"
+            },
+            "role": "user"
+          }
+        ]
+      }
+    },
+    "prompt_pre_merge_check": {
+      "result": {
+        "description": "PR readiness check with risk scoring, test gaps, and dead code detection.\n\nProduces a merge readiness report with risk assessment and recommendations.",
+        "messages": [
+          {
+            "content": {
+              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Pre-Merge Check Workflow\n1. Call `get_minimal_context_tool(task=\"pre-merge check against HEAD~1\")`.\n2. Call `review_tool(mode=\"changes\", base=\"HEAD~1\", detail_level=\"minimal\")` for risk score and test gaps.\n3. If risk > 0.4: call `review_tool(mode=\"affected_flows\", base=\"HEAD~1\", detail_level=\"minimal\")`.\n4. If test_gap_count > 0: call `query_graph_tool(pattern=\"tests_for\", target=<each untested function>, detail_level=\"minimal\")` for up to 3 functions.\n5. Call `refactor_tool(mode=\"dead_code\")` to check for newly dead code.\n6. Only call `refactor_tool(mode=\"suggest\")` or `review_tool(mode=\"impact\", base=\"HEAD~1\")` if risk > 0.7.\n7. Output: GO/NO-GO recommendation with 1-sentence justification + list of required follow-ups.",
+              "type": "text"
+            },
+            "role": "user"
+          }
+        ]
+      }
+    },
+    "prompt_review_changes": {
+      "result": {
+        "description": "Pre-commit review workflow using review_tool, affected flows, and test gaps.\n\nProduces a structured code review with risk levels and actionable findings.",
+        "messages": [
+          {
+            "content": {
+              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Review Workflow\n1. Call `get_minimal_context_tool(task=\"review changes against HEAD~1\")` to get risk overview.\n2. If risk is \"low\": call `review_tool(mode=\"changes\", base=\"HEAD~1\", detail_level=\"minimal\")` → report summary + any test gaps.\n3. If risk is \"medium\" or \"high\":\n   a. Call `review_tool(mode=\"changes\", base=\"HEAD~1\", detail_level=\"standard\")` for full change list.\n   b. For each high-risk function, call `query_graph_tool(pattern=\"callers_of\", target=<func>, detail_level=\"minimal\")`.\n   c. Call `review_tool(mode=\"affected_flows\", base=\"HEAD~1\", detail_level=\"minimal\")` only if >3 changed functions.\n4. Summarize: risk level, what changed, test gaps, specific improvements needed.\n\nDo NOT call review_tool(mode=\"context\") unless you need source code snippets for a specific function.",
+              "type": "text"
+            },
+            "role": "user"
+          }
+        ]
+      }
+    },
+    "prompt_review_changes_base": {
+      "result": {
+        "description": "Pre-commit review workflow using review_tool, affected flows, and test gaps.\n\nProduces a structured code review with risk levels and actionable findings.",
+        "messages": [
+          {
+            "content": {
+              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Review Workflow\n1. Call `get_minimal_context_tool(task=\"review changes against main\")` to get risk overview.\n2. If risk is \"low\": call `review_tool(mode=\"changes\", base=\"main\", detail_level=\"minimal\")` → report summary + any test gaps.\n3. If risk is \"medium\" or \"high\":\n   a. Call `review_tool(mode=\"changes\", base=\"main\", detail_level=\"standard\")` for full change list.\n   b. For each high-risk function, call `query_graph_tool(pattern=\"callers_of\", target=<func>, detail_level=\"minimal\")`.\n   c. Call `review_tool(mode=\"affected_flows\", base=\"main\", detail_level=\"minimal\")` only if >3 changed functions.\n4. Summarize: risk level, what changed, test gaps, specific improvements needed.\n\nDo NOT call review_tool(mode=\"context\") unless you need source code snippets for a specific function.",
+              "type": "text"
+            },
+            "role": "user"
+          }
+        ]
+      }
+    },
+    "prompt_unknown": {
+      "error": {
+        "code": -32602,
+        "message": "Unknown prompt: 'no_such_prompt'"
+      }
+    },
+    "prompts_list": {
+      "result": {
+        "prompts": [
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "arguments": [
+              {
+                "description": "Git ref to diff against. Default: HEAD~1.\n\nProvide a value matching the following JSON schema: {\"type\":\"string\"}. Encode non-string values as JSON.",
+                "name": "base",
+                "required": false
+              }
+            ],
+            "description": "Pre-commit review workflow using review_tool, affected flows, and test gaps.\n\nProduces a structured code review with risk levels and actionable findings.",
+            "name": "review_changes"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "arguments": [],
+            "description": "Architecture documentation using communities, flows, and Mermaid diagrams.\n\nGenerates a comprehensive architecture map with module summaries and coupling warnings.",
+            "name": "architecture_map"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "arguments": [
+              {
+                "description": "Description of the issue to debug.\n\nProvide a value matching the following JSON schema: {\"type\":\"string\"}. Encode non-string values as JSON.",
+                "name": "description",
+                "required": false
+              }
+            ],
+            "description": "Guided debugging using search, flow tracing, and recent changes.\n\nSystematic debugging workflow that traces execution paths and identifies root causes.",
+            "name": "debug_issue"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "arguments": [],
+            "description": "New developer orientation using stats, architecture, and critical flows.\n\nCreates an onboarding guide covering codebase structure, key modules, and patterns.",
+            "name": "onboard_developer"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "arguments": [
+              {
+                "description": "Git ref to diff against. Default: HEAD~1.\n\nProvide a value matching the following JSON schema: {\"type\":\"string\"}. Encode non-string values as JSON.",
+                "name": "base",
+                "required": false
+              }
+            ],
+            "description": "PR readiness check with risk scoring, test gaps, and dead code detection.\n\nProduces a merge readiness report with risk assessment and recommendations.",
+            "name": "pre_merge_check"
+          }
+        ]
+      }
+    },
+    "resource_templates_list": {
+      "result": {
+        "resourceTemplates": []
+      }
+    },
+    "resources_list": {
+      "result": {
+        "resources": []
+      }
+    },
+    "tools_list": {
+      "result": {
+        "tools": [
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Build or incrementally update the code knowledge graph.\n\nCall this first to initialize the graph, or after making changes.\nBy default performs an incremental update (only changed files).\nSet full_rebuild=True to re-parse every file.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "base": {
+                  "default": "HEAD~1",
+                  "description": "Git ref to diff against for incremental updates. Default: HEAD~1.",
+                  "type": "string"
+                },
+                "full_rebuild": {
+                  "default": false,
+                  "description": "If True, re-parse all files. Default: False (incremental).",
+                  "type": "boolean"
+                },
+                "keep_local_embedding_server": {
+                  "default": false,
+                  "description": "Leave a dagayn-started server running.",
+                  "type": "boolean"
+                },
+                "local_embedding": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Optional local embedding request. \"bge-m3\" runs\nthe managed BGE-M3 sidecar; \"low\" / \"llama-qwen3\" runs the\nmanaged Qwen sidecar."
+                },
+                "local_embedding_batch_size": {
+                  "default": 1,
+                  "description": "Texts to send in each local embedding\nHTTP request.",
+                  "type": "integer"
+                },
+                "local_embedding_bin": {
+                  "default": "auto",
+                  "description": "executable name/path, or \"auto\" for the preset default.",
+                  "type": "string"
+                },
+                "local_embedding_port": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "localhost port for the managed embedding server."
+                },
+                "local_embedding_request_timeout": {
+                  "default": 60,
+                  "description": "Seconds to wait for each embedding\nHTTP request after the embedding server is ready.",
+                  "type": "integer"
+                },
+                "local_embedding_timeout": {
+                  "default": 300,
+                  "description": "Seconds to wait for local embedding server readiness.",
+                  "type": "integer"
+                },
+                "postprocess": {
+                  "default": "full",
+                  "description": "Post-processing level: \"full\" (default), \"minimal\" (signatures+FTS only),\n         or \"none\" (skip all post-processing). Use \"minimal\" for faster builds.",
+                  "type": "string"
+                },
+                "recurse_submodules": {
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "If True, include files from git submodules.\nWhen None (default), falls back to CRG_RECURSE_SUBMODULES env var."
+                },
+                "repo_root": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Repository root path. Auto-detected from current directory if omitted."
+                }
+              },
+              "type": "object"
+            },
+            "name": "build_or_update_graph_tool",
+            "outputSchema": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "title": "Build Or Update Graph Tool"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Ensure the graph exists and matches HEAD before analysis.\n\nBuilds an empty graph (minimal post-processing: no flows or communities) and\nrefreshes one that describes another commit. Uncommitted edits are left to\nthe edit hooks unless ``force=True``. Full rebuilds: ``dagayn build``.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "force": {
+                  "default": false,
+                  "description": "Run an incremental refresh even when already synced.",
+                  "type": "boolean"
+                },
+                "repo_root": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                }
+              },
+              "type": "object"
+            },
+            "name": "ensure_graph_tool",
+            "outputSchema": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "title": "Ensure Graph Tool"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Run post-processing on existing graph (flows, communities, FTS index).\n\nUse after building with postprocess=\"none\" or \"minimal\", or to re-run\nexpensive steps independently. Signatures are always computed.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "communities": {
+                  "default": true,
+                  "description": "Run community detection. Default: True.",
+                  "type": "boolean"
+                },
+                "flows": {
+                  "default": true,
+                  "description": "Run flow detection. Default: True.",
+                  "type": "boolean"
+                },
+                "fts": {
+                  "default": true,
+                  "description": "Rebuild FTS index. Default: True.",
+                  "type": "boolean"
+                },
+                "repo_root": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Repository root path. Auto-detected if omitted."
+                }
+              },
+              "type": "object"
+            },
+            "name": "run_postprocess_tool",
+            "outputSchema": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "title": "Run Postprocess Tool"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Get compact context for any task. Call this first.\n\nReturns ``sync.state``, ``graph_health`` (with ``reason_codes``), top\ncommunities/flows, a ``recommended_action``, ``next_tool_suggestions``, and,\nwhen there are changes, a risk level. An empty or HEAD-drifted graph queues a\nbackground refresh and returns at once; call ``ensure_graph_tool`` to wait.\n\nTrust: on ``commit_drift`` / ``worktree_behind`` answers about changed files\nare hypotheses; risk, community, and flow hints are structure, not\ncorrectness.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "base": {
+                  "default": "HEAD~1",
+                  "description": "Git ref for change detection. Default: HEAD~1.",
+                  "type": "string"
+                },
+                "changed_files": {
+                  "anyOf": [
+                    {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Explicit changed files. Auto-detected if omitted."
+                },
+                "repo_root": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "task": {
+                  "default": "",
+                  "description": "What you are doing (e.g. \"review PR #42\", \"debug login timeout\").",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "name": "get_minimal_context_tool",
+            "outputSchema": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "title": "Get Minimal Context Tool"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Trace one relationship of a node: callers, callees, imports, tests, docs, source.\n\nPatterns: callers_of, callees_of, imports_of, importers_of, tests_for,\ninheritors_of, children_of (members of a file or class), file_summary,\nsource_of (live source span; read it instead of the whole file), docs_for\n(docs linked to code or Terraform), implementations_of (code linked to a\ndoc), bridges_from (high-confidence cross-artifact bridges).",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "depth": {
+                  "default": 1,
+                  "description": "(callers_of, importers_of) Hops to follow, 1-6. Default: 1. Pass 6\nfor \"directly or indirectly\"; ``next_action`` says when the set is\nclosed.",
+                  "type": "integer"
+                },
+                "detail_level": {
+                  "default": "standard",
+                  "description": "\"standard\" (default) lists every related node; \"minimal\"\ntrims fields and guidance; \"full\" adds per-edge rows and hits the\noutput budget sooner.",
+                  "type": "string"
+                },
+                "pattern": {
+                  "description": "One of the patterns above.",
+                  "type": "string"
+                },
+                "repo_root": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "target": {
+                  "description": "Node name, qualified name, or file path.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "pattern",
+                "target"
+              ],
+              "type": "object"
+            },
+            "name": "query_graph_tool",
+            "outputSchema": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "title": "Query Graph Tool"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Find nodes by name, keyword, or meaning when the exact symbol is unknown.\n\nHybrid search: FTS over names and doc text, plus embeddings when the server\nhas them (``--local-embedding`` or a remote provider); FTS alone otherwise.\nMarkdown sections are searchable too.\n\nTrust: hits are discovery, not proof; read the chosen node's ``source_of``\nbefore asserting behavior.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "detail_level": {
+                  "default": "standard",
+                  "description": "\"standard\" (default) or \"minimal\".",
+                  "type": "string"
+                },
+                "kind": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Filter: Function, Class, Type, Test, File, DocSection (a Markdown\nheading), or DocBody (a Markdown section body)."
+                },
+                "limit": {
+                  "default": 20,
+                  "description": "Maximum results. Default: 20.",
+                  "type": "integer"
+                },
+                "model": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Embedding model; must match the stored vectors."
+                },
+                "provider": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "\"openai\", \"google\", or \"minimax\"; omit for the server default."
+                },
+                "query": {
+                  "description": "Name, keyword, or natural-language description.",
+                  "type": "string"
+                },
+                "repo_root": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                }
+              },
+              "required": [
+                "query"
+              ],
+              "type": "object"
+            },
+            "name": "semantic_search_nodes_tool",
+            "outputSchema": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "title": "Semantic Search Nodes Tool"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Compute vector embeddings for all graph nodes to enable semantic search.\n\nLocal embeddings are served by dagayn's managed llama-server sidecar\n(``dagayn serve --local-embedding`` or build/update ``--local-embedding``),\nwhich exposes an OpenAI-compatible localhost endpoint. Cloud and other\nOpenAI-compatible providers use stdlib urllib.\nOverride provider via `provider` param, model via `model` param or\nCRG_OPENAI_MODEL env var.\nChanging the model or provider re-embeds all nodes automatically.\n\nAfter running this, semantic_search_nodes_tool will use vector similarity\ninstead of keyword matching for much better results.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "model": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Embedding model. For openai: model ID (e.g.\n   \"text-embedding-3-small\"); for google: Gemini model ID. Falls\n   back to CRG_OPENAI_MODEL where appropriate."
+                },
+                "provider": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "\"openai\", \"google\", or \"minimax\". Omit when using server\n      defaults from ``dagayn serve --local-embedding``.\n      \"openai\" requires CRG_OPENAI_BASE_URL + CRG_OPENAI_API_KEY +\n      CRG_OPENAI_MODEL env vars and accepts any OpenAI-compatible\n      endpoint (real OpenAI, Azure, new-api, LiteLLM, vLLM, etc.)."
+                },
+                "repo_root": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Repository root path. Auto-detected if omitted."
+                }
+              },
+              "type": "object"
+            },
+            "name": "embed_graph_tool",
+            "outputSchema": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "title": "Embed Graph Tool"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Get aggregate statistics about the code knowledge graph.\n\nShows total nodes, edges, languages, files, and last update time.\nUseful for checking if the graph is built and up to date.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "repo_root": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Repository root path. Auto-detected if omitted."
+                }
+              },
+              "type": "object"
+            },
+            "name": "list_graph_stats_tool",
+            "outputSchema": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "title": "List Graph Stats Tool"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Get one section of dagayn's LLM-oriented reference.\n\nSections: usage, trust (how much each kind of graph answer proves),\nreview-delta, review-pr, commands, legal, watch, embeddings, languages,\ntroubleshooting. Read the relevant one before answering a question about\ndagayn itself.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "max_chars": {
+                  "default": 4000,
+                  "description": "Maximum characters to return. Default: 4000.",
+                  "type": "integer"
+                },
+                "repo_root": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "section_name": {
+                  "description": "Section to return (e.g. \"trust\").",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "section_name"
+              ],
+              "type": "object"
+            },
+            "name": "get_docs_section_tool",
+            "outputSchema": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "title": "Get Docs Section Tool"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Find functions, classes, or files exceeding a line-count threshold.\n\nUseful for decomposition audits, code quality checks, and enforcing\nsize limits during code review. Results are ordered by line count.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "file_path_pattern": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Filter by file path substring (e.g. \"components/\")."
+                },
+                "kind": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Optional filter: Function, Class, File, or Test."
+                },
+                "limit": {
+                  "default": 50,
+                  "description": "Maximum results. Default: 50.",
+                  "type": "integer"
+                },
+                "min_lines": {
+                  "default": 50,
+                  "description": "Minimum line count to flag. Default: 50.",
+                  "type": "integer"
+                },
+                "repo_root": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Repository root path. Auto-detected if omitted."
+                }
+              },
+              "type": "object"
+            },
+            "name": "find_large_functions_tool",
+            "outputSchema": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "title": "Find Large Functions Tool"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Analyze architecture: health, clusters, hotspots, cycles, stability.\n\nStart with ``overview`` and read ``architecture_health``; run one drill-down\nfor a risk it names.\n\nModes: overview; communities, or one community by ``community_name`` /\n``community_id``; hubs and bridges (blast-radius hotspots); knowledge_gaps;\nsurprising_connections; adp_violations (dependency cycles); sdp_metrics and\nsdp_violations (a unit depending on a less stable one by more than\n``min_delta``); sap_metrics and sap_violations (abstractness vs instability;\nscopes farther than ``min_distance`` from the main sequence).\n\nTrust: reason codes, rankings, and metrics are structure leads, not design\nbugs; cite their counts and thresholds.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "artifact_scope": {
+                  "default": "code",
+                  "description": "\"code\" (default), \"docs\" (Markdown), or \"all\".",
+                  "enum": [
+                    "code",
+                    "docs",
+                    "all"
+                  ],
+                  "type": "string"
+                },
+                "community_id": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "community_name": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "dependency_profile": {
+                  "default": "strict_static",
+                  "description": "(adp, sdp, sap) Edges counted: \"strict_static\"\n(imports, inheritance; default), \"implementation\" (+ calls),\n\"infra_dataflow\" (+ infra references), \"artifact_trace\"\n(+ cross-artifact bridges).",
+                  "enum": [
+                    "strict_static",
+                    "implementation",
+                    "infra_dataflow",
+                    "artifact_trace"
+                  ],
+                  "type": "string"
+                },
+                "detail_level": {
+                  "default": "minimal",
+                  "enum": [
+                    "minimal",
+                    "standard",
+                    "verbose"
+                  ],
+                  "type": "string"
+                },
+                "granularity": {
+                  "default": "package",
+                  "description": "(adp, sdp) \"package\" (default) or \"file\".",
+                  "enum": [
+                    "file",
+                    "package"
+                  ],
+                  "type": "string"
+                },
+                "include_members": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "max_cycle_length": {
+                  "default": 10,
+                  "type": "integer"
+                },
+                "min_cycle_size": {
+                  "default": 2,
+                  "type": "integer"
+                },
+                "min_delta": {
+                  "default": 0.1,
+                  "type": "number"
+                },
+                "min_distance": {
+                  "default": 0.5,
+                  "type": "number"
+                },
+                "min_size": {
+                  "default": 0,
+                  "type": "integer"
+                },
+                "mode": {
+                  "default": "overview",
+                  "enum": [
+                    "overview",
+                    "communities",
+                    "community",
+                    "hubs",
+                    "bridges",
+                    "knowledge_gaps",
+                    "surprising_connections",
+                    "adp_violations",
+                    "sdp_metrics",
+                    "sdp_violations",
+                    "sap_metrics",
+                    "sap_violations"
+                  ],
+                  "type": "string"
+                },
+                "repo_root": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "scope_kind": {
+                  "default": "package",
+                  "description": "(sap) \"package\" (default), \"directory\", or \"file\".",
+                  "enum": [
+                    "file",
+                    "package",
+                    "directory"
+                  ],
+                  "type": "string"
+                },
+                "sort_by": {
+                  "default": "size",
+                  "enum": [
+                    "size",
+                    "cohesion",
+                    "name"
+                  ],
+                  "type": "string"
+                },
+                "top_n": {
+                  "default": 10,
+                  "type": "integer"
+                },
+                "unit_filter": {
+                  "anyOf": [
+                    {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "(sap_metrics) Scope-key prefixes to keep."
+                }
+              },
+              "type": "object"
+            },
+            "name": "architecture_analysis_tool",
+            "outputSchema": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "title": "Architecture Analysis Tool"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Review a change set: risk, reason codes, tests, flows, blast radius.\n\nStart with ``changes`` and read ``analysis_summary`` (flat at\n``detail_level=\"minimal\"``); call another mode only where it points.\n\nModes: changes (risk, reason_codes, recommended tests, doc candidates),\ncontext (source snippets), impact (blast radius, ``max_depth`` hops),\naffected_flows (flows the change touches).\n\nTrust: reason codes, blast radius, and flows show reach, not correctness;\nconfirm a bug with ``source_of`` or a reproduction.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "base": {
+                  "default": "HEAD~1",
+                  "description": "Git ref to diff against, plus staged, unstaged, and untracked\nfiles. Default: HEAD~1. For a branch pass ``git merge-base main HEAD``.",
+                  "type": "string"
+                },
+                "changed_files": {
+                  "anyOf": [
+                    {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Explicit file list instead of the git diff."
+                },
+                "detail_level": {
+                  "default": "standard",
+                  "enum": [
+                    "minimal",
+                    "standard",
+                    "verbose"
+                  ],
+                  "type": "string"
+                },
+                "include_source": {
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "(context) Include source snippets."
+                },
+                "max_depth": {
+                  "default": 2,
+                  "description": "(impact) Hops to walk. Default: 2.",
+                  "type": "integer"
+                },
+                "max_lines_per_file": {
+                  "default": 200,
+                  "description": "(context) Lines per file. Default: 200.",
+                  "type": "integer"
+                },
+                "max_nodes": {
+                  "default": 50,
+                  "description": "(impact, context) Node cap. Default: 50.",
+                  "type": "integer"
+                },
+                "mode": {
+                  "default": "changes",
+                  "enum": [
+                    "changes",
+                    "context",
+                    "affected_flows",
+                    "impact"
+                  ],
+                  "type": "string"
+                },
+                "repo_root": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                }
+              },
+              "type": "object"
+            },
+            "name": "review_tool",
+            "outputSchema": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "title": "Review Tool"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "List or inspect flows: the nodes reachable from an entry point.\n\nA flow is a reachable set in BFS order, not a call sequence; use\n``query_graph_tool`` callees_of for call order. ``list`` ranks flows by\n``sort_by``; ``get`` returns one flow's members with file and line.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "detail_level": {
+                  "default": "standard",
+                  "enum": [
+                    "minimal",
+                    "standard"
+                  ],
+                  "type": "string"
+                },
+                "flow_id": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "(get) Flow id from ``list``; wins over flow_name."
+                },
+                "flow_name": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "(get) Partial name match."
+                },
+                "include_source": {
+                  "default": false,
+                  "description": "(get) Add member source snippets.",
+                  "type": "boolean"
+                },
+                "kind": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "(list) Entry-point kind filter, e.g. \"Function\" or \"Test\"."
+                },
+                "limit": {
+                  "default": 50,
+                  "type": "integer"
+                },
+                "mode": {
+                  "default": "list",
+                  "enum": [
+                    "list",
+                    "get"
+                  ],
+                  "type": "string"
+                },
+                "repo_root": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "sort_by": {
+                  "default": "criticality",
+                  "enum": [
+                    "criticality",
+                    "depth",
+                    "node_count",
+                    "file_count",
+                    "name"
+                  ],
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "name": "flow_tool",
+            "outputSchema": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "title": "Flow Tool"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Plan refactors from the graph: suggestions, dead code, rename previews.\n\nModes:\n- suggest (default): remove, move, split, and document candidates.\n- dead_code: functions/classes with no callers, tests, or importers that are\n  not entry points (filter with ``kind``, ``file_pattern``).\n- rename: preview renaming ``old_name`` to ``new_name``. Returns edits and a\n  ``refactor_id`` (valid 10 min) for ``apply_refactor_tool`` in the same\n  ``dagayn serve`` session (advanced surface: ``dagayn serve --tools all``).\n\nTrust: suggestions and dead-code hits are leads; public APIs, dynamic\ndispatch, and entry points often have no static caller, so verify with\n``source_of`` before removing or moving.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "file_pattern": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "kind": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "limit": {
+                  "default": 50,
+                  "description": "(dead_code, suggest) Maximum results. Default: 50; ``total``\nshows the full count when truncated.",
+                  "type": "integer"
+                },
+                "mode": {
+                  "default": "suggest",
+                  "enum": [
+                    "rename",
+                    "dead_code",
+                    "suggest"
+                  ],
+                  "type": "string"
+                },
+                "new_name": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "old_name": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "repo_root": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                }
+              },
+              "type": "object"
+            },
+            "name": "refactor_tool",
+            "outputSchema": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "title": "Refactor Tool"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Apply a previously previewed refactoring to source files.\n\nTakes a refactor_id from a prior refactor_tool(mode=\"rename\") call and\napplies the exact string replacements to the target files. Previews\nexpire after 10 minutes.\n\nSecurity: All edit paths are validated to be within the repo root.\nOnly exact string replacements are performed (no regex, no eval).",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "dry_run": {
+                  "default": false,
+                  "description": "If True, return a unified diff of what would change\nwithout touching any files. The refactor_id remains valid so\nthe same preview can be applied in a follow-up call without\ndry_run. Use this for a human-in-the-loop review before\ncommitting changes to disk.",
+                  "type": "boolean"
+                },
+                "refactor_id": {
+                  "description": "The refactor ID from refactor_tool's response.",
+                  "type": "string"
+                },
+                "repo_root": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Repository root path. Auto-detected if omitted."
+                }
+              },
+              "required": [
+                "refactor_id"
+              ],
+              "type": "object"
+            },
+            "name": "apply_refactor_tool",
+            "outputSchema": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "title": "Apply Refactor Tool"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Generate a markdown wiki from the code community structure.\n\nCreates a wiki page for each detected community and an index page.\nPages are written to .dagayn/wiki/ inside the repository.\nOnly regenerates pages whose content has changed unless force=True.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "force": {
+                  "default": false,
+                  "description": "If True, regenerate all pages even if content unchanged. Default: False.",
+                  "type": "boolean"
+                },
+                "repo_root": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Repository root path. Auto-detected if omitted."
+                }
+              },
+              "type": "object"
+            },
+            "name": "generate_wiki_tool",
+            "outputSchema": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "title": "Generate Wiki Tool"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Retrieve a specific wiki page by community name.\n\nReturns the markdown content of the wiki page for the given community.\nThe wiki must have been generated first via generate_wiki_tool.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "community_name": {
+                  "description": "Community name to look up.",
+                  "type": "string"
+                },
+                "repo_root": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Repository root path. Auto-detected if omitted."
+                }
+              },
+              "required": [
+                "community_name"
+              ],
+              "type": "object"
+            },
+            "name": "get_wiki_page_tool",
+            "outputSchema": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "title": "Get Wiki Page Tool"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Auto-generate review questions from graph analysis.\n\nProduces prioritized questions about: bridge nodes needing tests,\nuntested hub nodes, surprising cross-community coupling, thin\ncommunities, and untested hotspots.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "repo_root": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Repository root path. Auto-detected if omitted."
+                },
+                "top_n": {
+                  "default": 15,
+                  "description": "Maximum questions to return, high-priority first. Default: 15.",
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            },
+            "name": "get_suggested_questions_tool",
+            "outputSchema": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "title": "Get Suggested Questions Tool"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "BFS/DFS traversal from best-matching node with token budget.\n\nFree-form graph exploration: finds the node best matching your\nquery, then traverses outward via BFS or DFS up to the given\ndepth, collecting connected nodes within the token budget.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "depth": {
+                  "default": 3,
+                  "description": "Max traversal depth (1-6). Default: 3.",
+                  "type": "integer"
+                },
+                "mode": {
+                  "default": "bfs",
+                  "description": "Traversal mode: \"bfs\" (breadth-first) or \"dfs\"\n(depth-first). Default: bfs.",
+                  "enum": [
+                    "bfs",
+                    "dfs"
+                  ],
+                  "type": "string"
+                },
+                "model": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Embedding model for the initial search. Defaults to the\nserver's embedding model when configured by ``dagayn serve``."
+                },
+                "provider": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Embedding provider for the initial search. Defaults to the\nserver's embedding provider when configured by ``dagayn serve``."
+                },
+                "query": {
+                  "description": "Search string to find the starting node.",
+                  "type": "string"
+                },
+                "repo_root": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Repository root path. Auto-detected if omitted."
+                },
+                "token_budget": {
+                  "default": 2000,
+                  "description": "Approximate token limit for results.\nDefault: 2000.",
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "query"
+              ],
+              "type": "object"
+            },
+            "name": "traverse_graph_tool",
+            "outputSchema": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "title": "Traverse Graph Tool"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "List all registered repositories in the multi-repo registry.\n\nReturns the list of repos registered at ~/.dagayn/registry.json.\nUse the CLI 'register' command to add repos.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            },
+            "name": "list_repos_tool",
+            "outputSchema": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "title": "List Repos Tool"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Search for code entities across all registered repositories.\n\nRuns hybrid search on each registered repo's graph database and merges\nthe results by score. Register repos first with the CLI 'register' command.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Optional filter: Function, Class, Type, Test, File, DocSection\n(a Markdown heading), or DocBody (a Markdown section body)."
+                },
+                "limit": {
+                  "default": 20,
+                  "description": "Maximum results per repo. Default: 20.",
+                  "type": "integer"
+                },
+                "model": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Embedding model for hybrid search. Defaults to the server's\nembedding model when configured by ``dagayn serve``."
+                },
+                "provider": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Embedding provider for hybrid search. Defaults to the\nserver's embedding provider when configured by ``dagayn serve``."
+                },
+                "query": {
+                  "description": "Name, keyword, or natural-language description. Matches names,\nsignatures, and doc text (FTS), plus embeddings when present.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "query"
+              ],
+              "type": "object"
+            },
+            "name": "cross_repo_search_tool",
+            "outputSchema": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "title": "Cross Repo Search Tool"
+          }
+        ]
+      }
+    },
+    "unknown_method": {
+      "error": {
+        "code": -32601,
+        "data": "no/such_method",
+        "message": "Method not found"
+      }
+    }
+  },
+  "default": {
+    "call_bad_type": {
+      "result": {
+        "content": [
+          {
+            "text": "1 validation error for call[query_graph_tool]\ndepth\n  Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='two', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.12/v/int_parsing",
+            "type": "text"
+          }
+        ],
+        "isError": true
+      }
+    },
+    "call_coerced_type": {
+      "result": {
+        "content": [
+          {
+            "text": "{\"status\":\"not_found\",\"summary\":\"No node found matching 'nope' in the current graph.\",\"result_count\":0,\"results\":[],\"zero_result_reason\":\"target_not_found_in_graph\",\"next_action\":{\"tool\":\"semantic_search_nodes_tool\",\"suggestion\":\"broaden the query or verify the graph is up to date\"},\"answerability\":{\"status\":\"ok\",\"score\":0.75,\"reason_codes\":[\"missing_test_edges\",\"stale_derived_structures\"],\"parse\":[3,1,true],\"counts\":{\"flows\":1,\"communities\":2,\"test_edges\":0,\"reportable_cross_artifact_edges\":0,\"reportable_unresolved_cross_artifact_edges\":0,\"stale_flow_memberships\":0,\"unassigned_nodes\":1,\"graph_head_sha\":\"23cba2c11ebc1e87d236f6c1276afadf3f6ee5fb\",\"current_head_sha\":\"23cba2c11ebc1e87d236f6c1276afadf3f6ee5fb\",\"worktree_dirty\":false},\"answerability\":[1,2,0,0,0.0]},\"missingness\":[{\"reason_code\":\"missing_test_edges\",\"severity\":\"medium\",\"claim_effect\":\"claims should be treated as graph-limited until this is resolved\"},{\"reason_code\":\"stale_derived_structures\",\"severity\":\"medium\",\"claim_effect\":\"claims should be treated as graph-limited until this is resolved\"},{\"reason_code\":\"target_not_found_in_graph\",\"severity\":\"medium\",\"claim_effect\":\"absence is graph-limited, not proof the symbol does not exist\"}],\"guidance\":[{\"claim\":\"No graph relationships matched 'callers_of' for 'nope'.\",\"evidence\":[{\"type\":\"computed\",\"pattern\":\"callers_of\",\"target\":\"nope\",\"result_count\":0}],\"confidence\":\"low\",\"missingness\":[{\"reason_code\":\"not_found_in_current_graph\",\"severity\":\"medium\",\"claim_effect\":\"absence is graph-limited, not proof the relationship does not exist\"}],\"action\":\"semantic_search_nodes_tool -- verify the target and refresh the graph\",\"reason_codes\":[\"zero_result\"],\"counts\":{\"result_count\":0}}],\"_hints\":{\"next_steps\":[{\"tool\":\"semantic_search_nodes_tool\",\"suggestion\":\"semantic_search_nodes_tool -- verify the target and refresh the graph\"}],\"related\":[],\"warnings\":[\"not_found_in_current_graph\"]},\"_repo\":{\"repo_root\":\"<REPO>\",\"db_path\":\"<REPO>/.dagayn/graph.db\",\"source\":\"explicit\"}}",
+            "type": "text"
+          }
+        ],
+        "isError": false,
+        "structuredContent": {
+          "_hints": {
+            "next_steps": [
+              {
+                "suggestion": "semantic_search_nodes_tool -- verify the target and refresh the graph",
+                "tool": "semantic_search_nodes_tool"
+              }
+            ],
+            "related": [],
+            "warnings": [
+              "not_found_in_current_graph"
+            ]
+          },
+          "_repo": {
+            "db_path": "<VOLATILE>",
+            "repo_root": "<REPO>",
+            "source": "explicit"
+          },
+          "answerability": {
+            "answerability": [
+              1,
+              2,
+              0,
+              0,
+              0.0
+            ],
+            "counts": {
+              "communities": 2,
+              "current_head_sha": "23cba2c11ebc1e87d236f6c1276afadf3f6ee5fb",
+              "flows": 1,
+              "graph_head_sha": "23cba2c11ebc1e87d236f6c1276afadf3f6ee5fb",
+              "reportable_cross_artifact_edges": 0,
+              "reportable_unresolved_cross_artifact_edges": 0,
+              "stale_flow_memberships": 0,
+              "test_edges": 0,
+              "unassigned_nodes": 1,
+              "worktree_dirty": false
+            },
+            "parse": [
+              3,
+              1,
+              true
+            ],
+            "reason_codes": [
+              "missing_test_edges",
+              "stale_derived_structures"
+            ],
+            "score": 0.75,
+            "status": "ok"
+          },
+          "guidance": [
+            {
+              "action": "semantic_search_nodes_tool -- verify the target and refresh the graph",
+              "claim": "No graph relationships matched 'callers_of' for 'nope'.",
+              "confidence": "low",
+              "counts": {
+                "result_count": 0
+              },
+              "evidence": [
+                {
+                  "pattern": "callers_of",
+                  "result_count": 0,
+                  "target": "nope",
+                  "type": "computed"
+                }
+              ],
+              "missingness": [
+                {
+                  "claim_effect": "absence is graph-limited, not proof the relationship does not exist",
+                  "reason_code": "not_found_in_current_graph",
+                  "severity": "medium"
+                }
+              ],
+              "reason_codes": [
+                "zero_result"
+              ]
+            }
+          ],
+          "missingness": [
+            {
+              "claim_effect": "claims should be treated as graph-limited until this is resolved",
+              "reason_code": "missing_test_edges",
+              "severity": "medium"
+            },
+            {
+              "claim_effect": "claims should be treated as graph-limited until this is resolved",
+              "reason_code": "stale_derived_structures",
+              "severity": "medium"
+            },
+            {
+              "claim_effect": "absence is graph-limited, not proof the symbol does not exist",
+              "reason_code": "target_not_found_in_graph",
+              "severity": "medium"
+            }
+          ],
+          "next_action": {
+            "suggestion": "broaden the query or verify the graph is up to date",
+            "tool": "semantic_search_nodes_tool"
+          },
+          "result_count": 0,
+          "results": [],
+          "status": "not_found",
+          "summary": "No node found matching 'nope' in the current graph.",
+          "zero_result_reason": "target_not_found_in_graph"
+        }
+      }
+    },
+    "call_missing_argument": {
+      "result": {
+        "content": [
+          {
+            "text": "1 validation error for call[query_graph_tool]\ntarget\n  Missing required argument [type=missing_argument, input_value={'pattern': 'callers_of'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.12/v/missing_argument",
+            "type": "text"
+          }
+        ],
+        "isError": true
+      }
+    },
+    "call_unknown_argument": {
+      "result": {
+        "content": [
+          {
+            "text": "1 validation error for call[query_graph_tool]\nbogus\n  Unexpected keyword argument [type=unexpected_keyword_argument, input_value=1, input_type=int]\n    For further information visit https://errors.pydantic.dev/2.12/v/unexpected_keyword_argument",
+            "type": "text"
+          }
+        ],
+        "isError": true
+      }
+    },
+    "call_unknown_tool": {
+      "result": {
+        "content": [
+          {
+            "text": "Unknown tool: 'no_such_tool'",
+            "type": "text"
+          }
+        ],
+        "isError": true
+      }
+    },
+    "initialize": {
+      "result": {
+        "capabilities": {
+          "logging": {},
+          "prompts": {
+            "listChanged": false
+          },
+          "resources": {
+            "listChanged": false,
+            "subscribe": false
+          },
+          "tools": {
+            "listChanged": true
+          }
+        },
+        "instructions": "dagayn is a knowledge graph of this repository: code, Markdown docs, and Terraform are nodes, linked by calls, imports, tests, and doc contracts. Start every task with get_minimal_context_tool(task=...): it reports graph freshness (sync.state) and the next tool to call. Review changes with review_tool(mode=\"changes\"); trace relationships with query_graph_tool before grepping; read a located node with query_graph_tool(pattern=\"source_of\") instead of the whole file. Graph reach is not correctness: confirm a claim with source_of or a reproduction. get_docs_section_tool(section_name=\"trust\") ranks which results to state as fact.",
+        "protocolVersion": "2025-06-18",
+        "serverInfo": {
+          "name": "dagayn",
+          "version": "<VOLATILE>"
+        }
+      }
+    },
+    "logging_set_level": {
+      "result": {}
+    },
+    "ping": {
+      "result": {}
+    },
+    "prompt_architecture_map": {
+      "result": {
+        "description": "Architecture documentation using communities, flows, and Mermaid diagrams.\n\nGenerates a comprehensive architecture map with module summaries and coupling warnings.",
+        "messages": [
+          {
+            "content": {
+              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Architecture Mapping Workflow\n1. Call `get_minimal_context_tool(task=\"map architecture\")`.\n2. Call `architecture_analysis_tool(mode=\"overview\", detail_level=\"minimal\")` for community coupling summary.\n3. Call `flow_tool(mode=\"list\", detail_level=\"minimal\")` for critical flow names + criticality scores.\n4. Only call `architecture_analysis_tool(mode=\"community\", community_name=<X>)` for the 1-2 communities the user is most interested in.\n5. Produce a concise Mermaid diagram showing communities as boxes and key flows as arrows.",
+              "type": "text"
+            },
+            "role": "user"
+          }
+        ]
+      }
+    },
+    "prompt_debug_issue": {
+      "result": {
+        "description": "Guided debugging using search, flow tracing, and recent changes.\n\nSystematic debugging workflow that traces execution paths and identifies root causes.",
+        "messages": [
+          {
+            "content": {
+              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Debug Workflow\n1. Call `get_minimal_context_tool(task=\"debug: flaky login\")`.\n2. Call `semantic_search_nodes_tool(query=<keywords from description>, detail_level=\"minimal\", limit=5)`.\n3. For the top 1-2 results, call `query_graph_tool(pattern=\"callers_of\", target=<name>, detail_level=\"minimal\")`.\n4. If the issue involves a reachable set from an entry point: call `flow_tool(mode=\"get\", flow_name=<relevant flow>)` for the single most relevant flow.\n5. Only call `review_tool(mode=\"context\")` or `review_tool(mode=\"impact\")` if you need to trace the blast radius of a specific change.",
+              "type": "text"
+            },
+            "role": "user"
+          }
+        ]
+      }
+    },
+    "prompt_onboard_developer": {
+      "result": {
+        "description": "New developer orientation using stats, architecture, and critical flows.\n\nCreates an onboarding guide covering codebase structure, key modules, and patterns.",
+        "messages": [
+          {
+            "content": {
+              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Onboarding Workflow\n1. Call `get_minimal_context_tool(task=\"onboard developer\")`.\n2. Call `architecture_analysis_tool(mode=\"overview\", detail_level=\"minimal\")` for the 30-second mental model.\n3. Call `architecture_analysis_tool(mode=\"communities\", detail_level=\"minimal\")` — present as a table of module names + sizes.\n4. Call `flow_tool(mode=\"list\", detail_level=\"minimal\")` — highlight the top 3 critical flows.\n5. Only drill into a specific community or flow if the developer asks.",
+              "type": "text"
+            },
+            "role": "user"
+          }
+        ]
+      }
+    },
+    "prompt_pre_merge_check": {
+      "result": {
+        "description": "PR readiness check with risk scoring, test gaps, and dead code detection.\n\nProduces a merge readiness report with risk assessment and recommendations.",
+        "messages": [
+          {
+            "content": {
+              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Pre-Merge Check Workflow\n1. Call `get_minimal_context_tool(task=\"pre-merge check against HEAD~1\")`.\n2. Call `review_tool(mode=\"changes\", base=\"HEAD~1\", detail_level=\"minimal\")` for risk score and test gaps.\n3. If risk > 0.4: call `review_tool(mode=\"affected_flows\", base=\"HEAD~1\", detail_level=\"minimal\")`.\n4. If test_gap_count > 0: call `query_graph_tool(pattern=\"tests_for\", target=<each untested function>, detail_level=\"minimal\")` for up to 3 functions.\n5. Call `refactor_tool(mode=\"dead_code\")` to check for newly dead code.\n6. Only call `refactor_tool(mode=\"suggest\")` or `review_tool(mode=\"impact\", base=\"HEAD~1\")` if risk > 0.7.\n7. Output: GO/NO-GO recommendation with 1-sentence justification + list of required follow-ups.",
+              "type": "text"
+            },
+            "role": "user"
+          }
+        ]
+      }
+    },
+    "prompt_review_changes": {
+      "result": {
+        "description": "Pre-commit review workflow using review_tool, affected flows, and test gaps.\n\nProduces a structured code review with risk levels and actionable findings.",
+        "messages": [
+          {
+            "content": {
+              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Review Workflow\n1. Call `get_minimal_context_tool(task=\"review changes against HEAD~1\")` to get risk overview.\n2. If risk is \"low\": call `review_tool(mode=\"changes\", base=\"HEAD~1\", detail_level=\"minimal\")` → report summary + any test gaps.\n3. If risk is \"medium\" or \"high\":\n   a. Call `review_tool(mode=\"changes\", base=\"HEAD~1\", detail_level=\"standard\")` for full change list.\n   b. For each high-risk function, call `query_graph_tool(pattern=\"callers_of\", target=<func>, detail_level=\"minimal\")`.\n   c. Call `review_tool(mode=\"affected_flows\", base=\"HEAD~1\", detail_level=\"minimal\")` only if >3 changed functions.\n4. Summarize: risk level, what changed, test gaps, specific improvements needed.\n\nDo NOT call review_tool(mode=\"context\") unless you need source code snippets for a specific function.",
+              "type": "text"
+            },
+            "role": "user"
+          }
+        ]
+      }
+    },
+    "prompt_review_changes_base": {
+      "result": {
+        "description": "Pre-commit review workflow using review_tool, affected flows, and test gaps.\n\nProduces a structured code review with risk levels and actionable findings.",
+        "messages": [
+          {
+            "content": {
+              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Review Workflow\n1. Call `get_minimal_context_tool(task=\"review changes against main\")` to get risk overview.\n2. If risk is \"low\": call `review_tool(mode=\"changes\", base=\"main\", detail_level=\"minimal\")` → report summary + any test gaps.\n3. If risk is \"medium\" or \"high\":\n   a. Call `review_tool(mode=\"changes\", base=\"main\", detail_level=\"standard\")` for full change list.\n   b. For each high-risk function, call `query_graph_tool(pattern=\"callers_of\", target=<func>, detail_level=\"minimal\")`.\n   c. Call `review_tool(mode=\"affected_flows\", base=\"main\", detail_level=\"minimal\")` only if >3 changed functions.\n4. Summarize: risk level, what changed, test gaps, specific improvements needed.\n\nDo NOT call review_tool(mode=\"context\") unless you need source code snippets for a specific function.",
+              "type": "text"
+            },
+            "role": "user"
+          }
+        ]
+      }
+    },
+    "prompt_unknown": {
+      "error": {
+        "code": -32602,
+        "message": "Unknown prompt: 'no_such_prompt'"
+      }
+    },
+    "prompts_list": {
+      "result": {
+        "prompts": [
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "arguments": [
+              {
+                "description": "Git ref to diff against. Default: HEAD~1.\n\nProvide a value matching the following JSON schema: {\"type\":\"string\"}. Encode non-string values as JSON.",
+                "name": "base",
+                "required": false
+              }
+            ],
+            "description": "Pre-commit review workflow using review_tool, affected flows, and test gaps.\n\nProduces a structured code review with risk levels and actionable findings.",
+            "name": "review_changes"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "arguments": [],
+            "description": "Architecture documentation using communities, flows, and Mermaid diagrams.\n\nGenerates a comprehensive architecture map with module summaries and coupling warnings.",
+            "name": "architecture_map"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "arguments": [
+              {
+                "description": "Description of the issue to debug.\n\nProvide a value matching the following JSON schema: {\"type\":\"string\"}. Encode non-string values as JSON.",
+                "name": "description",
+                "required": false
+              }
+            ],
+            "description": "Guided debugging using search, flow tracing, and recent changes.\n\nSystematic debugging workflow that traces execution paths and identifies root causes.",
+            "name": "debug_issue"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "arguments": [],
+            "description": "New developer orientation using stats, architecture, and critical flows.\n\nCreates an onboarding guide covering codebase structure, key modules, and patterns.",
+            "name": "onboard_developer"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "arguments": [
+              {
+                "description": "Git ref to diff against. Default: HEAD~1.\n\nProvide a value matching the following JSON schema: {\"type\":\"string\"}. Encode non-string values as JSON.",
+                "name": "base",
+                "required": false
+              }
+            ],
+            "description": "PR readiness check with risk scoring, test gaps, and dead code detection.\n\nProduces a merge readiness report with risk assessment and recommendations.",
+            "name": "pre_merge_check"
+          }
+        ]
+      }
+    },
+    "resource_templates_list": {
+      "result": {
+        "resourceTemplates": []
+      }
+    },
+    "resources_list": {
+      "result": {
+        "resources": []
+      }
+    },
+    "tools_list": {
+      "result": {
+        "tools": [
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Ensure the graph exists and matches HEAD before analysis.\n\nBuilds an empty graph (minimal post-processing: no flows or communities) and\nrefreshes one that describes another commit. Uncommitted edits are left to\nthe edit hooks unless ``force=True``. Full rebuilds: ``dagayn build``.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "force": {
+                  "default": false,
+                  "description": "Run an incremental refresh even when already synced.",
+                  "type": "boolean"
+                },
+                "repo_root": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                }
+              },
+              "type": "object"
+            },
+            "name": "ensure_graph_tool",
+            "outputSchema": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "title": "Ensure Graph Tool"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Get compact context for any task. Call this first.\n\nReturns ``sync.state``, ``graph_health`` (with ``reason_codes``), top\ncommunities/flows, a ``recommended_action``, ``next_tool_suggestions``, and,\nwhen there are changes, a risk level. An empty or HEAD-drifted graph queues a\nbackground refresh and returns at once; call ``ensure_graph_tool`` to wait.\n\nTrust: on ``commit_drift`` / ``worktree_behind`` answers about changed files\nare hypotheses; risk, community, and flow hints are structure, not\ncorrectness.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "base": {
+                  "default": "HEAD~1",
+                  "description": "Git ref for change detection. Default: HEAD~1.",
+                  "type": "string"
+                },
+                "changed_files": {
+                  "anyOf": [
+                    {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Explicit changed files. Auto-detected if omitted."
+                },
+                "repo_root": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "task": {
+                  "default": "",
+                  "description": "What you are doing (e.g. \"review PR #42\", \"debug login timeout\").",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "name": "get_minimal_context_tool",
+            "outputSchema": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "title": "Get Minimal Context Tool"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Trace one relationship of a node: callers, callees, imports, tests, docs, source.\n\nPatterns: callers_of, callees_of, imports_of, importers_of, tests_for,\ninheritors_of, children_of (members of a file or class), file_summary,\nsource_of (live source span; read it instead of the whole file), docs_for\n(docs linked to code or Terraform), implementations_of (code linked to a\ndoc), bridges_from (high-confidence cross-artifact bridges).",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "depth": {
+                  "default": 1,
+                  "description": "(callers_of, importers_of) Hops to follow, 1-6. Default: 1. Pass 6\nfor \"directly or indirectly\"; ``next_action`` says when the set is\nclosed.",
+                  "type": "integer"
+                },
+                "detail_level": {
+                  "default": "standard",
+                  "description": "\"standard\" (default) lists every related node; \"minimal\"\ntrims fields and guidance; \"full\" adds per-edge rows and hits the\noutput budget sooner.",
+                  "type": "string"
+                },
+                "pattern": {
+                  "description": "One of the patterns above.",
+                  "type": "string"
+                },
+                "repo_root": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "target": {
+                  "description": "Node name, qualified name, or file path.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "pattern",
+                "target"
+              ],
+              "type": "object"
+            },
+            "name": "query_graph_tool",
+            "outputSchema": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "title": "Query Graph Tool"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Find nodes by name, keyword, or meaning when the exact symbol is unknown.\n\nHybrid search: FTS over names and doc text, plus embeddings when the server\nhas them (``--local-embedding`` or a remote provider); FTS alone otherwise.\nMarkdown sections are searchable too.\n\nTrust: hits are discovery, not proof; read the chosen node's ``source_of``\nbefore asserting behavior.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "detail_level": {
+                  "default": "standard",
+                  "description": "\"standard\" (default) or \"minimal\".",
+                  "type": "string"
+                },
+                "kind": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Filter: Function, Class, Type, Test, File, DocSection (a Markdown\nheading), or DocBody (a Markdown section body)."
+                },
+                "limit": {
+                  "default": 20,
+                  "description": "Maximum results. Default: 20.",
+                  "type": "integer"
+                },
+                "model": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Embedding model; must match the stored vectors."
+                },
+                "provider": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "\"openai\", \"google\", or \"minimax\"; omit for the server default."
+                },
+                "query": {
+                  "description": "Name, keyword, or natural-language description.",
+                  "type": "string"
+                },
+                "repo_root": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                }
+              },
+              "required": [
+                "query"
+              ],
+              "type": "object"
+            },
+            "name": "semantic_search_nodes_tool",
+            "outputSchema": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "title": "Semantic Search Nodes Tool"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Get one section of dagayn's LLM-oriented reference.\n\nSections: usage, trust (how much each kind of graph answer proves),\nreview-delta, review-pr, commands, legal, watch, embeddings, languages,\ntroubleshooting. Read the relevant one before answering a question about\ndagayn itself.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "max_chars": {
+                  "default": 4000,
+                  "description": "Maximum characters to return. Default: 4000.",
+                  "type": "integer"
+                },
+                "repo_root": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "section_name": {
+                  "description": "Section to return (e.g. \"trust\").",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "section_name"
+              ],
+              "type": "object"
+            },
+            "name": "get_docs_section_tool",
+            "outputSchema": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "title": "Get Docs Section Tool"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Analyze architecture: health, clusters, hotspots, cycles, stability.\n\nStart with ``overview`` and read ``architecture_health``; run one drill-down\nfor a risk it names.\n\nModes: overview; communities, or one community by ``community_name`` /\n``community_id``; hubs and bridges (blast-radius hotspots); knowledge_gaps;\nsurprising_connections; adp_violations (dependency cycles); sdp_metrics and\nsdp_violations (a unit depending on a less stable one by more than\n``min_delta``); sap_metrics and sap_violations (abstractness vs instability;\nscopes farther than ``min_distance`` from the main sequence).\n\nTrust: reason codes, rankings, and metrics are structure leads, not design\nbugs; cite their counts and thresholds.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "artifact_scope": {
+                  "default": "code",
+                  "description": "\"code\" (default), \"docs\" (Markdown), or \"all\".",
+                  "enum": [
+                    "code",
+                    "docs",
+                    "all"
+                  ],
+                  "type": "string"
+                },
+                "community_id": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "community_name": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "dependency_profile": {
+                  "default": "strict_static",
+                  "description": "(adp, sdp, sap) Edges counted: \"strict_static\"\n(imports, inheritance; default), \"implementation\" (+ calls),\n\"infra_dataflow\" (+ infra references), \"artifact_trace\"\n(+ cross-artifact bridges).",
+                  "enum": [
+                    "strict_static",
+                    "implementation",
+                    "infra_dataflow",
+                    "artifact_trace"
+                  ],
+                  "type": "string"
+                },
+                "detail_level": {
+                  "default": "minimal",
+                  "enum": [
+                    "minimal",
+                    "standard",
+                    "verbose"
+                  ],
+                  "type": "string"
+                },
+                "granularity": {
+                  "default": "package",
+                  "description": "(adp, sdp) \"package\" (default) or \"file\".",
+                  "enum": [
+                    "file",
+                    "package"
+                  ],
+                  "type": "string"
+                },
+                "include_members": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "max_cycle_length": {
+                  "default": 10,
+                  "type": "integer"
+                },
+                "min_cycle_size": {
+                  "default": 2,
+                  "type": "integer"
+                },
+                "min_delta": {
+                  "default": 0.1,
+                  "type": "number"
+                },
+                "min_distance": {
+                  "default": 0.5,
+                  "type": "number"
+                },
+                "min_size": {
+                  "default": 0,
+                  "type": "integer"
+                },
+                "mode": {
+                  "default": "overview",
+                  "enum": [
+                    "overview",
+                    "communities",
+                    "community",
+                    "hubs",
+                    "bridges",
+                    "knowledge_gaps",
+                    "surprising_connections",
+                    "adp_violations",
+                    "sdp_metrics",
+                    "sdp_violations",
+                    "sap_metrics",
+                    "sap_violations"
+                  ],
+                  "type": "string"
+                },
+                "repo_root": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "scope_kind": {
+                  "default": "package",
+                  "description": "(sap) \"package\" (default), \"directory\", or \"file\".",
+                  "enum": [
+                    "file",
+                    "package",
+                    "directory"
+                  ],
+                  "type": "string"
+                },
+                "sort_by": {
+                  "default": "size",
+                  "enum": [
+                    "size",
+                    "cohesion",
+                    "name"
+                  ],
+                  "type": "string"
+                },
+                "top_n": {
+                  "default": 10,
+                  "type": "integer"
+                },
+                "unit_filter": {
+                  "anyOf": [
+                    {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "(sap_metrics) Scope-key prefixes to keep."
+                }
+              },
+              "type": "object"
+            },
+            "name": "architecture_analysis_tool",
+            "outputSchema": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "title": "Architecture Analysis Tool"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Review a change set: risk, reason codes, tests, flows, blast radius.\n\nStart with ``changes`` and read ``analysis_summary`` (flat at\n``detail_level=\"minimal\"``); call another mode only where it points.\n\nModes: changes (risk, reason_codes, recommended tests, doc candidates),\ncontext (source snippets), impact (blast radius, ``max_depth`` hops),\naffected_flows (flows the change touches).\n\nTrust: reason codes, blast radius, and flows show reach, not correctness;\nconfirm a bug with ``source_of`` or a reproduction.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "base": {
+                  "default": "HEAD~1",
+                  "description": "Git ref to diff against, plus staged, unstaged, and untracked\nfiles. Default: HEAD~1. For a branch pass ``git merge-base main HEAD``.",
+                  "type": "string"
+                },
+                "changed_files": {
+                  "anyOf": [
+                    {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Explicit file list instead of the git diff."
+                },
+                "detail_level": {
+                  "default": "standard",
+                  "enum": [
+                    "minimal",
+                    "standard",
+                    "verbose"
+                  ],
+                  "type": "string"
+                },
+                "include_source": {
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "(context) Include source snippets."
+                },
+                "max_depth": {
+                  "default": 2,
+                  "description": "(impact) Hops to walk. Default: 2.",
+                  "type": "integer"
+                },
+                "max_lines_per_file": {
+                  "default": 200,
+                  "description": "(context) Lines per file. Default: 200.",
+                  "type": "integer"
+                },
+                "max_nodes": {
+                  "default": 50,
+                  "description": "(impact, context) Node cap. Default: 50.",
+                  "type": "integer"
+                },
+                "mode": {
+                  "default": "changes",
+                  "enum": [
+                    "changes",
+                    "context",
+                    "affected_flows",
+                    "impact"
+                  ],
+                  "type": "string"
+                },
+                "repo_root": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                }
+              },
+              "type": "object"
+            },
+            "name": "review_tool",
+            "outputSchema": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "title": "Review Tool"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "List or inspect flows: the nodes reachable from an entry point.\n\nA flow is a reachable set in BFS order, not a call sequence; use\n``query_graph_tool`` callees_of for call order. ``list`` ranks flows by\n``sort_by``; ``get`` returns one flow's members with file and line.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "detail_level": {
+                  "default": "standard",
+                  "enum": [
+                    "minimal",
+                    "standard"
+                  ],
+                  "type": "string"
+                },
+                "flow_id": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "(get) Flow id from ``list``; wins over flow_name."
+                },
+                "flow_name": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "(get) Partial name match."
+                },
+                "include_source": {
+                  "default": false,
+                  "description": "(get) Add member source snippets.",
+                  "type": "boolean"
+                },
+                "kind": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "(list) Entry-point kind filter, e.g. \"Function\" or \"Test\"."
+                },
+                "limit": {
+                  "default": 50,
+                  "type": "integer"
+                },
+                "mode": {
+                  "default": "list",
+                  "enum": [
+                    "list",
+                    "get"
+                  ],
+                  "type": "string"
+                },
+                "repo_root": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "sort_by": {
+                  "default": "criticality",
+                  "enum": [
+                    "criticality",
+                    "depth",
+                    "node_count",
+                    "file_count",
+                    "name"
+                  ],
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "name": "flow_tool",
+            "outputSchema": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "title": "Flow Tool"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Plan refactors from the graph: suggestions, dead code, rename previews.\n\nModes:\n- suggest (default): remove, move, split, and document candidates.\n- dead_code: functions/classes with no callers, tests, or importers that are\n  not entry points (filter with ``kind``, ``file_pattern``).\n- rename: preview renaming ``old_name`` to ``new_name``. Returns edits and a\n  ``refactor_id`` (valid 10 min) for ``apply_refactor_tool`` in the same\n  ``dagayn serve`` session (advanced surface: ``dagayn serve --tools all``).\n\nTrust: suggestions and dead-code hits are leads; public APIs, dynamic\ndispatch, and entry points often have no static caller, so verify with\n``source_of`` before removing or moving.",
+            "inputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "file_pattern": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "kind": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "limit": {
+                  "default": 50,
+                  "description": "(dead_code, suggest) Maximum results. Default: 50; ``total``\nshows the full count when truncated.",
+                  "type": "integer"
+                },
+                "mode": {
+                  "default": "suggest",
+                  "enum": [
+                    "rename",
+                    "dead_code",
+                    "suggest"
+                  ],
+                  "type": "string"
+                },
+                "new_name": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "old_name": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "repo_root": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                }
+              },
+              "type": "object"
+            },
+            "name": "refactor_tool",
+            "outputSchema": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "title": "Refactor Tool"
+          }
+        ]
+      }
+    },
+    "unknown_method": {
+      "error": {
+        "code": -32601,
+        "data": "no/such_method",
+        "message": "Method not found"
+      }
+    }
+  }
+}
