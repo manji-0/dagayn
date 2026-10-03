@@ -2855,5 +2855,60 @@
         "message": "Method not found"
       }
     }
+  },
+  "handshake": {
+    "initialize_2024_11_05": {
+      "result": {
+        "capabilities": {
+          "logging": {},
+          "prompts": {
+            "listChanged": false
+          },
+          "resources": {
+            "listChanged": false,
+            "subscribe": false
+          },
+          "tools": {
+            "listChanged": true
+          }
+        },
+        "instructions": "dagayn is a knowledge graph of this repository: code, Markdown docs, and Terraform are nodes, linked by calls, imports, tests, and doc contracts. Start every task with get_minimal_context_tool(task=...): it reports graph freshness (sync.state) and the next tool to call. Review changes with review_tool(mode=\"changes\"); trace relationships with query_graph_tool before grepping; read a located node with query_graph_tool(pattern=\"source_of\") instead of the whole file. Graph reach is not correctness: confirm a claim with source_of or a reproduction. get_docs_section_tool(section_name=\"trust\") ranks which results to state as fact.",
+        "protocolVersion": "2024-11-05",
+        "serverInfo": {
+          "name": "dagayn",
+          "version": "<VOLATILE>"
+        }
+      }
+    },
+    "initialize_unknown_version": {
+      "result": {
+        "capabilities": {
+          "logging": {},
+          "prompts": {
+            "listChanged": false
+          },
+          "resources": {
+            "listChanged": false,
+            "subscribe": false
+          },
+          "tools": {
+            "listChanged": true
+          }
+        },
+        "instructions": "dagayn is a knowledge graph of this repository: code, Markdown docs, and Terraform are nodes, linked by calls, imports, tests, and doc contracts. Start every task with get_minimal_context_tool(task=...): it reports graph freshness (sync.state) and the next tool to call. Review changes with review_tool(mode=\"changes\"); trace relationships with query_graph_tool before grepping; read a located node with query_graph_tool(pattern=\"source_of\") instead of the whole file. Graph reach is not correctness: confirm a claim with source_of or a reproduction. get_docs_section_tool(section_name=\"trust\") ranks which results to state as fact.",
+        "protocolVersion": "2025-11-25",
+        "serverInfo": {
+          "name": "dagayn",
+          "version": "<VOLATILE>"
+        }
+      }
+    },
+    "request_before_initialize": {
+      "error": {
+        "code": -32602,
+        "data": "",
+        "message": "Invalid request parameters"
+      }
+    }
   }
 }

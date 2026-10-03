@@ -198,9 +198,13 @@ def _cli_cmd() -> list[str]:
     return shlex.split(raw) if raw else [sys.executable, "-m", "dagayn"]
 
 
-def _server_cmd(repo: Path, tools: str | None) -> list[str]:
+#: fastmcp's own stdio loop, whatever ``DAGAYN_MCP_SERVER_CMD`` says.
+PYTHON_SERVER_CMD = [sys.executable, "-m", "dagayn", "serve"]
+
+
+def _server_cmd(repo: Path, tools: str | None, base: list[str] | None = None) -> list[str]:
     raw = os.environ.get("DAGAYN_MCP_SERVER_CMD")
-    cmd = shlex.split(raw) if raw else [sys.executable, "-m", "dagayn", "serve"]
+    cmd = list(base) if base else shlex.split(raw) if raw else list(PYTHON_SERVER_CMD)
     cmd += ["--repo", str(repo)]
     if tools:
         cmd += ["--tools", tools]
@@ -449,9 +453,25 @@ _PROTOCOL_REQUESTS: list[tuple[str, str, dict[str, Any]]] = [
 ]
 
 
-def _protocol_exchange(repo: Path, env: dict[str, str], tools: str | None) -> dict[str, Any]:
-    """Every reply to :data:`_PROTOCOL_REQUESTS`, keyed by case, as raw JSON-RPC."""
-    cmd = _server_cmd(repo, tools)
+def _client_init(version: str) -> dict[str, Any]:
+    return {
+        "protocolVersion": version,
+        "capabilities": {},
+        "clientInfo": {"name": "mcp-snapshot", "version": "0"},
+    }
+
+
+def _session(
+    repo: Path,
+    env: dict[str, str],
+    tools: str | None,
+    requests: list[tuple[str, str, dict[str, Any]]],
+    base_cmd: list[str] | None = None,
+) -> dict[str, Any]:
+    """Send *requests* (``(case, method, params)``) to one server process in
+    order and return each reply by case, without ``id`` and ``jsonrpc``. A
+    ``notifications/*`` method is sent as a notification and has no reply."""
+    cmd = _server_cmd(repo, tools, base_cmd)
     proc = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
         cmd,
         stdin=subprocess.PIPE,
@@ -462,45 +482,97 @@ def _protocol_exchange(repo: Path, env: dict[str, str], tools: str | None) -> di
         text=True,
     )
     assert proc.stdin is not None and proc.stdout is not None
-
-    def ask(request_id: int, method: str, params: dict[str, Any]) -> Any:
-        message = {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params}
-        proc.stdin.write(json.dumps(message) + "\n")
-        proc.stdin.flush()
-        while True:
-            line = proc.stdout.readline()
-            if not line:
-                raise RuntimeError(f"server closed the stream before answering {method}")
-            reply = json.loads(line)
-            if reply.get("id") == request_id:
-                return {key: value for key, value in reply.items() if key not in ("id", "jsonrpc")}
-
+    replies: dict[str, Any] = {}
     try:
-        replies = {
-            "initialize": ask(
-                0,
-                "initialize",
-                {
-                    "protocolVersion": "2025-06-18",
-                    "capabilities": {},
-                    "clientInfo": {"name": "mcp-snapshot", "version": "0"},
-                },
-            )
-        }
-        proc.stdin.write(
-            json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n"
-        )
-        proc.stdin.flush()
-        for request_id, (case, method, params) in enumerate(_PROTOCOL_REQUESTS, start=1):
-            replies[case] = ask(request_id, method, params)
+        for request_id, (case, method, params) in enumerate(requests):
+            message: dict[str, Any] = {"jsonrpc": "2.0", "method": method}
+            if not method.startswith("notifications/"):
+                message.update({"id": request_id, "params": params})
+            proc.stdin.write(json.dumps(message) + "\n")
+            proc.stdin.flush()
+            if "id" not in message:
+                continue
+            while True:
+                line = proc.stdout.readline()
+                if not line:
+                    raise RuntimeError(f"server closed the stream before answering {method}")
+                reply = json.loads(line)
+                if reply.get("id") == request_id:
+                    replies[case] = {
+                        key: value for key, value in reply.items() if key not in ("id", "jsonrpc")
+                    }
+                    break
     finally:
         proc.stdin.close()
         proc.wait(timeout=30)
-    # The implementation's own version, not part of the contract.
-    server_info = replies["initialize"].get("result", {}).get("serverInfo", {})
-    if "version" in server_info:
-        server_info["version"] = "<VOLATILE>"
+    for reply in replies.values():
+        # The implementation's own version, not part of the contract.
+        server_info = (reply.get("result") or {}).get("serverInfo")
+        if isinstance(server_info, dict) and "version" in server_info:
+            server_info["version"] = "<VOLATILE>"
     return normalize(replies, repo, Path(env["HOME"]))
+
+
+def _protocol_exchange(repo: Path, env: dict[str, str], tools: str | None) -> dict[str, Any]:
+    """Every reply to :data:`_PROTOCOL_REQUESTS`, keyed by case, as raw JSON-RPC."""
+    return _session(
+        repo,
+        env,
+        tools,
+        [
+            ("initialize", "initialize", _client_init("2025-06-18")),
+            ("initialized", "notifications/initialized", {}),
+            *_PROTOCOL_REQUESTS,
+        ],
+    )
+
+
+def _handshake_variants(repo: Path, env: dict[str, str]) -> dict[str, Any]:
+    """Version negotiation and a request before ``initialize``, one process each."""
+    return {
+        "initialize_2024_11_05": _session(
+            repo, env, None, [("reply", "initialize", _client_init("2024-11-05"))]
+        )["reply"],
+        "initialize_unknown_version": _session(
+            repo, env, None, [("reply", "initialize", _client_init("1999-01-01"))]
+        )["reply"],
+        "request_before_initialize": _session(repo, env, None, [("reply", "tools/list", {})])[
+            "reply"
+        ],
+    }
+
+
+SURFACE_PATH = REPO_ROOT / "dagayn" / "server" / "mcp_surface.json"
+
+
+def surface_from_python_server() -> str:
+    """What the stdio front end in ``dagayn._core`` answers without Python:
+    the fastmcp server's ``initialize`` (minus the version and the negotiated
+    protocol revision) and its full tool and prompt listings."""
+    with built_fixture("python_only") as (repo, env):
+        replies = _session(
+            repo,
+            env,
+            "all",
+            [
+                ("initialize", "initialize", _client_init("2025-11-25")),
+                ("initialized", "notifications/initialized", {}),
+                ("tools", "tools/list", {}),
+                ("prompts", "prompts/list", {}),
+            ],
+            base_cmd=PYTHON_SERVER_CMD,
+        )
+    initialize = replies["initialize"]["result"]
+    surface = {
+        "initialize": {
+            "capabilities": initialize["capabilities"],
+            "instructions": initialize.get("instructions"),
+            "serverInfo": {"name": initialize["serverInfo"]["name"]},
+        },
+        "tools": replies["tools"]["result"]["tools"],
+        "prompts": replies["prompts"]["result"]["prompts"],
+    }
+    return json.dumps(surface, indent=1, ensure_ascii=False) + "\n"
 
 
 def snapshot_protocol() -> str:
@@ -509,6 +581,7 @@ def snapshot_protocol() -> str:
         surface = {
             "default": _protocol_exchange(repo, env, None),
             "all": _protocol_exchange(repo, env, "all"),
+            "handshake": _handshake_variants(repo, env),
         }
     return canonical(surface)
 
@@ -570,6 +643,8 @@ def regenerate(names: list[str]) -> None:
     print("tools_list.json")
     _write(SNAPSHOT_DIR / "protocol.json", snapshot_protocol())
     print("protocol.json")
+    _write(SURFACE_PATH, surface_from_python_server())
+    print(SURFACE_PATH.relative_to(REPO_ROOT))
 
 
 def check_determinism(names: list[str], report: Callable[[str], None] = print) -> bool:

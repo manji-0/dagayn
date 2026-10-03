@@ -53,6 +53,13 @@ def test_protocol_replies_match_snapshot() -> None:
     )
 
 
+def test_static_surface_matches_the_python_server() -> None:
+    """``mcp_surface.json`` is what the Rust front end answers without Python."""
+    assert mcp_snapshot.surface_from_python_server() == mcp_snapshot.SURFACE_PATH.read_text(
+        encoding="utf-8"
+    ), f"dagayn/server/mcp_surface.json is stale. Run:\n  {REGENERATE}"
+
+
 class TestNormalize:
     def test_repo_paths_and_volatile_keys_become_placeholders(self, tmp_path: Path) -> None:
         payload = {
