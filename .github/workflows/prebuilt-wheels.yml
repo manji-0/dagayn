@@ -118,10 +118,10 @@ jobs:
           assert len(tools["result"]["tools"]) == 9
           assert docs["result"]["isError"] is False and "truncated" in docs["result"]["structuredContent"], docs
           assert boots == 0
-          # A call Rust does not answer (tests_for) starts the Python server
-          # once and gets its reply.
-          (reply,), boots = session([("tools/call", {"name": "query_graph_tool", "arguments": {"pattern": "tests_for", "target": "main.py"}})])
-          assert reply["result"]["isError"] is False, reply
+          # A call Rust never answers (an unknown tool) starts the Python
+          # server once and gets fastmcp's reply.
+          (reply,), boots = session([("tools/call", {"name": "no_such_tool", "arguments": {}})])
+          assert reply["result"]["isError"] is True, reply
           assert boots == 1
           PY
 

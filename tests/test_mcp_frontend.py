@@ -113,11 +113,8 @@ def test_the_first_call_loads_it_and_local_replies_do_not_wait(repo: Path) -> No
         {
             "id": 1,
             "method": "tools/call",
-            # Not answered in Rust yet.
-            "params": {
-                "name": "query_graph_tool",
-                "arguments": {"pattern": "tests_for", "target": "app.py::main"},
-            },
+            # An unknown tool is never answered in Rust: fastmcp reports it.
+            "params": {"name": "no_such_tool", "arguments": {}},
         }
     )
     # Sent while the call boots fastmcp and the tools, answered first.
@@ -125,7 +122,7 @@ def test_the_first_call_loads_it_and_local_replies_do_not_wait(repo: Path) -> No
     first, second = session.read(), session.read()
     assert first == {"jsonrpc": "2.0", "id": 2, "result": {}}
     assert second["id"] == 1
-    assert second["result"]["structuredContent"]["pattern"] == "tests_for"
+    assert second["result"]["isError"] is True
 
     status, _, stderr = session.close()
     assert status == 0
@@ -384,3 +381,35 @@ def test_search_leaves_embedding_and_errors_to_python(
     rust, python, stderr = _call_both(git_repo, "semantic_search_nodes_tool", arguments)
     assert SEARCH_TRACE not in stderr
     assert rust == python
+
+
+@pytest.mark.parametrize(
+    ("tool", "arguments"),
+    [
+        ("get_minimal_context", {"task": "review"}),
+        ("query_graph", {"pattern": "callers_of", "target": "app.py::helper"}),
+        ("query_graph", {"pattern": "source_of", "target": "main"}),
+        ("query_graph", {"pattern": "children_of", "target": "app.py", "detail_level": "full"}),
+        ("semantic_search_nodes", {"query": "helper"}),
+        ("semantic_search_nodes", {"query": "zz_none", "detail_level": "minimal"}),
+        ("list_graph_stats", {}),
+        ("get_docs_section", {"section_name": "trust"}),
+    ],
+)
+def test_native_tools_leave_the_hint_session_untouched(
+    git_repo: Path, tool: str, arguments: dict[str, Any]
+) -> None:
+    """The Rust front end keeps no `dagayn.hints` session. Its tools may only
+    answer calls whose Python implementation records nothing there either,
+    or the hints of later Python-served tools would differ from an
+    all-Python session. A tool that calls `generate_hints` needs the session
+    carried over before it can be answered in Rust."""
+    import dagayn.tools as tools
+    from dagayn.hints import get_session, reset_session
+
+    reset_session()
+    getattr(tools, tool)(repo_root=str(git_repo), **arguments)
+    session = get_session()
+    assert list(session.tools_called) == []
+    assert session.files_touched == set()
+    assert session.nodes_queried == set()
