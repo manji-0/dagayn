@@ -23,6 +23,8 @@ All notable changes to `dagayn` are documented here.
   `callers_of` / `callees_of` on an exactly named node is answered in Rust
   as well (about 33 ms instead of 68 ms per call here), so a session of a
   minimal context and such queries stays at 71 MB instead of 215 MB.
+  `source_of`, targets given by name, and `callers_of` through the
+  bare-name fallback are answered in Rust as well.
 - The installed `dagayn` command now runs `build`, `update`, and `status` in
   the Rust CLI, compiled into `dagayn._core` (no second binary in the
   wheel). Every other command, `--help`, `--version`, and any flag or

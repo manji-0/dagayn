@@ -404,9 +404,24 @@ calls never starts Python's server:
 | twenty `query_graph_tool` calls | 1.31-1.40 s | 0.66-0.68 s |
 | peak memory | 215 MB | 71 MB |
 
-Next: the rest of `query_graph_tool` (`source_of`, name-search resolution,
-the bare-name fallback), then `semantic_search_nodes_tool` and
-`review_tool`.
+Fifth slice (done): more of `query_graph_tool`. `source_of` reads the live
+span as `read_live_node_source` does (Python's `splitlines` boundaries,
+`DocSection` spans to the next heading, the SHA-256 staleness check, the
+character cap, `source_coverage`, and `degraded` for a stale file). Targets
+are resolved by name as `resolve_query_target` does (`exact_name`, `fuzzy`,
+and the early `ambiguous` and `not_found` answers), and `callers_of` with no
+direct callers takes the bare-name fallback (`GraphStore::bare_name_callers`
+in `dagayn-graph` reuses the build's visibility rules). Python still answers
+`depth > 1`, `full`, external-package targets, and the other nine patterns.
+On this repository's graph 82 `source_of` calls (functions, classes, doc
+sections, files, and a stale file), 82 `callers_of` calls on random nodes,
+and 288 calls on names (unique, shared, partial, missing) all match
+fastmcp's answers and are all answered in Rust. `crates/dagayn-tools/tests`
+covers the tools in the Rust suite, which the pytest comparisons do not
+reach.
+
+Next: `semantic_search_nodes_tool` and `review_tool`, and the remaining
+`query_graph_tool` patterns.
 
 ### 5.4 Remaining Python surfaces
 
