@@ -41,12 +41,13 @@ def _store_repo_root(store: GraphStore) -> Path | None:
 
 def _discover_manifest_bridges(store: GraphStore) -> Any | None:
     """Discover manifest-backed bridge nodes/edges without mutating the graph."""
+    from .incremental_build import _vcs_scope
     from .parser.manifest_bridges import discover_manifest_bridges, refine_node_line_ends
 
     repo_root = _store_repo_root(store)
     if repo_root is None or not repo_root.is_dir():
         return None
-    discovered = discover_manifest_bridges(repo_root)
+    discovered = discover_manifest_bridges(repo_root, _vcs_scope(repo_root, None))
     refine_node_line_ends(repo_root, discovered.nodes)
     return discovered
 

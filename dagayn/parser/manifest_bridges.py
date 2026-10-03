@@ -62,13 +62,25 @@ class ManifestBridgeResult:
         return len(self.edges)
 
 
-def discover_manifest_bridges(repo_root: Path) -> ManifestBridgeResult:
-    """Scan *repo_root* for supported manifests and build bridge edges."""
+def discover_manifest_bridges(
+    repo_root: Path,
+    scope: set[str] | None = None,
+) -> ManifestBridgeResult:
+    """Scan *repo_root* for supported manifests and build bridge edges.
+
+    *scope* is the repo-relative indexable set (the VCS listing). When given,
+    manifests outside it are not read, and nodes and edges that name a file
+    outside it are dropped, including files a tracked manifest points at. A
+    gitignored file stored here is pruned as out of scope by the next
+    incremental update and re-added by the post-processing that update runs.
+    """
     repo_root = repo_root.resolve()
     result = ManifestBridgeResult()
     ignore_patterns = _load_ignore_patterns(repo_root)
 
     found = _collect_named_files(repo_root, _MANIFEST_NAMES, ignore_patterns)
+    if scope is not None:
+        found = {name: [path for path in paths if path in scope] for name, paths in found.items()}
     pyprojects = found["pyproject.toml"]
     cargo_manifests = found["Cargo.toml"]
     openapitools = found["openapitools.json"]
@@ -124,7 +136,24 @@ def discover_manifest_bridges(repo_root: Path) -> ManifestBridgeResult:
     for rel_path in package_jsons:
         _extract_generated_client_consumers(repo_root, rel_path, generated_by_name, result)
 
+    if scope is not None:
+        _restrict_to_scope(repo_root, result, scope)
     return result
+
+
+def _restrict_to_scope(repo_root: Path, result: ManifestBridgeResult, scope: set[str]) -> None:
+    """Drop nodes and edges that name a repository file outside *scope*."""
+
+    def out_of_scope(ref: str) -> bool:
+        path = ref.split("::", 1)[0]
+        return path not in scope and (repo_root / path).is_file()
+
+    result.nodes = [node for node in result.nodes if not out_of_scope(node.file_path)]
+    result.edges = [
+        edge
+        for edge in result.edges
+        if not out_of_scope(edge.source) and not out_of_scope(edge.target)
+    ]
 
 
 _MANIFEST_NAMES = (

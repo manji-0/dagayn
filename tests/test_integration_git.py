@@ -677,3 +677,51 @@ def test_incremental_update_scope_does_not_walk_every_file(git_repo: Path) -> No
         store.close()
     finally:
         Path(db_path).unlink(missing_ok=True)
+
+
+@pytest.mark.parametrize("tracked_pointer", [False, True], ids=["ignored_tree", "tracked_pointer"])
+def test_gitignored_manifest_does_not_reenter_the_graph(
+    git_repo: Path, tracked_pointer: bool
+) -> None:
+    """Manifest bridges must stay inside the indexable scope.
+
+    The manifest walk applied ``.dagaynignore`` but not ``.gitignore``, so
+    post-processing stored nodes for a gitignored ``pyproject.toml``; the next
+    incremental update pruned them as out of scope, and the post-processing
+    that update ran stored them again. Every hook-triggered update then rebuilt
+    FTS and centrality over an unchanged graph. A tracked manifest pointing
+    into the ignored tree (*tracked_pointer*) reaches it the same way.
+    """
+    import shutil
+
+    from dagayn.postprocessing import run_post_processing
+
+    fixture = Path(__file__).parent / "fixtures" / "cross_artifact_manifest" / "py_rust"
+    shutil.copytree(fixture, git_repo / "ignored")
+    (git_repo / ".gitignore").write_text("/ignored/\n", encoding="utf-8")
+    if tracked_pointer:
+        pyproject = (fixture / "pyproject.toml").read_text(encoding="utf-8")
+        (git_repo / "pyproject.toml").write_text(
+            pyproject.replace('manifest-path = "', 'manifest-path = "ignored/'),
+            encoding="utf-8",
+        )
+    _git(git_repo, "add", "-A")
+    _git(git_repo, "commit", "-m", "ignore a manifest tree")
+
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = f.name
+    try:
+        store = GraphStore(db_path)
+        full_build(git_repo, store)
+        run_post_processing(store)
+        ignored_rows = store_conn(store).execute(
+            "SELECT COUNT(*) FROM nodes WHERE file_path LIKE 'ignored/%'"
+        )
+        assert ignored_rows.fetchone()[0] == 0
+
+        head = _git(git_repo, "rev-parse", "HEAD").stdout.strip()
+        result = incremental_update(git_repo, store, base=head)
+        assert result.files_updated == 0, result
+        store.close()
+    finally:
+        Path(db_path).unlink(missing_ok=True)
