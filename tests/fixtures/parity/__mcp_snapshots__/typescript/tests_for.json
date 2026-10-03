@@ -1,0 +1,96 @@
+{
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "answerability": {
+    "reason_codes": [
+      "stale_derived_structures"
+    ],
+    "score": 0.85,
+    "status": "ok"
+  },
+  "confidence": "high",
+  "exact_match_count": 1,
+  "guidance": [
+    {
+      "action": "query_graph_tool pattern=\"tests_for\" -- drill into a relationship",
+      "claim": "Graph query 'tests_for' returned 2 related node(s) for 'src/functions.ts::decl'.",
+      "confidence": "medium",
+      "counts": {
+        "result_count": 2
+      },
+      "evidence": [
+        {
+          "exact_match_count": 1,
+          "pattern": "tests_for",
+          "result_count": 2,
+          "target": "src/functions.ts::decl",
+          "type": "computed"
+        }
+      ],
+      "missingness": [
+        {
+          "claim_effect": "graph edges are static extraction, not runtime traces",
+          "reason_code": "relationship_query_not_runtime_proof",
+          "severity": "low"
+        }
+      ],
+      "reason_codes": [
+        "graph_relationship_query"
+      ]
+    }
+  ],
+  "missingness": [
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "stale_derived_structures",
+      "severity": "medium"
+    }
+  ],
+  "next_action": {
+    "suggestion": "fetch live source with pattern=\"source_of\", then callers_of/callees_of",
+    "tool": "query_graph_tool"
+  },
+  "original_target": "decl",
+  "pattern": "tests_for",
+  "resolution": "exact_name",
+  "resolved_target": "src/functions.ts::decl",
+  "result_count": 2,
+  "results": [
+    {
+      "confidence": "high",
+      "coverage_source": "graph_edge",
+      "evidence": [
+        "TESTED_BY edge"
+      ],
+      "is_test": true,
+      "kind": "Test",
+      "line_end": 8,
+      "line_start": 6,
+      "name": "it:decl works@L6",
+      "qualified_name": "src/__tests__/calls.test.ts::it:decl works@L6"
+    },
+    {
+      "confidence": "high",
+      "coverage_source": "graph_edge",
+      "evidence": [
+        "TESTED_BY edge"
+      ],
+      "is_test": true,
+      "kind": "Test",
+      "line_end": 12,
+      "line_start": 12,
+      "name": "it:only@L12",
+      "qualified_name": "src/__tests__/calls.test.ts::it:only@L12"
+    }
+  ],
+  "results_complete": true,
+  "status": "ok",
+  "summary": "Found 2 result(s) for tests_for('src/functions.ts::decl')",
+  "target": "src/functions.ts::decl",
+  "unresolved_count": 0,
+  "unresolved_targets": [],
+  "zero_result_reason": null
+}

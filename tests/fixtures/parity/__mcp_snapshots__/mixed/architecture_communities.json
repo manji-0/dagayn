@@ -1,0 +1,93 @@
+{
+  "_hints": {
+    "next_steps": [
+      {
+        "suggestion": "Inspect a specific community with mode=\"community\"",
+        "tool": "architecture_analysis_tool"
+      },
+      {
+        "suggestion": "See cross-community coupling with mode=\"overview\"",
+        "tool": "architecture_analysis_tool"
+      },
+      {
+        "suggestion": "See execution flows across communities",
+        "tool": "flow_tool"
+      }
+    ],
+    "related": [],
+    "warnings": []
+  },
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "_runtime": "<VOLATILE>",
+  "answerability": {
+    "answerability": [
+      0,
+      3,
+      0,
+      2,
+      0.0
+    ],
+    "counts": {
+      "communities": 3,
+      "current_head_sha": "dd58eaddda2960904306906d2f281865ecbcd8b6",
+      "flows": 0,
+      "graph_head_sha": "dd58eaddda2960904306906d2f281865ecbcd8b6",
+      "reportable_cross_artifact_edges": 2,
+      "reportable_unresolved_cross_artifact_edges": 0,
+      "stale_flow_memberships": 0,
+      "test_edges": 0,
+      "unassigned_nodes": 0,
+      "worktree_dirty": false
+    },
+    "parse": [
+      3,
+      3,
+      true
+    ],
+    "reason_codes": [
+      "missing_flows",
+      "missing_test_edges"
+    ],
+    "score": 0.75,
+    "status": "ok"
+  },
+  "called_subtool": "list_communities_func",
+  "communities": [
+    {
+      "cohesion": 0.5,
+      "name": "app-analysis",
+      "size": 4
+    },
+    {
+      "cohesion": 0.6,
+      "name": "docs",
+      "size": 4
+    },
+    {
+      "cohesion": 0.3333,
+      "name": "infra-resource-aws-s3-bucket-graph-s",
+      "size": 2
+    }
+  ],
+  "missingness": [
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_flows",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_test_edges",
+      "severity": "medium"
+    }
+  ],
+  "mode": "communities",
+  "status": "ok",
+  "summary": "Found 3 communities",
+  "total": 3,
+  "truncated": false
+}

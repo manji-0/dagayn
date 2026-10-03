@@ -1,0 +1,227 @@
+{
+  "_hints": {
+    "next_steps": [
+      {
+        "suggestion": "query_graph_tool pattern=\"source_of\" -- fetch the chosen node's live span",
+        "tool": "query_graph_tool"
+      }
+    ],
+    "related": [],
+    "warnings": [
+      "missing_embeddings"
+    ]
+  },
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "answerability": {
+    "answerability": [
+      0,
+      3,
+      0,
+      2,
+      0.0
+    ],
+    "counts": {
+      "communities": 3,
+      "current_head_sha": "dd58eaddda2960904306906d2f281865ecbcd8b6",
+      "flows": 0,
+      "graph_head_sha": "dd58eaddda2960904306906d2f281865ecbcd8b6",
+      "reportable_cross_artifact_edges": 2,
+      "reportable_unresolved_cross_artifact_edges": 0,
+      "stale_flow_memberships": 0,
+      "test_edges": 0,
+      "unassigned_nodes": 0,
+      "worktree_dirty": false
+    },
+    "parse": [
+      3,
+      3,
+      true
+    ],
+    "reason_codes": [
+      "missing_flows",
+      "missing_test_edges"
+    ],
+    "score": 0.75,
+    "status": "ok"
+  },
+  "confidence": "medium",
+  "embedding_health": {
+    "auto_resolved_provider": null,
+    "matching_vector_count": 0,
+    "provider_counts": {},
+    "requested_model": null,
+    "requested_provider": null,
+    "requested_text_mode": "material",
+    "resolved_provider": null,
+    "resolved_provider_key": null,
+    "status": "provider_unavailable"
+  },
+  "exactness": {
+    "ambiguity": null,
+    "exact_match_count": 0,
+    "next_action": {
+      "suggestion": "fetch live source with pattern=\"source_of\" for the chosen qualified_name",
+      "tool": "query_graph_tool"
+    },
+    "source_arm": "fts_only"
+  },
+  "guidance": [
+    {
+      "action": "query_graph_tool pattern=\"source_of\" -- fetch the chosen node's live span",
+      "claim": "Hybrid search returned 6 candidate(s) for 'bucket'.",
+      "confidence": "medium",
+      "counts": {
+        "result_count": 6
+      },
+      "evidence": [
+        {
+          "query": "bucket",
+          "result_count": 6,
+          "search_mode": "fts_only",
+          "type": "computed"
+        }
+      ],
+      "missingness": [
+        {
+          "claim_effect": "semantic ranking may be keyword-only",
+          "reason_code": "missing_embeddings",
+          "severity": "medium"
+        }
+      ],
+      "reason_codes": [
+        "hybrid_search"
+      ]
+    }
+  ],
+  "missingness": [
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_flows",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_test_edges",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "semantic ranking may be keyword-only",
+      "reason_code": "missing_embeddings",
+      "severity": "medium"
+    }
+  ],
+  "next_action": {
+    "suggestion": "fetch live source with pattern=\"source_of\" for the chosen qualified_name",
+    "tool": "query_graph_tool"
+  },
+  "query": "bucket",
+  "result_count": 6,
+  "results": [
+    {
+      "file_path": "infra.tf",
+      "is_test": false,
+      "kind": "Class",
+      "language": "terraform",
+      "line_end": 8,
+      "line_start": 6,
+      "name": "resource.aws_s3_bucket.graph_store",
+      "params": null,
+      "qualified_name": "infra.tf::resource.aws_s3_bucket.graph_store",
+      "rank": 1,
+      "return_type": null,
+      "score": 0.090909,
+      "signature": "class resource.aws_s3_bucket.graph_store",
+      "source": "fts"
+    },
+    {
+      "file_path": "docs/README.md",
+      "is_test": false,
+      "kind": "DocBody",
+      "language": "markdown",
+      "line_end": 12,
+      "line_start": 12,
+      "name": "infrastructure--body-1",
+      "params": null,
+      "qualified_name": "docs/README.md::infrastructure--body-1",
+      "rank": 2,
+      "return_type": null,
+      "score": 0.083333,
+      "signature": "infrastructure--body-1",
+      "source": "fts"
+    },
+    {
+      "file_path": "infra.tf",
+      "is_test": false,
+      "kind": "File",
+      "language": "terraform",
+      "line_end": 9,
+      "line_start": 1,
+      "name": "infra.tf",
+      "params": null,
+      "qualified_name": "infra.tf",
+      "rank": 3,
+      "return_type": null,
+      "score": 0.076923,
+      "signature": "infra.tf",
+      "source": "fts"
+    },
+    {
+      "file_path": "docs/README.md",
+      "is_test": false,
+      "kind": "DocSection",
+      "language": "markdown",
+      "line_end": 10,
+      "line_start": 10,
+      "name": "infrastructure",
+      "params": null,
+      "qualified_name": "docs/README.md::infrastructure",
+      "rank": 4,
+      "return_type": null,
+      "score": 0.071429,
+      "signature": "infrastructure",
+      "source": "doc"
+    },
+    {
+      "file_path": "docs/README.md",
+      "is_test": false,
+      "kind": "File",
+      "language": "markdown",
+      "line_end": 13,
+      "line_start": 1,
+      "name": "docs/README.md",
+      "params": null,
+      "qualified_name": "docs/README.md",
+      "rank": 5,
+      "return_type": null,
+      "score": 0.066667,
+      "signature": "docs/README.md",
+      "source": "fts"
+    },
+    {
+      "file_path": "docs/README.md",
+      "is_test": false,
+      "kind": "DocSection",
+      "language": "markdown",
+      "line_end": 1,
+      "line_start": 1,
+      "name": "mixed-fixture",
+      "params": null,
+      "qualified_name": "docs/README.md::mixed-fixture",
+      "rank": 6,
+      "return_type": null,
+      "score": 0.0625,
+      "signature": "mixed-fixture",
+      "source": "doc"
+    }
+  ],
+  "search_mode": "fts_only",
+  "status": "ok",
+  "summary": "Found 6 node(s) matching 'bucket'",
+  "total": 6,
+  "truncated": false,
+  "zero_result_reason": null
+}

@@ -1,0 +1,53 @@
+{
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "communities": [
+    "legacy-handle",
+    "types-field",
+    "types-obj"
+  ],
+  "confidence": "high",
+  "graph_health": {
+    "answerability": [
+      5,
+      5,
+      0,
+      0,
+      0.0
+    ],
+    "parse": [
+      7,
+      1,
+      true
+    ],
+    "reason_codes": [
+      "missing_test_edges",
+      "stale_derived_structures"
+    ],
+    "score": 0.75,
+    "status": "ok"
+  },
+  "next_tool_suggestions": [
+    "review_tool",
+    "flow_tool",
+    "query_graph_tool"
+  ],
+  "recommended_action": "Run review_tool mode=changes first, then drill into context only when needed.",
+  "status": "ok",
+  "summary": "25 nodes, 35 edges across 7 files.",
+  "sync": {
+    "state": "commit_synced",
+    "status": "synced",
+    "vcs": "git"
+  },
+  "top_flows": [
+    "run",
+    "JsxComp",
+    "esmFn"
+  ],
+  "why": "The task mentions reviewing a diff or PR, so risk and changed-node ranking are the fastest entry point.",
+  "workflow": "review"
+}

@@ -1,0 +1,107 @@
+{
+  "_hints": {
+    "next_steps": [
+      {
+        "suggestion": "query_graph_tool callers_of -- focused relationship query",
+        "tool": "query_graph_tool"
+      },
+      {
+        "suggestion": "review_tool mode=\"impact\" -- blast radius analysis",
+        "tool": "review_tool"
+      }
+    ],
+    "related": [],
+    "warnings": []
+  },
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "max_depth": 3,
+  "mode": "bfs",
+  "next_tool_suggestions": [
+    "query_graph_tool callers_of -- focused relationship query",
+    "review_tool mode=\"impact\" -- blast radius analysis"
+  ],
+  "nodes_visited": 9,
+  "reachability": {
+    "max_depth": 3,
+    "nodes_visited": 9,
+    "state": "truncated",
+    "truncated": true,
+    "unresolved_count": 1,
+    "unresolved_targets": [
+      "builtins"
+    ]
+  },
+  "start_node": "services.py::create_user",
+  "status": "ok",
+  "summary": "Traversed 9 node(s) from 'services.py::create_user' up to depth 3. Traversal stopped at 1 unresolvable endpoint(s).",
+  "traversal": [
+    {
+      "depth": 0,
+      "file": "services.py",
+      "kind": "Function",
+      "name": "create_user",
+      "qualified_name": "services.py::create_user"
+    },
+    {
+      "depth": 1,
+      "file": "models.py",
+      "kind": "Class",
+      "name": "User",
+      "qualified_name": "models.py::User"
+    },
+    {
+      "depth": 1,
+      "file": "main.py",
+      "kind": "Function",
+      "name": "run",
+      "qualified_name": "main.py::run"
+    },
+    {
+      "depth": 1,
+      "file": "services.py",
+      "kind": "File",
+      "name": "services.py",
+      "qualified_name": "services.py"
+    },
+    {
+      "depth": 2,
+      "file": "models.py",
+      "kind": "Function",
+      "name": "__init__",
+      "qualified_name": "models.py::User.__init__"
+    },
+    {
+      "depth": 2,
+      "file": "models.py",
+      "kind": "File",
+      "name": "models.py",
+      "qualified_name": "models.py"
+    },
+    {
+      "depth": 2,
+      "file": "main.py",
+      "kind": "File",
+      "name": "main.py",
+      "qualified_name": "main.py"
+    },
+    {
+      "depth": 2,
+      "file": "services.py",
+      "kind": "Function",
+      "name": "get_email",
+      "qualified_name": "services.py::get_email"
+    },
+    {
+      "depth": 3,
+      "file": "models.py",
+      "kind": "Class",
+      "name": "Address",
+      "qualified_name": "models.py::Address"
+    }
+  ],
+  "truncated": false
+}

@@ -1,0 +1,88 @@
+{
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "answerability": {
+    "reason_codes": [
+      "missing_test_edges",
+      "stale_derived_structures"
+    ],
+    "score": 0.75,
+    "status": "ok"
+  },
+  "confidence": "medium",
+  "exact_match_count": 1,
+  "guidance": [
+    {
+      "action": "query_graph_tool pattern=\"children_of\" -- drill into a relationship",
+      "claim": "Graph query 'children_of' returned 2 related node(s) for 'helpers.js'.",
+      "confidence": "medium",
+      "counts": {
+        "result_count": 2
+      },
+      "evidence": [
+        {
+          "exact_match_count": 1,
+          "pattern": "children_of",
+          "result_count": 2,
+          "target": "helpers.js",
+          "type": "computed"
+        }
+      ],
+      "missingness": [
+        {
+          "claim_effect": "graph edges are static extraction, not runtime traces",
+          "reason_code": "relationship_query_not_runtime_proof",
+          "severity": "low"
+        }
+      ],
+      "reason_codes": [
+        "graph_relationship_query"
+      ]
+    }
+  ],
+  "missingness": [
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_test_edges",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "stale_derived_structures",
+      "severity": "medium"
+    }
+  ],
+  "next_action": {
+    "suggestion": "fetch live source with pattern=\"source_of\", then callers_of/callees_of",
+    "tool": "query_graph_tool"
+  },
+  "pattern": "children_of",
+  "resolution": "exact",
+  "result_count": 2,
+  "results": [
+    {
+      "kind": "Function",
+      "line_end": 1,
+      "line_start": 1,
+      "name": "helper",
+      "qualified_name": "helpers.js::helper"
+    },
+    {
+      "kind": "Function",
+      "line_end": 2,
+      "line_start": 2,
+      "name": "other",
+      "qualified_name": "helpers.js::other"
+    }
+  ],
+  "results_complete": true,
+  "status": "ok",
+  "summary": "Found 2 result(s) for children_of('helpers.js')",
+  "target": "helpers.js",
+  "unresolved_count": 0,
+  "unresolved_targets": [],
+  "zero_result_reason": null
+}

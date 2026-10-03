@@ -1,0 +1,227 @@
+{
+  "_hints": {
+    "next_steps": [
+      {
+        "suggestion": "query_graph_tool pattern=\"source_of\" -- fetch the chosen node's live span",
+        "tool": "query_graph_tool"
+      }
+    ],
+    "related": [],
+    "warnings": [
+      "missing_embeddings"
+    ]
+  },
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "answerability": {
+    "answerability": [
+      1,
+      2,
+      0,
+      0,
+      0.0
+    ],
+    "counts": {
+      "communities": 2,
+      "current_head_sha": "23cba2c11ebc1e87d236f6c1276afadf3f6ee5fb",
+      "flows": 1,
+      "graph_head_sha": "23cba2c11ebc1e87d236f6c1276afadf3f6ee5fb",
+      "reportable_cross_artifact_edges": 0,
+      "reportable_unresolved_cross_artifact_edges": 0,
+      "stale_flow_memberships": 0,
+      "test_edges": 0,
+      "unassigned_nodes": 1,
+      "worktree_dirty": false
+    },
+    "parse": [
+      3,
+      1,
+      true
+    ],
+    "reason_codes": [
+      "missing_test_edges",
+      "stale_derived_structures"
+    ],
+    "score": 0.75,
+    "status": "ok"
+  },
+  "confidence": "medium",
+  "embedding_health": {
+    "auto_resolved_provider": null,
+    "matching_vector_count": 0,
+    "provider_counts": {},
+    "requested_model": null,
+    "requested_provider": null,
+    "requested_text_mode": "material",
+    "resolved_provider": null,
+    "resolved_provider_key": null,
+    "status": "provider_unavailable"
+  },
+  "exactness": {
+    "ambiguity": null,
+    "exact_match_count": 0,
+    "next_action": {
+      "suggestion": "fetch live source with pattern=\"source_of\" for the chosen qualified_name",
+      "tool": "query_graph_tool"
+    },
+    "source_arm": "fts_only"
+  },
+  "guidance": [
+    {
+      "action": "query_graph_tool pattern=\"source_of\" -- fetch the chosen node's live span",
+      "claim": "Hybrid search returned 6 candidate(s) for 'user email'.",
+      "confidence": "medium",
+      "counts": {
+        "result_count": 6
+      },
+      "evidence": [
+        {
+          "query": "user email",
+          "result_count": 6,
+          "search_mode": "fts_only",
+          "type": "computed"
+        }
+      ],
+      "missingness": [
+        {
+          "claim_effect": "semantic ranking may be keyword-only",
+          "reason_code": "missing_embeddings",
+          "severity": "medium"
+        }
+      ],
+      "reason_codes": [
+        "hybrid_search"
+      ]
+    }
+  ],
+  "missingness": [
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_test_edges",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "stale_derived_structures",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "semantic ranking may be keyword-only",
+      "reason_code": "missing_embeddings",
+      "severity": "medium"
+    }
+  ],
+  "next_action": {
+    "suggestion": "fetch live source with pattern=\"source_of\" for the chosen qualified_name",
+    "tool": "query_graph_tool"
+  },
+  "query": "user email",
+  "result_count": 6,
+  "results": [
+    {
+      "file_path": "services.py",
+      "is_test": false,
+      "kind": "Function",
+      "language": "python",
+      "line_end": 9,
+      "line_start": 8,
+      "name": "get_email",
+      "params": "(user: User)",
+      "qualified_name": "services.py::get_email",
+      "rank": 1,
+      "return_type": "str",
+      "score": 0.090909,
+      "signature": "def get_email((user: User)) -> str",
+      "source": "fts"
+    },
+    {
+      "file_path": "services.py",
+      "is_test": false,
+      "kind": "Function",
+      "language": "python",
+      "line_end": 5,
+      "line_start": 4,
+      "name": "create_user",
+      "params": "(name: str, email: str)",
+      "qualified_name": "services.py::create_user",
+      "rank": 2,
+      "return_type": "User",
+      "score": 0.083333,
+      "signature": "def create_user((name: str, email: str)) -> User",
+      "source": "fts"
+    },
+    {
+      "file_path": "models.py",
+      "is_test": false,
+      "kind": "Class",
+      "language": "python",
+      "line_end": 4,
+      "line_start": 1,
+      "name": "User",
+      "params": null,
+      "qualified_name": "models.py::User",
+      "rank": 3,
+      "return_type": null,
+      "score": 0.076923,
+      "signature": "class User",
+      "source": "fts"
+    },
+    {
+      "file_path": "models.py",
+      "is_test": false,
+      "kind": "Function",
+      "language": "python",
+      "line_end": 4,
+      "line_start": 2,
+      "name": "__init__",
+      "params": "(self, name: str, email: str)",
+      "qualified_name": "models.py::User.__init__",
+      "rank": 4,
+      "return_type": "None",
+      "score": 0.071429,
+      "signature": "def __init__((self, name: str, email: str)) -> None",
+      "source": "fts"
+    },
+    {
+      "file_path": "services.py",
+      "is_test": false,
+      "kind": "File",
+      "language": "python",
+      "line_end": 10,
+      "line_start": 1,
+      "name": "services.py",
+      "params": null,
+      "qualified_name": "services.py",
+      "rank": 5,
+      "return_type": null,
+      "score": 0.066667,
+      "signature": "services.py",
+      "source": "fts"
+    },
+    {
+      "file_path": "models.py",
+      "is_test": false,
+      "kind": "File",
+      "language": "python",
+      "line_end": 11,
+      "line_start": 1,
+      "name": "models.py",
+      "params": null,
+      "qualified_name": "models.py",
+      "rank": 6,
+      "return_type": null,
+      "score": 0.0625,
+      "signature": "models.py",
+      "source": "fts"
+    }
+  ],
+  "search_mode": "fts_only",
+  "status": "ok",
+  "summary": "Found 6 node(s) matching 'user email'",
+  "total": 6,
+  "truncated": false,
+  "zero_result_reason": null
+}

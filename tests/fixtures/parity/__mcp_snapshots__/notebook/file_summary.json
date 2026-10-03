@@ -1,0 +1,95 @@
+{
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "answerability": {
+    "reason_codes": [
+      "missing_flows",
+      "missing_test_edges"
+    ],
+    "score": 0.75,
+    "status": "ok"
+  },
+  "confidence": "medium",
+  "exact_match_count": 1,
+  "guidance": [
+    {
+      "action": "query_graph_tool pattern=\"file_summary\" -- drill into a relationship",
+      "claim": "Graph query 'file_summary' returned 3 related node(s) for 'analysis.ipynb'.",
+      "confidence": "medium",
+      "counts": {
+        "result_count": 3
+      },
+      "evidence": [
+        {
+          "exact_match_count": 1,
+          "pattern": "file_summary",
+          "result_count": 3,
+          "target": "analysis.ipynb",
+          "type": "computed"
+        }
+      ],
+      "missingness": [
+        {
+          "claim_effect": "graph edges are static extraction, not runtime traces",
+          "reason_code": "relationship_query_not_runtime_proof",
+          "severity": "low"
+        }
+      ],
+      "reason_codes": [
+        "graph_relationship_query"
+      ]
+    }
+  ],
+  "missingness": [
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_flows",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_test_edges",
+      "severity": "medium"
+    }
+  ],
+  "next_action": {
+    "suggestion": "fetch live source with pattern=\"source_of\", then callers_of/callees_of",
+    "tool": "query_graph_tool"
+  },
+  "pattern": "file_summary",
+  "resolution": "exact",
+  "result_count": 3,
+  "results": [
+    {
+      "kind": "File",
+      "line_end": 16,
+      "line_start": 1,
+      "name": "analysis.ipynb",
+      "qualified_name": "analysis.ipynb"
+    },
+    {
+      "kind": "Function",
+      "line_end": 3,
+      "line_start": 1,
+      "name": "load_data",
+      "qualified_name": "analysis.ipynb::load_data"
+    },
+    {
+      "kind": "Function",
+      "line_end": 9,
+      "line_start": 4,
+      "name": "process",
+      "qualified_name": "analysis.ipynb::process"
+    }
+  ],
+  "results_complete": true,
+  "status": "ok",
+  "summary": "Found 3 result(s) for file_summary('analysis.ipynb')",
+  "target": "analysis.ipynb",
+  "unresolved_count": 0,
+  "unresolved_targets": [],
+  "zero_result_reason": null
+}

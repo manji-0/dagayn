@@ -1,0 +1,87 @@
+{
+  "_hints": {
+    "next_steps": [
+      {
+        "suggestion": "Get risk-scored change analysis with mode=\"changes\"",
+        "tool": "review_tool"
+      },
+      {
+        "suggestion": "Inspect a specific affected flow with mode=\"get\"",
+        "tool": "flow_tool"
+      },
+      {
+        "suggestion": "Build full review context with mode=\"context\"",
+        "tool": "review_tool"
+      }
+    ],
+    "related": [],
+    "warnings": []
+  },
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "_runtime": "<VOLATILE>",
+  "affected_flows": [],
+  "answerability": {
+    "answerability": [
+      0,
+      3,
+      0,
+      2,
+      0.0
+    ],
+    "counts": {
+      "communities": 3,
+      "current_head_sha": "dd58eaddda2960904306906d2f281865ecbcd8b6",
+      "flows": 0,
+      "graph_head_sha": "dd58eaddda2960904306906d2f281865ecbcd8b6",
+      "reportable_cross_artifact_edges": 2,
+      "reportable_unresolved_cross_artifact_edges": 0,
+      "stale_flow_memberships": 0,
+      "test_edges": 0,
+      "unassigned_nodes": 0,
+      "worktree_dirty": false
+    },
+    "parse": [
+      3,
+      3,
+      true
+    ],
+    "reason_codes": [
+      "missing_flows",
+      "missing_test_edges"
+    ],
+    "score": 0.75,
+    "status": "ok"
+  },
+  "called_subtool": "get_affected_flows_func",
+  "change_file_sources": {
+    "explicit": [
+      "app.py"
+    ],
+    "files": [
+      "app.py"
+    ]
+  },
+  "changed_files": [
+    "app.py"
+  ],
+  "missingness": [
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_flows",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_test_edges",
+      "severity": "medium"
+    }
+  ],
+  "mode": "affected_flows",
+  "status": "ok",
+  "summary": "0 flow(s) affected by changes in 1 file(s)",
+  "total": 0
+}

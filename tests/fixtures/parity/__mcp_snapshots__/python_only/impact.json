@@ -1,0 +1,326 @@
+{
+  "_hints": {
+    "next_steps": [
+      {
+        "suggestion": "Fetch focused source context with mode=\"context\"",
+        "tool": "review_tool"
+      },
+      {
+        "suggestion": "Inspect affected reachable-set flows with mode=\"affected_flows\"",
+        "tool": "review_tool"
+      },
+      {
+        "suggestion": "Expand blast radius with mode=\"impact\"",
+        "tool": "review_tool"
+      }
+    ],
+    "related": [
+      "services.py",
+      "main.py"
+    ],
+    "warnings": []
+  },
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "_runtime": "<VOLATILE>",
+  "answerability": {
+    "answerability": [
+      1,
+      2,
+      0,
+      0,
+      0.0
+    ],
+    "counts": {
+      "communities": 2,
+      "current_head_sha": "23cba2c11ebc1e87d236f6c1276afadf3f6ee5fb",
+      "flows": 1,
+      "graph_head_sha": "23cba2c11ebc1e87d236f6c1276afadf3f6ee5fb",
+      "reportable_cross_artifact_edges": 0,
+      "reportable_unresolved_cross_artifact_edges": 0,
+      "stale_flow_memberships": 0,
+      "test_edges": 0,
+      "unassigned_nodes": 1,
+      "worktree_dirty": false
+    },
+    "parse": [
+      3,
+      1,
+      true
+    ],
+    "reason_codes": [
+      "missing_test_edges",
+      "stale_derived_structures"
+    ],
+    "score": 0.75,
+    "status": "ok"
+  },
+  "bridge_transitions": [],
+  "called_subtool": "get_impact_radius",
+  "changed_files": [
+    "models.py"
+  ],
+  "changed_nodes": [
+    {
+      "file_path": "models.py",
+      "id": 3,
+      "is_test": false,
+      "kind": "File",
+      "language": "python",
+      "line_end": 11,
+      "line_start": 1,
+      "name": "models.py",
+      "parent_name": null,
+      "qualified_name": "models.py"
+    },
+    {
+      "file_path": "models.py",
+      "id": 6,
+      "is_test": false,
+      "kind": "Class",
+      "language": "python",
+      "line_end": 10,
+      "line_start": 7,
+      "name": "Address",
+      "parent_name": null,
+      "qualified_name": "models.py::Address"
+    },
+    {
+      "file_path": "models.py",
+      "id": 7,
+      "is_test": false,
+      "kind": "Function",
+      "language": "python",
+      "line_end": 10,
+      "line_start": 8,
+      "name": "__init__",
+      "parent_name": "Address",
+      "qualified_name": "models.py::Address.__init__"
+    },
+    {
+      "file_path": "models.py",
+      "id": 4,
+      "is_test": false,
+      "kind": "Class",
+      "language": "python",
+      "line_end": 4,
+      "line_start": 1,
+      "name": "User",
+      "parent_name": null,
+      "qualified_name": "models.py::User"
+    },
+    {
+      "file_path": "models.py",
+      "id": 5,
+      "is_test": false,
+      "kind": "Function",
+      "language": "python",
+      "line_end": 4,
+      "line_start": 2,
+      "name": "__init__",
+      "parent_name": "User",
+      "qualified_name": "models.py::User.__init__"
+    }
+  ],
+  "edges": [
+    {
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "main.py",
+      "id": 1,
+      "kind": "IMPORTS_FROM",
+      "line": 1,
+      "source": "main.py",
+      "target": "services.py"
+    },
+    {
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "main.py",
+      "id": 2,
+      "kind": "CONTAINS",
+      "line": 4,
+      "source": "main.py",
+      "target": "main.py::run"
+    },
+    {
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "main.py",
+      "id": 3,
+      "kind": "CALLS",
+      "line": 5,
+      "source": "main.py::run",
+      "target": "services.py::create_user"
+    },
+    {
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "models.py",
+      "id": 5,
+      "kind": "CONTAINS",
+      "line": 1,
+      "source": "models.py",
+      "target": "models.py::User"
+    },
+    {
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "models.py",
+      "id": 6,
+      "kind": "CONTAINS",
+      "line": 2,
+      "source": "models.py::User",
+      "target": "models.py::User.__init__"
+    },
+    {
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "models.py",
+      "id": 7,
+      "kind": "CONTAINS",
+      "line": 7,
+      "source": "models.py",
+      "target": "models.py::Address"
+    },
+    {
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "models.py",
+      "id": 8,
+      "kind": "CONTAINS",
+      "line": 8,
+      "source": "models.py::Address",
+      "target": "models.py::Address.__init__"
+    },
+    {
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "services.py",
+      "id": 9,
+      "kind": "IMPORTS_FROM",
+      "line": 1,
+      "source": "services.py",
+      "target": "models.py"
+    },
+    {
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "services.py",
+      "id": 10,
+      "kind": "CONTAINS",
+      "line": 4,
+      "source": "services.py",
+      "target": "services.py::create_user"
+    },
+    {
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "services.py",
+      "id": 11,
+      "kind": "CALLS",
+      "line": 5,
+      "source": "services.py::create_user",
+      "target": "models.py::User"
+    },
+    {
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "services.py",
+      "id": 12,
+      "kind": "CONTAINS",
+      "line": 8,
+      "source": "services.py",
+      "target": "services.py::get_email"
+    }
+  ],
+  "guidance": [],
+  "impacted_files": [
+    "services.py",
+    "main.py"
+  ],
+  "impacted_nodes": [
+    {
+      "file_path": "services.py",
+      "id": 8,
+      "is_test": false,
+      "kind": "File",
+      "language": "python",
+      "line_end": 10,
+      "line_start": 1,
+      "name": "services.py",
+      "parent_name": null,
+      "qualified_name": "services.py"
+    },
+    {
+      "file_path": "services.py",
+      "id": 9,
+      "is_test": false,
+      "kind": "Function",
+      "language": "python",
+      "line_end": 5,
+      "line_start": 4,
+      "name": "create_user",
+      "parent_name": null,
+      "qualified_name": "services.py::create_user"
+    },
+    {
+      "file_path": "main.py",
+      "id": 1,
+      "is_test": false,
+      "kind": "File",
+      "language": "python",
+      "line_end": 7,
+      "line_start": 1,
+      "name": "main.py",
+      "parent_name": null,
+      "qualified_name": "main.py"
+    },
+    {
+      "file_path": "main.py",
+      "id": 2,
+      "is_test": false,
+      "kind": "Function",
+      "language": "python",
+      "line_end": 6,
+      "line_start": 4,
+      "name": "run",
+      "parent_name": null,
+      "qualified_name": "main.py::run"
+    },
+    {
+      "file_path": "services.py",
+      "id": 10,
+      "is_test": false,
+      "kind": "Function",
+      "language": "python",
+      "line_end": 9,
+      "line_start": 8,
+      "name": "get_email",
+      "parent_name": null,
+      "qualified_name": "services.py::get_email"
+    }
+  ],
+  "low_confidence_bridges": [],
+  "missingness": [
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_test_edges",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "stale_derived_structures",
+      "severity": "medium"
+    }
+  ],
+  "mode": "impact",
+  "status": "ok",
+  "summary": "Blast radius for 1 changed file(s):\n  - 5 nodes directly changed\n  - 5 nodes impacted (within 2 hops)\n  - 2 additional files affected",
+  "total_impacted": 5,
+  "truncated": false,
+  "unmatched_changed_files": []
+}

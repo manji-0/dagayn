@@ -1,0 +1,1514 @@
+{
+  "_hints": {
+    "next_steps": [
+      {
+        "suggestion": "Verify call sites before applying a rename",
+        "tool": "query_graph_tool"
+      },
+      {
+        "suggestion": "Check risk of the refactored code",
+        "tool": "review_tool"
+      },
+      {
+        "suggestion": "Find related symbols to also rename",
+        "tool": "semantic_search_nodes_tool"
+      }
+    ],
+    "related": [],
+    "warnings": []
+  },
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "answerability": {
+    "answerability": [
+      21,
+      22,
+      9,
+      1,
+      0.0
+    ],
+    "counts": {
+      "communities": 22,
+      "current_head_sha": "dc8bde1d637c34a4ec226e96b822c101bd049ddb",
+      "flows": 21,
+      "graph_head_sha": "dc8bde1d637c34a4ec226e96b822c101bd049ddb",
+      "reportable_cross_artifact_edges": 1,
+      "reportable_unresolved_cross_artifact_edges": 0,
+      "stale_flow_memberships": 0,
+      "test_edges": 9,
+      "unassigned_nodes": 27,
+      "worktree_dirty": false
+    },
+    "parse": [
+      36,
+      2,
+      true
+    ],
+    "reason_codes": [
+      "stale_derived_structures"
+    ],
+    "score": 0.85,
+    "status": "ok"
+  },
+  "caveats": [
+    "Dead-code results are graph-backed candidates; verify dynamic dispatch, plugin registration, reflection, and generated entry points before deleting."
+  ],
+  "dead_code": [
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
+        "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/calls.ts",
+      "kind": "Class",
+      "language": "typescript",
+      "line": 6,
+      "name": "Caller",
+      "public_api_candidate": true,
+      "qualified_name": "src/calls.ts::Caller",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "no_subclasses",
+        "public_api_candidate"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
+        "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/classes.ts",
+      "kind": "Class",
+      "language": "typescript",
+      "line": 49,
+      "name": "Anon",
+      "public_api_candidate": true,
+      "qualified_name": "src/classes.ts::Anon",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "no_subclasses",
+        "public_api_candidate"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
+        "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/classes.ts",
+      "kind": "Class",
+      "language": "typescript",
+      "line": 53,
+      "name": "Named",
+      "public_api_candidate": true,
+      "qualified_name": "src/classes.ts::Named",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "no_subclasses",
+        "public_api_candidate"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 2,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/export-assign.ts",
+      "kind": "Class",
+      "language": "typescript",
+      "line": 2,
+      "name": "Exported",
+      "public_api_candidate": false,
+      "qualified_name": "src/export-assign.ts::Exported",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "no_subclasses",
+        "ambiguous_symbol_name"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
+        "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/extra/heritage.ts",
+      "kind": "Class",
+      "language": "typescript",
+      "line": 4,
+      "name": "G2",
+      "public_api_candidate": true,
+      "qualified_name": "src/extra/heritage.ts::G2",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "no_subclasses",
+        "public_api_candidate"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
+        "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/extra/heritage.ts",
+      "kind": "Class",
+      "language": "typescript",
+      "line": 14,
+      "name": "Other",
+      "public_api_candidate": true,
+      "qualified_name": "src/extra/heritage.ts::Other",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "no_subclasses",
+        "public_api_candidate"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
+        "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/barrel-user.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 2,
+      "name": "useBarrel",
+      "public_api_candidate": true,
+      "qualified_name": "src/barrel-user.ts::useBarrel",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "public_api_candidate"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 4,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/calls.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 13,
+      "name": "run",
+      "public_api_candidate": false,
+      "qualified_name": "src/calls.ts::Caller.run",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "ambiguous_symbol_name"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
+      ],
+      "confidence": "medium",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/calls.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 31,
+      "name": "later",
+      "public_api_candidate": false,
+      "qualified_name": "src/calls.ts::Caller.later",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 2,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/classes.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 6,
+      "name": "label",
+      "public_api_candidate": false,
+      "qualified_name": "src/classes.ts::AbstractShape.label",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "ambiguous_symbol_name"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
+      ],
+      "confidence": "medium",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/classes.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 7,
+      "name": "describe",
+      "public_api_candidate": false,
+      "qualified_name": "src/classes.ts::AbstractShape.describe",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 2,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/classes.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 16,
+      "name": "label",
+      "public_api_candidate": false,
+      "qualified_name": "src/classes.ts::DefaultShape.label",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "ambiguous_symbol_name"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 2,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/classes.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 17,
+      "name": "find",
+      "public_api_candidate": false,
+      "qualified_name": "src/classes.ts::DefaultShape.find",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "ambiguous_symbol_name"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 2,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/classes.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 18,
+      "name": "log",
+      "public_api_candidate": false,
+      "qualified_name": "src/classes.ts::DefaultShape.log",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "ambiguous_symbol_name"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 4,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/classes.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 50,
+      "name": "run",
+      "public_api_candidate": false,
+      "qualified_name": "src/classes.ts::Anon.run",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "ambiguous_symbol_name"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
+      ],
+      "confidence": "medium",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/classes.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 54,
+      "name": "go",
+      "public_api_candidate": false,
+      "qualified_name": "src/classes.ts::Named.go",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
+        "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/components/App.tsx",
+      "kind": "Function",
+      "language": "tsx",
+      "line": 28,
+      "name": "Memo",
+      "public_api_candidate": true,
+      "qualified_name": "src/components/App.tsx::Memo",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "public_api_candidate"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
+        "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/components/App.tsx",
+      "kind": "Function",
+      "language": "tsx",
+      "line": 29,
+      "name": "Fwd",
+      "public_api_candidate": true,
+      "qualified_name": "src/components/App.tsx::Fwd",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "public_api_candidate"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
+        "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/cts-file.cts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 1,
+      "name": "inCts",
+      "public_api_candidate": true,
+      "qualified_name": "src/cts-file.cts::inCts",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "public_api_candidate"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
+        "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/extra/Testimonial.tsx",
+      "kind": "Function",
+      "language": "tsx",
+      "line": 1,
+      "name": "TestimonialCard",
+      "public_api_candidate": true,
+      "qualified_name": "src/extra/Testimonial.tsx::TestimonialCard",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "public_api_candidate"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
+      ],
+      "confidence": "medium",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/extra/heritage.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 10,
+      "name": "c",
+      "public_api_candidate": false,
+      "qualified_name": "src/extra/heritage.ts::WithThis.c",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
+      ],
+      "confidence": "medium",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/extra/heritage.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 11,
+      "name": "s",
+      "public_api_candidate": false,
+      "qualified_name": "src/extra/heritage.ts::WithThis.s",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
+        "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 2,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/extra/heritage.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 14,
+      "name": "b",
+      "public_api_candidate": true,
+      "qualified_name": "src/extra/heritage.ts::Other.b",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "public_api_candidate",
+        "ambiguous_symbol_name"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
+        "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/extra/heritage.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 20,
+      "name": "wrapped",
+      "public_api_candidate": true,
+      "qualified_name": "src/extra/heritage.ts::wrapped",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "public_api_candidate"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
+        "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/frameworks/express.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 10,
+      "name": "lambdaHandler",
+      "public_api_candidate": true,
+      "qualified_name": "src/frameworks/express.ts::lambdaHandler",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "public_api_candidate"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
+        "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/frameworks/next/app/api/users/route.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 2,
+      "name": "GET",
+      "public_api_candidate": true,
+      "qualified_name": "src/frameworks/next/app/api/users/route.ts::GET",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "public_api_candidate"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
+        "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/frameworks/next/app/api/users/route.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 3,
+      "name": "POST",
+      "public_api_candidate": true,
+      "qualified_name": "src/frameworks/next/app/api/users/route.ts::POST",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "public_api_candidate"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
+        "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/frameworks/next/app/page.tsx",
+      "kind": "Function",
+      "language": "tsx",
+      "line": 1,
+      "name": "Page",
+      "public_api_candidate": true,
+      "qualified_name": "src/frameworks/next/app/page.tsx::Page",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "public_api_candidate"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
+        "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/frameworks/next/app/page.tsx",
+      "kind": "Function",
+      "language": "tsx",
+      "line": 2,
+      "name": "generateMetadata",
+      "public_api_candidate": true,
+      "qualified_name": "src/frameworks/next/app/page.tsx::generateMetadata",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "public_api_candidate"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
+        "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/functions.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 8,
+      "name": "over",
+      "public_api_candidate": true,
+      "qualified_name": "src/functions.ts::over",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "public_api_candidate"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
+        "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/functions.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 13,
+      "name": "fnExpr",
+      "public_api_candidate": true,
+      "qualified_name": "src/functions.ts::fnExpr",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "public_api_candidate"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
+      ],
+      "confidence": "medium",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/functions.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 14,
+      "name": "namedExpr",
+      "public_api_candidate": false,
+      "qualified_name": "src/functions.ts::namedExpr",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
+        "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/functions.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 15,
+      "name": "asyncFn",
+      "public_api_candidate": true,
+      "qualified_name": "src/functions.ts::asyncFn",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "public_api_candidate"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
+        "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/functions.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 16,
+      "name": "gen",
+      "public_api_candidate": true,
+      "qualified_name": "src/functions.ts::gen",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "public_api_candidate"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
+        "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/functions.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 17,
+      "name": "agen",
+      "public_api_candidate": true,
+      "qualified_name": "src/functions.ts::agen",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "public_api_candidate"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
+      ],
+      "confidence": "medium",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/functions.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 25,
+      "name": "put",
+      "public_api_candidate": false,
+      "qualified_name": "src/functions.ts::api.put",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
+      ],
+      "confidence": "medium",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/functions.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 26,
+      "name": "deep",
+      "public_api_candidate": false,
+      "qualified_name": "src/functions.ts::api.nested.deep",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
+        "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/functions.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 33,
+      "name": "withCallbacks",
+      "public_api_candidate": true,
+      "qualified_name": "src/functions.ts::withCallbacks",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "public_api_candidate"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
+        "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/imports.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 17,
+      "name": "useImports",
+      "public_api_candidate": true,
+      "qualified_name": "src/imports.ts::useImports",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "public_api_candidate"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 2,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/interfaces.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 7,
+      "name": "log",
+      "public_api_candidate": false,
+      "qualified_name": "src/interfaces.ts::Logger.log",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "ambiguous_symbol_name"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 4,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/interfaces.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 11,
+      "name": "run",
+      "public_api_candidate": false,
+      "qualified_name": "src/interfaces.ts::Service.run",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "ambiguous_symbol_name"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
+      ],
+      "confidence": "medium",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/interfaces.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 19,
+      "name": "save",
+      "public_api_candidate": false,
+      "qualified_name": "src/interfaces.ts::Repo.save",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
+        "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/mts-file.mts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 1,
+      "name": "inMts",
+      "public_api_candidate": true,
+      "qualified_name": "src/mts-file.mts::inMts",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "public_api_candidate"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
+        "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/namespaces.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 17,
+      "name": "old",
+      "public_api_candidate": true,
+      "qualified_name": "src/namespaces.ts::Legacy.old",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "public_api_candidate"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
+        "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/namespaces.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 30,
+      "name": "useNs",
+      "public_api_candidate": true,
+      "qualified_name": "src/namespaces.ts::useNs",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "public_api_candidate"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
+        "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/typerefs.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 5,
+      "name": "typed",
+      "public_api_candidate": true,
+      "qualified_name": "src/typerefs.ts::typed",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "public_api_candidate"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
+        "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "src/typerefs.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 13,
+      "name": "constrained",
+      "public_api_candidate": true,
+      "qualified_name": "src/typerefs.ts::constrained",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "public_api_candidate"
+      ]
+    }
+  ],
+  "missingness": [
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "stale_derived_structures",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "dead-code claims do not cover dynamic runtime references",
+      "reason_code": "absence_evidence_requires_manual_verification",
+      "severity": "medium"
+    }
+  ],
+  "status": "ok",
+  "summary": "Found 47 dead code symbol(s).",
+  "total": 47,
+  "truncated": false
+}

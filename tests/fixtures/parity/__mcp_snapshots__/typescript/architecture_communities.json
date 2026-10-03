@@ -1,0 +1,122 @@
+{
+  "_hints": {
+    "next_steps": [
+      {
+        "suggestion": "Inspect a specific community with mode=\"community\"",
+        "tool": "architecture_analysis_tool"
+      },
+      {
+        "suggestion": "See cross-community coupling with mode=\"overview\"",
+        "tool": "architecture_analysis_tool"
+      },
+      {
+        "suggestion": "See execution flows across communities",
+        "tool": "flow_tool"
+      }
+    ],
+    "related": [],
+    "warnings": []
+  },
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "_runtime": "<VOLATILE>",
+  "answerability": {
+    "answerability": [
+      21,
+      22,
+      9,
+      1,
+      0.0
+    ],
+    "counts": {
+      "communities": 22,
+      "current_head_sha": "dc8bde1d637c34a4ec226e96b822c101bd049ddb",
+      "flows": 21,
+      "graph_head_sha": "dc8bde1d637c34a4ec226e96b822c101bd049ddb",
+      "reportable_cross_artifact_edges": 1,
+      "reportable_unresolved_cross_artifact_edges": 0,
+      "stale_flow_memberships": 0,
+      "test_edges": 9,
+      "unassigned_nodes": 27,
+      "worktree_dirty": false
+    },
+    "parse": [
+      36,
+      2,
+      true
+    ],
+    "reason_codes": [
+      "stale_derived_structures"
+    ],
+    "score": 0.85,
+    "status": "ok"
+  },
+  "called_subtool": "list_communities_func",
+  "communities": [
+    {
+      "cohesion": 0.5581,
+      "name": "src-default",
+      "size": 32
+    },
+    {
+      "cohesion": 0.4909,
+      "name": "src-label",
+      "size": 23
+    },
+    {
+      "cohesion": 0.5532,
+      "name": "src-constructor",
+      "size": 21
+    },
+    {
+      "cohesion": 0.7368,
+      "name": "src-abc",
+      "size": 11
+    },
+    {
+      "cohesion": 0.5556,
+      "name": "components-app",
+      "size": 10
+    },
+    {
+      "cohesion": 0.5,
+      "name": "src-decorated",
+      "size": 7
+    },
+    {
+      "cohesion": 0.4667,
+      "name": "frameworks-finall",
+      "size": 7
+    },
+    {
+      "cohesion": 0.8889,
+      "name": "extra-s2",
+      "size": 6
+    },
+    {
+      "cohesion": 0.5455,
+      "name": "barrel-clasa",
+      "size": 5
+    },
+    {
+      "cohesion": 0.6667,
+      "name": "src-nfn",
+      "size": 3
+    }
+  ],
+  "missingness": [
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "stale_derived_structures",
+      "severity": "medium"
+    }
+  ],
+  "mode": "communities",
+  "status": "ok",
+  "summary": "Found 22 communities. Showing first 10.",
+  "total": 22,
+  "truncated": true
+}

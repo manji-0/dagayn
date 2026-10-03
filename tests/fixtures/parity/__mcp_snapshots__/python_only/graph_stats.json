@@ -1,0 +1,50 @@
+{
+  "_hints": {
+    "next_steps": [
+      {
+        "suggestion": "architecture_analysis_tool mode=\"communities\" -- inspect structure",
+        "tool": "architecture_analysis_tool"
+      },
+      {
+        "suggestion": "flow_tool mode=\"list\" -- inspect critical reachable-set flows",
+        "tool": "flow_tool"
+      },
+      {
+        "suggestion": "semantic_search_nodes_tool -- search for specific entities",
+        "tool": "semantic_search_nodes_tool"
+      }
+    ],
+    "related": [],
+    "warnings": []
+  },
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "edges_by_kind": {
+    "CALLS": 3,
+    "CONTAINS": 7,
+    "IMPORTS_FROM": 2
+  },
+  "embeddings_count": 0,
+  "files_count": 3,
+  "languages": [
+    "python"
+  ],
+  "last_updated": "<VOLATILE>",
+  "next_tool_suggestions": [
+    "architecture_analysis_tool mode=\"communities\" -- inspect structure",
+    "flow_tool mode=\"list\" -- inspect critical reachable-set flows",
+    "semantic_search_nodes_tool -- search for specific entities"
+  ],
+  "nodes_by_kind": {
+    "Class": 2,
+    "File": 3,
+    "Function": 5
+  },
+  "status": "ok",
+  "summary": "Graph stats for repo: 10 nodes, 12 edges, 3 files, 1 language(s), 0 embedding(s).",
+  "total_edges": 12,
+  "total_nodes": 10
+}

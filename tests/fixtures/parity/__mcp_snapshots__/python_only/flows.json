@@ -1,0 +1,141 @@
+{
+  "_hints": {
+    "next_steps": [
+      {
+        "suggestion": "flow_tool mode=\"get\" -- inspect a specific reachable set",
+        "tool": "flow_tool"
+      }
+    ],
+    "related": [],
+    "warnings": []
+  },
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "_runtime": "<VOLATILE>",
+  "answerability": {
+    "answerability": [
+      1,
+      2,
+      0,
+      0,
+      0.0
+    ],
+    "counts": {
+      "communities": 2,
+      "current_head_sha": "23cba2c11ebc1e87d236f6c1276afadf3f6ee5fb",
+      "flows": 1,
+      "graph_head_sha": "23cba2c11ebc1e87d236f6c1276afadf3f6ee5fb",
+      "reportable_cross_artifact_edges": 0,
+      "reportable_unresolved_cross_artifact_edges": 0,
+      "stale_flow_memberships": 0,
+      "test_edges": 0,
+      "unassigned_nodes": 1,
+      "worktree_dirty": false
+    },
+    "parse": [
+      3,
+      1,
+      true
+    ],
+    "reason_codes": [
+      "missing_test_edges",
+      "stale_derived_structures"
+    ],
+    "score": 0.75,
+    "status": "ok"
+  },
+  "called_subtool": "list_flows",
+  "flow_coverage": {
+    "coverage_guarantee": false,
+    "kind_filter": null,
+    "limit": 50,
+    "returned_flow_count": 1,
+    "source": "stored_flow_extraction",
+    "truncated_count": 0
+  },
+  "flows": [
+    {
+      "created_at": "<VOLATILE>",
+      "criticality": 0.36,
+      "depth": 2,
+      "entry_point": "main.py::run",
+      "entry_point_id": 2,
+      "file_count": 3,
+      "files": [
+        "main.py",
+        "services.py",
+        "models.py"
+      ],
+      "id": 1,
+      "kind": "reachable_set",
+      "members": [
+        2,
+        9,
+        4
+      ],
+      "missing_node_count": 0,
+      "name": "run",
+      "node_count": 3,
+      "path": [
+        2,
+        9,
+        4
+      ],
+      "resolved_node_count": 3,
+      "truncated": false,
+      "truncation_reason": null,
+      "updated_at": "<VOLATILE>"
+    }
+  ],
+  "guidance": [
+    {
+      "action": "flow_tool mode=\"get\" -- inspect a specific reachable set",
+      "claim": "Returned 1 ranked reachable-set flow(s) from stored flow extraction.",
+      "confidence": "medium",
+      "counts": {
+        "returned_flow_count": 1
+      },
+      "evidence": [
+        {
+          "limit": 50,
+          "returned_flow_count": 1,
+          "sort_by": "criticality",
+          "type": "computed"
+        }
+      ],
+      "missingness": [
+        {
+          "claim_effect": "flow ranking is not a coverage guarantee",
+          "reason_code": "flow_criticality_is_ranking_signal",
+          "severity": "low"
+        }
+      ],
+      "reason_codes": [
+        "stored_flow_extraction"
+      ]
+    }
+  ],
+  "missingness": [
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_test_edges",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "stale_derived_structures",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "flow ranking is not a coverage guarantee",
+      "reason_code": "flow_criticality_is_ranking_signal",
+      "severity": "low"
+    }
+  ],
+  "mode": "list",
+  "status": "ok",
+  "summary": "Found 1 reachable-set flow(s)"
+}

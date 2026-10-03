@@ -1,0 +1,111 @@
+{
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "min_lines": 1,
+  "results": [
+    {
+      "file_path": "main.tf",
+      "id": 1,
+      "is_test": false,
+      "kind": "File",
+      "language": "terraform",
+      "line_count": 18,
+      "line_end": 18,
+      "line_start": 1,
+      "name": "main.tf",
+      "parent_name": null,
+      "qualified_name": "main.tf",
+      "relative_path": "main.tf"
+    },
+    {
+      "file_path": "outputs.tf",
+      "id": 5,
+      "is_test": false,
+      "kind": "File",
+      "language": "terraform",
+      "line_count": 8,
+      "line_end": 8,
+      "line_start": 1,
+      "name": "outputs.tf",
+      "parent_name": null,
+      "qualified_name": "outputs.tf",
+      "relative_path": "outputs.tf"
+    },
+    {
+      "file_path": "main.tf",
+      "id": 4,
+      "is_test": false,
+      "kind": "Class",
+      "language": "terraform",
+      "line_count": 7,
+      "line_end": 17,
+      "line_start": 11,
+      "name": "resource.aws_instance.web",
+      "parent_name": null,
+      "qualified_name": "main.tf::resource.aws_instance.web",
+      "relative_path": "main.tf"
+    },
+    {
+      "file_path": "main.tf",
+      "id": 2,
+      "is_test": false,
+      "kind": "Function",
+      "language": "terraform",
+      "line_count": 4,
+      "line_end": 4,
+      "line_start": 1,
+      "name": "var.region",
+      "parent_name": null,
+      "qualified_name": "main.tf::var.region",
+      "relative_path": "main.tf"
+    },
+    {
+      "file_path": "main.tf",
+      "id": 3,
+      "is_test": false,
+      "kind": "Function",
+      "language": "terraform",
+      "line_count": 4,
+      "line_end": 9,
+      "line_start": 6,
+      "name": "var.instance_type",
+      "parent_name": null,
+      "qualified_name": "main.tf::var.instance_type",
+      "relative_path": "main.tf"
+    },
+    {
+      "file_path": "outputs.tf",
+      "id": 6,
+      "is_test": false,
+      "kind": "Function",
+      "language": "terraform",
+      "line_count": 3,
+      "line_end": 3,
+      "line_start": 1,
+      "name": "output.instance_id",
+      "parent_name": null,
+      "qualified_name": "outputs.tf::output.instance_id",
+      "relative_path": "outputs.tf"
+    },
+    {
+      "file_path": "outputs.tf",
+      "id": 7,
+      "is_test": false,
+      "kind": "Function",
+      "language": "terraform",
+      "line_count": 3,
+      "line_end": 7,
+      "line_start": 5,
+      "name": "output.instance_type",
+      "parent_name": null,
+      "qualified_name": "outputs.tf::output.instance_type",
+      "relative_path": "outputs.tf"
+    }
+  ],
+  "status": "ok",
+  "summary": "Found 7 node(s) with >= 1 lines:\n    18 lines |     File | main.tf (main.tf:1)\n     8 lines |     File | outputs.tf (outputs.tf:1)\n     7 lines |    Class | resource.aws_instance.web (main.tf:11)\n     4 lines | Function | var.region (main.tf:1)\n     4 lines | Function | var.instance_type (main.tf:6)\n     3 lines | Function | output.instance_id (outputs.tf:1)\n     3 lines | Function | output.instance_type (outputs.tf:5)",
+  "total_found": 7
+}

@@ -1,0 +1,58 @@
+{
+  "_hints": {
+    "next_steps": [
+      {
+        "suggestion": "architecture_analysis_tool mode=\"communities\" -- inspect structure",
+        "tool": "architecture_analysis_tool"
+      },
+      {
+        "suggestion": "flow_tool mode=\"list\" -- inspect critical reachable-set flows",
+        "tool": "flow_tool"
+      },
+      {
+        "suggestion": "semantic_search_nodes_tool -- search for specific entities",
+        "tool": "semantic_search_nodes_tool"
+      }
+    ],
+    "related": [],
+    "warnings": []
+  },
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "edges_by_kind": {
+    "CALLS": 110,
+    "CONTAINS": 179,
+    "CROSS_ARTIFACT": 1,
+    "IMPLEMENTS": 5,
+    "IMPORTS_FROM": 51,
+    "INHERITS": 11,
+    "REFERENCES": 36,
+    "TESTED_BY": 9
+  },
+  "embeddings_count": 0,
+  "files_count": 36,
+  "languages": [
+    "typescript",
+    "tsx"
+  ],
+  "last_updated": "<VOLATILE>",
+  "next_tool_suggestions": [
+    "architecture_analysis_tool mode=\"communities\" -- inspect structure",
+    "flow_tool mode=\"list\" -- inspect critical reachable-set flows",
+    "semantic_search_nodes_tool -- search for specific entities"
+  ],
+  "nodes_by_kind": {
+    "Class": 50,
+    "File": 36,
+    "Function": 112,
+    "Test": 10,
+    "Type": 7
+  },
+  "status": "ok",
+  "summary": "Graph stats for repo: 215 nodes, 402 edges, 36 files, 2 language(s), 0 embedding(s).",
+  "total_edges": 402,
+  "total_nodes": 215
+}

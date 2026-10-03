@@ -1,0 +1,138 @@
+{
+  "_hints": {
+    "next_steps": [
+      {
+        "suggestion": "Verify call sites before applying a rename",
+        "tool": "query_graph_tool"
+      },
+      {
+        "suggestion": "Check risk of the refactored code",
+        "tool": "review_tool"
+      },
+      {
+        "suggestion": "Find related symbols to also rename",
+        "tool": "semantic_search_nodes_tool"
+      }
+    ],
+    "related": [],
+    "warnings": []
+  },
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "ambiguous": false,
+  "answerability": {
+    "answerability": [
+      1,
+      2,
+      0,
+      0,
+      0.0
+    ],
+    "counts": {
+      "communities": 2,
+      "current_head_sha": "23cba2c11ebc1e87d236f6c1276afadf3f6ee5fb",
+      "flows": 1,
+      "graph_head_sha": "23cba2c11ebc1e87d236f6c1276afadf3f6ee5fb",
+      "reportable_cross_artifact_edges": 0,
+      "reportable_unresolved_cross_artifact_edges": 0,
+      "stale_flow_memberships": 0,
+      "test_edges": 0,
+      "unassigned_nodes": 1,
+      "worktree_dirty": false
+    },
+    "parse": [
+      3,
+      1,
+      true
+    ],
+    "reason_codes": [
+      "missing_test_edges",
+      "stale_derived_structures"
+    ],
+    "score": 0.75,
+    "status": "ok"
+  },
+  "candidate_count": 1,
+  "candidates": [
+    {
+      "file": "services.py",
+      "kind": "Function",
+      "language": "python",
+      "line": 4,
+      "qualified_name": "services.py::create_user"
+    }
+  ],
+  "created_at": "<VOLATILE>",
+  "edits": [
+    {
+      "confidence": "high",
+      "file": "services.py",
+      "line": 4,
+      "new": "make_user",
+      "old": "create_user",
+      "source": "definition"
+    },
+    {
+      "confidence": "high",
+      "edge_kind": "CALLS",
+      "file": "main.py",
+      "line": 5,
+      "new": "make_user",
+      "old": "create_user",
+      "source": "call"
+    },
+    {
+      "confidence": "high",
+      "edge_kind": "IMPORTS_FROM",
+      "file": "main.py",
+      "line": 1,
+      "new": "make_user",
+      "old": "create_user",
+      "source": "import"
+    }
+  ],
+  "missingness": [
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_test_edges",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "stale_derived_structures",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "edit list covers graph-known call, reference, and import sites only; string-based access, getattr, re-exports, generated code, and non-code files are not included",
+      "reason_code": "rename_edits_graph_limited",
+      "severity": "medium"
+    }
+  ],
+  "new_name": "make_user",
+  "next_tool_suggestions": [
+    "apply_refactor_tool(refactor_id='<REFACTOR_ID>', dry_run=true) in the same session -- preview unified diff before writing files",
+    "apply_refactor_tool(refactor_id='<REFACTOR_ID>') in the same session -- apply the rename"
+  ],
+  "old_name": "create_user",
+  "refactor_id": "<REFACTOR_ID>",
+  "stats": {
+    "high": 3,
+    "low": 0,
+    "medium": 0
+  },
+  "status": "ok",
+  "summary": "Rename preview: create_user -> make_user, 3 edit(s). Apply with apply_refactor_tool in the same `dagayn serve` MCP session (refactor_id is session-scoped, expires after 10 min) using refactor_id='<REFACTOR_ID>'.",
+  "target": {
+    "file": "services.py",
+    "kind": "Function",
+    "language": "python",
+    "line": 4,
+    "name": "create_user",
+    "qualified_name": "services.py::create_user"
+  },
+  "type": "rename",
+  "warnings": []
+}

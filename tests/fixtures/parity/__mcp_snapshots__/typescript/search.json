@@ -1,0 +1,269 @@
+{
+  "_hints": {
+    "next_steps": [
+      {
+        "suggestion": "query_graph_tool pattern=\"source_of\" -- fetch the chosen node's live span",
+        "tool": "query_graph_tool"
+      }
+    ],
+    "related": [],
+    "warnings": [
+      "missing_embeddings"
+    ]
+  },
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "answerability": {
+    "answerability": [
+      21,
+      22,
+      9,
+      1,
+      0.0
+    ],
+    "counts": {
+      "communities": 22,
+      "current_head_sha": "dc8bde1d637c34a4ec226e96b822c101bd049ddb",
+      "flows": 21,
+      "graph_head_sha": "dc8bde1d637c34a4ec226e96b822c101bd049ddb",
+      "reportable_cross_artifact_edges": 1,
+      "reportable_unresolved_cross_artifact_edges": 0,
+      "stale_flow_memberships": 0,
+      "test_edges": 9,
+      "unassigned_nodes": 27,
+      "worktree_dirty": false
+    },
+    "parse": [
+      36,
+      2,
+      true
+    ],
+    "reason_codes": [
+      "stale_derived_structures"
+    ],
+    "score": 0.85,
+    "status": "ok"
+  },
+  "confidence": "medium",
+  "embedding_health": {
+    "auto_resolved_provider": null,
+    "matching_vector_count": 0,
+    "provider_counts": {},
+    "requested_model": null,
+    "requested_provider": null,
+    "requested_text_mode": "material",
+    "resolved_provider": null,
+    "resolved_provider_key": null,
+    "status": "provider_unavailable"
+  },
+  "exactness": {
+    "ambiguity": null,
+    "exact_match_count": 0,
+    "next_action": {
+      "suggestion": "fetch live source with pattern=\"source_of\" for the chosen qualified_name",
+      "tool": "query_graph_tool"
+    },
+    "source_arm": "fts_only"
+  },
+  "guidance": [
+    {
+      "action": "query_graph_tool pattern=\"source_of\" -- fetch the chosen node's live span",
+      "claim": "Hybrid search returned 9 candidate(s) for 'barrel'.",
+      "confidence": "medium",
+      "counts": {
+        "result_count": 9
+      },
+      "evidence": [
+        {
+          "query": "barrel",
+          "result_count": 9,
+          "search_mode": "fts_only",
+          "type": "computed"
+        }
+      ],
+      "missingness": [
+        {
+          "claim_effect": "semantic ranking may be keyword-only",
+          "reason_code": "missing_embeddings",
+          "severity": "medium"
+        }
+      ],
+      "reason_codes": [
+        "hybrid_search"
+      ]
+    }
+  ],
+  "missingness": [
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "stale_derived_structures",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "semantic ranking may be keyword-only",
+      "reason_code": "missing_embeddings",
+      "severity": "medium"
+    }
+  ],
+  "next_action": {
+    "suggestion": "fetch live source with pattern=\"source_of\" for the chosen qualified_name",
+    "tool": "query_graph_tool"
+  },
+  "query": "barrel",
+  "result_count": 9,
+  "results": [
+    {
+      "file_path": "src/barrel/a.ts",
+      "is_test": false,
+      "kind": "File",
+      "language": "typescript",
+      "line_end": 3,
+      "line_start": 1,
+      "name": "src/barrel/a.ts",
+      "params": null,
+      "qualified_name": "src/barrel/a.ts",
+      "rank": 1,
+      "return_type": null,
+      "score": 0.090909,
+      "signature": "src/barrel/a.ts",
+      "source": "fts"
+    },
+    {
+      "file_path": "src/barrel/b.ts",
+      "is_test": false,
+      "kind": "File",
+      "language": "typescript",
+      "line_end": 3,
+      "line_start": 1,
+      "name": "src/barrel/b.ts",
+      "params": null,
+      "qualified_name": "src/barrel/b.ts",
+      "rank": 2,
+      "return_type": null,
+      "score": 0.083333,
+      "signature": "src/barrel/b.ts",
+      "source": "fts"
+    },
+    {
+      "file_path": "src/barrel-user.ts",
+      "is_test": false,
+      "kind": "File",
+      "language": "typescript",
+      "line_end": 10,
+      "line_start": 1,
+      "name": "src/barrel-user.ts",
+      "params": null,
+      "qualified_name": "src/barrel-user.ts",
+      "rank": 3,
+      "return_type": null,
+      "score": 0.076923,
+      "signature": "src/barrel-user.ts",
+      "source": "fts"
+    },
+    {
+      "file_path": "src/barrel-user.ts",
+      "is_test": false,
+      "kind": "Function",
+      "language": "typescript",
+      "line_end": 9,
+      "line_start": 2,
+      "name": "useBarrel",
+      "params": "()",
+      "qualified_name": "src/barrel-user.ts::useBarrel",
+      "rank": 4,
+      "return_type": null,
+      "score": 0.071429,
+      "signature": "def useBarrel(())",
+      "source": "fts"
+    },
+    {
+      "file_path": "src/barrel/a.ts",
+      "is_test": false,
+      "kind": "Function",
+      "language": "typescript",
+      "line_end": 1,
+      "line_start": 1,
+      "name": "fromA",
+      "params": "()",
+      "qualified_name": "src/barrel/a.ts::fromA",
+      "rank": 5,
+      "return_type": null,
+      "score": 0.066667,
+      "signature": "def fromA(())",
+      "source": "fts"
+    },
+    {
+      "file_path": "src/barrel/a.ts",
+      "is_test": false,
+      "kind": "Class",
+      "language": "typescript",
+      "line_end": 2,
+      "line_start": 2,
+      "name": "ClassA",
+      "params": null,
+      "qualified_name": "src/barrel/a.ts::ClassA",
+      "rank": 6,
+      "return_type": null,
+      "score": 0.0625,
+      "signature": "class ClassA",
+      "source": "fts"
+    },
+    {
+      "file_path": "src/barrel/b.ts",
+      "is_test": false,
+      "kind": "Function",
+      "language": "typescript",
+      "line_end": 1,
+      "line_start": 1,
+      "name": "fromB",
+      "params": "()",
+      "qualified_name": "src/barrel/b.ts::fromB",
+      "rank": 7,
+      "return_type": null,
+      "score": 0.058824,
+      "signature": "def fromB(())",
+      "source": "fts"
+    },
+    {
+      "file_path": "src/barrel/b.ts",
+      "is_test": false,
+      "kind": "Function",
+      "language": "typescript",
+      "line_end": 2,
+      "line_start": 2,
+      "name": "defaultB",
+      "params": "()",
+      "qualified_name": "src/barrel/b.ts::defaultB",
+      "rank": 8,
+      "return_type": null,
+      "score": 0.055556,
+      "signature": "def defaultB(())",
+      "source": "fts"
+    },
+    {
+      "file_path": "src/barrel/index.ts",
+      "is_test": false,
+      "kind": "File",
+      "language": "typescript",
+      "line_end": 10,
+      "line_start": 1,
+      "name": "src/barrel/index.ts",
+      "params": null,
+      "qualified_name": "src/barrel/index.ts",
+      "rank": 9,
+      "return_type": null,
+      "score": 0.052632,
+      "signature": "src/barrel/index.ts",
+      "source": "fts"
+    }
+  ],
+  "search_mode": "fts_only",
+  "status": "ok",
+  "summary": "Found 9 node(s) matching 'barrel'",
+  "total": 9,
+  "truncated": false,
+  "zero_result_reason": null
+}

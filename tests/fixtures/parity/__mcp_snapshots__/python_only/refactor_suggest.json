@@ -1,0 +1,725 @@
+{
+  "_hints": {
+    "next_steps": [
+      {
+        "suggestion": "refactor_tool mode=\"suggest\" -- inspect work_pack, then run the verification commands before editing",
+        "tool": "refactor_tool"
+      },
+      {
+        "suggestion": "refactor_tool mode=\"suggest\" -- inspect work_pack, then run the verification commands before editing",
+        "tool": "refactor_tool"
+      },
+      {
+        "suggestion": "refactor_tool mode=\"suggest\" -- inspect work_pack, then run the verification commands before editing",
+        "tool": "refactor_tool"
+      }
+    ],
+    "related": [],
+    "warnings": [
+      "dynamic_dispatch_not_proven_absent",
+      "defer_condition",
+      "defer_condition",
+      "dynamic_dispatch_not_proven_absent",
+      "defer_condition",
+      "defer_condition",
+      "dynamic_dispatch_not_proven_absent",
+      "defer_condition",
+      "defer_condition"
+    ]
+  },
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "answerability": {
+    "answerability": [
+      1,
+      2,
+      0,
+      0,
+      0.0
+    ],
+    "counts": {
+      "communities": 2,
+      "current_head_sha": "23cba2c11ebc1e87d236f6c1276afadf3f6ee5fb",
+      "flows": 1,
+      "graph_head_sha": "23cba2c11ebc1e87d236f6c1276afadf3f6ee5fb",
+      "reportable_cross_artifact_edges": 0,
+      "reportable_unresolved_cross_artifact_edges": 0,
+      "stale_flow_memberships": 0,
+      "test_edges": 0,
+      "unassigned_nodes": 1,
+      "worktree_dirty": false
+    },
+    "parse": [
+      3,
+      1,
+      true
+    ],
+    "reason_codes": [
+      "missing_test_edges",
+      "stale_derived_structures"
+    ],
+    "score": 0.75,
+    "status": "ok"
+  },
+  "counts_by_type": {
+    "remove": 3
+  },
+  "guidance": [
+    {
+      "action": "refactor_tool mode=\"suggest\" -- inspect work_pack, then run the verification commands before editing",
+      "claim": "Remove unused function 'run'",
+      "confidence": "medium",
+      "counts": {
+        "affected_file_count": 1,
+        "affected_files": [
+          "main.py"
+        ],
+        "estimated_risk": "medium",
+        "symbol_count": 1
+      },
+      "evidence": [
+        {
+          "raw": {
+            "caller_count": 0,
+            "importer_count": 0,
+            "name_definition_count": 1,
+            "reachable_via_cross_artifact": false,
+            "reference_count": 0,
+            "source_available": true,
+            "subclass_count": 0,
+            "test_ref_count": 0
+          },
+          "reason_codes": [
+            "no_callers",
+            "no_test_references",
+            "no_importers",
+            "no_references"
+          ],
+          "suggestion_type": "remove",
+          "symbols": [
+            "main.py::run"
+          ],
+          "type": "computed"
+        }
+      ],
+      "missingness": [
+        {
+          "claim_effect": "verify runtime registration, generated code, and public APIs",
+          "reason_code": "dynamic_dispatch_not_proven_absent",
+          "severity": "medium"
+        },
+        {
+          "claim_effect": "The symbol is public API.",
+          "reason_code": "defer_condition",
+          "severity": "medium"
+        },
+        {
+          "claim_effect": "The only evidence is absence from the graph and dynamic use is plausible.",
+          "reason_code": "defer_condition",
+          "severity": "medium"
+        }
+      ],
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references"
+      ],
+      "work_pack": {
+        "defer_conditions": [
+          "The symbol is public API.",
+          "The only evidence is absence from the graph and dynamic use is plausible."
+        ],
+        "documentation_obligations": [
+          "Check docs_for/implementations_of for authored contracts before editing."
+        ],
+        "required_tests": [
+          "Run tests covering main.py"
+        ],
+        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
+        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions."
+      }
+    },
+    {
+      "action": "refactor_tool mode=\"suggest\" -- inspect work_pack, then run the verification commands before editing",
+      "claim": "Remove unused class 'Address'",
+      "confidence": "medium",
+      "counts": {
+        "affected_file_count": 1,
+        "affected_files": [
+          "models.py"
+        ],
+        "estimated_risk": "medium",
+        "symbol_count": 1
+      },
+      "evidence": [
+        {
+          "raw": {
+            "caller_count": 0,
+            "importer_count": 0,
+            "name_definition_count": 1,
+            "reachable_via_cross_artifact": false,
+            "reference_count": 0,
+            "source_available": true,
+            "subclass_count": 0,
+            "test_ref_count": 0
+          },
+          "reason_codes": [
+            "no_callers",
+            "no_test_references",
+            "no_importers",
+            "no_references",
+            "no_subclasses"
+          ],
+          "suggestion_type": "remove",
+          "symbols": [
+            "models.py::Address"
+          ],
+          "type": "computed"
+        }
+      ],
+      "missingness": [
+        {
+          "claim_effect": "verify runtime registration, generated code, and public APIs",
+          "reason_code": "dynamic_dispatch_not_proven_absent",
+          "severity": "medium"
+        },
+        {
+          "claim_effect": "The symbol is public API.",
+          "reason_code": "defer_condition",
+          "severity": "medium"
+        },
+        {
+          "claim_effect": "The only evidence is absence from the graph and dynamic use is plausible.",
+          "reason_code": "defer_condition",
+          "severity": "medium"
+        }
+      ],
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "no_subclasses"
+      ],
+      "work_pack": {
+        "defer_conditions": [
+          "The symbol is public API.",
+          "The only evidence is absence from the graph and dynamic use is plausible."
+        ],
+        "documentation_obligations": [
+          "Check docs_for/implementations_of for authored contracts before editing."
+        ],
+        "required_tests": [
+          "Run tests covering models.py"
+        ],
+        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
+        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions."
+      }
+    },
+    {
+      "action": "refactor_tool mode=\"suggest\" -- inspect work_pack, then run the verification commands before editing",
+      "claim": "Remove unused function 'get_email'",
+      "confidence": "medium",
+      "counts": {
+        "affected_file_count": 1,
+        "affected_files": [
+          "services.py"
+        ],
+        "estimated_risk": "medium",
+        "symbol_count": 1
+      },
+      "evidence": [
+        {
+          "raw": {
+            "caller_count": 0,
+            "importer_count": 0,
+            "name_definition_count": 1,
+            "reachable_via_cross_artifact": false,
+            "reference_count": 0,
+            "source_available": true,
+            "subclass_count": 0,
+            "test_ref_count": 0
+          },
+          "reason_codes": [
+            "no_callers",
+            "no_test_references",
+            "no_importers",
+            "no_references"
+          ],
+          "suggestion_type": "remove",
+          "symbols": [
+            "services.py::get_email"
+          ],
+          "type": "computed"
+        }
+      ],
+      "missingness": [
+        {
+          "claim_effect": "verify runtime registration, generated code, and public APIs",
+          "reason_code": "dynamic_dispatch_not_proven_absent",
+          "severity": "medium"
+        },
+        {
+          "claim_effect": "The symbol is public API.",
+          "reason_code": "defer_condition",
+          "severity": "medium"
+        },
+        {
+          "claim_effect": "The only evidence is absence from the graph and dynamic use is plausible.",
+          "reason_code": "defer_condition",
+          "severity": "medium"
+        }
+      ],
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references"
+      ],
+      "work_pack": {
+        "defer_conditions": [
+          "The symbol is public API.",
+          "The only evidence is absence from the graph and dynamic use is plausible."
+        ],
+        "documentation_obligations": [
+          "Check docs_for/implementations_of for authored contracts before editing."
+        ],
+        "required_tests": [
+          "Run tests covering services.py"
+        ],
+        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
+        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions."
+      }
+    }
+  ],
+  "missingness": [
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_test_edges",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "stale_derived_structures",
+      "severity": "medium"
+    }
+  ],
+  "status": "ok",
+  "suggestions": [
+    {
+      "affected_files": [
+        "main.py"
+      ],
+      "category": "executable",
+      "confidence": "medium",
+      "description": "Remove unused function 'run'",
+      "estimated_risk": "medium",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "execution_plan": {
+        "defer_if": [
+          "The symbol is public API.",
+          "The only evidence is absence from the graph and dynamic use is plausible."
+        ],
+        "minimum_steps": [
+          "Search for runtime registration, reflection, generated references, and docs mentions.",
+          "Delete the smallest candidate first.",
+          "Run focused tests and detect_changes before deleting more candidates."
+        ],
+        "required_tests": [
+          "Run tests covering main.py"
+        ],
+        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
+        "safety_checks": [
+          "Treat public API, fixtures, and plugin entry points as high-risk.",
+          "Verify generated code and downstream package exports manually."
+        ],
+        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
+      },
+      "priority": "low",
+      "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references"
+      ],
+      "symbols": [
+        "main.py::run"
+      ],
+      "type": "remove",
+      "verification_steps": [
+        "Search for runtime registration or dynamic dispatch before deleting.",
+        "Run the tests that cover the affected file or package."
+      ],
+      "work_pack": {
+        "blast_radius": {
+          "affected_file_count": 1,
+          "affected_files": [
+            "main.py"
+          ],
+          "estimated_risk": "medium",
+          "symbol_count": 1
+        },
+        "defer_conditions": [
+          "The symbol is public API.",
+          "The only evidence is absence from the graph and dynamic use is plausible."
+        ],
+        "documentation_obligations": [
+          "Check docs_for/implementations_of for authored contracts before editing."
+        ],
+        "estimated_size": "small",
+        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
+        "owner_scope": ".",
+        "primary_file": "main.py",
+        "required_tests": [
+          "Run tests covering main.py"
+        ],
+        "risk_controls": [
+          "Treat public API, fixtures, and plugin entry points as high-risk.",
+          "Verify generated code and downstream package exports manually."
+        ],
+        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
+        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
+        "success_criteria": [
+          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
+          "Focused tests pass for the affected file or package.",
+          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
+        ],
+        "verification_commands": [
+          "Run tests covering main.py"
+        ]
+      }
+    },
+    {
+      "affected_files": [
+        "models.py"
+      ],
+      "category": "executable",
+      "confidence": "medium",
+      "description": "Remove unused class 'Address'",
+      "estimated_risk": "medium",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "execution_plan": {
+        "defer_if": [
+          "The symbol is public API.",
+          "The only evidence is absence from the graph and dynamic use is plausible."
+        ],
+        "minimum_steps": [
+          "Search for runtime registration, reflection, generated references, and docs mentions.",
+          "Delete the smallest candidate first.",
+          "Run focused tests and detect_changes before deleting more candidates."
+        ],
+        "required_tests": [
+          "Run tests covering models.py"
+        ],
+        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
+        "safety_checks": [
+          "Treat public API, fixtures, and plugin entry points as high-risk.",
+          "Verify generated code and downstream package exports manually."
+        ],
+        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
+      },
+      "priority": "low",
+      "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "no_subclasses"
+      ],
+      "symbols": [
+        "models.py::Address"
+      ],
+      "type": "remove",
+      "verification_steps": [
+        "Search for runtime registration or dynamic dispatch before deleting.",
+        "Run the tests that cover the affected file or package."
+      ],
+      "work_pack": {
+        "blast_radius": {
+          "affected_file_count": 1,
+          "affected_files": [
+            "models.py"
+          ],
+          "estimated_risk": "medium",
+          "symbol_count": 1
+        },
+        "defer_conditions": [
+          "The symbol is public API.",
+          "The only evidence is absence from the graph and dynamic use is plausible."
+        ],
+        "documentation_obligations": [
+          "Check docs_for/implementations_of for authored contracts before editing."
+        ],
+        "estimated_size": "small",
+        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
+        "owner_scope": ".",
+        "primary_file": "models.py",
+        "required_tests": [
+          "Run tests covering models.py"
+        ],
+        "risk_controls": [
+          "Treat public API, fixtures, and plugin entry points as high-risk.",
+          "Verify generated code and downstream package exports manually."
+        ],
+        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
+        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
+        "success_criteria": [
+          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
+          "Focused tests pass for the affected file or package.",
+          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
+        ],
+        "verification_commands": [
+          "Run tests covering models.py"
+        ]
+      }
+    },
+    {
+      "affected_files": [
+        "services.py"
+      ],
+      "category": "executable",
+      "confidence": "medium",
+      "description": "Remove unused function 'get_email'",
+      "estimated_risk": "medium",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "execution_plan": {
+        "defer_if": [
+          "The symbol is public API.",
+          "The only evidence is absence from the graph and dynamic use is plausible."
+        ],
+        "minimum_steps": [
+          "Search for runtime registration, reflection, generated references, and docs mentions.",
+          "Delete the smallest candidate first.",
+          "Run focused tests and detect_changes before deleting more candidates."
+        ],
+        "required_tests": [
+          "Run tests covering services.py"
+        ],
+        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
+        "safety_checks": [
+          "Treat public API, fixtures, and plugin entry points as high-risk.",
+          "Verify generated code and downstream package exports manually."
+        ],
+        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
+      },
+      "priority": "low",
+      "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references"
+      ],
+      "symbols": [
+        "services.py::get_email"
+      ],
+      "type": "remove",
+      "verification_steps": [
+        "Search for runtime registration or dynamic dispatch before deleting.",
+        "Run the tests that cover the affected file or package."
+      ],
+      "work_pack": {
+        "blast_radius": {
+          "affected_file_count": 1,
+          "affected_files": [
+            "services.py"
+          ],
+          "estimated_risk": "medium",
+          "symbol_count": 1
+        },
+        "defer_conditions": [
+          "The symbol is public API.",
+          "The only evidence is absence from the graph and dynamic use is plausible."
+        ],
+        "documentation_obligations": [
+          "Check docs_for/implementations_of for authored contracts before editing."
+        ],
+        "estimated_size": "small",
+        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
+        "owner_scope": ".",
+        "primary_file": "services.py",
+        "required_tests": [
+          "Run tests covering services.py"
+        ],
+        "risk_controls": [
+          "Treat public API, fixtures, and plugin entry points as high-risk.",
+          "Verify generated code and downstream package exports manually."
+        ],
+        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
+        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
+        "success_criteria": [
+          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
+          "Focused tests pass for the affected file or package.",
+          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
+        ],
+        "verification_commands": [
+          "Run tests covering services.py"
+        ]
+      }
+    }
+  ],
+  "summary": "Generated 3 refactoring suggestion(s).",
+  "total": 3,
+  "truncated": false,
+  "work_packs": [
+    {
+      "blast_radius": {
+        "affected_file_count": 1,
+        "affected_files": [
+          "main.py"
+        ],
+        "estimated_risk": "medium",
+        "symbol_count": 1
+      },
+      "defer_conditions": [
+        "The symbol is public API.",
+        "The only evidence is absence from the graph and dynamic use is plausible."
+      ],
+      "documentation_obligations": [
+        "Check docs_for/implementations_of for authored contracts before editing."
+      ],
+      "estimated_size": "small",
+      "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
+      "owner_scope": ".",
+      "primary_file": "main.py",
+      "required_tests": [
+        "Run tests covering main.py"
+      ],
+      "risk_controls": [
+        "Treat public API, fixtures, and plugin entry points as high-risk.",
+        "Verify generated code and downstream package exports manually."
+      ],
+      "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
+      "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
+      "success_criteria": [
+        "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
+        "Focused tests pass for the affected file or package.",
+        "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
+      ],
+      "symbols": [
+        "main.py::run"
+      ],
+      "type": "remove",
+      "verification_commands": [
+        "Run tests covering main.py"
+      ]
+    },
+    {
+      "blast_radius": {
+        "affected_file_count": 1,
+        "affected_files": [
+          "models.py"
+        ],
+        "estimated_risk": "medium",
+        "symbol_count": 1
+      },
+      "defer_conditions": [
+        "The symbol is public API.",
+        "The only evidence is absence from the graph and dynamic use is plausible."
+      ],
+      "documentation_obligations": [
+        "Check docs_for/implementations_of for authored contracts before editing."
+      ],
+      "estimated_size": "small",
+      "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
+      "owner_scope": ".",
+      "primary_file": "models.py",
+      "required_tests": [
+        "Run tests covering models.py"
+      ],
+      "risk_controls": [
+        "Treat public API, fixtures, and plugin entry points as high-risk.",
+        "Verify generated code and downstream package exports manually."
+      ],
+      "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
+      "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
+      "success_criteria": [
+        "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
+        "Focused tests pass for the affected file or package.",
+        "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
+      ],
+      "symbols": [
+        "models.py::Address"
+      ],
+      "type": "remove",
+      "verification_commands": [
+        "Run tests covering models.py"
+      ]
+    },
+    {
+      "blast_radius": {
+        "affected_file_count": 1,
+        "affected_files": [
+          "services.py"
+        ],
+        "estimated_risk": "medium",
+        "symbol_count": 1
+      },
+      "defer_conditions": [
+        "The symbol is public API.",
+        "The only evidence is absence from the graph and dynamic use is plausible."
+      ],
+      "documentation_obligations": [
+        "Check docs_for/implementations_of for authored contracts before editing."
+      ],
+      "estimated_size": "small",
+      "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
+      "owner_scope": ".",
+      "primary_file": "services.py",
+      "required_tests": [
+        "Run tests covering services.py"
+      ],
+      "risk_controls": [
+        "Treat public API, fixtures, and plugin entry points as high-risk.",
+        "Verify generated code and downstream package exports manually."
+      ],
+      "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
+      "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
+      "success_criteria": [
+        "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
+        "Focused tests pass for the affected file or package.",
+        "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
+      ],
+      "symbols": [
+        "services.py::get_email"
+      ],
+      "type": "remove",
+      "verification_commands": [
+        "Run tests covering services.py"
+      ]
+    }
+  ]
+}

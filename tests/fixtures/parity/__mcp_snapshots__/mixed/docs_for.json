@@ -1,0 +1,88 @@
+{
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "answerability": {
+    "reason_codes": [
+      "missing_flows",
+      "missing_test_edges"
+    ],
+    "score": 0.75,
+    "status": "ok"
+  },
+  "confidence": "medium",
+  "exact_match_count": 1,
+  "guidance": [
+    {
+      "action": "query_graph_tool pattern=\"docs_for\" -- drill into a relationship",
+      "claim": "Graph query 'docs_for' returned 1 related node(s) for 'app.py::build_graph'.",
+      "confidence": "medium",
+      "counts": {
+        "result_count": 1
+      },
+      "evidence": [
+        {
+          "exact_match_count": 1,
+          "pattern": "docs_for",
+          "result_count": 1,
+          "target": "app.py::build_graph",
+          "type": "computed"
+        }
+      ],
+      "missingness": [
+        {
+          "claim_effect": "graph edges are static extraction, not runtime traces",
+          "reason_code": "relationship_query_not_runtime_proof",
+          "severity": "low"
+        }
+      ],
+      "reason_codes": [
+        "graph_relationship_query"
+      ]
+    }
+  ],
+  "missingness": [
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_flows",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_test_edges",
+      "severity": "medium"
+    }
+  ],
+  "next_action": {
+    "suggestion": "fetch live source with pattern=\"source_of\", then callers_of/callees_of",
+    "tool": "query_graph_tool"
+  },
+  "original_target": "build_graph",
+  "pattern": "docs_for",
+  "resolution": "exact_name",
+  "resolved_target": "app.py::build_graph",
+  "result_count": 1,
+  "results": [
+    {
+      "confidence": 0.4,
+      "confidence_tier": "MEDIUM",
+      "evidence_type": "heuristic_reachable",
+      "file": "docs/README.md",
+      "inverse_label": "described_by",
+      "line": 7,
+      "matched_endpoint": "docs/README.md::graph-api",
+      "relationship_role": "describes_symbol",
+      "source": "docs/README.md::graph-api",
+      "target": "app.py::build_graph"
+    }
+  ],
+  "results_complete": true,
+  "status": "ok",
+  "summary": "Found 1 result(s) for docs_for('app.py::build_graph')",
+  "target": "app.py::build_graph",
+  "unresolved_count": 0,
+  "unresolved_targets": [],
+  "zero_result_reason": null
+}

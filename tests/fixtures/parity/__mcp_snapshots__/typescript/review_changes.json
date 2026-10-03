@@ -1,0 +1,1633 @@
+{
+  "_hints": {
+    "next_steps": [
+      {
+        "suggestion": "review_tool mode=\"context\" -- inspect changed nodes and run focused tests",
+        "tool": "review_tool"
+      },
+      {
+        "suggestion": "architecture_analysis_tool mode=\"overview\" -- inspect stable component policy",
+        "tool": "architecture_analysis_tool"
+      },
+      {
+        "suggestion": "review_tool mode=\"affected_flows\" -- inspect affected flow paths",
+        "tool": "review_tool"
+      }
+    ],
+    "related": [],
+    "warnings": []
+  },
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "_runtime": "<VOLATILE>",
+  "_truncation": {
+    "affected_flows": {
+      "kept": 1,
+      "total": 8
+    },
+    "changed_functions": {
+      "kept": 1,
+      "total": 16
+    },
+    "review_priorities": {
+      "kept": 2,
+      "total": 10
+    },
+    "test_gaps": {
+      "kept": 1,
+      "total": 14
+    }
+  },
+  "affected_flows": [
+    {
+      "bridge_step_count": 0,
+      "created_at": "<VOLATILE>",
+      "criticality": 0.5627,
+      "depth": 2,
+      "entry_point_id": 33,
+      "file_count": 6,
+      "id": 1,
+      "kind": "reachable_set",
+      "members": [
+        33,
+        142,
+        60,
+        46,
+        47,
+        151,
+        180,
+        215,
+        35,
+        174,
+        171
+      ],
+      "missing_step_count": 0,
+      "name": "run",
+      "node_count": 11,
+      "path": [
+        33,
+        142,
+        60,
+        46,
+        47,
+        151,
+        180,
+        215,
+        35,
+        174,
+        171
+      ],
+      "resolved_step_count": 11,
+      "steps": [
+        {
+          "file": "src/calls.ts",
+          "kind": "Function",
+          "line_end": 30,
+          "line_start": 13,
+          "name": "run",
+          "node_id": 33,
+          "qualified_name": "src/calls.ts::Caller.run",
+          "step_kind": "entry"
+        },
+        {
+          "file": "src/functions.ts",
+          "is_bridge_step": false,
+          "kind": "Function",
+          "line_end": 6,
+          "line_start": 3,
+          "name": "decl",
+          "node_id": 142,
+          "qualified_name": "src/functions.ts::decl",
+          "step_kind": "call"
+        },
+        {
+          "file": "src/classes.ts",
+          "is_bridge_step": false,
+          "kind": "Function",
+          "line_end": 42,
+          "line_start": 42,
+          "name": "helper",
+          "node_id": 60,
+          "qualified_name": "src/classes.ts::Box.helper",
+          "step_kind": "call"
+        },
+        {
+          "file": "src/classes.ts",
+          "is_bridge_step": false,
+          "kind": "Class",
+          "line_end": 19,
+          "line_start": 14,
+          "name": "DefaultShape",
+          "node_id": 46,
+          "qualified_name": "src/classes.ts::DefaultShape",
+          "step_kind": "call"
+        },
+        {
+          "file": "src/classes.ts",
+          "is_bridge_step": false,
+          "kind": "Function",
+          "line_end": 15,
+          "line_start": 15,
+          "name": "area",
+          "node_id": 47,
+          "qualified_name": "src/classes.ts::DefaultShape.area",
+          "step_kind": "call"
+        },
+        {
+          "file": "src/functions.ts",
+          "is_bridge_step": false,
+          "kind": "Function",
+          "line_end": 23,
+          "line_start": 23,
+          "name": "get",
+          "node_id": 151,
+          "qualified_name": "src/functions.ts::api.get",
+          "step_kind": "call"
+        },
+        {
+          "file": "src/namespaces.ts",
+          "is_bridge_step": false,
+          "kind": "Function",
+          "line_end": 3,
+          "line_start": 3,
+          "name": "helper",
+          "node_id": 180,
+          "qualified_name": "src/namespaces.ts::Outer.helper",
+          "step_kind": "call"
+        },
+        {
+          "file": "src/user.service.ts",
+          "is_bridge_step": false,
+          "kind": "Function",
+          "line_end": 2,
+          "line_start": 2,
+          "name": "getUser",
+          "node_id": 215,
+          "qualified_name": "src/user.service.ts::UserService.getUser",
+          "step_kind": "call"
+        },
+        {
+          "file": "src/calls.ts",
+          "is_bridge_step": false,
+          "kind": "Function",
+          "line_end": 39,
+          "line_start": 39,
+          "name": "tag",
+          "node_id": 35,
+          "qualified_name": "src/calls.ts::tag",
+          "step_kind": "call"
+        },
+        {
+          "file": "src/lib/base.ts",
+          "is_bridge_step": false,
+          "kind": "Function",
+          "line_end": 11,
+          "line_start": 11,
+          "name": "util",
+          "node_id": 174,
+          "qualified_name": "src/lib/base.ts::util",
+          "step_kind": "call"
+        },
+        {
+          "file": "src/lib/base.ts",
+          "is_bridge_step": false,
+          "kind": "Function",
+          "line_end": 3,
+          "line_start": 3,
+          "name": "toString",
+          "node_id": 171,
+          "qualified_name": "src/lib/base.ts::Base.toString",
+          "step_kind": "call"
+        }
+      ],
+      "truncated": false,
+      "truncation_reason": null,
+      "updated_at": "<VOLATILE>"
+    }
+  ],
+  "analysis_summary": {
+    "affected_flow_rankings": [
+      {
+        "criticality": 0.5627,
+        "file_count": 6,
+        "name": "run",
+        "node_count": 11
+      },
+      {
+        "criticality": 0.51,
+        "file_count": 8,
+        "name": "useImports",
+        "node_count": 10
+      },
+      {
+        "criticality": 0.31,
+        "file_count": 3,
+        "name": "GET",
+        "node_count": 3
+      },
+      {
+        "criticality": 0.29,
+        "file_count": 2,
+        "name": "withCallbacks",
+        "node_count": 4
+      },
+      {
+        "criticality": 0.27,
+        "file_count": 3,
+        "name": "handler",
+        "node_count": 3
+      },
+      {
+        "criticality": 0.27,
+        "file_count": 3,
+        "name": "lambdaHandler",
+        "node_count": 3
+      },
+      {
+        "criticality": 0.195,
+        "file_count": 2,
+        "name": "default",
+        "node_count": 3
+      },
+      {
+        "criticality": 0.085,
+        "file_count": 1,
+        "name": "post",
+        "node_count": 2
+      }
+    ],
+    "architecture_delta": {
+      "baseline_comparison": {
+        "available": false,
+        "reason": "review currently compares changed scopes against the current graph; a separate base graph is not materialized for every review call."
+      },
+      "changed_scopes": [
+        "src/functions.ts"
+      ],
+      "counts": {
+        "adp": 0,
+        "sap": 0,
+        "sdp": 0
+      },
+      "mode": "current_graph_changed_scope",
+      "note": "This summarizes current graph violations that touch changed scopes; it does not build a separate baseline graph.",
+      "related_violations": {
+        "adp": [],
+        "sap": [],
+        "sdp": []
+      }
+    },
+    "changed_node_count": 17,
+    "cross_artifact_proximity": {
+      "counts": {
+        "low_confidence": 0,
+        "reportable": 0
+      },
+      "follow_ups": [
+        "query_graph_tool pattern=\"docs_for\"",
+        "query_graph_tool pattern=\"implementations_of\"",
+        "follow CROSS_ARTIFACT bridge edges from changed nodes"
+      ],
+      "low_confidence_bridges": [],
+      "reportable_bridges": []
+    },
+    "documentation_update_candidates": [],
+    "guidance": [
+      {
+        "action": "review_tool mode=\"context\" -- inspect changed nodes and run focused tests",
+        "claim": "14 production change(s) need focused test attention.",
+        "confidence": "medium",
+        "counts": {
+          "actionable_test_gap_count": 14,
+          "recommended_test_count": 4
+        },
+        "evidence": [
+          {
+            "evidence_level": "graph_direct",
+            "score": 1.0,
+            "source": "src/functions.ts::arrow",
+            "target": "src/__tests__/calls.test.ts::describe:functions@L4",
+            "type": "computed"
+          },
+          {
+            "evidence_level": "graph_direct",
+            "score": 1.0,
+            "source": "src/functions.ts::decl",
+            "target": "src/__tests__/calls.test.ts::it:decl works@L6",
+            "type": "computed"
+          },
+          {
+            "evidence_level": "graph_direct",
+            "score": 1.0,
+            "source": "src/functions.ts::decl",
+            "target": "src/__tests__/calls.test.ts::it:only@L12",
+            "type": "computed"
+          },
+          {
+            "evidence_level": "graph_direct",
+            "score": 1.0,
+            "source": "src/functions.ts::arrow",
+            "target": "src/__tests__/calls.test.ts::test:arrow %i@L9",
+            "type": "computed"
+          }
+        ],
+        "missingness": [
+          {
+            "claim_effect": "test recommendations may miss naming-only coverage",
+            "reason_code": "heuristic_test_gap_detection",
+            "severity": "low"
+          }
+        ],
+        "reason_codes": [
+          "test_gaps"
+        ]
+      },
+      {
+        "action": "architecture_analysis_tool mode=\"overview\" -- inspect stable component policy",
+        "claim": "A stable or should-be-stable component has a quality-policy gap.",
+        "confidence": "medium",
+        "counts": {
+          "stable_contract_warning_count": 1
+        },
+        "evidence": [
+          {
+            "expected_doc_density": 0.5,
+            "expected_test_density": 0.8,
+            "instability": 0.2857,
+            "observed_direct_test_density": 0.0463,
+            "observed_documentation_density": 0.0,
+            "scope_key": "src",
+            "type": "computed"
+          }
+        ],
+        "missingness": [
+          {
+            "claim_effect": "policy is calibrated by current SDP/SAP graph metrics",
+            "reason_code": "stability_policy_uses_current_graph",
+            "severity": "low"
+          }
+        ],
+        "reason_codes": [
+          "stable_component_contract_gap"
+        ]
+      },
+      {
+        "action": "review_tool mode=\"affected_flows\" -- inspect affected flow paths",
+        "claim": "Changed code intersects ranked execution flows.",
+        "confidence": "medium",
+        "counts": {
+          "affected_flow_count": 8
+        },
+        "evidence": [
+          {
+            "criticality": 0.5627,
+            "file_count": 6,
+            "name": "run",
+            "node_count": 11,
+            "type": "computed"
+          },
+          {
+            "criticality": 0.51,
+            "file_count": 8,
+            "name": "useImports",
+            "node_count": 10,
+            "type": "computed"
+          },
+          {
+            "criticality": 0.31,
+            "file_count": 3,
+            "name": "GET",
+            "node_count": 3,
+            "type": "computed"
+          }
+        ],
+        "missingness": [
+          {
+            "claim_effect": "criticality ranks review leads, not sufficient coverage",
+            "reason_code": "flow_rank_is_not_coverage",
+            "severity": "low"
+          }
+        ],
+        "reason_codes": [
+          "affected_flows"
+        ]
+      },
+      {
+        "action": "review_tool mode=\"impact\" -- inspect blast radius around hotspots",
+        "claim": "The change is near graph hub or bridge nodes.",
+        "confidence": "medium",
+        "counts": {
+          "hotspot_match_count": 17
+        },
+        "evidence": [
+          {
+            "changed_bridges": [
+              {
+                "betweenness": 0.000325,
+                "community_id": 1,
+                "file": "src/functions.ts",
+                "kind": "Function",
+                "name": "decl",
+                "qualified_name": "src/functions.ts::decl"
+              },
+              {
+                "betweenness": 7.2e-05,
+                "community_id": 1,
+                "file": "src/functions.ts",
+                "kind": "Function",
+                "name": "get",
+                "qualified_name": "src/functions.ts::api.get"
+              },
+              {
+                "betweenness": 3.6e-05,
+                "community_id": 1,
+                "file": "src/functions.ts",
+                "kind": "Function",
+                "name": "post",
+                "qualified_name": "src/functions.ts::api.post"
+              },
+              {
+                "betweenness": 3.6e-05,
+                "community_id": 1,
+                "file": "src/functions.ts",
+                "kind": "Class",
+                "name": "nested",
+                "qualified_name": "src/functions.ts::api.nested"
+              }
+            ],
+            "changed_hubs": [
+              {
+                "community_id": 1,
+                "file": "src/functions.ts",
+                "in_degree": 9,
+                "kind": "Function",
+                "name": "decl",
+                "out_degree": 1,
+                "qualified_name": "src/functions.ts::decl",
+                "total_degree": 10
+              },
+              {
+                "community_id": 1,
+                "file": "src/functions.ts",
+                "in_degree": 4,
+                "kind": "Function",
+                "name": "arrow",
+                "out_degree": 0,
+                "qualified_name": "src/functions.ts::arrow",
+                "total_degree": 4
+              },
+              {
+                "community_id": 1,
+                "file": "src/functions.ts",
+                "in_degree": 0,
+                "kind": "Class",
+                "name": "api",
+                "out_degree": 4,
+                "qualified_name": "src/functions.ts::api",
+                "total_degree": 4
+              }
+            ],
+            "impacted_bridges": [
+              {
+                "betweenness": 0.00306,
+                "community_id": 2,
+                "file": "src/classes.ts",
+                "kind": "Class",
+                "name": "Box",
+                "qualified_name": "src/classes.ts::Box"
+              },
+              {
+                "betweenness": 0.000884,
+                "community_id": 9,
+                "file": "src/interfaces.ts",
+                "kind": "Class",
+                "name": "Repo",
+                "qualified_name": "src/interfaces.ts::Repo"
+              },
+              {
+                "betweenness": 0.000685,
+                "community_id": 9,
+                "file": "src/classes.ts",
+                "kind": "Class",
+                "name": "DefaultShape",
+                "qualified_name": "src/classes.ts::DefaultShape"
+              },
+              {
+                "betweenness": 0.000544,
+                "community_id": 1,
+                "file": "src/calls.ts",
+                "kind": "Function",
+                "name": "run",
+                "qualified_name": "src/calls.ts::Caller.run"
+              },
+              {
+                "betweenness": 0.000442,
+                "community_id": 2,
+                "file": "src/lib/base.ts",
+                "kind": "Class",
+                "name": "Base",
+                "qualified_name": "src/lib/base.ts::Base"
+              }
+            ],
+            "impacted_hubs": [
+              {
+                "community_id": 2,
+                "file": "src/classes.ts",
+                "in_degree": 6,
+                "kind": "Class",
+                "name": "Box",
+                "out_degree": 14,
+                "qualified_name": "src/classes.ts::Box",
+                "total_degree": 20
+              },
+              {
+                "community_id": 1,
+                "file": "src/imports.ts",
+                "in_degree": 0,
+                "kind": "Function",
+                "name": "useImports",
+                "out_degree": 12,
+                "qualified_name": "src/imports.ts::useImports",
+                "total_degree": 12
+              },
+              {
+                "community_id": 1,
+                "file": "src/calls.ts",
+                "in_degree": 1,
+                "kind": "Function",
+                "name": "run",
+                "out_degree": 10,
+                "qualified_name": "src/calls.ts::Caller.run",
+                "total_degree": 11
+              },
+              {
+                "community_id": 9,
+                "file": "src/interfaces.ts",
+                "in_degree": 8,
+                "kind": "Class",
+                "name": "Repo",
+                "out_degree": 2,
+                "qualified_name": "src/interfaces.ts::Repo",
+                "total_degree": 10
+              },
+              {
+                "community_id": 9,
+                "file": "src/classes.ts",
+                "in_degree": 1,
+                "kind": "Class",
+                "name": "DefaultShape",
+                "out_degree": 7,
+                "qualified_name": "src/classes.ts::DefaultShape",
+                "total_degree": 8
+              }
+            ],
+            "method": {
+              "bridge": "top 25 by betweenness centrality",
+              "hub": "top 25 by total degree"
+            },
+            "type": "computed"
+          }
+        ],
+        "missingness": [],
+        "reason_codes": [
+          "changed_hotspot",
+          "impacted_hotspot"
+        ]
+      }
+    ],
+    "hotspot_proximity": {
+      "changed_bridges": [
+        {
+          "betweenness": 0.000325,
+          "community_id": 1,
+          "file": "src/functions.ts",
+          "kind": "Function",
+          "name": "decl",
+          "qualified_name": "src/functions.ts::decl"
+        },
+        {
+          "betweenness": 7.2e-05,
+          "community_id": 1,
+          "file": "src/functions.ts",
+          "kind": "Function",
+          "name": "get",
+          "qualified_name": "src/functions.ts::api.get"
+        },
+        {
+          "betweenness": 3.6e-05,
+          "community_id": 1,
+          "file": "src/functions.ts",
+          "kind": "Function",
+          "name": "post",
+          "qualified_name": "src/functions.ts::api.post"
+        },
+        {
+          "betweenness": 3.6e-05,
+          "community_id": 1,
+          "file": "src/functions.ts",
+          "kind": "Class",
+          "name": "nested",
+          "qualified_name": "src/functions.ts::api.nested"
+        }
+      ],
+      "changed_hubs": [
+        {
+          "community_id": 1,
+          "file": "src/functions.ts",
+          "in_degree": 9,
+          "kind": "Function",
+          "name": "decl",
+          "out_degree": 1,
+          "qualified_name": "src/functions.ts::decl",
+          "total_degree": 10
+        },
+        {
+          "community_id": 1,
+          "file": "src/functions.ts",
+          "in_degree": 4,
+          "kind": "Function",
+          "name": "arrow",
+          "out_degree": 0,
+          "qualified_name": "src/functions.ts::arrow",
+          "total_degree": 4
+        },
+        {
+          "community_id": 1,
+          "file": "src/functions.ts",
+          "in_degree": 0,
+          "kind": "Class",
+          "name": "api",
+          "out_degree": 4,
+          "qualified_name": "src/functions.ts::api",
+          "total_degree": 4
+        }
+      ],
+      "impacted_bridges": [
+        {
+          "betweenness": 0.00306,
+          "community_id": 2,
+          "file": "src/classes.ts",
+          "kind": "Class",
+          "name": "Box",
+          "qualified_name": "src/classes.ts::Box"
+        },
+        {
+          "betweenness": 0.000884,
+          "community_id": 9,
+          "file": "src/interfaces.ts",
+          "kind": "Class",
+          "name": "Repo",
+          "qualified_name": "src/interfaces.ts::Repo"
+        },
+        {
+          "betweenness": 0.000685,
+          "community_id": 9,
+          "file": "src/classes.ts",
+          "kind": "Class",
+          "name": "DefaultShape",
+          "qualified_name": "src/classes.ts::DefaultShape"
+        },
+        {
+          "betweenness": 0.000544,
+          "community_id": 1,
+          "file": "src/calls.ts",
+          "kind": "Function",
+          "name": "run",
+          "qualified_name": "src/calls.ts::Caller.run"
+        },
+        {
+          "betweenness": 0.000442,
+          "community_id": 2,
+          "file": "src/lib/base.ts",
+          "kind": "Class",
+          "name": "Base",
+          "qualified_name": "src/lib/base.ts::Base"
+        }
+      ],
+      "impacted_hubs": [
+        {
+          "community_id": 2,
+          "file": "src/classes.ts",
+          "in_degree": 6,
+          "kind": "Class",
+          "name": "Box",
+          "out_degree": 14,
+          "qualified_name": "src/classes.ts::Box",
+          "total_degree": 20
+        },
+        {
+          "community_id": 1,
+          "file": "src/imports.ts",
+          "in_degree": 0,
+          "kind": "Function",
+          "name": "useImports",
+          "out_degree": 12,
+          "qualified_name": "src/imports.ts::useImports",
+          "total_degree": 12
+        },
+        {
+          "community_id": 1,
+          "file": "src/calls.ts",
+          "in_degree": 1,
+          "kind": "Function",
+          "name": "run",
+          "out_degree": 10,
+          "qualified_name": "src/calls.ts::Caller.run",
+          "total_degree": 11
+        },
+        {
+          "community_id": 9,
+          "file": "src/interfaces.ts",
+          "in_degree": 8,
+          "kind": "Class",
+          "name": "Repo",
+          "out_degree": 2,
+          "qualified_name": "src/interfaces.ts::Repo",
+          "total_degree": 10
+        },
+        {
+          "community_id": 9,
+          "file": "src/classes.ts",
+          "in_degree": 1,
+          "kind": "Class",
+          "name": "DefaultShape",
+          "out_degree": 7,
+          "qualified_name": "src/classes.ts::DefaultShape",
+          "total_degree": 8
+        }
+      ],
+      "method": {
+        "bridge": "top 25 by betweenness centrality",
+        "hub": "top 25 by total degree"
+      }
+    },
+    "impacted_file_count": 20,
+    "impacted_node_count": 56,
+    "next_drill_downs": {
+      "architecture": {
+        "mode": "overview",
+        "tool": "architecture_analysis_tool"
+      },
+      "docs_for": {
+        "pattern": "docs_for",
+        "tool": "query_graph_tool"
+      },
+      "flows": {
+        "mode": "affected_flows",
+        "tool": "review_tool"
+      },
+      "impact_radius": {
+        "mode": "impact",
+        "tool": "review_tool"
+      },
+      "implementations_of": {
+        "pattern": "implementations_of",
+        "tool": "query_graph_tool"
+      },
+      "review_context": {
+        "mode": "context",
+        "tool": "review_tool"
+      }
+    },
+    "reason_codes": [
+      "medium_risk_score",
+      "many_changed_graph_nodes",
+      "affected_flows",
+      "critical_flow_affected",
+      "test_gaps",
+      "wide_blast_radius",
+      "changed_hotspot",
+      "stable_component_contract_gap",
+      "stable_density_gap"
+    ],
+    "recommended_tests": [
+      {
+        "evidence_level": "graph_direct",
+        "file": "src/__tests__/calls.test.ts",
+        "name": "describe:functions@L4",
+        "qualified_name": "src/__tests__/calls.test.ts::describe:functions@L4",
+        "reason": "direct coverage of changed code",
+        "scope_key": "src",
+        "score": 1.0,
+        "source": "src/functions.ts::arrow",
+        "stability": {
+          "instability": 0.2857,
+          "should_be_stable": true,
+          "stable": true
+        }
+      },
+      {
+        "evidence_level": "graph_direct",
+        "file": "src/__tests__/calls.test.ts",
+        "name": "it:decl works@L6",
+        "qualified_name": "src/__tests__/calls.test.ts::it:decl works@L6",
+        "reason": "direct coverage of changed code",
+        "scope_key": "src",
+        "score": 1.0,
+        "source": "src/functions.ts::decl",
+        "stability": {
+          "instability": 0.2857,
+          "should_be_stable": true,
+          "stable": true
+        }
+      },
+      {
+        "evidence_level": "graph_direct",
+        "file": "src/__tests__/calls.test.ts",
+        "name": "it:only@L12",
+        "qualified_name": "src/__tests__/calls.test.ts::it:only@L12",
+        "reason": "direct coverage of changed code",
+        "scope_key": "src",
+        "score": 1.0,
+        "source": "src/functions.ts::decl",
+        "stability": {
+          "instability": 0.2857,
+          "should_be_stable": true,
+          "stable": true
+        }
+      },
+      {
+        "evidence_level": "graph_direct",
+        "file": "src/__tests__/calls.test.ts",
+        "name": "test:arrow %i@L9",
+        "qualified_name": "src/__tests__/calls.test.ts::test:arrow %i@L9",
+        "reason": "direct coverage of changed code",
+        "scope_key": "src",
+        "score": 1.0,
+        "source": "src/functions.ts::arrow",
+        "stability": {
+          "instability": 0.2857,
+          "should_be_stable": true,
+          "stable": true
+        }
+      }
+    ],
+    "review_priority_score": 0.55,
+    "risk_level": "medium",
+    "risk_score": 0.55,
+    "score_semantics": {
+      "review_priority_score": "review triage ranking, not a standalone changeability metric",
+      "risk_score": "legacy alias for review_priority_score"
+    },
+    "signal_quality": {
+      "graph_facts": [
+        "affected_flows",
+        "critical_flow_affected",
+        "wide_blast_radius",
+        "changed_hotspot",
+        "stable_component_contract_gap"
+      ],
+      "heuristics": [
+        "test_gaps",
+        "stable_density_gap"
+      ],
+      "uncertain": [
+        "test gaps use direct TESTED_BY edges plus medium-confidence naming/source heuristics",
+        "stable-component density compares current graph evidence to package-level SDP/SAP thresholds"
+      ]
+    },
+    "stability_contracts": [
+      {
+        "ca": 5,
+        "ce": 2,
+        "changed_nodes_with_docs": 0,
+        "changed_nodes_with_recommended_tests": 2,
+        "changed_production_node_count": 16,
+        "expected_doc_density": 0.5,
+        "expected_test_density": 0.8,
+        "instability": 0.2857,
+        "missing_changed_docs": [
+          "src/functions.ts::decl",
+          "src/functions.ts::over",
+          "src/functions.ts::arrow",
+          "src/functions.ts::fnExpr",
+          "src/functions.ts::namedExpr"
+        ],
+        "missing_changed_tests": [
+          "src/functions.ts::over",
+          "src/functions.ts::fnExpr",
+          "src/functions.ts::namedExpr",
+          "src/functions.ts::asyncFn",
+          "src/functions.ts::gen"
+        ],
+        "observed_direct_test_density": 0.0463,
+        "observed_documentation_density": 0.0,
+        "observed_heuristic_test_density": null,
+        "observed_transitive_test_density": null,
+        "reason_codes": [
+          "observed_stable_component",
+          "high_afferent_coupling_should_be_stable",
+          "stable_component_low_test_density",
+          "stable_component_missing_documentation"
+        ],
+        "scope_key": "src",
+        "should_be_stable": true,
+        "stable": true,
+        "status": "warn",
+        "supplemental_test_density_evaluated": false
+      }
+    ],
+    "test_gap_ranking": {
+      "counts": {
+        "actionable": 14,
+        "documentation": 0,
+        "test_artifact": 0
+      },
+      "note": "actionable gaps are production-code nodes without direct or credible heuristic test evidence; documentation and test artifacts are separated to reduce review noise.",
+      "top_actionable": [
+        {
+          "change_status": "existing",
+          "coverage_confidence": "none",
+          "file": "src/functions.ts",
+          "kind": "Function",
+          "language": "typescript",
+          "line_end": 10,
+          "line_start": 8,
+          "name": "over",
+          "qualified_name": "src/functions.ts::over"
+        },
+        {
+          "change_status": "existing",
+          "coverage_confidence": "none",
+          "file": "src/functions.ts",
+          "kind": "Function",
+          "language": "typescript",
+          "line_end": 13,
+          "line_start": 13,
+          "name": "fnExpr",
+          "qualified_name": "src/functions.ts::fnExpr"
+        },
+        {
+          "change_status": "existing",
+          "coverage_confidence": "none",
+          "file": "src/functions.ts",
+          "kind": "Function",
+          "language": "typescript",
+          "line_end": 14,
+          "line_start": 14,
+          "name": "namedExpr",
+          "qualified_name": "src/functions.ts::namedExpr"
+        },
+        {
+          "change_status": "existing",
+          "coverage_confidence": "none",
+          "file": "src/functions.ts",
+          "kind": "Function",
+          "language": "typescript",
+          "line_end": 15,
+          "line_start": 15,
+          "name": "asyncFn",
+          "qualified_name": "src/functions.ts::asyncFn"
+        },
+        {
+          "change_status": "existing",
+          "coverage_confidence": "none",
+          "file": "src/functions.ts",
+          "kind": "Function",
+          "language": "typescript",
+          "line_end": 16,
+          "line_start": 16,
+          "name": "gen",
+          "qualified_name": "src/functions.ts::gen"
+        }
+      ]
+    }
+  },
+  "answerability": {
+    "answerability": [
+      21,
+      22,
+      9,
+      1,
+      0.0
+    ],
+    "counts": {
+      "communities": 22,
+      "current_head_sha": "dc8bde1d637c34a4ec226e96b822c101bd049ddb",
+      "flows": 21,
+      "graph_head_sha": "dc8bde1d637c34a4ec226e96b822c101bd049ddb",
+      "reportable_cross_artifact_edges": 1,
+      "reportable_unresolved_cross_artifact_edges": 0,
+      "stale_flow_memberships": 0,
+      "test_edges": 9,
+      "unassigned_nodes": 27,
+      "worktree_dirty": false
+    },
+    "parse": [
+      36,
+      2,
+      true
+    ],
+    "reason_codes": [
+      "stale_derived_structures"
+    ],
+    "score": 0.85,
+    "status": "ok"
+  },
+  "attribution": {
+    "reason_codes": [],
+    "stale_line_range_files": []
+  },
+  "called_subtool": "detect_changes_func",
+  "change_entity_summary": {
+    "base": "HEAD",
+    "edges": {
+      "added": 20,
+      "existing": 24,
+      "unknown": 0
+    },
+    "nodes": {
+      "added": 0,
+      "existing": 16,
+      "unknown": 0
+    }
+  },
+  "change_file_sources": {
+    "explicit": [
+      "src/functions.ts"
+    ],
+    "files": [
+      "src/functions.ts"
+    ]
+  },
+  "changed_edges": [
+    {
+      "change_status": "existing",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/functions.ts",
+      "id": 285,
+      "kind": "CONTAINS",
+      "line": 23,
+      "source": "src/functions.ts::api",
+      "target": "src/functions.ts::api.get"
+    },
+    {
+      "change_status": "existing",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/functions.ts",
+      "id": 287,
+      "kind": "CONTAINS",
+      "line": 24,
+      "source": "src/functions.ts::api",
+      "target": "src/functions.ts::api.post"
+    },
+    {
+      "change_status": "existing",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/functions.ts",
+      "id": 289,
+      "kind": "CONTAINS",
+      "line": 25,
+      "source": "src/functions.ts::api",
+      "target": "src/functions.ts::api.put"
+    },
+    {
+      "change_status": "existing",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/functions.ts",
+      "id": 290,
+      "kind": "CONTAINS",
+      "line": 26,
+      "source": "src/functions.ts::api",
+      "target": "src/functions.ts::api.nested"
+    },
+    {
+      "change_status": "existing",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/functions.ts",
+      "id": 286,
+      "kind": "CALLS",
+      "line": 23,
+      "source": "src/functions.ts::api.get",
+      "target": "src/functions.ts::decl"
+    },
+    {
+      "change_status": "existing",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/functions.ts",
+      "id": 291,
+      "kind": "CONTAINS",
+      "line": 26,
+      "source": "src/functions.ts::api.nested",
+      "target": "src/functions.ts::api.nested.deep"
+    },
+    {
+      "change_status": "existing",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/functions.ts",
+      "id": 288,
+      "kind": "CALLS",
+      "line": 24,
+      "source": "src/functions.ts::api.post",
+      "target": "src/functions.ts::arrow"
+    },
+    {
+      "change_status": "added",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/__tests__/calls.test.ts",
+      "id": 20,
+      "kind": "TESTED_BY",
+      "line": 5,
+      "source": "src/functions.ts::arrow",
+      "target": "src/__tests__/calls.test.ts::describe:functions@L4"
+    },
+    {
+      "change_status": "added",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/__tests__/calls.test.ts",
+      "id": 22,
+      "kind": "TESTED_BY",
+      "line": 10,
+      "source": "src/functions.ts::arrow",
+      "target": "src/__tests__/calls.test.ts::test:arrow %i@L9"
+    },
+    {
+      "change_status": "added",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/functions.ts",
+      "id": 274,
+      "kind": "CALLS",
+      "line": 4,
+      "source": "src/functions.ts::decl",
+      "target": "src/lib/base.ts::util"
+    },
+    {
+      "change_status": "added",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/__tests__/calls.test.ts",
+      "id": 21,
+      "kind": "TESTED_BY",
+      "line": 7,
+      "source": "src/functions.ts::decl",
+      "target": "src/__tests__/calls.test.ts::it:decl works@L6"
+    },
+    {
+      "change_status": "added",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/__tests__/calls.test.ts",
+      "id": 23,
+      "kind": "TESTED_BY",
+      "line": 12,
+      "source": "src/functions.ts::decl",
+      "target": "src/__tests__/calls.test.ts::it:only@L12"
+    },
+    {
+      "change_status": "existing",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/functions.ts",
+      "id": 293,
+      "kind": "CALLS",
+      "line": 30,
+      "source": "src/functions.ts::default",
+      "target": "src/functions.ts::decl"
+    },
+    {
+      "change_status": "existing",
+      "confidence": 0.6,
+      "confidence_tier": "MEDIUM",
+      "file_path": "src/functions.ts",
+      "id": 295,
+      "kind": "CALLS",
+      "line": 34,
+      "source": "src/functions.ts::withCallbacks",
+      "target": "globalThis"
+    },
+    {
+      "change_status": "existing",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/functions.ts",
+      "id": 296,
+      "kind": "CALLS",
+      "line": 34,
+      "source": "src/functions.ts::withCallbacks",
+      "target": "src/functions.ts::arrow"
+    },
+    {
+      "change_status": "existing",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/functions.ts",
+      "id": 298,
+      "kind": "CALLS",
+      "line": 35,
+      "source": "src/functions.ts::withCallbacks",
+      "target": "src/functions.ts::decl"
+    },
+    {
+      "change_status": "existing",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/functions.ts",
+      "id": 281,
+      "kind": "CONTAINS",
+      "line": 17,
+      "source": "src/functions.ts",
+      "target": "src/functions.ts::agen"
+    },
+    {
+      "change_status": "existing",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/functions.ts",
+      "id": 284,
+      "kind": "CONTAINS",
+      "line": 22,
+      "source": "src/functions.ts",
+      "target": "src/functions.ts::api"
+    },
+    {
+      "change_status": "added",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/calls.ts",
+      "id": 74,
+      "kind": "CALLS",
+      "line": 19,
+      "source": "src/calls.ts::Caller.run",
+      "target": "src/functions.ts::api.get"
+    },
+    {
+      "change_status": "added",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/__tests__/calls.test.ts",
+      "id": 4,
+      "kind": "CALLS",
+      "line": 5,
+      "source": "src/__tests__/calls.test.ts::describe:functions@L4",
+      "target": "src/functions.ts::arrow"
+    },
+    {
+      "change_status": "added",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/__tests__/calls.test.ts",
+      "id": 10,
+      "kind": "CALLS",
+      "line": 10,
+      "source": "src/__tests__/calls.test.ts::test:arrow %i@L9",
+      "target": "src/functions.ts::arrow"
+    },
+    {
+      "change_status": "added",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/calls.ts",
+      "id": 63,
+      "kind": "CALLS",
+      "line": 8,
+      "source": "src/calls.ts::Caller",
+      "target": "src/functions.ts::arrow"
+    },
+    {
+      "change_status": "existing",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/functions.ts",
+      "id": 283,
+      "kind": "CALLS",
+      "line": 20,
+      "source": "src/functions.ts",
+      "target": "src/functions.ts::arrow"
+    },
+    {
+      "change_status": "added",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/imports.ts",
+      "id": 321,
+      "kind": "CALLS",
+      "line": 21,
+      "source": "src/imports.ts::useImports",
+      "target": "src/functions.ts::arrow"
+    },
+    {
+      "change_status": "existing",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/functions.ts",
+      "id": 276,
+      "kind": "CONTAINS",
+      "line": 12,
+      "source": "src/functions.ts",
+      "target": "src/functions.ts::arrow"
+    },
+    {
+      "change_status": "existing",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/functions.ts",
+      "id": 279,
+      "kind": "CONTAINS",
+      "line": 15,
+      "source": "src/functions.ts",
+      "target": "src/functions.ts::asyncFn"
+    },
+    {
+      "change_status": "added",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/__tests__/calls.test.ts",
+      "id": 8,
+      "kind": "CALLS",
+      "line": 7,
+      "source": "src/__tests__/calls.test.ts::it:decl works@L6",
+      "target": "src/functions.ts::decl"
+    },
+    {
+      "change_status": "added",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/__tests__/calls.test.ts",
+      "id": 13,
+      "kind": "CALLS",
+      "line": 12,
+      "source": "src/__tests__/calls.test.ts::it:only@L12",
+      "target": "src/functions.ts::decl"
+    },
+    {
+      "change_status": "added",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/__tests__/calls.test.ts",
+      "id": 19,
+      "kind": "CALLS",
+      "line": 18,
+      "source": "src/__tests__/calls.test.ts::testHelper",
+      "target": "src/functions.ts::decl"
+    },
+    {
+      "change_status": "added",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/calls.ts",
+      "id": 68,
+      "kind": "CALLS",
+      "line": 13,
+      "source": "src/calls.ts::Caller.run",
+      "target": "src/functions.ts::decl"
+    },
+    {
+      "change_status": "added",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/frameworks/express.ts",
+      "id": 229,
+      "kind": "CALLS",
+      "line": 5,
+      "source": "src/frameworks/express.ts",
+      "target": "src/functions.ts::decl"
+    },
+    {
+      "change_status": "added",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/frameworks/express.ts",
+      "id": 237,
+      "kind": "CALLS",
+      "line": 9,
+      "source": "src/frameworks/express.ts::handler",
+      "target": "src/functions.ts::decl"
+    },
+    {
+      "change_status": "added",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/frameworks/express.ts",
+      "id": 239,
+      "kind": "CALLS",
+      "line": 10,
+      "source": "src/frameworks/express.ts::lambdaHandler",
+      "target": "src/functions.ts::decl"
+    },
+    {
+      "change_status": "added",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/frameworks/next/app/api/users/route.ts",
+      "id": 251,
+      "kind": "CALLS",
+      "line": 2,
+      "source": "src/frameworks/next/app/api/users/route.ts::GET",
+      "target": "src/functions.ts::decl"
+    },
+    {
+      "change_status": "existing",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/functions.ts",
+      "id": 282,
+      "kind": "CALLS",
+      "line": 19,
+      "source": "src/functions.ts",
+      "target": "src/functions.ts::decl"
+    },
+    {
+      "change_status": "added",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/imports.ts",
+      "id": 320,
+      "kind": "CALLS",
+      "line": 20,
+      "source": "src/imports.ts::useImports",
+      "target": "src/functions.ts::decl"
+    },
+    {
+      "change_status": "existing",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/functions.ts",
+      "id": 273,
+      "kind": "CONTAINS",
+      "line": 3,
+      "source": "src/functions.ts",
+      "target": "src/functions.ts::decl"
+    },
+    {
+      "change_status": "added",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/default-expr.ts",
+      "id": 189,
+      "kind": "REFERENCES",
+      "line": 2,
+      "source": "src/default-expr.ts",
+      "target": "src/functions.ts::decl"
+    },
+    {
+      "change_status": "existing",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/functions.ts",
+      "id": 292,
+      "kind": "CONTAINS",
+      "line": 29,
+      "source": "src/functions.ts",
+      "target": "src/functions.ts::default"
+    },
+    {
+      "change_status": "existing",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/functions.ts",
+      "id": 277,
+      "kind": "CONTAINS",
+      "line": 13,
+      "source": "src/functions.ts",
+      "target": "src/functions.ts::fnExpr"
+    },
+    {
+      "change_status": "existing",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/functions.ts",
+      "id": 280,
+      "kind": "CONTAINS",
+      "line": 16,
+      "source": "src/functions.ts",
+      "target": "src/functions.ts::gen"
+    },
+    {
+      "change_status": "existing",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/functions.ts",
+      "id": 278,
+      "kind": "CONTAINS",
+      "line": 14,
+      "source": "src/functions.ts",
+      "target": "src/functions.ts::namedExpr"
+    },
+    {
+      "change_status": "existing",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/functions.ts",
+      "id": 275,
+      "kind": "CONTAINS",
+      "line": 8,
+      "source": "src/functions.ts",
+      "target": "src/functions.ts::over"
+    },
+    {
+      "change_status": "existing",
+      "confidence": 1.0,
+      "confidence_tier": "EXTRACTED",
+      "file_path": "src/functions.ts",
+      "id": 294,
+      "kind": "CONTAINS",
+      "line": 33,
+      "source": "src/functions.ts",
+      "target": "src/functions.ts::withCallbacks"
+    }
+  ],
+  "changed_files": [
+    "src/functions.ts"
+  ],
+  "changed_functions": [
+    {
+      "change_status": "existing",
+      "file_path": "src/functions.ts",
+      "id": 142,
+      "is_test": false,
+      "kind": "Function",
+      "language": "typescript",
+      "line_end": 6,
+      "line_start": 3,
+      "name": "decl",
+      "parent_name": null,
+      "qualified_name": "src/functions.ts::decl",
+      "review_priority_score": 0.55,
+      "risk_score": 0.55
+    }
+  ],
+  "diff_parse_status": "ok",
+  "missingness": [
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "stale_derived_structures",
+      "severity": "medium"
+    }
+  ],
+  "mode": "changes",
+  "review_priorities": [
+    {
+      "change_status": "existing",
+      "file_path": "src/functions.ts",
+      "id": 142,
+      "is_test": false,
+      "kind": "Function",
+      "language": "typescript",
+      "line_end": 6,
+      "line_start": 3,
+      "name": "decl",
+      "parent_name": null,
+      "qualified_name": "src/functions.ts::decl",
+      "review_priority_score": 0.55,
+      "risk_score": 0.55
+    },
+    {
+      "change_status": "existing",
+      "file_path": "src/functions.ts",
+      "id": 144,
+      "is_test": false,
+      "kind": "Function",
+      "language": "typescript",
+      "line_end": 12,
+      "line_start": 12,
+      "name": "arrow",
+      "parent_name": null,
+      "qualified_name": "src/functions.ts::arrow",
+      "review_priority_score": 0.55,
+      "risk_score": 0.55
+    }
+  ],
+  "review_priority_score": 0.55,
+  "risk_score": 0.55,
+  "score_semantics": {
+    "review_priority_score": "review triage ranking that combines flows, callers, tests, security keywords, and community crossing; not a changeability score",
+    "risk_score": "legacy alias for review_priority_score"
+  },
+  "status": "ok",
+  "summary": "Analyzed 1 changed file(s):\n  - 16 changed function(s)/class(es)\n    - nodes: 16 existing, 0 added\n    - edges: 24 existing, 20 added\n  - 8 affected flow(s)\n  - 14 test gap(s)\n  - Review priority score: 0.55\n  - Untested: over, fnExpr, namedExpr, asyncFn, gen",
+  "test_gap_evidence": {
+    "direct_tested_by_edges": true,
+    "heuristic_checked_node_count": 10,
+    "heuristic_eligible_node_count": 16,
+    "heuristic_suppression_enabled": true,
+    "heuristic_truncated": true
+  },
+  "test_gaps": [
+    {
+      "change_status": "existing",
+      "coverage_confidence": "none",
+      "file": "src/functions.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line_end": 10,
+      "line_start": 8,
+      "name": "over",
+      "qualified_name": "src/functions.ts::over"
+    }
+  ],
+  "truncated": true,
+  "unmapped_changed_files": []
+}

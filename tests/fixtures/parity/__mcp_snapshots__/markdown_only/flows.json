@@ -1,0 +1,108 @@
+{
+  "_hints": {
+    "next_steps": [
+      {
+        "suggestion": "flow_tool mode=\"list\" -- broaden kind filter or increase limit",
+        "tool": "flow_tool"
+      }
+    ],
+    "related": [],
+    "warnings": []
+  },
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "_runtime": "<VOLATILE>",
+  "answerability": {
+    "answerability": [
+      0,
+      4,
+      0,
+      0,
+      0.0
+    ],
+    "counts": {
+      "communities": 4,
+      "current_head_sha": "f465fe4883a4751337c705228d7938180b3c0723",
+      "flows": 0,
+      "graph_head_sha": "f465fe4883a4751337c705228d7938180b3c0723",
+      "reportable_cross_artifact_edges": 0,
+      "reportable_unresolved_cross_artifact_edges": 0,
+      "stale_flow_memberships": 0,
+      "test_edges": 0,
+      "unassigned_nodes": 0,
+      "worktree_dirty": false
+    },
+    "parse": [
+      2,
+      1,
+      true
+    ],
+    "reason_codes": [
+      "missing_flows",
+      "missing_test_edges"
+    ],
+    "score": 0.75,
+    "status": "ok"
+  },
+  "called_subtool": "list_flows",
+  "flow_coverage": {
+    "coverage_guarantee": false,
+    "kind_filter": null,
+    "limit": 50,
+    "returned_flow_count": 0,
+    "source": "stored_flow_extraction",
+    "truncated_count": 0
+  },
+  "flows": [],
+  "guidance": [
+    {
+      "action": "flow_tool mode=\"list\" -- broaden kind filter or increase limit",
+      "claim": "No flows matched the current filters.",
+      "confidence": "low",
+      "counts": {
+        "returned_flow_count": 0
+      },
+      "evidence": [
+        {
+          "limit": 50,
+          "returned_flow_count": 0,
+          "sort_by": "criticality",
+          "type": "computed"
+        }
+      ],
+      "missingness": [
+        {
+          "claim_effect": "flow ranking is not a coverage guarantee",
+          "reason_code": "flow_criticality_is_ranking_signal",
+          "severity": "low"
+        }
+      ],
+      "reason_codes": [
+        "stored_flow_extraction"
+      ]
+    }
+  ],
+  "missingness": [
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_flows",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_test_edges",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "flow ranking is not a coverage guarantee",
+      "reason_code": "flow_criticality_is_ranking_signal",
+      "severity": "low"
+    }
+  ],
+  "mode": "list",
+  "status": "ok",
+  "summary": "Found 0 reachable-set flow(s)"
+}

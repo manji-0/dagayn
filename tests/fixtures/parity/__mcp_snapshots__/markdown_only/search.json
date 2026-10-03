@@ -1,0 +1,211 @@
+{
+  "_hints": {
+    "next_steps": [
+      {
+        "suggestion": "query_graph_tool pattern=\"source_of\" -- fetch the chosen node's live span",
+        "tool": "query_graph_tool"
+      }
+    ],
+    "related": [],
+    "warnings": [
+      "missing_embeddings"
+    ]
+  },
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "answerability": {
+    "answerability": [
+      0,
+      4,
+      0,
+      0,
+      0.0
+    ],
+    "counts": {
+      "communities": 4,
+      "current_head_sha": "f465fe4883a4751337c705228d7938180b3c0723",
+      "flows": 0,
+      "graph_head_sha": "f465fe4883a4751337c705228d7938180b3c0723",
+      "reportable_cross_artifact_edges": 0,
+      "reportable_unresolved_cross_artifact_edges": 0,
+      "stale_flow_memberships": 0,
+      "test_edges": 0,
+      "unassigned_nodes": 0,
+      "worktree_dirty": false
+    },
+    "parse": [
+      2,
+      1,
+      true
+    ],
+    "reason_codes": [
+      "missing_flows",
+      "missing_test_edges"
+    ],
+    "score": 0.75,
+    "status": "ok"
+  },
+  "confidence": "medium",
+  "embedding_health": {
+    "auto_resolved_provider": null,
+    "matching_vector_count": 0,
+    "provider_counts": {},
+    "requested_model": null,
+    "requested_provider": null,
+    "requested_text_mode": "material",
+    "resolved_provider": null,
+    "resolved_provider_key": null,
+    "status": "provider_unavailable"
+  },
+  "exactness": {
+    "ambiguity": null,
+    "exact_match_count": 0,
+    "next_action": {
+      "suggestion": "fetch live source with pattern=\"source_of\" for the chosen qualified_name",
+      "tool": "query_graph_tool"
+    },
+    "source_arm": "fts_only"
+  },
+  "guidance": [
+    {
+      "action": "query_graph_tool pattern=\"source_of\" -- fetch the chosen node's live span",
+      "claim": "Hybrid search returned 5 candidate(s) for 'build'.",
+      "confidence": "medium",
+      "counts": {
+        "result_count": 5
+      },
+      "evidence": [
+        {
+          "query": "build",
+          "result_count": 5,
+          "search_mode": "fts_only",
+          "type": "computed"
+        }
+      ],
+      "missingness": [
+        {
+          "claim_effect": "semantic ranking may be keyword-only",
+          "reason_code": "missing_embeddings",
+          "severity": "medium"
+        }
+      ],
+      "reason_codes": [
+        "hybrid_search"
+      ]
+    }
+  ],
+  "missingness": [
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_flows",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_test_edges",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "semantic ranking may be keyword-only",
+      "reason_code": "missing_embeddings",
+      "severity": "medium"
+    }
+  ],
+  "next_action": {
+    "suggestion": "fetch live source with pattern=\"source_of\" for the chosen qualified_name",
+    "tool": "query_graph_tool"
+  },
+  "query": "build",
+  "result_count": 5,
+  "results": [
+    {
+      "file_path": "api.md",
+      "is_test": false,
+      "kind": "DocSection",
+      "language": "markdown",
+      "line_end": 13,
+      "line_start": 13,
+      "name": "post-build",
+      "params": null,
+      "qualified_name": "api.md::post-build",
+      "rank": 1,
+      "return_type": null,
+      "score": 0.090909,
+      "signature": "post-build",
+      "source": "doc"
+    },
+    {
+      "file_path": "api.md",
+      "is_test": false,
+      "kind": "DocBody",
+      "language": "markdown",
+      "line_end": 15,
+      "line_start": 15,
+      "name": "post-build--body-1",
+      "params": null,
+      "qualified_name": "api.md::post-build--body-1",
+      "rank": 2,
+      "return_type": null,
+      "score": 0.083333,
+      "signature": "post-build--body-1",
+      "source": "fts"
+    },
+    {
+      "file_path": "api.md",
+      "is_test": false,
+      "kind": "DocSection",
+      "language": "markdown",
+      "line_end": 7,
+      "line_start": 7,
+      "name": "endpoints",
+      "params": null,
+      "qualified_name": "api.md::endpoints",
+      "rank": 3,
+      "return_type": null,
+      "score": 0.076923,
+      "signature": "endpoints",
+      "source": "doc"
+    },
+    {
+      "file_path": "api.md",
+      "is_test": false,
+      "kind": "File",
+      "language": "markdown",
+      "line_end": 16,
+      "line_start": 1,
+      "name": "api.md",
+      "params": null,
+      "qualified_name": "api.md",
+      "rank": 4,
+      "return_type": null,
+      "score": 0.071429,
+      "signature": "api.md",
+      "source": "fts"
+    },
+    {
+      "file_path": "api.md",
+      "is_test": false,
+      "kind": "DocSection",
+      "language": "markdown",
+      "line_end": 1,
+      "line_start": 1,
+      "name": "api-reference",
+      "params": null,
+      "qualified_name": "api.md::api-reference",
+      "rank": 5,
+      "return_type": null,
+      "score": 0.066667,
+      "signature": "api-reference",
+      "source": "doc"
+    }
+  ],
+  "search_mode": "fts_only",
+  "status": "ok",
+  "summary": "Found 5 node(s) matching 'build'",
+  "total": 5,
+  "truncated": false,
+  "zero_result_reason": null
+}

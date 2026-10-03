@@ -1,0 +1,55 @@
+{
+  "_hints": {
+    "next_steps": [
+      {
+        "suggestion": "architecture_analysis_tool mode=\"communities\" -- inspect structure",
+        "tool": "architecture_analysis_tool"
+      },
+      {
+        "suggestion": "flow_tool mode=\"list\" -- inspect critical reachable-set flows",
+        "tool": "flow_tool"
+      },
+      {
+        "suggestion": "semantic_search_nodes_tool -- search for specific entities",
+        "tool": "semantic_search_nodes_tool"
+      }
+    ],
+    "related": [],
+    "warnings": []
+  },
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "edges_by_kind": {
+    "CALLS": 1,
+    "CONTAINS": 10,
+    "CROSS_ARTIFACT": 2,
+    "REFERENCES": 1
+  },
+  "embeddings_count": 0,
+  "files_count": 3,
+  "languages": [
+    "python",
+    "markdown",
+    "terraform"
+  ],
+  "last_updated": "<VOLATILE>",
+  "next_tool_suggestions": [
+    "architecture_analysis_tool mode=\"communities\" -- inspect structure",
+    "flow_tool mode=\"list\" -- inspect critical reachable-set flows",
+    "semantic_search_nodes_tool -- search for specific entities"
+  ],
+  "nodes_by_kind": {
+    "Class": 1,
+    "DocBody": 3,
+    "DocSection": 3,
+    "File": 3,
+    "Function": 3
+  },
+  "status": "ok",
+  "summary": "Graph stats for repo: 13 nodes, 14 edges, 3 files, 3 language(s), 0 embedding(s).",
+  "total_edges": 14,
+  "total_nodes": 13
+}

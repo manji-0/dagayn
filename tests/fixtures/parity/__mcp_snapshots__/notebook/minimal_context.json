@@ -1,0 +1,46 @@
+{
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "communities": [
+    "analysis-data"
+  ],
+  "confidence": "high",
+  "graph_health": {
+    "answerability": [
+      0,
+      1,
+      0,
+      1,
+      0.0
+    ],
+    "parse": [
+      1,
+      1,
+      true
+    ],
+    "reason_codes": [
+      "missing_flows",
+      "missing_test_edges"
+    ],
+    "score": 0.75,
+    "status": "ok"
+  },
+  "next_tool_suggestions": [
+    "review_tool",
+    "flow_tool",
+    "query_graph_tool"
+  ],
+  "recommended_action": "Run review_tool mode=changes first, then drill into context only when needed.",
+  "status": "ok",
+  "summary": "3 nodes, 10 edges across 1 files.",
+  "sync": {
+    "state": "commit_synced",
+    "status": "synced",
+    "vcs": "git"
+  },
+  "why": "The task mentions reviewing a diff or PR, so risk and changed-node ranking are the fastest entry point.",
+  "workflow": "review"
+}

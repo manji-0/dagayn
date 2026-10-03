@@ -1,0 +1,48 @@
+{
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "communities": [
+    "app-analysis",
+    "docs",
+    "infra-resource-aws-s3-bucket-graph-s"
+  ],
+  "confidence": "high",
+  "graph_health": {
+    "answerability": [
+      0,
+      3,
+      0,
+      2,
+      0.0
+    ],
+    "parse": [
+      3,
+      3,
+      true
+    ],
+    "reason_codes": [
+      "missing_flows",
+      "missing_test_edges"
+    ],
+    "score": 0.75,
+    "status": "ok"
+  },
+  "next_tool_suggestions": [
+    "review_tool",
+    "flow_tool",
+    "query_graph_tool"
+  ],
+  "recommended_action": "Run review_tool mode=changes first, then drill into context only when needed.",
+  "status": "ok",
+  "summary": "13 nodes, 14 edges across 3 files.",
+  "sync": {
+    "state": "commit_synced",
+    "status": "synced",
+    "vcs": "git"
+  },
+  "why": "The task mentions reviewing a diff or PR, so risk and changed-node ranking are the fastest entry point.",
+  "workflow": "review"
+}

@@ -1,0 +1,179 @@
+{
+  "_hints": {
+    "next_steps": [
+      {
+        "suggestion": "query_graph_tool pattern=\"source_of\" -- fetch the chosen node's live span",
+        "tool": "query_graph_tool"
+      }
+    ],
+    "related": [],
+    "warnings": [
+      "missing_embeddings"
+    ]
+  },
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "answerability": {
+    "answerability": [
+      0,
+      1,
+      0,
+      0,
+      0.0
+    ],
+    "counts": {
+      "communities": 1,
+      "current_head_sha": "2ce75527252c5857191eb3aa1ae421619364eb6b",
+      "flows": 0,
+      "graph_head_sha": "2ce75527252c5857191eb3aa1ae421619364eb6b",
+      "reportable_cross_artifact_edges": 0,
+      "reportable_unresolved_cross_artifact_edges": 0,
+      "stale_flow_memberships": 0,
+      "test_edges": 0,
+      "unassigned_nodes": 0,
+      "worktree_dirty": false
+    },
+    "parse": [
+      2,
+      1,
+      true
+    ],
+    "reason_codes": [
+      "missing_flows",
+      "missing_test_edges"
+    ],
+    "score": 0.75,
+    "status": "ok"
+  },
+  "confidence": "medium",
+  "embedding_health": {
+    "auto_resolved_provider": null,
+    "matching_vector_count": 0,
+    "provider_counts": {},
+    "requested_model": null,
+    "requested_provider": null,
+    "requested_text_mode": "material",
+    "resolved_provider": null,
+    "resolved_provider_key": null,
+    "status": "provider_unavailable"
+  },
+  "exactness": {
+    "ambiguity": null,
+    "exact_match_count": 0,
+    "next_action": {
+      "suggestion": "fetch live source with pattern=\"source_of\" for the chosen qualified_name",
+      "tool": "query_graph_tool"
+    },
+    "source_arm": "fts_only"
+  },
+  "guidance": [
+    {
+      "action": "query_graph_tool pattern=\"source_of\" -- fetch the chosen node's live span",
+      "claim": "Hybrid search returned 3 candidate(s) for 'output'.",
+      "confidence": "medium",
+      "counts": {
+        "result_count": 3
+      },
+      "evidence": [
+        {
+          "query": "output",
+          "result_count": 3,
+          "search_mode": "fts_only",
+          "type": "computed"
+        }
+      ],
+      "missingness": [
+        {
+          "claim_effect": "semantic ranking may be keyword-only",
+          "reason_code": "missing_embeddings",
+          "severity": "medium"
+        }
+      ],
+      "reason_codes": [
+        "hybrid_search"
+      ]
+    }
+  ],
+  "missingness": [
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_flows",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_test_edges",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "semantic ranking may be keyword-only",
+      "reason_code": "missing_embeddings",
+      "severity": "medium"
+    }
+  ],
+  "next_action": {
+    "suggestion": "fetch live source with pattern=\"source_of\" for the chosen qualified_name",
+    "tool": "query_graph_tool"
+  },
+  "query": "output",
+  "result_count": 3,
+  "results": [
+    {
+      "file_path": "outputs.tf",
+      "is_test": false,
+      "kind": "Function",
+      "language": "terraform",
+      "line_end": 3,
+      "line_start": 1,
+      "name": "output.instance_id",
+      "params": null,
+      "qualified_name": "outputs.tf::output.instance_id",
+      "rank": 1,
+      "return_type": null,
+      "score": 0.090909,
+      "signature": "def output.instance_id()",
+      "source": "fts"
+    },
+    {
+      "file_path": "outputs.tf",
+      "is_test": false,
+      "kind": "Function",
+      "language": "terraform",
+      "line_end": 7,
+      "line_start": 5,
+      "name": "output.instance_type",
+      "params": null,
+      "qualified_name": "outputs.tf::output.instance_type",
+      "rank": 2,
+      "return_type": null,
+      "score": 0.083333,
+      "signature": "def output.instance_type()",
+      "source": "fts"
+    },
+    {
+      "file_path": "outputs.tf",
+      "is_test": false,
+      "kind": "File",
+      "language": "terraform",
+      "line_end": 8,
+      "line_start": 1,
+      "name": "outputs.tf",
+      "params": null,
+      "qualified_name": "outputs.tf",
+      "rank": 3,
+      "return_type": null,
+      "score": 0.076923,
+      "signature": "outputs.tf",
+      "source": "fts"
+    }
+  ],
+  "search_mode": "fts_only",
+  "status": "ok",
+  "summary": "Found 3 node(s) matching 'output'",
+  "total": 3,
+  "truncated": false,
+  "zero_result_reason": null
+}

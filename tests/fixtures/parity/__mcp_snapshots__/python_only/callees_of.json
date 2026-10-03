@@ -1,0 +1,89 @@
+{
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "answerability": {
+    "reason_codes": [
+      "missing_test_edges",
+      "stale_derived_structures"
+    ],
+    "score": 0.75,
+    "status": "ok"
+  },
+  "confidence": "medium",
+  "exact_match_count": 1,
+  "guidance": [
+    {
+      "action": "query_graph_tool pattern=\"callees_of\" -- drill into a relationship",
+      "claim": "Graph query 'callees_of' returned 1 related node(s) for 'main.py::run'.",
+      "confidence": "medium",
+      "counts": {
+        "result_count": 1
+      },
+      "evidence": [
+        {
+          "exact_match_count": 1,
+          "pattern": "callees_of",
+          "result_count": 1,
+          "target": "main.py::run",
+          "type": "computed"
+        }
+      ],
+      "missingness": [
+        {
+          "claim_effect": "graph edges are static extraction, not runtime traces",
+          "reason_code": "relationship_query_not_runtime_proof",
+          "severity": "low"
+        }
+      ],
+      "reason_codes": [
+        "graph_relationship_query"
+      ]
+    }
+  ],
+  "missingness": [
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_test_edges",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "stale_derived_structures",
+      "severity": "medium"
+    }
+  ],
+  "next_action": {
+    "suggestion": "fetch live source with pattern=\"source_of\", then callers_of/callees_of",
+    "tool": "query_graph_tool"
+  },
+  "original_target": "run",
+  "pattern": "callees_of",
+  "resolution": "exact_name",
+  "resolved_target": "main.py::run",
+  "result_count": 1,
+  "results": [
+    {
+      "confidence_tier": "EXTRACTED",
+      "kind": "Function",
+      "line_end": 5,
+      "line_start": 4,
+      "lines": [
+        5
+      ],
+      "name": "create_user",
+      "qualified_name": "services.py::create_user"
+    }
+  ],
+  "results_complete": true,
+  "status": "ok",
+  "summary": "Found 1 result(s) for callees_of('main.py::run')",
+  "target": "main.py::run",
+  "unresolved_count": 1,
+  "unresolved_targets": [
+    "builtins"
+  ],
+  "zero_result_reason": null
+}

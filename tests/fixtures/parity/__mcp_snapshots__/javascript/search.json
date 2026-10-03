@@ -1,0 +1,291 @@
+{
+  "_hints": {
+    "next_steps": [
+      {
+        "suggestion": "query_graph_tool pattern=\"source_of\" -- fetch the chosen node's live span",
+        "tool": "query_graph_tool"
+      }
+    ],
+    "related": [],
+    "warnings": [
+      "missing_embeddings"
+    ]
+  },
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "answerability": {
+    "answerability": [
+      5,
+      5,
+      0,
+      0,
+      0.0
+    ],
+    "counts": {
+      "communities": 5,
+      "current_head_sha": "f7d8216f573d6e0a20ad408b2e686e0d208bec57",
+      "flows": 5,
+      "graph_head_sha": "f7d8216f573d6e0a20ad408b2e686e0d208bec57",
+      "reportable_cross_artifact_edges": 0,
+      "reportable_unresolved_cross_artifact_edges": 0,
+      "stale_flow_memberships": 0,
+      "test_edges": 0,
+      "unassigned_nodes": 3,
+      "worktree_dirty": false
+    },
+    "parse": [
+      7,
+      1,
+      true
+    ],
+    "reason_codes": [
+      "missing_test_edges",
+      "stale_derived_structures"
+    ],
+    "score": 0.75,
+    "status": "ok"
+  },
+  "confidence": "medium",
+  "embedding_health": {
+    "auto_resolved_provider": null,
+    "matching_vector_count": 0,
+    "provider_counts": {},
+    "requested_model": null,
+    "requested_provider": null,
+    "requested_text_mode": "material",
+    "resolved_provider": null,
+    "resolved_provider_key": null,
+    "status": "provider_unavailable"
+  },
+  "exactness": {
+    "ambiguity": null,
+    "exact_match_count": 1,
+    "next_action": {
+      "suggestion": "fetch live source with pattern=\"source_of\", then callers_of/callees_of",
+      "tool": "query_graph_tool"
+    },
+    "source_arm": "fts_only"
+  },
+  "guidance": [
+    {
+      "action": "query_graph_tool pattern=\"source_of\" -- fetch the chosen node's live span",
+      "claim": "Hybrid search returned 10 candidate(s) for 'helper'.",
+      "confidence": "medium",
+      "counts": {
+        "result_count": 10
+      },
+      "evidence": [
+        {
+          "query": "helper",
+          "result_count": 10,
+          "search_mode": "fts_only",
+          "type": "computed"
+        }
+      ],
+      "missingness": [
+        {
+          "claim_effect": "semantic ranking may be keyword-only",
+          "reason_code": "missing_embeddings",
+          "severity": "medium"
+        }
+      ],
+      "reason_codes": [
+        "hybrid_search"
+      ]
+    }
+  ],
+  "missingness": [
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_test_edges",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "stale_derived_structures",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "semantic ranking may be keyword-only",
+      "reason_code": "missing_embeddings",
+      "severity": "medium"
+    }
+  ],
+  "next_action": {
+    "suggestion": "fetch live source with pattern=\"source_of\", then callers_of/callees_of",
+    "tool": "query_graph_tool"
+  },
+  "query": "helper",
+  "result_count": 10,
+  "results": [
+    {
+      "file_path": "helpers.js",
+      "is_test": false,
+      "kind": "Function",
+      "language": "javascript",
+      "line_end": 1,
+      "line_start": 1,
+      "name": "helper",
+      "params": "()",
+      "qualified_name": "helpers.js::helper",
+      "rank": 1,
+      "return_type": null,
+      "score": 0.090909,
+      "signature": "def helper(())",
+      "source": "fts"
+    },
+    {
+      "file_path": "helpers.js",
+      "is_test": false,
+      "kind": "File",
+      "language": "javascript",
+      "line_end": 4,
+      "line_start": 1,
+      "name": "helpers.js",
+      "params": null,
+      "qualified_name": "helpers.js",
+      "rank": 2,
+      "return_type": null,
+      "score": 0.083333,
+      "signature": "helpers.js",
+      "source": "fts"
+    },
+    {
+      "file_path": "helpers.js",
+      "is_test": false,
+      "kind": "Function",
+      "language": "javascript",
+      "line_end": 2,
+      "line_start": 2,
+      "name": "other",
+      "params": "()",
+      "qualified_name": "helpers.js::other",
+      "rank": 3,
+      "return_type": null,
+      "score": 0.076923,
+      "signature": "def other(())",
+      "source": "fts"
+    },
+    {
+      "file_path": "conf.cjs",
+      "is_test": false,
+      "kind": "File",
+      "language": "javascript",
+      "line_end": 3,
+      "line_start": 1,
+      "name": "conf.cjs",
+      "params": null,
+      "qualified_name": "conf.cjs",
+      "rank": 4,
+      "return_type": null,
+      "score": 0.071429,
+      "signature": "conf.cjs",
+      "source": "fts"
+    },
+    {
+      "file_path": "legacy.js",
+      "is_test": false,
+      "kind": "File",
+      "language": "javascript",
+      "line_end": 13,
+      "line_start": 1,
+      "name": "legacy.js",
+      "params": null,
+      "qualified_name": "legacy.js",
+      "rank": 5,
+      "return_type": null,
+      "score": 0.066667,
+      "signature": "legacy.js",
+      "source": "fts"
+    },
+    {
+      "file_path": "esm.mjs",
+      "is_test": false,
+      "kind": "File",
+      "language": "javascript",
+      "line_end": 4,
+      "line_start": 1,
+      "name": "esm.mjs",
+      "params": null,
+      "qualified_name": "esm.mjs",
+      "rank": 6,
+      "return_type": null,
+      "score": 0.0625,
+      "signature": "esm.mjs",
+      "source": "fts"
+    },
+    {
+      "file_path": "legacy.js",
+      "is_test": false,
+      "kind": "Class",
+      "language": "javascript",
+      "line_end": 8,
+      "line_start": 4,
+      "name": "Legacy",
+      "params": null,
+      "qualified_name": "legacy.js::Legacy",
+      "rank": 7,
+      "return_type": null,
+      "score": 0.058824,
+      "signature": "class Legacy",
+      "source": "fts"
+    },
+    {
+      "file_path": "legacy.js",
+      "is_test": false,
+      "kind": "Function",
+      "language": "javascript",
+      "line_end": 5,
+      "line_start": 5,
+      "name": "handle",
+      "params": "()",
+      "qualified_name": "legacy.js::Legacy.handle",
+      "rank": 8,
+      "return_type": null,
+      "score": 0.055556,
+      "signature": "def handle(())",
+      "source": "fts"
+    },
+    {
+      "file_path": "esm.mjs",
+      "is_test": false,
+      "kind": "Function",
+      "language": "javascript",
+      "line_end": 2,
+      "line_start": 2,
+      "name": "esmFn",
+      "params": "()",
+      "qualified_name": "esm.mjs::esmFn",
+      "rank": 9,
+      "return_type": null,
+      "score": 0.052632,
+      "signature": "def esmFn(())",
+      "source": "fts"
+    },
+    {
+      "file_path": "legacy.js",
+      "is_test": false,
+      "kind": "Function",
+      "language": "javascript",
+      "line_end": 7,
+      "line_start": 7,
+      "name": "run",
+      "params": "()",
+      "qualified_name": "legacy.js::Legacy.run",
+      "rank": 10,
+      "return_type": null,
+      "score": 0.05,
+      "signature": "def run(())",
+      "source": "fts"
+    }
+  ],
+  "search_mode": "fts_only",
+  "status": "ok",
+  "summary": "Found 10 node(s) matching 'helper'",
+  "total": 10,
+  "truncated": false,
+  "zero_result_reason": null
+}

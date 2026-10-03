@@ -1,0 +1,103 @@
+{
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "answerability": {
+    "reason_codes": [
+      "missing_test_edges",
+      "stale_derived_structures"
+    ],
+    "score": 0.75,
+    "status": "ok"
+  },
+  "confidence": "medium",
+  "exact_match_count": 1,
+  "guidance": [
+    {
+      "action": "query_graph_tool pattern=\"callers_of\" -- inspect callers after reading the span",
+      "claim": "Live source span for 'services.py::get_email'.",
+      "confidence": "medium",
+      "counts": {
+        "result_count": 1
+      },
+      "evidence": [
+        {
+          "exact_match_count": 1,
+          "pattern": "source_of",
+          "result_count": 1,
+          "target": "services.py::get_email",
+          "type": "computed"
+        }
+      ],
+      "missingness": [
+        {
+          "claim_effect": "text is a worktree slice of the graph span; surrounding helpers and imports are omitted",
+          "reason_code": "live_source_span",
+          "severity": "low"
+        }
+      ],
+      "reason_codes": [
+        "live_source_fetch"
+      ]
+    }
+  ],
+  "missingness": [
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_test_edges",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "stale_derived_structures",
+      "severity": "medium"
+    }
+  ],
+  "next_action": {
+    "suggestion": "inspect callers_of/callees_of after reading the live span; Read the file only for surrounding context or edits",
+    "tool": "query_graph_tool"
+  },
+  "original_target": "get_email",
+  "pattern": "source_of",
+  "resolution": "exact_name",
+  "resolved_target": "services.py::get_email",
+  "result_count": 1,
+  "results": [
+    {
+      "kind": "Function",
+      "line_end": 9,
+      "line_start": 8,
+      "max_chars": 4000,
+      "name": "get_email",
+      "omitted_chars": 0,
+      "omitted_lines": 0,
+      "params": "(user: User)",
+      "qualified_name": "services.py::get_email",
+      "read_error": null,
+      "return_type": "str",
+      "signature": "def get_email((user: User)) -> str",
+      "source": "def get_email(user: User) -> str:\n    return user.email",
+      "source_stale": false,
+      "span_line_end": 9,
+      "span_line_start": 8,
+      "truncated": false
+    }
+  ],
+  "results_complete": true,
+  "source_coverage": {
+    "max_chars": 4000,
+    "omitted_chars": 0,
+    "omitted_lines": 0,
+    "read_error": null,
+    "source_stale": false,
+    "truncated": false
+  },
+  "status": "ok",
+  "summary": "Found 1 result(s) for source_of('services.py::get_email')",
+  "target": "services.py::get_email",
+  "unresolved_count": 0,
+  "unresolved_targets": [],
+  "zero_result_reason": null
+}

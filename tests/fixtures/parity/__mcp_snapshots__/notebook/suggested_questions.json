@@ -1,0 +1,133 @@
+{
+  "_hints": {
+    "next_steps": [
+      {
+        "suggestion": "review_tool mode=\"changes\" -- apply questions to current changes",
+        "tool": "review_tool"
+      }
+    ],
+    "related": [],
+    "warnings": []
+  },
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "answerability": {
+    "answerability": [
+      0,
+      1,
+      0,
+      1,
+      0.0
+    ],
+    "counts": {
+      "communities": 1,
+      "current_head_sha": "59482a5d55dfb989b595cd778294de8619a2ed84",
+      "flows": 0,
+      "graph_head_sha": "59482a5d55dfb989b595cd778294de8619a2ed84",
+      "reportable_cross_artifact_edges": 1,
+      "reportable_unresolved_cross_artifact_edges": 0,
+      "stale_flow_memberships": 0,
+      "test_edges": 0,
+      "unassigned_nodes": 0,
+      "worktree_dirty": false
+    },
+    "parse": [
+      1,
+      1,
+      true
+    ],
+    "reason_codes": [
+      "missing_flows",
+      "missing_test_edges"
+    ],
+    "score": 0.75,
+    "status": "ok"
+  },
+  "by_priority": {
+    "high": 3,
+    "low": 1,
+    "medium": 1
+  },
+  "guidance": [
+    {
+      "action": "review_tool mode=\"changes\" -- apply questions to current changes",
+      "claim": "Generated 5 review question(s) from graph signals.",
+      "confidence": "medium",
+      "counts": {
+        "returned_questions": 5,
+        "total_questions": 5
+      },
+      "evidence": [
+        {
+          "by_priority": {
+            "high": 3,
+            "low": 1,
+            "medium": 1
+          },
+          "returned": 5,
+          "type": "computed"
+        }
+      ],
+      "missingness": [],
+      "reason_codes": [
+        "suggested_questions"
+      ]
+    }
+  ],
+  "missingness": [
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_flows",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_test_edges",
+      "severity": "medium"
+    }
+  ],
+  "next_tool_suggestions": [
+    "architecture_analysis_tool mode=\"knowledge_gaps\" -- structural weaknesses",
+    "review_tool mode=\"changes\" -- risk-scored review",
+    "architecture_analysis_tool mode=\"overview\" -- community map"
+  ],
+  "questions": [
+    {
+      "category": "bridge_node",
+      "priority": "high",
+      "question": "'load_data' is a critical connector between multiple code regions. Is it adequately tested and documented?",
+      "target": "analysis.ipynb::load_data"
+    },
+    {
+      "category": "hub_risk",
+      "priority": "high",
+      "question": "Hub node 'load_data' has 5 connections but no direct test coverage. Should it be tested?",
+      "target": "analysis.ipynb::load_data"
+    },
+    {
+      "category": "hub_risk",
+      "priority": "high",
+      "question": "Hub node 'process' has 4 connections but no direct test coverage. Should it be tested?",
+      "target": "analysis.ipynb::process"
+    },
+    {
+      "category": "untested_hotspot",
+      "priority": "medium",
+      "question": "'load_data' has 5 connections but no test coverage. Is this a risk?",
+      "target": "analysis.ipynb::load_data"
+    },
+    {
+      "category": "thin_community",
+      "priority": "low",
+      "question": "Community 'analysis-data' has only 2 member(s). Should it be merged with a neighbor?",
+      "target": "community:1"
+    }
+  ],
+  "status": "ok",
+  "summary": "Generated 5 review question(s).",
+  "total": 5,
+  "truncated": false
+}

@@ -1,0 +1,257 @@
+{
+  "_hints": {
+    "next_steps": [
+      {
+        "suggestion": "flow_tool mode=\"get\" -- inspect a specific reachable set",
+        "tool": "flow_tool"
+      }
+    ],
+    "related": [],
+    "warnings": []
+  },
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "_runtime": "<VOLATILE>",
+  "answerability": {
+    "answerability": [
+      5,
+      5,
+      0,
+      0,
+      0.0
+    ],
+    "counts": {
+      "communities": 5,
+      "current_head_sha": "f7d8216f573d6e0a20ad408b2e686e0d208bec57",
+      "flows": 5,
+      "graph_head_sha": "f7d8216f573d6e0a20ad408b2e686e0d208bec57",
+      "reportable_cross_artifact_edges": 0,
+      "reportable_unresolved_cross_artifact_edges": 0,
+      "stale_flow_memberships": 0,
+      "test_edges": 0,
+      "unassigned_nodes": 3,
+      "worktree_dirty": false
+    },
+    "parse": [
+      7,
+      1,
+      true
+    ],
+    "reason_codes": [
+      "missing_test_edges",
+      "stale_derived_structures"
+    ],
+    "score": 0.75,
+    "status": "ok"
+  },
+  "called_subtool": "list_flows",
+  "flow_coverage": {
+    "coverage_guarantee": false,
+    "kind_filter": null,
+    "limit": 50,
+    "returned_flow_count": 5,
+    "source": "stored_flow_extraction",
+    "truncated_count": 0
+  },
+  "flows": [
+    {
+      "created_at": "<VOLATILE>",
+      "criticality": 0.245,
+      "depth": 2,
+      "entry_point": "legacy.js::Legacy.run",
+      "entry_point_id": 15,
+      "file_count": 2,
+      "files": [
+        "legacy.js",
+        "helpers.js"
+      ],
+      "id": 1,
+      "kind": "reachable_set",
+      "members": [
+        15,
+        10,
+        13,
+        9
+      ],
+      "missing_node_count": 0,
+      "name": "run",
+      "node_count": 4,
+      "path": [
+        15,
+        10,
+        13,
+        9
+      ],
+      "resolved_node_count": 4,
+      "truncated": false,
+      "truncation_reason": null,
+      "updated_at": "<VOLATILE>"
+    },
+    {
+      "created_at": "<VOLATILE>",
+      "criticality": 0.235,
+      "depth": 1,
+      "entry_point": "comp.jsx::JsxComp",
+      "entry_point_id": 2,
+      "file_count": 2,
+      "files": [
+        "comp.jsx",
+        "thing.jsx"
+      ],
+      "id": 2,
+      "kind": "reachable_set",
+      "members": [
+        2,
+        18
+      ],
+      "missing_node_count": 0,
+      "name": "JsxComp",
+      "node_count": 2,
+      "path": [
+        2,
+        18
+      ],
+      "resolved_node_count": 2,
+      "truncated": false,
+      "truncation_reason": null,
+      "updated_at": "<VOLATILE>"
+    },
+    {
+      "created_at": "<VOLATILE>",
+      "criticality": 0.235,
+      "depth": 1,
+      "entry_point": "esm.mjs::esmFn",
+      "entry_point_id": 6,
+      "file_count": 2,
+      "files": [
+        "esm.mjs",
+        "helpers.js"
+      ],
+      "id": 3,
+      "kind": "reachable_set",
+      "members": [
+        6,
+        9
+      ],
+      "missing_node_count": 0,
+      "name": "esmFn",
+      "node_count": 2,
+      "path": [
+        6,
+        9
+      ],
+      "resolved_node_count": 2,
+      "truncated": false,
+      "truncation_reason": null,
+      "updated_at": "<VOLATILE>"
+    },
+    {
+      "created_at": "<VOLATILE>",
+      "criticality": 0.235,
+      "depth": 1,
+      "entry_point": "legacy.js::Legacy.handle",
+      "entry_point_id": 13,
+      "file_count": 2,
+      "files": [
+        "legacy.js",
+        "helpers.js"
+      ],
+      "id": 4,
+      "kind": "reachable_set",
+      "members": [
+        13,
+        9
+      ],
+      "missing_node_count": 0,
+      "name": "handle",
+      "node_count": 2,
+      "path": [
+        13,
+        9
+      ],
+      "resolved_node_count": 2,
+      "truncated": false,
+      "truncation_reason": null,
+      "updated_at": "<VOLATILE>"
+    },
+    {
+      "created_at": "<VOLATILE>",
+      "criticality": 0.16,
+      "depth": 1,
+      "entry_point": "legacy.js::Legacy.make",
+      "entry_point_id": 14,
+      "file_count": 1,
+      "files": [
+        "legacy.js"
+      ],
+      "id": 5,
+      "kind": "reachable_set",
+      "members": [
+        14,
+        12
+      ],
+      "missing_node_count": 0,
+      "name": "make",
+      "node_count": 2,
+      "path": [
+        14,
+        12
+      ],
+      "resolved_node_count": 2,
+      "truncated": false,
+      "truncation_reason": null,
+      "updated_at": "<VOLATILE>"
+    }
+  ],
+  "guidance": [
+    {
+      "action": "flow_tool mode=\"get\" -- inspect a specific reachable set",
+      "claim": "Returned 5 ranked reachable-set flow(s) from stored flow extraction.",
+      "confidence": "medium",
+      "counts": {
+        "returned_flow_count": 5
+      },
+      "evidence": [
+        {
+          "limit": 50,
+          "returned_flow_count": 5,
+          "sort_by": "criticality",
+          "type": "computed"
+        }
+      ],
+      "missingness": [
+        {
+          "claim_effect": "flow ranking is not a coverage guarantee",
+          "reason_code": "flow_criticality_is_ranking_signal",
+          "severity": "low"
+        }
+      ],
+      "reason_codes": [
+        "stored_flow_extraction"
+      ]
+    }
+  ],
+  "missingness": [
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_test_edges",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "stale_derived_structures",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "flow ranking is not a coverage guarantee",
+      "reason_code": "flow_criticality_is_ranking_signal",
+      "severity": "low"
+    }
+  ],
+  "mode": "list",
+  "status": "ok",
+  "summary": "Found 5 reachable-set flow(s)"
+}

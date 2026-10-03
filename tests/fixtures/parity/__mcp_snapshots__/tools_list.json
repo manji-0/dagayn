@@ -1,0 +1,399 @@
+{
+  "all": {
+    "prompts": {
+      "architecture_map": [],
+      "debug_issue": [
+        [
+          "description",
+          false
+        ]
+      ],
+      "onboard_developer": [],
+      "pre_merge_check": [
+        [
+          "base",
+          false
+        ]
+      ],
+      "review_changes": [
+        [
+          "base",
+          false
+        ]
+      ]
+    },
+    "tools": {
+      "apply_refactor_tool": {
+        "params": {
+          "dry_run": "boolean",
+          "refactor_id": "string",
+          "repo_root": "string"
+        },
+        "required": [
+          "refactor_id"
+        ]
+      },
+      "architecture_analysis_tool": {
+        "params": {
+          "artifact_scope": "string",
+          "community_id": "integer",
+          "community_name": "string",
+          "dependency_profile": "string",
+          "detail_level": "string",
+          "granularity": "string",
+          "include_members": "boolean",
+          "max_cycle_length": "integer",
+          "min_cycle_size": "integer",
+          "min_delta": "number",
+          "min_distance": "number",
+          "min_size": "integer",
+          "mode": "string",
+          "repo_root": "string",
+          "scope_kind": "string",
+          "sort_by": "string",
+          "top_n": "integer",
+          "unit_filter": "array"
+        },
+        "required": []
+      },
+      "build_or_update_graph_tool": {
+        "params": {
+          "base": "string",
+          "full_rebuild": "boolean",
+          "keep_local_embedding_server": "boolean",
+          "local_embedding": "string",
+          "local_embedding_batch_size": "integer",
+          "local_embedding_bin": "string",
+          "local_embedding_port": "integer",
+          "local_embedding_request_timeout": "integer",
+          "local_embedding_timeout": "integer",
+          "postprocess": "string",
+          "recurse_submodules": "boolean",
+          "repo_root": "string"
+        },
+        "required": []
+      },
+      "cross_repo_search_tool": {
+        "params": {
+          "kind": "string",
+          "limit": "integer",
+          "model": "string",
+          "provider": "string",
+          "query": "string"
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "embed_graph_tool": {
+        "params": {
+          "model": "string",
+          "provider": "string",
+          "repo_root": "string"
+        },
+        "required": []
+      },
+      "ensure_graph_tool": {
+        "params": {
+          "force": "boolean",
+          "repo_root": "string"
+        },
+        "required": []
+      },
+      "find_large_functions_tool": {
+        "params": {
+          "file_path_pattern": "string",
+          "kind": "string",
+          "limit": "integer",
+          "min_lines": "integer",
+          "repo_root": "string"
+        },
+        "required": []
+      },
+      "flow_tool": {
+        "params": {
+          "detail_level": "string",
+          "flow_id": "integer",
+          "flow_name": "string",
+          "include_source": "boolean",
+          "kind": "string",
+          "limit": "integer",
+          "mode": "string",
+          "repo_root": "string",
+          "sort_by": "string"
+        },
+        "required": []
+      },
+      "generate_wiki_tool": {
+        "params": {
+          "force": "boolean",
+          "repo_root": "string"
+        },
+        "required": []
+      },
+      "get_docs_section_tool": {
+        "params": {
+          "max_chars": "integer",
+          "repo_root": "string",
+          "section_name": "string"
+        },
+        "required": [
+          "section_name"
+        ]
+      },
+      "get_minimal_context_tool": {
+        "params": {
+          "base": "string",
+          "changed_files": "array",
+          "repo_root": "string",
+          "task": "string"
+        },
+        "required": []
+      },
+      "get_suggested_questions_tool": {
+        "params": {
+          "repo_root": "string",
+          "top_n": "integer"
+        },
+        "required": []
+      },
+      "get_wiki_page_tool": {
+        "params": {
+          "community_name": "string",
+          "repo_root": "string"
+        },
+        "required": [
+          "community_name"
+        ]
+      },
+      "list_graph_stats_tool": {
+        "params": {
+          "repo_root": "string"
+        },
+        "required": []
+      },
+      "list_repos_tool": {
+        "params": {},
+        "required": []
+      },
+      "query_graph_tool": {
+        "params": {
+          "depth": "integer",
+          "detail_level": "string",
+          "pattern": "string",
+          "repo_root": "string",
+          "target": "string"
+        },
+        "required": [
+          "pattern",
+          "target"
+        ]
+      },
+      "refactor_tool": {
+        "params": {
+          "file_pattern": "string",
+          "kind": "string",
+          "limit": "integer",
+          "mode": "string",
+          "new_name": "string",
+          "old_name": "string",
+          "repo_root": "string"
+        },
+        "required": []
+      },
+      "review_tool": {
+        "params": {
+          "base": "string",
+          "changed_files": "array",
+          "detail_level": "string",
+          "include_source": "boolean",
+          "max_depth": "integer",
+          "max_lines_per_file": "integer",
+          "max_nodes": "integer",
+          "mode": "string",
+          "repo_root": "string"
+        },
+        "required": []
+      },
+      "run_postprocess_tool": {
+        "params": {
+          "communities": "boolean",
+          "flows": "boolean",
+          "fts": "boolean",
+          "repo_root": "string"
+        },
+        "required": []
+      },
+      "semantic_search_nodes_tool": {
+        "params": {
+          "detail_level": "string",
+          "kind": "string",
+          "limit": "integer",
+          "model": "string",
+          "provider": "string",
+          "query": "string",
+          "repo_root": "string"
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "traverse_graph_tool": {
+        "params": {
+          "depth": "integer",
+          "mode": "string",
+          "model": "string",
+          "provider": "string",
+          "query": "string",
+          "repo_root": "string",
+          "token_budget": "integer"
+        },
+        "required": [
+          "query"
+        ]
+      }
+    }
+  },
+  "default": {
+    "prompts": {
+      "architecture_map": [],
+      "debug_issue": [
+        [
+          "description",
+          false
+        ]
+      ],
+      "onboard_developer": [],
+      "pre_merge_check": [
+        [
+          "base",
+          false
+        ]
+      ],
+      "review_changes": [
+        [
+          "base",
+          false
+        ]
+      ]
+    },
+    "tools": {
+      "architecture_analysis_tool": {
+        "params": {
+          "artifact_scope": "string",
+          "community_id": "integer",
+          "community_name": "string",
+          "dependency_profile": "string",
+          "detail_level": "string",
+          "granularity": "string",
+          "include_members": "boolean",
+          "max_cycle_length": "integer",
+          "min_cycle_size": "integer",
+          "min_delta": "number",
+          "min_distance": "number",
+          "min_size": "integer",
+          "mode": "string",
+          "repo_root": "string",
+          "scope_kind": "string",
+          "sort_by": "string",
+          "top_n": "integer",
+          "unit_filter": "array"
+        },
+        "required": []
+      },
+      "ensure_graph_tool": {
+        "params": {
+          "force": "boolean",
+          "repo_root": "string"
+        },
+        "required": []
+      },
+      "flow_tool": {
+        "params": {
+          "detail_level": "string",
+          "flow_id": "integer",
+          "flow_name": "string",
+          "include_source": "boolean",
+          "kind": "string",
+          "limit": "integer",
+          "mode": "string",
+          "repo_root": "string",
+          "sort_by": "string"
+        },
+        "required": []
+      },
+      "get_docs_section_tool": {
+        "params": {
+          "max_chars": "integer",
+          "repo_root": "string",
+          "section_name": "string"
+        },
+        "required": [
+          "section_name"
+        ]
+      },
+      "get_minimal_context_tool": {
+        "params": {
+          "base": "string",
+          "changed_files": "array",
+          "repo_root": "string",
+          "task": "string"
+        },
+        "required": []
+      },
+      "query_graph_tool": {
+        "params": {
+          "depth": "integer",
+          "detail_level": "string",
+          "pattern": "string",
+          "repo_root": "string",
+          "target": "string"
+        },
+        "required": [
+          "pattern",
+          "target"
+        ]
+      },
+      "refactor_tool": {
+        "params": {
+          "file_pattern": "string",
+          "kind": "string",
+          "limit": "integer",
+          "mode": "string",
+          "new_name": "string",
+          "old_name": "string",
+          "repo_root": "string"
+        },
+        "required": []
+      },
+      "review_tool": {
+        "params": {
+          "base": "string",
+          "changed_files": "array",
+          "detail_level": "string",
+          "include_source": "boolean",
+          "max_depth": "integer",
+          "max_lines_per_file": "integer",
+          "max_nodes": "integer",
+          "mode": "string",
+          "repo_root": "string"
+        },
+        "required": []
+      },
+      "semantic_search_nodes_tool": {
+        "params": {
+          "detail_level": "string",
+          "kind": "string",
+          "limit": "integer",
+          "model": "string",
+          "provider": "string",
+          "query": "string",
+          "repo_root": "string"
+        },
+        "required": [
+          "query"
+        ]
+      }
+    }
+  }
+}

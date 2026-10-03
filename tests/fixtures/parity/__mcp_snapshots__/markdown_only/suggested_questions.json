@@ -1,0 +1,133 @@
+{
+  "_hints": {
+    "next_steps": [
+      {
+        "suggestion": "review_tool mode=\"changes\" -- apply questions to current changes",
+        "tool": "review_tool"
+      }
+    ],
+    "related": [],
+    "warnings": []
+  },
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "answerability": {
+    "answerability": [
+      0,
+      4,
+      0,
+      0,
+      0.0
+    ],
+    "counts": {
+      "communities": 4,
+      "current_head_sha": "f465fe4883a4751337c705228d7938180b3c0723",
+      "flows": 0,
+      "graph_head_sha": "f465fe4883a4751337c705228d7938180b3c0723",
+      "reportable_cross_artifact_edges": 0,
+      "reportable_unresolved_cross_artifact_edges": 0,
+      "stale_flow_memberships": 0,
+      "test_edges": 0,
+      "unassigned_nodes": 0,
+      "worktree_dirty": false
+    },
+    "parse": [
+      2,
+      1,
+      true
+    ],
+    "reason_codes": [
+      "missing_flows",
+      "missing_test_edges"
+    ],
+    "score": 0.75,
+    "status": "ok"
+  },
+  "by_priority": {
+    "high": 0,
+    "low": 2,
+    "medium": 3
+  },
+  "guidance": [
+    {
+      "action": "review_tool mode=\"changes\" -- apply questions to current changes",
+      "claim": "Generated 5 review question(s) from graph signals.",
+      "confidence": "medium",
+      "counts": {
+        "returned_questions": 5,
+        "total_questions": 5
+      },
+      "evidence": [
+        {
+          "by_priority": {
+            "high": 0,
+            "low": 2,
+            "medium": 3
+          },
+          "returned": 5,
+          "type": "computed"
+        }
+      ],
+      "missingness": [],
+      "reason_codes": [
+        "suggested_questions"
+      ]
+    }
+  ],
+  "missingness": [
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_flows",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_test_edges",
+      "severity": "medium"
+    }
+  ],
+  "next_tool_suggestions": [
+    "architecture_analysis_tool mode=\"knowledge_gaps\" -- structural weaknesses",
+    "review_tool mode=\"changes\" -- risk-scored review",
+    "architecture_analysis_tool mode=\"overview\" -- community map"
+  ],
+  "questions": [
+    {
+      "category": "surprising_connection",
+      "priority": "medium",
+      "question": "'api-reference' (community 1) calls 'endpoints' (community 2). Is this coupling intentional?",
+      "target": "api.md::api-reference"
+    },
+    {
+      "category": "surprising_connection",
+      "priority": "medium",
+      "question": "'getting-started' (community 1) calls 'configuration' (community 3). Is this coupling intentional?",
+      "target": "guide.md::getting-started"
+    },
+    {
+      "category": "surprising_connection",
+      "priority": "medium",
+      "question": "'getting-started' (community 1) calls 'usage' (community 4). Is this coupling intentional?",
+      "target": "guide.md::getting-started"
+    },
+    {
+      "category": "thin_community",
+      "priority": "low",
+      "question": "Community 'guide' has only 2 member(s). Should it be merged with a neighbor?",
+      "target": "community:3"
+    },
+    {
+      "category": "thin_community",
+      "priority": "low",
+      "question": "Community 'guide' has only 2 member(s). Should it be merged with a neighbor?",
+      "target": "community:4"
+    }
+  ],
+  "status": "ok",
+  "summary": "Generated 5 review question(s).",
+  "total": 5,
+  "truncated": false
+}

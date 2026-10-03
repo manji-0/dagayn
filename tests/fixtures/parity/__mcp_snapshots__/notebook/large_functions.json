@@ -1,0 +1,55 @@
+{
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "min_lines": 1,
+  "results": [
+    {
+      "file_path": "analysis.ipynb",
+      "id": 1,
+      "is_test": false,
+      "kind": "File",
+      "language": "python",
+      "line_count": 16,
+      "line_end": 16,
+      "line_start": 1,
+      "name": "analysis.ipynb",
+      "parent_name": null,
+      "qualified_name": "analysis.ipynb",
+      "relative_path": "analysis.ipynb"
+    },
+    {
+      "file_path": "analysis.ipynb",
+      "id": 3,
+      "is_test": false,
+      "kind": "Function",
+      "language": "python",
+      "line_count": 6,
+      "line_end": 9,
+      "line_start": 4,
+      "name": "process",
+      "parent_name": null,
+      "qualified_name": "analysis.ipynb::process",
+      "relative_path": "analysis.ipynb"
+    },
+    {
+      "file_path": "analysis.ipynb",
+      "id": 2,
+      "is_test": false,
+      "kind": "Function",
+      "language": "python",
+      "line_count": 3,
+      "line_end": 3,
+      "line_start": 1,
+      "name": "load_data",
+      "parent_name": null,
+      "qualified_name": "analysis.ipynb::load_data",
+      "relative_path": "analysis.ipynb"
+    }
+  ],
+  "status": "ok",
+  "summary": "Found 3 node(s) with >= 1 lines:\n    16 lines |     File | analysis.ipynb (analysis.ipynb:1)\n     6 lines | Function | process (analysis.ipynb:4)\n     3 lines | Function | load_data (analysis.ipynb:1)",
+  "total_found": 3
+}

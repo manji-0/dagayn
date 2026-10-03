@@ -1,0 +1,82 @@
+{
+  "_hints": {
+    "next_steps": [
+      {
+        "suggestion": "Verify call sites before applying a rename",
+        "tool": "query_graph_tool"
+      },
+      {
+        "suggestion": "Check risk of the refactored code",
+        "tool": "review_tool"
+      },
+      {
+        "suggestion": "Find related symbols to also rename",
+        "tool": "semantic_search_nodes_tool"
+      }
+    ],
+    "related": [],
+    "warnings": []
+  },
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "answerability": {
+    "answerability": [
+      0,
+      1,
+      0,
+      1,
+      0.0
+    ],
+    "counts": {
+      "communities": 1,
+      "current_head_sha": "59482a5d55dfb989b595cd778294de8619a2ed84",
+      "flows": 0,
+      "graph_head_sha": "59482a5d55dfb989b595cd778294de8619a2ed84",
+      "reportable_cross_artifact_edges": 1,
+      "reportable_unresolved_cross_artifact_edges": 0,
+      "stale_flow_memberships": 0,
+      "test_edges": 0,
+      "unassigned_nodes": 0,
+      "worktree_dirty": false
+    },
+    "parse": [
+      1,
+      1,
+      true
+    ],
+    "reason_codes": [
+      "missing_flows",
+      "missing_test_edges"
+    ],
+    "score": 0.75,
+    "status": "ok"
+  },
+  "caveats": [
+    "Dead-code results are graph-backed candidates; verify dynamic dispatch, plugin registration, reflection, and generated entry points before deleting."
+  ],
+  "dead_code": [],
+  "missingness": [
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_flows",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_test_edges",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "dead-code claims do not cover dynamic runtime references",
+      "reason_code": "absence_evidence_requires_manual_verification",
+      "severity": "medium"
+    }
+  ],
+  "status": "ok",
+  "summary": "Found 0 dead code symbol(s).",
+  "total": 0,
+  "truncated": false
+}

@@ -1,0 +1,113 @@
+{
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "answerability": {
+    "answerability": [
+      0,
+      3,
+      0,
+      2,
+      0.0
+    ],
+    "counts": {
+      "communities": 3,
+      "current_head_sha": "dd58eaddda2960904306906d2f281865ecbcd8b6",
+      "flows": 0,
+      "graph_head_sha": "dd58eaddda2960904306906d2f281865ecbcd8b6",
+      "reportable_cross_artifact_edges": 2,
+      "reportable_unresolved_cross_artifact_edges": 0,
+      "stale_flow_memberships": 0,
+      "test_edges": 0,
+      "unassigned_nodes": 0,
+      "worktree_dirty": false
+    },
+    "parse": [
+      3,
+      3,
+      true
+    ],
+    "reason_codes": [
+      "missing_flows",
+      "missing_test_edges"
+    ],
+    "score": 0.75,
+    "status": "ok"
+  },
+  "candidates": [
+    {
+      "file_path": "docs/README.md",
+      "id": 6,
+      "is_test": false,
+      "kind": "DocSection",
+      "language": "markdown",
+      "line_end": 5,
+      "line_start": 5,
+      "name": "graph-api",
+      "parent_name": null,
+      "qualified_name": "docs/README.md::graph-api"
+    },
+    {
+      "file_path": "docs/README.md",
+      "id": 9,
+      "is_test": false,
+      "kind": "DocBody",
+      "language": "markdown",
+      "line_end": 8,
+      "line_start": 7,
+      "name": "graph-api--body-1",
+      "parent_name": null,
+      "qualified_name": "docs/README.md::graph-api--body-1"
+    },
+    {
+      "file_path": "docs/README.md",
+      "id": 4,
+      "is_test": false,
+      "kind": "File",
+      "language": "markdown",
+      "line_end": 13,
+      "line_start": 1,
+      "name": "docs/README.md",
+      "parent_name": null,
+      "qualified_name": "docs/README.md"
+    },
+    {
+      "file_path": "docs/README.md",
+      "id": 5,
+      "is_test": false,
+      "kind": "DocSection",
+      "language": "markdown",
+      "line_end": 1,
+      "line_start": 1,
+      "name": "mixed-fixture",
+      "parent_name": null,
+      "qualified_name": "docs/README.md::mixed-fixture"
+    }
+  ],
+  "candidates_truncated": false,
+  "missingness": [
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_flows",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_test_edges",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "relationship query was not run for a unique node",
+      "reason_code": "ambiguous_target",
+      "severity": "medium"
+    }
+  ],
+  "pattern": "implementations_of",
+  "result_count": 0,
+  "results": [],
+  "status": "ambiguous",
+  "summary": "Multiple matches for 'Graph API'. Please use a qualified name.",
+  "target": "Graph API"
+}
