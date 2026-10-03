@@ -80,7 +80,8 @@ jobs:
       - name: Smoke-test the installed dagayn command
         # The console script runs build/update/status in the Rust CLI inside
         # ``_core`` and everything else in Python; check both from a fresh
-        # install of the wheel, and that the two agree on ``status``.
+        # install of the wheel, and that the two agree on ``status``. ``-P``
+        # keeps the checkout's source ``dagayn`` (no ``_core``) off sys.path.
         shell: bash
         run: |
           venv="${RUNNER_TEMP}/wheel-smoke"
@@ -92,7 +93,7 @@ jobs:
           git -C "$repo" init -q
           "$venv/bin/dagayn" --version
           "$venv/bin/dagayn" build --repo "$repo"
-          "$venv/bin/python" -c "import sys; from dagayn import _core; sys.exit(_core.run_cli(['dagayn', 'status', '--repo', sys.argv[1]]))" "$repo" > rust.txt
+          "$venv/bin/python" -P -c "import sys; from dagayn import _core; sys.exit(_core.run_cli(['dagayn', 'status', '--repo', sys.argv[1]]))" "$repo" > rust.txt
           DAGAYN_PYTHON_CLI=1 "$venv/bin/dagayn" status --repo "$repo" > python.txt
           diff python.txt rust.txt
 
