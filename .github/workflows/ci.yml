@@ -123,12 +123,13 @@ jobs:
         run: >
           cargo llvm-cov --workspace --summary-only
           --ignore-filename-regex 'dagayn-py/' --fail-under-lines 82
-      - name: MCP snapshots against the standalone build
-        # The Rust `dagayn build` must write the graph the Python build writes;
-        # the server under test stays the Python one.
+      - name: Standalone Rust CLI against the Python one
+        # The Rust `dagayn build` and `update` must write the graph the Python
+        # CLI writes; the server under test stays the Python one.
         run: |
           cargo build --profile dev-fast -p dagayn-cli
           DAGAYN_CLI_CMD="$PWD/target/dev-fast/dagayn" uv run pytest -q tests/test_mcp_snapshots.py
+          DAGAYN_RUST_CLI="$PWD/target/dev-fast/dagayn" uv run pytest -q -n auto tests/test_update_parity.py
       - name: Smoke-test uvx source install path
         run: uvx --refresh --from . dagayn --help
 
