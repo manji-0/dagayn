@@ -8,6 +8,7 @@ members = [
     "crates/dagayn-parser",
     "crates/dagayn-postproc",
     "crates/dagayn-py",
+    "crates/dagayn-tools",
 ]
 resolver = "2"
 

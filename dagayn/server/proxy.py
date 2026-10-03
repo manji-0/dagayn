@@ -4,9 +4,11 @@ The front end answers ``initialize``, ``ping``, and the tool, prompt, and
 resource listings from ``mcp_surface.json``, recorded from the fastmcp server
 (``tools/mcp_snapshot.py --regenerate`` rewrites it, and
 ``tests/test_mcp_snapshots.py`` checks it), so a session starts without
-importing fastmcp or the tools. The first message it does not answer itself
-boots the fastmcp server of :mod:`dagayn.server.main` in this process on a pipe
-pair (:func:`dagayn.server.main.serve_on_fds`) and relays the session to it.
+importing fastmcp or the tools. Calls ``dagayn-tools`` answers in Rust
+(``list_graph_stats_tool``, ``get_docs_section_tool``) never reach Python; the
+first message it does not answer itself boots the fastmcp server of
+:mod:`dagayn.server.main` in this process on a pipe pair
+(:func:`dagayn.server.main.serve_on_fds`) and relays the session to it.
 """
 
 from __future__ import annotations
@@ -59,7 +61,16 @@ def serve_stdio(**config: Any) -> None:
 
     def run() -> None:
         try:
-            serve_mcp(surface, sorted(allowed) if allowed is not None else None, __version__, boot)
+            serve_mcp(
+                surface,
+                sorted(allowed) if allowed is not None else None,
+                __version__,
+                boot,
+                pinned_repo=config.get("repo_root"),
+                # The parent of the package, which holds the packaged `docs/`
+                # (`dagayn.tools.docs` looks there too).
+                package_root=str(Path(__file__).resolve().parent.parent.parent),
+            )
         except BaseException as exc:  # noqa: BLE001 - re-raised on the main thread
             failures.append(exc)
 

@@ -1,0 +1,236 @@
+//! MCP tools answered in Rust, before the `dagayn serve` front end hands a
+//! call to the Python server.
+//!
+//! [`call`] returns `None` for anything it does not answer exactly as the
+//! Python tool would: an argument fastmcp would coerce or reject, a repository
+//! it would auto-detect, a graph it would create, migrate, or refuse. The
+//! front end then relays the call, so every error stays Python's.
+
+mod docs;
+mod stats;
+
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use dagayn_build::{GraphLock, LockMode};
+use dagayn_graph::GraphStore;
+use serde_json::{Map, Value, json};
+
+/// What the session knows beyond a call's arguments.
+#[derive(Clone, Debug, Default)]
+pub struct Context {
+    /// `dagayn serve --repo`, already resolved.
+    pub pinned_repo: Option<PathBuf>,
+    /// Tool names the session exposes; `None` exposes every tool.
+    pub allowed_tools: Option<HashSet<String>>,
+    /// The directory holding the packaged `docs/` (the parent of `dagayn/`).
+    pub package_root: Option<PathBuf>,
+}
+
+/// A tool result: its JSON text with the Python tool's top-level key order,
+/// and the same value for `structuredContent`.
+#[derive(Debug, PartialEq)]
+pub struct Payload {
+    pub text: String,
+    pub value: Value,
+}
+
+/// Answer `name(arguments)`, or `None` to leave it to the Python server.
+pub fn call(context: &Context, name: &str, arguments: &Value) -> Option<Payload> {
+    let arguments = arguments.as_object()?;
+    match name {
+        "list_graph_stats_tool" => stats::list_graph_stats(context, arguments),
+        "get_docs_section_tool" => docs::get_docs_section(context, arguments),
+        _ => None,
+    }
+}
+
+/// A JSON object that keeps its keys in insertion order, as Python's dicts
+/// do; `serde_json`'s map sorts them.
+#[derive(Default)]
+pub(crate) struct Ordered(Vec<(String, Value)>);
+
+impl Ordered {
+    pub(crate) fn put(mut self, key: &str, value: impl Into<Value>) -> Self {
+        self.0.push((key.to_string(), value.into()));
+        self
+    }
+
+    pub(crate) fn into_payload(self) -> Payload {
+        let mut text = String::from("{");
+        let mut value = Map::new();
+        for (index, (key, item)) in self.0.into_iter().enumerate() {
+            if index > 0 {
+                text.push(',');
+            }
+            text.push_str(&json!(key).to_string());
+            text.push(':');
+            text.push_str(&item.to_string());
+            value.insert(key, item);
+        }
+        text.push('}');
+        Payload {
+            text,
+            value: Value::Object(value),
+        }
+    }
+}
+
+/// The arguments of a call when they are exactly the declared ones, each a
+/// plain JSON value of its declared type; fastmcp handles anything it would
+/// coerce or reject.
+pub(crate) struct Args<'a>(&'a Map<String, Value>);
+
+impl<'a> Args<'a> {
+    pub(crate) fn new(arguments: &'a Map<String, Value>, declared: &[&str]) -> Option<Self> {
+        arguments
+            .keys()
+            .all(|key| declared.contains(&key.as_str()))
+            .then_some(Self(arguments))
+    }
+
+    /// `str`, required.
+    pub(crate) fn string(&self, key: &str) -> Option<&'a str> {
+        self.0.get(key)?.as_str()
+    }
+
+    /// `Optional[str]`: `Some(None)` when absent or null.
+    pub(crate) fn optional_string(&self, key: &str) -> Option<Option<&'a str>> {
+        match self.0.get(key) {
+            None | Some(Value::Null) => Some(None),
+            Some(Value::String(value)) => Some(Some(value)),
+            Some(_) => None,
+        }
+    }
+
+    /// `int` with a default; a JSON integer only.
+    pub(crate) fn integer(&self, key: &str, default: i64) -> Option<i64> {
+        match self.0.get(key) {
+            None => Some(default),
+            Some(value) if value.is_i64() => value.as_i64(),
+            Some(_) => None,
+        }
+    }
+}
+
+/// `dagayn.incremental_files.is_unresolved_path_placeholder`.
+fn is_placeholder(value: &str) -> bool {
+    let value = value.trim();
+    value.len() > 3
+        && value.starts_with("${")
+        && value.ends_with('}')
+        && !value[2..value.len() - 1].contains('}')
+}
+
+/// `dagayn.server.main._resolve_repo_root` followed by `_validate_repo_root`:
+/// the client's `repo_root`, else the pinned one, resolved. `None` when
+/// neither is given (Python auto-detects) or the root is not one Python would
+/// accept without a message.
+pub(crate) fn explicit_repo(context: &Context, requested: Option<&str>) -> Option<PathBuf> {
+    let requested = requested.filter(|value| !value.is_empty() && !is_placeholder(value));
+    let candidate = match requested {
+        Some(value) => PathBuf::from(value),
+        None => context.pinned_repo.clone()?,
+    };
+    let resolved = candidate.canonicalize().ok().filter(|path| path.is_dir())?;
+    let is_project_root = resolved.join(".git").exists()
+        || resolved.join(".svn").exists()
+        || resolved.join(".dagayn").join("graph.db").is_file();
+    is_project_root.then_some(resolved)
+}
+
+/// An open graph under the shared read lock, as `_get_store` leaves it.
+pub(crate) struct OpenGraph {
+    pub root: PathBuf,
+    pub db_path: PathBuf,
+    pub store: GraphStore,
+    _lock: GraphLock,
+}
+
+impl OpenGraph {
+    /// `_repo`, as `attach_repo_context` adds it for an explicit root.
+    pub(crate) fn repo_context(&self) -> Value {
+        json!({
+            "repo_root": self.root.to_string_lossy(),
+            "db_path": self.db_path.to_string_lossy(),
+            "source": "explicit",
+        })
+    }
+}
+
+/// `_get_store` for an explicit root, when it would open an existing graph in
+/// the default location that describes this repository; `None` whenever
+/// Python would create, migrate, relocate, or refuse it.
+pub(crate) fn open_graph(root: &Path) -> Option<OpenGraph> {
+    if std::env::var_os("CRG_DATA_DIR").is_some_and(|value| !value.is_empty()) {
+        return None;
+    }
+    let legacy = ["", "-wal", "-shm", "-journal"]
+        .iter()
+        .any(|suffix| root.join(format!(".dagayn.db{suffix}")).exists());
+    if legacy {
+        return None;
+    }
+    if !root.join(".dagayn").join("graph.db").is_file() {
+        return None;
+    }
+    // `get_db_path`: the same path, and the inner `.gitignore` written if
+    // it went missing.
+    let db_path = dagayn_build::db_path_for_build(root).ok()?;
+    // No wait: this runs on the front end's reader, and a graph being written
+    // is Python's to wait for (`DAGAYN_READ_LOCK_TIMEOUT`) while pings and
+    // listings stay answered.
+    let lock = GraphLock::acquire_mode(&db_path, LockMode::Shared, Some(Duration::ZERO)).ok()?;
+    let store = GraphStore::open(&db_path).ok()?;
+    if dagayn_build::graph_repo_mismatch(&store, root).is_some() {
+        return None;
+    }
+    Some(OpenGraph {
+        root: root.to_path_buf(),
+        db_path,
+        store,
+        _lock: lock,
+    })
+}
+
+/// `dagayn.tool_surface.suggestion_is_callable`.
+fn suggestion_is_callable(context: &Context, suggestion: &str) -> bool {
+    let Some(allowed) = &context.allowed_tools else {
+        return true;
+    };
+    let mut stripped = suggestion.trim();
+    if let Some(rest) = stripped.strip_prefix("Run:") {
+        stripped = rest.trim();
+    }
+    let tool = suggestion_tool(stripped);
+    tool == "dagayn" || !tool.ends_with("_tool") || allowed.contains(tool)
+}
+
+fn suggestion_tool(suggestion: &str) -> &str {
+    let head = suggestion.split(" -- ").next().unwrap_or(suggestion);
+    let head = head.split(' ').next().unwrap_or(head);
+    head.split('(').next().unwrap_or(head)
+}
+
+/// `_hints` and `next_tool_suggestions` as `make_response` builds them from
+/// plain suggestions, filtered to the session's tools.
+pub(crate) fn suggestions(context: &Context, all: &[&str]) -> (Value, Value) {
+    let kept: Vec<&str> = all
+        .iter()
+        .copied()
+        .filter(|suggestion| suggestion_is_callable(context, suggestion))
+        .take(3)
+        .collect();
+    let next_steps: Vec<Value> = kept
+        .iter()
+        .map(|suggestion| json!({"tool": suggestion_tool(suggestion), "suggestion": suggestion}))
+        .collect();
+    (
+        json!({"next_steps": next_steps, "related": [], "warnings": []}),
+        json!(kept),
+    )
+}
+
+#[cfg(test)]
+mod tests;

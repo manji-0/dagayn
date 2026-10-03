@@ -402,7 +402,18 @@ dependencies = [
  "dagayn-mcp",
  "dagayn-parser",
  "dagayn-postproc",
+ "dagayn-tools",
  "pyo3",
+ "serde_json",
+]
+
+[[package]]
+name = "dagayn-tools"
+version = "0.1.0"
+dependencies = [
+ "dagayn-build",
+ "dagayn-graph",
+ "regex",
  "serde_json",
 ]
 

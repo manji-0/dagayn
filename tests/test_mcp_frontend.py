@@ -113,7 +113,11 @@ def test_the_first_call_loads_it_and_local_replies_do_not_wait(repo: Path) -> No
         {
             "id": 1,
             "method": "tools/call",
-            "params": {"name": "list_graph_stats_tool", "arguments": {}},
+            # Not answered in Rust yet.
+            "params": {
+                "name": "query_graph_tool",
+                "arguments": {"pattern": "callers_of", "target": "helper"},
+            },
         }
     )
     # Sent while the call boots fastmcp and the tools, answered first.
@@ -121,12 +125,40 @@ def test_the_first_call_loads_it_and_local_replies_do_not_wait(repo: Path) -> No
     first, second = session.read(), session.read()
     assert first == {"jsonrpc": "2.0", "id": 2, "result": {}}
     assert second["id"] == 1
-    stats = second["result"]["structuredContent"]
-    assert (stats["total_nodes"], stats["total_edges"]) == (3, 3)
+    callers = second["result"]["structuredContent"]["results"]
+    assert [node["name"] for node in callers] == ["main"]
 
     status, _, stderr = session.close()
     assert status == 0
     assert stderr.count(BOOT_TRACE) == 1
+
+
+@pytest.mark.parametrize(
+    ("name", "arguments"),
+    [
+        ("list_graph_stats_tool", {}),
+        ("get_docs_section_tool", {"section_name": "trust"}),
+        ("get_docs_section_tool", {"section_name": "trust", "max_chars": 50}),
+    ],
+)
+def test_native_tools_answer_without_python_and_as_python_does(
+    repo: Path, name: str, arguments: dict[str, Any]
+) -> None:
+    replies = []
+    for env in ({}, {"DAGAYN_PYTHON_CLI": "1"}):
+        session = Session(repo, **env)
+        session.open()
+        session.send(
+            {"id": 1, "method": "tools/call", "params": {"name": name, "arguments": arguments}}
+        )
+        replies.append(session.read()["result"])
+        status, _, stderr = session.close()
+        assert status == 0
+        assert BOOT_TRACE not in stderr
+    rust, python = replies
+    assert rust["isError"] is False
+    assert json.loads(rust["content"][0]["text"]) == rust["structuredContent"]
+    assert rust["structuredContent"] == python["structuredContent"]
 
 
 def test_a_request_larger_than_a_pipe_buffer_is_relayed(repo: Path) -> None:
@@ -174,3 +206,20 @@ def _version() -> str:
     from dagayn import __version__
 
     return __version__
+
+
+def test_list_graph_stats_reads_the_graph_without_writing_it(repo: Path) -> None:
+    """Both implementations count vectors read-only; the Python one used to
+    create the embeddings table, which turned `dagayn status` from "not
+    indexed" to "empty"."""
+    import sqlite3
+
+    from dagayn.tools import list_graph_stats
+
+    assert list_graph_stats(repo_root=str(repo))["embeddings_count"] == 0
+    conn = sqlite3.connect(repo / ".dagayn" / "graph.db")
+    try:
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master")}
+    finally:
+        conn.close()
+    assert "embeddings" not in tables

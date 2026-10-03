@@ -57,6 +57,8 @@ def serve_mcp(
     allowed_tools: list[str] | None,
     version: str,
     boot: Callable[[int, int], None],
+    pinned_repo: str | None = None,
+    package_root: str | None = None,
 ) -> None: ...
 def embedding_search(
     db_path: str | PathLike[str],

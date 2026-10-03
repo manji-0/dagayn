@@ -81,6 +81,21 @@ pub struct Config {
     pub version: String,
 }
 
+/// Tools this front end answers itself.
+pub trait Native {
+    /// The JSON text and value of `name(arguments)`, or `None` to delegate.
+    fn call_tool(&self, name: &str, arguments: &Value) -> Option<(String, Value)>;
+}
+
+/// No native tools.
+pub struct NoNative;
+
+impl Native for NoNative {
+    fn call_tool(&self, _name: &str, _arguments: &Value) -> Option<(String, Value)> {
+        None
+    }
+}
+
 /// Where delegated messages go.
 pub trait Backend {
     /// Start serving MCP over newline-delimited JSON: read requests from
@@ -149,9 +164,10 @@ struct Proxy {
     relay: JoinHandle<()>,
 }
 
-struct Session<B: Backend> {
+struct Session<'n, B: Backend> {
     config: Config,
     backend: B,
+    native: &'n dyn Native,
     output: Output,
     /// The client's `initialize` params, once it sent them.
     init_params: Option<Value>,
@@ -159,7 +175,7 @@ struct Session<B: Backend> {
     proxy: Option<Proxy>,
 }
 
-impl<B: Backend> Session<B> {
+impl<B: Backend> Session<'_, B> {
     fn handle(&mut self, line: &str) -> io::Result<()> {
         // A line that is not JSON gets the backend's parse error; it boots the
         // backend, as any message this front end does not answer does.
@@ -191,10 +207,17 @@ impl<B: Backend> Session<B> {
                 }
                 self.forward_if_booted(line)
             }
-            (Some(method), Some(id)) => match self.local_result(method, message.get("params")) {
-                Some(result) => reply(&self.output, id, result),
-                None => self.delegate(line),
-            },
+            (Some(method), Some(id)) => {
+                let params = message.get("params");
+                let result = match method {
+                    "tools/call" => self.native_call(params),
+                    _ => self.local_result(method, params),
+                };
+                match result {
+                    Some(result) => reply(&self.output, id, result),
+                    None => self.delegate(line),
+                }
+            }
             // A reply to a request the backend sent the client.
             (None, _) => self.forward_if_booted(line),
         }
@@ -271,6 +294,52 @@ impl<B: Backend> Session<B> {
         }
     }
 
+    /// A `tools/call` result from [`Native`], shaped as fastmcp shapes a
+    /// tool's dict: the JSON as text and as `structuredContent`. Only for an
+    /// exposed tool, after `initialize`, and for params that carry nothing
+    /// but the name, the arguments, and a plain `_meta`.
+    fn native_call(&self, params: Option<&Value>) -> Option<Value> {
+        self.init_params.as_ref()?;
+        let params = params?.as_object()?;
+        if !params
+            .keys()
+            .all(|key| matches!(key.as_str(), "name" | "arguments" | "_meta"))
+        {
+            return None;
+        }
+        let modern_envelope = params
+            .get("_meta")
+            .and_then(Value::as_object)
+            .is_some_and(|meta| meta.contains_key("io.modelcontextprotocol/protocolVersion"));
+        if modern_envelope {
+            return None;
+        }
+        let name = params.get("name")?.as_str()?;
+        let listed = self
+            .config
+            .surface
+            .tools
+            .iter()
+            .any(|tool| tool.get("name").and_then(Value::as_str) == Some(name));
+        let exposed = listed
+            && self
+                .config
+                .allowed_tools
+                .as_ref()
+                .is_none_or(|allowed| allowed.contains(name));
+        if !exposed {
+            return None;
+        }
+        let empty = json!({});
+        let arguments = params.get("arguments").unwrap_or(&empty);
+        let (text, value) = self.native.call_tool(name, arguments)?;
+        Some(json!({
+            "content": [{"type": "text", "text": text}],
+            "structuredContent": value,
+            "isError": false,
+        }))
+    }
+
     fn forward_if_booted(&mut self, line: &str) -> io::Result<()> {
         match &mut self.proxy {
             Some(proxy) => send(&mut proxy.requests, line),
@@ -342,10 +411,17 @@ fn relay(replies: File, output: &Output) {
 /// Returns after the backend, if it was booted, has closed its replies, so
 /// whatever the caller set up around the server (an embedding sidecar) can
 /// be torn down normally.
-pub fn serve(config: Config, input: File, output: File, backend: impl Backend) -> io::Result<()> {
+pub fn serve(
+    config: Config,
+    input: File,
+    output: File,
+    backend: impl Backend,
+    native: &dyn Native,
+) -> io::Result<()> {
     let mut session = Session {
         config,
         backend,
+        native,
         output: Arc::new(Mutex::new(output)),
         init_params: None,
         initialized: false,
