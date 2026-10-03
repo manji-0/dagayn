@@ -6,6 +6,14 @@ All notable changes to `dagayn` are documented here.
 
 ### Added
 
+- A standalone Rust `dagayn` binary (`crates/dagayn-cli`, not shipped in the
+  wheel yet) whose only command is `build`. It writes the same graph,
+  metadata, and post-processing results as the Python `dagayn build`, which
+  CI checks on every snapshot fixture, and takes the same write lock.
+  `--skip-flows`, `--scip`, embeddings, jj and SVN working copies, and
+  `CRG_DATA_DIR` are refused for now.
+- The MCP snapshots also freeze each fixture's graph (`graph.json`) and
+  metadata, and cover manifest bridges with two more fixtures.
 - MCP response snapshots (`tools/mcp_snapshot.py`,
   `tests/test_mcp_snapshots.py`): each parity fixture is built with the CLI
   and queried through `dagayn serve` over stdio, and 88 read-only tool
@@ -30,6 +38,15 @@ All notable changes to `dagayn` are documented here.
 - `get_minimal_context` assesses graph sync once per call and derives the
   freshness reason codes from it, instead of running the same `git` commands
   up to three times (MCP path: 148 ms to 80 ms on this repository).
+
+### Changed
+
+- Manifest bridge extraction (maturin, setuptools-rust, Cargo, wasm, OpenAPI
+  clients, CMake, meson, node-gyp, Zig, Makefiles) runs in Rust. Two visible
+  differences: generated-client consumer edges come in sorted order instead
+  of hash-seed order, and `.dagaynignore` is matched by the same globset
+  rules that already choose which files to parse (`{a,b}` alternation works,
+  `**/x` also matches `x` at the root).
 
 ### Removed
 

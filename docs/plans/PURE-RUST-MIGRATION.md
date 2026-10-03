@@ -82,8 +82,8 @@ boundary, so the oracle sits there:
 
 - `tools/mcp_snapshot.py` copies each parity fixture into a git repository
   with a fixed commit identity and date, builds it with the CLI, starts
-  `dagayn serve` over stdio, and calls 88 read-only cases across the seven
-  fixtures. It never imports the server; `DAGAYN_CLI_CMD` and
+  `dagayn serve` over stdio, and calls the read-only cases of each
+  fixture. It never imports the server; `DAGAYN_CLI_CMD` and
   `DAGAYN_MCP_SERVER_CMD` point it at another implementation.
 - Payloads are snapshotted, not the MCP envelope. Paths, timestamps, and
   session ids are normalized; an unknown absolute path or timestamp fails
@@ -91,6 +91,11 @@ boundary, so the oracle sits there:
 - `tools_list.json` freezes tool names, parameter names and primitive types,
   required parameters, and prompts, for the default and the full tool sets.
   Full JSON Schemas differ between pydantic and schemars and are not compared.
+- `graph.json` (every node and edge, via `tools/parity_export.py`) and
+  `metadata.json` freeze the database the build wrote, which is the contract
+  between whatever builds and whatever serves. Two manifest fixtures from
+  `tests/fixtures/cross_artifact_manifest/` cover manifest bridges, which no
+  read tool surfaces.
 - `tests/test_mcp_snapshots.py` runs the cases in the normal suite.
 
 Building the oracle found five sources of run-to-run drift, now fixed:
@@ -109,6 +114,18 @@ dirty worktree in the fixture), embeddings, and mutating tools.
 - `clap` binary named `dagayn`, with the current subcommands and flags, so
   `hooks.json`, `.mcp.json`, and installed skills keep working.
 - Start with commands that need no MCP: `status`, `update`, `build`.
+
+First slice (done): `crates/dagayn-cli` builds a `dagayn` binary whose only
+command is `build`, on `crates/dagayn-build` (file discovery, parse-and-store
+moved out of the PyO3 crate, graph metadata, the write lock shared with
+Python, post-processing). Manifest bridge extraction moved to
+`dagayn-postproc`, and the Python build calls it through `_core`. CI runs
+`tests/test_mcp_snapshots.py` with `DAGAYN_CLI_CMD` set to the binary: the
+graph, the metadata, and every tool response match the Python build on all
+nine fixtures. Not ported yet, and refused rather than ignored: `--skip-flows`,
+`--scip`, embeddings, jj and SVN working copies, `CRG_DATA_DIR`, and the editor
+workspace hints in root detection.
+
 - Move tool bodies in `dagayn/tools/` (mostly JSON shaping over `GraphStore`)
   into `dagayn-graph` behind a JSON API.
 - Replace git subprocesses on the freshness path with `gix`.
@@ -127,7 +144,6 @@ dirty worktree in the fixture), embeddings, and mutating tools.
 | `embeddings_store.py` (numpy) | `ndarray` or plain slices |
 | `embeddings_providers.py` | `reqwest` |
 | `local_embeddings.py` | unchanged design: it already runs `llama-server` as a sidecar |
-| `parser/manifest_bridges.py` | `dagayn-postproc` |
 | `refactor/` | `dagayn-graph` |
 
 ### 5.5 Install and skills
@@ -157,6 +173,6 @@ dirty worktree in the fixture), embeddings, and mutating tools.
   it on the fixtures they cover.
 - **MCP SDK parity**: prompt argument handling and error shapes in `rmcp`.
 - **Test strategy**: the snapshots cover less internal state than today's
-  unit tests, and only seven small fixtures.
+  unit tests, and only nine small fixtures.
 - **Scope**: if 5.0 removes the latency users notice, the rest of the
   migration competes with feature work on maintenance value alone.
