@@ -86,13 +86,19 @@ pub(crate) fn changed_files(repo_root: &Path, base: &str) -> Vec<String> {
     )
     .map(|payload| parse_name_status(&payload))
     .unwrap_or_default();
-    let worktree = git_raw(
+    let worktree = worktree_changes(repo_root);
+    dedupe(base_diff.into_iter().chain(worktree))
+}
+
+/// Staged, unstaged, and untracked paths: the `worktree` group of
+/// `get_changed_file_sources` in Python.
+pub(crate) fn worktree_changes(repo_root: &Path) -> Vec<String> {
+    git_raw(
         repo_root,
         &["status", "--porcelain", "-z", "--untracked-files=all"],
     )
     .map(|payload| parse_porcelain(&payload))
-    .unwrap_or_default();
-    dedupe(base_diff.into_iter().chain(worktree))
+    .unwrap_or_default()
 }
 
 fn git_raw(repo_root: &Path, args: &[&str]) -> Option<String> {

@@ -40,3 +40,32 @@ pub fn db_path_for_build(repo_root: &Path) -> Result<PathBuf, DataDirError> {
     }
     Ok(data_dir.join("graph.db"))
 }
+
+/// The other repository a graph says it describes, if any:
+/// `_assert_graph_matches_repo` in Python. A recorded root that no longer
+/// exists counts as this repository (a moved or renamed checkout); only an
+/// existing, different directory is a mismatch.
+pub fn graph_repo_mismatch(store: &dagayn_graph::GraphStore, repo_root: &Path) -> Option<PathBuf> {
+    let recorded = PathBuf::from(store.get_metadata("repo_root").ok().flatten()?);
+    if recorded.as_os_str().is_empty() || recorded == repo_root {
+        return None;
+    }
+    match (recorded.canonicalize(), repo_root.canonicalize()) {
+        (Ok(left), Ok(right)) if left == right => None,
+        (Err(_), _) => None,
+        _ => Some(recorded),
+    }
+}
+
+/// The message Python's `RepoRootMismatchError` carries.
+pub fn graph_repo_mismatch_message(db_path: &Path, recorded: &Path, repo_root: &Path) -> String {
+    format!(
+        "the graph at {} describes {}, not {}, so its results would belong to a different \
+         repository. Pass repo_root explicitly (MCP tools), set CRG_REPO_ROOT, or give the \
+         MCP server entry a cwd/--repo for this project; editors that launch the server \
+         without one resolve the repository from an ambient working directory.",
+        db_path.display(),
+        recorded.display(),
+        repo_root.display()
+    )
+}

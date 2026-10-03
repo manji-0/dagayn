@@ -170,3 +170,78 @@ impl GraphStore {
         Ok(deleted as i64)
     }
 }
+
+/// Embedding coverage of the graph's non-`File` nodes for one provider
+/// partition (all partitions when `None`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EmbeddingCoverage {
+    pub embeddable_nodes: i64,
+    pub indexed_embeddings: i64,
+    pub missing_embeddings: i64,
+    pub orphan_embeddings: i64,
+}
+
+impl GraphStore {
+    /// Row count per provider partition, or `None` when the graph never
+    /// stored embeddings (no table).
+    pub fn embedding_provider_counts(&self) -> Result<Option<HashMap<String, i64>>> {
+        let has_table: bool = self
+            .conn
+            .query_row(
+                "SELECT 1 FROM sqlite_master WHERE type IN ('table', 'view') \
+                 AND name = 'embeddings'",
+                [],
+                |_| Ok(true),
+            )
+            .optional()?
+            .unwrap_or(false);
+        if !has_table {
+            return Ok(None);
+        }
+        let mut stmt = self
+            .conn
+            .prepare("SELECT provider, COUNT(*) FROM embeddings GROUP BY provider")?;
+        let counts = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })?
+            .collect::<std::result::Result<HashMap<_, _>, _>>()?;
+        Ok(Some(counts))
+    }
+
+    /// `get_embedding_status` coverage counts in Python.
+    pub fn embedding_coverage(&self, provider: Option<&str>) -> Result<EmbeddingCoverage> {
+        let clause = if provider.is_some() {
+            "AND e.provider = ?1"
+        } else {
+            ""
+        };
+        let count = |sql: String| -> Result<i64> {
+            Ok(match provider {
+                Some(name) => self.conn.query_row(&sql, [name], |row| row.get(0))?,
+                None => self.conn.query_row(&sql, [], |row| row.get(0))?,
+            })
+        };
+        Ok(EmbeddingCoverage {
+            embeddable_nodes: self.conn.query_row(
+                "SELECT COUNT(*) FROM nodes WHERE kind != 'File'",
+                [],
+                |row| row.get(0),
+            )?,
+            missing_embeddings: count(format!(
+                "SELECT COUNT(*) FROM nodes n WHERE n.kind != 'File' AND NOT EXISTS \
+                 (SELECT 1 FROM embeddings e WHERE e.qualified_name = n.qualified_name {clause})"
+            ))?,
+            indexed_embeddings: count(format!(
+                "SELECT COUNT(DISTINCT e.qualified_name) FROM embeddings e \
+                 JOIN nodes n ON n.qualified_name = e.qualified_name \
+                 WHERE n.kind != 'File' {clause}"
+            ))?,
+            orphan_embeddings: count(format!(
+                "SELECT COUNT(*) FROM embeddings e \
+                 LEFT JOIN nodes n ON n.qualified_name = e.qualified_name \
+                 WHERE n.qualified_name IS NULL {clause}"
+            ))?,
+        })
+    }
+}

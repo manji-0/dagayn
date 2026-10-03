@@ -55,6 +55,11 @@ pub(crate) fn run(args: &BuildArgs) -> Result<ExitCode, String> {
         remove_database(&db_path)?;
     }
     let mut store = GraphStore::open(&db_path).map_err(|err| err.to_string())?;
+    if let Some(recorded) = dagayn_build::graph_repo_mismatch(&store, &repo_root) {
+        return Err(dagayn_build::graph_repo_mismatch_message(
+            &db_path, &recorded, &repo_root,
+        ));
+    }
     let options = BuildOptions {
         recurse_submodules: env_flag("CRG_RECURSE_SUBMODULES"),
         postprocess,

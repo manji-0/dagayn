@@ -1,11 +1,12 @@
 //! The standalone `dagayn` binary.
 //!
-//! Only `build` and `update` are implemented so far; every other command
+//! Only `build`, `update`, and `status` are implemented so far; every other command
 //! still lives in the Python CLI. Flags the Python commands accept but these
 //! do not port yet fail loudly instead of being ignored.
 
 mod build_cmd;
 mod hook;
+mod status_cmd;
 mod update_cmd;
 
 use std::path::{Path, PathBuf};
@@ -35,6 +36,8 @@ enum Command {
     Build(build_cmd::BuildArgs),
     /// Incremental update (only changed files).
     Update(update_cmd::UpdateArgs),
+    /// Show graph statistics.
+    Status(status_cmd::StatusArgs),
 }
 
 fn main() -> ExitCode {
@@ -42,6 +45,7 @@ fn main() -> ExitCode {
     let result = match cli.command {
         Command::Build(args) => build_cmd::run(&args),
         Command::Update(args) => update_cmd::run(&args),
+        Command::Status(args) => status_cmd::run(&args),
     };
     match result {
         Ok(code) => code,

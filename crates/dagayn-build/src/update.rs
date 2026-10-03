@@ -374,14 +374,13 @@ fn indexable_scope(
     Ok((indexable, stale))
 }
 
-/// Extractors whose stored version is behind the running parser and that
-/// parsed something in this graph, and the indexable files they own: those
-/// are re-parsed once even if unchanged.
-fn extractor_reparse_scope(
-    repo_root: &Path,
+/// Extractors whose stored version differs from the running parser and that
+/// parsed something in a graph of `languages`: `outdated_extractors` in
+/// Python. A graph without a stamp counts as version 0.
+pub(crate) fn outdated_extractors(
     store: &GraphStore,
-    indexable: &HashSet<String>,
-) -> Result<(Vec<String>, Vec<String>), GraphError> {
+    languages: &[String],
+) -> Result<Vec<&'static dagayn_parser::ExtractorVersion>, GraphError> {
     let stored: HashMap<String, u32> = store
         .get_metadata(EXTRACTOR_VERSIONS_KEY)?
         .unwrap_or_default()
@@ -391,19 +390,29 @@ fn extractor_reparse_scope(
             Some((name.to_string(), version.parse().ok()?))
         })
         .collect();
-    let behind: Vec<&dagayn_parser::ExtractorVersion> = dagayn_parser::extractor_versions()
+    let present: HashSet<&str> = languages.iter().map(String::as_str).collect();
+    let mut outdated: Vec<&dagayn_parser::ExtractorVersion> = dagayn_parser::extractor_versions()
         .iter()
         .filter(|entry| stored.get(entry.extractor).copied().unwrap_or(0) != entry.version)
+        .filter(|entry| entry.languages.iter().any(|lang| present.contains(lang)))
         .collect();
-    if behind.is_empty() {
+    outdated.sort_by_key(|entry| entry.extractor);
+    Ok(outdated)
+}
+
+/// The outdated extractors and the indexable files they own: those are
+/// re-parsed once even if unchanged.
+fn extractor_reparse_scope(
+    repo_root: &Path,
+    store: &GraphStore,
+    indexable: &HashSet<String>,
+) -> Result<(Vec<String>, Vec<String>), GraphError> {
+    let languages = store.get_stats()?.languages.to_vec();
+    let outdated = outdated_extractors(store, &languages)?;
+    if outdated.is_empty() {
         return Ok((Vec::new(), Vec::new()));
     }
-    let present: HashSet<String> = store.get_stats()?.languages.iter().cloned().collect();
-    let outdated: Vec<&dagayn_parser::ExtractorVersion> = behind
-        .into_iter()
-        .filter(|entry| entry.languages.iter().any(|lang| present.contains(*lang)))
-        .collect();
-    let languages: HashSet<&str> = outdated
+    let owned: HashSet<&str> = outdated
         .iter()
         .flat_map(|entry| entry.languages.iter().copied())
         .collect();
@@ -411,16 +420,15 @@ fn extractor_reparse_scope(
         .iter()
         .filter(|path| {
             dagayn_parser::detect_language(&repo_root.join(path))
-                .is_some_and(|lang| languages.contains(lang))
+                .is_some_and(|lang| owned.contains(lang))
         })
         .cloned()
         .collect();
     files.sort();
-    let mut names: Vec<String> = outdated
+    let names = outdated
         .iter()
         .map(|entry| entry.extractor.to_string())
         .collect();
-    names.sort();
     Ok((names, files))
 }
 

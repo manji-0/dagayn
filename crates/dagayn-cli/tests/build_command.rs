@@ -98,3 +98,28 @@ fn a_directory_that_is_not_a_project_is_refused() {
         "nothing is written on refusal"
     );
 }
+
+#[test]
+fn a_graph_that_describes_another_repository_is_refused() {
+    let first = project("first");
+    let second = project("second");
+    assert!(
+        dagayn(&["build", "--repo", first.0.to_str().expect("utf-8")])
+            .status
+            .success()
+    );
+    std::fs::create_dir_all(second.0.join(".dagayn")).expect("data dir");
+    std::fs::copy(
+        first.0.join(".dagayn/graph.db"),
+        second.0.join(".dagayn/graph.db"),
+    )
+    .expect("copy graph");
+
+    let out = dagayn(&["build", "--repo", second.0.to_str().expect("utf-8")]);
+
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("describes"),
+        "{out:?}"
+    );
+}

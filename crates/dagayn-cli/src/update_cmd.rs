@@ -89,6 +89,11 @@ pub(crate) fn run(args: &UpdateArgs) -> Result<ExitCode, String> {
         Err(err) => return Err(err.to_string()),
     };
     let mut store = GraphStore::open(&db_path).map_err(|err| err.to_string())?;
+    if let Some(recorded) = dagayn_build::graph_repo_mismatch(&store, &repo_root) {
+        return Err(dagayn_build::graph_repo_mismatch_message(
+            &db_path, &recorded, &repo_root,
+        ));
+    }
     let options = UpdateOptions {
         base,
         postprocess,

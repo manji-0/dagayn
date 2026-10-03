@@ -627,7 +627,7 @@ mod write;
 
 pub use embeddings::{embedding_search, embedding_search_prewarm};
 pub use impact_radius::ImpactRadius;
-pub use maintenance::ORPHAN_PRUNE_STEPS;
+pub use maintenance::{EmbeddingCoverage, ORPHAN_PRUNE_STEPS};
 pub use node_queries::NodeSignatureRow;
 pub use search_query::FtsQueryResult;
 pub use subgraph::LocalSubgraph;
