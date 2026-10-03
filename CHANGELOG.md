@@ -2,6 +2,26 @@
 
 All notable changes to `dagayn` are documented here.
 
+## Unreleased
+
+### Fixed
+
+- Edit-hook updates no longer redo post-processing on an unchanged graph.
+  Manifest bridge discovery honored `.dagaynignore` but not `.gitignore`, so
+  it stored nodes for gitignored manifests and for gitignored files a tracked
+  manifest points at; the next `dagayn update` pruned them as out of scope
+  and its post-processing stored them again. Each hook
+  run rebuilt FTS, centrality, and bare-name edges: 1.7 s and 389 MB on this
+  repository, now 0.34 s.
+- `get_minimal_context` assesses graph sync once per call and derives the
+  freshness reason codes from it, instead of running the same `git` commands
+  up to three times (MCP path: 148 ms to 80 ms on this repository).
+
+### Removed
+
+- The unused `igraph` dependency. Community detection has been in Rust since
+  the core migration.
+
 ## 7.1.1 — 2026-10-02
 
 ### Fixed
