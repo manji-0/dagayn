@@ -115,3 +115,56 @@ class TestEndToEnd:
         assert "graph database is corrupt" in out.stderr
         assert not db.exists()
         assert list(db.parent.glob("graph.db.corrupt-*"))
+
+
+class TestQueueAddFastPath:
+    @pytest.mark.parametrize(
+        "args",
+        [
+            ["update", "--repo", "/r"],
+            ["--repo=/r", "prepare", "--no-worker"],
+            ["postprocess", "--repo", "/r", "--priority", "-5", "--idle-seconds", "2.5"],
+        ],
+    )
+    def test_hook_spellings_are_recognised(self, args) -> None:
+        assert _cli_launcher._parse_queue_add(args) is not None
+
+    @pytest.mark.parametrize(
+        "args",
+        [
+            ["update"],  # no --repo: the CLI weighs workspace hints
+            ["embed", "--repo", "/r"],  # embedding payload flags
+            ["update", "--repo", "/r", "--help"],
+            ["update", "--rep", "/r"],  # argparse prefix
+            ["update", "--repo", "/r", "--priority", "high"],
+            ["update", "--repo"],
+            ["update", "prepare", "--repo", "/r"],
+            ["bogus", "--repo", "/r"],
+        ],
+    )
+    def test_everything_else_goes_to_the_cli(self, args) -> None:
+        assert _cli_launcher._parse_queue_add(args) is None
+
+    def test_matches_the_cli_without_loading_it(self, tmp_path) -> None:
+        repo = _project(tmp_path)
+        probe = (
+            "import atexit, sys\n"
+            "atexit.register(lambda: print('cli-loaded' if 'dagayn.cli' in sys.modules"
+            " else 'cli-skipped', file=sys.stderr))\n"
+            "from dagayn._cli_launcher import main; main()"
+        )
+        args = ["queue", "add", "update", "--repo", str(repo), "--no-worker"]
+
+        fast = subprocess.run(  # nosec B603
+            [sys.executable, "-c", probe, *args],
+            capture_output=True,
+            text=True,
+            env=_env(),
+            timeout=60,
+        )
+        python = _launch(*args, DAGAYN_PYTHON_CLI="1")
+
+        assert fast.returncode == python.returncode == 0
+        assert fast.stdout == "queue: added update task #1\n"
+        assert python.stdout == "queue: coalesced update task #1\n"
+        assert "cli-skipped" in fast.stderr
