@@ -380,7 +380,33 @@ of this repository, from starting `dagayn serve` to the first
 | start to first result | 0.64-0.72 s | 0.16-0.17 s |
 | peak memory | 219 MB | 71 MB |
 
-Next: `query_graph_tool`, the most used call after it.
+Fourth slice (done): `query_graph_tool` for `callers_of` and `callees_of`
+at depth 1, `standard` and `minimal`, on a target that names a node exactly
+(qualified name or repository path). The answerability is the full summary
+with the commit-tier freshness of the root the graph records
+(`commit_tier_freshness` in `dagayn-build`; the summary is now one module
+shared with `get_minimal_context`), and the rows are compacted and merged as
+`_compact_row` and `_merge_rows` do. An answer `apply_output_budget` would
+trim is delegated: the front end computes the exact length of Python's
+`json.dumps` for the budget. Python keeps every other pattern, `depth > 1`,
+`full`, targets resolved by name search, builtin and external-package
+targets, and `callers_of` with no direct callers (the bare-name fallback).
+`DAGAYN_MCP_TRACE=1` now also prints each call answered in Rust.
+
+On a worktree of this repository, 168 calls (42 targets, both patterns,
+both detail levels) match fastmcp's answers, 128 of them answered in Rust. A
+session of one `get_minimal_context_tool` and twenty `query_graph_tool`
+calls never starts Python's server:
+
+| | fastmcp loop | Rust front end |
+|---|---|---|
+| start to first context | 0.63 s | 0.17 s |
+| twenty `query_graph_tool` calls | 1.31-1.40 s | 0.66-0.68 s |
+| peak memory | 215 MB | 71 MB |
+
+Next: the rest of `query_graph_tool` (`source_of`, name-search resolution,
+the bare-name fallback), then `semantic_search_nodes_tool` and
+`review_tool`.
 
 ### 5.4 Remaining Python surfaces
 
