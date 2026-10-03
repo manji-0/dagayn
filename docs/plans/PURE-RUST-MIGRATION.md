@@ -420,8 +420,21 @@ fastmcp's answers and are all answered in Rust. `crates/dagayn-tools/tests`
 covers the tools in the Rust suite, which the pytest comparisons do not
 reach.
 
-Next: `semantic_search_nodes_tool` and `review_tool`, and the remaining
-`query_graph_tool` patterns.
+Sixth slice (done): `semantic_search_nodes_tool` when no embedding
+provider takes part: no `provider` or `model` argument, no server default,
+no provider in the environment (`get_provider(None)` and
+`_infer_remote_embedding_provider_from_env`), and no stored vectors a
+persisted provider name could revive. The embedding arm then reports
+`provider_unavailable`, and `hybrid_search` is the FTS arm (with its
+per-identifier sub-queries, ghost-row filtering, the keyword merge for an
+`or` match, and the keyword fallback), the `kind` widening passes, RRF with
+Python's tie order, the kind and dotted-name boosts, and the test deboost;
+`_intent_boost` is 1.0 outside hybrid mode. 68 calls on this repository's
+graph (identifiers, natural language, Japanese, kinds, limits, minimal)
+match fastmcp's answers, all answered in Rust. A graph with embeddings, or
+a server with a provider, still searches in Python.
+
+Next: `review_tool`, and the remaining `query_graph_tool` patterns.
 
 ### 5.4 Remaining Python surfaces
 

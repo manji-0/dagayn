@@ -24,7 +24,9 @@ All notable changes to `dagayn` are documented here.
   as well (about 33 ms instead of 68 ms per call here), so a session of a
   minimal context and such queries stays at 71 MB instead of 215 MB.
   `source_of`, targets given by name, and `callers_of` through the
-  bare-name fallback are answered in Rust as well.
+  bare-name fallback are answered in Rust as well, and so is
+  `semantic_search_nodes_tool` on a graph without embeddings when no
+  embedding provider is configured.
 - The installed `dagayn` command now runs `build`, `update`, and `status` in
   the Rust CLI, compiled into `dagayn._core` (no second binary in the
   wheel). Every other command, `--help`, `--version`, and any flag or
