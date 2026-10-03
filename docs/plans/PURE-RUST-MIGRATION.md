@@ -434,7 +434,25 @@ graph (identifiers, natural language, Japanese, kinds, limits, minimal)
 match fastmcp's answers, all answered in Rust. A graph with embeddings, or
 a server with a provider, still searches in Python.
 
-Next: `review_tool`, and the remaining `query_graph_tool` patterns.
+Seventh slice (done): the rest of `query_graph_tool` but `tests_for`.
+`imports_of`, `importers_of`, `children_of`, `inheritors_of` (with its
+bare-name fallback; `GraphStore::bare_name_edges` now takes the edge kind),
+`file_summary` (including its own `not_found` form), `docs_for`,
+`implementations_of`, and `bridges_from`; the transitive walk of
+`callers_of` and `importers_of` (`_expand_transitive`: breadth-first, each
+node at its shortest hop, 500 rows, and the reachability and closing
+`next_action`); `full` detail (raw rows, edge dicts with the bridge
+metadata, the full answerability, and `_hints`); external-package and
+builtin targets. Rows are built in Python's raw shape and compacted, merged,
+and projected by one shared path, which also fixed the earlier fallback
+condition (Python falls back when there are no rows, not when there are no
+edges). 280 calls over every pattern, level, and depth on this
+repository's graph match fastmcp's answers, all answered in Rust; the
+earlier 288 name and 82 `source_of` comparisons still do. `tests_for` (the
+heuristic test inference in `coverage.py`) and invalid `depth` values stay
+Python's.
+
+Next: `review_tool`.
 
 ### 5.4 Remaining Python surfaces
 
