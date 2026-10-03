@@ -1013,8 +1013,15 @@ def cross_repo_search_tool(
     )
 
 
+def _prompt_texts(messages: list[PromptMessage]) -> list[str]:
+    """The prompt's message texts: fastmcp sends each as a user message and
+    rejects plain dicts, so returning ``PromptMessage`` broke every
+    ``prompts/get``."""
+    return [message["content"] for message in messages]
+
+
 @mcp.prompt()
-def review_changes(base: str = "HEAD~1") -> list[PromptMessage]:
+def review_changes(base: str = "HEAD~1") -> list[str]:
     """Pre-commit review workflow using review_tool, affected flows, and test gaps.
 
     Produces a structured code review with risk levels and actionable findings.
@@ -1022,20 +1029,20 @@ def review_changes(base: str = "HEAD~1") -> list[PromptMessage]:
     Args:
         base: Git ref to diff against. Default: HEAD~1.
     """
-    return review_changes_prompt(base=base)
+    return _prompt_texts(review_changes_prompt(base=base))
 
 
 @mcp.prompt()
-def architecture_map() -> list[PromptMessage]:
+def architecture_map() -> list[str]:
     """Architecture documentation using communities, flows, and Mermaid diagrams.
 
     Generates a comprehensive architecture map with module summaries and coupling warnings.
     """
-    return architecture_map_prompt()
+    return _prompt_texts(architecture_map_prompt())
 
 
 @mcp.prompt()
-def debug_issue(description: str = "") -> list[PromptMessage]:
+def debug_issue(description: str = "") -> list[str]:
     """Guided debugging using search, flow tracing, and recent changes.
 
     Systematic debugging workflow that traces execution paths and identifies root causes.
@@ -1043,20 +1050,20 @@ def debug_issue(description: str = "") -> list[PromptMessage]:
     Args:
         description: Description of the issue to debug.
     """
-    return debug_issue_prompt(description=description)
+    return _prompt_texts(debug_issue_prompt(description=description))
 
 
 @mcp.prompt()
-def onboard_developer() -> list[PromptMessage]:
+def onboard_developer() -> list[str]:
     """New developer orientation using stats, architecture, and critical flows.
 
     Creates an onboarding guide covering codebase structure, key modules, and patterns.
     """
-    return onboard_developer_prompt()
+    return _prompt_texts(onboard_developer_prompt())
 
 
 @mcp.prompt()
-def pre_merge_check(base: str = "HEAD~1") -> list[PromptMessage]:
+def pre_merge_check(base: str = "HEAD~1") -> list[str]:
     """PR readiness check with risk scoring, test gaps, and dead code detection.
 
     Produces a merge readiness report with risk assessment and recommendations.
@@ -1064,7 +1071,7 @@ def pre_merge_check(base: str = "HEAD~1") -> list[PromptMessage]:
     Args:
         base: Git ref to diff against. Default: HEAD~1.
     """
-    return pre_merge_check_prompt(base=base)
+    return _prompt_texts(pre_merge_check_prompt(base=base))
 
 
 def _tool_components() -> ComponentPayload:
