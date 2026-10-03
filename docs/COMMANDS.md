@@ -53,8 +53,10 @@ run without `--repo` outside a plain git checkout or with `CRG_REPO_ROOT` or an
 editor workspace variable set, a corrupt graph) runs the Python CLI instead,
 with the same output. `dagayn queue add` of `update`, `postprocess`, or
 `prepare` with `--repo`, which edit hooks run, likewise enqueues without loading
-the whole CLI. Set `DAGAYN_PYTHON_CLI=1` to run every command through the full
-Python CLI; `python -m dagayn` always does.
+the whole CLI. `dagayn serve` over stdio answers
+the MCP handshake and the tool and prompt listings in Rust and starts the Python
+server only for the first tool call or prompt. Set `DAGAYN_PYTHON_CLI=1` to run
+every command through the full Python CLI; `python -m dagayn` always does.
 
 ### SCIP call resolution
 

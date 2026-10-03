@@ -269,8 +269,55 @@ also logs a `git diff failed` warning on stderr; Rust's does not.
 
 ### 5.3 Rust MCP server
 
-- `rmcp` replaces fastmcp. The server uses 21 tools and 5 prompts, no
-  resources or middleware.
+The server has 21 tools and 5 prompts, no resources or middleware.
+
+First slice (done): a stdio front end in Rust, `crates/dagayn-mcp`, in the
+same process as the Python server rather than `rmcp` in a separate binary.
+It answers `initialize` (handshake revisions 2024-11-05 to 2025-11-25,
+counter-offering 2025-11-25), `ping`, `tools/list` (filtered by the
+`--tools` / `CRG_TOOLS` surface), `prompts/list`, the empty resource
+listings, and `logging/setLevel` before the Python server runs, from
+`dagayn/server/mcp_surface.json`, which `tools/mcp_snapshot.py --regenerate`
+records from the fastmcp server and a test keeps current. Every other
+message (`tools/call`, `prompts/get`, unknown methods, anything before
+`initialize`, the 2026-07-28 envelope, pagination cursors) boots the fastmcp
+server of `dagayn.server.main` in a thread on a pipe pair, replays the
+client's `initialize` to it under the id `dagayn-proxy-init`, and relays the
+session from then on, so validation, serialization, errors, and
+notifications are fastmcp's own. As fastmcp's stdio loop does, fd 0 then
+reads `/dev/null` and fd 1 writes to stderr. On stdin EOF the front end
+closes the pipe, waits for the Python server to finish, and returns, so a
+local embedding sidecar around `serve` is stopped normally. Only the
+`dagayn` console script uses it; `--http`, `python -m dagayn serve`, and
+`DAGAYN_PYTHON_CLI=1` keep fastmcp's own loop. `serverInfo.version` is
+dagayn's version instead of fastmcp's.
+
+`tools/mcp_snapshot.py` now also freezes `protocol.json`: the raw replies to
+the handshake (three revisions and a request before `initialize`), the full
+listings, every prompt rendered, argument errors, and unknown names. Taking
+it showed that `prompts/get` had failed for every prompt under fastmcp 4,
+which is fixed. CI runs the snapshots against the installed `dagayn serve`.
+
+Measured on this repository through the console script:
+
+| Session | fastmcp loop | Rust front end |
+|---|---|---|
+| `initialize` round trip | 0.50 s | 0.15 s |
+| peak memory, listing only | 150 MB | 66 MB |
+| start to first `query_graph_tool` result | 0.66 s | 0.62 s |
+| peak memory after that call | 216 MB | 212 MB |
+
+The console script runs `serve` with only its own command module (the other
+twelve cost 0.07 s), under the same corrupt-graph and jj guards as the full
+CLI. The first call still loads fastmcp and the tools, so a session that
+calls a tool ends where it did. The remaining 0.15 s is Python's start and
+the `serve` preamble: inferring the embedding provider from the graph loads
+`embeddings_store`, which pulls in numpy and, through `embeddings_text` and
+`local_embeddings`, the pydantic contracts (about 0.05 s); deferring one of
+those imports gained nothing while the others remain. Later
+slices answer tools natively in the front end before it delegates, starting
+with the cheapest (`list_graph_stats_tool`, `get_docs_section_tool`); a
+session whose calls are all native never loads Python's server.
 
 ### 5.4 Remaining Python surfaces
 

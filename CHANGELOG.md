@@ -6,6 +6,14 @@ All notable changes to `dagayn` are documented here.
 
 ### Changed
 
+- `dagayn serve` over stdio (from the `dagayn` command) answers
+  `initialize`, `ping`, and the tool, prompt, and resource listings from a
+  Rust front end and loads fastmcp and the tools only for the first call,
+  which it then relays to them unchanged. `initialize` returns in 0.15 s
+  instead of 0.50 s here, and a session that only lists stays at 66 MB
+  instead of 150 MB; a session that calls a tool ends up where it was.
+  `--http`, `python -m dagayn serve`, and `DAGAYN_PYTHON_CLI=1` keep
+  fastmcp's own stdio loop.
 - The installed `dagayn` command now runs `build`, `update`, and `status` in
   the Rust CLI, compiled into `dagayn._core` (no second binary in the
   wheel). Every other command, `--help`, `--version`, and any flag or
