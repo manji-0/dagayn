@@ -1110,7 +1110,22 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(extractor_versions, module)?)?;
     module.add_function(wrap_pyfunction!(discover_manifest_bridges_json, module)?)?;
     module.add_function(wrap_pyfunction!(resolve_manifest_path, module)?)?;
+    module.add_function(wrap_pyfunction!(run_cli, module)?)?;
     Ok(())
+}
+
+/// Run `argv` (program name first) with the Rust CLI: its exit status, or
+/// `None` when the Python CLI should run it instead, in which case nothing
+/// was changed or printed. See `dagayn._cli_launcher`.
+#[pyfunction]
+fn run_cli(py: Python<'_>, argv: Vec<std::ffi::OsString>) -> Option<u8> {
+    if !dagayn_cli::handles_command(&argv) {
+        return None;
+    }
+    match py.detach(|| dagayn_cli::run(argv)) {
+        dagayn_cli::Outcome::Exit(code) => Some(code),
+        dagayn_cli::Outcome::Fallback(_) => None,
+    }
 }
 
 /// Manifest bridges under `repo_root` as `{"nodes": [...], "edges": [...]}`,

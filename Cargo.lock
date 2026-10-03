@@ -389,6 +389,7 @@ name = "dagayn-py"
 version = "0.1.0"
 dependencies = [
  "dagayn-build",
+ "dagayn-cli",
  "dagayn-graph",
  "dagayn-parser",
  "dagayn-postproc",

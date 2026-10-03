@@ -206,28 +206,36 @@ pub(crate) fn print_postprocess_summary(counters: &Value) {
     }
 }
 
-/// `--repo`, else `CRG_REPO_ROOT`, else the nearest ancestor checkout of the
-/// working directory, else the working directory. A run without either
-/// override while an editor workspace hint is set falls back, since Python
-/// weighs those hints against the working directory. A root Python would
-/// reject falls back too, so the user gets Python's message.
+/// `--repo`, else the nearest ancestor git checkout of the working directory.
+///
+/// Without `--repo` the Python commands differ (`update` ignores
+/// `CRG_REPO_ROOT`, `build` and `status` honour it and weigh editor workspace
+/// hints), stop at a nested jj workspace, fall back to SVN or the working
+/// directory, and refuse the home directory and the filesystem root. Only the
+/// case they all agree on is handled here: no `CRG_REPO_ROOT`, no workspace
+/// hint, and a git checkout found by walking up that is not a wide root.
+/// Anything else falls back, as does a root Python would reject, so the user
+/// gets Python's message.
 pub(crate) fn resolve_repo_root(explicit: Option<&Path>) -> Result<PathBuf, Failure> {
-    let override_root = std::env::var("CRG_REPO_ROOT")
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty() && Path::new(value).exists());
-    let candidate = match (explicit, override_root) {
-        (Some(path), _) => path.to_path_buf(),
-        (None, Some(value)) => PathBuf::from(value),
-        (None, None) => {
-            if let Some(var) = WORKSPACE_HINT_ENVS
-                .iter()
+    let candidate = match explicit {
+        Some(path) => path.to_path_buf(),
+        None => {
+            if let Some(var) = std::iter::once("CRG_REPO_ROOT")
+                .chain(WORKSPACE_HINT_ENVS)
                 .find(|var| std::env::var_os(var).is_some_and(|value| !value.is_empty()))
             {
                 return Err(unsupported(&format!("resolving the repository from {var}")));
             }
             let cwd = std::env::current_dir().map_err(|err| err.to_string())?;
-            find_checkout_root(&cwd).unwrap_or(cwd)
+            let root = find_checkout_root(&cwd)
+                .ok_or_else(|| unsupported("a working directory outside a git checkout"))?;
+            if is_wide_root(&root) {
+                return Err(unsupported(&format!(
+                    "using {} as the repository root",
+                    root.display()
+                )));
+            }
+            root
         }
     };
     let resolved = candidate
@@ -252,11 +260,30 @@ pub(crate) fn resolve_repo_root(explicit: Option<&Path>) -> Result<PathBuf, Fail
     Ok(resolved)
 }
 
+/// The nearest ancestor holding `.git`, or `None` when the walk first meets a
+/// jj workspace (`.jj` without `.git`), which `find_repo_root` stops at.
 fn find_checkout_root(start: &Path) -> Option<PathBuf> {
     start
         .ancestors()
-        .find(|dir| dir.join(".git").exists())
+        .find(|dir| dir.join(".git").exists() || dir.join(".jj").is_dir())
+        .filter(|dir| dir.join(".git").exists())
         .map(Path::to_path_buf)
+}
+
+/// The home directory or the filesystem root, which
+/// `dagayn.paths.unsafe_root_reason` refuses unless `DAGAYN_ALLOW_WIDE_ROOT`
+/// is set.
+fn is_wide_root(root: &Path) -> bool {
+    if env_flag("DAGAYN_ALLOW_WIDE_ROOT") {
+        return false;
+    }
+    let resolved = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    if resolved.parent().is_none() {
+        return true;
+    }
+    std::env::var_os("HOME")
+        .and_then(|home| PathBuf::from(home).canonicalize().ok())
+        .is_some_and(|home| home == resolved)
 }
 
 pub(crate) fn write_lock_timeout() -> Duration {

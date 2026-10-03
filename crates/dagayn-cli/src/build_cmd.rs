@@ -1,15 +1,14 @@
 //! `dagayn build`.
 
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
 
 use clap::Args;
 use dagayn_build::{BuildOptions, GraphWriteLock, db_path_for_build};
 use dagayn_graph::GraphStore;
 
 use crate::{
-    env_flag, postprocess_level, print_postprocess_summary, print_warnings, resolve_repo_root,
-    unsupported, write_lock_timeout,
+    Failure, env_flag, postprocess_level, print_postprocess_summary, print_warnings,
+    require_ported_layout, resolve_repo_root, unsupported, write_lock_timeout,
 };
 
 #[derive(Args)]
@@ -34,7 +33,7 @@ pub(crate) struct BuildArgs {
     local_embedding: Option<String>,
 }
 
-pub(crate) fn run(args: &BuildArgs) -> Result<ExitCode, String> {
+pub(crate) fn run(args: &BuildArgs) -> Result<u8, Failure> {
     if args.scip {
         return Err(unsupported("--scip"));
     }
@@ -48,24 +47,24 @@ pub(crate) fn run(args: &BuildArgs) -> Result<ExitCode, String> {
     let postprocess = postprocess_level(args.skip_flows, args.skip_postprocess);
 
     let repo_root = resolve_repo_root(args.repo.as_deref())?;
-    let db_path = db_path_for_build(&repo_root).map_err(|err| err.to_string())?;
+    require_ported_layout(&repo_root)?;
+    let db_path = db_path_for_build(&repo_root)?;
     let _lock =
         GraphWriteLock::acquire(&db_path, write_lock_timeout()).map_err(|err| err.to_string())?;
     if args.force {
         remove_database(&db_path)?;
     }
-    let mut store = GraphStore::open(&db_path).map_err(|err| err.to_string())?;
+    let mut store = GraphStore::open(&db_path)?;
     if let Some(recorded) = dagayn_build::graph_repo_mismatch(&store, &repo_root) {
-        return Err(dagayn_build::graph_repo_mismatch_message(
+        return Err(Failure::Error(dagayn_build::graph_repo_mismatch_message(
             &db_path, &recorded, &repo_root,
-        ));
+        )));
     }
     let options = BuildOptions {
         recurse_submodules: env_flag("CRG_RECURSE_SUBMODULES"),
         postprocess,
     };
-    let report = dagayn_build::full_build(&repo_root, &mut store, &options)
-        .map_err(|err| err.to_string())?;
+    let report = dagayn_build::full_build(&repo_root, &mut store, &options)?;
     drop(store);
 
     println!(
@@ -82,7 +81,7 @@ pub(crate) fn run(args: &BuildArgs) -> Result<ExitCode, String> {
         print_postprocess_summary(counters);
     }
     print_warnings(&report.warnings);
-    Ok(ExitCode::SUCCESS)
+    Ok(0)
 }
 
 fn remove_database(db_path: &Path) -> Result<(), String> {

@@ -311,6 +311,30 @@ pub enum GraphError {
     Scip(String),
 }
 
+impl GraphError {
+    /// SQLite reporting a corrupt or torn image, as
+    /// `dagayn.graph.sqlite_errors.is_sqlite_corrupt_error` decides it.
+    pub fn is_corrupt(&self) -> bool {
+        let GraphError::Sqlite(rusqlite::Error::SqliteFailure(failure, message)) = self else {
+            return false;
+        };
+        if matches!(
+            failure.code,
+            rusqlite::ErrorCode::DatabaseCorrupt | rusqlite::ErrorCode::NotADatabase
+        ) {
+            return true;
+        }
+        let message = message.as_deref().unwrap_or_default().to_lowercase();
+        [
+            "database disk image is malformed",
+            "malformed database schema",
+            "is not a database",
+        ]
+        .iter()
+        .any(|marker| message.contains(marker))
+    }
+}
+
 pub type Result<T> = std::result::Result<T, GraphError>;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

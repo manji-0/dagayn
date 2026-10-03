@@ -1,7 +1,6 @@
 //! `dagayn update`.
 
 use std::path::Path;
-use std::process::ExitCode;
 
 use clap::Args;
 use dagayn_build::{
@@ -14,8 +13,8 @@ use crate::hook::{
     update_budget,
 };
 use crate::{
-    env_flag, postprocess_level, print_postprocess_summary, print_warnings, resolve_repo_root,
-    unsupported, write_lock_timeout,
+    Failure, env_flag, postprocess_level, print_postprocess_summary, print_warnings,
+    require_ported_layout, resolve_repo_root, unsupported, write_lock_timeout,
 };
 
 #[derive(Args)]
@@ -42,7 +41,7 @@ pub(crate) struct UpdateArgs {
     local_embedding: Option<String>,
 }
 
-pub(crate) fn run(args: &UpdateArgs) -> Result<ExitCode, String> {
+pub(crate) fn run(args: &UpdateArgs) -> Result<u8, Failure> {
     if args
         .local_embedding
         .as_deref()
@@ -52,7 +51,8 @@ pub(crate) fn run(args: &UpdateArgs) -> Result<ExitCode, String> {
     }
     let postprocess = postprocess_level(args.skip_flows, args.skip_postprocess);
     let repo_root = resolve_repo_root(args.repo.as_deref())?;
-    let db_path = db_path_for_build(&repo_root).map_err(|err| err.to_string())?;
+    require_ported_layout(&repo_root)?;
+    let db_path = db_path_for_build(&repo_root)?;
     if is_linked_worktree(&repo_root) && !db_path.is_file() {
         // Python seeds a new worktree's graph from the main checkout first.
         return Err(unsupported("seeding a linked worktree's first graph"));
@@ -61,7 +61,7 @@ pub(crate) fn run(args: &UpdateArgs) -> Result<ExitCode, String> {
     let hook = running_from_hook();
     if hook && hook_updates_disabled(&repo_root) {
         println!("Skipped: .dagayn/{HOOK_SKIP_MARKER} disables hook-triggered updates here");
-        return Ok(ExitCode::SUCCESS);
+        return Ok(0);
     }
     start_budget_watchdog(update_budget(args.budget_seconds), "update");
 
@@ -73,34 +73,33 @@ pub(crate) fn run(args: &UpdateArgs) -> Result<ExitCode, String> {
             "Skipped: another process is writing the graph \
              (hook update must not queue behind it)"
         );
-        Ok(ExitCode::SUCCESS)
+        Ok(0)
     };
     let base = match &args.base {
         Some(base) => base.clone(),
         None => match peek_base(&db_path, wait) {
             Ok(base) => base,
             Err(LockError::Busy { .. }) if hook => return skipped(),
-            Err(err) => return Err(err.to_string()),
+            Err(err) => return Err(err.to_string().into()),
         },
     };
     let _lock = match GraphLock::acquire_mode(&db_path, LockMode::Exclusive, wait) {
         Ok(lock) => lock,
         Err(LockError::Busy { .. }) if hook => return skipped(),
-        Err(err) => return Err(err.to_string()),
+        Err(err) => return Err(err.to_string().into()),
     };
-    let mut store = GraphStore::open(&db_path).map_err(|err| err.to_string())?;
+    let mut store = GraphStore::open(&db_path)?;
     if let Some(recorded) = dagayn_build::graph_repo_mismatch(&store, &repo_root) {
-        return Err(dagayn_build::graph_repo_mismatch_message(
+        return Err(Failure::Error(dagayn_build::graph_repo_mismatch_message(
             &db_path, &recorded, &repo_root,
-        ));
+        )));
     }
     let options = UpdateOptions {
         base,
         postprocess,
         recurse_submodules: env_flag("CRG_RECURSE_SUBMODULES"),
     };
-    let report = dagayn_build::incremental_update(&repo_root, &mut store, &options)
-        .map_err(|err| err.to_string())?;
+    let report = dagayn_build::incremental_update(&repo_root, &mut store, &options)?;
     drop(store);
 
     println!(
@@ -116,7 +115,7 @@ pub(crate) fn run(args: &UpdateArgs) -> Result<ExitCode, String> {
         print_postprocess_summary(counters);
     }
     print_warnings(&report.warnings);
-    Ok(ExitCode::SUCCESS)
+    Ok(0)
 }
 
 /// The commit the graph was built at, read under the shared lock; `HEAD~1`

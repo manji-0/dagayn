@@ -16,6 +16,7 @@ extension-module = ["pyo3/extension-module"]
 
 [dependencies]
 dagayn-build = { path = "../dagayn-build" }
+dagayn-cli = { path = "../dagayn-cli" }
 dagayn-graph = { path = "../dagayn-graph" }
 dagayn-parser = { path = "../dagayn-parser" }
 dagayn-postproc = { path = "../dagayn-postproc" }

@@ -45,7 +45,7 @@ PyPI = "https://pypi.org/project/dagayn/"
 Upstream = "https://github.com/tirth8205/code-review-graph"
 
 [project.scripts]
-dagayn = "dagayn.cli:main"
+dagayn = "dagayn._cli_launcher:main"
 dagayn-daemon = "dagayn.daemon_cli:main"
 
 [project.optional-dependencies]

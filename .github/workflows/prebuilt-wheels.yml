@@ -77,6 +77,25 @@ jobs:
           export PATH="${HOME}/.cargo/bin:$PATH"
           uvx maturin build --release --out dist -i python
 
+      - name: Smoke-test the installed dagayn command
+        # The console script runs build/update/status in the Rust CLI inside
+        # ``_core`` and everything else in Python; check both from a fresh
+        # install of the wheel, and that the two agree on ``status``.
+        shell: bash
+        run: |
+          venv="${RUNNER_TEMP}/wheel-smoke"
+          uv venv "$venv" --python "${{ matrix.python-version }}"
+          uv pip install --python "$venv/bin/python" dist/*.whl
+          repo="$(mktemp -d)"
+          cp -R tests/fixtures/parity/python_only/. "$repo"
+          rm -rf "$repo/.dagayn"
+          git -C "$repo" init -q
+          "$venv/bin/dagayn" --version
+          "$venv/bin/dagayn" build --repo "$repo"
+          "$venv/bin/python" -c "import sys; from dagayn import _core; sys.exit(_core.run_cli(['dagayn', 'status', '--repo', sys.argv[1]]))" "$repo" > rust.txt
+          DAGAYN_PYTHON_CLI=1 "$venv/bin/dagayn" status --repo "$repo" > python.txt
+          diff python.txt rust.txt
+
       - name: Upload wheel artifact
         uses: actions/upload-artifact@v7
         with:
