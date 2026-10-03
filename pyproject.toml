@@ -34,7 +34,6 @@ dependencies = [
     "pydantic>=2.10,<3",
     "networkx>=3.2,<4",
     "watchdog>=4.0.0,<6",
-    "igraph>=1.0.0",
 ]
 
 [project.urls]
