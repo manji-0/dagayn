@@ -17,7 +17,7 @@ from ..contracts.state_types import (
     seal_missingness_item,
     seal_reachability_info,
 )
-from ..embeddings import EmbeddingStore
+from ..embeddings_store import get_embedding_provider_counts
 from ..graph import GraphNode, _sanitize_name, edge_to_dict, node_to_dict
 from ..hints import generate_hints, get_session
 from ..incremental import get_changed_files, get_db_path, get_staged_and_unstaged
@@ -750,12 +750,10 @@ def list_graph_stats(repo_root: str | None = None) -> dict[str, Any]:
         store, root = _get_store(repo_root)
         stats = store.get_stats()
 
-        # Add embedding info if available
-        emb_store = EmbeddingStore(get_db_path(root))
-        try:
-            emb_count = emb_store.count()
-        finally:
-            emb_store.close()
+        # Read-only: constructing an EmbeddingStore here created the
+        # embeddings table, so a later `dagayn status` reported "empty"
+        # instead of "not indexed" for a graph nobody had embedded.
+        emb_count = sum(get_embedding_provider_counts(get_db_path(root)).values())
 
         return make_response(
             "ok",

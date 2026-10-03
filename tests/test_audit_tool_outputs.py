@@ -135,23 +135,14 @@ def test_list_graph_stats_has_hints(monkeypatch, tmp_path) -> None:
         def get_stats(self):
             return stats
 
-    class _EmbStore:
-        available = True
-
-        def __init__(self, _db_path):
-            pass
-
-        def count(self):
-            return 3
-
-        def close(self) -> None:
-            pass
-
     monkeypatch.setattr(
         "dagayn.tools.query._get_store",
         lambda repo_root: (_Store(), tmp_path),
     )
-    monkeypatch.setattr("dagayn.tools.query.EmbeddingStore", _EmbStore)
+    monkeypatch.setattr(
+        "dagayn.tools.query.get_embedding_provider_counts",
+        lambda _db_path: {"openai:a": 2, "google:b": 1},
+    )
 
     result = list_graph_stats(repo_root=str(tmp_path))
 
