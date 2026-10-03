@@ -60,6 +60,8 @@ def serve_mcp(
     pinned_repo: str | None = None,
     package_root: str | None = None,
     local_embedding: str | None = None,
+    embedding_provider: str | None = None,
+    embedding_model: str | None = None,
 ) -> None: ...
 def embedding_search(
     db_path: str | PathLike[str],

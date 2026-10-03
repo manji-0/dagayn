@@ -336,3 +336,52 @@ fn a_missing_or_foreign_graph_goes_to_python() {
         json!({"repo_root": elsewhere.to_string_lossy()})
     ));
 }
+
+#[test]
+fn search_without_embeddings_ranks_fts_hits() {
+    let repo = Repo::new("search", false);
+    repo.build();
+    let context = repo.context();
+    let found = answer(
+        &context,
+        "semantic_search_nodes_tool",
+        json!({"query": "helper"}),
+    );
+    assert_eq!(found["search_mode"], "fts_only");
+    assert_eq!(found["embedding_health"]["status"], "provider_unavailable");
+    assert_eq!(found["results"][0]["qualified_name"], "app.py::helper");
+    assert_eq!(found["exactness"]["exact_match_count"], 1);
+    let none = answer(
+        &context,
+        "semantic_search_nodes_tool",
+        json!({"query": "zz_nothing", "detail_level": "minimal"}),
+    );
+    assert_eq!(none["result_count"], 0);
+    assert_eq!(none["zero_result_reason"], "not_found_in_current_graph");
+
+    // Anything that embeds the query is Python's.
+    assert!(declines(
+        &context,
+        "semantic_search_nodes_tool",
+        json!({"query": "x", "provider": "openai"})
+    ));
+    let mut configured = repo.context();
+    configured.embedding_provider = Some("openai".to_string());
+    assert!(declines(
+        &configured,
+        "semantic_search_nodes_tool",
+        json!({"query": "helper"})
+    ));
+    let conn = rusqlite::Connection::open(repo.0.join(".dagayn/graph.db")).expect("open");
+    conn.execute(
+        "INSERT INTO embeddings (qualified_name, vector, text_hash, provider) \
+         VALUES ('app.py::main', x'00000000', 'h', 'local#dim=1')",
+        [],
+    )
+    .expect("insert vector");
+    assert!(declines(
+        &context,
+        "semantic_search_nodes_tool",
+        json!({"query": "helper"})
+    ));
+}

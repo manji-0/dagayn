@@ -415,6 +415,7 @@ dependencies = [
  "dagayn-build",
  "dagayn-graph",
  "regex",
+ "rusqlite",
  "serde_json",
  "sha2",
 ]

@@ -335,3 +335,42 @@ def test_query_graph_leaves_the_rest_to_python(git_repo: Path, arguments: dict[s
     rust, python, stderr = _call_both(git_repo, "query_graph_tool", arguments)
     assert NATIVE_TRACE not in stderr
     assert rust == python
+
+
+SEARCH_TRACE = "answered semantic_search_nodes_tool in Rust"
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"query": "helper"},
+        {"query": "main", "kind": "Function", "limit": 1},
+        {"query": "app.main", "detail_level": "minimal"},
+        {"query": "test_main"},
+        {"query": "no_such_thing_here"},
+    ],
+)
+def test_search_without_embeddings_answers_as_python_does(
+    git_repo: Path, arguments: dict[str, Any]
+) -> None:
+    rust, python, stderr = _call_both(git_repo, "semantic_search_nodes_tool", arguments)
+    assert SEARCH_TRACE in stderr
+    assert BOOT_TRACE not in stderr
+    assert rust["structuredContent"] == python["structuredContent"]
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"query": "helper", "provider": "openai"},
+        {"query": "helper", "model": "m"},
+        {"query": "helper", "limit": 0},
+        {"query": "   "},
+    ],
+)
+def test_search_leaves_embedding_and_errors_to_python(
+    git_repo: Path, arguments: dict[str, Any]
+) -> None:
+    rust, python, stderr = _call_both(git_repo, "semantic_search_nodes_tool", arguments)
+    assert SEARCH_TRACE not in stderr
+    assert rust == python

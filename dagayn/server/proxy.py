@@ -73,6 +73,10 @@ def serve_stdio(**config: Any) -> None:
                 package_root=str(Path(__file__).resolve().parent.parent.parent),
                 # get_minimal_context decides a local embedding refresh with it.
                 local_embedding=config.get("local_embedding"),
+                # Search embeds the query with these; the environment's
+                # provider is checked in Rust as `get_provider` checks it.
+                embedding_provider=config.get("embedding_provider"),
+                embedding_model=config.get("embedding_model"),
             )
         except BaseException as exc:  # noqa: BLE001 - re-raised on the main thread
             failures.append(exc)

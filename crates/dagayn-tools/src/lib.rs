@@ -10,6 +10,7 @@ mod answerability;
 mod context;
 mod docs;
 mod query;
+mod search;
 mod source;
 mod stats;
 
@@ -33,6 +34,10 @@ pub struct Context {
     /// `dagayn serve`'s local embedding default (`--local-embedding`, or the
     /// one inferred from the graph); `None` or `"none"` when off.
     pub local_embedding: Option<String>,
+    /// `dagayn serve`'s default embedding provider and model for search
+    /// (`--remote-embedding`, or a local sidecar's), when it has one.
+    pub embedding_provider: Option<String>,
+    pub embedding_model: Option<String>,
 }
 
 /// A tool result: its JSON text with the Python tool's top-level key order,
@@ -51,6 +56,7 @@ pub fn call(context: &Context, name: &str, arguments: &Value) -> Option<Payload>
         "get_docs_section_tool" => docs::get_docs_section(context, arguments),
         "get_minimal_context_tool" => context::get_minimal_context(context, arguments),
         "query_graph_tool" => query::query_graph(context, arguments),
+        "semantic_search_nodes_tool" => search::semantic_search(context, arguments),
         _ => None,
     }
 }
