@@ -10,3 +10,4 @@ dagayn-build = { path = "../dagayn-build" }
 dagayn-graph = { path = "../dagayn-graph" }
 regex.workspace = true
 serde_json.workspace = true
+sha2.workspace = true

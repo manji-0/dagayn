@@ -10,6 +10,7 @@ mod answerability;
 mod context;
 mod docs;
 mod query;
+mod source;
 mod stats;
 
 use std::collections::HashSet;
@@ -62,6 +63,14 @@ pub(crate) struct Ordered(Vec<(String, Value)>);
 impl Ordered {
     pub(crate) fn put(mut self, key: &str, value: impl Into<Value>) -> Self {
         self.0.push((key.to_string(), value.into()));
+        self
+    }
+
+    /// Replace a key's value in place, keeping its position.
+    pub(crate) fn replace(mut self, key: &str, value: Value) -> Self {
+        if let Some(slot) = self.0.iter_mut().find(|(existing, _)| existing == key) {
+            slot.1 = value;
+        }
         self
     }
 

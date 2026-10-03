@@ -116,7 +116,7 @@ def test_the_first_call_loads_it_and_local_replies_do_not_wait(repo: Path) -> No
             # Not answered in Rust yet.
             "params": {
                 "name": "query_graph_tool",
-                "arguments": {"pattern": "callers_of", "target": "helper"},
+                "arguments": {"pattern": "children_of", "target": "app.py"},
             },
         }
     )
@@ -125,8 +125,8 @@ def test_the_first_call_loads_it_and_local_replies_do_not_wait(repo: Path) -> No
     first, second = session.read(), session.read()
     assert first == {"jsonrpc": "2.0", "id": 2, "result": {}}
     assert second["id"] == 1
-    callers = second["result"]["structuredContent"]["results"]
-    assert [node["name"] for node in callers] == ["main"]
+    children = second["result"]["structuredContent"]["results"]
+    assert {node["name"] for node in children} == {"main", "helper"}
 
     status, _, stderr = session.close()
     assert status == 0
@@ -304,9 +304,15 @@ NATIVE_TRACE = "answered query_graph_tool in Rust"
         {"pattern": "callers_of", "target": "app.py::main", "detail_level": "minimal"},
         {"pattern": "callees_of", "target": "app.py::main"},
         {"pattern": "callees_of", "target": "app.py::helper", "detail_level": "minimal"},
+        {"pattern": "callers_of", "target": "helper"},  # resolved by name search
+        {"pattern": "callees_of", "target": "no_such_symbol"},
+        {"pattern": "source_of", "target": "app.py::main"},
+        {"pattern": "source_of", "target": "main", "detail_level": "minimal"},
+        # Nothing calls it by its qualified name: the bare-name fallback.
+        {"pattern": "callers_of", "target": "test_app.py::test_main"},
     ],
 )
-def test_query_graph_answers_exact_targets_as_python_does(
+def test_query_graph_answers_in_rust_as_python_does(
     git_repo: Path, arguments: dict[str, Any]
 ) -> None:
     rust, python, stderr = _call_both(git_repo, "query_graph_tool", arguments)
@@ -319,10 +325,9 @@ def test_query_graph_answers_exact_targets_as_python_does(
 @pytest.mark.parametrize(
     "arguments",
     [
-        {"pattern": "callers_of", "target": "helper"},  # resolved by name search
         {"pattern": "callers_of", "target": "app.py::helper", "depth": 2},
         {"pattern": "callers_of", "target": "app.py::helper", "detail_level": "full"},
-        {"pattern": "source_of", "target": "app.py::main"},
+        {"pattern": "children_of", "target": "app.py"},
         {"pattern": "callers_of", "target": "app.py::main", "detail_level": "minimal", "x": 1},
     ],
 )

@@ -167,7 +167,6 @@ impl Answerability {
     }
 
     /// The full summary, `counts` included.
-    #[allow(dead_code)]
     pub(crate) fn full(&self) -> Value {
         let mut health = self.without_counts();
         if let Some(map) = health.as_object_mut() {

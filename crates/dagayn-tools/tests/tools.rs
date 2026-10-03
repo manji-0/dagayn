@@ -260,14 +260,52 @@ fn query_graph_answers_callers_and_callees_of_exact_targets() {
     assert!(minimal.get("guidance").is_none());
     assert_eq!(minimal["results"][0]["evidence_type"], "extracted");
 
-    for arguments in [
+    // Found by name: reported by its qualified name.
+    let by_name = answer(
+        &context,
+        "query_graph_tool",
         json!({"pattern": "callers_of", "target": "helper"}),
+    );
+    assert_eq!(by_name["resolution"], "exact_name");
+    assert_eq!(by_name["target"], "app.py::helper");
+    assert_eq!(by_name["original_target"], "helper");
+    let missing = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "callees_of", "target": "zz_no_such_symbol"}),
+    );
+    assert_eq!(missing["status"], "not_found");
+    assert_eq!(
+        missing["_hints"]["warnings"],
+        json!(["not_found_in_current_graph"])
+    );
+
+    // The live span, as the worktree holds it.
+    let source = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "source_of", "target": "app.py::helper"}),
+    );
+    assert_eq!(source["results"][0]["source"], "def helper():\n    pass");
+    assert_eq!(source["source_coverage"]["truncated"], false);
+    assert_eq!(source["status"], "ok");
+    repo.write(
+        "app.py",
+        "def main():\n    return helper()\n\n\ndef helper():\n    return 2\n",
+    );
+    let stale = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "source_of", "target": "app.py::helper"}),
+    );
+    assert_eq!(stale["status"], "degraded");
+    assert_eq!(stale["results"][0]["source_stale"], true);
+
+    for arguments in [
         json!({"pattern": "callers_of", "target": "app.py::helper", "depth": 2}),
         json!({"pattern": "callers_of", "target": "app.py::helper", "detail_level": "full"}),
-        json!({"pattern": "source_of", "target": "app.py::main"}),
+        json!({"pattern": "children_of", "target": "app.py"}),
         json!({"pattern": "callers_of", "target": "map"}),
-        // No direct callers: the bare-name fallback is Python's.
-        json!({"pattern": "callers_of", "target": "test_app.py::test_main"}),
     ] {
         assert!(
             declines(&context, "query_graph_tool", arguments.clone()),

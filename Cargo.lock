@@ -416,6 +416,7 @@ dependencies = [
  "dagayn-graph",
  "regex",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]

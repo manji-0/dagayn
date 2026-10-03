@@ -710,6 +710,44 @@ impl GraphStore {
         Ok(symbol_visibility(&self.conn)?.as_string_lists())
     }
 
+    /// The `CALLS` edges that name `target` only by its bare name and can
+    /// plausibly mean it: `callers_of`'s fallback when nothing calls it by its
+    /// qualified name (`dagayn.tools.query_graph_support.filter_bare_name_fallback_edges`).
+    /// Calls into external packages never qualify; a name only one function or
+    /// class carries needs no import evidence; otherwise the calling file must
+    /// see the target's file (or its class declaration) by import or namespace.
+    pub fn bare_name_callers(&self, target: &GraphNode) -> Result<Vec<GraphEdge>> {
+        let edges = self.search_edges_by_target_name(&target.name, "CALLS")?;
+        if edges.is_empty() {
+            return Ok(edges);
+        }
+        let edges: Vec<GraphEdge> = edges
+            .into_iter()
+            .filter(|edge| edge.extra.get("external") != Some(&Value::Bool(true)))
+            .collect();
+        if !target.name.is_empty() {
+            let counts =
+                self.count_nodes_by_name(&["Function".to_string(), "Class".to_string()], false)?;
+            if counts.get(&target.name) == Some(&1) {
+                return Ok(edges);
+            }
+        }
+        let import_targets = import_targets_conn(&self.conn)?;
+        let visibility = symbol_visibility(&self.conn)?;
+        Ok(edges
+            .into_iter()
+            .filter(|edge| {
+                is_plausible_bare_edge(
+                    &node_file_from_qualified(&edge.source_qualified, &edge.file_path),
+                    &target.file_path,
+                    &import_targets,
+                    &visibility,
+                    &target.qualified_name,
+                )
+            })
+            .collect())
+    }
+
     /// Resolves the call targets a single file could not: symbols named
     /// through a module that re-exports them (`pkg/__init__.py::NodeInfo`),
     /// then bare names (by import visibility, declaring class, receiver
