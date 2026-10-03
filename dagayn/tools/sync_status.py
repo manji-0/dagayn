@@ -274,6 +274,30 @@ def commit_tier_freshness(store: Any, repo_root: str | Path) -> SyncPayload:
     return payload
 
 
+def commit_tier_from_sync(sync: Mapping[str, Any]) -> SyncPayload:
+    """Derive :func:`commit_tier_freshness` from an :func:`assess_graph_sync` result.
+
+    The full assessment already ran the same ``git`` invocations and metadata
+    reads, so a caller holding one need not pay for them twice.
+    """
+    current_sha = sync.get("current_head_sha")
+    if sync.get("vcs") not in GIT_BACKED_VCS or not current_sha:
+        return {"state": None}
+    stored_sha = sync.get("git_head_sha")
+    state: GraphSyncStateName = "commit_synced" if stored_sha == current_sha else "commit_drift"
+    payload: SyncPayload = {
+        "state": state,
+        "git_head_sha": stored_sha,
+        "current_head_sha": current_sha,
+        "worktree_dirty": bool(sync.get("worktree_dirty")),
+    }
+    extractor_drift = sync.get("extractor_drift")
+    if extractor_drift:
+        payload["state"] = "commit_drift"
+        payload["extractor_drift"] = extractor_drift
+    return payload
+
+
 def _seed_needs_verification(store: Any) -> bool:
     """True when this graph was seeded from another checkout and not yet checked."""
     try:

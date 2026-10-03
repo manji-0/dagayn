@@ -239,6 +239,28 @@ class TestAssessGraphSyncContract:
         assert is_structure_ready(sync) is True
         assert needs_mcp_auto_prepare(sync) is False
 
+    def test_commit_tier_from_sync_matches_commit_tier_freshness(self, main_repo: Path):
+        """get_minimal_context derives freshness from its sync instead of re-running git."""
+        from dagayn.tools.sync_status import commit_tier_freshness, commit_tier_from_sync
+
+        db = main_repo / ".dagayn" / "graph.db"
+        db.parent.mkdir(parents=True, exist_ok=True)
+        store = GraphStore(str(db))
+        try:
+            full_build(main_repo, store)
+
+            def check() -> None:
+                derived = commit_tier_from_sync(assess_graph_sync(store, main_repo))
+                assert derived == commit_tier_freshness(store, main_repo)
+
+            check()
+            (main_repo / "hello.py").write_text("def edited():\n    pass\n", encoding="utf-8")
+            check()
+            git(main_repo, "commit", "-am", "move HEAD")
+            check()
+        finally:
+            store.close()
+
     def test_older_extractor_is_commit_drift_until_update(self, main_repo: Path):
         """A graph parsed by an older extractor is degraded even at HEAD."""
         from dagayn.extractor_versions import (

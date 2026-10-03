@@ -741,7 +741,10 @@ def guidance_actions_to_hints(
     return {"next_steps": next_steps, "related": [], "warnings": warnings}
 
 
-def _freshness_reason_codes(store: Any) -> tuple[list[str], ToolPayload]:
+def _freshness_reason_codes(
+    store: Any,
+    freshness: Mapping[str, Any] | None = None,
+) -> tuple[list[str], ToolPayload]:
     """Return freshness reason codes for the graph behind *store*.
 
     A graph that answers for the wrong commit, or that predates the edits in
@@ -751,16 +754,17 @@ def _freshness_reason_codes(store: Any) -> tuple[list[str], ToolPayload]:
     before: freshness lived only in ``session prepare`` and
     ``get_minimal_context``.
     """
-    try:
-        root = store.get_repo_root()
-    except Exception:  # noqa: BLE001 — disclosure must never break a response
-        return [], {}
-    if root is None:
-        return [], {}
-    try:
-        freshness = commit_tier_freshness(store, root)
-    except Exception:  # noqa: BLE001
-        return [], {}
+    if freshness is None:
+        try:
+            root = store.get_repo_root()
+        except Exception:  # noqa: BLE001 — disclosure must never break a response
+            return [], {}
+        if root is None:
+            return [], {}
+        try:
+            freshness = commit_tier_freshness(store, root)
+        except Exception:  # noqa: BLE001
+            return [], {}
 
     state = freshness.get("state")
     if state is None:
@@ -782,8 +786,17 @@ def _freshness_reason_codes(store: Any) -> tuple[list[str], ToolPayload]:
     return codes, counts
 
 
-def graph_answerability_summary(store: Any, stats: Any | None = None) -> AnswerabilityRecord:
-    """Summarize whether the current graph can support calibrated claims."""
+def graph_answerability_summary(
+    store: Any,
+    stats: Any | None = None,
+    *,
+    freshness: Mapping[str, Any] | None = None,
+) -> AnswerabilityRecord:
+    """Summarize whether the current graph can support calibrated claims.
+
+    *freshness* is a :func:`commit_tier_freshness` payload the caller already
+    has; without one it is computed here.
+    """
     if stats is None:
         try:
             stats = store.get_stats()
@@ -890,7 +903,7 @@ def graph_answerability_summary(store: Any, stats: Any | None = None) -> Answera
         if stale_flow_membership_count > 0 or unassigned_node_count > 0:
             reason_codes.append("stale_derived_structures")
             score -= 0.15
-        freshness_codes, freshness_counts = _freshness_reason_codes(store)
+        freshness_codes, freshness_counts = _freshness_reason_codes(store, freshness)
         for code in freshness_codes:
             reason_codes.append(code)
             score -= (

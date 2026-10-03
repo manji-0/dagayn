@@ -21,6 +21,7 @@ from ._common import (
     is_sqlite_corrupt_error,
     recover_corrupt_graph,
 )
+from .sync_status import SyncPayload
 
 logger = logging.getLogger(__name__)
 
@@ -189,9 +190,13 @@ def _names_from_items(items: Sequence[Mapping[str, object]], *, limit: int) -> l
     return names
 
 
-def _graph_answerability(store: Any, stats: Any) -> AnswerabilityRecord:
+def _graph_answerability(
+    store: Any,
+    stats: Any,
+    freshness: Mapping[str, Any] | None = None,
+) -> AnswerabilityRecord:
     """Summarize whether the graph can answer review/exploration questions."""
-    summary = graph_answerability_summary(store, stats)
+    summary = graph_answerability_summary(store, stats, freshness=freshness)
     # get_minimal_context has a strict compactness budget; detailed counts are
     # available from non-minimal dispatcher calls. reason_codes stay: they are
     # the only signal of *why* status is degraded (or which post-processing is
@@ -316,6 +321,7 @@ def _get_minimal_context_body(
 ) -> ToolPayload:
     prepare_result: ToolPayload | None = None
     repair_info: dict[str, object] | None = None
+    probe_sync: SyncPayload | None = None
     if auto_prepare:
         from .sync_status import (
             assess_graph_sync,
@@ -325,7 +331,7 @@ def _get_minimal_context_body(
 
         probe_store, probe_root = _get_store(repo_root, cached=False)
         try:
-            sync = assess_graph_sync(probe_store, probe_root)
+            sync = probe_sync = assess_graph_sync(probe_store, probe_root)
             db_path = get_db_path(Path(probe_root))
             refresh = embedding_refresh_action(db_path, local_embedding=local_embedding)
         finally:
@@ -381,12 +387,14 @@ def _get_minimal_context_body(
     # cached sqlite handle across concurrent MCP calls.
     store, root = _get_store(repo_root, cached=False)
     try:
-        from .sync_status import assess_graph_sync, sync_state
+        from .sync_status import assess_graph_sync, commit_tier_from_sync, sync_state
 
         # 1. Quick stats
         stats = store.get_stats()
-        graph_health = _graph_answerability(store, stats)
-        sync = assess_graph_sync(store, root)
+        # Repair is only queued above, never run inline, so the probe's
+        # assessment still describes this graph.
+        sync = probe_sync if probe_sync is not None else assess_graph_sync(store, root)
+        graph_health = _graph_answerability(store, stats, commit_tier_from_sync(sync))
 
         # 2. Route the task before optional risk analysis so non-review entry
         # points stay cheap even when the default base has a large diff.
