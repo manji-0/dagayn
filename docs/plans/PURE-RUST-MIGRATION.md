@@ -146,6 +146,16 @@ Deliberate differences from the Python CLI:
 - `tests/test_update_parity.py` starts both runs from a Python build, to
   isolate `update`; a Rust build is covered by the snapshot step.
 
+Third slice (done): `status`, with the embedding coverage, the stored VCS
+facts, and the sync assessment (commit, extractor, and diff tiers). The
+parity test compares its output with Python's on every fixture in each sync
+state, with and without embeddings. A warm `status` here takes 0.07 s and
+74 MB instead of 0.28 s and 141 MB. `build` and `update` also refuse a graph
+that records another existing repository, as Python's `_get_store` does.
+
+The binary now covers every command the generated hooks call (`status`,
+`update`); shipping it in place of the Python entry point is a separate step.
+
 Not ported yet, and refused rather than ignored: `--scip`, embeddings, jj
 and SVN working copies, `CRG_DATA_DIR`, seeding a linked worktree's first
 graph, and the editor workspace hints in root detection.

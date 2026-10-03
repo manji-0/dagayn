@@ -7,13 +7,16 @@ All notable changes to `dagayn` are documented here.
 ### Added
 
 - A standalone Rust `dagayn` binary (`crates/dagayn-cli`, not shipped in the
-  wheel yet) with `build` and `update`. Both write the same graph, metadata,
+  wheel yet) with `build`, `update`, and `status`, every command the
+  generated hooks call. `status` prints what the Python one prints in each
+  sync state. `build` and `update` write the same graph, metadata,
   and post-processing results as the Python CLI, which CI checks on every
   snapshot fixture (`update` through three rounds of edits, deletions, and
   renames), and take the same lock. `update` keeps the hook behaviour:
   `DAGAYN_HOOK_UPDATE` skips instead of waiting for a writer, honours
   `.dagayn/hook-skip`, and stops after `--budget-seconds` (120 s for hooks).
-  A warm hook update with nothing to do takes 0.09 s instead of 0.32 s here.
+  A warm hook update with nothing to do takes 0.09 s instead of 0.32 s here,
+  and `status` 0.07 s instead of 0.28 s.
   `--scip`, embeddings, jj and SVN working copies, `CRG_DATA_DIR`, and seeding
   a new worktree's graph are refused for now.
 - The MCP snapshots also freeze each fixture's graph (`graph.json`) and
