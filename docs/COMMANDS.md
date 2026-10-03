@@ -45,6 +45,15 @@ or `not_indexed`) and provider-level vector counts. It also prints the VCS
 branch/revision recorded at build time and warns when the working copy has
 moved to a different git branch/commit or SVN path/revision.
 
+The installed `dagayn` command runs `build`, `update`, and `status` in the
+Rust CLI compiled into `dagayn._core`, so a hook's `dagayn update` does not load
+the Python CLI. Anything the Rust CLI does not handle yet (other flags such as
+`--scip` or `--local-embedding`, jj and SVN working copies, `CRG_DATA_DIR`, a
+run without `--repo` outside a plain git checkout or with `CRG_REPO_ROOT` or an
+editor workspace variable set, a corrupt graph) runs the Python CLI instead,
+with the same output. Set `DAGAYN_PYTHON_CLI=1` to run every command in Python;
+`python -m dagayn` always does.
+
 ### SCIP call resolution
 
 <!-- derived-from ./plans/SCIP-CALL-RESOLUTION.md -->

@@ -154,11 +154,61 @@ state, with and without embeddings. A warm `status` here takes 0.07 s and
 that records another existing repository, as Python's `_get_store` does.
 
 The binary now covers every command the generated hooks call (`status`,
-`update`); shipping it in place of the Python entry point is a separate step.
+`update`).
 
-Not ported yet, and refused rather than ignored: `--scip`, embeddings, jj
-and SVN working copies, `CRG_DATA_DIR`, seeding a linked worktree's first
-graph, and the editor workspace hints in root detection.
+Fourth slice (done): the installed `dagayn` runs these commands in Rust.
+`crates/dagayn-cli` is a library as well as the binary, `_core.run_cli`
+exposes it, and the `dagayn` console script (`dagayn/_cli_launcher.py`)
+imports only `_core` before handing the command line to it. `run` answers
+`Fallback` for anything it does not handle the way Python would, decided
+before it takes the lock, deletes or opens the database, or prints, and the
+launcher then runs the Python CLI in the same process. A second binary in
+the wheel was the alternative; it was rejected because the release binary
+is 102 MB (it links every grammar, as `_core` does) and starting Python and
+loading `_core` costs only 0.01 s and 20 MB. Measured on this repository
+(warm, nothing to update):
+
+| `DAGAYN_HOOK_UPDATE=1 dagayn update --skip-flows` | Time | Memory |
+|---|---|---|
+| Python CLI | 0.33 s | 190 MB |
+| `dagayn` console script (Rust in `_core`) | 0.11 s | 108 MB |
+| standalone binary | 0.09 s | 90 MB |
+
+`status` through the console script: 0.08 s and 92 MB.
+
+What falls back to Python: every other subcommand, `--help`, `--version`,
+any argument clap rejects (including argparse's prefix abbreviations), and
+these, which are not ported yet: `--scip`, embeddings, jj and SVN working
+copies, `CRG_DATA_DIR`, a legacy `.dagayn.db`, seeding a linked worktree's
+first graph, a root Python would reject (so the user gets Python's
+message), and a corrupt database (Python quarantines it). Without `--repo`,
+the Python commands resolve the root differently from each other (`update`
+ignores `CRG_REPO_ROOT`, `build` and `status` honour it and weigh editor
+workspace variables), stop at a nested jj workspace, accept SVN or the
+working directory, and refuse the home directory and the filesystem root;
+Rust handles only the case they agree on (no `CRG_REPO_ROOT`, no
+`CLAUDE_PROJECT_DIR`, `CURSOR_PROJECT_DIR`, or `WORKSPACE_FOLDER_PATHS`, and
+a git checkout above the working directory that is not a wide root) and
+falls back otherwise.
+The standalone binary prints the reason and exits 1 instead.
+`DAGAYN_PYTHON_CLI=1` runs everything in Python; `python -m dagayn`, which
+the parity tests use as the Python side, always does. Prebuilt Wheels
+installs each wheel into a fresh venv and compares the two `status` outputs.
+
+Who this reaches: hooks that call `dagayn update` or `dagayn status`
+directly (the plugin's `hooks/hooks.json`, commit-time checks, the git
+`post-commit` hook, Cursor and opencode). The Claude Code and Codex edit
+hooks that `dagayn install` writes run `dagayn queue add update` instead,
+which is still Python (0.17 s and 71 MB per edit here), and the queue worker
+runs `build_or_update_graph` in Python. Porting `queue add` and having the
+worker run updates through `_core.run_cli` are the next steps for edit
+hooks.
+
+In-process consequences: the launcher restores the default SIGINT handler
+while Rust runs, since Python would only act on Ctrl-C between bytecodes;
+the hook budget watchdog's `process::exit` ends the Python process, which
+has printed nothing. On a repository without commits, Python's `status`
+also logs a `git diff failed` warning on stderr; Rust's does not.
 
 - Move tool bodies in `dagayn/tools/` (mostly JSON shaping over `GraphStore`)
   into `dagayn-graph` behind a JSON API.
@@ -189,6 +239,7 @@ graph, and the editor workspace hints in root detection.
 
 - Publish a PyPI wheel that contains only the binary, as ruff and uv do, so
   `uv tool install dagayn` keeps working. Add `cargo-dist` and Homebrew.
+  Until then the Rust CLI ships inside `_core` (5.2, fourth slice).
 - `eval/`, `wiki.py`, `visualization/`, and the matplotlib export in
   `exports.py` stay as Python dev scripts or are removed.
 
