@@ -16,7 +16,10 @@ All notable changes to `dagayn` are documented here.
   fastmcp's own stdio loop. `list_graph_stats_tool` and
   `get_docs_section_tool` are answered in Rust as well when the repository
   is given or pinned and its graph is ready, so a session that only uses
-  them never starts Python's server.
+  them never starts Python's server. `get_minimal_context_tool`, the first
+  call of a session, is answered in Rust too when the graph is at HEAD and
+  nothing needs to be queued: from starting the server to its result takes
+  0.17 s and 71 MB instead of 0.65 s and 219 MB here.
 - The installed `dagayn` command now runs `build`, `update`, and `status` in
   the Rust CLI, compiled into `dagayn._core` (no second binary in the
   wheel). Every other command, `--help`, `--version`, and any flag or

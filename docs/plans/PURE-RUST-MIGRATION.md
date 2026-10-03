@@ -354,9 +354,33 @@ gap `export_db` now catches by recording `sqlite_master`). The hazard
 remains wherever Python writes the graph while the native store holds it;
 moving `embeddings_store` to Rust (5.4) removes it.
 
-Next: the tools a session calls first and most (`get_minimal_context_tool`,
-`query_graph_tool`), which decide whether a typical session ever needs
-Python.
+Third slice (done): `get_minimal_context_tool`, the call the server's
+instructions put first. `dagayn-tools` answers it for a graph at HEAD
+(`commit_synced`, `worktree_behind`, `worktree_ahead`) under git or no VCS,
+with the task routing, the answerability summary (`answerability_counts` in
+`dagayn-graph` runs the Python queries and failure codes; score and ratio are
+rounded as Python's `round` rounds), the top communities and flows, and the
+sync block. It delegates whatever makes Python act rather than read: an
+`unbuilt` or `commit_drift` graph (a prepare is queued), a local embedding
+mode with vectors missing (an embed is queued; `embedding_refresh_skips` in
+`dagayn-build` mirrors `embedding_refresh_action`), `changed_files` (the risk
+analysis), a freshly seeded worktree (the assessment writes its flag), jj and
+SVN, and a task with characters `casefold` and `to_lowercase` treat
+differently. The Python assessment writes `seeded_needs_content_verify = 0`
+on every verified call; the read-only Rust one does not, which only leaves
+that key absent where Python would store `0`.
+
+Tests compare the two answers in both HEAD states for six tasks (English and
+Japanese workflows) and on this repository's graph. Measured on a worktree
+of this repository, from starting `dagayn serve` to the first
+`get_minimal_context_tool` result:
+
+| | fastmcp loop | Rust front end |
+|---|---|---|
+| start to first result | 0.64-0.72 s | 0.16-0.17 s |
+| peak memory | 219 MB | 71 MB |
+
+Next: `query_graph_tool`, the most used call after it.
 
 ### 5.4 Remaining Python surfaces
 
