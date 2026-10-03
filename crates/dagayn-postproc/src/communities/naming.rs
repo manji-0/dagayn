@@ -27,7 +27,7 @@ pub(crate) fn generate_community_name(members: &[GraphNode]) -> String {
         for name in class_names {
             *counts.entry(name).or_default() += 1;
         }
-        if let Some((top_class, top_count)) = counts.into_iter().max_by_key(|(_, count)| *count)
+        if let Some((top_class, top_count)) = most_common(counts)
             && top_count > members.len() * 40 / 100
         {
             if prefix.is_empty() {
@@ -75,11 +75,17 @@ fn extract_file_prefix(file_paths: &[String]) -> String {
     for part in parts {
         *counts.entry(part).or_default() += 1;
     }
-    counts
-        .into_iter()
-        .max_by_key(|(_, count)| *count)
+    most_common(counts)
         .map(|(part, _)| to_slug(&part))
         .unwrap_or_default()
+}
+
+/// The highest count, ties broken by the smallest key: HashMap iteration
+/// order would otherwise pick a different name for the same members per run.
+fn most_common<K: Ord>(counts: HashMap<K, usize>) -> Option<(K, usize)> {
+    counts
+        .into_iter()
+        .max_by(|left, right| left.1.cmp(&right.1).then_with(|| right.0.cmp(&left.0)))
 }
 
 fn extract_keywords(members: &[GraphNode]) -> Vec<String> {

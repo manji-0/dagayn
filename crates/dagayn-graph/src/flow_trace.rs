@@ -544,6 +544,12 @@ fn reverse_call_entries(
     affected
 }
 
+/// Entries come from a HashMap walk and flows are stored (and numbered) in
+/// entry order, so sort them to give the same graph the same flow ids.
+fn sort_entries(entries: &mut [GraphNode]) {
+    entries.sort_unstable_by(|left, right| left.qualified_name.cmp(&right.qualified_name));
+}
+
 fn detect_entries(graph: &TraceGraph, include_tests: bool) -> Vec<GraphNode> {
     let called: HashSet<&str> = graph
         .calls_out
@@ -566,6 +572,7 @@ fn detect_entries(graph: &TraceGraph, include_tests: bool) -> Vec<GraphNode> {
             entries.push((**node).clone());
         }
     }
+    sort_entries(&mut entries);
     entries
 }
 
@@ -599,6 +606,7 @@ fn detect_entries_in_files(
             entries.push((**node).clone());
         }
     }
+    sort_entries(&mut entries);
     entries
 }
 

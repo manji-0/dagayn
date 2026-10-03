@@ -241,7 +241,7 @@ impl GraphStore {
     pub fn get_flows_json(&self, sort_by: &str, limit: i64) -> Result<String> {
         let sort_by = FlowSortBy::from_raw(sort_by);
         let sql = format!(
-            "SELECT * FROM flows ORDER BY {} {} LIMIT ?",
+            "SELECT * FROM flows ORDER BY {} {}, id ASC LIMIT ?",
             sort_by.column(),
             sort_by.order()
         );

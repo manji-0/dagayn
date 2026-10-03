@@ -1074,9 +1074,11 @@ def analyze_changes(
     )
     node_cid_map = store.get_community_ids_by_node_ids(func_ids)
     outbound_map, inbound_map = store.get_edges_by_endpoints(func_qns)
+    # The maps come from a Rust HashMap; walk them in key order so the edge
+    # list (and which edges a budget keeps) is the same on every run.
     relevant_edges = _dedupe_edges(
-        [edge for edges in outbound_map.values() for edge in edges]
-        + [edge for edges in inbound_map.values() for edge in edges]
+        [edge for qn in sorted(outbound_map) for edge in outbound_map[qn]]
+        + [edge for qn in sorted(inbound_map) for edge in inbound_map[qn]]
     )
     base_node_qns, base_edge_signatures = _base_entity_sets(repo_root, base, changed_funcs)
     has_base_snapshot = repo_root is not None and not base_unresolved

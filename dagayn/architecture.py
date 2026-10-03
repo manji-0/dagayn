@@ -167,6 +167,10 @@ def find_adp_violations(
                 break
             if len(cycle) < min_cycle_size:
                 continue
+            # simple_cycles starts each cycle at an arbitrary member; rotate to
+            # the smallest so the same cycle reads the same on every run.
+            start = min(range(len(cycle)), key=lambda i: str(cycle[i]))
+            cycle = cycle[start:] + cycle[:start]
             edge_weight = sum(
                 g[cycle[i]][cycle[(i + 1) % len(cycle)]].get("weight", 1)
                 for i in range(len(cycle))
