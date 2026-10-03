@@ -110,7 +110,7 @@ mod zig;
 
 pub use discovery::{
     IgnoreRules, collect_parseable_files, collect_vcs_scope, detect_language, filter_ignored_paths,
-    filter_incremental_candidates, filter_parseable_files,
+    filter_incremental_candidates, filter_parseable_files, load_ignore_patterns,
 };
 pub use extractor_version::{EXTRACTOR_VERSIONS, ExtractorVersion, extractor_versions};
 pub use js_sfc::{parse_svelte, parse_vue};
@@ -121,7 +121,7 @@ use parsers::*;
 use util::{contains_ascii_ignore_case, node_text, sha256_hex, starts_with_ascii_ignore_case};
 
 #[cfg(test)]
-pub(crate) use discovery::{build_globset, load_ignore_patterns, should_ignore, walk_files};
+pub(crate) use discovery::{build_globset, should_ignore, walk_files};
 #[cfg(test)]
 use js_like::parse_javascript_like;
 

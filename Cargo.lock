@@ -326,6 +326,7 @@ dependencies = [
  "clap",
  "dagayn-build",
  "dagayn-graph",
+ "libc",
  "serde_json",
 ]
 

@@ -302,7 +302,8 @@ pub(crate) fn build_globset(patterns: &[String]) -> Option<globset::GlobSet> {
     added.then(|| builder.build().ok()).flatten()
 }
 
-pub(crate) fn load_ignore_patterns(repo_root: &Path) -> Vec<String> {
+/// The default ignore patterns followed by the lines of `.dagaynignore`.
+pub fn load_ignore_patterns(repo_root: &Path) -> Vec<String> {
     let mut patterns = default_ignore_patterns()
         .iter()
         .map(|pattern| pattern.to_string())

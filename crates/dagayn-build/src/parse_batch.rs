@@ -286,7 +286,7 @@ fn changed_rust_owned_file_source(
     Some((source, file_hash, mtime_ns))
 }
 
-fn file_mtime_ns(path: &std::path::Path) -> std::io::Result<i64> {
+pub fn file_mtime_ns(path: &std::path::Path) -> std::io::Result<i64> {
     let modified = std::fs::metadata(path)?.modified()?;
     // A pre-1970 mtime makes `duration_since(UNIX_EPOCH)` fail. Returning 0
     // there disagreed with Python's `st_mtime_ns`, which returns the negative
@@ -326,7 +326,7 @@ fn parsed_edge_to_input(edge: dagayn_parser::ParsedEdge) -> EdgeInput {
     }
 }
 
-fn sha256_hex(source: &[u8]) -> String {
+pub fn sha256_hex(source: &[u8]) -> String {
     hex_digest(Sha256::digest(source))
 }
 

@@ -14,3 +14,6 @@ clap = { version = "4", features = ["derive"] }
 dagayn-build = { path = "../dagayn-build" }
 dagayn-graph = { path = "../dagayn-graph" }
 serde_json.workspace = true
+
+[dev-dependencies]
+libc = "0.2"

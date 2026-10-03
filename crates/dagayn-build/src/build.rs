@@ -11,29 +11,12 @@ use serde_json::Value;
 
 use crate::local_time::local_timestamp;
 use crate::parse_batch::{collect_rust_owned_file_batch, collect_unowned_file_batch};
+use crate::postprocess::{PostprocessLevel, after_full_rebuild};
 use crate::vcs::{Vcs, detect_vcs, git_branch_info};
 
 /// Files parsed and stored per batch; `DAGAYN_RUST_PARSE_BATCH_SIZE` in Python.
 const PARSE_BATCH_SIZE: usize = 500;
-const MIN_COMMUNITY_SIZE: i64 = 2;
 const EXTRACTOR_VERSIONS_KEY: &str = "extractor_versions";
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PostprocessLevel {
-    /// Signatures, FTS, edge resolution, flows, communities, summaries.
-    Full,
-    /// Raw parse only.
-    None,
-}
-
-impl PostprocessLevel {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Full => "full",
-            Self::None => "none",
-        }
-    }
-}
 
 #[derive(Clone, Debug)]
 pub struct BuildOptions {
@@ -110,8 +93,14 @@ pub fn full_build(
     store.set_metadata(EXTRACTOR_VERSIONS_KEY, &extractor_versions_stamp())?;
     store.commit()?;
 
-    if options.postprocess == PostprocessLevel::Full {
-        postprocess_full(repo_root, store, options, &mut report)?;
+    if let Some(outcome) = after_full_rebuild(
+        repo_root,
+        store,
+        options.postprocess,
+        options.recurse_submodules,
+    )? {
+        report.postprocess = Some(Value::Object(outcome.counters));
+        report.warnings.extend(outcome.warnings);
     }
     if options.postprocess != PostprocessLevel::None {
         store.prune_orphaned_embeddings()?;
@@ -146,7 +135,7 @@ fn parse_and_store(
 
 /// `dagayn.incremental_build._rust_parser_owns_path`: by extension, or by
 /// content for an extensionless script.
-fn owns_path(repo_root: &Path, rel_path: &str) -> bool {
+pub(crate) fn owns_path(repo_root: &Path, rel_path: &str) -> bool {
     if dagayn_parser::rust_parser_owns_path(rel_path) {
         return true;
     }
@@ -173,7 +162,7 @@ fn store_summary(
 }
 
 /// `name=version` pairs sorted by name: `format_extractor_versions` in Python.
-fn extractor_versions_stamp() -> String {
+pub(crate) fn extractor_versions_stamp() -> String {
     let mut pairs: Vec<(&str, u32)> = dagayn_parser::extractor_versions()
         .iter()
         .map(|entry| (entry.extractor, entry.version))
@@ -184,69 +173,4 @@ fn extractor_versions_stamp() -> String {
         .map(|(name, version)| format!("{name}={version}"))
         .collect::<Vec<_>>()
         .join(",")
-}
-
-fn postprocess_full(
-    repo_root: &Path,
-    store: &mut GraphStore,
-    options: &BuildOptions,
-    report: &mut BuildReport,
-) -> Result<(), BuildError> {
-    let (extractor_id, nodes_json, edges_json) =
-        manifest_bridges(repo_root, options.recurse_submodules)?;
-    let raw = dagayn_postproc::run_post_processing_json(
-        store,
-        extractor_id,
-        &nodes_json,
-        &edges_json,
-        MIN_COMMUNITY_SIZE,
-        None,
-    )?;
-    let mut payload: Value = serde_json::from_str(&raw).unwrap_or(Value::Null);
-    if let Some(warnings) = payload
-        .as_object_mut()
-        .and_then(|object| object.remove("warnings"))
-        .and_then(|value| value.as_array().cloned())
-    {
-        report.warnings.extend(
-            warnings
-                .iter()
-                .filter_map(|w| w.as_str().map(str::to_string)),
-        );
-    }
-    report.postprocess = Some(payload);
-
-    if let Err(err) = dagayn_postproc::prune_orphaned_graph_structures(store) {
-        report
-            .warnings
-            .push(format!("Orphaned structure pruning failed: {err}"));
-    }
-    if let Err(err) = store.compute_summaries() {
-        report
-            .warnings
-            .push(format!("Summary computation failed: {err}"));
-    }
-    store.set_metadata("last_postprocessed_at", &local_timestamp())?;
-    store.set_metadata("postprocess_level", PostprocessLevel::Full.as_str())?;
-    Ok(())
-}
-
-/// Manifest bridge nodes and edges as JSON for `run_post_processing_json`.
-///
-/// Scoped to the VCS listing, as the Python build scopes them: a gitignored
-/// manifest stored here is pruned as out of scope by the next update.
-fn manifest_bridges(
-    repo_root: &Path,
-    recurse_submodules: bool,
-) -> Result<(&'static str, String, String), BuildError> {
-    let scope: Option<std::collections::HashSet<String>> =
-        dagayn_parser::collect_vcs_scope(repo_root, Some(recurse_submodules))
-            .map(|paths| paths.into_iter().collect());
-    let discovered =
-        dagayn_postproc::manifest_bridges::discover_manifest_bridges(repo_root, scope.as_ref());
-    Ok((
-        dagayn_postproc::manifest_bridges::EXTRACTOR_ID,
-        serde_json::to_string(&discovered.nodes).map_err(GraphError::from)?,
-        serde_json::to_string(&discovered.edges).map_err(GraphError::from)?,
-    ))
 }

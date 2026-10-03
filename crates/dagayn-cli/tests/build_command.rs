@@ -74,7 +74,7 @@ fn force_rebuild_replaces_the_database() {
 fn unported_flags_fail_instead_of_being_ignored() {
     let dir = project("flags");
     let repo = dir.0.to_str().expect("utf-8 path");
-    for flag in ["--scip", "--skip-flows", "--local-embedding"] {
+    for flag in ["--scip", "--local-embedding"] {
         let out = dagayn(&["build", "--repo", repo, flag]);
         assert!(!out.status.success(), "{flag} should fail");
         let stderr = String::from_utf8_lossy(&out.stderr);

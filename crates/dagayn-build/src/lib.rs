@@ -9,9 +9,13 @@ mod data_dir;
 mod local_time;
 mod lock;
 pub mod parse_batch;
+mod postprocess;
+mod update;
 mod vcs;
 
-pub use build::{BuildError, BuildOptions, BuildReport, PostprocessLevel, full_build};
+pub use build::{BuildError, BuildOptions, BuildReport, full_build};
 pub use data_dir::{DataDirError, db_path_for_build};
-pub use lock::{GraphWriteLock, LockError};
-pub use vcs::{Vcs, detect_vcs};
+pub use lock::{GraphLock, GraphWriteLock, LockError, LockMode};
+pub use postprocess::PostprocessLevel;
+pub use update::{UpdateOptions, UpdateReport, incremental_update};
+pub use vcs::{Vcs, detect_vcs, is_linked_worktree, main_checkout};
