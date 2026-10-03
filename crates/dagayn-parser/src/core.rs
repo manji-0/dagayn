@@ -109,7 +109,7 @@ mod util;
 mod zig;
 
 pub use discovery::{
-    IgnoreRules, collect_parseable_files, detect_language, filter_ignored_paths,
+    IgnoreRules, collect_parseable_files, collect_vcs_scope, detect_language, filter_ignored_paths,
     filter_incremental_candidates, filter_parseable_files,
 };
 pub use extractor_version::{EXTRACTOR_VERSIONS, ExtractorVersion, extractor_versions};

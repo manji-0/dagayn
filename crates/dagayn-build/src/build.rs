@@ -111,7 +111,7 @@ pub fn full_build(
     store.commit()?;
 
     if options.postprocess == PostprocessLevel::Full {
-        postprocess_full(repo_root, store, &mut report)?;
+        postprocess_full(repo_root, store, options, &mut report)?;
     }
     if options.postprocess != PostprocessLevel::None {
         store.prune_orphaned_embeddings()?;
@@ -189,9 +189,11 @@ fn extractor_versions_stamp() -> String {
 fn postprocess_full(
     repo_root: &Path,
     store: &mut GraphStore,
+    options: &BuildOptions,
     report: &mut BuildReport,
 ) -> Result<(), BuildError> {
-    let (extractor_id, nodes_json, edges_json) = manifest_bridges(repo_root);
+    let (extractor_id, nodes_json, edges_json) =
+        manifest_bridges(repo_root, options.recurse_submodules)?;
     let raw = dagayn_postproc::run_post_processing_json(
         store,
         extractor_id,
@@ -230,7 +232,21 @@ fn postprocess_full(
 }
 
 /// Manifest bridge nodes and edges as JSON for `run_post_processing_json`.
-fn manifest_bridges(_repo_root: &Path) -> (&'static str, String, String) {
-    // Filled in by the Rust port of `dagayn.parser.manifest_bridges`.
-    ("manifest_bridges", "[]".to_string(), "[]".to_string())
+///
+/// Scoped to the VCS listing, as the Python build scopes them: a gitignored
+/// manifest stored here is pruned as out of scope by the next update.
+fn manifest_bridges(
+    repo_root: &Path,
+    recurse_submodules: bool,
+) -> Result<(&'static str, String, String), BuildError> {
+    let scope: Option<std::collections::HashSet<String>> =
+        dagayn_parser::collect_vcs_scope(repo_root, Some(recurse_submodules))
+            .map(|paths| paths.into_iter().collect());
+    let discovered =
+        dagayn_postproc::manifest_bridges::discover_manifest_bridges(repo_root, scope.as_ref());
+    Ok((
+        dagayn_postproc::manifest_bridges::EXTRACTOR_ID,
+        serde_json::to_string(&discovered.nodes).map_err(GraphError::from)?,
+        serde_json::to_string(&discovered.edges).map_err(GraphError::from)?,
+    ))
 }

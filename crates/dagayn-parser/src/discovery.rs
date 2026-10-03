@@ -213,6 +213,24 @@ pub fn collect_parseable_files(repo_root: &Path, recurse_submodules: Option<bool
     filter_parseable_files(repo_root, &candidates, &ignore_patterns)
 }
 
+/// Git-indexable paths minus ignore patterns, or `None` without a git listing:
+/// `dagayn.incremental_build._vcs_scope`. Unlike [`collect_parseable_files`]
+/// it keeps files no parser handles (manifests, for one).
+pub fn collect_vcs_scope(
+    repo_root: &Path,
+    recurse_submodules: Option<bool>,
+) -> Option<Vec<String>> {
+    let candidates =
+        get_git_indexable_files(repo_root, recurse_submodules).filter(|files| !files.is_empty())?;
+    let rules = IgnoreRules::load(repo_root);
+    Some(
+        candidates
+            .into_iter()
+            .filter(|path| !rules.is_ignored(path))
+            .collect(),
+    )
+}
+
 /// Compound file extensions whose final component alone would misclassify the
 /// file (e.g. `main.tftest.hcl` → `.hcl`). Mirrors the Python parser's
 /// `_COMPOUND_EXTENSIONS` in `dagayn/parser/dispatch.py`.
