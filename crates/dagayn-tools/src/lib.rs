@@ -182,7 +182,9 @@ pub(crate) fn open_graph(root: &Path) -> Option<OpenGraph> {
     // is Python's to wait for (`DAGAYN_READ_LOCK_TIMEOUT`) while pings and
     // listings stay answered.
     let lock = GraphLock::acquire_mode(&db_path, LockMode::Shared, Some(Duration::ZERO)).ok()?;
-    let store = GraphStore::open(&db_path).ok()?;
+    // Read-only: see `GraphStore::open_read_only` for why this process must
+    // not close a writable connection. A graph Python would migrate is its.
+    let store = GraphStore::open_read_only(&db_path).ok()?;
     if dagayn_build::graph_repo_mismatch(&store, root).is_some() {
         return None;
     }

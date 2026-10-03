@@ -44,6 +44,33 @@ impl GraphStore {
         Ok(store)
     }
 
+    /// Open an existing graph without writing to it: no schema creation, no
+    /// migrations, no journal-mode change. Fails when the graph is not at
+    /// the current schema version, which [`GraphStore::open`] would migrate.
+    ///
+    /// A read-only connection never deletes `-wal` / `-shm` when it closes.
+    /// That matters inside a Python process, where Python's own SQLite copy
+    /// may hold the same file open and cannot see this copy's locks: a
+    /// read-write close that believes itself last removes the WAL index
+    /// under it, and every later connection of that process fails.
+    pub fn open_read_only(db_path: impl AsRef<Path>) -> Result<Self> {
+        let conn = Connection::open_with_flags(
+            db_path.as_ref(),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        conn.pragma_update(None, "busy_timeout", 5000)?;
+        conn.pragma_update(None, "mmap_size", 0)?;
+        conn.pragma_update(None, "temp_store", "MEMORY")?;
+        let store = Self {
+            conn,
+            bulk_load_indexes_suspended: false,
+        };
+        if store.schema_version()? != LATEST_VERSION {
+            return Err(GraphError::Sqlite(rusqlite::Error::InvalidQuery));
+        }
+        Ok(store)
+    }
+
     pub fn set_metadata(&self, key: &str, value: &str) -> Result<()> {
         self.conn.execute(
             "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",

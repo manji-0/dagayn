@@ -72,6 +72,7 @@ def _get_cached_emb_store(
 ) -> "EmbeddingStore | None":
     """Return a pinned EmbeddingStore, creating or replacing it when the DB mtime changes."""
     try:
+        from dagayn import embeddings_store
         from dagayn.embeddings import (
             EmbeddingStore,
             embedding_provider_base_name,
@@ -104,11 +105,21 @@ def _get_cached_emb_store(
                 pass
             del _emb_cache[key]
 
+        # Resolved as EmbeddingStore itself resolves it (same module attribute).
+        resolved = provider_instance or embeddings_store.get_provider(provider, model=model)
+        if resolved is None:
+            # Nothing can be searched without a provider. Opening a store
+            # anyway created the embeddings schema on this read path and
+            # cached a writable connection beside the native store's; this
+            # process's two SQLite copies cannot see each other's locks, so
+            # the native store's last close then deleted the WAL index under
+            # it and every later connection failed with "disk I/O error".
+            return None
         emb_store = EmbeddingStore(
             db_path,
             provider=provider,
             model=model,
-            provider_instance=provider_instance,
+            provider_instance=resolved,
             text_mode=text_mode,
         )
         _emb_cache[key] = (emb_store, mtime)

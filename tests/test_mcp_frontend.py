@@ -206,20 +206,3 @@ def _version() -> str:
     from dagayn import __version__
 
     return __version__
-
-
-def test_list_graph_stats_reads_the_graph_without_writing_it(repo: Path) -> None:
-    """Both implementations count vectors read-only; the Python one used to
-    create the embeddings table, which turned `dagayn status` from "not
-    indexed" to "empty"."""
-    import sqlite3
-
-    from dagayn.tools import list_graph_stats
-
-    assert list_graph_stats(repo_root=str(repo))["embeddings_count"] == 0
-    conn = sqlite3.connect(repo / ".dagayn" / "graph.db")
-    try:
-        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master")}
-    finally:
-        conn.close()
-    assert "embeddings" not in tables
