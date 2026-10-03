@@ -13,7 +13,10 @@ All notable changes to `dagayn` are documented here.
   instead of 0.50 s here, and a session that only lists stays at 66 MB
   instead of 150 MB; a session that calls a tool ends up where it was.
   `--http`, `python -m dagayn serve`, and `DAGAYN_PYTHON_CLI=1` keep
-  fastmcp's own stdio loop.
+  fastmcp's own stdio loop. `list_graph_stats_tool` and
+  `get_docs_section_tool` are answered in Rust as well when the repository
+  is given or pinned and its graph is ready, so a session that only uses
+  them never starts Python's server.
 - The installed `dagayn` command now runs `build`, `update`, and `status` in
   the Rust CLI, compiled into `dagayn._core` (no second binary in the
   wheel). Every other command, `--help`, `--version`, and any flag or
@@ -63,6 +66,9 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- `list_graph_stats_tool` no longer writes to the graph: counting vectors
+  created the embeddings table, after which `dagayn status` reported
+  embeddings as "empty" instead of "not indexed".
 - `prompts/get` failed for all five MCP prompts with "messages[0] must be
   Message or str" under fastmcp 4: the prompts returned plain dicts. They
   return their message texts now, and `protocol.json` in the MCP snapshots

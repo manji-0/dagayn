@@ -314,10 +314,32 @@ calls a tool ends where it did. The remaining 0.15 s is Python's start and
 the `serve` preamble: inferring the embedding provider from the graph loads
 `embeddings_store`, which pulls in numpy and, through `embeddings_text` and
 `local_embeddings`, the pydantic contracts (about 0.05 s); deferring one of
-those imports gained nothing while the others remain. Later
-slices answer tools natively in the front end before it delegates, starting
-with the cheapest (`list_graph_stats_tool`, `get_docs_section_tool`); a
-session whose calls are all native never loads Python's server.
+those imports gained nothing while the others remain.
+
+Second slice (done): native tools. `crates/dagayn-tools` answers
+`list_graph_stats_tool` and `get_docs_section_tool`, and the front end tries
+it for a `tools/call` of an exposed tool before it delegates. It answers only
+what it can answer exactly as Python would: arguments that are the declared
+ones with plain JSON types (anything fastmcp would coerce or reject goes to
+fastmcp), a `repo_root` given by the client or pinned by `serve --repo`
+(auto-detection is Python's), an existing graph in the default location with
+no `CRG_DATA_DIR` or legacy `.dagayn.db`, recording this repository, whose
+shared lock is free right now (a busy graph is Python's to wait for, so the
+reader never blocks), and for the docs a section that exists. The payload
+keeps the top-level key order of the Python response; nested maps are
+sorted, where Python's order already came from a hash map. `_hints` and
+`next_tool_suggestions` follow the session's tool surface as
+`tool_surface.filter_suggestions` does. A session whose calls are all
+native never loads Python's server.
+
+Porting `list_graph_stats` showed that the Python tool created the
+embeddings table as a side effect (it constructed an `EmbeddingStore` to
+count), so `dagayn status` reported "empty" instead of "not indexed" after a
+stats call; both now count read-only.
+
+Next: the tools a session calls first and most (`get_minimal_context_tool`,
+`query_graph_tool`), which decide whether a typical session ever needs
+Python.
 
 ### 5.4 Remaining Python surfaces
 
