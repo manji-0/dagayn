@@ -116,7 +116,7 @@ def test_the_first_call_loads_it_and_local_replies_do_not_wait(repo: Path) -> No
             # Not answered in Rust yet.
             "params": {
                 "name": "query_graph_tool",
-                "arguments": {"pattern": "children_of", "target": "app.py"},
+                "arguments": {"pattern": "tests_for", "target": "app.py::main"},
             },
         }
     )
@@ -125,8 +125,7 @@ def test_the_first_call_loads_it_and_local_replies_do_not_wait(repo: Path) -> No
     first, second = session.read(), session.read()
     assert first == {"jsonrpc": "2.0", "id": 2, "result": {}}
     assert second["id"] == 1
-    children = second["result"]["structuredContent"]["results"]
-    assert {node["name"] for node in children} == {"main", "helper"}
+    assert second["result"]["structuredContent"]["pattern"] == "tests_for"
 
     status, _, stderr = session.close()
     assert status == 0
@@ -310,6 +309,16 @@ NATIVE_TRACE = "answered query_graph_tool in Rust"
         {"pattern": "source_of", "target": "main", "detail_level": "minimal"},
         # Nothing calls it by its qualified name: the bare-name fallback.
         {"pattern": "callers_of", "target": "test_app.py::test_main"},
+        {"pattern": "callers_of", "target": "app.py::helper", "depth": 3},
+        {"pattern": "callers_of", "target": "app.py::helper", "detail_level": "full"},
+        {"pattern": "children_of", "target": "app.py"},
+        {"pattern": "imports_of", "target": "test_app.py"},
+        {"pattern": "importers_of", "target": "app.py", "depth": 2},
+        {"pattern": "file_summary", "target": "app.py", "detail_level": "minimal"},
+        {"pattern": "file_summary", "target": "missing.py"},
+        {"pattern": "inheritors_of", "target": "app.py::main"},
+        {"pattern": "docs_for", "target": "app.py::main", "detail_level": "full"},
+        {"pattern": "callers_of", "target": "map"},
     ],
 )
 def test_query_graph_answers_in_rust_as_python_does(
@@ -325,9 +334,10 @@ def test_query_graph_answers_in_rust_as_python_does(
 @pytest.mark.parametrize(
     "arguments",
     [
-        {"pattern": "callers_of", "target": "app.py::helper", "depth": 2},
-        {"pattern": "callers_of", "target": "app.py::helper", "detail_level": "full"},
-        {"pattern": "children_of", "target": "app.py"},
+        {"pattern": "tests_for", "target": "app.py::main"},
+        {"pattern": "callers_of", "target": "app.py::helper", "depth": 0},
+        {"pattern": "callees_of", "target": "app.py::helper", "depth": 2},
+        {"pattern": "no_such_pattern", "target": "app.py::helper"},
         {"pattern": "callers_of", "target": "app.py::main", "detail_level": "minimal", "x": 1},
     ],
 )

@@ -301,11 +301,39 @@ fn query_graph_answers_callers_and_callees_of_exact_targets() {
     assert_eq!(stale["status"], "degraded");
     assert_eq!(stale["results"][0]["source_stale"], true);
 
-    for arguments in [
-        json!({"pattern": "callers_of", "target": "app.py::helper", "depth": 2}),
+    let transitive = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": "app.py::helper", "depth": 3}),
+    );
+    assert_eq!(transitive["reachability"]["state"], "complete");
+    assert_eq!(transitive["depth"], 3);
+    let full = answer(
+        &context,
+        "query_graph_tool",
         json!({"pattern": "callers_of", "target": "app.py::helper", "detail_level": "full"}),
+    );
+    assert_eq!(full["edges"].as_array().map(Vec::len), Some(1));
+    assert!(full["results"][0].get("id").is_some());
+    let children = answer(
+        &context,
+        "query_graph_tool",
         json!({"pattern": "children_of", "target": "app.py"}),
-        json!({"pattern": "callers_of", "target": "map"}),
+    );
+    assert_eq!(children["result_count"], 2);
+    let summary = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "file_summary", "target": "missing.py"}),
+    );
+    assert_eq!(summary["status"], "not_found");
+    assert_eq!(summary["pattern"], "file_summary");
+
+    for arguments in [
+        json!({"pattern": "tests_for", "target": "app.py::main"}),
+        json!({"pattern": "callers_of", "target": "app.py::helper", "depth": 0}),
+        json!({"pattern": "callees_of", "target": "app.py::helper", "depth": 2}),
+        json!({"pattern": "nope", "target": "app.py::helper"}),
     ] {
         assert!(
             declines(&context, "query_graph_tool", arguments.clone()),

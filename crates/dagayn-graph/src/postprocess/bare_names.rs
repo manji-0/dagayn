@@ -710,14 +710,16 @@ impl GraphStore {
         Ok(symbol_visibility(&self.conn)?.as_string_lists())
     }
 
-    /// The `CALLS` edges that name `target` only by its bare name and can
-    /// plausibly mean it: `callers_of`'s fallback when nothing calls it by its
+    /// The `kind` edges that name `target` only by its bare name and can
+    /// plausibly mean it: `callers_of`'s (`CALLS`) and `inheritors_of`'s
+    /// (`INHERITS`, `IMPLEMENTS`) fallback when nothing reaches it by its
     /// qualified name (`dagayn.tools.query_graph_support.filter_bare_name_fallback_edges`).
-    /// Calls into external packages never qualify; a name only one function or
-    /// class carries needs no import evidence; otherwise the calling file must
-    /// see the target's file (or its class declaration) by import or namespace.
-    pub fn bare_name_callers(&self, target: &GraphNode) -> Result<Vec<GraphEdge>> {
-        let edges = self.search_edges_by_target_name(&target.name, "CALLS")?;
+    /// Edges into external packages never qualify; a name only one function
+    /// or class carries needs no import evidence; otherwise the source file
+    /// must see the target's file (or its class declaration) by import or
+    /// namespace.
+    pub fn bare_name_edges(&self, target: &GraphNode, kind: &str) -> Result<Vec<GraphEdge>> {
+        let edges = self.search_edges_by_target_name(&target.name, kind)?;
         if edges.is_empty() {
             return Ok(edges);
         }
