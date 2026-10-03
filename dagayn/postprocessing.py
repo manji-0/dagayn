@@ -1,7 +1,7 @@
 """Post-process API backed by ``dagayn._core``.
 
-Layer-2 manifest bridges are still extracted in Python, then handed to the
-native pipeline.
+Layer-2 manifest bridges are extracted natively, round-tripped through
+Python, then handed to the native pipeline.
 """
 
 from __future__ import annotations
@@ -42,14 +42,12 @@ def _store_repo_root(store: GraphStore) -> Path | None:
 def _discover_manifest_bridges(store: GraphStore) -> Any | None:
     """Discover manifest-backed bridge nodes/edges without mutating the graph."""
     from .incremental_build import _vcs_scope
-    from .parser.manifest_bridges import discover_manifest_bridges, refine_node_line_ends
+    from .parser.manifest_bridges import discover_manifest_bridges
 
     repo_root = _store_repo_root(store)
     if repo_root is None or not repo_root.is_dir():
         return None
-    discovered = discover_manifest_bridges(repo_root, _vcs_scope(repo_root, None))
-    refine_node_line_ends(repo_root, discovered.nodes)
-    return discovered
+    return discover_manifest_bridges(repo_root, _vcs_scope(repo_root, None))
 
 
 def run_post_processing(
@@ -250,7 +248,7 @@ def _apply_manifest_bridges(
     warnings: list[str],
     changed_files: list[str] | None = None,
 ) -> None:
-    """Extract Layer-2 manifest bridges in Python and swap them natively."""
+    """Extract Layer-2 manifest bridges and swap them natively."""
     try:
         from .parser.manifest_bridges import EXTRACTOR_ID
 

@@ -251,6 +251,27 @@ pub fn detect_language(path: &Path) -> Option<&'static str> {
     None
 }
 
+/// The default ignore patterns plus `.dagaynignore`, matched like the
+/// indexable-file filters above. For scanners outside this crate that walk
+/// the repository themselves.
+pub struct IgnoreRules {
+    patterns: Vec<String>,
+    globset: Option<globset::GlobSet>,
+}
+
+impl IgnoreRules {
+    pub fn load(repo_root: &Path) -> Self {
+        let patterns = load_ignore_patterns(repo_root);
+        let globset = build_globset(&patterns);
+        Self { patterns, globset }
+    }
+
+    /// True when the repo-relative `path` matches an ignore pattern.
+    pub fn is_ignored(&self, path: &str) -> bool {
+        should_ignore(path, &self.patterns, self.globset.as_ref())
+    }
+}
+
 pub(crate) fn build_globset(patterns: &[String]) -> Option<globset::GlobSet> {
     let mut builder = GlobSetBuilder::new();
     let mut added = false;

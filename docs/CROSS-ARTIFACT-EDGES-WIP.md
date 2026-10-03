@@ -100,7 +100,7 @@
 
 > ### Bridge family 5 — Manifest-backed / generated-code bridges (Phase 3 / Layer 2)
 >
-> - `_apply_manifest_bridges` (`dagayn/postprocessing.py`) + `dagayn/parser/manifest_bridges.py` scan the repo root on every postprocess call
+> - `_apply_manifest_bridges` (`dagayn/postprocessing.py`) + `crates/dagayn-postproc/src/manifest_bridges/` (wrapped by `dagayn/parser/manifest_bridges.py`) scan the repo root on every postprocess call
 > - **Maturin / PyO3:** `[tool.maturin]` with explicit `manifest-path` → `pyproject.toml` → `Cargo.toml` edge (`relationship_role=builds_artifact`, `bridge_kind=extension_module`, `evidence_kind=manifest`, confidence `EXACT`). Default adjacent `Cargo.toml` without `manifest-path` is `HIGH` only when `[tool.maturin]` is present.
 > - **OpenAPI Generator:** `openapitools.json` `inputSpec`/`output` → schema → generated package (`generates_code`). `package.json` dependency on that generated package name → consumer → package (`binds_generated_client`). Exact CLI `-i`/`-o` paths in `openapi-generator-cli generate` scripts are also accepted.
 > - Confidence tiers for this family: `EXACT` for explicit manifest fields/paths; `HIGH` for maturin default layout; Layer-3 naming-only heuristics are intentionally **not** emitted

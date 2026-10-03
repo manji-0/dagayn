@@ -109,8 +109,8 @@ mod util;
 mod zig;
 
 pub use discovery::{
-    collect_parseable_files, detect_language, filter_ignored_paths, filter_incremental_candidates,
-    filter_parseable_files,
+    IgnoreRules, collect_parseable_files, detect_language, filter_ignored_paths,
+    filter_incremental_candidates, filter_parseable_files,
 };
 pub use extractor_version::{EXTRACTOR_VERSIONS, ExtractorVersion, extractor_versions};
 pub use js_sfc::{parse_svelte, parse_vue};

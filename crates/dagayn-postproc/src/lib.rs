@@ -4,6 +4,7 @@
 //! incremental updates stay on one BFS implementation.
 
 mod communities;
+pub mod manifest_bridges;
 mod pipeline;
 mod prune;
 

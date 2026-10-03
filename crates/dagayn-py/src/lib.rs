@@ -1108,7 +1108,38 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(embedding_search, module)?)?;
     module.add_function(wrap_pyfunction!(embedding_search_prewarm, module)?)?;
     module.add_function(wrap_pyfunction!(extractor_versions, module)?)?;
+    module.add_function(wrap_pyfunction!(discover_manifest_bridges_json, module)?)?;
+    module.add_function(wrap_pyfunction!(resolve_manifest_path, module)?)?;
     Ok(())
+}
+
+/// Manifest bridges under `repo_root` as `{"nodes": [...], "edges": [...]}`,
+/// shaped like `dataclasses.asdict` of `NodeInfo` / `EdgeInfo`, with File
+/// node line ends already read from disk.
+#[pyfunction]
+#[pyo3(signature = (repo_root, scope=None))]
+fn discover_manifest_bridges_json(
+    py: Python<'_>,
+    repo_root: &Bound<'_, PyAny>,
+    scope: Option<Vec<String>>,
+) -> PyResult<String> {
+    let os = PyModule::import(py, "os")?;
+    let repo_root: String = os.getattr("fspath")?.call1((repo_root,))?.extract()?;
+    let scope = scope.map(|paths| paths.into_iter().collect::<std::collections::HashSet<_>>());
+    let result = py.detach(|| {
+        dagayn_postproc::manifest_bridges::discover_manifest_bridges(
+            std::path::Path::new(&repo_root),
+            scope.as_ref(),
+        )
+    });
+    serde_json::to_string(&result).map_err(|err| PyRuntimeError::new_err(err.to_string()))
+}
+
+/// `declared` resolved against the repo-relative `base_dir`; `None` when it
+/// escapes the repository root.
+#[pyfunction]
+fn resolve_manifest_path(base_dir: &str, declared: &str) -> Option<String> {
+    dagayn_postproc::manifest_bridges::resolve_rel(base_dir, declared)
 }
 
 /// `(extractor, version, languages)` for every extractor with a tracked
