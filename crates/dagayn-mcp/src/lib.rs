@@ -333,6 +333,9 @@ impl<B: Backend> Session<'_, B> {
         let empty = json!({});
         let arguments = params.get("arguments").unwrap_or(&empty);
         let (text, value) = self.native.call_tool(name, arguments)?;
+        if std::env::var_os("DAGAYN_MCP_TRACE").is_some() {
+            eprintln!("dagayn: answered {name} in Rust");
+        }
         Some(json!({
             "content": [{"type": "text", "text": text}],
             "structuredContent": value,

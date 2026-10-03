@@ -140,6 +140,54 @@ fn embedding_lines(store: &GraphStore, lines: &mut Vec<String>) {
     }
 }
 
+/// `commit_tier_freshness`: the cheap half of the assessment that read tools
+/// attach to every answer, for a git working copy with a HEAD.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommitFreshness {
+    /// `commit_synced` or `commit_drift` (also for an extractor drift).
+    pub state: &'static str,
+    pub git_head_sha: Option<String>,
+    pub current_head_sha: String,
+    pub worktree_dirty: bool,
+    pub extractor_drift: Vec<String>,
+}
+
+/// `None` where Python's state is `None`: not a git checkout, or no HEAD.
+/// (jj is git-backed in Python; callers handle it themselves.)
+pub fn commit_tier_freshness(
+    store: &GraphStore,
+    repo_root: &Path,
+) -> Result<Option<CommitFreshness>, GraphError> {
+    if detect_vcs(repo_root) != Vcs::Git {
+        return Ok(None);
+    }
+    let stored = store
+        .get_metadata("git_head_sha")?
+        .filter(|sha| !sha.is_empty());
+    let (_, current) = git_branch_info(repo_root);
+    if current.is_empty() {
+        return Ok(None);
+    }
+    let dirty = !worktree_changes(repo_root).is_empty();
+    let languages = store.get_stats()?.languages;
+    let drift: Vec<String> = outdated_extractors(store, &languages)?
+        .iter()
+        .map(|entry| entry.extractor.to_string())
+        .collect();
+    let state = if !drift.is_empty() || stored.as_deref() != Some(current.as_str()) {
+        "commit_drift"
+    } else {
+        "commit_synced"
+    };
+    Ok(Some(CommitFreshness {
+        state,
+        git_head_sha: stored,
+        current_head_sha: current,
+        worktree_dirty: dirty,
+        extractor_drift: drift,
+    }))
+}
+
 /// Whether `embedding_refresh_action` would answer `skip` for a requested
 /// local embedding mode: vectors exist and none of the active provider's are
 /// missing. `not_indexed` and `empty` refresh inline, missing vectors refresh

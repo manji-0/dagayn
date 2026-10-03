@@ -7,10 +7,10 @@
 //! write (a freshly seeded worktree). Everything else is Python's.
 
 use dagayn_build::{Vcs, detect_vcs};
-use dagayn_graph::GraphStats;
 use serde_json::{Map, Value, json};
 
-use crate::{Args, Context, OpenGraph, Ordered, Payload, explicit_repo, open_graph};
+use crate::answerability::Answerability;
+use crate::{Args, Context, Ordered, Payload, explicit_repo, open_graph};
 
 const SEEDED_NEEDS_VERIFY_KEY: &str = "seeded_needs_content_verify";
 
@@ -177,109 +177,6 @@ fn folds_like_python(task: &str) -> bool {
     })
 }
 
-/// Python's `round(value, 4)` (correctly rounded, ties to even on the exact
-/// binary value, as Rust's formatting rounds).
-fn round4(value: f64) -> f64 {
-    format!("{value:.4}").parse().unwrap_or(value)
-}
-
-/// `graph_answerability_summary` without its `counts`, as
-/// `_graph_answerability` returns it, for a graph at HEAD (the only state
-/// answered here).
-fn graph_health(graph: &OpenGraph, stats: &GraphStats, worktree_dirty: bool, git: bool) -> Value {
-    let counts = graph.store.answerability_counts();
-    let edge_kind = |kind: &str| stats.edges_by_kind.get(kind).copied().unwrap_or(0);
-    let test_edges = edge_kind("TESTED_BY");
-    let cross_artifact = edge_kind("CROSS_ARTIFACT");
-    let reportable_cross = (cross_artifact - counts.unresolved_markdown_code_spans).max(0);
-    let reportable_unresolved =
-        (counts.unresolved_cross_artifact_edges - counts.unresolved_markdown_code_spans).max(0);
-    let unresolved_ratio = if reportable_cross != 0 {
-        reportable_unresolved as f64 / reportable_cross as f64
-    } else {
-        0.0
-    };
-    let last_updated = stats
-        .last_updated
-        .as_deref()
-        .is_some_and(|value| !value.is_empty());
-
-    let mut reason_codes: Vec<&str> = Vec::new();
-    let mut score = 1.0_f64;
-    if !counts.failures.is_empty() {
-        for failure in &counts.failures {
-            if !reason_codes.contains(failure) {
-                reason_codes.push(failure);
-            }
-        }
-        score -= 0.2;
-    }
-    if stats.total_nodes == 0 || stats.files_count == 0 {
-        reason_codes.push("empty_graph");
-        score = 0.0;
-    }
-    if counts.flows == 0 {
-        reason_codes.push("missing_flows");
-        score -= 0.15;
-    }
-    if counts.communities == 0 {
-        reason_codes.push("missing_communities");
-        score -= 0.15;
-    }
-    if test_edges == 0 {
-        reason_codes.push("missing_test_edges");
-        score -= 0.1;
-    }
-    if cross_artifact != 0 && unresolved_ratio > 0.35 {
-        reason_codes.push("many_unresolved_cross_artifact_edges");
-        score -= 0.15;
-    }
-    if !last_updated {
-        reason_codes.push("missing_last_updated");
-        score -= 0.1;
-    }
-    if counts.stale_flow_memberships > 0 || counts.unassigned_nodes > 0 {
-        reason_codes.push("stale_derived_structures");
-        score -= 0.15;
-    }
-    // `_freshness_reason_codes` for a graph at HEAD with no extractor drift:
-    // only a dirty working tree is worth a code, and only under git.
-    if git && worktree_dirty {
-        reason_codes.push("uncommitted_changes_may_be_unindexed");
-        score -= 0.1;
-    }
-    let score = round4(score).max(0.0);
-    let status = if score >= 0.75 {
-        "ok"
-    } else if score > 0.0 {
-        "degraded"
-    } else {
-        "empty"
-    };
-    let mut health = Map::new();
-    health.insert("status".into(), json!(status));
-    health.insert("score".into(), json!(score));
-    health.insert("reason_codes".into(), json!(reason_codes));
-    health.insert(
-        "parse".into(),
-        json!([stats.files_count, stats.languages.len(), last_updated]),
-    );
-    health.insert(
-        "answerability".into(),
-        json!([
-            counts.flows,
-            counts.communities,
-            test_edges,
-            reportable_cross,
-            round4(unresolved_ratio)
-        ]),
-    );
-    if reportable_unresolved != 0 {
-        health.insert("unresolved_edges".into(), json!(reportable_unresolved));
-    }
-    Value::Object(health)
-}
-
 /// Up to `limit` non-empty `name`s of `items` (`_names_from_items`).
 fn names(items: &[Value], limit: usize) -> Vec<String> {
     items
@@ -352,7 +249,19 @@ pub(crate) fn get_minimal_context(
         _ => return None,
     };
     let stats = graph.store.get_stats().ok()?;
-    let health = graph_health(&graph, &stats, sync.worktree_dirty, git);
+    // `commit_tier_from_sync`: at HEAD, so only a dirty tree can add a code.
+    let freshness =
+        sync.current_head_sha
+            .clone()
+            .filter(|_| git)
+            .map(|head| dagayn_build::CommitFreshness {
+                state: "commit_synced",
+                git_head_sha: Some(head.clone()),
+                current_head_sha: head,
+                worktree_dirty: sync.worktree_dirty,
+                extractor_drift: Vec::new(),
+            });
+    let health = Answerability::compute(&graph.store, &stats, freshness.as_ref()).without_counts();
 
     let workflow = workflow_for_task(task);
     let suggestions: Vec<&str> = workflow

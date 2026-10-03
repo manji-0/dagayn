@@ -20,6 +20,9 @@ pub use data_dir::{
 };
 pub use lock::{GraphLock, GraphWriteLock, LockError, LockMode};
 pub use postprocess::PostprocessLevel;
-pub use status::{SyncAssessment, assess_graph_sync, embedding_refresh_skips, status_lines};
+pub use status::{
+    CommitFreshness, SyncAssessment, assess_graph_sync, commit_tier_freshness,
+    embedding_refresh_skips, status_lines,
+};
 pub use update::{UpdateOptions, UpdateReport, incremental_update};
 pub use vcs::{Vcs, detect_vcs, is_linked_worktree, main_checkout};

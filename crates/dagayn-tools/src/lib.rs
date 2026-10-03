@@ -6,8 +6,10 @@
 //! it would auto-detect, a graph it would create, migrate, or refuse. The
 //! front end then relays the call, so every error stays Python's.
 
+mod answerability;
 mod context;
 mod docs;
+mod query;
 mod stats;
 
 use std::collections::HashSet;
@@ -47,6 +49,7 @@ pub fn call(context: &Context, name: &str, arguments: &Value) -> Option<Payload>
         "list_graph_stats_tool" => stats::list_graph_stats(context, arguments),
         "get_docs_section_tool" => docs::get_docs_section(context, arguments),
         "get_minimal_context_tool" => context::get_minimal_context(context, arguments),
+        "query_graph_tool" => query::query_graph(context, arguments),
         _ => None,
     }
 }
@@ -60,6 +63,16 @@ impl Ordered {
     pub(crate) fn put(mut self, key: &str, value: impl Into<Value>) -> Self {
         self.0.push((key.to_string(), value.into()));
         self
+    }
+
+    /// The object so far (key order aside).
+    pub(crate) fn value(&self) -> Value {
+        Value::Object(
+            self.0
+                .iter()
+                .map(|(key, item)| (key.clone(), item.clone()))
+                .collect(),
+        )
     }
 
     pub(crate) fn into_payload(self) -> Payload {

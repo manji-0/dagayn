@@ -292,3 +292,41 @@ def test_minimal_context_leaves_repair_to_python(git_repo: Path) -> None:
     assert status == 0
     assert reply["sync"]["state"] == "commit_drift"
     assert stderr.count(BOOT_TRACE) == 1
+
+
+NATIVE_TRACE = "answered query_graph_tool in Rust"
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"pattern": "callers_of", "target": "app.py::helper"},
+        {"pattern": "callers_of", "target": "app.py::main", "detail_level": "minimal"},
+        {"pattern": "callees_of", "target": "app.py::main"},
+        {"pattern": "callees_of", "target": "app.py::helper", "detail_level": "minimal"},
+    ],
+)
+def test_query_graph_answers_exact_targets_as_python_does(
+    git_repo: Path, arguments: dict[str, Any]
+) -> None:
+    rust, python, stderr = _call_both(git_repo, "query_graph_tool", arguments)
+    assert NATIVE_TRACE in stderr
+    assert BOOT_TRACE not in stderr
+    assert rust["structuredContent"] == python["structuredContent"]
+    assert json.loads(rust["content"][0]["text"]) == rust["structuredContent"]
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"pattern": "callers_of", "target": "helper"},  # resolved by name search
+        {"pattern": "callers_of", "target": "app.py::helper", "depth": 2},
+        {"pattern": "callers_of", "target": "app.py::helper", "detail_level": "full"},
+        {"pattern": "source_of", "target": "app.py::main"},
+        {"pattern": "callers_of", "target": "app.py::main", "detail_level": "minimal", "x": 1},
+    ],
+)
+def test_query_graph_leaves_the_rest_to_python(git_repo: Path, arguments: dict[str, Any]) -> None:
+    rust, python, stderr = _call_both(git_repo, "query_graph_tool", arguments)
+    assert NATIVE_TRACE not in stderr
+    assert rust == python
