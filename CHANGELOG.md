@@ -7,11 +7,15 @@ All notable changes to `dagayn` are documented here.
 ### Added
 
 - A standalone Rust `dagayn` binary (`crates/dagayn-cli`, not shipped in the
-  wheel yet) whose only command is `build`. It writes the same graph,
-  metadata, and post-processing results as the Python `dagayn build`, which
-  CI checks on every snapshot fixture, and takes the same write lock.
-  `--skip-flows`, `--scip`, embeddings, jj and SVN working copies, and
-  `CRG_DATA_DIR` are refused for now.
+  wheel yet) with `build` and `update`. Both write the same graph, metadata,
+  and post-processing results as the Python CLI, which CI checks on every
+  snapshot fixture (`update` through three rounds of edits, deletions, and
+  renames), and take the same lock. `update` keeps the hook behaviour:
+  `DAGAYN_HOOK_UPDATE` skips instead of waiting for a writer, honours
+  `.dagayn/hook-skip`, and stops after `--budget-seconds` (120 s for hooks).
+  A warm hook update with nothing to do takes 0.09 s instead of 0.32 s here.
+  `--scip`, embeddings, jj and SVN working copies, `CRG_DATA_DIR`, and seeding
+  a new worktree's graph are refused for now.
 - The MCP snapshots also freeze each fixture's graph (`graph.json`) and
   metadata, and cover manifest bridges with two more fixtures.
 - MCP response snapshots (`tools/mcp_snapshot.py`,

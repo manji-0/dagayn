@@ -122,9 +122,33 @@ Python, post-processing). Manifest bridge extraction moved to
 `dagayn-postproc`, and the Python build calls it through `_core`. CI runs
 `tests/test_mcp_snapshots.py` with `DAGAYN_CLI_CMD` set to the binary: the
 graph, the metadata, and every tool response match the Python build on all
-nine fixtures. Not ported yet, and refused rather than ignored: `--skip-flows`,
-`--scip`, embeddings, jj and SVN working copies, `CRG_DATA_DIR`, and the editor
-workspace hints in root detection.
+nine fixtures.
+
+Second slice (done): `update`, with `--base`, `--skip-flows`,
+`--skip-postprocess`, `--budget-seconds`, the `hook-skip` marker, and the
+non-blocking lock a hook run takes. `tests/test_update_parity.py` (run in CI
+with `DAGAYN_RUST_CLI`) updates every fixture through three rounds of edits,
+deletions, and renames with both CLIs, at full and `--skip-flows`
+post-processing, and requires the same graph, metadata, and summary after
+each. On this repository a warm hook update with nothing to do takes 0.09 s
+and 90 MB instead of 0.32 s and 190 MB; after one Markdown edit it took
+1.05 s instead of 1.27 s, nearly all of it whole-graph post-processing in
+Rust (bare-name resolution, centrality), which only incremental
+post-processing removes.
+
+Deliberate differences from the Python CLI:
+
+- Paths that Python walks in hash order (changed files, dependents) are
+  sorted, so the same change stores rows in the same order every time.
+- A manual `update` that times out waiting for the lock fails with exit
+  status 1. Python prints `Incremental: 0 files updated` and exits 0, which
+  reads as success.
+- `tests/test_update_parity.py` starts both runs from a Python build, to
+  isolate `update`; a Rust build is covered by the snapshot step.
+
+Not ported yet, and refused rather than ignored: `--scip`, embeddings, jj
+and SVN working copies, `CRG_DATA_DIR`, seeding a linked worktree's first
+graph, and the editor workspace hints in root detection.
 
 - Move tool bodies in `dagayn/tools/` (mostly JSON shaping over `GraphStore`)
   into `dagayn-graph` behind a JSON API.
