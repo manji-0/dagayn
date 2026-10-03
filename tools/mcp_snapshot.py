@@ -25,6 +25,7 @@ import os
 import re
 import shlex
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -43,6 +44,7 @@ import dagayn.contracts._python314_compat  # noqa: E402, F401
 # isort: split
 from mcp import ClientSession, StdioServerParameters  # noqa: E402
 from mcp.client.stdio import stdio_client  # noqa: E402
+from parity_export import export_db  # noqa: E402
 
 PARITY_DIR = REPO_ROOT / "tests" / "fixtures" / "parity"
 SNAPSHOT_DIR = PARITY_DIR / "__mcp_snapshots__"
@@ -123,6 +125,43 @@ FIXTURE_CASES: dict[str, list[tuple[str, str, dict[str, Any]]]] = {
         ("children_of", "query_graph_tool", {"pattern": "children_of", "target": "helpers.js"}),
         ("search", "semantic_search_nodes_tool", {"query": "helper"}),
     ],
+    "manifest_py_rust": [
+        (
+            "bridges_from",
+            "query_graph_tool",
+            {"pattern": "bridges_from", "target": "pyproject.toml"},
+        ),
+        (
+            "cargo_bridges",
+            "query_graph_tool",
+            {"pattern": "bridges_from", "target": "rust/Cargo.toml"},
+        ),
+        (
+            "importers_of",
+            "query_graph_tool",
+            {"pattern": "importers_of", "target": "rust/src/lib.rs"},
+        ),
+    ],
+    "manifest_generated_client": [
+        (
+            "bridges_from",
+            "query_graph_tool",
+            {"pattern": "bridges_from", "target": "openapitools.json"},
+        ),
+        (
+            "consumer_bridges",
+            "query_graph_tool",
+            {"pattern": "bridges_from", "target": "apps/web/package.json"},
+        ),
+    ],
+}
+
+#: Fixtures outside ``tests/fixtures/parity``; the rest are named after their directory.
+FIXTURE_SOURCES: dict[str, Path] = {
+    "manifest_py_rust": REPO_ROOT / "tests" / "fixtures" / "cross_artifact_manifest" / "py_rust",
+    "manifest_generated_client": (
+        REPO_ROOT / "tests" / "fixtures" / "cross_artifact_manifest" / "generated_client"
+    ),
 }
 
 #: Keys whose values describe the run, not the graph.
@@ -141,6 +180,7 @@ _VOLATILE_KEYS = frozenset(
         "version",
         "dagayn_version",
         "created_at",
+        "fts_indexed_at",
         "updated_at",
         # Interpreter, binary path, and pid of the server process.
         "_runtime",
@@ -211,7 +251,7 @@ def built_fixture(name: str) -> Iterator[tuple[Path, dict[str, str]]]:
         home = root / "home"
         home.mkdir()
         shutil.copytree(
-            PARITY_DIR / name,
+            FIXTURE_SOURCES.get(name, PARITY_DIR / name),
             repo,
             ignore=shutil.ignore_patterns(".dagayn", ".git"),
         )
@@ -356,11 +396,30 @@ def fixture_cases(name: str) -> list[tuple[str, str, dict[str, Any]]]:
     return [*_COMMON_CASES, *FIXTURE_CASES[name]]
 
 
+def _graph_metadata(db_path: Path) -> dict[str, str]:
+    conn = sqlite3.connect(db_path)
+    try:
+        return dict(conn.execute("SELECT key, value FROM metadata").fetchall())
+    finally:
+        conn.close()
+
+
 def snapshot_fixture(name: str) -> dict[str, str]:
-    """Canonical JSON text per case for fixture *name*."""
+    """Canonical JSON text per case for fixture *name*.
+
+    Besides the tool responses, ``graph`` (every node and edge) and
+    ``metadata`` freeze the database the build wrote: it is the contract
+    between whatever ran ``build`` and whatever serves it.
+    """
     with built_fixture(name) as (repo, env):
+        db_path = repo / ".dagayn" / "graph.db"
+        snapshots = {
+            "graph": export_db(db_path, entity_lines=True),
+            "metadata": canonical(normalize(_graph_metadata(db_path), repo)),
+        }
         results = asyncio.run(_call_cases(repo, env, fixture_cases(name)))
-    return {case: canonical(payload) for case, payload in results.items()}
+    snapshots.update({case: canonical(payload) for case, payload in results.items()})
+    return snapshots
 
 
 def snapshot_tools_list() -> str:

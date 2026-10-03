@@ -1,0 +1,83 @@
+{
+  "_hints": {
+    "next_steps": [
+      {
+        "suggestion": "Inspect a specific community with mode=\"community\"",
+        "tool": "architecture_analysis_tool"
+      },
+      {
+        "suggestion": "See cross-community coupling with mode=\"overview\"",
+        "tool": "architecture_analysis_tool"
+      },
+      {
+        "suggestion": "See execution flows across communities",
+        "tool": "flow_tool"
+      }
+    ],
+    "related": [],
+    "warnings": []
+  },
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "_runtime": "<VOLATILE>",
+  "answerability": {
+    "answerability": [
+      0,
+      0,
+      0,
+      2,
+      0.0
+    ],
+    "counts": {
+      "communities": 0,
+      "current_head_sha": "e60a9d4c8c36b14632be834ce574c72273837e78",
+      "flows": 0,
+      "graph_head_sha": "e60a9d4c8c36b14632be834ce574c72273837e78",
+      "reportable_cross_artifact_edges": 2,
+      "reportable_unresolved_cross_artifact_edges": 0,
+      "stale_flow_memberships": 0,
+      "test_edges": 0,
+      "unassigned_nodes": 0,
+      "worktree_dirty": false
+    },
+    "parse": [
+      4,
+      3,
+      true
+    ],
+    "reason_codes": [
+      "missing_flows",
+      "missing_communities",
+      "missing_test_edges"
+    ],
+    "score": 0.6,
+    "status": "degraded"
+  },
+  "called_subtool": "list_communities_func",
+  "communities": [],
+  "missingness": [
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_flows",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_communities",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_test_edges",
+      "severity": "medium"
+    }
+  ],
+  "mode": "communities",
+  "status": "ok",
+  "summary": "Found 0 communities",
+  "total": 0,
+  "truncated": false
+}

@@ -1,0 +1,54 @@
+{
+  "_hints": {
+    "next_steps": [
+      {
+        "suggestion": "architecture_analysis_tool mode=\"communities\" -- inspect structure",
+        "tool": "architecture_analysis_tool"
+      },
+      {
+        "suggestion": "flow_tool mode=\"list\" -- inspect critical reachable-set flows",
+        "tool": "flow_tool"
+      },
+      {
+        "suggestion": "semantic_search_nodes_tool -- search for specific entities",
+        "tool": "semantic_search_nodes_tool"
+      }
+    ],
+    "related": [],
+    "warnings": []
+  },
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "edges_by_kind": {
+    "CALLS": 1,
+    "CONTAINS": 3,
+    "CROSS_ARTIFACT": 2,
+    "IMPORTS_FROM": 1,
+    "REFERENCES": 1
+  },
+  "embeddings_count": 0,
+  "files_count": 6,
+  "languages": [
+    "typescript",
+    "json",
+    "javascript"
+  ],
+  "last_updated": "<VOLATILE>",
+  "next_tool_suggestions": [
+    "architecture_analysis_tool mode=\"communities\" -- inspect structure",
+    "flow_tool mode=\"list\" -- inspect critical reachable-set flows",
+    "semantic_search_nodes_tool -- search for specific entities"
+  ],
+  "nodes_by_kind": {
+    "Class": 1,
+    "File": 6,
+    "Function": 2
+  },
+  "status": "ok",
+  "summary": "Graph stats for repo: 9 nodes, 8 edges, 6 files, 3 language(s), 0 embedding(s).",
+  "total_edges": 8,
+  "total_nodes": 9
+}

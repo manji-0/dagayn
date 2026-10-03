@@ -1,0 +1,14 @@
+{
+  "extractor_versions": "bash=1,c_like=6,csharp=5,dart=4,elixir=2,gdscript=2,go=8,java=4,javascript=8,julia=4,kotlin=4,lua=4,markdown=1,perl=3,php=2,python=9,r=2,ruby=5,rust=17,scala=3,shared=2,swift=3,terraform=1,zig=4",
+  "fts_indexed_at": "<VOLATILE>",
+  "fts_indexed_node_count": "13",
+  "fts_segmenter": "lindera",
+  "git_branch": "main",
+  "git_head_sha": "dd58eaddda2960904306906d2f281865ecbcd8b6",
+  "last_build_type": "full",
+  "last_postprocessed_at": "<VOLATILE>",
+  "last_updated": "<VOLATILE>",
+  "postprocess_level": "full",
+  "repo_root": "<REPO>",
+  "schema_version": "17"
+}

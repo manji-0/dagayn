@@ -1,0 +1,151 @@
+{
+  "_hints": {
+    "next_steps": [
+      {
+        "suggestion": "Verify call sites before applying a rename",
+        "tool": "query_graph_tool"
+      },
+      {
+        "suggestion": "Check risk of the refactored code",
+        "tool": "review_tool"
+      },
+      {
+        "suggestion": "Find related symbols to also rename",
+        "tool": "semantic_search_nodes_tool"
+      }
+    ],
+    "related": [],
+    "warnings": []
+  },
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "answerability": {
+    "answerability": [
+      0,
+      1,
+      0,
+      2,
+      0.0
+    ],
+    "counts": {
+      "communities": 1,
+      "current_head_sha": "4ac51207fce09149d59ef618f91828654525eff6",
+      "flows": 0,
+      "graph_head_sha": "4ac51207fce09149d59ef618f91828654525eff6",
+      "reportable_cross_artifact_edges": 2,
+      "reportable_unresolved_cross_artifact_edges": 0,
+      "stale_flow_memberships": 0,
+      "test_edges": 0,
+      "unassigned_nodes": 1,
+      "worktree_dirty": false
+    },
+    "parse": [
+      6,
+      3,
+      true
+    ],
+    "reason_codes": [
+      "missing_flows",
+      "missing_test_edges",
+      "stale_derived_structures"
+    ],
+    "score": 0.6,
+    "status": "degraded"
+  },
+  "caveats": [
+    "Dead-code results are graph-backed candidates; verify dynamic dispatch, plugin registration, reflection, and generated entry points before deleting."
+  ],
+  "dead_code": [
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
+        "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "apps/web/src/main.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 3,
+      "name": "boot",
+      "public_api_candidate": true,
+      "qualified_name": "apps/web/src/main.ts::boot",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "public_api_candidate"
+      ]
+    },
+    {
+      "caveats": [
+        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
+        "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
+      ],
+      "confidence": "low",
+      "evidence": {
+        "caller_count": 0,
+        "importer_count": 0,
+        "name_definition_count": 1,
+        "reachable_via_cross_artifact": false,
+        "reference_count": 0,
+        "source_available": true,
+        "subclass_count": 0,
+        "test_ref_count": 0
+      },
+      "file": "packages/api-client/src/index.ts",
+      "kind": "Function",
+      "language": "typescript",
+      "line": 11,
+      "name": "getHealth",
+      "public_api_candidate": true,
+      "qualified_name": "packages/api-client/src/index.ts::getHealth",
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "public_api_candidate"
+      ]
+    }
+  ],
+  "missingness": [
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_flows",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_test_edges",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "stale_derived_structures",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "dead-code claims do not cover dynamic runtime references",
+      "reason_code": "absence_evidence_requires_manual_verification",
+      "severity": "medium"
+    }
+  ],
+  "status": "ok",
+  "summary": "Found 2 dead code symbol(s).",
+  "total": 2,
+  "truncated": false
+}

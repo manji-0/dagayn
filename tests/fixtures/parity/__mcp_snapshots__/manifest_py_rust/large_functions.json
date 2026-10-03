@@ -1,0 +1,97 @@
+{
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "min_lines": 1,
+  "results": [
+    {
+      "file_path": "pyproject.toml",
+      "id": 5,
+      "is_test": false,
+      "kind": "File",
+      "language": "toml",
+      "line_count": 12,
+      "line_end": 12,
+      "line_start": 1,
+      "name": "pyproject.toml",
+      "parent_name": null,
+      "qualified_name": "pyproject.toml",
+      "relative_path": "pyproject.toml"
+    },
+    {
+      "file_path": "rust/Cargo.toml",
+      "id": 6,
+      "is_test": false,
+      "kind": "File",
+      "language": "toml",
+      "line_count": 11,
+      "line_end": 11,
+      "line_start": 1,
+      "name": "rust/Cargo.toml",
+      "parent_name": null,
+      "qualified_name": "rust/Cargo.toml",
+      "relative_path": "rust/Cargo.toml"
+    },
+    {
+      "file_path": "rust/src/lib.rs",
+      "id": 3,
+      "is_test": false,
+      "kind": "File",
+      "language": "rust",
+      "line_count": 7,
+      "line_end": 7,
+      "line_start": 1,
+      "name": "rust/src/lib.rs",
+      "parent_name": null,
+      "qualified_name": "rust/src/lib.rs",
+      "relative_path": "rust/src/lib.rs"
+    },
+    {
+      "file_path": "demo_native/__init__.py",
+      "id": 1,
+      "is_test": false,
+      "kind": "File",
+      "language": "python",
+      "line_count": 6,
+      "line_end": 6,
+      "line_start": 1,
+      "name": "demo_native/__init__.py",
+      "parent_name": null,
+      "qualified_name": "demo_native/__init__.py",
+      "relative_path": "demo_native/__init__.py"
+    },
+    {
+      "file_path": "rust/src/lib.rs",
+      "id": 4,
+      "is_test": false,
+      "kind": "Function",
+      "language": "rust",
+      "line_count": 3,
+      "line_end": 6,
+      "line_start": 4,
+      "name": "add",
+      "parent_name": null,
+      "qualified_name": "rust/src/lib.rs::add",
+      "relative_path": "rust/src/lib.rs"
+    },
+    {
+      "file_path": "demo_native/__init__.py",
+      "id": 2,
+      "is_test": false,
+      "kind": "Function",
+      "language": "python",
+      "line_count": 2,
+      "line_end": 5,
+      "line_start": 4,
+      "name": "ping",
+      "parent_name": null,
+      "qualified_name": "demo_native/__init__.py::ping",
+      "relative_path": "demo_native/__init__.py"
+    }
+  ],
+  "status": "ok",
+  "summary": "Found 6 node(s) with >= 1 lines:\n    12 lines |     File | pyproject.toml (pyproject.toml:1)\n    11 lines |     File | rust/Cargo.toml (rust/Cargo.toml:1)\n     7 lines |     File | rust/src/lib.rs (rust/src/lib.rs:1)\n     6 lines |     File | demo_native/__init__.py (demo_native/__init__.py:1)\n     3 lines | Function | add (rust/src/lib.rs:4)\n     2 lines | Function | ping (demo_native/__init__.py:4)",
+  "total_found": 6
+}

@@ -1,0 +1,78 @@
+{
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "answerability": {
+    "reason_codes": [
+      "missing_flows",
+      "missing_communities",
+      "missing_test_edges"
+    ],
+    "score": 0.6,
+    "status": "degraded"
+  },
+  "confidence": "low",
+  "exact_match_count": 1,
+  "guidance": [
+    {
+      "action": "semantic_search_nodes_tool -- verify the target and refresh the graph",
+      "claim": "No graph relationships matched 'bridges_from' for 'pyproject.toml'.",
+      "confidence": "low",
+      "counts": {
+        "result_count": 0
+      },
+      "evidence": [
+        {
+          "pattern": "bridges_from",
+          "result_count": 0,
+          "target": "pyproject.toml",
+          "type": "computed"
+        }
+      ],
+      "missingness": [
+        {
+          "claim_effect": "absence is graph-limited, not proof the relationship does not exist",
+          "reason_code": "not_found_in_current_graph",
+          "severity": "medium"
+        }
+      ],
+      "reason_codes": [
+        "zero_result"
+      ]
+    }
+  ],
+  "missingness": [
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_flows",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_communities",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_test_edges",
+      "severity": "medium"
+    }
+  ],
+  "next_action": {
+    "suggestion": "fetch live source with pattern=\"source_of\", then callers_of/callees_of",
+    "tool": "query_graph_tool"
+  },
+  "pattern": "bridges_from",
+  "resolution": "exact",
+  "result_count": 0,
+  "results": [],
+  "results_complete": true,
+  "status": "ok",
+  "summary": "Found 0 result(s) for bridges_from('pyproject.toml')",
+  "target": "pyproject.toml",
+  "unresolved_count": 0,
+  "unresolved_targets": [],
+  "zero_result_reason": "not_found_in_current_graph"
+}

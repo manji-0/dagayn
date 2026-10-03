@@ -1,0 +1,139 @@
+{
+  "_hints": {
+    "next_steps": [
+      {
+        "suggestion": "review_tool mode=\"changes\" -- apply questions to current changes",
+        "tool": "review_tool"
+      }
+    ],
+    "related": [],
+    "warnings": []
+  },
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "answerability": {
+    "answerability": [
+      0,
+      1,
+      0,
+      2,
+      0.0
+    ],
+    "counts": {
+      "communities": 1,
+      "current_head_sha": "4ac51207fce09149d59ef618f91828654525eff6",
+      "flows": 0,
+      "graph_head_sha": "4ac51207fce09149d59ef618f91828654525eff6",
+      "reportable_cross_artifact_edges": 2,
+      "reportable_unresolved_cross_artifact_edges": 0,
+      "stale_flow_memberships": 0,
+      "test_edges": 0,
+      "unassigned_nodes": 1,
+      "worktree_dirty": false
+    },
+    "parse": [
+      6,
+      3,
+      true
+    ],
+    "reason_codes": [
+      "missing_flows",
+      "missing_test_edges",
+      "stale_derived_structures"
+    ],
+    "score": 0.6,
+    "status": "degraded"
+  },
+  "by_priority": {
+    "high": 4,
+    "low": 1,
+    "medium": 0
+  },
+  "guidance": [
+    {
+      "action": "review_tool mode=\"changes\" -- apply questions to current changes",
+      "claim": "Generated 5 review question(s) from graph signals.",
+      "confidence": "medium",
+      "counts": {
+        "returned_questions": 5,
+        "total_questions": 5
+      },
+      "evidence": [
+        {
+          "by_priority": {
+            "high": 4,
+            "low": 1,
+            "medium": 0
+          },
+          "returned": 5,
+          "type": "computed"
+        }
+      ],
+      "missingness": [],
+      "reason_codes": [
+        "suggested_questions"
+      ]
+    }
+  ],
+  "missingness": [
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_flows",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_test_edges",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "stale_derived_structures",
+      "severity": "medium"
+    }
+  ],
+  "next_tool_suggestions": [
+    "architecture_analysis_tool mode=\"knowledge_gaps\" -- structural weaknesses",
+    "review_tool mode=\"changes\" -- risk-scored review",
+    "architecture_analysis_tool mode=\"overview\" -- community map"
+  ],
+  "questions": [
+    {
+      "category": "bridge_node",
+      "priority": "high",
+      "question": "'boot' is a critical connector between multiple code regions. Is it adequately tested and documented?",
+      "target": "apps/web/src/main.ts::boot"
+    },
+    {
+      "category": "hub_risk",
+      "priority": "high",
+      "question": "Hub node 'boot' has 2 connections but no direct test coverage. Should it be tested?",
+      "target": "apps/web/src/main.ts::boot"
+    },
+    {
+      "category": "hub_risk",
+      "priority": "high",
+      "question": "Hub node 'HealthResponse' has 2 connections but no direct test coverage. Should it be tested?",
+      "target": "packages/api-client/src/index.ts::HealthResponse"
+    },
+    {
+      "category": "hub_risk",
+      "priority": "high",
+      "question": "Hub node 'getHealth' has 2 connections but no direct test coverage. Should it be tested?",
+      "target": "packages/api-client/src/index.ts::getHealth"
+    },
+    {
+      "category": "thin_community",
+      "priority": "low",
+      "question": "Community 'src-healthresponse' has only 2 member(s). Should it be merged with a neighbor?",
+      "target": "community:1"
+    }
+  ],
+  "status": "ok",
+  "summary": "Generated 5 review question(s).",
+  "total": 5,
+  "truncated": false
+}
