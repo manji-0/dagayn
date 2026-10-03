@@ -19,9 +19,8 @@
 use crate::helpers::*;
 use crate::*;
 
-use super::bare_names::{
-    DIRECT_IMPORT_CONFIDENCE, INFERRED_CONFIDENCE, import_targets_tx, language_family,
-};
+use super::bare_names::{DIRECT_IMPORT_CONFIDENCE, INFERRED_CONFIDENCE, language_family};
+use super::returned::ResolveContext;
 
 /// Methods of Rust's standard types and traits (`Iterator`, `Option`,
 /// `Result`, `Vec`, slices, `str`, `String`, maps, `Path`).
@@ -363,26 +362,14 @@ fn std_method_package(language: &str, method: &str) -> Option<&'static str> {
 /// defines, as far as the calling file can see (no function of that name in
 /// the file or in a file it imports), at the package, `MEDIUM`. Returns how
 /// many changed.
-pub(crate) fn mark_stdlib_method_calls(tx: &Transaction<'_>) -> Result<i64> {
+pub(crate) fn mark_stdlib_method_calls(
+    tx: &Transaction<'_>,
+    context: &ResolveContext,
+) -> Result<i64> {
     // The files declaring each function name of the repository, per
     // language family.
-    let defined: HashMap<(&'static str, String), HashSet<String>> = {
-        let mut stmt = tx.prepare(
-            "SELECT DISTINCT name, file_path FROM nodes WHERE kind IN ('Function', 'Test')",
-        )?;
-        let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?;
-        let mut defined: HashMap<(&'static str, String), HashSet<String>> = HashMap::new();
-        for row in rows {
-            let (name, file_path) = row?;
-            if let Some(family) = language_family(&file_path) {
-                defined.entry((family, name)).or_default().insert(file_path);
-            }
-        }
-        defined
-    };
-    let import_targets = import_targets_tx(tx)?;
+    let defined = context.defined();
+    let import_targets = context.import_targets();
     let edges = {
         let mut stmt = tx.prepare(
             "SELECT id, target_qualified, file_path, extra FROM edges \
@@ -778,28 +765,16 @@ fn dominant_package(packages: &HashMap<String, (usize, bool)>) -> Option<(&Strin
 /// node.children(..)` is `tree_sitter`'s when `Node::kind` is nearly every
 /// `kind` the graph has seen), `MEDIUM`, unless a function of that name is
 /// visible to the calling file. Returns how many changed.
-pub(crate) fn mark_observed_method_calls(tx: &Transaction<'_>) -> Result<i64> {
+pub(crate) fn mark_observed_method_calls(
+    tx: &Transaction<'_>,
+    context: &ResolveContext,
+) -> Result<i64> {
     let observed = observed_methods(tx)?;
     if observed.is_empty() {
         return Ok(0);
     }
-    let defined: HashMap<(&'static str, String), HashSet<String>> = {
-        let mut stmt = tx.prepare(
-            "SELECT DISTINCT name, file_path FROM nodes WHERE kind IN ('Function', 'Test')",
-        )?;
-        let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?;
-        let mut defined: HashMap<(&'static str, String), HashSet<String>> = HashMap::new();
-        for row in rows {
-            let (name, file_path) = row?;
-            if let Some(family) = language_family(&file_path) {
-                defined.entry((family, name)).or_default().insert(file_path);
-            }
-        }
-        defined
-    };
-    let import_targets = import_targets_tx(tx)?;
+    let defined = context.defined();
+    let import_targets = context.import_targets();
     let edges = {
         let mut stmt = tx.prepare(
             "SELECT id, target_qualified, file_path, extra FROM edges \

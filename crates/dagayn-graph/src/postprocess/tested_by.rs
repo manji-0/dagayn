@@ -115,19 +115,23 @@ pub(crate) fn reconcile_tested_by_with_calls(tx: &Transaction<'_>) -> Result<(i6
     )? as i64;
     let missing = {
         let mut stmt = tx.prepare(
+            // From the test nodes (a few thousand) rather than every call:
+            // `CROSS JOIN` keeps SQLite from starting at `edges`, and the
+            // `ORDER BY` keeps the insertion order that start gave.
             "SELECT c.target_qualified, c.source_qualified, c.file_path, c.line, \
                     c.confidence, c.confidence_tier \
-             FROM edges c \
-             JOIN nodes test ON test.qualified_name = c.source_qualified AND test.is_test = 1 \
+             FROM nodes test \
+             CROSS JOIN edges c ON c.source_qualified = test.qualified_name AND c.kind = 'CALLS' \
              JOIN nodes target ON target.qualified_name = c.target_qualified \
-             WHERE c.kind = 'CALLS' \
+             WHERE test.is_test = 1 \
                AND COALESCE(json_extract(c.extra, '$.external'), 0) = 0 \
                AND COALESCE(json_extract(c.extra, '$.test_api'), 0) = 0 \
                AND NOT EXISTS ( \
                    SELECT 1 FROM edges tb \
                    WHERE tb.kind = 'TESTED_BY' AND tb.source_qualified = c.target_qualified \
                      AND tb.target_qualified = c.source_qualified \
-                     AND tb.file_path = c.file_path AND tb.line = c.line)",
+                     AND tb.file_path = c.file_path AND tb.line = c.line) \
+             ORDER BY c.id",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok((

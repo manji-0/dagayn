@@ -23,7 +23,7 @@
 use crate::helpers::*;
 use crate::*;
 
-use super::bare_names::{INFERRED_CONFIDENCE, import_targets_tx, language_family};
+use super::bare_names::{INFERRED_CONFIDENCE, language_family};
 
 /// How many links of a call chain are followed.
 const MAX_ROUNDS: usize = 6;
@@ -233,7 +233,7 @@ enum Returned {
 }
 
 #[derive(Default)]
-struct Graph {
+pub(crate) struct Graph {
     nodes: HashSet<String>,
     /// Function QN -> (return type as written, owner class name).
     returns: HashMap<String, (String, Option<String>)>,
@@ -301,6 +301,36 @@ impl Graph {
             );
         }
         None
+    }
+}
+
+/// What the call-target passes read but never write: nodes and
+/// `IMPORTS_FROM` edges. Those passes only change `CALLS` and `TESTED_BY`
+/// edges, so one load serves every pass of a `resolve_bare_call_targets`
+/// run.
+pub(crate) struct ResolveContext {
+    graph: Graph,
+    import_targets: HashMap<String, HashSet<String>>,
+}
+
+impl ResolveContext {
+    pub(crate) fn load(
+        tx: &Transaction<'_>,
+        import_targets: HashMap<String, HashSet<String>>,
+    ) -> Result<Self> {
+        Ok(Self {
+            graph: load_graph(tx)?,
+            import_targets,
+        })
+    }
+
+    /// (language family, function name) -> files declaring one.
+    pub(crate) fn defined(&self) -> &HashMap<(&'static str, String), HashSet<String>> {
+        &self.graph.defined
+    }
+
+    pub(crate) fn import_targets(&self) -> &HashMap<String, HashSet<String>> {
+        &self.import_targets
     }
 }
 
@@ -1117,9 +1147,12 @@ fn update_call(tx: &Transaction<'_>, id: i64, target: &str, extra: &Value) -> Re
 /// Resolves member calls on the result of another call by the return type
 /// of the function that call resolved to (see the module docs). Returns
 /// how many changed.
-pub(crate) fn resolve_returned_receivers(tx: &Transaction<'_>) -> Result<i64> {
-    let graph = load_graph(tx)?;
-    let import_targets = import_targets_tx(tx)?;
+pub(crate) fn resolve_returned_receivers(
+    tx: &Transaction<'_>,
+    context: &ResolveContext,
+) -> Result<i64> {
+    let graph = &context.graph;
+    let import_targets = &context.import_targets;
     let mut changed = 0_i64;
     for _ in 0..MAX_ROUNDS {
         let mut round = 0_i64;
@@ -1145,10 +1178,10 @@ pub(crate) fn resolve_returned_receivers(tx: &Transaction<'_>) -> Result<i64> {
             // code writes: observed-method inference does not learn from it.
             let mut by_table = false;
             let returned = if graph.nodes.contains(&inner_target) {
-                returned_by(&graph, &inner_target, unwrap)
+                returned_by(graph, &inner_target, unwrap)
             } else if family == "rust"
                 && inner_extra.get("external").and_then(Value::as_bool) == Some(true)
-                && (!unwrap || !graph.visible(family, &method, &file, &import_targets))
+                && (!unwrap || !graph.visible(family, &method, &file, import_targets))
                 && !inner_extra
                     .get("external_symbol")
                     .and_then(Value::as_str)
@@ -1175,7 +1208,7 @@ pub(crate) fn resolve_returned_receivers(tx: &Transaction<'_>) -> Result<i64> {
                 ))
             } else if matches!(family, "python" | "javascript")
                 && inner_extra.get("external").and_then(Value::as_bool) == Some(true)
-                && !graph.visible(family, &method, &file, &import_targets)
+                && !graph.visible(family, &method, &file, import_targets)
             {
                 // A package function whose return type is known
                 // (`conn.execute(..).fetchall()` is a `sqlite3.Cursor`'s,

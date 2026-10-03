@@ -21,6 +21,12 @@ All notable changes to `dagayn` are documented here.
   `DAGAYN_PYTHON_CLI=1` keeps everything in Python, and `python -m dagayn`
   always runs Python.
 
+- Bare-name resolution loads the node tables, import targets, and declared
+  function names once per run instead of once per pass, and reconciles
+  `TESTED_BY` starting from the test nodes. An update after one edit here
+  takes 1.09 s instead of 1.20 s; the stored graph is unchanged, edge ids
+  included.
+
 ### Added
 
 - A Rust `dagayn` CLI (`crates/dagayn-cli`) with `build`, `update`, and `status`, every command the
@@ -49,6 +55,9 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- Native binding edges (`CROSS_ARTIFACT` from `native_bindings`) were
+  stored in hash-map order, so the same graph got different edge ids on
+  every build. They are now stored sorted.
 - A corrupt `graph.db` is quarantined again when the native store is the one
   that finds it. The CLI only caught `sqlite3.DatabaseError`, so the native
   store's `RuntimeError` escaped as a traceback on every hook run.

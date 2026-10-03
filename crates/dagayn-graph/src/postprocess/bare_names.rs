@@ -4,7 +4,9 @@ use crate::postprocess::external_calls::{
     mark_stdlib_method_calls, resolve_enum_variant_calls,
 };
 use crate::postprocess::reexports::resolve_reexported_targets;
-use crate::postprocess::returned::{resolve_pyo3_methods, resolve_returned_receivers};
+use crate::postprocess::returned::{
+    ResolveContext, resolve_pyo3_methods, resolve_returned_receivers,
+};
 use crate::postprocess::sync_tested_by_with_calls;
 use crate::postprocess::tested_by::reconcile_tested_by_with_calls;
 use crate::*;
@@ -719,27 +721,27 @@ impl GraphStore {
     pub fn resolve_bare_call_targets(&mut self) -> Result<i64> {
         let tx = write_tx(&mut self.conn)?;
         let re_exported = resolve_reexported_targets(&tx)?;
-        let import_targets = import_targets_tx(&tx)?;
+        let context = ResolveContext::load(&tx, import_targets_tx(&tx)?)?;
+        let import_targets = context.import_targets();
         let visibility = symbol_visibility(&tx)?;
         let index = load_bare_name_index(&tx, &["Function", "Test", "Class"])?;
-        let mut resolved =
-            bind_bare_call_targets(&tx, &index, &import_targets, &visibility, false)?;
+        let mut resolved = bind_bare_call_targets(&tx, &index, import_targets, &visibility, false)?;
         resolved += resolve_enum_variant_calls(&tx)?;
         // Twice: a call these passes type (`repo_root.join(x)` as `std`) is
         // the origin a call on its result (`.exists()`) waits for.
         for _ in 0..2 {
-            resolve_returned_receivers(&tx)?;
+            resolve_returned_receivers(&tx, &context)?;
             resolve_pyo3_methods(&tx)?;
             mark_glob_imported_external_calls(&tx)?;
             mark_deref_calls(&tx)?;
-            mark_stdlib_method_calls(&tx)?;
+            mark_stdlib_method_calls(&tx, &context)?;
         }
-        resolved += bind_bare_call_targets(&tx, &index, &import_targets, &visibility, true)?;
+        resolved += bind_bare_call_targets(&tx, &index, import_targets, &visibility, true)?;
         // Last: what every other pass typed is what it learns from.
-        mark_observed_method_calls(&tx)?;
+        mark_observed_method_calls(&tx, &context)?;
         // A call it typed (`conn.prepare(..)` as `rusqlite`'s) is the origin
         // a call on its result (`.query_map(..)`) waits for.
-        resolve_returned_receivers(&tx)?;
+        resolve_returned_receivers(&tx, &context)?;
         sync_tested_by_with_calls(&tx)?;
         reconcile_tested_by_with_calls(&tx)?;
         tx.commit()?;
