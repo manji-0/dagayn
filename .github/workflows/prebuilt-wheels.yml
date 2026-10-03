@@ -96,6 +96,23 @@ jobs:
           "$venv/bin/python" -P -c "import sys; from dagayn import _core; sys.exit(_core.run_cli(['dagayn', 'status', '--repo', sys.argv[1]]))" "$repo" > rust.txt
           DAGAYN_PYTHON_CLI=1 "$venv/bin/dagayn" status --repo "$repo" > python.txt
           diff python.txt rust.txt
+          # `dagayn serve` lists the tools from the packaged surface file and
+          # relays a call to the Python server.
+          "$venv/bin/python" -P - "$venv/bin/dagayn" "$repo" <<'PY'
+          import json, subprocess, sys
+          server = subprocess.Popen([sys.argv[1], "serve", "--repo", sys.argv[2]], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+          def ask(i, method, params):
+              server.stdin.write(json.dumps({"jsonrpc": "2.0", "id": i, "method": method, "params": params}) + "\n")
+              server.stdin.flush()
+              return json.loads(server.stdout.readline())
+          ask(0, "initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "smoke", "version": "0"}})
+          server.stdin.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
+          assert len(ask(1, "tools/list", {})["result"]["tools"]) == 9
+          reply = ask(2, "tools/call", {"name": "query_graph_tool", "arguments": {"pattern": "file_summary", "target": "main.py"}})
+          assert reply["result"]["isError"] is False, reply
+          server.stdin.close()
+          assert server.wait(timeout=30) == 0
+          PY
 
       - name: Upload wheel artifact
         uses: actions/upload-artifact@v7

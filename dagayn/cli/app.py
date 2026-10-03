@@ -14,6 +14,7 @@ if sys.version_info < (3, 12):
     sys.exit(1)
 
 import argparse
+from collections.abc import Callable
 
 from .utils import _get_version, _print_banner
 
@@ -139,14 +140,7 @@ def main() -> None:
         _print_banner()
         return
 
-    # A corrupt graph image raises on every open, so an unattended hook would
-    # otherwise print a traceback on each edit forever. Quarantine and explain.
-    import sqlite3
-
-    from ..graph.sqlite_errors import is_sqlite_corrupt_error
-    from ..jj_workspace import JjWorkspaceError
-
-    try:
+    def dispatch() -> None:
         if args.command in ("install", "init"):
             init.handle(args)
         elif args.command in _BUILD_COMMANDS:
@@ -177,6 +171,22 @@ def main() -> None:
             session.handle(args, session_parsers["session"])
         elif args.command == "queue":
             queue.handle(args, queue_parsers["queue"])
+
+    run_guarded(args, dispatch)
+
+
+def run_guarded(args: argparse.Namespace, handler: Callable[[], None]) -> None:
+    """Run a command handler, turning a corrupt graph and a broken jj
+    workspace into a message and exit status 1 instead of a traceback."""
+    # A corrupt graph image raises on every open, so an unattended hook would
+    # otherwise print a traceback on each edit forever. Quarantine and explain.
+    import sqlite3
+
+    from ..graph.sqlite_errors import is_sqlite_corrupt_error
+    from ..jj_workspace import JjWorkspaceError
+
+    try:
+        handler()
     except (sqlite3.DatabaseError, RuntimeError) as exc:
         # The native GraphStore reports SQLite errors as RuntimeError.
         if not is_sqlite_corrupt_error(exc):

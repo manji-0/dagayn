@@ -1,0 +1,176 @@
+"""The Rust stdio front end of ``dagayn serve`` (``dagayn.server.proxy``).
+
+The MCP snapshots prove what it answers; these prove when it loads Python:
+never for a session that only lists, once for the first call, and a session
+still ends cleanly when stdin closes.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+DAGAYN = Path(sys.executable).with_name("dagayn")
+BOOT_TRACE = "starting the Python MCP server"
+SURFACE = Path(__file__).parent.parent / "dagayn" / "server" / "mcp_surface.json"
+
+pytestmark = pytest.mark.skipif(not DAGAYN.exists(), reason="dagayn console script not installed")
+
+
+def _env(**extra: str) -> dict[str, str]:
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith(("DAGAYN_", "CRG_"))
+        and key not in ("CLAUDE_PROJECT_DIR", "CURSOR_PROJECT_DIR", "WORKSPACE_FOLDER_PATHS")
+    }
+    env.update({"DAGAYN_MCP_TRACE": "1", **extra})
+    return env
+
+
+@pytest.fixture
+def repo(tmp_path: Path) -> Path:
+    root = tmp_path / "repo"
+    (root / ".git").mkdir(parents=True)
+    (root / "app.py").write_text("def main():\n    return helper()\n\n\ndef helper():\n    pass\n")
+    subprocess.run([DAGAYN, "build", "--repo", root], env=_env(), check=True, capture_output=True)
+    return root
+
+
+class Session:
+    def __init__(self, repo: Path, **env: str) -> None:
+        self.proc = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
+            [DAGAYN, "serve", "--repo", repo, "--tools", "all"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=_env(**env),
+            text=True,
+        )
+
+    def send(self, message: dict[str, Any]) -> None:
+        assert self.proc.stdin is not None
+        self.proc.stdin.write(json.dumps({"jsonrpc": "2.0", **message}) + "\n")
+        self.proc.stdin.flush()
+
+    def read(self) -> dict[str, Any]:
+        assert self.proc.stdout is not None
+        line = self.proc.stdout.readline()
+        assert line, "server closed stdout"
+        return json.loads(line)
+
+    def open(self) -> dict[str, Any]:
+        self.send(
+            {
+                "id": 0,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "0"},
+                },
+            }
+        )
+        reply = self.read()
+        self.send({"method": "notifications/initialized"})
+        return reply
+
+    def close(self) -> tuple[int, float, str]:
+        """Close stdin; the exit status, seconds until exit, and stderr."""
+        started = time.monotonic()
+        # communicate() closes stdin first.
+        _, stderr = self.proc.communicate(timeout=30)
+        return self.proc.returncode, time.monotonic() - started, stderr
+
+
+def test_a_listing_session_never_loads_the_python_server(repo: Path) -> None:
+    session = Session(repo)
+    reply = session.open()
+    assert reply["result"]["serverInfo"] == {"name": "dagayn", "version": _version()}
+    session.send({"id": 1, "method": "tools/list", "params": {}})
+    surface = json.loads(SURFACE.read_text(encoding="utf-8"))
+    assert len(session.read()["result"]["tools"]) == len(surface["tools"])
+    session.send({"id": 2, "method": "ping", "params": {}})
+    assert session.read() == {"jsonrpc": "2.0", "id": 2, "result": {}}
+
+    status, seconds, stderr = session.close()
+    assert status == 0
+    assert seconds < 5
+    assert BOOT_TRACE not in stderr
+
+
+def test_the_first_call_loads_it_and_local_replies_do_not_wait(repo: Path) -> None:
+    session = Session(repo)
+    session.open()
+    session.send(
+        {
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "list_graph_stats_tool", "arguments": {}},
+        }
+    )
+    # Sent while the call boots fastmcp and the tools, answered first.
+    session.send({"id": 2, "method": "ping", "params": {}})
+    first, second = session.read(), session.read()
+    assert first == {"jsonrpc": "2.0", "id": 2, "result": {}}
+    assert second["id"] == 1
+    stats = second["result"]["structuredContent"]
+    assert (stats["total_nodes"], stats["total_edges"]) == (3, 3)
+
+    status, _, stderr = session.close()
+    assert status == 0
+    assert stderr.count(BOOT_TRACE) == 1
+
+
+def test_a_request_larger_than_a_pipe_buffer_is_relayed(repo: Path) -> None:
+    """A 1 MiB argument crosses the request pipe and gets fastmcp's reply."""
+    call = {
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "query_graph_tool",
+            "arguments": {"pattern": "callers_of", "target": "x" * (1 << 20)},
+        },
+    }
+    replies = []
+    for env in ({}, {"DAGAYN_PYTHON_CLI": "1"}):
+        session = Session(repo, **env)
+        session.open()
+        session.send(call)
+        replies.append(session.read())
+        status, _, _ = session.close()
+        assert status == 0
+    rust, python = replies
+    assert rust["id"] == 1
+    assert rust["result"]["structuredContent"]["status"] == "error"
+    assert rust["result"]["structuredContent"] == python["result"]["structuredContent"]
+
+
+def test_the_python_cli_keeps_fastmcps_own_loop(repo: Path) -> None:
+    session = Session(repo, DAGAYN_PYTHON_CLI="1")
+    reply = session.open()
+    assert reply["result"]["serverInfo"]["version"] != _version()
+    session.send(
+        {
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "list_graph_stats_tool", "arguments": {}},
+        }
+    )
+    assert session.read()["id"] == 1
+    status, _, stderr = session.close()
+    assert status == 0
+    assert BOOT_TRACE not in stderr
+
+
+def _version() -> str:
+    from dagayn import __version__
+
+    return __version__

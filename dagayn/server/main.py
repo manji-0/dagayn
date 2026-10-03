@@ -26,6 +26,12 @@ from ..prompts import (
     review_changes_prompt,
 )
 from ..tools._common import ToolPayload
+from .tool_allowlist import (
+    _ALL_TOOL_SENTINELS,  # noqa: F401 - re-exported for callers of main
+    _DEFAULT_MCP_TOOL_NAMES,  # noqa: F401
+    _parse_tool_allow_list,  # noqa: F401
+    _resolve_tool_allow_list,
+)
 
 type ComponentPayload = dict[str, object]
 
@@ -121,20 +127,6 @@ _default_keep_local_embedding_server: bool = False
 _default_local_embedding_timeout: int = 300
 _default_local_embedding_request_timeout: int = 60
 _default_local_embedding_batch_size: int = 1
-_DEFAULT_MCP_TOOL_NAMES: frozenset[str] = frozenset(
-    {
-        "get_minimal_context_tool",
-        "ensure_graph_tool",
-        "review_tool",
-        "flow_tool",
-        "architecture_analysis_tool",
-        "refactor_tool",
-        "query_graph_tool",
-        "semantic_search_nodes_tool",
-        "get_docs_section_tool",
-    }
-)
-_ALL_TOOL_SENTINELS: frozenset[str] = frozenset({"*", "all", "full"})
 
 
 def _resolve_repo_root(repo_root: Optional[str]) -> Optional[str]:
@@ -1121,36 +1113,6 @@ def _remove_mcp_tool(name: str) -> None:
     raise RuntimeError("FastMCP tool registry does not support remove_tool")
 
 
-def _parse_tool_allow_list(raw: str) -> set[str]:
-    """Parse a comma-separated MCP tool allow-list."""
-    return {tool.strip() for tool in raw.split(",") if tool.strip()}
-
-
-def _resolve_tool_allow_list(tools: str | None = None) -> set[str] | None:
-    """Resolve tool filtering from CLI/env args.
-
-    ``None`` means expose every registered tool.  When no CLI/env value is
-    supplied, return the compact default public surface instead of the full
-    maintenance/debugging surface.
-    """
-    import os
-
-    if tools is not None:
-        parsed = _parse_tool_allow_list(tools)
-        if parsed & _ALL_TOOL_SENTINELS:
-            return None
-        return parsed or None
-
-    env_tools = os.environ.get("CRG_TOOLS")
-    if env_tools is not None:
-        parsed = _parse_tool_allow_list(env_tools)
-        if parsed & _ALL_TOOL_SENTINELS:
-            return None
-        return parsed or None
-
-    return set(_DEFAULT_MCP_TOOL_NAMES)
-
-
 def _apply_tool_filter(tools: str | None = None) -> None:
     """Remove tools outside the resolved public MCP surface.
 
@@ -1189,6 +1151,38 @@ def _apply_tool_filter(tools: str | None = None) -> None:
     for name in registered:
         if name not in allowed:
             _remove_mcp_tool(name)
+
+
+def configure(
+    repo_root: str | None = None,
+    tools: str | None = None,
+    embedding_provider: str | None = None,
+    embedding_model: str | None = None,
+    local_embedding: str | None = None,
+    local_embedding_port: int | None = None,
+    local_embedding_bin: str = "auto",
+    keep_local_embedding_server: bool = False,
+    local_embedding_timeout: int = 300,
+    local_embedding_request_timeout: int = 60,
+    local_embedding_batch_size: int = 1,
+) -> None:
+    """Set the server defaults and the tool surface; see :func:`main`."""
+    global _default_embedding_model, _default_embedding_provider, _default_repo_root
+    global _default_keep_local_embedding_server, _default_local_embedding
+    global _default_local_embedding_batch_size, _default_local_embedding_bin
+    global _default_local_embedding_port, _default_local_embedding_request_timeout
+    global _default_local_embedding_timeout
+    _default_repo_root = repo_root
+    _default_embedding_provider = embedding_provider or _infer_remote_embedding_provider_from_env()
+    _default_embedding_model = embedding_model
+    _default_local_embedding = local_embedding if local_embedding != "none" else None
+    _default_local_embedding_port = local_embedding_port
+    _default_local_embedding_bin = local_embedding_bin
+    _default_keep_local_embedding_server = keep_local_embedding_server
+    _default_local_embedding_timeout = local_embedding_timeout
+    _default_local_embedding_request_timeout = local_embedding_request_timeout
+    _default_local_embedding_batch_size = local_embedding_batch_size
+    _apply_tool_filter(tools=tools)
 
 
 def main(
@@ -1234,22 +1228,19 @@ def main(
         host: Bind address when using HTTP (required for HTTP; set by CLI).
         port: Port when using HTTP (required for HTTP; set by CLI).
     """
-    global _default_embedding_model, _default_embedding_provider, _default_repo_root
-    global _default_keep_local_embedding_server, _default_local_embedding
-    global _default_local_embedding_batch_size, _default_local_embedding_bin
-    global _default_local_embedding_port, _default_local_embedding_request_timeout
-    global _default_local_embedding_timeout
-    _default_repo_root = repo_root
-    _default_embedding_provider = embedding_provider or _infer_remote_embedding_provider_from_env()
-    _default_embedding_model = embedding_model
-    _default_local_embedding = local_embedding if local_embedding != "none" else None
-    _default_local_embedding_port = local_embedding_port
-    _default_local_embedding_bin = local_embedding_bin
-    _default_keep_local_embedding_server = keep_local_embedding_server
-    _default_local_embedding_timeout = local_embedding_timeout
-    _default_local_embedding_request_timeout = local_embedding_request_timeout
-    _default_local_embedding_batch_size = local_embedding_batch_size
-    _apply_tool_filter(tools=tools)
+    configure(
+        repo_root=repo_root,
+        tools=tools,
+        embedding_provider=embedding_provider,
+        embedding_model=embedding_model,
+        local_embedding=local_embedding,
+        local_embedding_port=local_embedding_port,
+        local_embedding_bin=local_embedding_bin,
+        keep_local_embedding_server=keep_local_embedding_server,
+        local_embedding_timeout=local_embedding_timeout,
+        local_embedding_request_timeout=local_embedding_request_timeout,
+        local_embedding_batch_size=local_embedding_batch_size,
+    )
     if sys.platform == "win32":
         import asyncio
 
@@ -1264,6 +1255,53 @@ def main(
         mcp.run(transport="streamable-http", host=host, port=port)
     else:
         raise ValueError(f"unsupported transport: {transport!r}")
+
+
+def serve_on_fds(read_fd: int, write_fd: int) -> None:
+    """Serve one MCP session over newline-delimited JSON on two descriptors.
+
+    The stdio front end in ``dagayn._core`` hands the session here when it
+    meets a message it does not answer itself; this runs the server the way
+    ``FastMCP.run_stdio_async`` does, on the pipes instead of fds 0 and 1,
+    and closes both when the request pipe reaches EOF.
+    """
+    import contextlib
+    import io
+
+    import anyio
+    from fastmcp.server.context import reset_transport, set_transport
+    from mcp.server.lowlevel import NotificationOptions
+    from mcp.server.stdio import stdio_server
+
+    if _FASTMCP_IMPORT_ERROR is not None:
+        mcp.run()  # the fallback's error, as fastmcp's own loop would raise it
+    server: Any = mcp
+
+    async def run() -> None:
+        stdin = anyio.wrap_file(
+            io.TextIOWrapper(os.fdopen(read_fd, "rb"), encoding="utf-8", errors="replace")
+        )
+        stdout = anyio.wrap_file(io.TextIOWrapper(os.fdopen(write_fd, "wb"), encoding="utf-8"))
+        token = set_transport("stdio")
+        try:
+            async with server._lifespan_manager():
+                async with stdio_server(stdin=stdin, stdout=stdout) as (read_stream, write_stream):
+                    await server._mcp_server.run(
+                        read_stream,
+                        write_stream,
+                        server._mcp_server.create_initialization_options(
+                            notification_options=NotificationOptions(tools_changed=True),
+                        ),
+                    )
+        finally:
+            reset_transport(token)
+            # Closing the reply pipe is what ends the front end's relay; the
+            # streams may already be closed, which must not hide an error.
+            for stream in (stdout, stdin):
+                with contextlib.suppress(Exception):
+                    await stream.aclose()
+
+    anyio.run(run)
 
 
 if __name__ == "__main__":

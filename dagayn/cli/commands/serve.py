@@ -74,6 +74,18 @@ def _infer_persisted_local_embedding(repo_root: str | None):
     return infer_local_embedding_provider(provider_name)
 
 
+def _rust_frontend_enabled() -> bool:
+    """Whether the ``dagayn`` console script asked for the Rust stdio front end.
+
+    ``python -m dagayn serve`` and ``DAGAYN_PYTHON_CLI=1`` keep fastmcp's own
+    stdio loop.
+    """
+    import sys
+
+    launcher = sys.modules.get("dagayn._cli_launcher")
+    return bool(getattr(launcher, "RUST_MCP_FRONTEND", False))
+
+
 def register_command(sub: argparse._SubParsersAction) -> argparse.ArgumentParser:
     """Register the serve subcommand. Returns the subparser."""
     serve_cmd = sub.add_parser(
@@ -126,8 +138,6 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
     """Start the MCP server, optionally managing a local embedding server."""
     import os
 
-    from ...server.main import main as serve_main
-
     if args.port is not None and not args.http:
         serve_parser.error("--port requires --http")
     if args.host is not None and not args.http:
@@ -158,6 +168,8 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
         local_embedding_default: str | None = None,
     ) -> None:
         if args.http:
+            from ...server.main import main as serve_main
+
             host = args.host if args.host is not None else "127.0.0.1"
             port = args.port if args.port is not None else 5555
             serve_main(
@@ -177,7 +189,7 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
                 local_embedding_batch_size=args.local_embedding_batch_size,
             )
         else:
-            serve_main(
+            stdio_config = dict(
                 repo_root=pinned_repo,
                 tools=args.tools,
                 embedding_provider=embedding_provider,
@@ -190,6 +202,14 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
                 local_embedding_request_timeout=args.local_embedding_request_timeout,
                 local_embedding_batch_size=args.local_embedding_batch_size,
             )
+            if _rust_frontend_enabled():
+                from ...server.proxy import serve_stdio
+
+                serve_stdio(**stdio_config)
+            else:
+                from ...server.main import main as serve_main
+
+                serve_main(**stdio_config)
 
     inferred_local_embedding = None
     local_embedding = args.local_embedding

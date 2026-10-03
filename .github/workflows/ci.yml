@@ -130,6 +130,11 @@ jobs:
           cargo build --profile dev-fast -p dagayn-cli
           DAGAYN_CLI_CMD="$PWD/target/dev-fast/dagayn" uv run pytest -q tests/test_mcp_snapshots.py
           DAGAYN_RUST_CLI="$PWD/target/dev-fast/dagayn" uv run pytest -q -n auto tests/test_update_parity.py
+      - name: Rust MCP front end against the fastmcp server
+        # The installed `dagayn serve` answers the handshake and listings in
+        # Rust and relays the rest; the snapshots were taken from fastmcp.
+        run: |
+          DAGAYN_MCP_SERVER_CMD="$PWD/.venv/bin/dagayn serve" uv run pytest -q -n auto tests/test_mcp_snapshots.py
       - name: Smoke-test uvx source install path
         run: uvx --refresh --from . dagayn --help
 

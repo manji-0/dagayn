@@ -18,6 +18,7 @@ extension-module = ["pyo3/extension-module"]
 dagayn-build = { path = "../dagayn-build" }
 dagayn-cli = { path = "../dagayn-cli" }
 dagayn-graph = { path = "../dagayn-graph" }
+dagayn-mcp = { path = "../dagayn-mcp" }
 dagayn-parser = { path = "../dagayn-parser" }
 dagayn-postproc = { path = "../dagayn-postproc" }
 pyo3.workspace = true

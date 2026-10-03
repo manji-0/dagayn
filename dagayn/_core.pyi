@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from os import PathLike
 from pathlib import Path
 from typing import Any
@@ -51,6 +52,12 @@ def discover_manifest_bridges_json(
 ) -> str: ...
 def resolve_manifest_path(base_dir: str, declared: str) -> str | None: ...
 def run_cli(argv: list[str]) -> int | None: ...
+def serve_mcp(
+    surface_json: str,
+    allowed_tools: list[str] | None,
+    version: str,
+    boot: Callable[[int, int], None],
+) -> None: ...
 def embedding_search(
     db_path: str | PathLike[str],
     provider: str,

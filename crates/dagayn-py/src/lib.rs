@@ -1111,6 +1111,46 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(discover_manifest_bridges_json, module)?)?;
     module.add_function(wrap_pyfunction!(resolve_manifest_path, module)?)?;
     module.add_function(wrap_pyfunction!(run_cli, module)?)?;
+    module.add_function(wrap_pyfunction!(serve_mcp, module)?)?;
+    Ok(())
+}
+
+/// Serve an MCP session on stdin and stdout until EOF with the front end of
+/// `dagayn-mcp`, calling `boot(read_fd, write_fd)` to start the Python server
+/// for the first message it does not answer itself. See
+/// `dagayn.server.proxy`.
+#[pyfunction]
+fn serve_mcp(
+    py: Python<'_>,
+    surface_json: &str,
+    allowed_tools: Option<Vec<String>>,
+    version: &str,
+    boot: Py<PyAny>,
+) -> PyResult<()> {
+    struct PythonBackend(Py<PyAny>);
+
+    impl dagayn_mcp::Backend for PythonBackend {
+        fn boot(
+            &mut self,
+            requests: std::os::fd::OwnedFd,
+            replies: std::os::fd::OwnedFd,
+        ) -> std::io::Result<()> {
+            use std::os::fd::IntoRawFd;
+            let (read_fd, write_fd) = (requests.into_raw_fd(), replies.into_raw_fd());
+            Python::attach(|py| self.0.call1(py, (read_fd, write_fd)).map(drop))
+                .map_err(|err| std::io::Error::other(err.to_string()))
+        }
+    }
+
+    let surface = dagayn_mcp::Surface::from_json(surface_json)
+        .map_err(pyo3::exceptions::PyValueError::new_err)?;
+    let config = dagayn_mcp::Config {
+        surface,
+        allowed_tools: allowed_tools.map(|names| names.into_iter().collect()),
+        version: version.to_string(),
+    };
+    let (input, output) = dagayn_mcp::claim_stdio()?;
+    py.detach(|| dagayn_mcp::serve(config, input, output, PythonBackend(boot)))?;
     Ok(())
 }
 

@@ -357,6 +357,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "dagayn-mcp"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde_json",
+]
+
+[[package]]
 name = "dagayn-parser"
 version = "0.1.0"
 dependencies = [
@@ -391,6 +399,7 @@ dependencies = [
  "dagayn-build",
  "dagayn-cli",
  "dagayn-graph",
+ "dagayn-mcp",
  "dagayn-parser",
  "dagayn-postproc",
  "pyo3",

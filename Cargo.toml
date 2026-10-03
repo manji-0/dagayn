@@ -4,6 +4,7 @@ members = [
     "crates/dagayn-cli",
     "crates/dagayn-grammars",
     "crates/dagayn-graph",
+    "crates/dagayn-mcp",
     "crates/dagayn-parser",
     "crates/dagayn-postproc",
     "crates/dagayn-py",

@@ -7,7 +7,10 @@ CLI (argparse and every command module):
   ``dagayn._core``, which answers ``None`` for any command line it does not
   handle exactly as the Python CLI would;
 * ``queue add`` of a payload-free kind with ``--repo`` calls the same
-  ``TaskQueue`` and ``ensure_worker`` the ``queue`` command does.
+  ``TaskQueue`` and ``ensure_worker`` the ``queue`` command does;
+* ``serve`` over stdio answers the handshake and the listings in Rust and
+  loads fastmcp and the tools only for the first call
+  (``dagayn.server.proxy``).
 
 Everything else, anything those decline, and every command under
 ``DAGAYN_PYTHON_CLI=1`` runs the Python CLI. ``python -m dagayn`` always does.
@@ -18,17 +21,25 @@ import signal
 import sys
 
 _RUST_COMMANDS = frozenset({"build", "update", "status"})
+#: Set before the CLI runs ``serve``: its stdio loop is the Rust front end
+#: (``dagayn.server.proxy``) instead of fastmcp's. Read by
+#: ``dagayn.cli.commands.serve``.
+RUST_MCP_FRONTEND = False
 #: ``queue add`` kinds without a payload; ``embed`` takes the embedding flags.
 _QUEUE_FAST_KINDS = frozenset({"update", "postprocess", "prepare"})
 
 
 def main() -> None:
+    global RUST_MCP_FRONTEND
     args = sys.argv[1:]
     if os.environ.get("DAGAYN_PYTHON_CLI", "").strip().lower() not in ("1", "true", "yes"):
         if args and args[0] in _RUST_COMMANDS:
             _run_rust(args)
         elif args[:2] == ["queue", "add"]:
             _queue_add(args[2:])
+        elif args[:1] == ["serve"]:
+            RUST_MCP_FRONTEND = True
+            _serve(args)
 
     from dagayn.cli import main as cli_main
 
@@ -46,6 +57,21 @@ def _run_rust(args: list[str]) -> None:
     if status is not None:
         sys.exit(status)
     signal.signal(signal.SIGINT, handler)
+
+
+def _serve(args: list[str]) -> None:
+    """``serve`` with only its own command module loaded; ``--help`` and
+    argument errors come from the parser the full CLI registers."""
+    import argparse
+
+    from dagayn.cli.app import run_guarded
+    from dagayn.cli.commands import serve
+
+    parser = argparse.ArgumentParser(prog="dagayn")
+    serve_parser = serve.register_command(parser.add_subparsers(dest="command"))
+    namespace = parser.parse_args(args)
+    run_guarded(namespace, lambda: serve.handle(namespace, serve_parser))
+    sys.exit(0)
 
 
 def _queue_add(args: list[str]) -> None:
