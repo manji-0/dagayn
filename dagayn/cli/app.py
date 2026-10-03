@@ -177,7 +177,8 @@ def main() -> None:
             session.handle(args, session_parsers["session"])
         elif args.command == "queue":
             queue.handle(args, queue_parsers["queue"])
-    except sqlite3.DatabaseError as exc:
+    except (sqlite3.DatabaseError, RuntimeError) as exc:
+        # The native GraphStore reports SQLite errors as RuntimeError.
         if not is_sqlite_corrupt_error(exc):
             raise
         _report_corrupt_database(args, exc)
