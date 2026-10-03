@@ -337,6 +337,23 @@ embeddings table as a side effect (it constructed an `EmbeddingStore` to
 count), so `dagayn status` reported "empty" instead of "not indexed" after a
 stats call; both now count read-only.
 
+Two SQLite libraries share every Python process that loads `_core`:
+Python's `sqlite3` and the copy compiled into the extension. POSIX locks are
+per process, so neither sees the other's, including the WAL-index locks that
+keep a checkpoint off a reader's pages. Reproduced: on a graph without
+embeddings tables, `hybrid_search` with no provider opened and cached a
+writable `EmbeddingStore` (creating the schema on a read path), the native
+store's close then counted itself last and deleted `-wal` and `-shm`, and
+every later `sqlite3.connect` in the process failed with "disk I/O error",
+so all later answerability read as missing tables. It surfaced only after
+`list_graph_stats` stopped creating the table first. Search no longer opens
+a store without a provider, `dagayn-tools` opens graphs with
+`GraphStore::open_read_only` (a read-only connection never deletes the WAL
+files), and the Rust build creates the embeddings schema as Python's does (a
+gap `export_db` now catches by recording `sqlite_master`). The hazard
+remains wherever Python writes the graph while the native store holds it;
+moving `embeddings_store` to Rust (5.4) removes it.
+
 Next: the tools a session calls first and most (`get_minimal_context_tool`,
 `query_graph_tool`), which decide whether a typical session ever needs
 Python.

@@ -66,6 +66,18 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- A `dagayn serve` session (fastmcp's loop) could lose its graph for the
+  rest of the session: a semantic search with no embedding provider opened
+  an `EmbeddingStore` anyway, which created the embeddings schema and kept a
+  writable connection cached, and once the native graph store closed, every
+  later SQLite connection in the process failed with "disk I/O error" (the
+  two SQLite libraries in one process cannot see each other's locks). Search
+  now opens no store without a provider, and the Rust tools open graphs
+  read-only.
+- The Rust `dagayn build` and `update` now create the embeddings tables and
+  triggers the Python build creates. The parity snapshots record every
+  table, index, and trigger, so a schema difference between the backends
+  fails them.
 - `list_graph_stats_tool` no longer writes to the graph: counting vectors
   created the embeddings table, after which `dagayn status` reported
   embeddings as "empty" instead of "not indexed".
