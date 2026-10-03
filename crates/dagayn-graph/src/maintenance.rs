@@ -141,3 +141,32 @@ impl GraphStore {
         Ok(found.is_some())
     }
 }
+
+impl GraphStore {
+    /// Delete vectors whose node is gone, across every provider partition.
+    ///
+    /// `EmbeddingStore.remove_orphans(live, all_providers=True)` in Python:
+    /// without it, a deleted node's vector keeps winning top-k slots that
+    /// search then drops, returning fewer results than asked for. A graph
+    /// that never stored embeddings has no table and nothing to prune.
+    pub fn prune_orphaned_embeddings(&mut self) -> Result<i64> {
+        let has_table: bool = self
+            .conn
+            .query_row(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'embeddings'",
+                [],
+                |_| Ok(true),
+            )
+            .optional()?
+            .unwrap_or(false);
+        if !has_table {
+            return Ok(0);
+        }
+        let deleted = self.conn.execute(
+            "DELETE FROM embeddings WHERE qualified_name NOT IN \
+             (SELECT qualified_name FROM nodes WHERE kind != 'File')",
+            [],
+        )?;
+        Ok(deleted as i64)
+    }
+}

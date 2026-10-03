@@ -1,20 +1,23 @@
 //! Parsing batches of repository files for the native store: parallel parse with per-thread parsers, change detection against stored hashes and mtimes, and conversion of parser output to graph inputs.
 
-use super::*;
+use std::collections::HashMap;
 
-pub(crate) struct CachedRustChangedFile {
+use dagayn_graph::{EdgeInput, FileBatchItem, NodeInput};
+use sha2::{Digest, Sha256};
+
+pub struct CachedRustChangedFile {
     source: Vec<u8>,
     file_hash: String,
     mtime_ns: i64,
 }
 
-pub(crate) type RustStoreSummary = (usize, usize, Vec<(String, String)>);
+pub type RustStoreSummary = (usize, usize, Vec<(String, String)>);
 
-pub(crate) type RustChangedFilesSummary = (Vec<String>, Vec<(String, String)>);
+pub type RustChangedFilesSummary = (Vec<String>, Vec<(String, String)>);
 
-type RustFileBatchSummary = (Vec<FileBatchItem>, usize, usize, Vec<(String, String)>);
+pub type RustFileBatchSummary = (Vec<FileBatchItem>, usize, usize, Vec<(String, String)>);
 
-type RustChangedFileBatchSummary = (
+pub type RustChangedFileBatchSummary = (
     Vec<FileBatchItem>,
     Vec<(String, i64)>,
     usize,
@@ -22,7 +25,7 @@ type RustChangedFileBatchSummary = (
     Vec<(String, String)>,
 );
 
-type RustClassifiedFilesSummary = (
+pub type RustClassifiedFilesSummary = (
     Vec<(String, CachedRustChangedFile)>,
     Vec<(String, i64)>,
     Vec<(String, String)>,
@@ -78,7 +81,7 @@ where
         .collect()
 }
 
-pub(crate) fn collect_rust_owned_file_batch(
+pub fn collect_rust_owned_file_batch(
     repo_root: &std::path::Path,
     file_paths: Vec<String>,
 ) -> RustFileBatchSummary {
@@ -96,6 +99,10 @@ pub(crate) fn collect_rust_owned_file_batch(
         Ok((file_path, nodes, edges, sha256_hex(&source), mtime_ns))
     });
 
+    summarize_batch(parsed)
+}
+
+fn summarize_batch(parsed: Vec<Result<FileBatchItem, (String, String)>>) -> RustFileBatchSummary {
     let mut batch = Vec::new();
     let mut errors = Vec::new();
     let mut total_nodes = 0_usize;
@@ -113,7 +120,34 @@ pub(crate) fn collect_rust_owned_file_batch(
     (batch, total_nodes, total_edges, errors)
 }
 
-pub(crate) fn collect_changed_rust_owned_file_batch(
+/// Parse files the Rust-owned path rules do not claim (an extensionless
+/// script whose shebang names a language outside them, for one).
+///
+/// Mirrors the Python fallback, which parses them without repository context.
+pub fn collect_unowned_file_batch(
+    repo_root: &std::path::Path,
+    file_paths: Vec<String>,
+) -> RustFileBatchSummary {
+    let parsed = par_map_with_parser(file_paths, |parser, file_path| {
+        let full_path = repo_root.join(&file_path);
+        let source = match std::fs::read(&full_path) {
+            Ok(source) => source,
+            Err(err) => return Err((file_path, err.to_string())),
+        };
+        let mtime_ns = file_mtime_ns(&full_path).unwrap_or(0);
+        let (nodes, edges) = parser.parse_file_in_repo(None, &file_path, &source);
+        Ok((
+            file_path,
+            nodes.into_iter().map(parsed_node_to_input).collect(),
+            edges.into_iter().map(parsed_edge_to_input).collect(),
+            sha256_hex(&source),
+            mtime_ns,
+        ))
+    });
+    summarize_batch(parsed)
+}
+
+pub fn collect_changed_rust_owned_file_batch(
     repo_root: &std::path::Path,
     file_paths: Vec<String>,
     file_meta: &HashMap<String, (String, i64)>,
@@ -177,7 +211,7 @@ pub(crate) fn collect_changed_rust_owned_file_batch(
     (batch, mtime_updates, total_nodes, total_edges, errors)
 }
 
-pub(crate) fn classify_changed_rust_owned_file_batch(
+pub fn classify_changed_rust_owned_file_batch(
     repo_root: &std::path::Path,
     file_paths: Vec<String>,
     file_meta: &HashMap<String, (String, i64)>,

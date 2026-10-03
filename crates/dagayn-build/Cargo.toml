@@ -1,26 +1,16 @@
 [package]
-name = "dagayn-py"
+name = "dagayn-build"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-build = "build.rs"
-
-[lib]
-name = "_core"
-crate-type = ["cdylib", "rlib"]
-
-[features]
-default = []
-extension-module = ["pyo3/extension-module"]
 
 [dependencies]
-dagayn-build = { path = "../dagayn-build" }
 dagayn-graph = { path = "../dagayn-graph" }
 dagayn-parser = { path = "../dagayn-parser" }
 dagayn-postproc = { path = "../dagayn-postproc" }
-pyo3.workspace = true
+libc = "0.2"
+rayon = "1.10"
 serde_json.workspace = true
-
-[package.metadata.maturin]
-name = "dagayn._core"
+sha2.workspace = true
+thiserror.workspace = true
