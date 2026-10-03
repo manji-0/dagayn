@@ -5,7 +5,8 @@ resource listings from ``mcp_surface.json``, recorded from the fastmcp server
 (``tools/mcp_snapshot.py --regenerate`` rewrites it, and
 ``tests/test_mcp_snapshots.py`` checks it), so a session starts without
 importing fastmcp or the tools. Calls ``dagayn-tools`` answers in Rust
-(``list_graph_stats_tool``, ``get_docs_section_tool``) never reach Python; the
+(``list_graph_stats_tool``, ``get_docs_section_tool``, and
+``get_minimal_context_tool`` on a graph at HEAD) never reach Python; the
 first message it does not answer itself boots the fastmcp server of
 :mod:`dagayn.server.main` in this process on a pipe pair
 (:func:`dagayn.server.main.serve_on_fds`) and relays the session to it.
@@ -70,6 +71,8 @@ def serve_stdio(**config: Any) -> None:
                 # The parent of the package, which holds the packaged `docs/`
                 # (`dagayn.tools.docs` looks there too).
                 package_root=str(Path(__file__).resolve().parent.parent.parent),
+                # get_minimal_context decides a local embedding refresh with it.
+                local_embedding=config.get("local_embedding"),
             )
         except BaseException as exc:  # noqa: BLE001 - re-raised on the main thread
             failures.append(exc)

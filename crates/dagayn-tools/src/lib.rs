@@ -6,6 +6,7 @@
 //! it would auto-detect, a graph it would create, migrate, or refuse. The
 //! front end then relays the call, so every error stays Python's.
 
+mod context;
 mod docs;
 mod stats;
 
@@ -26,6 +27,9 @@ pub struct Context {
     pub allowed_tools: Option<HashSet<String>>,
     /// The directory holding the packaged `docs/` (the parent of `dagayn/`).
     pub package_root: Option<PathBuf>,
+    /// `dagayn serve`'s local embedding default (`--local-embedding`, or the
+    /// one inferred from the graph); `None` or `"none"` when off.
+    pub local_embedding: Option<String>,
 }
 
 /// A tool result: its JSON text with the Python tool's top-level key order,
@@ -42,6 +46,7 @@ pub fn call(context: &Context, name: &str, arguments: &Value) -> Option<Payload>
     match name {
         "list_graph_stats_tool" => stats::list_graph_stats(context, arguments),
         "get_docs_section_tool" => docs::get_docs_section(context, arguments),
+        "get_minimal_context_tool" => context::get_minimal_context(context, arguments),
         _ => None,
     }
 }

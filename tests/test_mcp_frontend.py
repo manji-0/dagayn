@@ -206,3 +206,89 @@ def _version() -> str:
     from dagayn import __version__
 
     return __version__
+
+
+@pytest.fixture
+def git_repo(tmp_path: Path) -> Path:
+    """A committed git repository with a built graph."""
+    root = tmp_path / "gitrepo"
+    root.mkdir()
+    (root / "app.py").write_text("def main():\n    return helper()\n\n\ndef helper():\n    pass\n")
+    (root / "test_app.py").write_text("from app import main\n\n\ndef test_main():\n    main()\n")
+    identity = {
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@example.invalid",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@example.invalid",
+    }
+    for args in (["init", "-q", "-b", "main"], ["add", "-A"], ["commit", "-q", "-m", "init"]):
+        subprocess.run(["git", *args], cwd=root, env={**_env(), **identity}, check=True)
+    subprocess.run([DAGAYN, "build", "--repo", root], env=_env(), check=True, capture_output=True)
+    return root
+
+
+def _call_both(repo: Path, name: str, arguments: dict[str, Any]) -> tuple[Any, Any, str]:
+    """The Rust front end's and fastmcp's results, and the front end's stderr."""
+    results = []
+    rust_stderr = ""
+    for env in ({}, {"DAGAYN_PYTHON_CLI": "1"}):
+        session = Session(repo, **env)
+        session.open()
+        session.send(
+            {"id": 1, "method": "tools/call", "params": {"name": name, "arguments": arguments}}
+        )
+        results.append(session.read()["result"])
+        status, _, stderr = session.close()
+        assert status == 0
+        if not env:
+            rust_stderr = stderr
+    return results[0], results[1], rust_stderr
+
+
+@pytest.mark.parametrize(
+    "task",
+    ["", "review PR #42", "fix the login bug", "レビューして", "explore the architecture", "x"],
+)
+@pytest.mark.parametrize("dirty", [False, True])
+def test_minimal_context_answers_at_head_as_python_does(
+    git_repo: Path, task: str, dirty: bool
+) -> None:
+    if dirty:
+        (git_repo / "app.py").write_text("def main():\n    return 2\n")
+    rust, python, stderr = _call_both(git_repo, "get_minimal_context_tool", {"task": task})
+    assert BOOT_TRACE not in stderr
+    assert rust["structuredContent"] == python["structuredContent"]
+    assert json.loads(rust["content"][0]["text"]) == rust["structuredContent"]
+    expected = "worktree_behind" if dirty else "commit_synced"
+    assert rust["structuredContent"]["sync"]["state"] == expected
+
+
+def test_minimal_context_leaves_repair_to_python(git_repo: Path) -> None:
+    """A graph behind HEAD queues a prepare, which is Python's."""
+    (git_repo / "app.py").write_text("def main():\n    return 3\n")
+    subprocess.run(
+        ["git", "commit", "-qam", "next"],
+        cwd=git_repo,
+        env={
+            **_env(),
+            "GIT_AUTHOR_NAME": "t",
+            "GIT_AUTHOR_EMAIL": "t@x",
+            "GIT_COMMITTER_NAME": "t",
+            "GIT_COMMITTER_EMAIL": "t@x",
+        },
+        check=True,
+    )
+    session = Session(git_repo, DAGAYN_HOOK_UPDATE="0")
+    session.open()
+    session.send(
+        {
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "get_minimal_context_tool", "arguments": {}},
+        }
+    )
+    reply = session.read()["result"]["structuredContent"]
+    status, _, stderr = session.close()
+    assert status == 0
+    assert reply["sync"]["state"] == "commit_drift"
+    assert stderr.count(BOOT_TRACE) == 1

@@ -319,3 +319,66 @@ impl GraphStore {
         })
     }
 }
+
+/// The counts `dagayn.tools._common.graph_answerability_summary` queries,
+/// each 0 when its query failed, with the failure codes in query order.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AnswerabilityCounts {
+    pub flows: i64,
+    pub communities: i64,
+    pub unresolved_markdown_code_spans: i64,
+    pub unresolved_cross_artifact_edges: i64,
+    pub stale_flow_memberships: i64,
+    pub unassigned_nodes: i64,
+    pub failures: Vec<&'static str>,
+}
+
+impl GraphStore {
+    /// The answerability counts, with the SQL and failure codes of the Python
+    /// summary.
+    pub fn answerability_counts(&self) -> AnswerabilityCounts {
+        let mut counts = AnswerabilityCounts::default();
+        let mut count = |sql: &str, failure: &'static str| -> i64 {
+            match self.conn.query_row(sql, [], |row| row.get::<_, i64>(0)) {
+                Ok(value) => value,
+                Err(_) => {
+                    counts.failures.push(failure);
+                    0
+                }
+            }
+        };
+        let flows = count("SELECT COUNT(*) FROM flows", "missing_flows_table");
+        let communities = count(
+            "SELECT COUNT(*) FROM communities",
+            "missing_communities_table",
+        );
+        let code_spans = count(
+            "SELECT COUNT(*) FROM edges WHERE kind = 'CROSS_ARTIFACT' \
+             AND target_qualified LIKE '<unresolved:%' \
+             AND extra LIKE '%markdown_code_span%' AND extra LIKE '%code_span%'",
+            "missing_cross_artifact_edge_metadata",
+        );
+        let unresolved = count(
+            "SELECT COUNT(*) FROM edges \
+             WHERE kind = 'CROSS_ARTIFACT' AND target_qualified LIKE '<unresolved:%'",
+            "missing_cross_artifact_edges",
+        );
+        let stale = count(
+            "SELECT COUNT(*) FROM flow_memberships fm \
+             WHERE NOT EXISTS (SELECT 1 FROM nodes n WHERE n.id = fm.node_id)",
+            "missing_flow_memberships_table",
+        );
+        let unassigned = count(
+            "SELECT COUNT(*) FROM nodes n WHERE n.community_id IS NULL AND n.kind != 'File' \
+             AND EXISTS (SELECT 1 FROM communities LIMIT 1)",
+            "missing_community_assignment_metadata",
+        );
+        counts.flows = flows;
+        counts.communities = communities;
+        counts.unresolved_markdown_code_spans = code_spans;
+        counts.unresolved_cross_artifact_edges = unresolved;
+        counts.stale_flow_memberships = stale;
+        counts.unassigned_nodes = unassigned;
+        counts
+    }
+}

@@ -31,6 +31,10 @@ pub struct SyncAssessment {
     pub extractor_drift: Vec<String>,
     /// Files the graph is behind on, for `worktree_behind`.
     pub pending_files: Vec<String>,
+    /// Git reports uncommitted changes (`worktree_dirty`).
+    pub worktree_dirty: bool,
+    /// HEAD of the working copy, when git is the VCS and it has one.
+    pub current_head_sha: Option<String>,
 }
 
 /// The lines `dagayn status` prints.
@@ -134,6 +138,23 @@ fn embedding_lines(store: &GraphStore, lines: &mut Vec<String>) {
     for (name, count) in providers {
         lines.push(format!("  Provider: {name} ({count})"));
     }
+}
+
+/// Whether `embedding_refresh_action` would answer `skip` for a requested
+/// local embedding mode: vectors exist and none of the active provider's are
+/// missing. `not_indexed` and `empty` refresh inline, missing vectors refresh
+/// inline or in the background; both are the Python server's to start.
+pub fn embedding_refresh_skips(store: &GraphStore) -> Result<bool, GraphError> {
+    let Some(counts) = store.embedding_provider_counts()? else {
+        return Ok(false);
+    };
+    if counts.values().sum::<i64>() == 0 {
+        return Ok(false);
+    }
+    let preferred = store.get_metadata(ACTIVE_EMBEDDING_PROVIDER_KEY)?;
+    let provider = resolve_active_provider(&counts, preferred.as_deref());
+    let coverage = store.embedding_coverage(provider.as_deref())?;
+    Ok(coverage.missing_embeddings <= 0 || coverage.embeddable_nodes <= 0)
 }
 
 /// `resolve_active_embedding_provider`: the stored provider wins, matched to a
@@ -313,6 +334,7 @@ pub fn assess_graph_sync(
     } else {
         (String::new(), Vec::new())
     };
+    let head = (!current_sha.is_empty()).then(|| current_sha.clone());
     let graph_empty = stats.total_nodes == 0 || stats.files_count == 0;
     let commit_drift =
         git && !current_sha.is_empty() && stored_sha.as_deref() != Some(&*current_sha);
@@ -331,6 +353,9 @@ pub fn assess_graph_sync(
             state: "unbuilt",
             extractor_drift,
             pending_files: Vec::new(),
+            // Python clears the dirty files of an unbuilt graph.
+            worktree_dirty: false,
+            current_head_sha: head,
         });
     }
     if commit_drift || undated || !extractor_drift.is_empty() {
@@ -338,6 +363,8 @@ pub fn assess_graph_sync(
             state: "commit_drift",
             extractor_drift,
             pending_files: Vec::new(),
+            worktree_dirty: !dirty_files.is_empty(),
+            current_head_sha: head,
         });
     }
     let seeded = store
@@ -363,6 +390,8 @@ pub fn assess_graph_sync(
         } else {
             Vec::new()
         },
+        worktree_dirty: !dirty_files.is_empty(),
+        current_head_sha: head,
     })
 }
 

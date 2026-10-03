@@ -1120,7 +1120,9 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
 /// for the first message it does not answer itself. See
 /// `dagayn.server.proxy`.
 #[pyfunction]
-#[pyo3(signature = (surface_json, allowed_tools, version, boot, pinned_repo=None, package_root=None))]
+// Python keyword arguments, one per session fact.
+#[allow(clippy::too_many_arguments)]
+#[pyo3(signature = (surface_json, allowed_tools, version, boot, pinned_repo=None, package_root=None, local_embedding=None))]
 fn serve_mcp(
     py: Python<'_>,
     surface_json: &str,
@@ -1129,6 +1131,7 @@ fn serve_mcp(
     boot: Py<PyAny>,
     pinned_repo: Option<std::path::PathBuf>,
     package_root: Option<std::path::PathBuf>,
+    local_embedding: Option<String>,
 ) -> PyResult<()> {
     struct RustTools(dagayn_tools::Context);
 
@@ -1169,6 +1172,7 @@ fn serve_mcp(
         pinned_repo,
         allowed_tools: config.allowed_tools.clone(),
         package_root,
+        local_embedding,
     });
     let (input, output) = dagayn_mcp::claim_stdio()?;
     py.detach(|| dagayn_mcp::serve(config, input, output, PythonBackend(boot), &tools))?;
