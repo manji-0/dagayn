@@ -221,6 +221,42 @@ process unconditionally when the budget elapses, with no cancel), and the
 result must keep `skipped`, `skip_reason`, `changed_files`, and
 `dependent_files`.
 
+Incremental post-processing (measured, not built). After one edit on this
+repository a `--skip-flows` update takes about 1.1 s, of which
+post-processing is about 0.96 s:
+
+| Step | Time |
+|---|---|
+| Bare-name edge resolution | 0.48-0.53 s |
+| Centrality score persistence | 0.22 s |
+| Native binding resolution | 0.11 s |
+| Orphaned structure pruning | 0.08 s |
+| Endpoint demotion, summaries, the rest | about 0.1 s |
+
+Bare-name resolution is about 20 passes of 10-90 ms each, with no hotspot.
+An edit re-parses 18-32 files (123 for a widely imported module), which
+hold 0.2-3% of the 54,600 unresolved `CALLS` edges (19% for that module), so
+the edge count would allow scoping. But about 85% of the time is in passes
+that learn from the whole graph (`mark_observed_method_calls`,
+`resolve_returned_receivers` three times, `mark_stdlib_method_calls` and
+`mark_glob_imported_external_calls` and `mark_deref_calls` twice each,
+`resolve_pyo3_methods`, `reconcile_tested_by_with_calls`): an edit can teach
+them something that resolves an unchanged file's edge, so scoping them is not
+equivalent to the global pass on the same state. The pure resolvers that
+could be scoped safely (`bind_bare_call_targets`, re-exports, inheritance)
+take about 60 ms together. Centrality is already limited to the communities
+the changed files belong to.
+
+What is left are speedups that keep the result the same: each learning pass
+rebuilds the map of function names to files (about 6 ms) and the import
+targets (about 5 ms) and re-scans every unresolved `CALLS` edge through
+`json_extract` (about 16 ms), and `reconcile_tested_by_with_calls` scans all
+calls before joining test nodes (0.10 s; 0.06 s starting from the 3,727 test
+nodes). Sharing those reads across the passes is estimated at 0.15-0.2 s of
+the 1.1 s. Reaching well below a second needs a different design: store what
+each learning pass learned, and re-run a pass over unchanged edges only when
+that changes.
+
 In-process consequences: the launcher restores the default SIGINT handler
 while Rust runs, since Python would only act on Ctrl-C between bytecodes;
 the hook budget watchdog's `process::exit` ends the Python process, which
