@@ -79,7 +79,11 @@ fn status_follows_the_graph_through_its_sync_states() {
     repo.dagayn("build");
     let built = repo.dagayn("status");
     assert!(built.starts_with("Nodes: 2\n"), "{built}");
-    assert!(built.contains("Embeddings: not indexed"), "{built}");
+    // The build creates the (empty) embeddings schema, as Python's does.
+    assert!(
+        built.contains("Embeddings: empty (0 vectors, 0 provider(s))"),
+        "{built}"
+    );
     assert!(built.contains("Built on branch: main"), "{built}");
     assert!(state(&built).starts_with("commit_synced"), "{built}");
 
@@ -111,9 +115,8 @@ fn status_reports_embedding_coverage_for_the_active_provider() {
     let repo = Repo::new("embeddings");
     repo.dagayn("build");
     repo.sql(
-        "CREATE TABLE embeddings (qualified_name TEXT NOT NULL, vector BLOB NOT NULL, \
-         text_hash TEXT NOT NULL, provider TEXT NOT NULL, PRIMARY KEY (qualified_name, provider)); \
-         INSERT INTO embeddings VALUES ('app.py::main', x'00', 'h', 'm#dim=4'), \
+        // The build created the embeddings table.
+        "INSERT INTO embeddings VALUES ('app.py::main', x'00', 'h', 'm#dim=4'), \
          ('gone.py::f', x'00', 'h', 'm#dim=4'), ('app.py::main', x'00', 'h', 'old'); \
          INSERT OR REPLACE INTO metadata (key, value) VALUES ('embedding_provider', 'M'), \
          ('extractor_versions', 'python=0');",

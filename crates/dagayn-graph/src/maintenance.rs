@@ -150,24 +150,98 @@ impl GraphStore {
     /// search then drops, returning fewer results than asked for. A graph
     /// that never stored embeddings has no table and nothing to prune.
     pub fn prune_orphaned_embeddings(&mut self) -> Result<i64> {
-        let has_table: bool = self
-            .conn
-            .query_row(
-                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'embeddings'",
-                [],
-                |_| Ok(true),
-            )
-            .optional()?
-            .unwrap_or(false);
-        if !has_table {
-            return Ok(0);
-        }
+        // Python's prune opens an `EmbeddingStore`, which creates (or
+        // migrates) the embeddings schema first; a graph built by either
+        // backend then has the same tables and triggers.
+        self.ensure_embeddings_schema()?;
         let deleted = self.conn.execute(
             "DELETE FROM embeddings WHERE qualified_name NOT IN \
              (SELECT qualified_name FROM nodes WHERE kind != 'File')",
             [],
         )?;
         Ok(deleted as i64)
+    }
+}
+
+/// `dagayn.embeddings_store._EMBEDDINGS_SCHEMA`, byte for byte: SQLite keeps
+/// the statement text in `sqlite_master`.
+const EMBEDDINGS_SCHEMA: &str = r#"
+CREATE TABLE IF NOT EXISTS embeddings (
+    qualified_name TEXT NOT NULL,
+    vector BLOB NOT NULL,
+    text_hash TEXT NOT NULL,
+    provider TEXT NOT NULL DEFAULT 'unknown',
+    PRIMARY KEY (qualified_name, provider)
+);
+"#;
+
+/// `dagayn.embeddings_store._EMBEDDINGS_GENERATION_SCHEMA`, byte for byte.
+const EMBEDDINGS_GENERATION_SCHEMA: &str = r#"
+CREATE TABLE IF NOT EXISTS embeddings_generation (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    epoch TEXT NOT NULL,
+    generation INTEGER NOT NULL
+);
+INSERT OR IGNORE INTO embeddings_generation (id, epoch, generation)
+    VALUES (1, lower(hex(randomblob(8))), 0);
+CREATE TRIGGER IF NOT EXISTS embeddings_generation_insert AFTER INSERT ON embeddings
+BEGIN
+    UPDATE embeddings_generation SET generation = generation + 1 WHERE id = 1;
+END;
+CREATE TRIGGER IF NOT EXISTS embeddings_generation_update AFTER UPDATE ON embeddings
+BEGIN
+    UPDATE embeddings_generation SET generation = generation + 1 WHERE id = 1;
+END;
+CREATE TRIGGER IF NOT EXISTS embeddings_generation_delete AFTER DELETE ON embeddings
+BEGIN
+    UPDATE embeddings_generation SET generation = generation + 1 WHERE id = 1;
+END;
+"#;
+
+impl GraphStore {
+    /// `dagayn.embeddings_store._ensure_embeddings_schema`: create the
+    /// embeddings table and its generation triggers, migrating a legacy
+    /// single-provider table.
+    pub fn ensure_embeddings_schema(&self) -> Result<()> {
+        let columns: Vec<(String, i64)> = {
+            let mut stmt = self.conn.prepare("PRAGMA table_info(embeddings)")?;
+            stmt.query_map([], |row| {
+                Ok((row.get::<_, String>(1)?, row.get::<_, i64>(5)?))
+            })?
+            .collect::<std::result::Result<_, _>>()?
+        };
+        if columns.is_empty() {
+            self.conn.execute_batch(EMBEDDINGS_SCHEMA)?;
+        } else {
+            let mut columns = columns;
+            if !columns.iter().any(|(name, _)| name == "provider") {
+                self.conn.execute(
+                    "ALTER TABLE embeddings ADD COLUMN provider TEXT NOT NULL DEFAULT 'unknown'",
+                    [],
+                )?;
+                columns.push(("provider".to_string(), 0));
+            }
+            let primary_key: Vec<&str> = columns
+                .iter()
+                .filter(|(_, pk)| *pk > 0)
+                .map(|(name, _)| name.as_str())
+                .collect();
+            if primary_key == ["qualified_name"] {
+                self.conn.execute(
+                    "ALTER TABLE embeddings RENAME TO embeddings_legacy_single_provider",
+                    [],
+                )?;
+                self.conn.execute_batch(EMBEDDINGS_SCHEMA)?;
+                self.conn.execute(
+                    "INSERT OR REPLACE INTO embeddings (qualified_name, vector, text_hash, provider)\n            SELECT qualified_name, vector, text_hash, provider\n            FROM embeddings_legacy_single_provider",
+                    [],
+                )?;
+                self.conn
+                    .execute("DROP TABLE embeddings_legacy_single_provider", [])?;
+            }
+        }
+        self.conn.execute_batch(EMBEDDINGS_GENERATION_SCHEMA)?;
+        Ok(())
     }
 }
 

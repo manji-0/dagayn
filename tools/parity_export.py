@@ -94,6 +94,13 @@ def _entity_lines(snapshot: dict) -> str:
             _dumps(item) + ("," if index < last else "") for index, item in enumerate(items)
         )
         lines.append("],")
+    lines.append(f"{_dumps('schema')}:[")
+    objects = snapshot["schema"]
+    lines.extend(
+        _dumps(item) + ("," if index < len(objects) - 1 else "")
+        for index, item in enumerate(objects)
+    )
+    lines.append("],")
     lines.append(f"{_dumps('schema_version')}:{_dumps(snapshot['schema_version'])}")
     lines.append("}")
     return "\n".join(lines) + "\n"
@@ -110,6 +117,14 @@ def export_db(db_path: Path, *, entity_lines: bool = False) -> str:
     try:
         node_rows = conn.execute("SELECT * FROM nodes").fetchall()
         edge_rows = conn.execute("SELECT * FROM edges").fetchall()
+        # Every table, index, and trigger with its DDL: a backend that skips
+        # one (the embeddings tables the Python build creates) differs here.
+        schema = [
+            [row["type"], row["name"], row["sql"]]
+            for row in conn.execute(
+                "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
+            ).fetchall()
+        ]
     finally:
         conn.close()
 
@@ -126,6 +141,7 @@ def export_db(db_path: Path, *, entity_lines: bool = False) -> str:
         "schema_version": LATEST_VERSION,
         "nodes": nodes,
         "edges": edges,
+        "schema": schema,
     }
     if entity_lines:
         return _entity_lines(snapshot)
