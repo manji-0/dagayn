@@ -74,12 +74,35 @@ files still costs about 1.3 s, and the profile above puts most of
 post-processing in Rust already; making FTS, centrality, and bare-name
 resolution incremental is independent of this plan. Startup, distribution, and maintenance have to justify 5.1 onward.
 
-### 5.1 Freeze response shapes as Rust types
+### 5.1 MCP response snapshots as the parity oracle (done)
 
-- Port `dagayn/contracts/state_types.py` to serde structs in a new crate.
-- Turn pytest into a black-box harness: it runs the binary and asserts on
-  JSON output. It stays as the parity oracle through the migration.
-- Port only unit tests for pure logic to Rust.
+`dagayn/contracts/state_types.py` is mostly open dicts (`extra="allow"`), so a
+serde port of it would freeze nothing. The contract is what crosses the MCP
+boundary, so the oracle sits there:
+
+- `tools/mcp_snapshot.py` copies each parity fixture into a git repository
+  with a fixed commit identity and date, builds it with the CLI, starts
+  `dagayn serve` over stdio, and calls 88 read-only cases across the seven
+  fixtures. It never imports the server; `DAGAYN_CLI_CMD` and
+  `DAGAYN_MCP_SERVER_CMD` point it at another implementation.
+- Payloads are snapshotted, not the MCP envelope. Paths, timestamps, and
+  session ids are normalized; an unknown absolute path or timestamp fails
+  instead of being frozen.
+- `tools_list.json` freezes tool names, parameter names and primitive types,
+  required parameters, and prompts, for the default and the full tool sets.
+  Full JSON Schemas differ between pydantic and schemars and are not compared.
+- `tests/test_mcp_snapshots.py` runs the cases in the normal suite.
+
+Building the oracle found five sources of run-to-run drift, now fixed:
+community ids and names (HashMap order and count ties), flow ids and list
+order (entry point order and criticality ties), ADP cycle rotation, and the
+edge order in `review_tool(mode="changes")`.
+
+serde response types come with the Rust implementation in 5.2 and 5.3. The
+existing pytest suite stays as it is until the Python it tests is deleted.
+
+Not covered yet: sync states other than `commit_synced` (a second commit or a
+dirty worktree in the fixture), embeddings, and mutating tools.
 
 ### 5.2 Rust CLI
 
@@ -121,17 +144,19 @@ resolution incremental is independent of this plan. Startup, distribution, and m
 
 ## Acceptance criteria
 
-1. The black-box harness passes against the Rust binary on every fixture.
-2. MCP tool and prompt responses match the 5.1 serde shapes byte for byte
-   on parity fixtures.
+1. `tests/test_mcp_snapshots.py` passes with `DAGAYN_CLI_CMD` and
+   `DAGAYN_MCP_SERVER_CMD` pointing at the Rust binary.
+2. The pytest suite that remains after deleting the Python tests it
+   covered passes.
 3. Binaries build on macOS arm64/x86_64, Linux x86_64/aarch64, and Windows.
 4. Existing installs upgrade without editing hook or MCP config.
 
 ## Risks
 
-- **Response-shape drift** while tool bodies move; 5.1 exists to catch it.
+- **Response-shape drift** while tool bodies move; the 5.1 snapshots catch
+  it on the fixtures they cover.
 - **MCP SDK parity**: prompt argument handling and error shapes in `rmcp`.
-- **Test strategy**: the black-box harness covers less internal state than
-  today's unit tests.
+- **Test strategy**: the snapshots cover less internal state than today's
+  unit tests, and only seven small fixtures.
 - **Scope**: if 5.0 removes the latency users notice, the rest of the
   migration competes with feature work on maintenance value alone.

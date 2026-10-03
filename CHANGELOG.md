@@ -4,8 +4,22 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Added
+
+- MCP response snapshots (`tools/mcp_snapshot.py`,
+  `tests/test_mcp_snapshots.py`): each parity fixture is built with the CLI
+  and queried through `dagayn serve` over stdio, and 88 read-only tool
+  responses plus the tool and prompt listing must match committed
+  snapshots. The harness does not import the server, so
+  `DAGAYN_CLI_CMD` / `DAGAYN_MCP_SERVER_CMD` can point it at another
+  implementation.
+
 ### Fixed
 
+- The same graph now gets the same results on every build. Community ids
+  and names, flow ids and the order of flows with equal criticality, the
+  member order of reported dependency cycles, and the edge list of
+  `review_tool(mode="changes")` depended on hash-map iteration order.
 - Edit-hook updates no longer redo post-processing on an unchanged graph.
   Manifest bridge discovery honored `.dagaynignore` but not `.gitignore`, so
   it stored nodes for gitignored manifests and for gitignored files a tracked
