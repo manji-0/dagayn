@@ -99,7 +99,7 @@ def _parse_queue_add(args: list[str]) -> tuple[str, str, int | None, bool, float
                     priority = int(value)
                 else:
                     idle_seconds = float(value)
-            elif token == "--no-worker":
+            elif token == "--no-worker":  # nosec B105 - a flag name, not a password
                 no_worker = True
             elif token.startswith("-") or kind is not None:
                 return None
