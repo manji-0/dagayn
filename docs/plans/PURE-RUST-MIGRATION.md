@@ -198,11 +198,28 @@ installs each wheel into a fresh venv and compares the two `status` outputs.
 Who this reaches: hooks that call `dagayn update` or `dagayn status`
 directly (the plugin's `hooks/hooks.json`, commit-time checks, the git
 `post-commit` hook, Cursor and opencode). The Claude Code and Codex edit
-hooks that `dagayn install` writes run `dagayn queue add update` instead,
-which is still Python (0.17 s and 71 MB per edit here), and the queue worker
-runs `build_or_update_graph` in Python. Porting `queue add` and having the
-worker run updates through `_core.run_cli` are the next steps for edit
-hooks.
+hooks that `dagayn install` writes run `dagayn queue add update` instead;
+see the fifth slice.
+
+Fifth slice (done): `dagayn queue add` of `update`, `postprocess`, or
+`prepare` with `--repo` no longer loads the Python CLI. It was not ported to
+Rust: the launcher calls the same `TaskQueue.enqueue` and `ensure_worker`
+the `queue` command does, because importing `dagayn.task_queue` and
+`dagayn.paths` takes 0.02 s and 27 MB, and the 0.17 s and 71 MB per edit
+was argparse and the command modules. Each edit hook now costs 0.02 s and
+28 MB here. Any other spelling (no `--repo`, `embed`, prefixes, `--help`)
+and `DAGAYN_PYTHON_CLI=1` still go through the full CLI.
+
+The queue worker still runs updates in Python. Measured inside one warm
+process on this repository, an update with nothing to do takes 0.10-0.14 s
+in Python and 0.07 s through `_core.run_cli`, and an update after one
+Markdown edit about 1.05 s in both, almost all of it whole-graph
+post-processing. The worker pays Python's startup once per burst, so
+switching it gains little until post-processing is incremental. When it is
+switched, the Rust budget watchdog must not run in the worker (it exits the
+process unconditionally when the budget elapses, with no cancel), and the
+result must keep `skipped`, `skip_reason`, `changed_files`, and
+`dependent_files`.
 
 In-process consequences: the launcher restores the default SIGINT handler
 while Rust runs, since Python would only act on Ctrl-C between bytecodes;

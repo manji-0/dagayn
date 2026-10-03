@@ -51,8 +51,10 @@ the Python CLI. Anything the Rust CLI does not handle yet (other flags such as
 `--scip` or `--local-embedding`, jj and SVN working copies, `CRG_DATA_DIR`, a
 run without `--repo` outside a plain git checkout or with `CRG_REPO_ROOT` or an
 editor workspace variable set, a corrupt graph) runs the Python CLI instead,
-with the same output. Set `DAGAYN_PYTHON_CLI=1` to run every command in Python;
-`python -m dagayn` always does.
+with the same output. `dagayn queue add` of `update`, `postprocess`, or
+`prepare` with `--repo`, which edit hooks run, likewise enqueues without loading
+the whole CLI. Set `DAGAYN_PYTHON_CLI=1` to run every command through the full
+Python CLI; `python -m dagayn` always does.
 
 ### SCIP call resolution
 

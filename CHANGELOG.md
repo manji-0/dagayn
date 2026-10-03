@@ -14,8 +14,10 @@ All notable changes to `dagayn` are documented here.
   `dagayn update` or `dagayn status` directly (the plugin hooks, commit-time
   checks, `post-commit`, Cursor, opencode) stop loading the Python CLI: a
   warm hook update with nothing to do takes 0.11 s and 108 MB instead of
-  0.33 s and 190 MB here. Edit hooks that enqueue (`dagayn queue add`) are
-  unchanged.
+  0.33 s and 190 MB here. `dagayn queue add update|postprocess|prepare
+  --repo ...`, what the installed Claude Code, Codex, Cursor, and opencode
+  edit hooks run, also skips the Python CLI and calls the task queue
+  directly: 0.02 s and 28 MB per edit instead of 0.17 s and 71 MB.
   `DAGAYN_PYTHON_CLI=1` keeps everything in Python, and `python -m dagayn`
   always runs Python.
 
