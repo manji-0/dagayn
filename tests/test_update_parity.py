@@ -106,3 +106,80 @@ def test_rust_update_matches_python(name: str, flags: list[str]) -> None:
         assert actual[2] == expected[2], f"round {round_}: summary differs"
         assert actual[1] == expected[1], f"round {round_}: metadata differs"
         assert actual[0] == expected[0], f"round {round_}: graph differs"
+
+
+def _add_embeddings(db: Path) -> None:
+    """Two provider partitions, one orphan vector, and a stored active provider."""
+    conn = sqlite3.connect(db)
+    try:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS embeddings (qualified_name TEXT NOT NULL, "
+            "vector BLOB NOT NULL, text_hash TEXT NOT NULL, "
+            "provider TEXT NOT NULL DEFAULT 'unknown', PRIMARY KEY (qualified_name, provider))"
+        )
+        names = [
+            row[0]
+            for row in conn.execute(
+                "SELECT qualified_name FROM nodes WHERE kind != 'File' ORDER BY qualified_name"
+            )
+        ]
+        rows = [(name, b"\0", "h", "Model#dim=8") for name in names[:-1]]
+        rows += [(name, b"\0", "h", "old-model") for name in names]
+        rows.append(("gone.py::vanished", b"\0", "h", "Model#dim=8"))
+        conn.executemany("INSERT INTO embeddings VALUES (?, ?, ?, ?)", rows)
+        conn.execute(
+            "INSERT OR REPLACE INTO metadata (key, value) VALUES ('embedding_provider', 'model')"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _status(cli: list[str], repo: Path, env: dict[str, str]) -> str:
+    done = subprocess.run(
+        [*cli, "status", "--repo", str(repo)],
+        cwd=repo,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr
+    return done.stdout
+
+
+@pytest.mark.parametrize("name", sorted(mcp_snapshot.FIXTURE_CASES))
+def test_rust_status_matches_python(name: str) -> None:
+    rust = shlex.split(RUST_CLI)
+    with mcp_snapshot.built_fixture(name) as (repo, env):
+        seen = []
+
+        def check() -> None:
+            expected = _status(PYTHON_CLI, repo, env)
+            assert _status(rust, repo, env) == expected
+            seen.append(expected.splitlines()[-1])
+
+        check()  # commit_synced
+        _add_embeddings(repo / ".dagayn" / "graph.db")
+        check()  # embedding coverage across two partitions, one orphan vector
+        (repo / "added_new.py").write_text("def brand_new():\n    return 1\n")
+        check()  # worktree_behind
+        subprocess.run([*PYTHON_CLI, "update", "--repo", str(repo)], env=env, check=True)
+        check()  # worktree_ahead
+        _git(repo, env, "add", "-A")
+        _git(repo, env, "commit", "-qm", "commit the edit", "--no-gpg-sign")
+        check()  # commit_drift
+        _git(repo, env, "checkout", "-q", "-b", "other")
+        check()  # another branch at the same commit
+    assert len(set(seen)) >= 3, seen
+
+
+def test_rust_status_of_a_repository_without_a_graph(tmp_path: Path) -> None:
+    rust = shlex.split(RUST_CLI)
+    env = mcp_snapshot._isolated_env(tmp_path)
+    for label in ("python", "rust"):
+        repo = tmp_path / label
+        repo.mkdir()
+        (repo / "app.py").write_text("def main():\n    pass\n")
+        mcp_snapshot._git_commit_all(repo, env)
+    assert _status(rust, tmp_path / "rust", env) == _status(PYTHON_CLI, tmp_path / "python", env)
