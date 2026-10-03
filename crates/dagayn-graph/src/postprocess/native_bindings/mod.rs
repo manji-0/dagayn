@@ -979,12 +979,23 @@ impl GraphStore {
             bind_uniffi(&tx, &crates, &exports, &mut bridges)?;
         }
 
+        // The first bridge found for an edge wins, in binder order; the
+        // binders walk hash maps, so the survivors are sorted before they are
+        // stored, or the same graph would get different edge ids every run.
         let mut seen: HashSet<(String, String, i64)> = HashSet::new();
+        bridges.retain(|bridge| {
+            seen.insert((bridge.source.clone(), bridge.target.clone(), bridge.line))
+        });
+        bridges.sort_by(|a, b| {
+            (&a.file_path, a.line, &a.source, &a.target).cmp(&(
+                &b.file_path,
+                b.line,
+                &b.source,
+                &b.target,
+            ))
+        });
         let mut written = 0_i64;
         for bridge in bridges {
-            if !seen.insert((bridge.source.clone(), bridge.target.clone(), bridge.line)) {
-                continue;
-            }
             tx.execute(
                 "INSERT INTO edges
                     (kind, source_qualified, target_qualified, target_name, file_path, line,
