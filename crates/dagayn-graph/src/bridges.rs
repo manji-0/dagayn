@@ -37,7 +37,7 @@ fn extra_str<'a>(edge: &'a GraphEdge, key: &str) -> &'a str {
 }
 
 /// Noisy unresolved Markdown code-span bridges.
-fn is_low_confidence_unresolved_markdown_code_span(edge: &GraphEdge) -> bool {
+pub fn is_low_confidence_unresolved_markdown_code_span(edge: &GraphEdge) -> bool {
     is_cross_artifact(edge)
         && extra_str(edge, "relationship_role") == "describes_symbol"
         && is_unresolved_target(edge)

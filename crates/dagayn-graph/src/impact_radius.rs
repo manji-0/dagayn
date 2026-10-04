@@ -52,7 +52,10 @@ impl GraphStore {
             return Ok(ImpactRadius::default());
         }
 
-        let seed_list = seeds.iter().cloned().collect::<Vec<_>>();
+        // Sorted: past 450 seeds the lookups below are chunked, and a set's
+        // order would move nodes and caveats across chunks from run to run.
+        let mut seed_list = seeds.into_iter().collect::<Vec<_>>();
+        seed_list.sort();
         self.conn.execute_batch(
             "CREATE TEMP TABLE IF NOT EXISTS _impact_seeds (qn TEXT PRIMARY KEY); \
              DELETE FROM _impact_seeds;",

@@ -86,6 +86,62 @@ impl Ordered {
         self
     }
 
+    /// `apply_output_budget`: halve the listed lists, lowest priority (last)
+    /// first, until `json.dumps` of the object is at most `budget_tokens`
+    /// tokens (four characters each).
+    pub(crate) fn apply_output_budget(mut self, budget_tokens: usize, priorities: &[&str]) -> Self {
+        let over =
+            |object: &Self| crate::query::python_dumps_len(&object.value()) / 4 > budget_tokens;
+        if !over(&self) {
+            return self;
+        }
+        let mut truncation = Vec::new();
+        for field in priorities.iter().rev() {
+            let Some(index) = self.0.iter().position(|(key, _)| key == field) else {
+                continue;
+            };
+            let Value::Array(items) = &self.0[index].1 else {
+                continue;
+            };
+            let total = items.len();
+            let mut kept = total;
+            while kept > 1 && over(&self) {
+                kept /= 2;
+                if let Value::Array(items) = &mut self.0[index].1 {
+                    items.truncate(kept);
+                }
+            }
+            if kept < total {
+                truncation.push((field.to_string(), json!({"kept": kept, "total": total})));
+                self = self.set("truncated", json!(true));
+            }
+            if !over(&self) {
+                break;
+            }
+        }
+        if !truncation.is_empty() {
+            let record: Map<String, Value> = truncation.into_iter().collect();
+            self = self.set("_truncation", Value::Object(record));
+        } else if over(&self) {
+            self = self.set("truncated", json!(true));
+        }
+        self
+    }
+
+    /// Python's `object[key] = value`: in place, or appended.
+    pub(crate) fn set(self, key: &str, value: Value) -> Self {
+        if self.0.iter().any(|(existing, _)| existing == key) {
+            self.replace(key, value)
+        } else {
+            self.put(key, value)
+        }
+    }
+
+    /// The keys and values, in order.
+    pub(crate) fn into_entries(self) -> Vec<(String, Value)> {
+        self.0
+    }
+
     /// The object so far (key order aside).
     pub(crate) fn value(&self) -> Value {
         Value::Object(

@@ -499,3 +499,64 @@ fn review_leaves_other_modes_and_unknowns_to_python() {
         json!({"mode": "affected_flows", "changed_files": ["app.py"]})
     ));
 }
+
+#[test]
+fn review_impact_reports_the_blast_radius_and_trims_like_python() {
+    let repo = Repo::new("impact", true);
+    let callers: String = (0..400)
+        .map(|i| format!("def caller_{i}():\n    return helper()\n\n\n"))
+        .collect();
+    repo.write("many.py", &format!("from app import helper\n\n\n{callers}"));
+    repo.build();
+    let context = Context {
+        runtime: Some(json!({})),
+        ..repo.context()
+    };
+    let impact = |arguments: Value| answer(&context, "review_tool", arguments);
+
+    let small = impact(json!({"mode": "impact", "changed_files": ["test_app.py", "gone.py"]}));
+    assert_eq!(small["called_subtool"], "get_impact_radius");
+    assert_eq!(small["unmatched_changed_files"], json!(["gone.py"]));
+    assert!(
+        small["summary"]
+            .as_str()
+            .is_some_and(|summary| summary.contains("1 of 2 changed file(s) are NOT in the graph"))
+    );
+    let reasons: Vec<&str> = small["missingness"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|item| item["reason_code"].as_str())
+        .collect();
+    assert!(
+        reasons.contains(&"changed_files_not_in_graph"),
+        "{reasons:?}"
+    );
+    assert_eq!(small["_hints"]["next_steps"][0]["tool"], "review_tool");
+
+    let wide = impact(json!({"mode": "impact", "changed_files": ["app.py"], "max_nodes": 500}));
+    assert_eq!(wide["truncated"], true);
+    let kept = &wide["_truncation"]["edges"];
+    assert!(kept["kept"].as_u64() < kept["total"].as_u64(), "{kept}");
+    let text = call(
+        &context,
+        "review_tool",
+        &json!({"mode": "impact", "changed_files": ["app.py"], "max_nodes": 500}),
+    )
+    .expect("answered")
+    .text;
+    assert!(
+        text.contains(r#""guidance":[],"_truncation":{"#),
+        "the trim record follows the payload"
+    );
+
+    let minimal =
+        impact(json!({"mode": "impact", "changed_files": ["app.py"], "detail_level": "minimal"}));
+    assert_eq!(minimal["risk"], "high");
+    assert_eq!(minimal["key_entities"].as_array().map(Vec::len), Some(5));
+    assert!(minimal.get("_truncation").is_none());
+
+    let none = impact(json!({"mode": "impact", "changed_files": []}));
+    assert_eq!(none["summary"], "No changed files detected.");
+    assert_eq!(none["total_impacted"], 0);
+}

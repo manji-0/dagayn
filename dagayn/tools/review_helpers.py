@@ -937,17 +937,23 @@ def _cross_artifact_proximity(
                 elif is_low_confidence_bridge(edge):
                     low_confidence.append(meta)
 
+    # Target and line break the ties: the seeds are a set, so the edges
+    # arrive in a different order in every process.
     reportable.sort(
         key=lambda item: (
             -float(item.get("confidence") or 0.0),
             str(item.get("relationship_role") or ""),
             str(item.get("source") or ""),
+            str(item.get("target") or ""),
+            int(item.get("line") or 0),
         )
     )
     low_confidence.sort(
         key=lambda item: (
             str(item.get("relationship_role") or ""),
             str(item.get("source") or ""),
+            str(item.get("target") or ""),
+            int(item.get("line") or 0),
         )
     )
     return {

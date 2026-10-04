@@ -463,12 +463,16 @@ def _commit(repo: Path, message: str) -> None:
         subprocess.run(["git", *args], cwd=repo, env={**_env(), **identity}, check=True)
 
 
-@pytest.mark.parametrize("change", ["none", "dirty", "committed"])
-def test_review_affected_flows_answers_in_rust_as_python_does(git_repo: Path, change: str) -> None:
-    if change == "committed":
+@pytest.mark.parametrize("change", ["none", "dirty", "committed", "wide"])
+def test_review_answers_in_rust_as_python_does(git_repo: Path, change: str) -> None:
+    if change in {"committed", "wide"}:
         (git_repo / "app.py").write_text(
             "def main():\n    return helper()\n\n\ndef helper():\n    return 1\n"
         )
+        if change == "wide":
+            # Enough callers for apply_output_budget to trim the impact lists.
+            callers = "".join(f"def caller_{i}():\n    return helper()\n\n\n" for i in range(400))
+            (git_repo / "many.py").write_text(f"from app import helper\n\n\n{callers}")
         _commit(git_repo, "edit")
         subprocess.run(
             [DAGAYN, "update", "--repo", git_repo], env=_env(), check=True, capture_output=True
@@ -486,13 +490,24 @@ def test_review_affected_flows_answers_in_rust_as_python_does(git_repo: Path, ch
         (review, {"mode": "affected_flows", "changed_files": ["./app.py", "missing.py"]}),
         (review, {"mode": "affected_flows", "changed_files": []}),
         (review, {"mode": "affected_flows", "detail_level": "minimal", "max_depth": 1}),
+        (review, {"mode": "impact"}),
+        (review, {"mode": "impact", "detail_level": "minimal"}),
+        (review, {"mode": "impact", "changed_files": ["app.py"], "max_nodes": 500}),
+        (review, {"mode": "impact", "changed_files": ["app.py"], "max_nodes": 2}),
+        (review, {"mode": "impact", "changed_files": ["./app.py", "/elsewhere/x.py", "gone.py"]}),
+        (review, {"mode": "impact", "changed_files": [], "max_depth": 0}),
         # Python answers this one, from the session the Rust calls updated.
         (review, {"mode": "changes", "changed_files": ["app.py"]}),
         (review, {"mode": "affected_flows", "changed_files": ["test_app.py"]}),
+        (review, {"mode": "impact", "changed_files": ["test_app.py"], "detail_level": "verbose"}),
     ]
     rust, python, stderr = _session_both(git_repo, calls)
     assert stderr.count(REVIEW_TRACE) == len(calls) - 1
     assert rust == python
+    if change == "wide":
+        trimmed = rust[8]["structuredContent"]
+        assert trimmed["truncated"] is True
+        assert "_truncation" in trimmed
 
 
 @pytest.mark.parametrize(
@@ -504,6 +519,9 @@ def test_review_affected_flows_answers_in_rust_as_python_does(git_repo: Path, ch
         {"mode": "affected_flows", "changed_files": "app.py"},
         {"mode": "affected_flows", "max_nodes": "5"},
         {"mode": "affected_flows", "x": 1},
+        {"mode": "context", "changed_files": ["app.py"]},
+        {"mode": "impact", "max_depth": 1.5},
+        {"mode": "impact", "base": "a b"},
     ],
 )
 def test_review_leaves_the_rest_to_python(git_repo: Path, arguments: dict[str, Any]) -> None:

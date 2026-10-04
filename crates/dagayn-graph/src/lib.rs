@@ -614,6 +614,7 @@ mod analysis_question_rows;
 mod analysis_questions;
 mod analysis_stats;
 mod bridges;
+pub use bridges::is_low_confidence_unresolved_markdown_code_span;
 mod communities;
 mod core;
 mod edge_lookups;

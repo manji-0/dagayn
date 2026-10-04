@@ -52,7 +52,7 @@ const BUILTIN_CALL_NAMES: &[&str] = &[
     "at",
 ];
 
-fn python_dumps_len(value: &Value) -> usize {
+pub(crate) fn python_dumps_len(value: &Value) -> usize {
     match value {
         Value::Null => 4,
         Value::Bool(true) => 4,
@@ -281,12 +281,12 @@ fn node_row(node: &GraphNode) -> Row {
     ]
 }
 
-fn node_dict(node: &GraphNode) -> Value {
+pub(crate) fn node_dict(node: &GraphNode) -> Value {
     object(node_row(node))
 }
 
 /// `edge_to_dict`.
-fn edge_dict(edge: &GraphEdge) -> Map<String, Value> {
+pub(crate) fn edge_dict(edge: &GraphEdge) -> Map<String, Value> {
     let mut out = Map::new();
     out.insert("id".into(), json!(edge.id));
     out.insert("kind".into(), json!(edge.kind));

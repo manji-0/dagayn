@@ -475,8 +475,20 @@ Rust and Python answers match fastmcp's call by call (15 calls on this
 repository's graph, 8 per worktree state in the tests), and the annotated
 flows of 5 files on a graph with 216 bridge steps match Python's.
 
-Next: `review_tool` `impact`, then `changes` (risk scoring, test
-inference shared with `tests_for`).
+Tenth slice (done): `review_tool` `mode="impact"` (`get_impact_radius`
+the tool): the blast radius from `GraphStore::get_impact_radius`, the
+changed files the graph does not hold, the bridge and caveat missingness and
+guidance, the minimal form, and `apply_output_budget`, now in Rust
+(`Ordered::apply_output_budget`) since on a real graph nearly every standard
+answer is trimmed. Two orders that changed from run to run are now fixed:
+`get_impact_radius`'s seeds (sorted, so chunked lookups past 450 seeds
+return the same order) and the low-confidence bridges of `changes`'
+`cross_artifact_proximity` (ties broken by target and line). 44 calls on
+this repository's graph and 32 on a larger copy match fastmcp's, 40 and 28
+of them answered in Rust.
+
+Next: `review_tool` `changes` (risk scoring, and the test inference it
+shares with `query_graph_tool` `tests_for`), then `context`.
 
 ### 5.4 Remaining Python surfaces
 

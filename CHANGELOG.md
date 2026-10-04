@@ -29,7 +29,7 @@ All notable changes to `dagayn` are documented here.
   level), and so is
   `semantic_search_nodes_tool` on a graph without embeddings when no
   embedding provider is configured, and `review_tool`
-  `mode="affected_flows"` in a git checkout.
+  `mode="affected_flows"` and `mode="impact"` in a git checkout.
 - The installed `dagayn` command now runs `build`, `update`, and `status` in
   the Rust CLI, compiled into `dagayn._core` (no second binary in the
   wheel). Every other command, `--help`, `--version`, and any flag or
@@ -79,6 +79,9 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- `review_tool` `mode="impact"` and `mode="changes"` no longer reorder
+  changed nodes and low-confidence bridge caveats from one server process
+  to the next when a change touches many nodes.
 - A `dagayn serve` session (fastmcp's loop) could lose its graph for the
   rest of the session: a semantic search with no embedding provider opened
   an `EmbeddingStore` anyway, which created the embeddings schema and kept a
