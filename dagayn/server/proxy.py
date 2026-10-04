@@ -5,8 +5,10 @@ resource listings from ``mcp_surface.json``, recorded from the fastmcp server
 (``tools/mcp_snapshot.py --regenerate`` rewrites it, and
 ``tests/test_mcp_snapshots.py`` checks it), so a session starts without
 importing fastmcp or the tools. Calls ``dagayn-tools`` answers in Rust
-(``list_graph_stats_tool``, ``get_docs_section_tool``, and
-``get_minimal_context_tool`` on a graph at HEAD) never reach Python; the
+(``list_graph_stats_tool``, ``get_docs_section_tool``,
+``get_minimal_context_tool``, most of ``query_graph_tool``,
+``semantic_search_nodes_tool`` without embeddings, and ``review_tool``
+``affected_flows``) never reach Python; the
 first message it does not answer itself boots the fastmcp server of
 :mod:`dagayn.server.main` in this process on a pipe pair
 (:func:`dagayn.server.main.serve_on_fds`) and relays the session to it.
@@ -14,6 +16,7 @@ first message it does not answer itself boots the fastmcp server of
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import threading
@@ -32,6 +35,7 @@ def serve_stdio(**config: Any) -> None:
     """
     from .. import __version__
     from .._core import serve_mcp
+    from ..runtime_identity import runtime_summary
     from .tool_allowlist import _resolve_tool_allow_list
 
     allowed = _resolve_tool_allow_list(tools=config.get("tools"))
@@ -77,6 +81,8 @@ def serve_stdio(**config: Any) -> None:
                 # provider is checked in Rust as `get_provider` checks it.
                 embedding_provider=config.get("embedding_provider"),
                 embedding_model=config.get("embedding_model"),
+                # `_runtime`, as the Python tools attach it.
+                runtime=json.dumps(runtime_summary()),
             )
         except BaseException as exc:  # noqa: BLE001 - re-raised on the main thread
             failures.append(exc)

@@ -22,6 +22,20 @@ pub(crate) struct Answerability {
 }
 
 impl Answerability {
+    /// `graph_answerability_summary(store)` without a freshness argument: the
+    /// commit tier of the root the graph records, none when it records none;
+    /// `None` where Python would fail.
+    pub(crate) fn recorded(store: &GraphStore, stats: &GraphStats) -> Option<Self> {
+        let freshness = match store.get_metadata("repo_root").ok()? {
+            Some(recorded) if !recorded.is_empty() => {
+                dagayn_build::commit_tier_freshness(store, std::path::Path::new(&recorded)).ok()?
+            }
+            Some(_) => return None,
+            None => None,
+        };
+        Some(Self::compute(store, stats, freshness.as_ref()))
+    }
+
     /// The summary for `stats`, with the freshness codes of `freshness`
     /// (`None` where Python's freshness state is `None`).
     pub(crate) fn compute(

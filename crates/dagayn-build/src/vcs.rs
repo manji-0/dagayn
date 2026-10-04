@@ -97,8 +97,77 @@ pub(crate) fn worktree_changes(repo_root: &Path) -> Vec<String> {
         repo_root,
         &["status", "--porcelain", "-z", "--untracked-files=all"],
     )
-    .map(|payload| parse_porcelain(&payload))
+    .map(|payload| parse_porcelain(&payload).worktree())
     .unwrap_or_default()
+}
+
+/// `get_changed_file_sources` for a git checkout: each list in first-seen
+/// order.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ChangeSources {
+    pub files: Vec<String>,
+    pub base_diff: Vec<String>,
+    pub worktree: Vec<String>,
+    pub staged: Vec<String>,
+    pub unstaged: Vec<String>,
+    pub untracked: Vec<String>,
+}
+
+/// `get_changed_file_sources(repo_root, base)` in a git checkout, or `None`
+/// where Python would take another path (jj, svn, a ref it rejects) or fail
+/// (git output that is not UTF-8).
+pub fn change_file_sources(repo_root: &Path, base: &str) -> Option<ChangeSources> {
+    if detect_vcs(repo_root) != Vcs::Git || repo_root.join(".jj").exists() {
+        return None;
+    }
+    if !is_safe_git_ref(base) {
+        return None;
+    }
+    let base_diff = match git_raw_bytes(
+        repo_root,
+        &["diff", "--name-status", "-M", "-z", base, "HEAD", "--"],
+    ) {
+        Some(payload) => parse_name_status(&String::from_utf8(payload).ok()?),
+        None => Vec::new(),
+    };
+    let worktree = worktree_sources(repo_root)?;
+    Some(ChangeSources {
+        files: dedupe(base_diff.iter().cloned().chain(worktree.worktree())),
+        base_diff,
+        worktree: worktree.worktree(),
+        staged: dedupe(worktree.staged),
+        unstaged: dedupe(worktree.unstaged),
+        untracked: dedupe(worktree.untracked),
+    })
+}
+
+/// `get_staged_and_unstaged` in a git checkout; `None` as for
+/// [`change_file_sources`].
+pub fn staged_and_unstaged(repo_root: &Path) -> Option<Vec<String>> {
+    Some(worktree_sources(repo_root)?.worktree())
+}
+
+/// `git status --porcelain -z`; Python reads whatever it printed, even on
+/// failure.
+fn worktree_sources(repo_root: &Path) -> Option<Worktree> {
+    let output = Command::new("git")
+        .args(["status", "--porcelain", "-z", "--untracked-files=all"])
+        .current_dir(repo_root)
+        .output()
+        .ok();
+    match output {
+        Some(output) => Some(parse_porcelain(&String::from_utf8(output.stdout).ok()?)),
+        None => Some(Worktree::default()),
+    }
+}
+
+fn git_raw_bytes(repo_root: &Path, args: &[&str]) -> Option<Vec<u8>> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(repo_root)
+        .output()
+        .ok()?;
+    output.status.success().then_some(output.stdout)
 }
 
 fn git_raw(repo_root: &Path, args: &[&str]) -> Option<String> {
@@ -141,11 +210,30 @@ fn parse_name_status(payload: &str) -> Vec<String> {
     dedupe(files)
 }
 
-/// `git status --porcelain -z`, staged then unstaged then untracked; a rename
-/// is two fields, new path first.
-fn parse_porcelain(payload: &str) -> Vec<String> {
+#[derive(Default)]
+struct Worktree {
+    staged: Vec<String>,
+    unstaged: Vec<String>,
+    untracked: Vec<String>,
+}
+
+impl Worktree {
+    /// Staged, then unstaged, then untracked, each path once.
+    fn worktree(&self) -> Vec<String> {
+        dedupe(
+            self.staged
+                .iter()
+                .chain(&self.unstaged)
+                .chain(&self.untracked)
+                .cloned(),
+        )
+    }
+}
+
+/// `git status --porcelain -z`; a rename is two fields, new path first.
+fn parse_porcelain(payload: &str) -> Worktree {
     let entries = nul_fields(payload);
-    let (mut staged, mut unstaged, mut untracked) = (Vec::new(), Vec::new(), Vec::new());
+    let mut changes = Worktree::default();
     let mut index = 0;
     while index < entries.len() {
         let entry = entries[index];
@@ -163,17 +251,17 @@ fn parse_porcelain(payload: &str) -> Vec<String> {
             index += 1;
         }
         if x == b'?' && y == b'?' {
-            untracked.extend(paths);
+            changes.untracked.extend(paths);
             continue;
         }
         if x != b' ' {
-            staged.extend(paths.iter().cloned());
+            changes.staged.extend(paths.iter().cloned());
         }
         if y != b' ' {
-            unstaged.extend(paths);
+            changes.unstaged.extend(paths);
         }
     }
-    dedupe(staged.into_iter().chain(unstaged).chain(untracked))
+    changes
 }
 
 pub(crate) fn dedupe(paths: impl IntoIterator<Item = String>) -> Vec<String> {
@@ -215,10 +303,14 @@ mod tests {
     #[test]
     fn porcelain_orders_staged_unstaged_untracked() {
         let payload = "?? new.py\0 M edited.py\0R  moved.py\0orig.py\0M  staged.py\0";
+        let changes = parse_porcelain(payload);
         assert_eq!(
-            parse_porcelain(payload),
+            changes.worktree(),
             vec!["moved.py", "orig.py", "staged.py", "edited.py", "new.py"]
         );
+        assert_eq!(changes.staged, vec!["moved.py", "orig.py", "staged.py"]);
+        assert_eq!(changes.unstaged, vec!["edited.py"]);
+        assert_eq!(changes.untracked, vec!["new.py"]);
     }
 
     #[test]

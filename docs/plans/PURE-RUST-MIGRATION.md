@@ -463,9 +463,20 @@ without the extension it stays the Python `SessionState`. `hints.rs` ports
 `generate_hints` for the tool names Rust will report, and a test runs the
 same calls through both and compares the hints and the session after each.
 
-Next: `review_tool` `affected_flows` and `impact`, recording into the shared
-session as Python does (an `affected_flows` call records
-`get_affected_flows` and then `review`).
+Ninth slice (done): `review_tool` `mode="affected_flows"`. The change
+detection (`get_changed_file_sources` and `get_staged_and_unstaged` for a
+git checkout, in `dagayn-build`'s `vcs`), the flows' bridge arrivals and
+step counts (`GraphStore::get_affected_flows_annotated`), the dispatcher's
+envelope order, and the session: the call records `get_affected_flows` and
+then `review`, as Python's does. `_runtime` names the hosting Python process
+(`dagayn.runtime_identity`, handed over by `dagayn.server.proxy`). jj, svn,
+a ref Python rejects, and every other mode stay Python's. Sessions mixing
+Rust and Python answers match fastmcp's call by call (15 calls on this
+repository's graph, 8 per worktree state in the tests), and the annotated
+flows of 5 files on a graph with 216 bridge steps match Python's.
+
+Next: `review_tool` `impact`, then `changes` (risk scoring, test
+inference shared with `tests_for`).
 
 ### 5.4 Remaining Python surfaces
 

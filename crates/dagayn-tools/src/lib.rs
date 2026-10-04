@@ -11,6 +11,7 @@ mod context;
 mod docs;
 pub mod hints;
 mod query;
+mod review;
 mod search;
 mod source;
 mod stats;
@@ -39,6 +40,9 @@ pub struct Context {
     /// (`--remote-embedding`, or a local sidecar's), when it has one.
     pub embedding_provider: Option<String>,
     pub embedding_model: Option<String>,
+    /// `tool_runtime_summary()` of the hosting Python process, which tools
+    /// that attach `_runtime` need.
+    pub runtime: Option<Value>,
 }
 
 /// A tool result: its JSON text with the Python tool's top-level key order,
@@ -58,6 +62,7 @@ pub fn call(context: &Context, name: &str, arguments: &Value) -> Option<Payload>
         "get_minimal_context_tool" => context::get_minimal_context(context, arguments),
         "query_graph_tool" => query::query_graph(context, arguments),
         "semantic_search_nodes_tool" => search::semantic_search(context, arguments),
+        "review_tool" => review::review(context, arguments),
         _ => None,
     }
 }

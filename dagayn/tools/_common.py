@@ -7,11 +7,8 @@ import json
 import logging
 import os
 import sqlite3
-import sys
 import threading
 from collections.abc import Mapping, MutableMapping, Sequence
-from importlib.metadata import PackageNotFoundError
-from importlib.metadata import version as pkg_version
 from pathlib import Path
 from typing import Any, TypedDict, cast
 
@@ -34,6 +31,7 @@ from ..incremental import (
     get_db_path,
 )
 from ..paths import ALLOW_WIDE_ROOT_ENV, recorded_repo_root, same_repo_path, unsafe_root_reason
+from ..runtime_identity import RuntimeSummaryRecord, runtime_summary
 from ..write_lock import (
     DEFAULT_READ_LOCK_TIMEOUT,
     WriteLockUnavailableError,
@@ -51,14 +49,6 @@ logger = logging.getLogger(__name__)
 
 type DynamicValue = Any
 type ToolPayload = dict[str, DynamicValue]
-
-
-class RuntimeSummaryRecord(TypedDict):
-    package: str
-    version: str
-    pid: int
-    python: str
-    package_root: str
 
 
 class ToolHintStep(TypedDict):
@@ -180,19 +170,7 @@ def _error_response(
 
 def tool_runtime_summary() -> RuntimeSummaryRecord:
     """Return compact runtime identity for comparing CLI and MCP responses."""
-    try:
-        version = pkg_version("dagayn")
-    except PackageNotFoundError:
-        version = "dev"
-    module_file = Path(__file__).resolve()
-    package_root = module_file.parents[1]
-    return {
-        "package": "dagayn",
-        "version": version,
-        "pid": os.getpid(),
-        "python": sys.executable,
-        "package_root": str(package_root),
-    }
+    return runtime_summary()
 
 
 def attach_runtime_metadata(payload: ToolPayload) -> ToolPayload:

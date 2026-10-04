@@ -62,6 +62,7 @@ def serve_mcp(
     local_embedding: str | None = None,
     embedding_provider: str | None = None,
     embedding_model: str | None = None,
+    runtime: str | None = None,
 ) -> None: ...
 def embedding_search(
     db_path: str | PathLike[str],

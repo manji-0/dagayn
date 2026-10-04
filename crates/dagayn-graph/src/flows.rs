@@ -259,6 +259,55 @@ impl GraphStore {
             .transpose()
     }
 
+    /// `dagayn.flows.get_affected_flows`'s flows: the stored ones, each with
+    /// its bridge arrivals and resolved/missing step counts.
+    pub fn get_affected_flows_annotated(&self, changed_files: &[String]) -> Result<Vec<Value>> {
+        let mut flows = self.get_affected_flow_values(changed_files)?;
+        for flow in &mut flows {
+            let Some(object) = flow.as_object_mut() else {
+                continue;
+            };
+            let steps = object
+                .get("steps")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let path_qns: HashSet<String> = steps
+                .iter()
+                .filter_map(|step| step.get("qualified_name").and_then(Value::as_str))
+                .map(str::to_string)
+                .collect();
+            let bridges: Vec<GraphEdge> = self
+                .get_edges_among(&path_qns)?
+                .into_iter()
+                .filter(crate::bridges::is_cross_artifact)
+                .collect();
+            let steps = crate::bridges::annotate_flow_steps_with_bridges(&steps, &bridges);
+            let bridge_steps = steps
+                .iter()
+                .filter(|step| step.get("is_bridge_step").and_then(Value::as_bool) == Some(true))
+                .count();
+            // `_annotate_flow_step_resolution`.
+            let resolved = steps.len() as i64;
+            let missing = match object.get("path").and_then(Value::as_array) {
+                Some(path) if !path.is_empty() => path.len() as i64 - resolved,
+                _ => {
+                    let stored = object
+                        .get("node_count")
+                        .and_then(Value::as_i64)
+                        .filter(|count| *count != 0)
+                        .unwrap_or(resolved);
+                    (stored - resolved).max(0)
+                }
+            };
+            object.insert("steps".to_string(), Value::Array(steps));
+            object.insert("bridge_step_count".to_string(), json!(bridge_steps));
+            object.insert("resolved_step_count".to_string(), json!(resolved));
+            object.insert("missing_step_count".to_string(), json!(missing));
+        }
+        Ok(flows)
+    }
+
     pub fn get_affected_flows_json(&self, changed_files: &[String]) -> Result<String> {
         let flows = self.get_affected_flow_values(changed_files)?;
         serde_json::to_string(&flows).map_err(Into::into)

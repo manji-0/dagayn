@@ -1125,7 +1125,7 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
 #[pyfunction]
 // Python keyword arguments, one per session fact.
 #[allow(clippy::too_many_arguments)]
-#[pyo3(signature = (surface_json, allowed_tools, version, boot, pinned_repo=None, package_root=None, local_embedding=None, embedding_provider=None, embedding_model=None))]
+#[pyo3(signature = (surface_json, allowed_tools, version, boot, pinned_repo=None, package_root=None, local_embedding=None, embedding_provider=None, embedding_model=None, runtime=None))]
 fn serve_mcp(
     py: Python<'_>,
     surface_json: &str,
@@ -1137,6 +1137,7 @@ fn serve_mcp(
     local_embedding: Option<String>,
     embedding_provider: Option<String>,
     embedding_model: Option<String>,
+    runtime: Option<&str>,
 ) -> PyResult<()> {
     struct RustTools(dagayn_tools::Context);
 
@@ -1180,6 +1181,10 @@ fn serve_mcp(
         local_embedding,
         embedding_provider,
         embedding_model,
+        runtime: runtime
+            .map(serde_json::from_str)
+            .transpose()
+            .map_err(|err| pyo3::exceptions::PyValueError::new_err(err.to_string()))?,
     });
     let (input, output) = dagayn_mcp::claim_stdio()?;
     py.detach(|| dagayn_mcp::serve(config, input, output, PythonBackend(boot), &tools))?;

@@ -456,14 +456,7 @@ pub(crate) fn semantic_search(
     }
 
     let stats = store.get_stats().ok()?;
-    let freshness = match store.get_metadata("repo_root").ok()? {
-        Some(recorded) if !recorded.is_empty() => {
-            dagayn_build::commit_tier_freshness(store, std::path::Path::new(&recorded)).ok()?
-        }
-        Some(_) => return None,
-        None => None,
-    };
-    let answerability = Answerability::compute(store, &stats, freshness.as_ref());
+    let answerability = Answerability::recorded(store, &stats)?;
     let hits = fts_search(store, query, kind, limit)?;
 
     let health = json!({

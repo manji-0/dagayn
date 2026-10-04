@@ -25,4 +25,7 @@ pub use status::{
     embedding_refresh_skips, status_lines,
 };
 pub use update::{UpdateOptions, UpdateReport, incremental_update};
-pub use vcs::{Vcs, detect_vcs, is_linked_worktree, main_checkout};
+pub use vcs::{
+    ChangeSources, Vcs, change_file_sources, detect_vcs, is_linked_worktree, main_checkout,
+    staged_and_unstaged,
+};

@@ -1186,16 +1186,7 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
     let graph = open_graph(&root)?;
     let store = &graph.store;
     let stats = store.get_stats().ok()?;
-    // `graph_answerability_summary` without a freshness argument: the commit
-    // tier of the root the graph records, none when it records none.
-    let freshness = match store.get_metadata("repo_root").ok()? {
-        Some(recorded) if !recorded.is_empty() => {
-            dagayn_build::commit_tier_freshness(store, Path::new(&recorded)).ok()?
-        }
-        Some(_) => return None,
-        None => None,
-    };
-    let answerability = Answerability::compute(store, &stats, freshness.as_ref());
+    let answerability = Answerability::recorded(store, &stats)?;
 
     if pattern == "callers_of" && !target.contains("::") && BUILTIN_CALL_NAMES.contains(&target) {
         return Some(

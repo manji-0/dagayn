@@ -413,3 +413,89 @@ fn search_without_embeddings_ranks_fts_hits() {
         json!({"query": "helper"})
     ));
 }
+
+#[test]
+fn review_answers_affected_flows_from_the_worktree_and_explicit_files() {
+    let repo = Repo::new("review", true);
+    repo.build();
+    let context = Context {
+        runtime: Some(json!({"package": "dagayn", "pid": 1})),
+        ..repo.context()
+    };
+    repo.write(
+        "app.py",
+        "def main():\n    return helper()\n\n\ndef helper():\n    return 1\n",
+    );
+    let auto = answer(&context, "review_tool", json!({"mode": "affected_flows"}));
+    assert_eq!(auto["change_file_sources"]["unstaged"], json!(["app.py"]));
+    assert_eq!(auto["changed_files"], json!(["app.py"]));
+    assert_eq!(auto["total"], 1);
+    let flow = &auto["affected_flows"][0];
+    assert_eq!(flow["steps"][0]["step_kind"], "entry");
+    assert_eq!(flow["bridge_step_count"], 0);
+    assert_eq!(flow["missing_step_count"], 0);
+    assert_eq!(auto["_runtime"]["pid"], 1);
+    assert_eq!(auto["_hints"]["next_steps"][0]["tool"], "review_tool");
+    let text = call(&context, "review_tool", &json!({"mode": "affected_flows"}))
+        .expect("answered")
+        .text;
+    assert!(
+        text.starts_with(
+            r#"{"status":"ok","mode":"affected_flows","called_subtool":"get_affected_flows_func","summary":"1 flow(s) affected"#
+        ),
+        "{text}"
+    );
+
+    let none = answer(
+        &context,
+        "review_tool",
+        json!({"mode": "affected_flows", "changed_files": []}),
+    );
+    assert_eq!(none["summary"], "No changed files detected.");
+    assert!(none.get("change_file_sources").is_none());
+    let explicit = answer(
+        &context,
+        "review_tool",
+        json!({"mode": "affected_flows", "changed_files": ["./app.py", "gone.py"]}),
+    );
+    assert_eq!(
+        explicit["change_file_sources"],
+        json!({"files": ["./app.py", "gone.py"], "explicit": ["./app.py", "gone.py"]})
+    );
+    assert_eq!(explicit["total"], 1);
+}
+
+#[test]
+fn review_leaves_other_modes_and_unknowns_to_python() {
+    let repo = Repo::new("review-declines", true);
+    repo.build();
+    let context = Context {
+        runtime: Some(json!({})),
+        ..repo.context()
+    };
+    for arguments in [
+        json!({}),
+        json!({"mode": "changes"}),
+        json!({"mode": "affected_flows", "base": "bad ref"}),
+        json!({"mode": "affected_flows", "detail_level": "full"}),
+        json!({"mode": "affected_flows", "include_source": "yes"}),
+        json!({"mode": "affected_flows", "changed_files": [1]}),
+        json!({"mode": "affected_flows", "other": 1}),
+    ] {
+        assert!(
+            declines(&context, "review_tool", arguments.clone()),
+            "{arguments}"
+        );
+    }
+    // Without the host's `_runtime`, nothing.
+    assert!(declines(
+        &repo.context(),
+        "review_tool",
+        json!({"mode": "affected_flows", "changed_files": ["app.py"]})
+    ));
+    assert!(!declines(
+        &context,
+        "review_tool",
+        json!({"mode": "affected_flows", "changed_files": ["app.py"]})
+    ));
+}

@@ -412,3 +412,101 @@ def test_native_tools_leave_the_hint_session_untouched(
     assert list(session.tools_called) == []
     assert session.files_touched == set()
     assert session.nodes_queried == set()
+
+
+REVIEW_TRACE = "answered review_tool in Rust"
+
+
+def _session_both(
+    repo: Path, calls: list[tuple[str, dict[str, Any]]]
+) -> tuple[list[Any], list[Any], str]:
+    """Each side's results for *calls* in one session, with ``_runtime.pid``
+    checked against the server process and then dropped."""
+    sides = []
+    rust_stderr = ""
+    for env in ({}, {"DAGAYN_PYTHON_CLI": "1"}):
+        session = Session(repo, **env)
+        session.open()
+        results = []
+        for index, (name, arguments) in enumerate(calls, 1):
+            session.send(
+                {
+                    "id": index,
+                    "method": "tools/call",
+                    "params": {"name": name, "arguments": arguments},
+                }
+            )
+            result = session.read()["result"]
+            content = result.get("structuredContent")
+            if isinstance(content, dict) and "_runtime" in content:
+                assert json.loads(result["content"][0]["text"]) == content
+                assert content["_runtime"]["pid"] == session.proc.pid
+                content["_runtime"]["pid"] = 0
+                del result["content"]  # the same, pid included
+            results.append(result)
+        status, _, stderr = session.close()
+        assert status == 0
+        if not env:
+            rust_stderr = stderr
+        sides.append(results)
+    return sides[0], sides[1], rust_stderr
+
+
+def _commit(repo: Path, message: str) -> None:
+    identity = {
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@example.invalid",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@example.invalid",
+    }
+    for args in (["add", "-A"], ["commit", "-q", "-m", message]):
+        subprocess.run(["git", *args], cwd=repo, env={**_env(), **identity}, check=True)
+
+
+@pytest.mark.parametrize("change", ["none", "dirty", "committed"])
+def test_review_affected_flows_answers_in_rust_as_python_does(git_repo: Path, change: str) -> None:
+    if change == "committed":
+        (git_repo / "app.py").write_text(
+            "def main():\n    return helper()\n\n\ndef helper():\n    return 1\n"
+        )
+        _commit(git_repo, "edit")
+        subprocess.run(
+            [DAGAYN, "update", "--repo", git_repo], env=_env(), check=True, capture_output=True
+        )
+    elif change == "dirty":
+        (git_repo / "test_app.py").write_text(
+            "from app import main\n\n\ndef test_main():\n    main()\n\n"
+        )
+        (git_repo / "new.py").write_text("x = 1\n")
+    review = "review_tool"
+    calls: list[tuple[str, dict[str, Any]]] = [
+        (review, {"mode": "affected_flows"}),
+        (review, {"mode": "affected_flows", "base": "HEAD"}),
+        (review, {"mode": "affected_flows", "changed_files": ["app.py"]}),
+        (review, {"mode": "affected_flows", "changed_files": ["./app.py", "missing.py"]}),
+        (review, {"mode": "affected_flows", "changed_files": []}),
+        (review, {"mode": "affected_flows", "detail_level": "minimal", "max_depth": 1}),
+        # Python answers this one, from the session the Rust calls updated.
+        (review, {"mode": "changes", "changed_files": ["app.py"]}),
+        (review, {"mode": "affected_flows", "changed_files": ["test_app.py"]}),
+    ]
+    rust, python, stderr = _session_both(git_repo, calls)
+    assert stderr.count(REVIEW_TRACE) == len(calls) - 1
+    assert rust == python
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"mode": "changes", "changed_files": ["app.py"]},
+        {"mode": "affected_flows", "base": "bad ref"},
+        {"mode": "affected_flows", "detail_level": "full"},
+        {"mode": "affected_flows", "changed_files": "app.py"},
+        {"mode": "affected_flows", "max_nodes": "5"},
+        {"mode": "affected_flows", "x": 1},
+    ],
+)
+def test_review_leaves_the_rest_to_python(git_repo: Path, arguments: dict[str, Any]) -> None:
+    rust, python, stderr = _session_both(git_repo, [("review_tool", arguments)])
+    assert REVIEW_TRACE not in stderr
+    assert rust == python
