@@ -843,7 +843,7 @@ def _fake_embedding_server(vector: list[float]) -> tuple[Any, int]:
             self.end_headers()
             self.wfile.write(body)
 
-        def log_message(self, *args: Any) -> None:
+        def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 - parent's name
             pass
 
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
