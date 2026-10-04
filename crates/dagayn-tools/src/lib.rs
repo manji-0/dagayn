@@ -9,6 +9,7 @@
 mod answerability;
 mod context;
 mod docs;
+pub mod hints;
 mod query;
 mod search;
 mod source;

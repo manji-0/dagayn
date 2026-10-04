@@ -18,6 +18,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 mod from_py;
+mod hints;
 mod to_py;
 
 use dagayn_build::parse_batch::*;
@@ -1093,6 +1094,8 @@ impl PyGraphStore {
 #[pymodule]
 fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyGraphStore>()?;
+    module.add_class::<hints::PyHintSession>()?;
+    module.add_function(wrap_pyfunction!(hints::reset_hint_session, module)?)?;
     module.add_function(wrap_pyfunction!(filter_parseable_files, module)?)?;
     module.add_function(wrap_pyfunction!(filter_ignored_paths, module)?)?;
     module.add_function(wrap_pyfunction!(filter_incremental_candidates, module)?)?;

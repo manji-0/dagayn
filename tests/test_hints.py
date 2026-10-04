@@ -204,3 +204,58 @@ class TestGlobalSession:
         suggested = {step["tool"] for step in hints["next_steps"]}
         assert "architecture_analysis_tool" not in suggested
         assert suggested <= {"flow_tool", "review_tool"}
+
+
+class TestRustSession:
+    """`get_session` is `_core.HintSession`, the session the tools `dagayn
+    serve` answers in Rust record into; both sides must build the same hints."""
+
+    def test_global_session_is_shared_with_rust(self):
+        from dagayn._core import HintSession
+
+        reset_session()
+        session = get_session()
+        assert isinstance(session, HintSession)
+        HintSession().record_tool_call("review")
+        assert session.tools_called == ["review"]
+        session.inferred_intent = "reviewing"
+        assert HintSession().inferred_intent == "reviewing"
+        reset_session()
+        assert get_session().tools_called == []
+
+    def test_rust_hints_match_python(self):
+        import json
+
+        from dagayn.tool_surface import set_active_tool_surface
+
+        steps = [
+            ("get_affected_flows", {"changed_files": ["a.py"], "affected_flows": []}),
+            ("review", {"changed_files": ["a.py"], "impacted_files": ["a.py", "b.py"]}),
+            (
+                "review",
+                {
+                    "impacted_files": ["b.py", "c.py", "d.py", "e.py"],
+                    "impacted_nodes": [{"qualified_name": "c.py::f"}, {"name": "g"}],
+                    "test_gaps": [{"name": "f"}, "h"],
+                    "risk_score": 0.75,
+                    "warnings": ["w1", {"message": "w2"}, 3, "w4"],
+                },
+            ),
+            ("review", {"risk_score": True, "results": [{"qualified_name": "x"}]}),
+        ]
+        for surface in (None, {"review_tool"}):
+            reset_session()
+            rust = get_session()
+            python = SessionState()
+            set_active_tool_surface(surface)
+            try:
+                for tool, result in steps:
+                    native = json.loads(rust.generate_hints(tool, json.dumps(result), surface))
+                    assert native == generate_hints(tool, result, python)
+                    assert rust.tools_called == list(python.tools_called)
+                    assert rust.files_touched == python.files_touched
+                    assert rust.nodes_queried == python.nodes_queried
+                    assert rust.inferred_intent == python.inferred_intent
+            finally:
+                set_active_tool_surface(None)
+        reset_session()

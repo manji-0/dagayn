@@ -399,11 +399,10 @@ def test_search_leaves_embedding_and_errors_to_python(
 def test_native_tools_leave_the_hint_session_untouched(
     git_repo: Path, tool: str, arguments: dict[str, Any]
 ) -> None:
-    """The Rust front end keeps no `dagayn.hints` session. Its tools may only
-    answer calls whose Python implementation records nothing there either,
-    or the hints of later Python-served tools would differ from an
-    all-Python session. A tool that calls `generate_hints` needs the session
-    carried over before it can be answered in Rust."""
+    """These tools record nothing in the `dagayn.hints` session, so their Rust
+    versions record nothing either. A Rust tool that calls `generate_hints`
+    records into the same session (`_core.HintSession`) and is checked by a
+    mixed-session test instead."""
     import dagayn.tools as tools
     from dagayn.hints import get_session, reset_session
 

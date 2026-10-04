@@ -452,7 +452,20 @@ earlier 288 name and 82 `source_of` comparisons still do. `tests_for` (the
 heuristic test inference in `coverage.py`) and invalid `depth` values stay
 Python's.
 
-Next: `review_tool`.
+Eighth slice (done): one hint session for both sides. `review_tool`,
+`flow_tool`, `architecture_analysis_tool`, and `refactor_tool` record each
+call in `dagayn.hints`' session, whose history later hints read (called
+tools leave `next_steps`, touched files leave `related`). The session now
+lives in `dagayn-tools` (`hints::session()`, one per process), and
+`dagayn.hints.get_session()` returns a `_core.HintSession` handle on it, so
+the Python server and the tools answered in Rust record into one state;
+without the extension it stays the Python `SessionState`. `hints.rs` ports
+`generate_hints` for the tool names Rust will report, and a test runs the
+same calls through both and compares the hints and the session after each.
+
+Next: `review_tool` `affected_flows` and `impact`, recording into the shared
+session as Python does (an `affected_flows` call records
+`get_affected_flows` and then `review`).
 
 ### 5.4 Remaining Python surfaces
 

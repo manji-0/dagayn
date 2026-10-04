@@ -11,9 +11,12 @@ from __future__ import annotations
 import time
 from collections import deque
 from collections.abc import Mapping
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
 from .tool_surface import tool_is_exposed
+
+if TYPE_CHECKING:
+    from ._core import HintSession
 
 # ---- intent categories and their characteristic tool names ----
 
@@ -293,7 +296,7 @@ class SessionState:
 # ---------------------------------------------------------------------------
 
 
-def infer_intent(session: SessionState) -> str:
+def infer_intent(session: SessionState | HintSession) -> str:
     """Classify the user's likely intent from their tool-call history.
 
     Returns one of: ``"reviewing"``, ``"debugging"``, ``"refactoring"``,
@@ -324,7 +327,7 @@ def infer_intent(session: SessionState) -> str:
 def generate_hints(
     tool_name: str,
     result: Mapping[str, object],
-    session: SessionState,
+    session: SessionState | HintSession,
 ) -> Hints:
     """Build context-aware hints for a tool response.
 
@@ -364,7 +367,7 @@ def generate_hints(
 # ---------------------------------------------------------------------------
 
 
-def _track_result(result: Mapping[str, object], session: SessionState) -> None:
+def _track_result(result: Mapping[str, object], session: SessionState | HintSession) -> None:
     """Extract node IDs and file paths from a tool result and record them."""
     # Files
     for key in ("changed_files", "impacted_files"):
@@ -386,7 +389,7 @@ def _track_result(result: Mapping[str, object], session: SessionState) -> None:
         session.record_nodes(node_ids)
 
 
-def _build_next_steps(tool_name: str, session: SessionState) -> list[HintStep]:
+def _build_next_steps(tool_name: str, session: SessionState | HintSession) -> list[HintStep]:
     """Return next-step suggestions, filtering already-called tools."""
     called = set(session.tools_called)
     candidates = _WORKFLOW.get(tool_name, [])
@@ -435,7 +438,7 @@ def _extract_warnings(result: Mapping[str, object]) -> list[str]:
 def _build_related(
     tool_name: str,
     result: Mapping[str, object],
-    session: SessionState,
+    session: SessionState | HintSession,
 ) -> list[str]:
     """Suggest related node/file identifiers from the result."""
     related: list[str] = []
@@ -458,10 +461,21 @@ def _build_related(
 # Module-level session singleton
 # ---------------------------------------------------------------------------
 
-_session = SessionState()
+
+def _new_session() -> SessionState | HintSession:
+    """A handle on the session of ``_core``, where the tools ``dagayn serve``
+    answers in Rust record too, or a Python one without the extension."""
+    try:
+        from ._core import HintSession
+    except ImportError:
+        return SessionState()
+    return HintSession()
 
 
-def get_session() -> SessionState:
+_session = _new_session()
+
+
+def get_session() -> SessionState | HintSession:
     """Return the global in-memory session state."""
     return _session
 
@@ -469,4 +483,10 @@ def get_session() -> SessionState:
 def reset_session() -> None:
     """Reset the global session (useful for testing)."""
     global _session
-    _session = SessionState()
+    try:
+        from ._core import reset_hint_session
+    except ImportError:
+        pass
+    else:
+        reset_hint_session()
+    _session = _new_session()
