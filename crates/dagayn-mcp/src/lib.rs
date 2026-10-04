@@ -113,6 +113,13 @@ pub struct Config {
 pub trait Native {
     /// The JSON text and value of `name(arguments)`, or `None` to delegate.
     fn call_tool(&self, name: &str, arguments: &Value) -> Option<(String, Value)>;
+
+    /// Whether `name` writes the graph database. Such a call is answered
+    /// only before the backend runs: its SQLite connections and a native
+    /// writer in the same process cannot see each other's locks.
+    fn writes_graph(&self, _name: &str) -> bool {
+        false
+    }
 }
 
 /// No native tools.
@@ -409,6 +416,9 @@ impl<B: Backend> Session<'_, B> {
                 .as_ref()
                 .is_none_or(|allowed| allowed.contains(name));
         if !exposed {
+            return None;
+        }
+        if self.proxy.is_some() && self.native.writes_graph(name) {
             return None;
         }
         let empty = json!({});

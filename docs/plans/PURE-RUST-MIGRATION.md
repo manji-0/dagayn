@@ -672,7 +672,23 @@ declared argument is the backend's. With this, a session that only reads
 starts Python's server only for embeddings it cannot reach, prompts it
 does not know, and the tools that write.
 
-Next: the tools that write (`generate_wiki_tool`,
+Twenty-sixth slice (done): `run_postprocess_tool`, the first tool that
+writes the graph from the front end. Its steps were already the native
+store's (`dagayn_build::rerun_postprocess` runs them in Python's order and
+records `last_postprocessed_at`), and its reply carries counts, not
+timings. Two constraints shape it. A read-write connection that believes it
+is the last one removes the WAL index when it closes, and Python's SQLite
+copy in the same process cannot see this copy's locks, so a graph writer is
+answered only before the Python server starts (`Native::writes_graph`; after
+that the front end relays it). And the exclusive graph lock is taken without
+waiting: a graph another writer holds is Python's to wait for. Comparing
+the graphs this left behind showed community detection was not
+deterministic (splitting an oversized community re-ran Leiden over a hash
+set's order), fixed first; now the replies and the stored communities,
+flows, memberships, and FTS rows match Python's but for their timestamps,
+here and on a larger copy.
+
+Next: the remaining tools that write (`generate_wiki_tool`,
 `build_or_update_graph_tool`, `run_postprocess_tool`, `embed_graph_tool`) and
 `cross_repo_search_tool`, then the Python server's remaining role.
 

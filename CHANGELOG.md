@@ -46,7 +46,9 @@ All notable changes to `dagayn` are documented here.
   Python's); on the full surface (`--tools all`), `find_large_functions_tool`,
   `get_suggested_questions_tool`, `get_wiki_page_tool`, `list_repos_tool`,
   and `traverse_graph_tool` (its start node through the same embedding arm
-  as `semantic_search_nodes_tool`) are answered in Rust too; a `changes` review takes 2.0 s and
+  as `semantic_search_nodes_tool`) are answered in Rust too, and so is
+  `run_postprocess_tool` until the session first needs Python's server
+  (1.15 s instead of 1.54 s on a 15k-node graph); a `changes` review takes 2.0 s and
   410 MB instead of 9.8 s and 772 MB here.
 - The installed `dagayn` command now runs `build`, `update`, and `status` in
   the Rust CLI, compiled into `dagayn._core` (no second binary in the

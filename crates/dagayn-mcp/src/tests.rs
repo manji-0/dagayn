@@ -380,3 +380,58 @@ fn prompts_are_filled_in_from_the_recorded_replies() {
         "{replies:?}"
     );
 }
+
+/// Answers every tool, and calls `a_tool` a graph writer.
+struct Writer;
+
+impl Native for Writer {
+    fn call_tool(&self, name: &str, _arguments: &Value) -> Option<(String, Value)> {
+        Some((format!("{{\"{name}\":1}}"), json!({ name: 1 })))
+    }
+
+    fn writes_graph(&self, name: &str) -> bool {
+        name == "a_tool"
+    }
+}
+
+#[test]
+fn graph_writers_are_native_only_before_the_backend_runs() {
+    let backend = Echo::default();
+    let call =
+        |id: i64, name: &str| request(id, "tools/call", json!({"name": name, "arguments": {}}));
+    let replies = run_with(
+        &[
+            init("2025-06-18"),
+            initialized(),
+            call(1, "a_tool"),
+            // Booting the backend: a request the front end does not answer.
+            request(2, "resources/read", json!({"uri": "x"})),
+            call(3, "a_tool"),
+            call(4, "b_tool"),
+        ],
+        None,
+        backend.clone(),
+        &Writer,
+    );
+    assert_eq!(*backend.boots.lock().unwrap(), 1);
+    let by_id = |id: i64| {
+        replies
+            .iter()
+            .find(|reply| reply["id"] == json!(id))
+            .cloned()
+            .unwrap_or_default()
+    };
+    assert_eq!(
+        by_id(1)["result"]["structuredContent"],
+        json!({"a_tool": 1})
+    );
+    assert_eq!(
+        by_id(3)["result"],
+        json!({"echo": "tools/call"}),
+        "the writer goes to the backend"
+    );
+    assert_eq!(
+        by_id(4)["result"]["structuredContent"],
+        json!({"b_tool": 1})
+    );
+}

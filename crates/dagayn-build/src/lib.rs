@@ -19,7 +19,7 @@ pub use data_dir::{
     DataDirError, db_path_for_build, graph_repo_mismatch, graph_repo_mismatch_message,
 };
 pub use lock::{GraphLock, GraphWriteLock, LockError, LockMode};
-pub use postprocess::PostprocessLevel;
+pub use postprocess::{PostprocessLevel, rerun_postprocess};
 pub use status::{
     CommitFreshness, SyncAssessment, assess_graph_sync, commit_tier_freshness,
     embedding_refresh_skips, openai_names_match, resolve_active_embedding_provider, status_lines,

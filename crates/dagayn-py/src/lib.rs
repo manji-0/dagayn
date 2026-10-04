@@ -1156,6 +1156,10 @@ fn serve_mcp(
             dagayn_tools::call(&self.0, name, arguments)
                 .map(|payload| (payload.text, payload.value))
         }
+
+        fn writes_graph(&self, name: &str) -> bool {
+            dagayn_tools::writes_graph(name)
+        }
     }
 
     struct PythonBackend(Py<PyAny>);

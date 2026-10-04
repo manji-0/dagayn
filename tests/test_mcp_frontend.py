@@ -916,3 +916,37 @@ def test_prompts_answer_from_the_recorded_replies_as_python_does(repo: Path) -> 
         sides.append(results)
     assert sides[0] == sides[1]
     assert 'flaky "login"\nretry' in sides[0][3]["messages"][0]["content"]["text"]
+
+
+def test_postprocess_answers_in_rust_as_python_does(git_repo: Path) -> None:
+    calls: list[tuple[str, dict[str, Any]]] = [
+        ("run_postprocess_tool", {}),
+        ("run_postprocess_tool", {"flows": False, "fts": False}),
+    ]
+    rust, python, stderr = _session_both(git_repo, calls)
+    assert stderr.count("answered run_postprocess_tool in Rust") == len(calls)
+    assert BOOT_TRACE not in stderr
+    assert [r["structuredContent"] for r in rust] == [p["structuredContent"] for p in python]
+    assert rust[0]["structuredContent"]["summary"] == "Post-processing complete."
+
+
+def test_postprocess_after_the_python_server_starts_is_its(git_repo: Path) -> None:
+    """A native writer next to Python's SQLite connections could remove the
+    WAL index under them; once the backend runs, the call is relayed."""
+    session = Session(git_repo)
+    session.open()
+    for request_id, (name, arguments) in enumerate(
+        (("ensure_graph_tool", {"force": True}), ("run_postprocess_tool", {})), 1
+    ):
+        session.send(
+            {
+                "id": request_id,
+                "method": "tools/call",
+                "params": {"name": name, "arguments": arguments},
+            }
+        )
+        assert session.read()["result"]["structuredContent"]["status"] == "ok"
+    status, _, stderr = session.close()
+    assert status == 0
+    assert BOOT_TRACE in stderr
+    assert "answered run_postprocess_tool in Rust" not in stderr

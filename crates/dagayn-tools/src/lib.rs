@@ -24,6 +24,7 @@ mod flow;
 pub mod hints;
 mod large;
 pub mod pending;
+mod postprocess;
 mod pyrandom;
 mod query;
 mod questions;
@@ -94,6 +95,7 @@ pub fn call(context: &Context, name: &str, arguments: &Value) -> Option<Payload>
         "get_wiki_page_tool" => docs::get_wiki_page(context, arguments),
         "list_repos_tool" => repos::list_repos(context, arguments),
         "apply_refactor_tool" => apply::apply_refactor(context, arguments),
+        "run_postprocess_tool" => postprocess::run_postprocess(context, arguments),
         _ => None,
     }
 }
@@ -400,6 +402,67 @@ pub(crate) fn open_graph(root: &Path) -> Option<OpenGraph> {
         store,
         _lock: lock,
     })
+}
+
+/// A graph open for writing under the exclusive lock, as `run_postprocess`
+/// holds it.
+pub(crate) struct WritableGraph {
+    pub root: PathBuf,
+    pub db_path: PathBuf,
+    pub store: GraphStore,
+    _lock: GraphLock,
+}
+
+impl WritableGraph {
+    /// `_repo`, as `attach_repo_context` adds it for an explicit root.
+    pub(crate) fn repo_context(&self) -> Value {
+        json!({
+            "repo_root": self.root.to_string_lossy(),
+            "db_path": self.db_path.to_string_lossy(),
+            "source": "explicit",
+        })
+    }
+}
+
+/// [`open_graph`]'s checks for a writer: the exclusive lock taken without
+/// waiting (a busy graph is Python's to wait for), a graph at the current
+/// schema (one Python would migrate is its), then a read-write connection.
+///
+/// Only for a process where Python's own SQLite copy holds no connection to
+/// the graph: closing a read-write connection can remove the WAL index under
+/// one (see `GraphStore::open_read_only`). The front end calls the tools in
+/// [`writes_graph`] only before it boots the Python server.
+pub(crate) fn open_graph_for_write(root: &Path) -> Option<WritableGraph> {
+    if std::env::var_os("CRG_DATA_DIR").is_some_and(|value| !value.is_empty()) {
+        return None;
+    }
+    let legacy = ["", "-wal", "-shm", "-journal"]
+        .iter()
+        .any(|suffix| root.join(format!(".dagayn.db{suffix}")).exists());
+    if legacy || !root.join(".dagayn").join("graph.db").is_file() {
+        return None;
+    }
+    let db_path = dagayn_build::db_path_for_build(root).ok()?;
+    let lock = GraphLock::acquire_mode(&db_path, LockMode::Exclusive, None).ok()?;
+    {
+        let probe = GraphStore::open_read_only(&db_path).ok()?;
+        if dagayn_build::graph_repo_mismatch(&probe, root).is_some() {
+            return None;
+        }
+    }
+    let store = GraphStore::open(&db_path).ok()?;
+    Some(WritableGraph {
+        root: root.to_path_buf(),
+        db_path,
+        store,
+        _lock: lock,
+    })
+}
+
+/// Tools that write the graph database, which the front end may answer only
+/// while the Python server (and its SQLite connections) is not running.
+pub fn writes_graph(name: &str) -> bool {
+    matches!(name, "run_postprocess_tool")
 }
 
 /// `dagayn.tool_surface.suggestion_is_callable`.

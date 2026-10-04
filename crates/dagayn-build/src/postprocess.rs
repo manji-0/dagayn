@@ -66,6 +66,42 @@ impl PostprocessOutcome {
 }
 
 /// Post-process after a full rebuild.
+/// `run_postprocess` (`run_postprocess_tool`): signatures, then the FTS
+/// index, flows, and communities as requested, and `last_postprocessed_at`.
+/// The counters in `build_result_payload`'s order; any step's failure is an
+/// error, where Python would roll back and warn.
+pub fn rerun_postprocess(
+    store: &mut GraphStore,
+    flows: bool,
+    communities: bool,
+    fts: bool,
+) -> Result<Vec<(&'static str, Value)>, GraphError> {
+    let mut out = Vec::new();
+    store.compute_missing_signatures()?;
+    out.push(("signatures_updated", json!(true)));
+    if fts {
+        out.push(("fts_indexed", json!(store.rebuild_fts_index()?)));
+    }
+    if flows {
+        let raw = store.rebuild_flows_json(FLOW_MAX_DEPTH, false)?;
+        let count = serde_json::from_str::<Value>(&raw)?
+            .get("count")
+            .and_then(Value::as_i64)
+            .unwrap_or(0);
+        out.push(("flows_detected", json!(count)));
+    }
+    if communities {
+        let detected = dagayn_postproc::detect_communities_json(store, MIN_COMMUNITY_SIZE)?;
+        out.push((
+            "communities_detected",
+            json!(store.store_communities_json(&detected)?),
+        ));
+    }
+    store.set_metadata("last_postprocessed_at", &local_timestamp())?;
+    store.commit()?;
+    Ok(out)
+}
+
 pub(crate) fn after_full_rebuild(
     repo_root: &Path,
     store: &mut GraphStore,
