@@ -606,8 +606,22 @@ Here (an indexed dirty tree with complete embeddings) and on a fresh clean
 checkout, synced and ahead, every call matches fastmcp's but for
 `elapsed_seconds`.
 
-Next: the maintenance tools on the full surface (`apply_refactor_tool` and
-the rest), then the Python server's remaining role.
+Twenty-first slice (done): the read-only tools of the full surface
+(`--tools all`). `find_large_functions_tool` (the store's size query, paths
+made relative), `get_suggested_questions_tool` (the store's questions,
+high priority first, with the analysis subtools' envelope),
+`get_wiki_page_tool` (slug, then the exact name inside the wiki directory,
+read with universal newlines; non-ASCII names and non-UTF-8 pages stay
+Python's), `list_repos_tool` (a well-formed `~/.dagayn/registry.json`; a
+missing directory, which `Registry()` would create, or a malformed file is
+Python's), and `traverse_graph_tool` (BFS by batched layers or lazy DFS from
+the keyword arm's top hit, under the same gate as
+`semantic_search_nodes_tool`). Every call compared here, on a larger copy, and
+on a fresh checkout matches fastmcp's.
+
+Next: the tools that write (`apply_refactor_tool`, `generate_wiki_tool`,
+`build_or_update_graph_tool`, `run_postprocess_tool`, `embed_graph_tool`) and
+`cross_repo_search_tool`, then the Python server's remaining role.
 
 ### 5.4 Remaining Python surfaces
 

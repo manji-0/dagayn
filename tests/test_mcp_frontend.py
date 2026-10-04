@@ -421,14 +421,14 @@ REVIEW_TRACE = "answered review_tool in Rust"
 
 
 def _session_both(
-    repo: Path, calls: list[tuple[str, dict[str, Any]]]
+    repo: Path, calls: list[tuple[str, dict[str, Any]]], **extra: str
 ) -> tuple[list[Any], list[Any], str]:
     """Each side's results for *calls* in one session, with ``_runtime.pid``
     checked against the server process and then dropped."""
     sides = []
     rust_stderr = ""
     for env in ({}, {"DAGAYN_PYTHON_CLI": "1"}):
-        session = Session(repo, **env)
+        session = Session(repo, **env, **extra)
         session.open()
         results = []
         for index, (name, arguments) in enumerate(calls, 1):
@@ -726,3 +726,38 @@ def test_ensure_graph_leaves_a_refresh_to_python(git_repo: Path) -> None:
     rust, _python, stderr = _call_both(git_repo, "ensure_graph_tool", {})
     assert ENSURE_TRACE not in stderr
     assert rust["structuredContent"]["phases"]["structure"] == "done"
+
+
+@pytest.mark.parametrize("registry", [None, '{"repos": [{"path": "/a", "alias": "x"}]}'])
+def test_maintenance_reads_answer_in_rust_as_python_does(
+    git_repo: Path, tmp_path: Path, registry: str | None
+) -> None:
+    (git_repo / "big.py").write_text("def big():\n" + "    x = 1\n" * 60 + "    return x\n")
+    subprocess.run(
+        [DAGAYN, "build", "--repo", git_repo], env=_env(), check=True, capture_output=True
+    )
+    wiki = git_repo / ".dagayn" / "wiki"
+    wiki.mkdir()
+    (wiki / "app-main.md").write_text("# App\r\nmain\n")
+    home = tmp_path / "home"
+    (home / ".dagayn").mkdir(parents=True)
+    if registry is not None:
+        (home / ".dagayn" / "registry.json").write_text(registry)
+    calls: list[tuple[str, dict[str, Any]]] = [
+        ("find_large_functions_tool", {}),
+        ("find_large_functions_tool", {"min_lines": 2, "kind": "Function", "limit": 2}),
+        ("traverse_graph_tool", {"query": "helper"}),
+        ("traverse_graph_tool", {"query": "main", "mode": "dfs", "depth": 2}),
+        ("traverse_graph_tool", {"query": "main", "token_budget": 10}),
+        ("traverse_graph_tool", {"query": "zzzqqq"}),
+        ("get_suggested_questions_tool", {}),
+        ("get_suggested_questions_tool", {"top_n": 1}),
+        ("get_wiki_page_tool", {"community_name": "App Main"}),
+        ("get_wiki_page_tool", {"community_name": "missing"}),
+        ("list_repos_tool", {}),
+    ]
+    rust, python, stderr = _session_both(git_repo, calls, HOME=str(home))
+    assert stderr.count(" in Rust") == len(calls)
+    assert BOOT_TRACE not in stderr
+    assert [r["structuredContent"] for r in rust] == [p["structuredContent"] for p in python]
+    assert rust[8]["structuredContent"]["content"] == "# App\nmain\n"

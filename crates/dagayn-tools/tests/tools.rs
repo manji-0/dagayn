@@ -943,3 +943,131 @@ fn ensure_graph_leaves_a_tree_outside_git_to_python() {
     std::fs::remove_dir_all(repo.0.join(".git")).expect("unmark");
     assert!(declines(&repo.context(), "ensure_graph_tool", json!({})));
 }
+
+#[test]
+fn large_functions_rank_by_line_count() {
+    let repo = Repo::new("large", true);
+    repo.write(
+        "big.py",
+        &format!("def big():\n{}    return 0\n", "    x = 1\n".repeat(60)),
+    );
+    repo.build();
+    let context = repo.context();
+    let found = answer(&context, "find_large_functions_tool", json!({}));
+    assert_eq!(found["total_found"], 2, "{found}");
+    assert_eq!(found["results"][0]["kind"], "File");
+    assert_eq!(found["results"][1]["name"], "big");
+    assert_eq!(found["results"][1]["line_count"], 62);
+    assert_eq!(found["results"][1]["relative_path"], "big.py");
+    let functions = answer(
+        &context,
+        "find_large_functions_tool",
+        json!({"kind": "Function", "file_path_pattern": "big", "min_lines": 10}),
+    );
+    assert!(
+        functions["summary"]
+            .as_str()
+            .expect("summary")
+            .starts_with("Found 1 node(s) with >= 10 lines (kind=Function) matching 'big':")
+    );
+    assert!(declines(
+        &context,
+        "find_large_functions_tool",
+        json!({"min_lines": "50"})
+    ));
+}
+
+#[test]
+fn traversal_walks_from_the_best_keyword_match() {
+    let repo = Repo::new("traverse", true);
+    repo.build();
+    let context = repo.context();
+    let bfs = answer(&context, "traverse_graph_tool", json!({"query": "helper"}));
+    assert_eq!(bfs["status"], "ok");
+    assert_eq!(bfs["start_node"], "app.py::helper");
+    assert_eq!(bfs["traversal"][0]["depth"], 0);
+    let names: Vec<&str> = bfs["traversal"]
+        .as_array()
+        .expect("traversal")
+        .iter()
+        .filter_map(|entry| entry["name"].as_str())
+        .collect();
+    assert!(names.contains(&"main"), "{names:?}");
+    let dfs = answer(
+        &context,
+        "traverse_graph_tool",
+        json!({"query": "helper", "mode": "dfs", "depth": 1}),
+    );
+    assert_eq!(dfs["max_depth"], 1);
+    let tight = answer(
+        &context,
+        "traverse_graph_tool",
+        json!({"query": "helper", "token_budget": 1}),
+    );
+    assert_eq!(tight["truncated"], true);
+    assert_eq!(tight["reachability"]["state"], "truncated");
+    let missing = answer(&context, "traverse_graph_tool", json!({"query": "zzzqqq"}));
+    assert_eq!(missing["status"], "not_found");
+    assert_eq!(missing["reachability"]["state"], "not_found");
+
+    assert!(declines(
+        &context,
+        "traverse_graph_tool",
+        json!({"query": "helper", "mode": "xfs"})
+    ));
+    assert!(declines(
+        &context,
+        "traverse_graph_tool",
+        json!({"query": "helper", "provider": "openai"})
+    ));
+}
+
+#[test]
+fn suggested_questions_come_high_priority_first() {
+    let repo = Repo::new("questions", true);
+    repo.build();
+    let context = repo.context();
+    let all = answer(&context, "get_suggested_questions_tool", json!({}));
+    assert_eq!(all["status"], "ok");
+    let total = all["total"].as_u64().expect("total");
+    let none = answer(
+        &context,
+        "get_suggested_questions_tool",
+        json!({"top_n": 0}),
+    );
+    assert_eq!(none["questions"], json!([]));
+    assert_eq!(none["truncated"], total > 0);
+    assert_eq!(none["guidance"][0]["confidence"], "low");
+}
+
+#[test]
+fn wiki_pages_are_read_by_slug_or_exact_name() {
+    let repo = Repo::new("wiki", true);
+    repo.build();
+    repo.write(".dagayn/wiki/auth-flow.md", "# Auth\r\nline\r");
+    let context = repo.context();
+    let page = answer(
+        &context,
+        "get_wiki_page_tool",
+        json!({"community_name": "Auth  Flow!"}),
+    );
+    assert_eq!(page["content"], "# Auth\nline\n");
+    assert_eq!(page["summary"], "Wiki page for 'Auth  Flow!' (12 chars)");
+    let exact = answer(
+        &context,
+        "get_wiki_page_tool",
+        json!({"community_name": "auth-flow.md"}),
+    );
+    assert_eq!(exact["status"], "ok");
+    let escape = answer(
+        &context,
+        "get_wiki_page_tool",
+        json!({"community_name": "../graph.db"}),
+    );
+    assert_eq!(escape["status"], "not_found");
+    assert!(declines(
+        &context,
+        "get_wiki_page_tool",
+        json!({"community_name": "認証"})
+    ));
+}

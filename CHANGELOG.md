@@ -35,7 +35,10 @@ All notable changes to `dagayn` are documented here.
   `refactor_tool` mode (a `rename` previewed in Rust is applied by
   `apply_refactor_tool` as before), and `ensure_graph_tool` when the graph
   is already ready (building, updating, seeding, and embedding stay
-  Python's); a `changes` review takes 2.0 s and
+  Python's); on the full surface (`--tools all`), `find_large_functions_tool`,
+  `get_suggested_questions_tool`, `get_wiki_page_tool`, `list_repos_tool`,
+  and `traverse_graph_tool` (when no embedding provider takes part) are
+  answered in Rust too; a `changes` review takes 2.0 s and
   410 MB instead of 9.8 s and 772 MB here.
 - The installed `dagayn` command now runs `build`, `update`, and `status` in
   the Rust CLI, compiled into `dagayn._core` (no second binary in the

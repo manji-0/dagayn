@@ -426,17 +426,7 @@ pub(crate) fn semantic_search(
         Some(Value::String(level)) if level == "minimal" => true,
         Some(_) => return None,
     };
-    // Any provider or model in play embeds the query: Python's.
-    if args
-        .optional_string("model")?
-        .is_some_and(|v| !v.is_empty())
-        || args
-            .optional_string("provider")?
-            .is_some_and(|v| !v.is_empty())
-        || context.embedding_provider.is_some()
-        || context.embedding_model.is_some()
-        || provider_in_environment()
-    {
+    if !keyword_only(context, &args)? {
         return None;
     }
     let root = explicit_repo(context, args.optional_string("repo_root")?)?;
@@ -445,13 +435,7 @@ pub(crate) fn semantic_search(
     }
     let graph = open_graph(&root)?;
     let store = &graph.store;
-    // Stored vectors can name a provider that `provider_from_persisted_name`
-    // revives without any configuration.
-    if store
-        .embedding_provider_counts()
-        .ok()?
-        .is_some_and(|counts| !counts.is_empty())
-    {
+    if !stores_no_vectors(store)? {
         return None;
     }
 
@@ -614,6 +598,45 @@ pub(crate) fn semantic_search(
             .put("_repo", graph.repo_context())
             .into_payload(),
     )
+}
+
+/// Whether no provider or model is in play for a search with these
+/// arguments (`model`, `provider`), the server defaults, and the
+/// environment; any of them embeds the query, which is Python's. `None` for
+/// arguments fastmcp would coerce.
+pub(crate) fn keyword_only(context: &Context, args: &Args) -> Option<bool> {
+    let named = |key: &str| -> Option<bool> {
+        Some(args.optional_string(key)?.is_some_and(|v| !v.is_empty()))
+    };
+    Some(
+        !(named("model")?
+            || named("provider")?
+            || context.embedding_provider.is_some()
+            || context.embedding_model.is_some()
+            || provider_in_environment()),
+    )
+}
+
+/// Whether the graph stores no vectors: stored ones can name a provider that
+/// `provider_from_persisted_name` revives without any configuration.
+pub(crate) fn stores_no_vectors(store: &GraphStore) -> Option<bool> {
+    Some(
+        !store
+            .embedding_provider_counts()
+            .ok()?
+            .is_some_and(|counts| !counts.is_empty()),
+    )
+}
+
+/// `hybrid_search(store, query, limit=1)["results"][0]["qualified_name"]`
+/// with an empty embedding arm; `Some(None)` when nothing matched.
+pub(crate) fn top_qualified_name(store: &GraphStore, query: &str) -> Option<Option<String>> {
+    let hits = fts_search(store, query, None, 1)?;
+    Some(hits.results.first().and_then(|hit| {
+        hit.get("qualified_name")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    }))
 }
 
 /// `get_provider(None)` / `_infer_remote_embedding_provider_from_env`: any

@@ -19,16 +19,20 @@ mod docs;
 mod ensure;
 mod flow;
 pub mod hints;
+mod large;
 pub mod pending;
 mod pyrandom;
 mod query;
+mod questions;
 mod refactor;
+mod repos;
 mod review;
 mod review_summary;
 mod search;
 mod source;
 mod stats;
 mod suggestions;
+mod traverse;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -81,6 +85,11 @@ pub fn call(context: &Context, name: &str, arguments: &Value) -> Option<Payload>
         "architecture_analysis_tool" => arch_tool::architecture(context, arguments),
         "refactor_tool" => refactor::refactor(context, arguments),
         "ensure_graph_tool" => ensure::ensure_graph(context, arguments),
+        "find_large_functions_tool" => large::find_large_functions(context, arguments),
+        "traverse_graph_tool" => traverse::traverse_graph(context, arguments),
+        "get_suggested_questions_tool" => questions::suggested_questions(context, arguments),
+        "get_wiki_page_tool" => docs::get_wiki_page(context, arguments),
+        "list_repos_tool" => repos::list_repos(context, arguments),
         _ => None,
     }
 }

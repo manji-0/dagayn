@@ -5,7 +5,7 @@
 use serde_json::{Map, Value, json};
 
 use crate::analysis::{
-    Graph, find_bridges, find_hubs, find_knowledge_gaps, find_surprising_connections,
+    Graph, find_bridges, find_hubs, find_knowledge_gaps, find_surprising_connections, py_prefix,
 };
 use crate::answerability::Answerability;
 use crate::architecture::{
@@ -68,15 +68,6 @@ fn py_float(value: f64) -> Option<String> {
 }
 
 /// `items[:limit]`.
-fn py_prefix(items: &[Value], limit: i64) -> Vec<Value> {
-    let len = items.len() as i64;
-    let end = if limit < 0 {
-        (len + limit).max(0)
-    } else {
-        limit.min(len)
-    };
-    items[..end as usize].to_vec()
-}
 
 /// The arguments once fastmcp and `parse_architecture_analysis_request`
 /// accept them.
@@ -717,7 +708,7 @@ fn sap_violation_list(
 
 /// `make_response` for an analysis subtool: its own answerability, its
 /// guidance, and `_hints` from that guidance.
-fn analysis_response(
+pub(crate) fn analysis_response(
     context: &Context,
     answerability: &Answerability,
     summary: String,
