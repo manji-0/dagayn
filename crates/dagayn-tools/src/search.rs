@@ -621,10 +621,10 @@ pub(crate) fn keyword_only(context: &Context, args: &Args) -> Option<bool> {
 /// `provider_from_persisted_name` revives without any configuration.
 pub(crate) fn stores_no_vectors(store: &GraphStore) -> Option<bool> {
     Some(
-        !store
+        store
             .embedding_provider_counts()
             .ok()?
-            .is_some_and(|counts| !counts.is_empty()),
+            .is_none_or(|counts| counts.is_empty()),
     )
 }
 

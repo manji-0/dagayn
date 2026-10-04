@@ -67,8 +67,6 @@ fn py_float(value: f64) -> Option<String> {
     })
 }
 
-/// `items[:limit]`.
-
 /// The arguments once fastmcp and `parse_architecture_analysis_request`
 /// accept them.
 struct Request<'a> {
