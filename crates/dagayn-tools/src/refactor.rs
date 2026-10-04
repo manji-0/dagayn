@@ -219,15 +219,7 @@ fn suggest(
     answerability: &Answerability,
     limit: i64,
 ) -> Option<Ordered> {
-    let mut suggestions = crate::suggestions::suggest_refactorings(store)?;
-    let snapshot = crate::architecture::Snapshot::read(store)?;
-    let view = crate::architecture::View::review();
-    let scopes = crate::architecture::ScopeGraph::new(&snapshot.dependencies(&view));
-    let profiles = crate::review_summary::stability_profiles(
-        &scopes,
-        &crate::architecture::sap_metrics(&snapshot, &view, "package", None),
-    );
-    crate::suggestions::apply_stability_policy(&mut suggestions, &profiles);
+    let suggestions = crate::suggestions::ranked_suggestions(store)?;
     let total = suggestions.len();
     let truncated = total as i64 > limit;
     let mut counts = Map::new();

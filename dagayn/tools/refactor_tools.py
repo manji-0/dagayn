@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from pathlib import Path
@@ -19,7 +20,6 @@ from ..contracts.state_types import (
 )
 from ..hints import generate_hints, get_session
 from ..incremental import find_project_root
-from ..stability_policy import component_stability_profiles, scope_key_for_file
 from ._common import (
     _error_response,
     _get_store,
@@ -48,48 +48,6 @@ _IDENTIFIER_RE = re.compile(r"^[^\W\d]\w*$", re.UNICODE)
 def _is_valid_identifier(name: str | None) -> bool:
     """True when *name* can be substituted into source as an identifier."""
     return bool(name) and bool(_IDENTIFIER_RE.match(name))
-
-
-def _apply_stability_policy_to_suggestions(
-    suggestions: list[RefactorPayload],
-    profiles: dict[str, RefactorPayload],
-) -> list[RefactorPayload]:
-    for suggestion in suggestions:
-        affected_files = [str(path) for path in suggestion.get("affected_files", [])]
-        stable_profiles = [
-            profiles[scope_key]
-            for scope_key in (scope_key_for_file(path) for path in affected_files)
-            if scope_key
-            and profiles.get(scope_key, {}).get("stable")
-            or scope_key
-            and profiles.get(scope_key, {}).get("should_be_stable")
-        ]
-        if not stable_profiles:
-            continue
-        suggestion["stability_policy"] = {
-            "status": "stable_component_guard",
-            "profiles": [
-                {
-                    "scope_key": profile.get("scope_key"),
-                    "instability": profile.get("instability"),
-                    "reason_codes": profile.get("reason_codes", []),
-                    "thresholds": profile.get("thresholds", {}),
-                }
-                for profile in stable_profiles[:3]
-            ],
-        }
-        work_pack = suggestion.setdefault("work_pack", {})
-        defer = work_pack.setdefault("defer_conditions", [])
-        defer.append("The affected component is stable or should be stable by shared policy.")
-        execution_plan = suggestion.setdefault("execution_plan", {})
-        plan_defer = execution_plan.setdefault("defer_if", [])
-        plan_defer.append("Stable component policy requires contract and test evidence first.")
-        if suggestion.get("type") in {"remove", "move", "split"}:
-            suggestion["confidence"] = "low" if suggestion.get("confidence") != "high" else "medium"
-            reason_codes = suggestion.setdefault("reason_codes", [])
-            if "stable_component_guard" not in reason_codes:
-                reason_codes.append("stable_component_guard")
-    return suggestions
 
 
 def _refactor_guidance(
@@ -378,13 +336,8 @@ def refactor_func(
             result["_hints"] = generate_hints("refactor", result, get_session())
             return seal_refactor_ok(result)
 
-        from ..refactor import suggest_refactorings
-
-        suggestions = suggest_refactorings(store)
-        suggestions = _apply_stability_policy_to_suggestions(
-            suggestions,
-            component_stability_profiles(store),
-        )
+        # The native analysis, with the stable-component policy applied.
+        suggestions: list[RefactorPayload] = json.loads(store.ranked_suggestions_json())
         total = len(suggestions)
         truncated = total > request.limit
         counts_by_type: dict[str, int] = {}

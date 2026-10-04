@@ -722,9 +722,22 @@ the 36 on `python_only` and `mixed`), so every native answer on the nine
 fixtures is held to the committed snapshots in CI. `run_postprocess_tool`
 joined the cases, after the reads.
 
-Next: the remaining tools that write (`generate_wiki_tool`,
-`build_or_update_graph_tool`, `run_postprocess_tool`, `embed_graph_tool`) and
-`cross_repo_search_tool`, then the Python server's remaining role.
+5.4, `refactor/` (done): one implementation per analysis. Python's
+`find_dead_code` and `suggest_refactorings`, and the `refactor_tool` suggest
+mode's stable-component policy, call the `dagayn-tools` analyses through the
+store (`find_dead_code_json`, `suggest_refactorings_json`,
+`ranked_suggestions_json`); `suggestions.py`'s 785 lines, `concerns.py`, and
+the Python policy are gone, and the concern-profile tests moved to Rust.
+JSON in between also removed a Python-only quirk: its policy relied on a
+suggestion and its evidence sharing one `reason_codes` list.
+
+Next: deduplicate the other tools the same way. A Python tool body can go
+once the Rust tool declines only for argument coercion (which fastmcp has
+already done); a semantic decline (non-ASCII rename, embedding fallbacks,
+`include_source`, verbose detail, unmappable bases) has to be completed in
+Rust first. Classify each tool's decline sites to get that list. The hook
+path's `session prepare` (0.35 s per session start in Python) is the
+user-visible candidate after that.
 
 ### 5.4 Remaining Python surfaces
 

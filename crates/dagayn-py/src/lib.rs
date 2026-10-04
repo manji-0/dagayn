@@ -718,6 +718,22 @@ impl PyGraphStore {
             .ok_or_else(|| PyRuntimeError::new_err("dead-code analysis could not read the graph"))
     }
 
+    /// The refactoring suggestions `refactor_tool(mode="suggest")` starts from.
+    fn suggest_refactorings_json(&self) -> PyResult<String> {
+        self.with_store(|store| Ok(dagayn_tools::suggest_refactorings_json(store)))?
+            .ok_or_else(|| {
+                PyRuntimeError::new_err("refactoring suggestions could not read the graph")
+            })
+    }
+
+    /// The suggestions `refactor_tool(mode="suggest")` lists, policy applied.
+    fn ranked_suggestions_json(&self) -> PyResult<String> {
+        self.with_store(|store| Ok(dagayn_tools::ranked_suggestions_json(store)))?
+            .ok_or_else(|| {
+                PyRuntimeError::new_err("refactoring suggestions could not read the graph")
+            })
+    }
+
     /// The graph's candidates before the repository check (tests only).
     #[pyo3(signature = (kind = None, file_pattern = None))]
     fn graph_dead_code_candidates_json(

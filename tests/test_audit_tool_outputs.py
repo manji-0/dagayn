@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -202,17 +203,13 @@ def test_refactor_suggest_truncates(monkeypatch) -> None:
         for idx in range(4)
     ]
 
+    class _SuggestingStore(_Closable):
+        def ranked_suggestions_json(self) -> str:
+            return json.dumps(suggestions)
+
     monkeypatch.setattr(
         "dagayn.tools.refactor_tools._get_store",
-        lambda repo_root: (_Closable(), None),
-    )
-    monkeypatch.setattr(
-        "dagayn.refactor.suggest_refactorings",
-        lambda store: suggestions,
-    )
-    monkeypatch.setattr(
-        "dagayn.tools.refactor_tools.component_stability_profiles",
-        lambda store: {},
+        lambda repo_root: (_SuggestingStore(), None),
     )
 
     result = refactor_func(mode="suggest", top_n=2, repo_root="/repo")

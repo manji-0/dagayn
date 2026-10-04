@@ -572,6 +572,17 @@ fn rust_trait_context(lines: &[String], line: i64) -> Option<&'static str> {
             return Some("trait_method");
         }
         if header.starts_with("impl") {
+            // `#[pymethods] impl`: every method is exported to Python.
+            let at = lines
+                .iter()
+                .position(|l| std::ptr::eq(l, text))
+                .unwrap_or(0);
+            let exported = lines[at.saturating_sub(3)..at]
+                .iter()
+                .any(|l| l.trim_start().starts_with("#[pymethods"));
+            if exported {
+                return Some("ffi_export");
+            }
             let head = header.split('{').next().unwrap_or(header);
             return head.contains(" for ").then_some("trait_impl_method");
         }
@@ -817,13 +828,21 @@ pub(crate) fn verify(
     if out.verification.files_skipped > 0 {
         out.verification.status = "partial";
     }
+    let root_prefix = root
+        .as_deref()
+        .map(|root| format!("{}/", root.to_string_lossy().trim_end_matches('/')));
     for (node, mut record) in pending {
+        // A graph built with absolute paths names files by them.
+        let own_file = root_prefix
+            .as_deref()
+            .and_then(|prefix| node.file_path.strip_prefix(prefix))
+            .unwrap_or(&node.file_path);
         let elsewhere = found
             .get(&node.name)
             .into_iter()
             .flatten()
             .any(|(file, line)| {
-                *file != node.file_path || *line < node.line_start || *line > node.line_end
+                file != own_file || *line < node.line_start || *line > node.line_end
             });
         if elsewhere {
             *out.suppressed
@@ -855,6 +874,8 @@ mod tests {
         assert_eq!(rust_trait_context(&src, 2), Some("trait_impl_method"));
         assert_eq!(rust_trait_context(&src, 5), None);
         assert_eq!(rust_trait_context(&src, 8), Some("trait_method"));
+        let py = lines("#[pymethods]\nimpl Store {\n    fn close(&self) {}\n}");
+        assert_eq!(rust_trait_context(&py, 3), Some("ffi_export"));
     }
 
     #[test]

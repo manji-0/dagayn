@@ -9,7 +9,6 @@ import pytest
 
 from dagayn.communities import store_communities
 from dagayn.graph import GraphStore
-from dagayn.graph.types import GraphEdge
 from dagayn.parser import CodeParser, EdgeInfo, NodeInfo
 from dagayn.refactor import (
     REFACTOR_EXPIRY_SECONDS,
@@ -19,165 +18,11 @@ from dagayn.refactor import (
     rename_preview,
     suggest_refactorings,
 )
-from dagayn.refactor.concerns import (
-    _callee_scope,
-    _function_role,
-    _parameter_names,
-    _side_effect_reason_codes,
-    branch_count,
-    comment_line_count,
-    function_concern_profile,
-)
 from dagayn.refactor.dead_code import (
     _graph_dead_code_candidates,
     _is_test_file,
     _source_line,
 )
-
-
-class TestFunctionConcernProfile:
-    """Tests for function concern-separation evidence."""
-
-    def test_lightweight_source_counters(self):
-        assert (
-            branch_count(
-                [
-                    "if enabled:",
-                    "    for item in items:",
-                    "        value = a && b",
-                    "return value",
-                ]
-            )
-            == 3
-        )
-        assert (
-            comment_line_count(
-                [
-                    "# module note",
-                    "value = 1",
-                    "/* block start",
-                    "block body",
-                    "*/",
-                    '"""docstring"""',
-                ]
-            )
-            == 5
-        )
-
-    def test_context_and_role_helpers(self):
-        assert _parameter_names(
-            "(self, user_id: str, include_history=False, mut payload, flags)"
-        ) == ["user_id", "include_history", "payload", "flags"]
-        assert _callee_scope("src/orders/service.py::save_order") == "src/orders"
-        assert _callee_scope("<dynamic:save_order>") is None
-        assert set(
-            _side_effect_reason_codes(
-                [
-                    "raw = open('/tmp/orders.json').read()",
-                    "logger.info(raw)",
-                    "requests.post('https://example.test/orders')",
-                    "db.execute('select 1')",
-                ],
-                [],
-            )
-        ) == {
-            "filesystem_io",
-            "database_io",
-            "network_io",
-            "logging_or_console",
-        }
-        assert (
-            _function_role(
-                name="normalize_order",
-                file_path="src/domain/orders.py",
-                branch_count_value=1,
-                outgoing_call_count=1,
-                side_effect_count=0,
-                context_pressure=0.1,
-            )
-            == "transformer"
-        )
-        assert (
-            _function_role(
-                name="handle_order",
-                file_path="src/commands/orders.py",
-                branch_count_value=3,
-                outgoing_call_count=3,
-                side_effect_count=2,
-                context_pressure=0.4,
-            )
-            == "boundary"
-        )
-
-    def test_profile_scores_mixed_concerns_as_refactoring_lead(self):
-        lines = [
-            (
-                "def handle_order(user_id, payload, include_history, skip_cache, "
-                "should_notify, dry_run, request_id, logger):"
-            ),
-            "    config = os.environ.get('ORDER_CONFIG')",
-            "    logger.info(config)",
-            "    raw = open('/tmp/orders.json').read()",
-            "    response = requests.post('https://example.test/orders', json=payload)",
-            "    db.execute('INSERT INTO orders VALUES (?)', [user_id])",
-            "    service_a()",
-            "    service_b()",
-            "    service_c()",
-        ]
-        lines.extend(f"    value_{idx} = {idx}" for idx in range(1, 65))
-        node = NodeInfo(
-            kind="Function",
-            name="handle_order",
-            file_path="src/commands/orders.py",
-            line_start=1,
-            line_end=len(lines),
-            language="python",
-            params=(
-                "user_id, payload, include_history, skip_cache, should_notify, "
-                "dry_run, request_id, logger"
-            ),
-        )
-        edges = [
-            GraphEdge(
-                id=idx,
-                kind="CALLS",
-                source_qualified="src/commands/orders.py::handle_order",
-                target_qualified=target,
-                file_path="src/commands/orders.py",
-                line=idx + 5,
-                extra={},
-            )
-            for idx, target in enumerate(
-                [
-                    "src/accounting/service_a.py::service_a",
-                    "src/notifications/service_b.py::service_b",
-                    "src/orders/service_c.py::service_c",
-                ],
-                start=1,
-            )
-        ]
-        node_community = {
-            "src/accounting/service_a.py::service_a": 1,
-            "src/notifications/service_b.py::service_b": 2,
-            "src/orders/service_c.py::service_c": 3,
-        }
-
-        profile = function_concern_profile(
-            node,
-            lines,
-            edges,
-            node_community=node_community,
-        )
-
-        assert profile["role"] == "boundary"
-        assert profile["score"] >= profile["evidence"]["split_score_threshold"]
-        assert profile["confidence"] == "medium"
-        assert "many_callee_communities" in profile["reason_codes"]
-        assert "side_effect_pressure" in profile["reason_codes"]
-        assert "implicit_context" in profile["reason_codes"]
-        assert profile["evidence"]["purity_likelihood"] == 0.0
-        assert profile["missingness"] == []
-        assert "Extract one cohesive" in profile["action"]
 
 
 class TestRenamePreview:
@@ -1551,31 +1396,32 @@ class TestFindDeadCodeCrossArtifact:
 class TestSuggestRefactorings:
     """Tests for suggest_refactorings."""
 
-    @pytest.fixture(autouse=True)
-    def _graph_candidates_as_dead(self, monkeypatch):
-        """These synthetic graphs have no sources on disk, which the dead-code
-        check would refuse to vouch for; the ranking under test starts from
-        the graph's candidates."""
-        monkeypatch.setattr(
-            "dagayn.refactor.suggestions.find_dead_code", _graph_dead_code_candidates
-        )
-
     def setup_method(self):
-        self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-        self.store = GraphStore(self.tmp.name)
+        # Removal suggestions need the sources: the dead-code check reads the
+        # repository before it calls anything unused.
+        self.root = Path(tempfile.mkdtemp())
+        self.lib = str(self.root / "lib.py")
+        (self.root / "lib.py").write_text(
+            "\n" * 9 + "def orphan_func():\n" + "    pass\n" * 10 + "\n" * 30,
+            encoding="utf-8",
+        )
+        self.store = GraphStore(self.root / "graph.db")
+        self.store.set_metadata("repo_root", str(self.root))
         self._seed()
 
     def teardown_method(self):
+        import shutil
+
         self.store.close()
-        Path(self.tmp.name).unlink(missing_ok=True)
+        shutil.rmtree(self.root, ignore_errors=True)
 
     def _seed(self):
         """Seed with dead code to generate suggestions."""
         self.store.upsert_node(
             NodeInfo(
                 kind="File",
-                name="/repo/lib.py",
-                file_path="/repo/lib.py",
+                name=self.lib,
+                file_path=self.lib,
                 line_start=1,
                 line_end=50,
                 language="python",
@@ -1586,7 +1432,7 @@ class TestSuggestRefactorings:
             NodeInfo(
                 kind="Function",
                 name="orphan_func",
-                file_path="/repo/lib.py",
+                file_path=self.lib,
                 line_start=10,
                 line_end=20,
                 language="python",
@@ -1663,6 +1509,10 @@ class TestSuggestRefactorings:
 
     def test_remove_suggestions_prioritize_executable_code(self):
         """Executable dead-code suggestions rank ahead of docs and fixtures."""
+        (self.root / "tests" / "fixtures").mkdir(parents=True)
+        (self.root / "tests" / "fixtures" / "helpers.py").write_text(
+            "def fixture_helper():\n    pass\n\n", encoding="utf-8"
+        )
         self.store.upsert_node(
             NodeInfo(
                 kind="Function",
@@ -1677,7 +1527,7 @@ class TestSuggestRefactorings:
 
         suggestions = [s for s in suggest_refactorings(self.store) if s["type"] == "remove"]
 
-        assert suggestions[0]["symbols"] == ["/repo/lib.py::orphan_func"]
+        assert suggestions[0]["symbols"] == [f"{self.lib}::orphan_func"]
         assert suggestions[0]["category"] == "executable"
         assert any(s["category"] == "fixture" for s in suggestions)
 
@@ -1730,21 +1580,18 @@ class TestSuggestRefactorings:
 
         suggestions = [s for s in suggest_refactorings(self.store) if s["type"] == "remove"]
         public_api = next(s for s in suggestions if s["symbols"] == [f"{lib_rs}::exported_api"])
-        pyo3_api = next(
-            s for s in suggestions if s["symbols"] == [f"{py_lib_rs}::PyGraphStore.close"]
-        )
+        # A `#[pymethods]` method is exported to Python: never a removal lead.
+        assert not any(s["symbols"] == [f"{py_lib_rs}::PyGraphStore.close"] for s in suggestions)
         ts_public_api = next(s for s in suggestions if s["symbols"] == [f"{ts_api}::publicApi"])
 
         assert public_api["category"] == "public_api"
         assert public_api["confidence"] == "low"
         assert public_api["estimated_risk"] == "high"
         assert "public_api_candidate" in public_api["reason_codes"]
-        assert pyo3_api["category"] == "public_api"
-        assert pyo3_api["confidence"] == "low"
         assert ts_public_api["category"] == "public_api"
         assert ts_public_api["confidence"] == "low"
         assert suggestions.index(public_api) > suggestions.index(
-            next(s for s in suggestions if s["symbols"] == ["/repo/lib.py::orphan_func"])
+            next(s for s in suggestions if s["symbols"] == [f"{self.lib}::orphan_func"])
         )
 
     def test_remove_suggestions_skip_rust_cfg_test_module_functions(self, tmp_path):

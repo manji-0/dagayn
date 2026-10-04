@@ -1025,6 +1025,21 @@ pub(crate) fn suggest_refactorings(store: &GraphStore) -> Option<Vec<Value>> {
 }
 
 /// `_apply_stability_policy_to_suggestions`.
+/// The suggestions `refactor_tool(mode="suggest")` lists: every one, with
+/// the stable-component policy applied.
+pub(crate) fn ranked_suggestions(store: &GraphStore) -> Option<Vec<Value>> {
+    let mut suggestions = suggest_refactorings(store)?;
+    let snapshot = crate::architecture::Snapshot::read(store)?;
+    let view = crate::architecture::View::review();
+    let scopes = crate::architecture::ScopeGraph::new(&snapshot.dependencies(&view));
+    let profiles = crate::review_summary::stability_profiles(
+        &scopes,
+        &crate::architecture::sap_metrics(&snapshot, &view, "package", None),
+    );
+    apply_stability_policy(&mut suggestions, &profiles);
+    Some(suggestions)
+}
+
 pub(crate) fn apply_stability_policy(suggestions: &mut [Value], profiles: &HashMap<String, Value>) {
     for suggestion in suggestions.iter_mut() {
         let stable: Vec<Value> = suggestion["affected_files"]
@@ -1104,5 +1119,182 @@ pub(crate) fn apply_stability_policy(suggestions: &mut [Value], profiles: &HashM
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use dagayn_graph::{ConfidenceTier, GraphEdge, GraphNode};
+    use serde_json::Value;
+
+    use super::{branch_count, callee_scope, comment_line_count, concern_profile, parameter_names};
+
+    fn lines(text: &[&str]) -> Vec<String> {
+        text.iter().map(|line| line.to_string()).collect()
+    }
+
+    fn function(name: &str, file: &str, line_end: i64, params: &str) -> GraphNode {
+        GraphNode {
+            id: 0,
+            kind: "Function".to_string(),
+            name: name.to_string(),
+            qualified_name: format!("{file}::{name}"),
+            file_path: file.to_string(),
+            line_start: 1,
+            line_end,
+            language: "python".to_string(),
+            parent_name: None,
+            params: Some(params.to_string()),
+            return_type: None,
+            is_test: false,
+            file_hash: None,
+            extra: Value::Null,
+            signature: None,
+        }
+    }
+
+    fn call(source: &str, target: &str) -> GraphEdge {
+        GraphEdge {
+            id: 0,
+            kind: "CALLS".to_string(),
+            source_qualified: source.to_string(),
+            target_qualified: target.to_string(),
+            file_path: String::new(),
+            line: 1,
+            extra: Value::Null,
+            confidence: 1.0,
+            confidence_tier: ConfidenceTier::Exact,
+        }
+    }
+
+    #[test]
+    fn lightweight_source_counters() {
+        assert_eq!(
+            branch_count(&lines(&[
+                "if enabled:",
+                "    for item in items:",
+                "        value = a && b",
+                "return value",
+            ])),
+            3
+        );
+        assert_eq!(
+            comment_line_count(&lines(&[
+                "# module note",
+                "value = 1",
+                "/* block start",
+                "block body",
+                "*/",
+                "\"\"\"docstring\"\"\"",
+            ])),
+            5
+        );
+    }
+
+    #[test]
+    fn parameters_and_callee_scopes() {
+        assert_eq!(
+            parameter_names(Some(
+                "(self, user_id: str, include_history=False, mut payload, flags)"
+            )),
+            ["user_id", "include_history", "payload", "flags"]
+        );
+        assert_eq!(
+            callee_scope("src/orders/service.py::save_order").as_deref(),
+            Some("src/orders")
+        );
+        assert_eq!(callee_scope("<dynamic:save_order>"), None);
+    }
+
+    #[test]
+    fn a_small_pure_helper_is_a_transformer() {
+        let node = function("normalize_order", "src/domain/orders.py", 2, "order");
+        let span = lines(&["def normalize_order(order):", "    return order.strip()"]);
+        let profile = concern_profile(&node, &span, &[], &HashMap::new(), 1, 0);
+        assert_eq!(profile["role"], "transformer");
+        assert_eq!(profile["evidence"]["side_effect_count"], 0);
+    }
+
+    #[test]
+    fn mixed_concerns_score_as_a_refactoring_lead() {
+        let mut span = lines(&[
+            "def handle_order(user_id, payload, include_history, skip_cache, should_notify, dry_run, request_id, logger):",
+            "    config = os.environ.get('ORDER_CONFIG')",
+            "    logger.info(config)",
+            "    raw = open('/tmp/orders.json').read()",
+            "    response = requests.post('https://example.test/orders', json=payload)",
+            "    db.execute('INSERT INTO orders VALUES (?)', [user_id])",
+            "    service_a()",
+            "    service_b()",
+            "    service_c()",
+        ]);
+        span.extend((1..65).map(|idx| format!("    value_{idx} = {idx}")));
+        let node = function(
+            "handle_order",
+            "src/commands/orders.py",
+            span.len() as i64,
+            "user_id, payload, include_history, skip_cache, should_notify, dry_run, request_id, logger",
+        );
+        let targets = [
+            ("src/accounting/service_a.py::service_a", 1),
+            ("src/notifications/service_b.py::service_b", 2),
+            ("src/orders/service_c.py::service_c", 3),
+        ];
+        let edges: Vec<GraphEdge> = targets
+            .iter()
+            .map(|(target, _)| call(&node.qualified_name, target))
+            .collect();
+        let communities: HashMap<String, i64> = targets
+            .iter()
+            .map(|(target, community)| (target.to_string(), *community))
+            .collect();
+        let profile = concern_profile(
+            &node,
+            &span,
+            &edges,
+            &communities,
+            branch_count(&span),
+            comment_line_count(&span),
+        );
+        assert_eq!(profile["role"], "boundary");
+        assert!(
+            profile["score"].as_f64().unwrap()
+                >= profile["evidence"]["split_score_threshold"]
+                    .as_f64()
+                    .unwrap()
+        );
+        assert_eq!(profile["confidence"], "medium");
+        let reasons = profile["reason_codes"].as_array().unwrap();
+        for code in [
+            "many_callee_communities",
+            "side_effect_pressure",
+            "implicit_context",
+        ] {
+            assert!(reasons.iter().any(|r| r == code), "{code}: {reasons:?}");
+        }
+        let effects: Vec<&str> = profile["evidence"]["side_effect_reason_codes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
+        for code in [
+            "filesystem_io",
+            "database_io",
+            "network_io",
+            "logging_or_console",
+        ] {
+            assert!(effects.contains(&code), "{code}: {effects:?}");
+        }
+        assert_eq!(profile["evidence"]["purity_likelihood"], 0.0);
+        assert_eq!(profile["missingness"], serde_json::json!([]));
+        assert!(
+            profile["action"]
+                .as_str()
+                .unwrap()
+                .starts_with("Extract one cohesive")
+        );
     }
 }
