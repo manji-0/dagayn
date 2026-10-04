@@ -283,6 +283,51 @@ impl GraphStore {
         Ok(Some(counts))
     }
 
+    /// The persisted spelling of `provider` when some row carries it, compared
+    /// `COLLATE NOCASE` as `EmbeddingStore._provider_key_for_lookup` does.
+    pub fn embedding_provider_spelling(&self, provider: &str) -> Result<Option<String>> {
+        self.conn
+            .query_row(
+                "SELECT provider FROM embeddings WHERE provider = ? COLLATE NOCASE LIMIT 1",
+                [provider],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()
+            .map(Option::flatten)
+            .map_err(Into::into)
+    }
+
+    /// The stored provider partitions, largest first, in the order
+    /// `EmbeddingStore._persisted_key_for_same_identity` scans them.
+    pub fn embedding_partitions_by_size(&self) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT provider, COUNT(*) AS n FROM embeddings GROUP BY provider ORDER BY n DESC",
+        )?;
+        let rows = stmt.query_map([], |row| row.get::<_, Option<String>>(0))?;
+        Ok(rows
+            .collect::<std::result::Result<Vec<_>, _>>()?
+            .into_iter()
+            .flatten()
+            .collect())
+    }
+
+    /// `EmbeddingStore.count_provider`: rows stored under `provider`, only
+    /// those whose vector is `byte_len` bytes when given.
+    pub fn count_embeddings(&self, provider: &str, byte_len: Option<i64>) -> Result<i64> {
+        Ok(match byte_len {
+            None => self.conn.query_row(
+                "SELECT COUNT(*) FROM embeddings WHERE provider = ?",
+                [provider],
+                |row| row.get(0),
+            )?,
+            Some(bytes) => self.conn.query_row(
+                "SELECT COUNT(*) FROM embeddings WHERE provider = ? AND length(vector) = ?",
+                rusqlite::params![provider, bytes],
+                |row| row.get(0),
+            )?,
+        })
+    }
+
     /// `get_embedding_status` coverage counts in Python.
     pub fn embedding_coverage(&self, provider: Option<&str>) -> Result<EmbeddingCoverage> {
         let clause = if provider.is_some() {

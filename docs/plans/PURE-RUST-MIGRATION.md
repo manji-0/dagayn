@@ -631,7 +631,30 @@ or an edit path that does not exist yet stays Python's. Applying a Rust or a
 Python preview here, dry and for real on two copies of a checkout, gives the
 same replies and the same trees.
 
-Next: the tools that write (`generate_wiki_tool`,
+Twenty-third slice (done): `semantic_search_nodes_tool` on a graph with
+stored vectors. Not porting `build_or_update_graph_tool`,
+`run_postprocess_tool`, and `embed_graph_tool` here: their work already runs
+in Rust underneath, the front end would save one Python start against a
+multi-second call, and their payloads carry timings; they move when the
+Python server is replaced. `generate_wiki_tool` stays Python (5.6), and
+`cross_repo_search_tool` waits. The embedding arm (`embedding_arm` in
+`dagayn-tools`) covers the provider `dagayn serve --local-embedding` sets
+(`openai` from the `CRG_OPENAI_*` environment) and the one a graph's stored
+identity revives, on a plain-http localhost endpoint, when a stored key
+gives the dimension and vectors of that dimension exist; the query is
+embedded over HTTP and ranked by the native scan Python already calls, and
+`hybrid_search` gains RRF over both arms, the source tags, and
+`_intent_boost`. A request that fails is Python's for 30 s, as its failure
+cache would answer `search_failed_recent`; a failure Python saw on a call
+Rust declined for another reason is not mirrored. Porting it showed
+Python's health record depended on the process's history (the first search
+named the provider before its dimension was seeded); `_embedding_search_with_health`
+now seeds it first. Here (the `--local-embedding` path and the stored-name
+path), on a partially embedded copy, and with the sidecar down, every call
+matches fastmcp's; queries whose intent selects the narrative partition,
+which no graph here stores, fall back to Python's text-mode fallback.
+
+Next: `traverse_graph_tool` through the same arm, then the tools that write (`generate_wiki_tool`,
 `build_or_update_graph_tool`, `run_postprocess_tool`, `embed_graph_tool`) and
 `cross_repo_search_tool`, then the Python server's remaining role.
 

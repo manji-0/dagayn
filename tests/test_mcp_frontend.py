@@ -823,3 +823,70 @@ def test_maintenance_reads_answer_in_rust_as_python_does(
     assert BOOT_TRACE not in stderr
     assert [r["structuredContent"] for r in rust] == [p["structuredContent"] for p in python]
     assert rust[8]["structuredContent"]["content"] == "# App\nmain\n"
+
+
+SEARCH_RUST_TRACE = "answered semantic_search_nodes_tool in Rust"
+
+
+def _fake_embedding_server(vector: list[float]) -> tuple[Any, int]:
+    """An OpenAI-compatible ``/embeddings`` endpoint that embeds every query as *vector*."""
+    import http.server
+    import threading
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_POST(self) -> None:  # noqa: N802 - http.server API
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            body = json.dumps({"data": [{"index": 0, "embedding": vector}]}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args: Any) -> None:
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, server.server_address[1]
+
+
+def test_search_with_stored_vectors_answers_in_rust_as_python_does(git_repo: Path) -> None:
+    import sqlite3
+    import struct
+
+    server, port = _fake_embedding_server([0.0, 1.0, 0.0, 0.0])
+    provider = f"openai:fake-model@http://127.0.0.1:{port}/v1#dim=4#text=material"
+    conn = sqlite3.connect(git_repo / ".dagayn" / "graph.db")
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS embeddings (qualified_name TEXT NOT NULL, vector BLOB NOT NULL,"
+        " text_hash TEXT NOT NULL, provider TEXT NOT NULL, PRIMARY KEY (qualified_name, provider))"
+    )
+    for name, vector in (
+        ("app.py::main", (1.0, 0.0, 0.0, 0.0)),
+        ("app.py::helper", (0.0, 1.0, 0.0, 0.0)),
+    ):
+        conn.execute(
+            "INSERT INTO embeddings VALUES (?, ?, 'h', ?)",
+            (name, struct.pack("4f", *vector), provider),
+        )
+    conn.commit()
+    conn.close()
+    try:
+        search = "semantic_search_nodes_tool"
+        calls: list[tuple[str, dict[str, Any]]] = [
+            (search, {"query": "something that assists"}),
+            (search, {"query": "helper"}),
+            (search, {"query": "main", "detail_level": "minimal"}),
+            (search, {"query": "helper", "kind": "Function", "limit": 1}),
+        ]
+        rust, python, stderr = _session_both(git_repo, calls)
+    finally:
+        server.shutdown()
+    assert stderr.count(SEARCH_RUST_TRACE) == len(calls)
+    assert BOOT_TRACE not in stderr
+    assert [r["structuredContent"] for r in rust] == [p["structuredContent"] for p in python]
+    first = rust[0]["structuredContent"]
+    assert first["embedding_health"]["status"] == "degraded"
+    assert first["results"][0]["qualified_name"] == "app.py::helper"
+    assert rust[1]["structuredContent"]["search_mode"] == "hybrid"

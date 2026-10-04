@@ -27,8 +27,13 @@ All notable changes to `dagayn` are documented here.
   bare-name fallback are answered in Rust as well (as is every other
   `query_graph_tool` pattern, `tests_for` included, at any depth and
   detail level), and so is
-  `semantic_search_nodes_tool` on a graph without embeddings when no
-  embedding provider is configured, and `review_tool`
+  `semantic_search_nodes_tool`, both on a graph without embeddings when no
+  embedding provider is configured and, with the vectors of a localhost
+  OpenAI-compatible sidecar (`dagayn serve --local-embedding`, or the
+  provider a graph's stored identity names), embedding the query over HTTP
+  and ranking it with the same native scan (a session's first search here
+  takes 0.31 s instead of 0.88 s, a later one 0.08 s instead of 0.13 s), and
+  `review_tool`
   `mode="changes"` (`standard` and `minimal`), `mode="context"`,
   `mode="affected_flows"`, and `mode="impact"` in a git checkout,
   `flow_tool`, every `architecture_analysis_tool` mode, and every

@@ -217,10 +217,21 @@ pub fn embedding_refresh_skips(store: &GraphStore) -> Result<bool, GraphError> {
     Ok(coverage.missing_embeddings <= 0 || coverage.embeddable_nodes <= 0)
 }
 
-/// `resolve_active_embedding_provider`: the stored provider wins, matched to a
-/// partition by identity; otherwise the largest partition.
+/// `resolve_active_embedding_provider` without a text mode.
 fn resolve_active_provider(
     counts: &HashMap<String, i64>,
+    preferred: Option<&str>,
+) -> Option<String> {
+    resolve_active_embedding_provider(counts, None, preferred)
+}
+
+/// `resolve_active_embedding_provider`: the stored provider wins, matched to a
+/// partition by identity; otherwise the largest partition among those of
+/// `text_mode` (`_provider_candidates`: that mode's, else the legacy unmoded
+/// ones, else all).
+pub fn resolve_active_embedding_provider(
+    counts: &HashMap<String, i64>,
+    text_mode: Option<&str>,
     preferred: Option<&str>,
 ) -> Option<String> {
     if let Some(preferred) = preferred.filter(|name| !name.is_empty()) {
@@ -228,8 +239,29 @@ fn resolve_active_provider(
             match_preferred_provider(preferred, counts).unwrap_or_else(|| preferred.to_string()),
         );
     }
-    counts
-        .iter()
+    let candidates: Vec<(&String, &i64)> = match text_mode.filter(|mode| !mode.is_empty()) {
+        None => counts.iter().collect(),
+        Some(mode) => {
+            let suffix = format!("#text={mode}");
+            let matches: Vec<_> = counts
+                .iter()
+                .filter(|(name, _)| name.ends_with(&suffix))
+                .collect();
+            let legacy: Vec<_> = counts
+                .iter()
+                .filter(|(name, _)| !name.contains("#text="))
+                .collect();
+            if !matches.is_empty() {
+                matches
+            } else if !legacy.is_empty() {
+                legacy
+            } else {
+                counts.iter().collect()
+            }
+        }
+    };
+    candidates
+        .into_iter()
         .max_by(|left, right| left.1.cmp(right.1).then_with(|| left.0.cmp(right.0)))
         .map(|(name, _)| name.clone())
 }
@@ -292,7 +324,7 @@ fn text_mode(name: &str) -> Option<&str> {
 
 /// `_openai_provider_names_match`: same name ignoring case, or `computed` is
 /// `persisted` plus a `#dim=N` suffix.
-fn openai_names_match(persisted: &str, computed: &str) -> bool {
+pub fn openai_names_match(persisted: &str, computed: &str) -> bool {
     if persisted.to_lowercase() == computed.to_lowercase() {
         return true;
     }

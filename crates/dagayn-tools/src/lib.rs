@@ -18,6 +18,7 @@ mod coverage;
 mod dead_code;
 mod difflib;
 mod docs;
+mod embedding_arm;
 mod ensure;
 mod flow;
 pub mod hints;
