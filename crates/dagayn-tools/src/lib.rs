@@ -459,6 +459,17 @@ pub(crate) fn open_graph_for_write(root: &Path) -> Option<WritableGraph> {
     })
 }
 
+/// `dagayn.refactor.dead_code.find_dead_code` as JSON: the candidates the
+/// native `refactor_tool` reports, for Python callers to share; `None` when
+/// the graph cannot be read.
+pub fn find_dead_code_json(
+    store: &GraphStore,
+    kind: Option<&str>,
+    file_pattern: Option<&str>,
+) -> Option<String> {
+    dead_code::find_dead_code(store, kind, file_pattern).map(|dead| Value::Array(dead).to_string())
+}
+
 /// Tools that write the graph database, which the front end may answer only
 /// while the Python server (and its SQLite connections) is not running.
 pub fn writes_graph(name: &str) -> bool {
