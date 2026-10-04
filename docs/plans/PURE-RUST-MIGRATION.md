@@ -735,9 +735,18 @@ Next: deduplicate the other tools the same way. A Python tool body can go
 once the Rust tool declines only for argument coercion (which fastmcp has
 already done); a semantic decline (non-ASCII rename, embedding fallbacks,
 `include_source`, verbose detail, unmappable bases) has to be completed in
-Rust first. Classify each tool's decline sites to get that list. The hook
-path's `session prepare` (0.35 s per session start in Python) is the
-user-visible candidate after that.
+Rust first. Classify each tool's decline sites to get that list.
+
+Not ported, on inspection: `session prepare`. Both installed hooks pass
+`--local-embedding`, so its embedding phase always runs. That phase is
+`inline` (the sidecar embeds now) when vectors are missing or at least 5%
+of nodes lack one, a ratio known only after the structure phase has
+written, so Rust cannot decline before it touches the graph. Answering
+only the structure-noop, `queue` case would save about 0.6 s per session
+start (0.67–0.72 s in Python with the hook's arguments), but would mean
+porting the task queue's schema, payload merge, and worker lock, and the
+worker it spawns is Python anyway. It moves with the embedding phase, like
+`embed_graph_tool`.
 
 ### 5.4 Remaining Python surfaces
 
