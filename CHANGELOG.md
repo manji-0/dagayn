@@ -29,7 +29,9 @@ All notable changes to `dagayn` are documented here.
   detail level), and so is
   `semantic_search_nodes_tool` on a graph without embeddings when no
   embedding provider is configured, and `review_tool`
-  `mode="affected_flows"` and `mode="impact"` in a git checkout.
+  `mode="changes"` (`standard` and `minimal`), `mode="affected_flows"`, and
+  `mode="impact"` in a git checkout; a `changes` review takes 2.0 s and
+  410 MB instead of 9.8 s and 772 MB here.
 - The installed `dagayn` command now runs `build`, `update`, and `status` in
   the Rust CLI, compiled into `dagayn._core` (no second binary in the
   wheel). Every other command, `--help`, `--version`, and any flag or
@@ -79,6 +81,9 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- `review_tool` `mode="changes"` lists each changed node's edges in the same
+  order from one server process to the next; past 225 endpoints they used
+  to move around.
 - `review_tool` `mode="impact"` and `mode="changes"` no longer reorder
   changed nodes and low-confidence bridge caveats from one server process
   to the next when a change touches many nodes.

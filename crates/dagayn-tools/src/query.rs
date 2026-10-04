@@ -237,7 +237,7 @@ fn lookup(table: &[(&str, &'static str)], key: &str) -> Option<&'static str> {
 
 /// `_sanitize_name`: control characters other than tab and newline dropped,
 /// then at most 256 characters.
-fn sanitize(name: &str) -> String {
+pub(crate) fn sanitize(name: &str) -> String {
     name.chars()
         .filter(|c| *c == '\t' || *c == '\n' || (*c as u32) >= 0x20)
         .take(256)
@@ -691,7 +691,7 @@ fn importer_row(edge: &GraphEdge) -> Row {
     ]
 }
 
-fn cross_artifact_role(edge: &GraphEdge) -> Option<&str> {
+pub(crate) fn cross_artifact_role(edge: &GraphEdge) -> Option<&str> {
     if edge.kind != "CROSS_ARTIFACT" {
         return None;
     }

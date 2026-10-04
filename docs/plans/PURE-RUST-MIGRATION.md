@@ -497,10 +497,27 @@ Greek, Cherokee, some ligatures) leave the call to Python. 82 exact and 96
 by-name calls on this repository's graph and on a larger copy match
 fastmcp's, all answered in Rust.
 
-Next: `review_tool` `changes`, in two parts: `analyze_changes` (diff
-ranges, renames, attribution, risk scoring) against
-`ChangeAnalysisResult`, then `_change_analysis_summary` one helper at a
-time; then `context`.
+Twelfth slice (done): `review_tool` `mode="changes"` (the default) at
+`standard` and `minimal` detail. `dagayn-tools`' `changes` is
+`analyze_changes` (`git diff --unified=0` ranges, renames, attribution with
+stale-hash fallback, the base revision's entities parsed with the same
+parser path Python passes, review-priority scores, test gaps through
+`coverage`), and `review_summary` is `_change_analysis_summary` with the
+architecture metrics it reads (SDP, SAP, bounded ADP cycles, stability
+profiles). Hotspots use the persisted rankings and otherwise compute them
+as Python does, betweenness included: `pyrandom` reproduces CPython's
+`random.Random(0).sample`, and the Brandes passes run in networkx's order,
+so sampled scores match to the last bit. `get_edges_by_endpoints` now sorts
+its keys (its chunks reordered an endpoint's edges from run to run), and
+`compute_change_risk_score` counts a caller once and rounds as Python does.
+Both halves were compared with Python's functions directly on five change
+sets here and on a larger copy (up to 94 files), then end to end: 40 calls
+on this repository's graph match fastmcp's, 35 answered in Rust. A
+`changes` call takes 2.0 s and 410 MB instead of 9.8 s and 772 MB here.
+`include_source`, `verbose`, and a base `git diff` cannot resolve stay
+Python's.
+
+Next: `review_tool` `context`, then `flow_tool`.
 
 ### 5.4 Remaining Python surfaces
 

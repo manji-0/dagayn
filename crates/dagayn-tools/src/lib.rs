@@ -7,12 +7,15 @@
 //! front end then relays the call, so every error stays Python's.
 
 mod answerability;
+mod changes;
 mod context;
 mod coverage;
 mod docs;
 pub mod hints;
+mod pyrandom;
 mod query;
 mod review;
+mod review_summary;
 mod search;
 mod source;
 mod stats;
@@ -98,17 +101,21 @@ impl Ordered {
         }
         let mut truncation = Vec::new();
         for field in priorities.iter().rev() {
-            let Some(index) = self.0.iter().position(|(key, _)| key == field) else {
+            // `_get_path`: `parent.key` names a list inside a top-level object.
+            let (top, nested) = match field.split_once('.') {
+                Some((top, key)) => (top, Some(key)),
+                None => (*field, None),
+            };
+            let Some(index) = self.0.iter().position(|(key, _)| key == top) else {
                 continue;
             };
-            let Value::Array(items) = &self.0[index].1 else {
+            let Some(total) = list_at(&mut self.0[index].1, nested).map(|items| items.len()) else {
                 continue;
             };
-            let total = items.len();
             let mut kept = total;
             while kept > 1 && over(&self) {
                 kept /= 2;
-                if let Value::Array(items) = &mut self.0[index].1 {
+                if let Some(items) = list_at(&mut self.0[index].1, nested) {
                     items.truncate(kept);
                 }
             }
@@ -171,6 +178,15 @@ impl Ordered {
             value: Value::Object(value),
         }
     }
+}
+
+/// The list at `entry` (or at its `nested` key), as `_get_path` finds it.
+fn list_at<'a>(entry: &'a mut Value, nested: Option<&str>) -> Option<&'a mut Vec<Value>> {
+    let target = match nested {
+        Some(key) => entry.as_object_mut()?.get_mut(key)?,
+        None => entry,
+    };
+    target.as_array_mut()
 }
 
 /// The arguments of a call when they are exactly the declared ones, each a

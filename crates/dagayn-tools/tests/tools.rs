@@ -486,8 +486,7 @@ fn review_leaves_other_modes_and_unknowns_to_python() {
         ..repo.context()
     };
     for arguments in [
-        json!({}),
-        json!({"mode": "changes"}),
+        json!({"mode": "context"}),
         json!({"mode": "affected_flows", "base": "bad ref"}),
         json!({"mode": "affected_flows", "detail_level": "full"}),
         json!({"mode": "affected_flows", "include_source": "yes"}),
@@ -571,4 +570,94 @@ fn review_impact_reports_the_blast_radius_and_trims_like_python() {
     let none = impact(json!({"mode": "impact", "changed_files": []}));
     assert_eq!(none["summary"], "No changed files detected.");
     assert_eq!(none["total_impacted"], 0);
+}
+
+#[test]
+fn review_changes_scores_the_diff_against_base() {
+    let repo = Repo::new("changes", true);
+    repo.build();
+    repo.write(
+        "app.py",
+        "def main():\n    return helper()\n\n\ndef helper():\n    return 1\n\n\ndef auth_token():\n    return 2\n",
+    );
+    for args in [
+        &["add", "-A"][..],
+        &["commit", "-q", "--no-gpg-sign", "-m", "edit"],
+    ] {
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(&repo.0)
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@example.invalid")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@example.invalid")
+            .output()
+            .expect("git");
+        assert!(out.status.success(), "{out:?}");
+    }
+    repo.build();
+    let context = Context {
+        runtime: Some(json!({})),
+        ..repo.context()
+    };
+    let changes = answer(&context, "review_tool", json!({}));
+    assert_eq!(changes["mode"], "changes");
+    assert_eq!(changes["called_subtool"], "detect_changes_func");
+    assert_eq!(changes["changed_files"], json!(["app.py"]));
+    assert_eq!(changes["diff_parse_status"], "ok");
+    let names: Vec<&str> = changes["changed_functions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|f| f["name"].as_str())
+        .collect();
+    assert!(names.contains(&"auth_token"), "{names:?}");
+    let added = changes["changed_functions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|f| f["name"] == "auth_token")
+        .expect("auth_token");
+    assert_eq!(added["change_status"], "added");
+    assert!(
+        changes["summary"]
+            .as_str()
+            .is_some_and(|s| s.starts_with("Analyzed 1 changed file(s):"))
+    );
+    let summary = &changes["analysis_summary"];
+    assert!(summary["reason_codes"].as_array().is_some());
+    assert_eq!(
+        summary["next_drill_downs"]["flows"]["mode"],
+        "affected_flows"
+    );
+    assert!(changes["_hints"]["next_steps"].as_array().is_some());
+
+    let minimal = answer(
+        &context,
+        "review_tool",
+        json!({"mode": "changes", "detail_level": "minimal"}),
+    );
+    assert_eq!(minimal["changed_file_count"], 1);
+    assert!(minimal.get("changed_functions").is_none());
+    assert!(
+        minimal["review_priorities"]
+            .as_array()
+            .is_some_and(|p| p.len() <= 3)
+    );
+
+    let none = answer(&context, "review_tool", json!({"changed_files": []}));
+    assert_eq!(none["summary"], "No changed files detected.");
+    assert_eq!(none["risk_score"], 0.0);
+
+    for arguments in [
+        json!({"include_source": true}),
+        json!({"detail_level": "verbose"}),
+        // No HEAD~5 to diff against: Python reports the unresolved base.
+        json!({"base": "HEAD~5", "changed_files": ["app.py"]}),
+    ] {
+        assert!(
+            declines(&context, "review_tool", arguments.clone()),
+            "{arguments}"
+        );
+    }
 }

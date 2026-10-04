@@ -238,3 +238,63 @@ impl GraphStore {
         Ok(0)
     }
 }
+
+impl GraphStore {
+    /// The persisted hub ranking (`hub_scores`, or `hub_scores_code` for the
+    /// code scope), best first, as `_load_persisted_hub_scores` reads it.
+    pub fn persisted_hub_scores(&self, code_scope: bool, top_n: i64) -> Result<Vec<Value>> {
+        let table = if code_scope {
+            "hub_scores_code"
+        } else {
+            "hub_scores"
+        };
+        let sql = format!(
+            "SELECT name, qualified_name, kind, file_path, in_degree, out_degree, \
+             total_degree, community_id FROM {table} \
+             ORDER BY total_degree DESC, qualified_name LIMIT ?"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map([top_n], |row| {
+            Ok(json!({
+                "name": row.get::<_, String>(0)?,
+                "qualified_name": row.get::<_, String>(1)?,
+                "kind": row.get::<_, String>(2)?,
+                "file": row.get::<_, String>(3)?,
+                "in_degree": row.get::<_, i64>(4)?,
+                "out_degree": row.get::<_, i64>(5)?,
+                "total_degree": row.get::<_, i64>(6)?,
+                "community_id": row.get::<_, Option<i64>>(7)?,
+                "score_source": "persisted",
+            }))
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    /// The persisted bridge ranking, as `_load_persisted_bridge_scores` reads it.
+    pub fn persisted_bridge_scores(&self, code_scope: bool, top_n: i64) -> Result<Vec<Value>> {
+        let table = if code_scope {
+            "bridge_scores_code"
+        } else {
+            "bridge_scores"
+        };
+        let sql = format!(
+            "SELECT name, qualified_name, kind, file_path, betweenness, community_id \
+             FROM {table} ORDER BY betweenness DESC, qualified_name LIMIT ?"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map([top_n], |row| {
+            Ok(json!({
+                "name": row.get::<_, String>(0)?,
+                "qualified_name": row.get::<_, String>(1)?,
+                "kind": row.get::<_, String>(2)?,
+                "file": row.get::<_, String>(3)?,
+                "betweenness": row.get::<_, f64>(4)?,
+                "community_id": row.get::<_, Option<i64>>(5)?,
+                "score_source": "persisted",
+            }))
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+}

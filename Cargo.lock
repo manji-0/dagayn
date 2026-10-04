@@ -414,6 +414,7 @@ version = "0.1.0"
 dependencies = [
  "dagayn-build",
  "dagayn-graph",
+ "dagayn-parser",
  "regex",
  "rusqlite",
  "serde_json",

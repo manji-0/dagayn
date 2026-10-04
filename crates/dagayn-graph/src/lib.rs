@@ -615,7 +615,10 @@ mod analysis_question_rows;
 mod analysis_questions;
 mod analysis_stats;
 mod bridges;
-pub use bridges::is_low_confidence_unresolved_markdown_code_span;
+pub use bridges::{
+    bridge_transition_value, is_low_confidence_bridge,
+    is_low_confidence_unresolved_markdown_code_span, is_reportable_bridge,
+};
 mod communities;
 mod core;
 mod edge_lookups;

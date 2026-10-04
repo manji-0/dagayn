@@ -61,7 +61,7 @@ fn is_low_confidence_resolved_implicit_markdown_code_span(edge: &GraphEdge) -> b
 /// CROSS_ARTIFACT edges: every bridge outside the reportable tiers (`LOW`,
 /// `MEDIUM`, `UNKNOWN`) is surfaced as a caveat, so none disappears from both
 /// the claim and the caveat output.
-pub(crate) fn is_low_confidence_bridge(edge: &GraphEdge) -> bool {
+pub fn is_low_confidence_bridge(edge: &GraphEdge) -> bool {
     if !is_cross_artifact(edge) {
         return false;
     }
@@ -75,7 +75,7 @@ pub(crate) fn is_low_confidence_bridge(edge: &GraphEdge) -> bool {
 }
 
 /// True when a CROSS_ARTIFACT edge may expand impact/flows as a hard claim.
-pub(crate) fn is_reportable_bridge(edge: &GraphEdge) -> bool {
+pub fn is_reportable_bridge(edge: &GraphEdge) -> bool {
     if !is_cross_artifact(edge) || is_unresolved_target(edge) || is_low_confidence_bridge(edge) {
         return false;
     }
@@ -91,7 +91,7 @@ fn optional_str(value: &str) -> Value {
 }
 
 /// Explainable path payload for a CROSS_ARTIFACT hop.
-pub(crate) fn bridge_transition_value(edge: &GraphEdge) -> Value {
+pub fn bridge_transition_value(edge: &GraphEdge) -> Value {
     json!({
         "kind": "CROSS_ARTIFACT",
         "source": edge.source_qualified.clone(),

@@ -499,13 +499,25 @@ def test_review_answers_in_rust_as_python_does(git_repo: Path, change: str) -> N
         (review, {"mode": "impact", "changed_files": ["app.py"], "max_nodes": 2}),
         (review, {"mode": "impact", "changed_files": ["./app.py", "/elsewhere/x.py", "gone.py"]}),
         (review, {"mode": "impact", "changed_files": [], "max_depth": 0}),
-        # Python answers this one, from the session the Rust calls updated.
+        (review, {}),
         (review, {"mode": "changes", "changed_files": ["app.py"]}),
+        (
+            review,
+            {"mode": "changes", "changed_files": ["app.py", "gone.py"], "detail_level": "minimal"},
+        ),
+        (review, {"mode": "changes", "base": "HEAD", "max_depth": 1}),
+        (review, {"mode": "changes", "changed_files": []}),
+        # Python answers this one, from the session the Rust calls updated.
+        (review, {"mode": "changes", "changed_files": ["app.py"], "include_source": True}),
         (review, {"mode": "affected_flows", "changed_files": ["test_app.py"]}),
         (review, {"mode": "impact", "changed_files": ["test_app.py"], "detail_level": "verbose"}),
     ]
     rust, python, stderr = _session_both(git_repo, calls)
-    assert stderr.count(REVIEW_TRACE) == len(calls) - 1
+    # A single-commit repository has no HEAD~1, so changes on the default base
+    # is Python's error -- except where no file changed, which it reports
+    # before diffing.
+    python_only = {"none": 2, "dirty": 3}.get(change, 0)
+    assert stderr.count(REVIEW_TRACE) == len(calls) - 1 - python_only
     assert rust == python
     if change == "wide":
         trimmed = rust[8]["structuredContent"]
@@ -516,7 +528,7 @@ def test_review_answers_in_rust_as_python_does(git_repo: Path, change: str) -> N
 @pytest.mark.parametrize(
     "arguments",
     [
-        {"mode": "changes", "changed_files": ["app.py"]},
+        {"mode": "changes", "changed_files": ["app.py"], "detail_level": "verbose"},
         {"mode": "affected_flows", "base": "bad ref"},
         {"mode": "affected_flows", "detail_level": "full"},
         {"mode": "affected_flows", "changed_files": "app.py"},

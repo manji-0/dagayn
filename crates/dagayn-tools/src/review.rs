@@ -10,8 +10,10 @@ use dagayn_graph::{GraphStore, is_low_confidence_unresolved_markdown_code_span};
 use serde_json::{Map, Value, json};
 
 use crate::answerability::Answerability;
-use crate::hints::{SessionState, generate_hints, session};
+use crate::changes::{analyze_changes, parse_diff};
+use crate::hints::{generate_hints, session};
 use crate::query::{edge_dict, node_dict};
+use crate::review_summary::change_analysis_summary;
 use crate::{Args, Context, OpenGraph, Ordered, Payload, explicit_repo, open_graph};
 
 const DECLARED: &[&str] = &[
@@ -28,6 +30,8 @@ const DECLARED: &[&str] = &[
 
 /// `get_impact_radius`'s `apply_output_budget` budget, in tokens.
 const IMPACT_BUDGET: usize = 8000;
+/// `detect_changes_func`'s `apply_output_budget` budget, in tokens.
+const CHANGES_BUDGET: usize = 8000;
 
 /// `review_tool`'s arguments once fastmcp and `parse_review_request` accept
 /// them.
@@ -37,6 +41,7 @@ struct Request<'a> {
     max_depth: i64,
     max_nodes: i64,
     detail_level: &'a str,
+    include_source: Option<bool>,
 }
 
 impl<'a> Request<'a> {
@@ -56,12 +61,11 @@ impl<'a> Request<'a> {
             ),
             Some(_) => return None,
         };
-        if !matches!(
-            arguments.get("include_source"),
-            None | Some(Value::Null | Value::Bool(_))
-        ) {
-            return None;
-        }
+        let include_source = match arguments.get("include_source") {
+            None | Some(Value::Null) => None,
+            Some(Value::Bool(flag)) => Some(*flag),
+            Some(_) => return None,
+        };
         args.integer("max_lines_per_file", 200)?;
         let detail_level = match arguments.get("detail_level") {
             None => "standard",
@@ -78,6 +82,7 @@ impl<'a> Request<'a> {
             max_depth: args.integer("max_depth", 2)?,
             max_nodes: args.integer("max_nodes", 50)?,
             detail_level,
+            include_source,
         })
     }
 }
@@ -85,7 +90,10 @@ impl<'a> Request<'a> {
 pub(crate) fn review(context: &Context, arguments: &Map<String, Value>) -> Option<Payload> {
     let args = Args::new(arguments, DECLARED)?;
     let mode = match arguments.get("mode") {
-        Some(Value::String(mode)) if matches!(mode.as_str(), "affected_flows" | "impact") => {
+        None => "changes",
+        Some(Value::String(mode))
+            if matches!(mode.as_str(), "changes" | "affected_flows" | "impact") =>
+        {
             mode.as_str()
         }
         _ => return None,
@@ -102,14 +110,13 @@ pub(crate) fn review(context: &Context, arguments: &Map<String, Value>) -> Optio
             .as_ref()
             .is_none_or(|allowed| allowed.contains(tool))
     };
-    let mut hint_session = session();
-    let mut review = Review {
+    let review = Review {
         graph: &graph,
         answerability: &answerability,
-        session: &mut hint_session,
         exposed: &exposed,
     };
     let (subtool, out) = match mode {
+        "changes" => ("detect_changes_func", review.changes(&request)?),
         "affected_flows" => ("get_affected_flows_func", review.affected_flows(&request)?),
         _ => ("get_impact_radius", review.impact(&request)?),
     };
@@ -121,7 +128,7 @@ pub(crate) fn review(context: &Context, arguments: &Map<String, Value>) -> Optio
         object.insert("called_subtool".to_string(), json!(subtool));
         object.insert("_runtime".to_string(), runtime.clone());
     }
-    let review_hints = generate_hints("review", &seen, review.session, review.exposed);
+    let review_hints = review.hints("review", &seen);
     let has_hints = out.value().get("_hints").is_some();
     // `seal_dispatcher_ok`: the envelope's fields first, then the subtool's
     // in its order; the server's `attach_repo_context` last.
@@ -145,14 +152,19 @@ pub(crate) fn review(context: &Context, arguments: &Map<String, Value>) -> Optio
     Some(sealed.put("_repo", graph.repo_context()).into_payload())
 }
 
-struct Review<'a, 's> {
+struct Review<'a> {
     graph: &'a OpenGraph,
     answerability: &'a Answerability,
-    session: &'s mut SessionState,
     exposed: &'a dyn Fn(&str) -> bool,
 }
 
-impl Review<'_, '_> {
+impl Review<'_> {
+    /// `generate_hints(tool, result, get_session())`, holding the session
+    /// only while it records.
+    fn hints(&self, tool: &str, result: &Value) -> Value {
+        generate_hints(tool, result, &mut session(), self.exposed)
+    }
+
     fn store(&self) -> &GraphStore {
         &self.graph.store
     }
@@ -161,24 +173,188 @@ impl Review<'_, '_> {
         &self.graph.root
     }
 
-    /// `get_affected_flows_func`.
-    fn affected_flows(&mut self, request: &Request) -> Option<Ordered> {
-        let (changed_files, sources) = match &request.changed_files {
-            Some(files) => (
-                files.clone(),
-                Some(json!({"files": files, "explicit": files})),
-            ),
+    /// The changed files and their sources, as `detect_changes_func` and
+    /// `get_affected_flows_func` detect them.
+    fn changed_files(&self, request: &Request) -> Option<(Vec<String>, Value)> {
+        Some(match &request.changed_files {
+            Some(files) => (files.clone(), json!({"files": files, "explicit": files})),
             None => {
                 let sources = change_file_sources(self.root(), request.base)?;
                 if sources.files.is_empty() {
                     let files = staged_and_unstaged(self.root())?;
                     let sources = json!({"files": files, "worktree": files});
-                    (files, Some(sources))
+                    (files, sources)
                 } else {
-                    (sources.files.clone(), Some(sources_value(sources)))
+                    (sources.files.clone(), sources_value(sources))
                 }
             }
+        })
+    }
+
+    /// `detect_changes_func` at `standard` and `minimal` detail, without
+    /// source snippets.
+    fn changes(&self, request: &Request) -> Option<Ordered> {
+        if request.include_source == Some(true) || request.detail_level == "verbose" {
+            return None;
+        }
+        let (changed_files, sources) = self.changed_files(request)?;
+        if changed_files.is_empty() {
+            return Some(
+                Ordered::default()
+                    .put("status", "ok")
+                    .put("summary", "No changed files detected.")
+                    .put("risk_score", 0.0)
+                    .put("changed_functions", json!([]))
+                    .put("affected_flows", json!([]))
+                    .put("test_gaps", json!([]))
+                    .put("review_priorities", json!([]))
+                    .put("answerability", self.answerability.full())
+                    .put("missingness", json!(self.answerability.missingness())),
+            );
+        }
+        // A base `git diff` cannot resolve is Python's error to report.
+        let ranges = parse_diff(self.root(), request.base)?;
+        let analysis = analyze_changes(
+            self.store(),
+            self.root(),
+            request.base,
+            &changed_files,
+            &ranges,
+        )?;
+        let absolute: Vec<String> = changed_files
+            .iter()
+            .map(|file| absolute_path(self.root(), file))
+            .collect();
+        let impact = self
+            .store()
+            .get_impact_radius(&absolute, request.max_depth, 500)
+            .ok()?;
+        let summary = change_analysis_summary(self.store(), &analysis, &impact, &changed_files)?;
+        let full_guidance = summary["guidance"].clone();
+
+        let out = if request.detail_level == "minimal" {
+            let field = |key: &str| summary.get(key).cloned().unwrap_or(Value::Null);
+            let first = |key: &str, count: usize| -> Value {
+                json!(
+                    summary[key]
+                        .as_array()
+                        .map(|items| items.iter().take(count).cloned().collect::<Vec<_>>())
+                        .unwrap_or_default()
+                )
+            };
+            let delta = &summary["architecture_delta"];
+            let baseline = delta.get("baseline_comparison")?.clone();
+            let priorities: Vec<Value> = analysis
+                .get("review_priorities")
+                .as_array()
+                .into_iter()
+                .flatten()
+                .take(3)
+                .map(|p| {
+                    p.get("name")
+                        .cloned()
+                        .unwrap_or_else(|| p.get("qualified_name").cloned().unwrap_or(json!("")))
+                })
+                .collect();
+            let semantics = match analysis.get("score_semantics") {
+                value if value.as_object().is_some_and(|m| !m.is_empty()) => value.clone(),
+                _ => field("score_semantics"),
+            };
+            Ordered::default()
+                .put("status", "ok")
+                .put("summary", analysis.get("summary").clone())
+                .put("risk_score", analysis.get("risk_score").clone())
+                .put(
+                    "review_priority_score",
+                    analysis.get("review_priority_score").clone(),
+                )
+                .put("score_semantics", semantics)
+                .put("risk_level", field("risk_level"))
+                .put("reason_codes", field("reason_codes"))
+                .put("changed_file_count", changed_files.len())
+                .put("change_file_sources", sources)
+                .put(
+                    "change_entity_summary",
+                    analysis.get("change_entity_summary").clone(),
+                )
+                .put("changed_node_count", field("changed_node_count"))
+                .put("impacted_node_count", field("impacted_node_count"))
+                .put("impacted_file_count", field("impacted_file_count"))
+                .put(
+                    "test_gap_count",
+                    analysis.get("test_gaps").as_array().map_or(0, Vec::len),
+                )
+                .put(
+                    "test_gap_evidence",
+                    analysis.get("test_gap_evidence").clone(),
+                )
+                .put("test_gap_ranking", field("test_gap_ranking"))
+                .put("signal_quality", field("signal_quality"))
+                .put("recommended_tests", first("recommended_tests", 5))
+                .put("affected_flow_rankings", first("affected_flow_rankings", 5))
+                .put(
+                    "documentation_update_candidates",
+                    first("documentation_update_candidates", 5),
+                )
+                .put("stability_contracts", first("stability_contracts", 5))
+                .put("guidance", first("guidance", 3))
+                .put(
+                    "architecture_delta",
+                    json!({
+                        "mode": delta["mode"],
+                        "changed_scopes": delta["changed_scopes"],
+                        "counts": delta["counts"],
+                        "baseline_comparison": baseline,
+                    }),
+                )
+                .put("review_priorities", priorities)
+                .put("next_drill_downs", field("next_drill_downs"))
+                .put("answerability", self.answerability.full())
+                .put("missingness", json!(self.answerability.missingness()))
+        } else {
+            let mut out = Ordered::default()
+                .put("status", "ok")
+                .put("changed_files", json!(changed_files))
+                .put("change_file_sources", sources);
+            for (key, value) in &analysis.fields {
+                out = out.put(key, value.clone());
+            }
+            out.put("analysis_summary", summary)
+                .put("answerability", self.answerability.full())
+                .put("missingness", json!(self.answerability.missingness()))
+                .apply_output_budget(
+                    CHANGES_BUDGET,
+                    &[
+                        "analysis_summary.recommended_tests",
+                        "analysis_summary.affected_flow_rankings",
+                        "analysis_summary.documentation_update_candidates",
+                        "analysis_summary.stability_contracts",
+                        "analysis_summary.guidance",
+                        "review_priorities",
+                        "affected_flows",
+                        "test_gaps",
+                        "changed_functions",
+                    ],
+                )
         };
+        // The hints read the guidance as the result holds it after the trim
+        // (`standard`), or the summary's whole list (`minimal`).
+        let value = out.value();
+        let guidance_list = match value.get("analysis_summary") {
+            Some(trimmed) => trimmed["guidance"].clone(),
+            None => full_guidance,
+        };
+        let mut hints =
+            guidance_actions_to_hints(guidance_list.as_array().map(Vec::as_slice).unwrap_or(&[]));
+        if hints["next_steps"].as_array().is_none_or(Vec::is_empty) {
+            hints = self.hints("detect_changes", &value);
+        }
+        Some(out.put("_hints", hints))
+    }
+
+    /// `get_affected_flows_func`.
+    fn affected_flows(&self, request: &Request) -> Option<Ordered> {
+        let (changed_files, sources) = self.changed_files(request)?;
         if changed_files.is_empty() {
             return Some(
                 Ordered::default()
@@ -206,22 +382,17 @@ impl Review<'_, '_> {
                 ),
             )
             .put("changed_files", json!(changed_files))
-            .put("change_file_sources", sources.unwrap_or(Value::Null))
+            .put("change_file_sources", sources)
             .put("affected_flows", Value::Array(flows))
             .put("total", total)
             .put("answerability", self.answerability.full())
             .put("missingness", json!(self.answerability.missingness()));
-        let hints = generate_hints(
-            "get_affected_flows",
-            &out.value(),
-            self.session,
-            self.exposed,
-        );
+        let hints = self.hints("get_affected_flows", &out.value());
         Some(out.put("_hints", hints))
     }
 
     /// `get_impact_radius` (the tool, `dagayn.tools.query`).
-    fn impact(&mut self, request: &Request) -> Option<Ordered> {
+    fn impact(&self, request: &Request) -> Option<Ordered> {
         let changed_files = match &request.changed_files {
             Some(files) => files.clone(),
             None => {
@@ -474,4 +645,78 @@ fn sources_value(sources: ChangeSources) -> Value {
         "unstaged": sources.unstaged,
         "untracked": sources.untracked,
     })
+}
+
+/// `guidance_actions_to_hints(guidance)`: the first three actions as next
+/// steps, and the medium or high missingness codes met on the way.
+fn guidance_actions_to_hints(guidance: &[Value]) -> Value {
+    let mut next_steps = Vec::new();
+    let mut warnings = Vec::new();
+    for item in guidance {
+        let (tool, suggestion) = match item.get("action") {
+            Some(Value::Object(action)) => {
+                let text = |v: Option<&Value>| match v {
+                    Some(value) if !value.is_null() && value != "" => Some(match value {
+                        Value::String(s) => s.clone(),
+                        other => other.to_string(),
+                    }),
+                    _ => None,
+                };
+                let tool = text(action.get("tool")).unwrap_or_else(|| "manual".to_string());
+                let suggestion = text(action.get("suggestion"))
+                    .or_else(|| text(action.get("command")))
+                    .unwrap_or_else(|| tool.clone());
+                (tool, suggestion)
+            }
+            action => {
+                let text = match action {
+                    Some(Value::String(s)) => s.clone(),
+                    None | Some(Value::Null) => String::new(),
+                    Some(other) => other.to_string(),
+                };
+                let head = text.split(" -- ").next().unwrap_or("");
+                let tool = if head.is_empty() {
+                    "manual".to_string()
+                } else {
+                    head.split(' ')
+                        .next()
+                        .unwrap_or("")
+                        .split('(')
+                        .next()
+                        .unwrap_or("")
+                        .to_string()
+                };
+                (tool, text)
+            }
+        };
+        if suggestion.is_empty() {
+            continue;
+        }
+        next_steps.push(json!({"tool": tool, "suggestion": suggestion}));
+        let missing = match item.get("missingness") {
+            Some(Value::Object(one)) => vec![Value::Object(one.clone())],
+            Some(Value::Array(many)) => many.clone(),
+            _ => Vec::new(),
+        };
+        for entry in missing {
+            let severity = entry
+                .get("severity")
+                .and_then(Value::as_str)
+                .unwrap_or("info");
+            if matches!(severity, "medium" | "high")
+                && let Some(code) = entry
+                    .get("reason_code")
+                    .filter(|c| !c.is_null() && *c != "")
+            {
+                warnings.push(match code {
+                    Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                });
+            }
+        }
+        if next_steps.len() >= 3 {
+            break;
+        }
+    }
+    json!({"next_steps": next_steps, "related": [], "warnings": warnings})
 }
