@@ -691,3 +691,38 @@ def test_rename_previewed_in_rust_is_applied_by_python(git_repo: Path) -> None:
     assert status == 0
     assert REFACTOR_TRACE in stderr
     assert "def assist():" in (git_repo / "app.py").read_text()
+
+
+ENSURE_TRACE = "answered ensure_graph_tool in Rust"
+
+
+@pytest.mark.parametrize("worktree", ["clean", "indexed_edit"])
+def test_ensure_graph_answers_a_ready_graph_in_rust_as_python_does(
+    git_repo: Path, worktree: str
+) -> None:
+    if worktree == "indexed_edit":
+        (git_repo / "app.py").write_text("def main():\n    return 4\n")
+        subprocess.run(
+            [DAGAYN, "update", "--repo", git_repo], env=_env(), check=True, capture_output=True
+        )
+    calls: list[tuple[str, dict[str, Any]]] = [
+        ("ensure_graph_tool", {}),
+        ("ensure_graph_tool", {"force": False, "repo_root": str(git_repo)}),
+    ]
+    rust, python, stderr = _session_both(git_repo, calls)
+    assert stderr.count(ENSURE_TRACE) == len(calls)
+    assert BOOT_TRACE not in stderr
+    for side in (rust, python):
+        for result in side:
+            result["structuredContent"]["elapsed_seconds"] = 0
+    assert [r["structuredContent"] for r in rust] == [p["structuredContent"] for p in python]
+    expected = "commit_synced" if worktree == "clean" else "worktree_ahead"
+    assert rust[0]["structuredContent"]["sync"]["state"] == expected
+    assert rust[0]["structuredContent"]["action"] == "noop"
+
+
+def test_ensure_graph_leaves_a_refresh_to_python(git_repo: Path) -> None:
+    (git_repo / "app.py").write_text("def main():\n    return 5\n")
+    rust, _python, stderr = _call_both(git_repo, "ensure_graph_tool", {})
+    assert ENSURE_TRACE not in stderr
+    assert rust["structuredContent"]["phases"]["structure"] == "done"

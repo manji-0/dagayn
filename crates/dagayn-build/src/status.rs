@@ -35,6 +35,18 @@ pub struct SyncAssessment {
     pub worktree_dirty: bool,
     /// HEAD of the working copy, when git is the VCS and it has one.
     pub current_head_sha: Option<String>,
+    /// The commit the graph records (`git_head_sha`).
+    pub git_head_sha: Option<String>,
+    /// The checked-out branch, when git is the VCS and HEAD is on one.
+    pub current_branch: Option<String>,
+    pub last_updated: Option<String>,
+    /// Dirty files already in the graph byte for byte, for `worktree_ahead`.
+    pub indexed_files: Vec<String>,
+    /// False when the diff tier gave up on hashing (too many candidates) or
+    /// failed; the state is then git's dirty-only answer.
+    pub content_verified: bool,
+    /// Files left unhashed when the cap bit.
+    pub unverified_file_count: usize,
 }
 
 /// The lines `dagayn status` prints.
@@ -377,11 +389,13 @@ pub fn assess_graph_sync(
         .or(store.get_metadata("last_updated")?)
         .filter(|v| !v.is_empty());
     let git = detect_vcs(repo_root) == Vcs::Git;
-    let (current_sha, dirty_files) = if git {
-        (git_branch_info(repo_root).1, worktree_changes(repo_root))
+    let (current_branch, current_sha, dirty_files) = if git {
+        let (branch, sha) = git_branch_info(repo_root);
+        (branch, sha, worktree_changes(repo_root))
     } else {
-        (String::new(), Vec::new())
+        (String::new(), String::new(), Vec::new())
     };
+    let current_branch = (!current_branch.is_empty()).then_some(current_branch);
     let head = (!current_sha.is_empty()).then(|| current_sha.clone());
     let graph_empty = stats.total_nodes == 0 || stats.files_count == 0;
     let commit_drift =
@@ -396,54 +410,65 @@ pub fn assess_graph_sync(
             .collect()
     };
 
+    let assessment = |state, worktree_dirty| SyncAssessment {
+        state,
+        extractor_drift: extractor_drift.clone(),
+        pending_files: Vec::new(),
+        worktree_dirty,
+        current_head_sha: head.clone(),
+        git_head_sha: stored_sha.clone(),
+        current_branch: current_branch.clone(),
+        last_updated: last_updated.clone(),
+        indexed_files: Vec::new(),
+        content_verified: true,
+        unverified_file_count: 0,
+    };
     if graph_empty {
-        return Ok(SyncAssessment {
-            state: "unbuilt",
-            extractor_drift,
-            pending_files: Vec::new(),
-            // Python clears the dirty files of an unbuilt graph.
-            worktree_dirty: false,
-            current_head_sha: head,
-        });
+        // Python clears the dirty files of an unbuilt graph.
+        return Ok(assessment("unbuilt", false));
     }
     if commit_drift || undated || !extractor_drift.is_empty() {
-        return Ok(SyncAssessment {
-            state: "commit_drift",
-            extractor_drift,
-            pending_files: Vec::new(),
-            worktree_dirty: !dirty_files.is_empty(),
-            current_head_sha: head,
-        });
+        return Ok(assessment("commit_drift", !dirty_files.is_empty()));
     }
     let seeded = store
         .get_metadata(SEEDED_NEEDS_VERIFY_KEY)?
         .is_some_and(|value| value == "1");
     let cap = (!seeded).then_some(MAX_HASH_CANDIDATES);
-    let (state, pending, verified) = match classify_diff_tier(store, repo_root, &dirty_files, cap) {
-        Ok(result) => result,
-        Err(_) => ("worktree_behind", Vec::new(), false),
-    };
-    if verified {
+    let tier = classify_diff_tier(store, repo_root, &dirty_files, cap).unwrap_or(DiffTier {
+        state: "worktree_behind",
+        files: Vec::new(),
+        unverified: Some(0),
+    });
+    if tier.unverified.is_none() {
         // Verified once; the stored mtimes now describe this worktree. Best
         // effort, as in Python: a stale flag only costs a re-verify.
         let _ = store
             .set_metadata(SEEDED_NEEDS_VERIFY_KEY, "0")
             .and_then(|()| store.commit());
     }
-    Ok(SyncAssessment {
-        state,
-        extractor_drift,
-        pending_files: if state == "worktree_behind" {
-            pending
-        } else {
-            Vec::new()
-        },
-        worktree_dirty: !dirty_files.is_empty(),
-        current_head_sha: head,
-    })
+    let mut sync = assessment(tier.state, !dirty_files.is_empty());
+    match tier.state {
+        "worktree_behind" => sync.pending_files = tier.files,
+        "worktree_ahead" => sync.indexed_files = tier.files,
+        _ => {}
+    }
+    if let Some(count) = tier.unverified {
+        sync.content_verified = false;
+        sync.unverified_file_count = count;
+    }
+    Ok(sync)
 }
 
-/// `_classify_diff_tier`: `(state, files behind, content verified)`.
+/// What `_classify_diff_tier` decided.
+struct DiffTier {
+    state: &'static str,
+    /// The files behind for `worktree_behind`, the dirty candidates otherwise.
+    files: Vec<String>,
+    /// `Some(files left unhashed)` when the content was not verified.
+    unverified: Option<usize>,
+}
+
+/// `_classify_diff_tier`.
 ///
 /// Every indexed file is stat'ed, not just the files git calls dirty (an edit
 /// indexed by a hook and then discarded leaves git clean); bytes are hashed
@@ -453,7 +478,7 @@ fn classify_diff_tier(
     root: &Path,
     dirty_files: &[String],
     max_hash_candidates: Option<usize>,
-) -> Result<(&'static str, Vec<String>, bool), GraphError> {
+) -> Result<DiffTier, GraphError> {
     let dirty_state = if dirty_files.is_empty() {
         "commit_synced"
     } else {
@@ -499,7 +524,11 @@ fn classify_diff_tier(
     candidates.sort();
 
     if max_hash_candidates.is_some_and(|cap| to_hash.len() > cap) {
-        return Ok((dirty_state, candidates, false));
+        return Ok(DiffTier {
+            state: dirty_state,
+            files: candidates,
+            unverified: Some(to_hash.len()),
+        });
     }
     let mut pending = stale;
     for path in to_hash {
@@ -512,11 +541,19 @@ fn classify_diff_tier(
             pending.insert(path);
         }
     }
-    if pending.is_empty() {
-        Ok((dirty_state, candidates, true))
+    Ok(if pending.is_empty() {
+        DiffTier {
+            state: dirty_state,
+            files: candidates,
+            unverified: None,
+        }
     } else {
-        Ok(("worktree_behind", pending.into_iter().collect(), true))
-    }
+        DiffTier {
+            state: "worktree_behind",
+            files: pending.into_iter().collect(),
+            unverified: None,
+        }
+    })
 }
 
 #[cfg(test)]

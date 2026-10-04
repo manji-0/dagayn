@@ -16,6 +16,7 @@ mod context;
 mod coverage;
 mod dead_code;
 mod docs;
+mod ensure;
 mod flow;
 pub mod hints;
 pub mod pending;
@@ -79,6 +80,7 @@ pub fn call(context: &Context, name: &str, arguments: &Value) -> Option<Payload>
         "flow_tool" => flow::flow(context, arguments),
         "architecture_analysis_tool" => arch_tool::architecture(context, arguments),
         "refactor_tool" => refactor::refactor(context, arguments),
+        "ensure_graph_tool" => ensure::ensure_graph(context, arguments),
         _ => None,
     }
 }

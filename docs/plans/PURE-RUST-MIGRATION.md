@@ -593,6 +593,19 @@ with Python's `apply_refactor_tool` in the same session, differ only in the
 random `refactor_id` and timestamp. Non-ASCII names stay Python's, as its
 `\w` and Rust's cover different characters.
 
+Twentieth slice (done): `ensure_graph_tool` when the prepare has nothing to
+do, the call every session makes first. A git checkout that is not a linked
+worktree, whose graph is `commit_synced` or `worktree_ahead` with its content
+verified, with no `force`, no hook skip-when-busy contract, and nothing to
+embed, is answered in Rust with the noop reply, the sealed `sync` assessment
+(`assess_graph_sync` now carries `indexed_files`, `content_verified`,
+`unverified_file_count`, the stored SHA, branch, and `last_updated`), and the
+full `graph_health`. Building, updating, seeding, and embedding stay
+Python's, so a graph that needs any of them still boots the Python server.
+Here (an indexed dirty tree with complete embeddings) and on a fresh clean
+checkout, synced and ahead, every call matches fastmcp's but for
+`elapsed_seconds`.
+
 Next: the maintenance tools on the full surface (`apply_refactor_tool` and
 the rest), then the Python server's remaining role.
 
