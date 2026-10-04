@@ -90,6 +90,14 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- Semantic search reported a different `embedding_health` on the first call
+  in a server process than on later ones when the embedding provider leaves
+  the dimension unpinned (as the `dagayn serve --local-embedding` sidecar
+  does): the first call named the provider without `#dim=` and added
+  `dimension_source: "stored_vectors"`, later calls on the cached store
+  named it with the stored dimension. The stored dimension is now adopted
+  before the health record is built, so every call reports the latter.
+  `dimension_source` still marks a partition stored without `#dim=`.
 - `review_tool` `mode="changes"` lists each changed node's edges in the same
   order from one server process to the next; past 225 endpoints they used
   to move around.

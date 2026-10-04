@@ -2843,6 +2843,71 @@ class TestVectorDimensionIdentity:
         assert health["query_dimension"] == 8
         assert health["stored_dimension"] == 4
 
+    def test_embedding_health_does_not_depend_on_earlier_calls(self, tmp_path, monkeypatch):
+        """An unpinned provider learns its dimension from the stored key on the
+        first lookup; the health record must already show the seeded identity
+        on that first call, as it does on every later call to the cached store."""
+        from dagayn.embeddings_providers import OpenAIEmbeddingProvider
+        from dagayn.graph import GraphStore
+        from dagayn.parser import NodeInfo
+        from dagayn.search import _embedding_search_with_health
+
+        db = tmp_path / "graph.db"
+        store = GraphStore(db)
+        store.upsert_node(
+            NodeInfo(
+                kind="Function",
+                name="a",
+                file_path="file.py",
+                line_start=1,
+                line_end=1,
+                language="python",
+            )
+        )
+        store_conn(store).execute(
+            """
+            CREATE TABLE IF NOT EXISTS embeddings (
+                qualified_name TEXT NOT NULL,
+                vector BLOB NOT NULL,
+                text_hash TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                PRIMARY KEY (qualified_name, provider)
+            )
+            """
+        )
+        store_conn(store).execute(
+            "INSERT INTO embeddings (qualified_name, vector, text_hash, provider) "
+            "VALUES (?, ?, ?, ?)",
+            (
+                "file.py::a",
+                _encode_vector([1.0, 0.0, 0.0, 0.0]),
+                "hash",
+                "openai:m@http://127.0.0.1:9/v1#dim=4#text=material",
+            ),
+        )
+        store_conn(store).commit()
+
+        provider = OpenAIEmbeddingProvider(
+            api_key="dagayn-local", base_url="http://127.0.0.1:9/v1", model="m"
+        )
+        monkeypatch.setattr(provider, "_call_api", lambda texts: [[1.0, 0.0, 0.0, 0.0]])
+        monkeypatch.setenv("DAGAYN_EMBEDDING_SEARCH_BACKEND", "python")
+        with patch("dagayn.embeddings_store.get_provider", return_value=provider):
+            first = _embedding_search_with_health(
+                store, "alpha", limit=5, provider="openai", model="m", text_mode="material"
+            )
+            second = _embedding_search_with_health(
+                store, "alpha", limit=5, provider="openai", model="m", text_mode="material"
+            )
+            store.close()
+
+        assert first == second
+        health = first[1]
+        assert health["status"] == "available"
+        assert health["resolved_provider"] == "openai:m@http://127.0.0.1:9/v1#dim=4"
+        assert health["query_dimension"] == 4
+        assert "dimension_source" not in health
+
     def test_search_backends_agree_on_mixed_dimensions(self, tmp_path, monkeypatch):
         import dagayn.embeddings_store as emb_store
 

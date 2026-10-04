@@ -681,6 +681,12 @@ def _embedding_search_with_health(
             health["status"] = "provider_unavailable"
             return [], health
 
+        # Adopt the stored dimension before reading the identity. The lookups
+        # below seed it anyway, so without this the first call in a process
+        # reported the dimension-less name (and a stored-vector dimension
+        # fallback) while every later call on the cached store reported the
+        # seeded one.
+        emb_store._seed_provider_dimension_from_store()
         provider_name = emb_store.provider.name
         provider_key = emb_store.provider_key or provider_name
         provider_dim = emb_store.provider.dimension
