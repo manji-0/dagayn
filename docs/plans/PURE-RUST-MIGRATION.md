@@ -654,7 +654,13 @@ path), on a partially embedded copy, and with the sidecar down, every call
 matches fastmcp's; queries whose intent selects the narrative partition,
 which no graph here stores, fall back to Python's text-mode fallback.
 
-Next: `traverse_graph_tool` through the same arm, then the tools that write (`generate_wiki_tool`,
+Twenty-fourth slice (done): `traverse_graph_tool` takes its start node from
+`hybrid_search(limit=1)` with the same embedding arm and gate, so it too
+stays in Rust on a graph with vectors; the gate and the provider-less
+health moved into `search::embedding_request` / `embedding_arm_for`, which
+both tools share.
+
+Next: the tools that write (`generate_wiki_tool`,
 `build_or_update_graph_tool`, `run_postprocess_tool`, `embed_graph_tool`) and
 `cross_repo_search_tool`, then the Python server's remaining role.
 

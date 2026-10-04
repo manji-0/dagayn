@@ -1207,10 +1207,23 @@ fn search_ranks_stored_vectors_against_the_sidecar_query() {
     assert!(codes.contains(&"partial_embeddings"), "{codes:?}");
     assert!(!codes.contains(&"missing_embeddings"), "{codes:?}");
 
+    // Traversal starts from the same hybrid top hit.
+    let walk = answer(
+        &context,
+        "traverse_graph_tool",
+        json!({"query": "something that assists", "depth": 1}),
+    );
+    assert_eq!(walk["start_node"], "app.py::helper", "{walk}");
+
     // A provider named in the call is Python's.
     assert!(declines(
         &context,
         "semantic_search_nodes_tool",
         json!({"query": "x", "provider": "openai"})
+    ));
+    assert!(declines(
+        &context,
+        "traverse_graph_tool",
+        json!({"query": "x", "model": "m"})
     ));
 }

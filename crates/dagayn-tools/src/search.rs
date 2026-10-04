@@ -617,24 +617,7 @@ pub(crate) fn semantic_search(
         Some(Value::String(level)) if level == "minimal" => true,
         Some(_) => return None,
     };
-    // A provider or model named in the call is Python's; a server default is
-    // answered only for the `--local-embedding` sidecar's `openai`.
-    let named = |key: &str| -> Option<bool> {
-        Some(args.optional_string(key)?.is_some_and(|v| !v.is_empty()))
-    };
-    if named("model")? || named("provider")? {
-        return None;
-    }
-    let request = match (
-        context.embedding_provider.as_deref(),
-        context.embedding_model.as_deref(),
-    ) {
-        (None, None) => crate::embedding_arm::Request::Persisted,
-        (Some(provider), model) if provider.trim().eq_ignore_ascii_case("openai") => {
-            crate::embedding_arm::Request::Openai { provider, model }
-        }
-        _ => return None,
-    };
+    let request = embedding_request(context, &args)?;
     let root = explicit_repo(context, args.optional_string("repo_root")?)?;
     if !matches!(detect_vcs(&root), Vcs::Git | Vcs::None) {
         return None;
@@ -644,40 +627,8 @@ pub(crate) fn semantic_search(
 
     let stats = store.get_stats().ok()?;
     let answerability = Answerability::recorded(store, &stats)?;
-    let text_mode = embedding_text_mode(query);
-    let counts = store.embedding_provider_counts().ok()?.unwrap_or_default();
-    let (emb, health) = if counts.is_empty() {
-        // With no vectors stored, only the provider-less answer is here.
-        if !matches!(request, crate::embedding_arm::Request::Persisted) || provider_in_environment()
-        {
-            return None;
-        }
-        (
-            Vec::new(),
-            json!({
-                "status": "provider_unavailable",
-                "requested_provider": null,
-                "requested_model": null,
-                "requested_text_mode": text_mode,
-                "resolved_provider": null,
-                "resolved_provider_key": null,
-                "auto_resolved_provider": null,
-                "matching_vector_count": 0,
-                "provider_counts": {},
-            }),
-        )
-    } else {
-        let fetch = limit * if kind.is_some() { 48 } else { 3 };
-        crate::embedding_arm::search(
-            store,
-            &graph.db_path,
-            query,
-            fetch,
-            text_mode,
-            &counts,
-            &request,
-        )?
-    };
+    let fetch = limit * if kind.is_some() { 48 } else { 3 };
+    let (emb, health) = embedding_arm_for(store, &graph.db_path, query, fetch, &request)?;
     let hits = fts_search(store, query, kind, limit, &emb)?;
 
     // `embedding_health_available` and `_partial_coverage_missingness`.
@@ -855,38 +806,77 @@ pub(crate) fn semantic_search(
     )
 }
 
-/// Whether no provider or model is in play for a search with these
-/// arguments (`model`, `provider`), the server defaults, and the
-/// environment; any of them embeds the query, which is Python's. `None` for
-/// arguments fastmcp would coerce.
-pub(crate) fn keyword_only(context: &Context, args: &Args) -> Option<bool> {
+/// Which embedding provider a search with these arguments would use: a
+/// provider or model named in the call is Python's, and of the server
+/// defaults only the `--local-embedding` sidecar's `openai` is answered.
+pub(crate) fn embedding_request<'a>(
+    context: &'a Context,
+    args: &Args,
+) -> Option<crate::embedding_arm::Request<'a>> {
     let named = |key: &str| -> Option<bool> {
         Some(args.optional_string(key)?.is_some_and(|v| !v.is_empty()))
     };
-    Some(
-        !(named("model")?
-            || named("provider")?
-            || context.embedding_provider.is_some()
-            || context.embedding_model.is_some()
-            || provider_in_environment()),
-    )
+    if named("model")? || named("provider")? {
+        return None;
+    }
+    match (
+        context.embedding_provider.as_deref(),
+        context.embedding_model.as_deref(),
+    ) {
+        (None, None) => Some(crate::embedding_arm::Request::Persisted),
+        (Some(provider), model) if provider.trim().eq_ignore_ascii_case("openai") => {
+            Some(crate::embedding_arm::Request::Openai { provider, model })
+        }
+        _ => None,
+    }
 }
 
-/// Whether the graph stores no vectors: stored ones can name a provider that
-/// `provider_from_persisted_name` revives without any configuration.
-pub(crate) fn stores_no_vectors(store: &GraphStore) -> Option<bool> {
-    Some(
-        store
-            .embedding_provider_counts()
-            .ok()?
-            .is_none_or(|counts| counts.is_empty()),
-    )
+/// `_embedding_search_with_health` for `hybrid_search(query)` fetching
+/// `fetch` vectors: the hits and the health record; `None` for Python.
+pub(crate) fn embedding_arm_for(
+    store: &GraphStore,
+    db_path: &std::path::Path,
+    query: &str,
+    fetch: i64,
+    request: &crate::embedding_arm::Request,
+) -> Option<(Vec<(i64, f64)>, Value)> {
+    let text_mode = embedding_text_mode(query);
+    let counts = store.embedding_provider_counts().ok()?.unwrap_or_default();
+    if !counts.is_empty() {
+        return crate::embedding_arm::search(
+            store, db_path, query, fetch, text_mode, &counts, request,
+        );
+    }
+    // With no vectors stored, only the provider-less answer is here.
+    if !matches!(request, crate::embedding_arm::Request::Persisted) || provider_in_environment() {
+        return None;
+    }
+    Some((
+        Vec::new(),
+        json!({
+            "status": "provider_unavailable",
+            "requested_provider": null,
+            "requested_model": null,
+            "requested_text_mode": text_mode,
+            "resolved_provider": null,
+            "resolved_provider_key": null,
+            "auto_resolved_provider": null,
+            "matching_vector_count": 0,
+            "provider_counts": {},
+        }),
+    ))
 }
 
-/// `hybrid_search(store, query, limit=1)["results"][0]["qualified_name"]`
-/// with an empty embedding arm; `Some(None)` when nothing matched.
-pub(crate) fn top_qualified_name(store: &GraphStore, query: &str) -> Option<Option<String>> {
-    let hits = fts_search(store, query, None, 1, &[])?;
+/// `hybrid_search(store, query, limit=1)["results"][0]["qualified_name"]`;
+/// `Some(None)` when nothing matched, `None` for Python.
+pub(crate) fn top_qualified_name(
+    store: &GraphStore,
+    db_path: &std::path::Path,
+    query: &str,
+    request: &crate::embedding_arm::Request,
+) -> Option<Option<String>> {
+    let (emb, _) = embedding_arm_for(store, db_path, query, 3, request)?;
+    let hits = fts_search(store, query, None, 1, &emb)?;
     Some(hits.results.first().and_then(|hit| {
         hit.get("qualified_name")
             .and_then(Value::as_str)

@@ -1,7 +1,8 @@
-//! `traverse_graph_tool` (`dagayn.tools.query.traverse_graph_func`) when the
-//! start node comes from the keyword arm alone (see `search`): BFS one
-//! batched layer at a time, or DFS hydrating only the nodes it visits, under
-//! an approximate token budget.
+//! `traverse_graph_tool` (`dagayn.tools.query.traverse_graph_func`): the
+//! start node is `hybrid_search`'s top hit, with the embedding arm wherever
+//! `semantic_search_nodes_tool` answers it; then BFS one batched layer at a
+//! time, or DFS hydrating only the nodes it visits, under an approximate
+//! token budget.
 
 use std::collections::{HashMap, HashSet};
 
@@ -9,7 +10,7 @@ use dagayn_build::{Vcs, detect_vcs};
 use dagayn_graph::{GraphNode, GraphStore};
 use serde_json::{Map, Value, json};
 
-use crate::search::{keyword_only, stores_no_vectors, top_qualified_name};
+use crate::search::{embedding_request, top_qualified_name};
 use crate::{Args, Context, Ordered, Payload, explicit_repo, open_graph, suggestions};
 
 const NOT_FOUND_SUGGESTIONS: [&str; 2] = [
@@ -241,21 +242,16 @@ pub(crate) fn traverse_graph(context: &Context, arguments: &Map<String, Value>) 
     };
     let depth = args.integer("depth", 3)?;
     let budget = args.integer("token_budget", 2000)?;
-    if !keyword_only(context, &args)? {
-        return None;
-    }
+    let request = embedding_request(context, &args)?;
     let root = explicit_repo(context, args.optional_string("repo_root")?)?;
     if !matches!(detect_vcs(&root), Vcs::Git | Vcs::None) {
         return None;
     }
     let graph = open_graph(&root)?;
     let store = &graph.store;
-    if !stores_no_vectors(store)? {
-        return None;
-    }
     let depth = depth.clamp(1, 6);
 
-    let Some(start) = top_qualified_name(store, query)? else {
+    let Some(start) = top_qualified_name(store, &graph.db_path, query, &request)? else {
         let (hints, kept) = suggestions(context, &NOT_FOUND_SUGGESTIONS);
         return Some(
             Ordered::default()

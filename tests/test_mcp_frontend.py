@@ -825,9 +825,6 @@ def test_maintenance_reads_answer_in_rust_as_python_does(
     assert rust[8]["structuredContent"]["content"] == "# App\nmain\n"
 
 
-SEARCH_RUST_TRACE = "answered semantic_search_nodes_tool in Rust"
-
-
 def _fake_embedding_server(vector: list[float]) -> tuple[Any, int]:
     """An OpenAI-compatible ``/embeddings`` endpoint that embeds every query as *vector*."""
     import http.server
@@ -879,14 +876,16 @@ def test_search_with_stored_vectors_answers_in_rust_as_python_does(git_repo: Pat
             (search, {"query": "helper"}),
             (search, {"query": "main", "detail_level": "minimal"}),
             (search, {"query": "helper", "kind": "Function", "limit": 1}),
+            ("traverse_graph_tool", {"query": "something that assists", "depth": 1}),
         ]
         rust, python, stderr = _session_both(git_repo, calls)
     finally:
         server.shutdown()
-    assert stderr.count(SEARCH_RUST_TRACE) == len(calls)
+    assert stderr.count(" in Rust") == len(calls)
     assert BOOT_TRACE not in stderr
     assert [r["structuredContent"] for r in rust] == [p["structuredContent"] for p in python]
     first = rust[0]["structuredContent"]
     assert first["embedding_health"]["status"] == "degraded"
     assert first["results"][0]["qualified_name"] == "app.py::helper"
     assert rust[1]["structuredContent"]["search_mode"] == "hybrid"
+    assert rust[4]["structuredContent"]["start_node"] == "app.py::helper"
