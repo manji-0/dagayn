@@ -538,8 +538,20 @@ guidance came out empty got no next steps from Rust. 30 calls on this
 repository's graph, 30 on a larger copy (bridge and truncated flows), and
 24 on a graph whose stored flow went stale match fastmcp's.
 
-Next: `architecture_analysis_tool` (its ADP, SDP, SAP, and stability pieces
-are already in `review_summary`), then `refactor_tool`.
+Fifteenth slice (done): `architecture_analysis_tool`'s metric modes,
+`adp_violations`, `sdp_metrics`, `sdp_violations`, `sap_metrics`, and
+`sap_violations`, at either granularity, any artifact scope and dependency
+profile, with their thresholds, `unit_filter`, and `top_n` slicing as
+Python slices. The scope graph moved from `review_summary` to
+`architecture` and takes a `View` (granularity, artifact scope, profile).
+52 calls on this repository's graph and 52 on a larger copy match
+fastmcp's. An ADP enumeration Python truncates at 5000 cycles stays
+Python's; its truncated list depends on networkx's visiting order, which
+follows string hashing, so it differs between Python processes too.
+
+Next: the rest of `architecture_analysis_tool` (hubs, bridges, knowledge
+gaps, surprising connections, communities, overview), then
+`refactor_tool`.
 
 ### 5.4 Remaining Python surfaces
 

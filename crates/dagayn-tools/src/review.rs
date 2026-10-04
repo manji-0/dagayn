@@ -136,12 +136,15 @@ pub(crate) fn review(context: &Context, arguments: &Map<String, Value>) -> Optio
     };
     Some(crate::seal_dispatch(
         out,
-        mode,
-        subtool,
-        runtime,
-        "review",
+        crate::Dispatch {
+            mode,
+            subtool,
+            hints_tool: "review",
+            runtime,
+            trailing: Vec::new(),
+            repo: graph.repo_context(),
+        },
         &exposed,
-        graph.repo_context(),
     ))
 }
 

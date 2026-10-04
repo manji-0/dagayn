@@ -116,12 +116,15 @@ pub(crate) fn flow(context: &Context, arguments: &Map<String, Value>) -> Option<
     };
     Some(seal_dispatch(
         out,
-        &mode,
-        subtool,
-        runtime,
-        "flow",
+        crate::Dispatch {
+            mode: &mode,
+            subtool,
+            hints_tool: "flow",
+            runtime,
+            trailing: Vec::new(),
+            repo: graph.repo_context(),
+        },
         &exposed,
-        graph.repo_context(),
     ))
 }
 

@@ -7,6 +7,8 @@
 //! front end then relays the call, so every error stays Python's.
 
 mod answerability;
+mod arch_tool;
+mod architecture;
 mod changes;
 mod context;
 mod coverage;
@@ -69,6 +71,7 @@ pub fn call(context: &Context, name: &str, arguments: &Value) -> Option<Payload>
         "semantic_search_nodes_tool" => search::semantic_search(context, arguments),
         "review_tool" => review::review(context, arguments),
         "flow_tool" => flow::flow(context, arguments),
+        "architecture_analysis_tool" => arch_tool::architecture(context, arguments),
         _ => None,
     }
 }
@@ -77,20 +80,40 @@ pub fn call(context: &Context, name: &str, arguments: &Value) -> Option<Payload>
 /// whose subtool answered `out`: `mode`, `called_subtool`, and `_runtime`
 /// added, the dispatcher's hints built (and recorded) even where the
 /// subtool's stay, the envelope's fields first; then the server's `_repo`.
+/// `trailing` is what `attach_answerability` appends after `_runtime` for a
+/// subtool that reported no answerability of its own.
+pub(crate) struct Dispatch<'a> {
+    pub mode: &'a str,
+    pub subtool: &'a str,
+    /// The `generate_hints` tool name the dispatcher reports.
+    pub hints_tool: &'a str,
+    pub runtime: Value,
+    pub trailing: Vec<(&'a str, Value)>,
+    /// `_repo`.
+    pub repo: Value,
+}
+
 pub(crate) fn seal_dispatch(
     out: Ordered,
-    mode: &str,
-    subtool: &str,
-    runtime: Value,
-    hints_tool: &str,
+    dispatch: Dispatch,
     exposed: &dyn Fn(&str) -> bool,
-    repo: Value,
 ) -> Payload {
+    let Dispatch {
+        mode,
+        subtool,
+        hints_tool,
+        runtime,
+        trailing,
+        repo,
+    } = dispatch;
     let mut seen = out.value();
     if let Some(object) = seen.as_object_mut() {
         object.insert("mode".to_string(), json!(mode));
         object.insert("called_subtool".to_string(), json!(subtool));
         object.insert("_runtime".to_string(), runtime.clone());
+        for (key, value) in &trailing {
+            object.insert(key.to_string(), value.clone());
+        }
     }
     let dispatcher_hints = hints::generate_hints(hints_tool, &seen, &mut hints::session(), exposed);
     let has_hints = out.get("_hints").is_some();
@@ -106,6 +129,9 @@ pub(crate) fn seal_dispatch(
         }
     }
     sealed = sealed.put("_runtime", runtime);
+    for (key, value) in trailing {
+        sealed = sealed.put(key, value);
+    }
     if !has_hints {
         sealed = sealed.put("_hints", dispatcher_hints);
     }

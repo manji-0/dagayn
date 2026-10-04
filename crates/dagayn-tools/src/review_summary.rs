@@ -15,6 +15,10 @@ use dagayn_graph::{
 use serde_json::{Map, Value, json};
 
 use crate::answerability::round4;
+use crate::architecture::{
+    ScopeGraph, Snapshot, View, file_name, float_or, is_documentation_node, posix_parts,
+    sap_metrics, sap_violations, scope_key_for_file, str_of, truthy,
+};
 use crate::coverage::{ScanState, infer_tests_for_node, is_test_file_path};
 use crate::query::cross_artifact_role;
 
@@ -44,12 +48,6 @@ const LOW_SIGNAL_DOC_FILES: &[&str] = &[
     "GEMINI.md",
     "QODER.md",
 ];
-const STRICT_STATIC_KINDS: &[&str] = &["IMPORTS_FROM", "DEPENDS_ON", "INHERITS", "IMPLEMENTS"];
-const DOC_SUFFIXES: &[&str] = &[".md", ".markdown", ".mdown", ".mkdn"];
-const MAX_ADP_CYCLES: usize = 5000;
-const MAX_ADP_CYCLE_LENGTH: usize = 10;
-/// DFS steps after which ADP enumeration leaves the answer to Python.
-const MAX_ADP_STEPS: usize = 2_000_000;
 
 const STABLE_INSTABILITY_MAX: f64 = 0.35;
 const SHOULD_BE_STABLE_CA_MIN: i64 = 3;
@@ -57,69 +55,6 @@ const STABLE_TEST_DENSITY_TARGET: f64 = 0.8;
 const STABLE_DOC_DENSITY_TARGET: f64 = 0.5;
 const DEFAULT_TEST_DENSITY_TARGET: f64 = 0.5;
 const DEFAULT_DOC_DENSITY_TARGET: f64 = 0.25;
-
-/// Python truthiness of a JSON value.
-fn truthy(value: &Value) -> bool {
-    match value {
-        Value::Null => false,
-        Value::Bool(flag) => *flag,
-        Value::Number(number) => number.as_f64().is_some_and(|n| n != 0.0),
-        Value::String(text) => !text.is_empty(),
-        Value::Array(items) => !items.is_empty(),
-        Value::Object(map) => !map.is_empty(),
-    }
-}
-
-/// `float(value or default)`.
-fn float_or(value: &Value, default: f64) -> f64 {
-    if truthy(value) {
-        value.as_f64().unwrap_or(default)
-    } else {
-        default
-    }
-}
-
-fn str_of(value: &Value) -> &str {
-    value.as_str().unwrap_or("")
-}
-
-/// `PurePosixPath(path)`'s components (`.` and empty ones dropped).
-fn posix_parts(path: &str) -> (bool, Vec<&str>) {
-    let absolute = path.starts_with('/');
-    let parts = path
-        .split('/')
-        .filter(|part| !part.is_empty() && *part != ".")
-        .collect();
-    (absolute, parts)
-}
-
-/// `Path(name).suffix`.
-fn suffix(name: &str) -> &str {
-    match name.rfind('.') {
-        Some(index) if index > 0 && index < name.len() - 1 => &name[index..],
-        _ => "",
-    }
-}
-
-fn file_name(path: &str) -> &str {
-    posix_parts(path).1.last().copied().unwrap_or("")
-}
-
-/// `file_to_package`.
-fn file_to_package(file_path: &str) -> String {
-    let (absolute, parts) = posix_parts(file_path);
-    let parent = &parts[..parts.len().saturating_sub(1)];
-    match (absolute, parent.is_empty()) {
-        (true, _) => format!("/{}", parent.join("/")),
-        (false, true) => "<root>".to_string(),
-        (false, false) => parent.join("/"),
-    }
-}
-
-/// `scope_key_for_file` (package scope).
-fn scope_key_for_file(file_path: &str) -> Option<String> {
-    (!file_path.is_empty()).then(|| file_to_package(file_path))
-}
 
 fn scope_key_for_record(record: &Value) -> Option<String> {
     let file = match record.get("file_path") {
@@ -140,444 +75,6 @@ fn is_markdown_path(path: &str) -> bool {
 
 fn is_low_signal_doc_path(path: &str) -> bool {
     LOW_SIGNAL_DOC_FILES.contains(&file_name(&path.replace('\\', "/")))
-}
-
-/// `is_documentation_node`.
-fn is_documentation_node(node: &GraphNode) -> bool {
-    node.language.to_lowercase() == "markdown"
-        || DOC_SUFFIXES.contains(&suffix(file_name(&node.file_path)).to_lowercase().as_str())
-}
-
-/// The nodes and edges `build_graph_snapshot` reads once.
-pub(crate) struct Snapshot {
-    all_nodes: Vec<GraphNode>,
-    edges: Vec<GraphEdge>,
-}
-
-impl Snapshot {
-    pub(crate) fn read(store: &GraphStore) -> Option<Self> {
-        Some(Self {
-            all_nodes: store.get_all_nodes_filtered(false).ok()?,
-            edges: store.get_all_edges().ok()?,
-        })
-    }
-
-    /// `build_node_scope_maps(store, "package", "code")`.
-    fn scope_maps(&self) -> (HashMap<&str, String>, HashMap<&str, String>) {
-        let mut qualified: HashMap<&str, String> = HashMap::new();
-        let mut names: HashMap<&str, HashSet<String>> = HashMap::new();
-        for node in &self.all_nodes {
-            if is_documentation_node(node) || node.file_path.is_empty() {
-                continue;
-            }
-            let scope = file_to_package(&node.file_path);
-            qualified.insert(&node.qualified_name, scope.clone());
-            names.entry(&node.name).or_default().insert(scope);
-        }
-        let unique = names
-            .into_iter()
-            .filter(|(_, scopes)| scopes.len() == 1)
-            .filter_map(|(name, scopes)| scopes.into_iter().next().map(|scope| (name, scope)))
-            .collect();
-        (qualified, unique)
-    }
-
-    /// Each strict-static dependency edge's source and target scopes.
-    fn scoped_dependencies(&self) -> Vec<(String, String)> {
-        let (qualified, names) = self.scope_maps();
-        let mut out = Vec::new();
-        for edge in &self.edges {
-            if !STRICT_STATIC_KINDS.contains(&edge.kind.as_str()) {
-                continue;
-            }
-            let Some(source) = qualified.get(edge.source_qualified.as_str()) else {
-                continue;
-            };
-            let target = qualified
-                .get(edge.target_qualified.as_str())
-                .or_else(|| names.get(edge.target_qualified.as_str()));
-            if let Some(target) = target
-                && target != source
-            {
-                out.push((source.clone(), target.clone()));
-            }
-        }
-        out
-    }
-}
-
-/// `_project_dependency_graph`: a networkx `DiGraph` in insertion order.
-struct ScopeGraph {
-    nodes: Vec<String>,
-    index: HashMap<String, usize>,
-    /// Successors in insertion order, with the aggregated weight.
-    successors: Vec<Vec<(usize, i64)>>,
-    predecessors: Vec<HashSet<usize>>,
-}
-
-impl ScopeGraph {
-    fn new(dependencies: &[(String, String)]) -> Self {
-        let mut graph = Self {
-            nodes: Vec::new(),
-            index: HashMap::new(),
-            successors: Vec::new(),
-            predecessors: Vec::new(),
-        };
-        for (source, target) in dependencies {
-            let from = graph.add_node(source);
-            let to = graph.add_node(target);
-            match graph.successors[from].iter_mut().find(|(n, _)| *n == to) {
-                Some(slot) => slot.1 += 1,
-                None => {
-                    graph.successors[from].push((to, 1));
-                    graph.predecessors[to].insert(from);
-                }
-            }
-        }
-        graph
-    }
-
-    fn add_node(&mut self, name: &str) -> usize {
-        if let Some(index) = self.index.get(name) {
-            return *index;
-        }
-        let index = self.nodes.len();
-        self.nodes.push(name.to_string());
-        self.index.insert(name.to_string(), index);
-        self.successors.push(Vec::new());
-        self.predecessors.push(HashSet::new());
-        index
-    }
-
-    fn instability(&self, node: usize) -> f64 {
-        let ca = self.predecessors[node].len();
-        let ce = self.successors[node].len();
-        let total = ca + ce;
-        if total > 0 {
-            ce as f64 / total as f64
-        } else {
-            0.0
-        }
-    }
-
-    /// `compute_sdp_metrics`, sorted by instability descending (stable).
-    fn sdp_metrics(&self) -> Vec<(String, i64, i64, f64)> {
-        let mut metrics: Vec<(String, i64, i64, f64)> = (0..self.nodes.len())
-            .map(|node| {
-                (
-                    self.nodes[node].clone(),
-                    self.predecessors[node].len() as i64,
-                    self.successors[node].len() as i64,
-                    round4(self.instability(node)),
-                )
-            })
-            .collect();
-        metrics.sort_by(|left, right| {
-            right
-                .3
-                .partial_cmp(&left.3)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        metrics
-    }
-
-    /// `find_sdp_violations(min_delta=0.1)`.
-    fn sdp_violations(&self) -> Vec<Value> {
-        let mut violations: Vec<(f64, Value)> = Vec::new();
-        for (source, successors) in self.successors.iter().enumerate() {
-            for (target, _) in successors {
-                let (i_src, i_tgt) = (self.instability(source), self.instability(*target));
-                let delta = i_tgt - i_src;
-                if delta > 0.1 {
-                    violations.push((
-                        round4(delta),
-                        json!({
-                            "source": self.nodes[source],
-                            "target": self.nodes[*target],
-                            "source_instability": round4(i_src),
-                            "target_instability": round4(i_tgt),
-                            "delta": round4(delta),
-                            "dependency_profile": "strict_static",
-                        }),
-                    ));
-                }
-            }
-        }
-        violations.sort_by(|left, right| {
-            right
-                .0
-                .partial_cmp(&left.0)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        violations.into_iter().map(|(_, value)| value).collect()
-    }
-
-    /// `find_adp_violations`: every simple cycle up to ten nodes, or `None`
-    /// past Python's 5000-cycle limit.
-    fn adp_violations(&self) -> Option<Vec<Value>> {
-        let mut cycles: Vec<Vec<usize>> = Vec::new();
-        let mut steps = 0_usize;
-        for start in 0..self.nodes.len() {
-            // Each cycle once: from its smallest index, through larger ones.
-            let mut path = vec![start];
-            let mut on_path = vec![false; self.nodes.len()];
-            on_path[start] = true;
-            let mut stack: Vec<usize> = vec![0];
-            while let Some(position) = stack.last_mut() {
-                steps += 1;
-                if steps > MAX_ADP_STEPS {
-                    return None;
-                }
-                let node = *path.last()?;
-                let successors = &self.successors[node];
-                if *position >= successors.len() {
-                    stack.pop();
-                    let left = path.pop()?;
-                    on_path[left] = false;
-                    continue;
-                }
-                let (next, _) = successors[*position];
-                *position += 1;
-                if next == start {
-                    cycles.push(path.clone());
-                    if cycles.len() > MAX_ADP_CYCLES {
-                        return None;
-                    }
-                } else if next > start && !on_path[next] && path.len() < MAX_ADP_CYCLE_LENGTH {
-                    path.push(next);
-                    on_path[next] = true;
-                    stack.push(0);
-                }
-            }
-        }
-        let weight = |from: usize, to: usize| {
-            self.successors[from]
-                .iter()
-                .find(|(n, _)| *n == to)
-                .map_or(0, |(_, w)| *w)
-        };
-        let mut violations: Vec<(i64, Vec<String>, Value)> = cycles
-            .into_iter()
-            .map(|cycle| {
-                let names: Vec<&String> = cycle.iter().map(|n| &self.nodes[*n]).collect();
-                let start = (0..names.len()).min_by_key(|i| names[*i]).unwrap_or(0);
-                let rotated: Vec<usize> = cycle[start..]
-                    .iter()
-                    .chain(&cycle[..start])
-                    .copied()
-                    .collect();
-                let edge_weight: i64 = (0..rotated.len())
-                    .map(|i| weight(rotated[i], rotated[(i + 1) % rotated.len()]))
-                    .sum();
-                let severity = rotated.len() as i64 * edge_weight;
-                let nodes: Vec<String> = rotated.iter().map(|n| self.nodes[*n].clone()).collect();
-                let value = json!({
-                    "nodes": nodes,
-                    "length": rotated.len(),
-                    "edge_weight": edge_weight,
-                    "severity": severity,
-                    "dependency_profile": "strict_static",
-                });
-                (severity, nodes, value)
-            })
-            .collect();
-        violations.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| left.1.cmp(&right.1)));
-        Some(violations.into_iter().map(|(_, _, value)| value).collect())
-    }
-}
-
-/// `compute_sap_metrics(scope_kind="package", artifact_scope="code")`.
-fn sap_metrics(snapshot: &Snapshot) -> Vec<Value> {
-    let (qualified, names) = snapshot.scope_maps();
-    let mut na: HashMap<String, i64> = HashMap::new();
-    let mut nt: HashMap<String, i64> = HashMap::new();
-    let mut members: HashMap<String, i64> = HashMap::new();
-    for node in &snapshot.all_nodes {
-        let Some(scope) = qualified.get(node.qualified_name.as_str()) else {
-            continue;
-        };
-        *members.entry(scope.clone()).or_default() += 1;
-        if node.kind == "Class" && node.parent_name.is_none() {
-            let extra = &node.extra;
-            let role = extra
-                .get("type_role")
-                .and_then(Value::as_str)
-                .unwrap_or("class");
-            if matches!(
-                role,
-                "class"
-                    | "abstract_class"
-                    | "interface"
-                    | "protocol"
-                    | "trait"
-                    | "abstract_type"
-                    | "mixin"
-            ) {
-                *nt.entry(scope.clone()).or_default() += 1;
-                let flag = |key: &str| extra.get(key).is_some_and(truthy);
-                if flag("is_abstract")
-                    || flag("is_contract")
-                    || matches!(
-                        role,
-                        "abstract_class" | "interface" | "protocol" | "trait" | "abstract_type"
-                    )
-                {
-                    *na.entry(scope.clone()).or_default() += 1;
-                }
-            }
-        }
-    }
-    // `dep_graph`, keyed in first-seen order.
-    let mut sources: Vec<String> = Vec::new();
-    let mut outgoing: HashMap<String, Vec<(String, i64)>> = HashMap::new();
-    let mut scopes: HashSet<String> = members.keys().cloned().collect();
-    for edge in &snapshot.edges {
-        if !STRICT_STATIC_KINDS.contains(&edge.kind.as_str()) {
-            continue;
-        }
-        let Some(source) = qualified.get(edge.source_qualified.as_str()) else {
-            continue;
-        };
-        let target = qualified
-            .get(edge.target_qualified.as_str())
-            .or_else(|| names.get(edge.target_qualified.as_str()));
-        let Some(target) = target else { continue };
-        if target == source {
-            continue;
-        }
-        let row = outgoing.entry(source.clone()).or_insert_with(|| {
-            sources.push(source.clone());
-            Vec::new()
-        });
-        match row.iter_mut().find(|(t, _)| t == target) {
-            Some(slot) => slot.1 += 1,
-            None => row.push((target.clone(), 1)),
-        }
-        scopes.insert(source.clone());
-        scopes.insert(target.clone());
-    }
-    let mut sorted: Vec<String> = scopes.into_iter().collect();
-    sorted.sort();
-    let mut results: Vec<(f64, String, Value)> = Vec::new();
-    for scope in sorted {
-        let nt_count = nt.get(&scope).copied().unwrap_or(0);
-        let na_count = na.get(&scope).copied().unwrap_or(0);
-        let out = outgoing.get(&scope).cloned().unwrap_or_default();
-        let incoming: Vec<(String, i64)> = sources
-            .iter()
-            .filter_map(|source| {
-                outgoing[source]
-                    .iter()
-                    .find(|(t, _)| *t == scope)
-                    .map(|(_, count)| (source.clone(), *count))
-            })
-            .collect();
-        let (ce, ca) = (out.len() as i64, incoming.len() as i64);
-        let mut notes = sap_notes(&scope);
-        let abstractness = if nt_count > 0 {
-            na_count as f64 / nt_count as f64
-        } else {
-            0.0
-        };
-        if nt_count == 0 {
-            notes.push("no-eligible-types");
-        }
-        let total = ca + ce;
-        let instability = if total > 0 {
-            ce as f64 / total as f64
-        } else {
-            0.0
-        };
-        if total == 0 {
-            notes.push("isolated");
-        }
-        let distance = (abstractness + instability - 1.0).abs();
-        let (applicable, reason) = if nt_count == 0 {
-            (false, "no-eligible-types")
-        } else if total == 0 {
-            (false, "isolated")
-        } else {
-            (true, "applicable")
-        };
-        let top = |items: &[(String, i64)]| {
-            let mut items = items.to_vec();
-            items.sort_by_key(|item| std::cmp::Reverse(item.1));
-            items
-                .into_iter()
-                .take(5)
-                .map(|(scope, count)| json!({"scope": scope, "count": count}))
-                .collect::<Vec<_>>()
-        };
-        let mut entry = json!({
-            "scope_kind": "package",
-            "scope_key": scope,
-            "display_name": scope,
-            "na": na_count,
-            "nt": nt_count,
-            "ca": ca,
-            "ce": ce,
-            "abstractness": round4(abstractness),
-            "instability": round4(instability),
-            "distance": round4(distance),
-            "sap_applicable": applicable,
-            "applicability_reason": reason,
-            "dependency_profile": "strict_static",
-            "member_count": members.get(&scope).copied().unwrap_or(0),
-            "top_incoming_dependencies": top(&incoming),
-            "top_outgoing_dependencies": top(&out),
-        });
-        if !notes.is_empty() {
-            entry["notes"] = json!(notes);
-        }
-        results.push((round4(distance), scope, entry));
-    }
-    results.sort_by(|left, right| {
-        right
-            .0
-            .partial_cmp(&left.0)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| left.1.cmp(&right.1))
-    });
-    results.into_iter().map(|(_, _, entry)| entry).collect()
-}
-
-fn sap_notes(scope: &str) -> Vec<&'static str> {
-    let normalized = scope.replace('\\', "/");
-    let parts: Vec<&str> = normalized.split('/').filter(|p| !p.is_empty()).collect();
-    let mut notes = Vec::new();
-    if parts
-        .first()
-        .is_some_and(|first| matches!(*first, "tests" | "test" | "__tests__"))
-    {
-        notes.push("test-scope");
-    }
-    if parts.contains(&"fixtures") {
-        notes.push("fixture-scope");
-    }
-    notes
-}
-
-/// `find_sap_violations(min_distance=0.5)`.
-fn sap_violations(metrics: &[Value]) -> Vec<Value> {
-    let mut violations: Vec<Value> = metrics
-        .iter()
-        .filter(|metric| {
-            let notes = metric.get("notes").and_then(Value::as_array);
-            let has = |note: &str| notes.is_some_and(|n| n.iter().any(|x| x == note));
-            metric["distance"].as_f64().unwrap_or(0.0) > 0.5
-                && metric["sap_applicable"].as_bool().unwrap_or(false)
-                && !has("test-scope")
-                && !has("fixture-scope")
-        })
-        .cloned()
-        .collect();
-    violations.sort_by(|left, right| {
-        right["distance"]
-            .as_f64()
-            .partial_cmp(&left["distance"].as_f64())
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    violations
 }
 
 fn stability_thresholds() -> Value {
@@ -1624,7 +1121,7 @@ fn architecture_delta(
         other => other.to_string(),
     };
     let adp: Vec<Value> = graph
-        .adp_violations()?
+        .adp_violations(2, 10, View::review().profile)?
         .into_iter()
         .filter(|v| {
             v["nodes"]
@@ -1634,12 +1131,12 @@ fn architecture_delta(
         .take(5)
         .collect();
     let sdp: Vec<Value> = graph
-        .sdp_violations()
+        .sdp_violations(0.1, View::review().profile)
         .into_iter()
         .filter(|v| touches(&text(&v["source"])) || touches(&text(&v["target"])))
         .take(5)
         .collect();
-    let sap: Vec<Value> = sap_violations(sap)
+    let sap: Vec<Value> = sap_violations(sap, 0.5)
         .into_iter()
         .filter(|v| touches(&text(&v["scope_key"])) || touches(&text(&v["display_name"])))
         .take(5)
@@ -2111,8 +1608,9 @@ pub(crate) fn change_analysis_summary(
     let risk = risk_level(risk_score);
 
     let snapshot = Snapshot::read(store)?;
-    let graph = ScopeGraph::new(&snapshot.scoped_dependencies());
-    let sap = sap_metrics(&snapshot);
+    let view = View::review();
+    let graph = ScopeGraph::new(&snapshot.dependencies(&view));
+    let sap = sap_metrics(&snapshot, &view, "package", None);
     let profiles = stability_profiles(&graph, &sap);
     let scopes: HashSet<String> = changed.iter().filter_map(scope_key_for_record).collect();
     let nodes = store.get_all_nodes_filtered(true).ok()?;
@@ -2272,6 +1770,7 @@ mod tests {
 
     #[test]
     fn scopes_follow_pathlib() {
+        use crate::architecture::{file_to_package, suffix};
         assert_eq!(file_to_package("a/b/c.py"), "a/b");
         assert_eq!(file_to_package("c.py"), "<root>");
         assert_eq!(file_to_package("/r/a.py"), "/r");
@@ -2291,7 +1790,9 @@ mod tests {
                 .map(|(s, t)| (s.to_string(), t.to_string()))
                 .collect();
         let graph = ScopeGraph::new(&deps);
-        let cycles = graph.adp_violations().expect("cycles");
+        let cycles = graph
+            .adp_violations(2, 10, crate::architecture::Profile::StrictStatic)
+            .expect("cycles");
         let nodes: Vec<Value> = cycles.iter().map(|c| c["nodes"].clone()).collect();
         assert_eq!(nodes, vec![json!(["a", "b", "c"]), json!(["a", "b"])]);
         // a->b carries weight 2: severity 3 * (2 + 1 + 1) beats 2 * (2 + 1).
@@ -2299,7 +1800,7 @@ mod tests {
         assert_eq!(cycles[1]["edge_weight"], 3);
         assert!(
             graph
-                .sdp_violations()
+                .sdp_violations(0.1, View::review().profile)
                 .iter()
                 .all(|v| v["delta"].as_f64() > Some(0.1))
         );

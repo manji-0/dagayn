@@ -582,3 +582,37 @@ def test_flow_tool_answers_in_rust_as_python_does(git_repo: Path, stale: bool) -
     assert rust == python
     if stale:
         assert rust[4]["structuredContent"]["status"] == "degraded"
+
+
+ARCHITECTURE_TRACE = "answered architecture_analysis_tool in Rust"
+
+
+def test_architecture_metrics_answer_in_rust_as_python_does(git_repo: Path) -> None:
+    (git_repo / "pkg").mkdir()
+    (git_repo / "pkg" / "core.py").write_text(
+        "from app import main\n\n\nclass Base:\n    pass\n\n\ndef run():\n    return main()\n"
+    )
+    (git_repo / "app.py").write_text(
+        "from pkg.core import Base\n\n\ndef main():\n    return helper()\n\n\n"
+        "def helper():\n    pass\n"
+    )
+    subprocess.run(
+        [DAGAYN, "build", "--repo", git_repo], env=_env(), check=True, capture_output=True
+    )
+    arch = "architecture_analysis_tool"
+    calls: list[tuple[str, dict[str, Any]]] = [
+        (arch, {"mode": "adp_violations"}),
+        (arch, {"mode": "adp_violations", "granularity": "file", "top_n": 0}),
+        (arch, {"mode": "sdp_metrics", "granularity": "file"}),
+        (arch, {"mode": "sdp_violations", "min_delta": 0}),
+        (arch, {"mode": "sdp_violations", "dependency_profile": "implementation"}),
+        (arch, {"mode": "sap_metrics", "detail_level": "verbose"}),
+        (arch, {"mode": "sap_metrics", "scope_kind": "file", "unit_filter": ["pkg"]}),
+        (arch, {"mode": "sap_violations", "min_distance": 0.1, "artifact_scope": "all"}),
+        # Python's.
+        (arch, {}),
+    ]
+    rust, python, stderr = _session_both(git_repo, calls)
+    assert stderr.count(ARCHITECTURE_TRACE) == len(calls) - 1
+    assert rust == python
+    assert rust[0]["structuredContent"]["count"] == 1

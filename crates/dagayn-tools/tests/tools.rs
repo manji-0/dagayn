@@ -759,3 +759,51 @@ fn flow_tool_lists_and_reads_stored_flows() {
         );
     }
 }
+
+#[test]
+fn architecture_metrics_follow_the_requested_view() {
+    let repo = Repo::new("arch", true);
+    repo.write(
+        "pkg/core.py",
+        "from app import main\n\n\nclass Base:\n    pass\n",
+    );
+    repo.write(
+        "app.py",
+        "from pkg.core import Base\n\n\ndef main():\n    pass\n",
+    );
+    repo.build();
+    let context = Context {
+        runtime: Some(json!({})),
+        ..repo.context()
+    };
+    let arch = |arguments: Value| answer(&context, "architecture_analysis_tool", arguments);
+    let adp = arch(json!({"mode": "adp_violations"}));
+    assert_eq!(adp["called_subtool"], "detect_adp_violations_func");
+    assert_eq!(adp["count"], 1);
+    assert_eq!(adp["violations"][0]["nodes"], json!(["<root>", "pkg"]));
+    assert!(adp["answerability"].is_object());
+    let sdp = arch(json!({"mode": "sdp_metrics", "granularity": "file", "top_n": 1}));
+    assert_eq!(sdp["metrics"].as_array().map(Vec::len), Some(1));
+    let violations = arch(json!({"mode": "sdp_violations", "min_delta": 0}));
+    assert!(
+        violations["summary"]
+            .as_str()
+            .is_some_and(|s| s.contains("min_delta=0.0"))
+    );
+    let sap = arch(json!({"mode": "sap_metrics", "detail_level": "verbose"}));
+    assert_eq!(sap["inapplicable_visibility"], "included_in_metrics");
+    let sap_v = arch(json!({"mode": "sap_violations", "min_distance": 0.0}));
+    assert!(sap_v["violations"].is_array());
+    for arguments in [
+        json!({}),
+        json!({"mode": "hubs"}),
+        json!({"mode": "sdp_violations", "min_delta": 0.00001}),
+        json!({"mode": "adp_violations", "dependency_profile": "bogus"}),
+        json!({"mode": "sap_metrics", "unit_filter": "pkg"}),
+    ] {
+        assert!(
+            declines(&context, "architecture_analysis_tool", arguments.clone()),
+            "{arguments}"
+        );
+    }
+}
