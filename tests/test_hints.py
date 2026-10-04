@@ -226,6 +226,7 @@ class TestRustSession:
     def test_rust_hints_match_python(self):
         import json
 
+        from dagayn._core import HintSession
         from dagayn.tool_surface import set_active_tool_surface
 
         steps = [
@@ -245,7 +246,7 @@ class TestRustSession:
         ]
         for surface in (None, {"review_tool"}):
             reset_session()
-            rust = get_session()
+            rust = HintSession()
             python = SessionState()
             set_active_tool_surface(surface)
             try:
