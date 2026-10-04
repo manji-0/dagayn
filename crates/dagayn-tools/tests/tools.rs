@@ -486,7 +486,7 @@ fn review_leaves_other_modes_and_unknowns_to_python() {
         ..repo.context()
     };
     for arguments in [
-        json!({"mode": "context"}),
+        json!({"mode": "context", "max_lines_per_file": 1.5}),
         json!({"mode": "affected_flows", "base": "bad ref"}),
         json!({"mode": "affected_flows", "detail_level": "full"}),
         json!({"mode": "affected_flows", "include_source": "yes"}),
@@ -660,4 +660,50 @@ fn review_changes_scores_the_diff_against_base() {
             "{arguments}"
         );
     }
+}
+
+#[test]
+fn review_context_reads_contained_sources_and_caps_long_files() {
+    let repo = Repo::new("context", true);
+    repo.build();
+    let context = Context {
+        runtime: Some(json!({})),
+        ..repo.context()
+    };
+    let review = |arguments: Value| answer(&context, "review_tool", arguments);
+    let full =
+        review(json!({"mode": "context", "changed_files": ["app.py", "../escape.py", "gone.py"]}));
+    assert_eq!(full["called_subtool"], "get_review_context");
+    let ctx = &full["context"];
+    assert_eq!(
+        ctx["source_snippets"]["app.py"],
+        "1: def main():\n2:     return helper()\n3: \n4: \n5: def helper():\n6:     pass"
+    );
+    assert_eq!(ctx["out_of_repo_files"], json!(["../escape.py"]));
+    assert_eq!(
+        ctx["unmatched_changed_files"],
+        json!(["../escape.py", "gone.py"])
+    );
+    assert!(
+        full["summary"]
+            .as_str()
+            .is_some_and(|s| s.contains("Review guidance:"))
+    );
+
+    // Over the line cap and no node of that (relative) path: the first lines.
+    let capped =
+        review(json!({"mode": "context", "changed_files": ["app.py"], "max_lines_per_file": 2}));
+    assert_eq!(
+        capped["context"]["source_snippets"]["app.py"],
+        "1: def main():\n2:     return helper()\n3: \n4: \n5: def helper():\n6:     pass"
+    );
+    let minimal =
+        review(json!({"mode": "context", "changed_files": ["app.py"], "detail_level": "minimal"}));
+    assert_eq!(minimal["risk"], "low");
+    assert!(minimal["key_entities"].as_array().is_some_and(|k| {
+        k.iter()
+            .all(|e| !e.as_str().unwrap_or("/").starts_with('/'))
+    }));
+    let none = review(json!({"mode": "context", "changed_files": []}));
+    assert_eq!(none["summary"], "No changes detected. Nothing to review.");
 }

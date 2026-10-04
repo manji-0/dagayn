@@ -145,6 +145,11 @@ impl Ordered {
         }
     }
 
+    /// A key's value, if it has one.
+    pub(crate) fn get(&self, key: &str) -> Option<&Value> {
+        self.0.iter().find(|(k, _)| k == key).map(|(_, v)| v)
+    }
+
     /// The keys and values, in order.
     pub(crate) fn into_entries(self) -> Vec<(String, Value)> {
         self.0

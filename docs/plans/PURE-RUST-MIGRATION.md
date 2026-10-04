@@ -517,7 +517,18 @@ on this repository's graph match fastmcp's, 35 answered in Rust. A
 `include_source`, `verbose`, and a base `git diff` cannot resolve stay
 Python's.
 
-Next: `review_tool` `context`, then `flow_tool`.
+Thirteenth slice (done): `review_tool` `mode="context"`, so every review
+mode is answered in Rust. The impact graph with its 300-entry caps, source
+snippets read through `resolve_contained_path` (out-of-repo paths are
+listed, not read) and numbered as Python numbers them, the relevant-lines
+cut for long files, the review guidance text, the 120 KB snippet budget
+that drops or clips, and the minimal form. 47 calls on this repository's
+graph and 47 on a larger copy match fastmcp's, 42 of each answered in Rust,
+including dropped and clipped snippets, graph truncation, and merged
+relevant-line ranges.
+
+Next: `flow_tool`, then `architecture_analysis_tool` (its ADP, SDP, SAP, and
+stability pieces are already in `review_summary`).
 
 ### 5.4 Remaining Python surfaces
 
