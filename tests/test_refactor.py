@@ -3015,3 +3015,47 @@ class TestDeadCodeVerification:
             store.close()
         assert report["dead"] == []
         assert report["suppressed"] == {"source_unavailable": 1}
+
+
+class TestDeadCodeAcrossLanguages:
+    """Each language's ways of reaching a symbol without naming it: overrides,
+    annotations and attributes, protocol methods the runtime calls, interface
+    members. Only the helpers nothing uses (and the classes nothing uses) may
+    be reported."""
+
+    FIXTURE = Path(__file__).parent / "fixtures" / "dead_code_polyglot"
+
+    def test_only_truly_unused_symbols_are_reported(self, tmp_path):
+        import shutil
+
+        from dagayn.incremental import full_build
+        from dagayn.refactor import dead_code_report
+
+        repo = tmp_path / "repo"
+        shutil.copytree(self.FIXTURE, repo)
+        (repo / ".git").mkdir()
+        store = GraphStore(repo / ".dagayn" / "graph.db")
+        try:
+            full_build(repo, store)
+            report = dead_code_report(store)
+        finally:
+            store.close()
+        dead = {d["qualified_name"] for d in report["dead"]}
+        assert dead == {
+            "app.py::python_unused_helper",
+            "Model.php::Model",
+            "Model.php::Model.phpUnusedHelper",
+            "Program.cs::Widget",
+            "Repo.kt::Money.kotlinUnusedHelper",
+            "Thing.swift::Thing",
+            "player.gd::gd_unused_helper",
+            "server.ex::Demo.Server.elixir_unused_helper",
+            "server.go::Point.goUnusedHelper",
+            "server.go::goUnusedFunc",
+            "user.rb::User",
+            "user.rb::User.ruby_unused_helper",
+            "widget.ts::Panel",
+            "widget.ts::Panel.tsUnusedHelper",
+        }
+        assert report["verification"]["status"] == "complete"
+        assert report["suppressed"]["implicit_protocol_method"] >= 6

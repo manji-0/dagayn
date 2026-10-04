@@ -113,7 +113,14 @@ All notable changes to `dagayn` are documented here.
   type annotations, re-exports, string registries, decorators, and trait
   dispatch, to 33 symbols nothing refers to. When the sources cannot be read
   nothing is claimed. The Python `find_dead_code` now runs the same Rust
-  analysis as the native tool.
+  analysis as the native tool. Every language gets the same care: annotations
+  and attributes read from the source (`@GetMapping`, `[HttpGet]`,
+  `#[Route]`, `@objc`, `@impl`; doc-comment tags such as `@param` are not
+  annotations), `override`/`@Override`/`operator` markers, methods a runtime
+  calls by protocol (`toString`/`equals`, `Dispose`, Go's `init` and
+  `String`/`Error`, Ruby's `to_s`/`initialize`, PHP and Lua `__` methods,
+  Godot `_ready`, GenServer callbacks, ...), interface, protocol, and
+  abstract members, and methods of classes a framework annotation registers.
 - `architecture_analysis_tool(mode="adp_violations")` returns the same
   partial list in every process once a graph has more than 5000 cycles
   (#179). `networkx.simple_cycles` met cycles in hash order, so which 5000

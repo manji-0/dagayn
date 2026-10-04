@@ -887,36 +887,6 @@
     },
     {
       "caveats": [
-        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
-      ],
-      "confidence": "medium",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 1,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "file": "src/interfaces.ts",
-      "kind": "Function",
-      "language": "typescript",
-      "line": 19,
-      "name": "save",
-      "public_api_candidate": false,
-      "qualified_name": "src/interfaces.ts::Repo.save",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references",
-        "name_unreferenced_in_source"
-      ]
-    },
-    {
-      "caveats": [
         "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
         "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
       ],
@@ -1089,12 +1059,13 @@
     }
   ],
   "status": "ok",
-  "summary": "Found 32 dead code symbol(s) that nothing in the repository refers to. Left out 15 graph candidate(s) that may still be used (see suppressed).",
+  "summary": "Found 31 dead code symbol(s) that nothing in the repository refers to. Left out 16 graph candidate(s) that may still be used (see suppressed).",
   "suppressed": {
-    "name_referenced_in_source": 9,
+    "contract_method": 3,
+    "name_referenced_in_source": 7,
     "overrides_or_implements": 6
   },
-  "total": 32,
+  "total": 31,
   "truncated": false,
   "verification": {
     "files_scanned": 37,

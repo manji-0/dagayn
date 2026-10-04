@@ -67,7 +67,7 @@
     "status": "ok"
   },
   "counts_by_type": {
-    "remove": 32
+    "remove": 31
   },
   "guidance": [
     {
@@ -804,124 +804,6 @@
         ],
         "verification_commands": [
           "Run tests covering src/functions.ts"
-        ]
-      }
-    },
-    {
-      "affected_files": [
-        "src/interfaces.ts"
-      ],
-      "category": "executable",
-      "confidence": "low",
-      "description": "Remove unused function 'save'",
-      "estimated_risk": "medium",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 1,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "Stable component policy requires contract and test evidence first."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/interfaces.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
-      },
-      "priority": "low",
-      "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references",
-        "name_unreferenced_in_source",
-        "stable_component_guard"
-      ],
-      "stability_policy": {
-        "profiles": [
-          {
-            "instability": 0.2857,
-            "reason_codes": [
-              "observed_stable_component",
-              "high_afferent_coupling_should_be_stable"
-            ],
-            "scope_key": "src",
-            "thresholds": {
-              "afferent_coupling_should_be_stable_min": 3,
-              "default_expected_doc_density": 0.25,
-              "default_expected_test_density": 0.5,
-              "instability_max": 0.35,
-              "stable_expected_doc_density": 0.5,
-              "stable_expected_test_density": 0.8
-            }
-          }
-        ],
-        "status": "stable_component_guard"
-      },
-      "symbols": [
-        "src/interfaces.ts::Repo.save"
-      ],
-      "type": "remove",
-      "verification_steps": [
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/interfaces.ts"
-          ],
-          "estimated_risk": "medium",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src",
-        "primary_file": "src/interfaces.ts",
-        "required_tests": [
-          "Run tests covering src/interfaces.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/interfaces.ts"
         ]
       }
     },
@@ -3906,8 +3788,8 @@
       }
     }
   ],
-  "summary": "Generated 32 refactoring suggestion(s).",
-  "total": 32,
+  "summary": "Generated 31 refactoring suggestion(s).",
+  "total": 31,
   "truncated": false,
   "work_packs": [
     {
@@ -4086,9 +3968,9 @@
       "blast_radius": {
         "affected_file_count": 1,
         "affected_files": [
-          "src/interfaces.ts"
+          "src/barrel-user.ts"
         ],
-        "estimated_risk": "medium",
+        "estimated_risk": "high",
         "symbol_count": 1
       },
       "defer_conditions": [
@@ -4102,9 +3984,9 @@
       "estimated_size": "small",
       "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
       "owner_scope": "src",
-      "primary_file": "src/interfaces.ts",
+      "primary_file": "src/barrel-user.ts",
       "required_tests": [
-        "Run tests covering src/interfaces.ts"
+        "Run tests covering src/barrel-user.ts"
       ],
       "risk_controls": [
         "Treat public API, fixtures, and plugin entry points as high-risk.",
@@ -4118,11 +4000,11 @@
         "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
       ],
       "symbols": [
-        "src/interfaces.ts::Repo.save"
+        "src/barrel-user.ts::useBarrel"
       ],
       "type": "remove",
       "verification_commands": [
-        "Run tests covering src/interfaces.ts"
+        "Run tests covering src/barrel-user.ts"
       ]
     }
   ]
