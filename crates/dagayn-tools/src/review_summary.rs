@@ -501,7 +501,7 @@ fn sap_metrics(snapshot: &Snapshot) -> Vec<Value> {
         };
         let top = |items: &[(String, i64)]| {
             let mut items = items.to_vec();
-            items.sort_by(|left, right| right.1.cmp(&left.1));
+            items.sort_by_key(|item| std::cmp::Reverse(item.1));
             items
                 .into_iter()
                 .take(5)
@@ -1292,7 +1292,7 @@ fn computed_hubs(
             }),
         ));
     }
-    scored.sort_by(|left, right| right.0.cmp(&left.0));
+    scored.sort_by_key(|item| std::cmp::Reverse(item.0));
     scored
         .into_iter()
         .take(25)
