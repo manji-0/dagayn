@@ -549,9 +549,17 @@ fastmcp's. An ADP enumeration Python truncates at 5000 cycles stays
 Python's; its truncated list depends on networkx's visiting order, which
 follows string hashing, so it differs between Python processes too.
 
-Next: the rest of `architecture_analysis_tool` (hubs, bridges, knowledge
-gaps, surprising connections, communities, overview), then
-`refactor_tool`.
+Sixteenth slice (done): `architecture_analysis_tool`'s `hubs`, `bridges`,
+`knowledge_gaps`, and `surprising_connections` (`dagayn-tools`'
+`analysis`): persisted rankings where they cover the scope, otherwise the
+degree ranking and networkx-order betweenness that `review_summary`
+already used, now for any artifact scope and test setting; the knowledge
+gaps with their p95 hotspot threshold, the source-reading classification
+of isolated nodes, community edge shapes, and the gaps' own output budget;
+and the surprise scores. 80 calls on this repository's graph and 80 on a
+larger copy match fastmcp's, 77 and 78 answered in Rust.
+
+Next: `communities`, `community`, and `overview`, then `refactor_tool`.
 
 ### 5.4 Remaining Python surfaces
 

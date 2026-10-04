@@ -609,6 +609,11 @@ def test_architecture_metrics_answer_in_rust_as_python_does(git_repo: Path) -> N
         (arch, {"mode": "sap_metrics", "detail_level": "verbose"}),
         (arch, {"mode": "sap_metrics", "scope_kind": "file", "unit_filter": ["pkg"]}),
         (arch, {"mode": "sap_violations", "min_distance": 0.1, "artifact_scope": "all"}),
+        (arch, {"mode": "hubs"}),
+        (arch, {"mode": "bridges", "artifact_scope": "all", "top_n": 2}),
+        (arch, {"mode": "knowledge_gaps"}),
+        (arch, {"mode": "knowledge_gaps", "artifact_scope": "docs", "top_n": 0}),
+        (arch, {"mode": "surprising_connections", "artifact_scope": "all"}),
         # Python's.
         (arch, {}),
     ]

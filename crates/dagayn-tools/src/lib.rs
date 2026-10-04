@@ -6,6 +6,7 @@
 //! it would auto-detect, a graph it would create, migrate, or refuse. The
 //! front end then relays the call, so every error stays Python's.
 
+mod analysis;
 mod answerability;
 mod arch_tool;
 mod architecture;

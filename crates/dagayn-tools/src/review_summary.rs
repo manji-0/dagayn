@@ -8,16 +8,15 @@
 use std::collections::{HashMap, HashSet};
 
 use dagayn_graph::{
-    GraphEdge, GraphNode, GraphStore, ImpactRadius, bridge_transition_value,
-    is_low_confidence_bridge, is_low_confidence_unresolved_markdown_code_span,
-    is_reportable_bridge,
+    GraphNode, GraphStore, ImpactRadius, bridge_transition_value, is_low_confidence_bridge,
+    is_low_confidence_unresolved_markdown_code_span, is_reportable_bridge,
 };
 use serde_json::{Map, Value, json};
 
 use crate::answerability::round4;
 use crate::architecture::{
-    ScopeGraph, Snapshot, View, file_name, float_or, is_documentation_node, posix_parts,
-    sap_metrics, sap_violations, scope_key_for_file, str_of, truthy,
+    Artifact, ScopeGraph, Snapshot, View, file_name, float_or, sap_metrics, sap_violations,
+    scope_key_for_file, str_of, truthy,
 };
 use crate::coverage::{ScanState, infer_tests_for_node, is_test_file_path};
 use crate::query::cross_artifact_role;
@@ -704,259 +703,12 @@ fn stability_contracts(
     contracts
 }
 
-/// `_is_analysis_excluded_from_test_gap`.
-fn excluded_from_analysis(node: &GraphNode) -> bool {
-    if node.is_test || node.kind == "Test" || node.language == "markdown" {
-        return true;
-    }
-    let path = node.file_path.replace('\\', "/");
-    let (absolute, parts) = posix_parts(&path);
-    let lowered: Vec<String> = parts.iter().map(|p| p.to_lowercase()).collect();
-    if lowered
-        .iter()
-        .any(|p| matches!(p.as_str(), "tests" | "test" | "__tests__"))
-    {
-        return true;
-    }
-    let _ = absolute;
-    let name = lowered.last().cloned().unwrap_or_default();
-    name.starts_with("test_")
-        || name == "test.rs"
-        || name == "tests.rs"
-        || name.ends_with("_test.py")
-        || name.ends_with("_tests.py")
-        || name.ends_with("_test.rs")
-        || name.ends_with("_tests.rs")
-        || name.contains(".test.")
-        || name.contains(".spec.")
-}
-
-/// `_scoped_nodes_and_edges(snapshot, artifact_scope="code",
-/// include_tests=False)`: the nodes (first of each name) and their edges.
-fn code_scope(nodes: &[GraphNode], edges: &[GraphEdge]) -> (Vec<GraphNode>, Vec<(String, String)>) {
-    let mut seen = HashSet::new();
-    let mut scoped = Vec::new();
-    for node in nodes {
-        if is_documentation_node(node) || excluded_from_analysis(node) {
-            continue;
-        }
-        if seen.insert(node.qualified_name.clone()) {
-            scoped.push(node.clone());
-        }
-    }
-    let links = edges
-        .iter()
-        .filter(|e| seen.contains(&e.source_qualified) && seen.contains(&e.target_qualified))
-        .map(|e| (e.source_qualified.clone(), e.target_qualified.clone()))
-        .collect();
-    (scoped, links)
-}
-
-/// `find_hub_nodes(top_n=25, artifact_scope="code", include_tests=False)`
-/// computed from the graph.
-fn computed_hubs(
-    nodes: &[GraphNode],
-    links: &[(String, String)],
-    communities: &HashMap<String, Option<i64>>,
-) -> Vec<Value> {
-    let mut inbound: HashMap<&str, i64> = HashMap::new();
-    let mut outbound: HashMap<&str, i64> = HashMap::new();
-    for (source, target) in links {
-        *outbound.entry(source).or_default() += 1;
-        *inbound.entry(target).or_default() += 1;
-    }
-    let mut scored: Vec<(i64, Value)> = Vec::new();
-    for node in nodes {
-        let qn = node.qualified_name.as_str();
-        let (ind, outd) = (
-            inbound.get(qn).copied().unwrap_or(0),
-            outbound.get(qn).copied().unwrap_or(0),
-        );
-        if ind + outd == 0 {
-            continue;
-        }
-        scored.push((
-            ind + outd,
-            json!({
-                "name": crate::query::sanitize(&node.name),
-                "qualified_name": node.qualified_name,
-                "kind": node.kind,
-                "file": node.file_path,
-                "in_degree": ind,
-                "out_degree": outd,
-                "total_degree": ind + outd,
-                "community_id": communities.get(qn).copied().flatten(),
-            }),
-        ));
-    }
-    scored.sort_by_key(|item| std::cmp::Reverse(item.0));
-    scored
-        .into_iter()
-        .take(25)
-        .map(|(_, value)| value)
-        .collect()
-}
-
-/// `nx.betweenness_centrality(G, normalized=True)`, sampling `k=500` sources
-/// with `seed=0` past 5000 nodes, as `find_bridge_nodes` calls it; each
-/// source's BFS and accumulation run in networkx's order so the sums match.
-fn betweenness(count: usize, successors: &[Vec<usize>]) -> Vec<f64> {
-    let mut scores = vec![0.0_f64; count];
-    let sampled: Option<Vec<usize>> = (count > 5000).then(|| {
-        let k = 500.min(count);
-        crate::pyrandom::PyRandom::new(0).sample(count, k)
-    });
-    let sources: Vec<usize> = sampled.clone().unwrap_or_else(|| (0..count).collect());
-    let mut sigma = vec![0.0_f64; count];
-    let mut distance = vec![-1_i64; count];
-    let mut predecessors: Vec<Vec<usize>> = vec![Vec::new(); count];
-    let mut delta = vec![0.0_f64; count];
-    for &source in &sources {
-        let mut order = Vec::new();
-        let mut queue = std::collections::VecDeque::from([source]);
-        sigma[source] = 1.0;
-        distance[source] = 0;
-        while let Some(v) = queue.pop_front() {
-            order.push(v);
-            for &w in &successors[v] {
-                if distance[w] < 0 {
-                    queue.push_back(w);
-                    distance[w] = distance[v] + 1;
-                }
-                if distance[w] == distance[v] + 1 {
-                    sigma[w] += sigma[v];
-                    predecessors[w].push(v);
-                }
-            }
-        }
-        for &w in order.iter().rev() {
-            let coeff = (1.0 + delta[w]) / sigma[w];
-            for &v in &predecessors[w] {
-                delta[v] += sigma[v] * coeff;
-            }
-            if w != source {
-                scores[w] += delta[w];
-            }
-        }
-        for &v in &order {
-            sigma[v] = 0.0;
-            distance[v] = -1;
-            predecessors[v].clear();
-            delta[v] = 0.0;
-        }
-    }
-    // `_rescale(normalized=True, directed=True, endpoints=False)`.
-    let n_pairs = count as i64 - 1;
-    if n_pairs < 2 {
-        return scores;
-    }
-    match sampled {
-        None => {
-            let scale = 1.0 / ((n_pairs * (n_pairs - 1)) as f64);
-            if scale != 1.0 {
-                scores.iter_mut().for_each(|score| *score *= scale);
-            }
-        }
-        Some(sampled) => {
-            let k = sampled.len() as i64;
-            let scale_source = if k > 1 {
-                1.0 / (((k - 1) * (n_pairs - 1)) as f64)
-            } else {
-                f64::NAN
-            };
-            let scale_other = 1.0 / ((k * (n_pairs - 1)) as f64);
-            let sampled: HashSet<usize> = sampled.into_iter().collect();
-            for (index, score) in scores.iter_mut().enumerate() {
-                *score *= if sampled.contains(&index) {
-                    scale_source
-                } else {
-                    scale_other
-                };
-            }
-        }
-    }
-    scores
-}
-
-/// `find_bridge_nodes(top_n=25, artifact_scope="code", include_tests=False)`
-/// computed from the graph.
-fn computed_bridges(
-    nodes: &[GraphNode],
-    links: &[(String, String)],
-    communities: &HashMap<String, Option<i64>>,
-) -> Vec<Value> {
-    if nodes.is_empty() {
-        return Vec::new();
-    }
-    let index: HashMap<&str, usize> = nodes
-        .iter()
-        .enumerate()
-        .map(|(i, n)| (n.qualified_name.as_str(), i))
-        .collect();
-    let mut successors: Vec<Vec<usize>> = vec![Vec::new(); nodes.len()];
-    for (source, target) in links {
-        let (from, to) = (index[source.as_str()], index[target.as_str()]);
-        if !successors[from].contains(&to) {
-            successors[from].push(to);
-        }
-    }
-    let scores = betweenness(nodes.len(), &successors);
-    let mut results: Vec<(f64, Value)> = Vec::new();
-    for (node, score) in nodes.iter().zip(scores) {
-        if score <= 0.0 || node.kind == "File" {
-            continue;
-        }
-        let rounded: f64 = format!("{score:.6}").parse().unwrap_or(score);
-        results.push((
-            rounded,
-            json!({
-                "name": crate::query::sanitize(&node.name),
-                "qualified_name": node.qualified_name,
-                "kind": node.kind,
-                "file": node.file_path,
-                "betweenness": rounded,
-                "community_id": communities.get(&node.qualified_name).copied().flatten(),
-            }),
-        ));
-    }
-    results.sort_by(|left, right| {
-        right
-            .0
-            .partial_cmp(&left.0)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    results
-        .into_iter()
-        .take(25)
-        .map(|(_, value)| value)
-        .collect()
-}
-
 /// `_hotspot_proximity`: the persisted code-scope rankings, or Python's
 /// on-demand ones where none are persisted.
 fn hotspot_proximity(store: &GraphStore, impact: &ImpactRadius) -> Option<Value> {
-    let persisted = |hubs: bool| -> Vec<Value> {
-        let rows = if hubs {
-            store.persisted_hub_scores(true, 25)
-        } else {
-            store.persisted_bridge_scores(true, 25)
-        };
-        // A missing table is created by Python, which then finds it empty.
-        rows.unwrap_or_default()
-    };
-    let (mut hubs, mut bridges) = (persisted(true), persisted(false));
-    if hubs.is_empty() || bridges.is_empty() {
-        let nodes = store.get_all_nodes_filtered(true).ok()?;
-        let edges = store.get_all_edges().ok()?;
-        let communities = store.get_all_community_ids().ok()?;
-        let (scoped, links) = code_scope(&nodes, &edges);
-        if hubs.is_empty() {
-            hubs = computed_hubs(&scoped, &links, &communities);
-        }
-        if bridges.is_empty() {
-            bridges = computed_bridges(&scoped, &links, &communities);
-        }
-    }
+    let graph = crate::analysis::Graph::read(store)?;
+    let hubs = crate::analysis::find_hubs(store, &graph, 25, Artifact::Code, false);
+    let bridges = crate::analysis::find_bridges(store, &graph, 25, Artifact::Code, false);
     let qns = |nodes: &[GraphNode]| -> HashSet<String> {
         nodes
             .iter()

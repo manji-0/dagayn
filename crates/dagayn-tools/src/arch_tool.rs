@@ -4,10 +4,15 @@
 
 use serde_json::{Map, Value, json};
 
+use crate::analysis::{
+    Graph, find_bridges, find_hubs, find_knowledge_gaps, find_surprising_connections,
+};
 use crate::answerability::Answerability;
 use crate::architecture::{
     Artifact, Profile, ScopeGraph, Snapshot, View, sap_metrics, sap_violations,
 };
+use crate::review::guidance_actions_to_hints;
+use crate::review_summary::guidance_item;
 use crate::{
     Args, Context, Ordered, Payload, explicit_repo, open_graph, seal_dispatch, suggestions,
 };
@@ -166,43 +171,136 @@ impl<'a> Request<'a> {
 pub(crate) fn architecture(context: &Context, arguments: &Map<String, Value>) -> Option<Payload> {
     let args = Args::new(arguments, DECLARED)?;
     let request = Request::parse(&args, arguments)?;
-    if !matches!(
-        request.mode,
-        "adp_violations" | "sdp_metrics" | "sdp_violations" | "sap_metrics" | "sap_violations"
-    ) {
+    if matches!(request.mode, "overview" | "communities" | "community") {
         return None;
     }
     let runtime = context.runtime.clone()?;
     let root = explicit_repo(context, args.optional_string("repo_root")?)?;
     let graph = open_graph(&root)?;
-    let snapshot = Snapshot::read(&graph.store)?;
     let artifact = Artifact::parse(request.artifact_scope)?;
     let profile = Profile::parse(request.dependency_profile)?;
-    let (subtool, out) = match request.mode {
+    let stats = graph.store.get_stats().ok()?;
+    let answerability = Answerability::recorded(&graph.store, &stats)?;
+    let include_tests = request.artifact_scope != "code";
+    let analysis = |mode: &str| -> Option<Ordered> {
+        let read = Graph::read(&graph.store)?;
+        let store = &graph.store;
+        Some(match mode {
+            "hubs" => hubs(
+                context,
+                &request,
+                &answerability,
+                find_hubs(store, &read, request.top_n, artifact, include_tests),
+                include_tests,
+            ),
+            "bridges" => bridges(
+                context,
+                &request,
+                &answerability,
+                find_bridges(store, &read, request.top_n, artifact, include_tests),
+                include_tests,
+            ),
+            "knowledge_gaps" => knowledge_gaps(
+                context,
+                &request,
+                &answerability,
+                find_knowledge_gaps(
+                    store,
+                    &read,
+                    request.top_n,
+                    artifact,
+                    request.artifact_scope,
+                    include_tests,
+                ),
+                include_tests,
+            ),
+            _ => surprising(
+                context,
+                &request,
+                &answerability,
+                find_surprising_connections(&read, request.top_n, artifact, include_tests),
+                include_tests,
+            ),
+        })
+    };
+    let (subtool, out, trailing) = match request.mode {
         "adp_violations" => (
             "detect_adp_violations_func",
-            adp(context, &request, &snapshot, artifact, profile)?,
+            adp(
+                context,
+                &request,
+                &Snapshot::read(&graph.store)?,
+                artifact,
+                profile,
+            )?,
+            true,
         ),
         "sdp_metrics" => (
             "compute_sdp_metrics_func",
-            sdp_metrics(context, &request, &snapshot, artifact, profile),
+            sdp_metrics(
+                context,
+                &request,
+                &Snapshot::read(&graph.store)?,
+                artifact,
+                profile,
+            ),
+            true,
         ),
         "sdp_violations" => (
             "detect_sdp_violations_func",
-            sdp_violations(context, &request, &snapshot, artifact, profile)?,
+            sdp_violations(
+                context,
+                &request,
+                &Snapshot::read(&graph.store)?,
+                artifact,
+                profile,
+            )?,
+            true,
         ),
         "sap_metrics" => (
             "compute_sap_metrics_func",
-            sap(context, &request, &snapshot, artifact, profile),
+            sap(
+                context,
+                &request,
+                &Snapshot::read(&graph.store)?,
+                artifact,
+                profile,
+            ),
+            true,
+        ),
+        "sap_violations" => (
+            "detect_sap_violations_func",
+            sap_violation_list(
+                context,
+                &request,
+                &Snapshot::read(&graph.store)?,
+                artifact,
+                profile,
+            )?,
+            true,
+        ),
+        "hubs" => ("get_hub_nodes_func", analysis("hubs")?, false),
+        "bridges" => ("get_bridge_nodes_func", analysis("bridges")?, false),
+        "knowledge_gaps" => (
+            "get_knowledge_gaps_func",
+            analysis("knowledge_gaps")?,
+            false,
         ),
         _ => (
-            "detect_sap_violations_func",
-            sap_violation_list(context, &request, &snapshot, artifact, profile)?,
+            "get_surprising_connections_func",
+            analysis("surprising_connections")?,
+            false,
         ),
     };
     // `attach_answerability` for a subtool that reports none.
-    let stats = graph.store.get_stats().ok()?;
-    let answerability = Answerability::recorded(&graph.store, &stats)?;
+    let trailing = if trailing {
+        vec![
+            ("answerability", answerability.full()),
+            ("missingness", json!(answerability.missingness())),
+        ]
+    } else {
+        Vec::new()
+    };
     let exposed = |tool: &str| {
         context
             .allowed_tools
@@ -216,10 +314,7 @@ pub(crate) fn architecture(context: &Context, arguments: &Map<String, Value>) ->
             subtool,
             hints_tool: "architecture_analysis",
             runtime,
-            trailing: vec![
-                ("answerability", answerability.full()),
-                ("missingness", json!(answerability.missingness())),
-            ],
+            trailing,
             repo: graph.repo_context(),
         },
         &exposed,
@@ -573,4 +668,250 @@ fn sap_violation_list(
         ],
     );
     Some(out.apply_output_budget(SAP_VIOLATIONS_BUDGET, &["violations"]))
+}
+
+/// `make_response` for an analysis subtool: its own answerability, its
+/// guidance, and `_hints` from that guidance.
+fn analysis_response(
+    context: &Context,
+    answerability: &Answerability,
+    summary: String,
+    mut fields: Vec<(&str, Value)>,
+    guidance: Value,
+    next: &[&str],
+) -> Ordered {
+    fields.push(("answerability", answerability.full()));
+    fields.push(("missingness", json!(answerability.missingness())));
+    let hints = guidance_actions_to_hints(std::slice::from_ref(&guidance));
+    fields.push(("guidance", json!([guidance])));
+    make_response(context, summary, fields, next).replace("_hints", hints)
+}
+
+fn first(items: &[Value], count: usize) -> Value {
+    json!(items.iter().take(count).cloned().collect::<Vec<_>>())
+}
+
+/// `get_hub_nodes_func`.
+fn hubs(
+    context: &Context,
+    request: &Request,
+    answerability: &Answerability,
+    hubs: Vec<Value>,
+    include_tests: bool,
+) -> Ordered {
+    let guidance = guidance_item(
+        "Hub nodes are review leads because many edges meet there.".to_string(),
+        json!({"type": "computed", "metric": "degree", "examples": first(&hubs, 3)}),
+        if hubs.is_empty() { "low" } else { "medium" },
+        vec![
+            json!({"reason_code": "hub_score_is_degree_rank", "severity": "low", "claim_effect": "high degree is a lead, not proof of bad design"}),
+        ],
+        "review_tool mode=\"impact\" -- check blast radius of a hub",
+        vec![json!("hub_nodes")],
+        json!({"hub_nodes": hubs.len()}),
+    );
+    analysis_response(
+        context,
+        answerability,
+        format!(
+            "Found {} hub node(s) with highest connectivity.",
+            hubs.len()
+        ),
+        vec![
+            ("hub_nodes", Value::Array(hubs.clone())),
+            ("count", json!(hubs.len())),
+            ("artifact_scope", json!(request.artifact_scope)),
+            ("include_tests", json!(include_tests)),
+        ],
+        guidance,
+        &[
+            "review_tool mode=\"impact\" -- check blast radius of a hub",
+            "query_graph_tool callers_of -- see what calls a hub",
+            "architecture_analysis_tool mode=\"bridges\" -- find architectural chokepoints",
+        ],
+    )
+}
+
+/// `get_bridge_nodes_func`.
+fn bridges(
+    context: &Context,
+    request: &Request,
+    answerability: &Answerability,
+    bridges: Vec<Value>,
+    include_tests: bool,
+) -> Ordered {
+    let guidance = guidance_item(
+        "Bridge nodes are architectural chokepoints on many shortest paths.".to_string(),
+        json!({"type": "computed", "metric": "betweenness", "examples": first(&bridges, 3)}),
+        if bridges.is_empty() { "low" } else { "medium" },
+        vec![
+            json!({"reason_code": "betweenness_is_heuristic_lead", "severity": "low", "claim_effect": "betweenness ranks review priority, not runtime failure"}),
+        ],
+        "architecture_analysis_tool mode=\"hubs\" -- compare with high-degree nodes",
+        vec![json!("bridge_nodes")],
+        json!({"bridge_nodes": bridges.len()}),
+    );
+    analysis_response(
+        context,
+        answerability,
+        format!(
+            "Found {} bridge node(s) (high betweenness centrality).",
+            bridges.len()
+        ),
+        vec![
+            ("bridge_nodes", Value::Array(bridges.clone())),
+            ("count", json!(bridges.len())),
+            ("artifact_scope", json!(request.artifact_scope)),
+            ("include_tests", json!(include_tests)),
+        ],
+        guidance,
+        &[
+            "architecture_analysis_tool mode=\"hubs\" -- find most connected nodes",
+            "review_tool mode=\"impact\" -- check blast radius",
+            "review_tool mode=\"changes\" -- see if bridges are affected",
+        ],
+    )
+}
+
+/// `get_surprising_connections_func`.
+fn surprising(
+    context: &Context,
+    request: &Request,
+    answerability: &Answerability,
+    found: Vec<Value>,
+    include_tests: bool,
+) -> Ordered {
+    let guidance = guidance_item(
+        "Surprising connections are ranked coupling leads, not verdicts.".to_string(),
+        json!({"type": "computed", "examples": first(&found, 3), "count": found.len()}),
+        if found.is_empty() { "low" } else { "medium" },
+        vec![
+            json!({"reason_code": "surprise_score_is_heuristic", "severity": "low", "claim_effect": "scores prioritize review, not proof of bad design"}),
+        ],
+        "architecture_analysis_tool mode=\"overview\" -- inspect community structure",
+        vec![json!("surprising_connections")],
+        json!({"surprising_connections": found.len()}),
+    );
+    analysis_response(
+        context,
+        answerability,
+        format!("Found {} surprising connection(s).", found.len()),
+        vec![
+            ("surprising_connections", Value::Array(found.clone())),
+            ("count", json!(found.len())),
+            ("artifact_scope", json!(request.artifact_scope)),
+            ("include_tests", json!(include_tests)),
+        ],
+        guidance,
+        &[
+            "architecture_analysis_tool mode=\"overview\" -- community structure",
+            "query_graph_tool callers_of -- trace the coupling",
+            "architecture_analysis_tool mode=\"bridges\" -- find chokepoints",
+        ],
+    )
+}
+
+const GAP_KEYS: [&str; 4] = [
+    "untested_hotspots",
+    "single_file_communities",
+    "isolated_nodes",
+    "thin_communities",
+];
+
+/// `get_knowledge_gaps_func`.
+fn knowledge_gaps(
+    context: &Context,
+    request: &Request,
+    answerability: &Answerability,
+    gaps: Value,
+    include_tests: bool,
+) -> Ordered {
+    let meta = gaps["_meta"].clone();
+    let raw = &meta["raw_counts"];
+    let counts = |g: &Value| -> Value {
+        Value::Object(
+            GAP_KEYS
+                .iter()
+                .map(|k| (k.to_string(), json!(g[*k].as_array().map_or(0, Vec::len))))
+                .collect(),
+        )
+    };
+    let raw_counts: Value = Value::Object(
+        GAP_KEYS
+            .iter()
+            .map(|k| (k.to_string(), raw[*k].clone()))
+            .collect(),
+    );
+    let total: i64 = GAP_KEYS.iter().map(|k| raw[*k].as_i64().unwrap_or(0)).sum();
+    let before = counts(&gaps);
+    let guidance = guidance_item(
+        format!("Found {total} knowledge-gap signal(s) across four structural categories."),
+        json!({"type": "computed", "gap_counts": before, "thresholds": meta["thresholds"]}),
+        if total > 0 { "medium" } else { "low" },
+        vec![
+            json!({"reason_code": "knowledge_gap_is_review_lead", "severity": "low", "claim_effect": "gaps highlight review targets, not automatic defects"}),
+        ],
+        "refactor_tool mode=\"dead_code\" -- cross-check unused symbols",
+        vec![json!("knowledge_gaps")],
+        json!({"total_gaps": total}),
+    );
+    let out = analysis_response(
+        context,
+        answerability,
+        format!("Found {total} knowledge gaps across 4 categories."),
+        vec![
+            ("gaps", gaps.clone()),
+            ("total_gaps", json!(total)),
+            ("gap_counts", before.clone()),
+            ("raw_gap_counts", raw_counts),
+            ("thresholds", meta["thresholds"].clone()),
+            ("degree_distribution", meta["degree_distribution"].clone()),
+            ("artifact_scope", json!(request.artifact_scope)),
+            ("include_tests", json!(include_tests)),
+            ("scoped_counts", meta["scoped_counts"].clone()),
+            (
+                "truncated",
+                json!(meta["truncated"].as_bool().unwrap_or(false)),
+            ),
+        ],
+        guidance,
+        &[
+            "refactor dead_code -- find unused symbols",
+            "architecture_analysis_tool mode=\"hubs\" -- find high-impact nodes",
+            "get_suggested_questions -- review prompts",
+        ],
+    );
+    // `apply_output_budget(payload["gaps"], 4000, ...)`.
+    let entries = gaps
+        .as_object()
+        .into_iter()
+        .flatten()
+        .fold(Ordered::default(), |o, (k, v)| o.put(k, v.clone()));
+    let trimmed = entries
+        .apply_output_budget(
+            4000,
+            &[
+                "isolated_nodes",
+                "single_file_communities",
+                "thin_communities",
+                "untested_hotspots",
+            ],
+        )
+        .value();
+    let after = counts(&trimmed);
+    let mut out = out.replace("gaps", trimmed.clone());
+    if trimmed.get("truncated").and_then(Value::as_bool) == Some(true) {
+        out = out
+            .set("truncated", json!(true))
+            .set(
+                "budget_truncation",
+                trimmed.get("_truncation").cloned().unwrap_or(json!({})),
+            )
+            .replace("gap_counts", after);
+    } else if after != before {
+        out = out
+            .set("truncated", json!(true))
+            .replace("gap_counts", after);
+    }
+    out
 }

@@ -618,6 +618,11 @@ pub(crate) fn is_test_file(file_path: &str) -> bool {
     test_file_re().is_match(file_path)
 }
 
+/// `matches_entry_name(node) or has_framework_decorator(node)`.
+pub fn is_conventional_entry_point(node: &GraphNode) -> bool {
+    matches_entry_name(&node.name) || has_framework_decorator(node)
+}
+
 fn is_entry_point(node: &GraphNode, is_called: bool) -> bool {
     if !is_called {
         return true;

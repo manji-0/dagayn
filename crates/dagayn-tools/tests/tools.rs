@@ -794,9 +794,24 @@ fn architecture_metrics_follow_the_requested_view() {
     assert_eq!(sap["inapplicable_visibility"], "included_in_metrics");
     let sap_v = arch(json!({"mode": "sap_violations", "min_distance": 0.0}));
     assert!(sap_v["violations"].is_array());
+    let hubs = arch(json!({"mode": "hubs", "artifact_scope": "all"}));
+    assert_eq!(hubs["called_subtool"], "get_hub_nodes_func");
+    assert!(hubs["hub_nodes"].as_array().is_some_and(|h| !h.is_empty()));
+    assert_eq!(hubs["include_tests"], true);
+    let bridges = arch(json!({"mode": "bridges", "top_n": 1}));
+    assert!(
+        bridges["bridge_nodes"]
+            .as_array()
+            .is_some_and(|b| b.len() <= 1)
+    );
+    let gaps = arch(json!({"mode": "knowledge_gaps"}));
+    assert!(gaps["gaps"]["_meta"]["thresholds"].is_object());
+    assert_eq!(gaps["_hints"]["next_steps"][0]["tool"], "refactor_tool");
+    let surprising = arch(json!({"mode": "surprising_connections", "artifact_scope": "all"}));
+    assert!(surprising["surprising_connections"].is_array());
     for arguments in [
         json!({}),
-        json!({"mode": "hubs"}),
+        json!({"mode": "communities"}),
         json!({"mode": "sdp_violations", "min_delta": 0.00001}),
         json!({"mode": "adp_violations", "dependency_profile": "bogus"}),
         json!({"mode": "sap_metrics", "unit_filter": "pkg"}),

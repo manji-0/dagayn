@@ -625,6 +625,7 @@ mod edge_lookups;
 mod edge_queries;
 mod embeddings;
 mod flow_trace;
+pub use flow_trace::is_conventional_entry_point;
 mod flows;
 mod fts_sync;
 mod helpers;
