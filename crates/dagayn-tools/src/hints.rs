@@ -137,9 +137,45 @@ pub fn infer_intent(session: &SessionState) -> &'static str {
     if best.1 == 0 { "exploring" } else { best.0 }
 }
 
-/// `_WORKFLOW`, for the tool names the Rust tools report.
+/// `_WORKFLOW`, generated from `dagayn.hints` (a test compares the two).
 fn workflow(tool_name: &str) -> &'static [(&'static str, &'static str)] {
     match tool_name {
+        "flow" => &[
+            ("flow_tool", "Drill into a specific flow with mode=\"get\""),
+            (
+                "review_tool",
+                "Check changed-file flow impact with mode=\"affected_flows\"",
+            ),
+            (
+                "architecture_analysis_tool",
+                "See the high-level architecture with mode=\"overview\"",
+            ),
+        ],
+        "list_flows" => &[
+            ("flow_tool", "Use the public dispatcher with mode=\"get\""),
+            (
+                "review_tool",
+                "Check changed-file flow impact with mode=\"affected_flows\"",
+            ),
+            (
+                "architecture_analysis_tool",
+                "See the high-level architecture with mode=\"overview\"",
+            ),
+        ],
+        "get_flow" => &[
+            (
+                "query_graph_tool",
+                "Inspect callers/callees of a step in this flow",
+            ),
+            (
+                "review_tool",
+                "Check changed-file flow impact with mode=\"affected_flows\"",
+            ),
+            (
+                "flow_tool",
+                "Browse other execution flows with mode=\"list\"",
+            ),
+        ],
         "get_affected_flows" => &[
             (
                 "review_tool",
@@ -154,6 +190,60 @@ fn workflow(tool_name: &str) -> &'static [(&'static str, &'static str)] {
                 "Build full review context with mode=\"context\"",
             ),
         ],
+        "list_communities" => &[
+            (
+                "architecture_analysis_tool",
+                "Inspect a specific community with mode=\"community\"",
+            ),
+            (
+                "architecture_analysis_tool",
+                "See cross-community coupling with mode=\"overview\"",
+            ),
+            ("flow_tool", "See execution flows across communities"),
+        ],
+        "get_community" => &[
+            (
+                "query_graph_tool",
+                "Explore callers/callees of community members",
+            ),
+            (
+                "architecture_analysis_tool",
+                "Browse other communities with mode=\"communities\"",
+            ),
+            (
+                "architecture_analysis_tool",
+                "See how this community fits the architecture with mode=\"overview\"",
+            ),
+        ],
+        "architecture_analysis" => &[
+            (
+                "architecture_analysis_tool",
+                "Drill into communities with mode=\"communities\" or mode=\"community\"",
+            ),
+            (
+                "query_graph_tool",
+                "Trace callers/callees between coupled communities (pattern=callers_of)",
+            ),
+            (
+                "review_tool",
+                "See how recent changes affect the architecture",
+            ),
+            ("flow_tool", "Explore execution flows"),
+        ],
+        "get_architecture_overview" => &[
+            (
+                "architecture_analysis_tool",
+                "Use the public dispatcher with mode=\"overview\"",
+            ),
+            (
+                "query_graph_tool",
+                "Trace callers/callees between coupled communities (pattern=callers_of)",
+            ),
+            (
+                "review_tool",
+                "See how recent changes affect the architecture",
+            ),
+        ],
         "review" => &[
             (
                 "review_tool",
@@ -165,6 +255,40 @@ fn workflow(tool_name: &str) -> &'static [(&'static str, &'static str)] {
             ),
             ("review_tool", "Expand blast radius with mode=\"impact\""),
             ("flow_tool", "Inspect a specific flow with mode=\"get\""),
+        ],
+        "detect_changes" => &[
+            (
+                "review_tool",
+                "Build full review context with mode=\"context\"",
+            ),
+            (
+                "review_tool",
+                "See affected execution flows with mode=\"affected_flows\"",
+            ),
+            ("review_tool", "Expand blast radius with mode=\"impact\""),
+            (
+                "refactor_tool",
+                "Look for refactoring opportunities in changed code",
+            ),
+        ],
+        "refactor" => &[
+            (
+                "query_graph_tool",
+                "Verify call sites before applying a rename",
+            ),
+            ("review_tool", "Check risk of the refactored code"),
+            (
+                "semantic_search_nodes_tool",
+                "Find related symbols to also rename",
+            ),
+        ],
+        "semantic_search_nodes" => &[
+            (
+                "query_graph_tool",
+                "Inspect callers/callees of a search result",
+            ),
+            ("flow_tool", "See the execution flow through a matched node"),
+            ("review_tool", "Check the blast radius from matched nodes"),
         ],
         _ => &[],
     }

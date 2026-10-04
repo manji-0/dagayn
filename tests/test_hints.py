@@ -260,3 +260,17 @@ class TestRustSession:
             finally:
                 set_active_tool_surface(None)
         reset_session()
+
+    def test_every_workflow_tool_matches_python(self):
+        """Each tool's next steps come from the same table on both sides."""
+        import json
+
+        from dagayn._core import HintSession
+        from dagayn.hints import _WORKFLOW
+
+        for tool in [*_WORKFLOW, "no_such_tool"]:
+            reset_session()
+            rust = HintSession()
+            native = json.loads(rust.generate_hints(tool, "{}", None))
+            assert native == generate_hints(tool, {}, SessionState()), tool
+        reset_session()
