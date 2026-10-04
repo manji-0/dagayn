@@ -28,7 +28,8 @@ All notable changes to `dagayn` are documented here.
   `query_graph_tool` pattern but `tests_for`, at any depth and detail
   level), and so is
   `semantic_search_nodes_tool` on a graph without embeddings when no
-  embedding provider is configured.
+  embedding provider is configured, and `review_tool`
+  `mode="affected_flows"` in a git checkout.
 - The installed `dagayn` command now runs `build`, `update`, and `status` in
   the Rust CLI, compiled into `dagayn._core` (no second binary in the
   wheel). Every other command, `--help`, `--version`, and any flag or
