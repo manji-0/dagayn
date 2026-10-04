@@ -809,9 +809,21 @@ fn architecture_metrics_follow_the_requested_view() {
     assert_eq!(gaps["_hints"]["next_steps"][0]["tool"], "refactor_tool");
     let surprising = arch(json!({"mode": "surprising_connections", "artifact_scope": "all"}));
     assert!(surprising["surprising_connections"].is_array());
+    let overview = arch(json!({}));
+    assert_eq!(overview["called_subtool"], "get_architecture_overview_func");
+    assert_eq!(overview["architecture_health"]["status"], "ok");
+    assert!(overview["stable_component_policy"]["counts"].is_object());
+    let communities = arch(json!({"mode": "communities", "detail_level": "standard"}));
+    assert_eq!(communities["called_subtool"], "list_communities_func");
+    assert!(communities["answerability"].is_object());
+    let first = communities["communities"][0]["id"].clone();
+    let community =
+        arch(json!({"mode": "community", "community_id": first, "include_members": true}));
+    assert!(community["community"]["member_details"].is_array());
+    let missing = arch(json!({"mode": "community", "community_name": "zz-none"}));
+    assert_eq!(missing["status"], "not_found");
     for arguments in [
-        json!({}),
-        json!({"mode": "communities"}),
+        json!({"mode": "community"}),
         json!({"mode": "sdp_violations", "min_delta": 0.00001}),
         json!({"mode": "adp_violations", "dependency_profile": "bogus"}),
         json!({"mode": "sap_metrics", "unit_filter": "pkg"}),

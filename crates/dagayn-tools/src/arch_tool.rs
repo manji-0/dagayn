@@ -82,6 +82,11 @@ fn py_prefix(items: &[Value], limit: i64) -> Vec<Value> {
 /// accept them.
 struct Request<'a> {
     mode: &'a str,
+    sort_by: &'a str,
+    min_size: i64,
+    community_name: Option<&'a str>,
+    community_id: Option<i64>,
+    include_members: bool,
     detail_level: &'a str,
     top_n: i64,
     granularity: &'a str,
@@ -123,22 +128,22 @@ impl<'a> Request<'a> {
             ),
             Some(_) => return None,
         };
-        // Arguments the analysis modes ignore still pass fastmcp's checks.
-        literal("sort_by", "size", &["size", "cohesion", "name"])?;
-        args.integer("min_size", 0)?;
-        args.optional_string("community_name")?;
-        match arguments.get("community_id") {
-            None | Some(Value::Null) => {}
-            Some(value) if value.is_i64() => {}
+        let community_id = match arguments.get("community_id") {
+            None | Some(Value::Null) => None,
+            Some(value) if value.is_i64() => value.as_i64(),
             Some(_) => return None,
-        }
-        if !matches!(
-            arguments.get("include_members"),
-            None | Some(Value::Bool(_))
-        ) {
-            return None;
-        }
+        };
+        let include_members = match arguments.get("include_members") {
+            None => false,
+            Some(Value::Bool(flag)) => *flag,
+            Some(_) => return None,
+        };
         Some(Self {
+            sort_by: literal("sort_by", "size", &["size", "cohesion", "name"])?,
+            min_size: args.integer("min_size", 0)?,
+            community_name: args.optional_string("community_name")?,
+            community_id,
+            include_members,
             mode: literal("mode", "overview", MODES)?,
             detail_level: literal(
                 "detail_level",
@@ -171,7 +176,11 @@ impl<'a> Request<'a> {
 pub(crate) fn architecture(context: &Context, arguments: &Map<String, Value>) -> Option<Payload> {
     let args = Args::new(arguments, DECLARED)?;
     let request = Request::parse(&args, arguments)?;
-    if matches!(request.mode, "overview" | "communities" | "community") {
+    // `require_selector`'s error is Python's.
+    if request.mode == "community"
+        && request.community_id.is_none()
+        && request.community_name.is_none_or(str::is_empty)
+    {
         return None;
     }
     let runtime = context.runtime.clone()?;
@@ -223,7 +232,49 @@ pub(crate) fn architecture(context: &Context, arguments: &Map<String, Value>) ->
             ),
         })
     };
+    let exposed = |tool: &str| {
+        context
+            .allowed_tools
+            .as_ref()
+            .is_none_or(|allowed| allowed.contains(tool))
+    };
     let (subtool, out, trailing) = match request.mode {
+        "overview" => (
+            "get_architecture_overview_func",
+            crate::community::overview(
+                &graph.store,
+                &answerability,
+                &exposed,
+                request.detail_level,
+                request.top_n,
+                request.artifact_scope,
+                artifact,
+            )?,
+            false,
+        ),
+        "communities" => (
+            "list_communities_func",
+            crate::community::list_communities(
+                &graph.store,
+                &exposed,
+                request.sort_by,
+                request.min_size,
+                request.detail_level,
+                request.top_n,
+            )?,
+            true,
+        ),
+        "community" => (
+            "get_community_func",
+            crate::community::get_community(
+                &graph.store,
+                &exposed,
+                request.community_name,
+                request.community_id,
+                request.include_members,
+            )?,
+            true,
+        ),
         "adp_violations" => (
             "detect_adp_violations_func",
             adp(
@@ -300,12 +351,6 @@ pub(crate) fn architecture(context: &Context, arguments: &Map<String, Value>) ->
         ]
     } else {
         Vec::new()
-    };
-    let exposed = |tool: &str| {
-        context
-            .allowed_tools
-            .as_ref()
-            .is_none_or(|allowed| allowed.contains(tool))
     };
     Some(seal_dispatch(
         out,

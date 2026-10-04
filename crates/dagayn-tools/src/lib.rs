@@ -11,6 +11,7 @@ mod answerability;
 mod arch_tool;
 mod architecture;
 mod changes;
+mod community;
 mod context;
 mod coverage;
 mod docs;

@@ -559,7 +559,16 @@ of isolated nodes, community edge shapes, and the gaps' own output budget;
 and the surprise scores. 80 calls on this repository's graph and 80 on a
 larger copy match fastmcp's, 77 and 78 answered in Rust.
 
-Next: `communities`, `community`, and `overview`, then `refactor_tool`.
+Seventeenth slice (done): `communities`, `community`, and `overview`, so
+every `architecture_analysis_tool` mode is answered in Rust. The overview
+composes the community coupling (`Counter.most_common` order), the
+health summary over every earlier analysis at the bounded `top_n`, and the
+stable-component policy summary, then trims to its output budget. 101
+calls on this repository's graph and 101 on a larger copy match fastmcp's,
+98 and 99 answered in Rust; the only difference is the Python-only ADP
+truncation filed as #179.
+
+Next: `refactor_tool`.
 
 ### 5.4 Remaining Python surfaces
 

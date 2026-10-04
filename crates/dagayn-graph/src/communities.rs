@@ -355,3 +355,31 @@ impl GraphStore {
             .map_err(Into::into)
     }
 }
+
+impl GraphStore {
+    /// `list_communities_func`'s minimal rows: name, size, and cohesion of
+    /// each community at least `min_size`, as its own query orders them.
+    pub fn community_summaries(
+        &self,
+        sort_by: &str,
+        min_size: i64,
+    ) -> Result<Vec<(String, i64, f64)>> {
+        let sort = match sort_by {
+            "cohesion" => "cohesion DESC",
+            "name" => "name ASC",
+            _ => "size DESC",
+        };
+        let sql =
+            format!("SELECT name, size, cohesion FROM communities WHERE size >= ? ORDER BY {sort}");
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map([min_size], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, f64>(2)?,
+            ))
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+}

@@ -88,7 +88,7 @@ fn stability_thresholds() -> Value {
 }
 
 /// `component_stability_profiles`.
-fn stability_profiles(graph: &ScopeGraph, sap: &[Value]) -> HashMap<String, Value> {
+pub(crate) fn stability_profiles(graph: &ScopeGraph, sap: &[Value]) -> HashMap<String, Value> {
     let mut profiles: HashMap<String, Value> = HashMap::new();
     for (scope, ca, ce, instability) in graph.sdp_metrics() {
         let mut reasons: Vec<&str> = Vec::new();
