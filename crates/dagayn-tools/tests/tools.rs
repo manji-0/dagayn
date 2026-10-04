@@ -1071,3 +1071,54 @@ fn wiki_pages_are_read_by_slug_or_exact_name() {
         json!({"community_name": "認証"})
     ));
 }
+
+#[test]
+fn a_rename_preview_is_applied_or_shown_as_a_diff() {
+    let repo = Repo::new("apply", true);
+    repo.build();
+    let context = repo.context();
+    let rename = |old: &str, new: &str| {
+        answer(
+            &context,
+            "refactor_tool",
+            json!({"mode": "rename", "old_name": old, "new_name": new}),
+        )["refactor_id"]
+            .as_str()
+            .expect("refactor_id")
+            .to_string()
+    };
+    let id = rename("helper", "assist");
+    let dry = answer(
+        &context,
+        "apply_refactor_tool",
+        json!({"refactor_id": id, "dry_run": true}),
+    );
+    assert_eq!(dry["status"], "ok");
+    assert_eq!(dry["would_modify"], json!(["app.py"]));
+    let diff = dry["diffs"]["app.py"].as_str().expect("diff");
+    assert!(
+        diff.starts_with("--- a/app.py\n+++ b/app.py\n@@ -1,6 +1,6 @@\n"),
+        "{diff}"
+    );
+    assert!(diff.contains("-def helper():\n+def assist():\n"), "{diff}");
+
+    let applied = answer(&context, "apply_refactor_tool", json!({"refactor_id": id}));
+    assert_eq!(applied["status"], "ok");
+    assert_eq!(applied["edits_applied"], 2);
+    let source = std::fs::read_to_string(repo.0.join("app.py")).expect("app.py");
+    assert!(source.contains("return assist()") && source.contains("def assist():"));
+    let gone = answer(&context, "apply_refactor_tool", json!({"refactor_id": id}));
+    assert_eq!(
+        gone["error"],
+        format!("Refactor '{id}' not found or expired.")
+    );
+
+    // Bytes Python would replace while rewriting the file are its call.
+    let id = rename("main", "start");
+    std::fs::write(repo.0.join("app.py"), b"def main():\n    return '\xff'\n").expect("write");
+    assert!(declines(
+        &context,
+        "apply_refactor_tool",
+        json!({"refactor_id": id, "dry_run": true})
+    ));
+}

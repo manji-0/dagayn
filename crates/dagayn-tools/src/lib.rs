@@ -8,6 +8,7 @@
 
 mod analysis;
 mod answerability;
+mod apply;
 mod arch_tool;
 mod architecture;
 mod changes;
@@ -15,6 +16,7 @@ mod community;
 mod context;
 mod coverage;
 mod dead_code;
+mod difflib;
 mod docs;
 mod ensure;
 mod flow;
@@ -90,6 +92,7 @@ pub fn call(context: &Context, name: &str, arguments: &Value) -> Option<Payload>
         "get_suggested_questions_tool" => questions::suggested_questions(context, arguments),
         "get_wiki_page_tool" => docs::get_wiki_page(context, arguments),
         "list_repos_tool" => repos::list_repos(context, arguments),
+        "apply_refactor_tool" => apply::apply_refactor(context, arguments),
         _ => None,
     }
 }

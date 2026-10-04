@@ -32,8 +32,9 @@ All notable changes to `dagayn` are documented here.
   `mode="changes"` (`standard` and `minimal`), `mode="context"`,
   `mode="affected_flows"`, and `mode="impact"` in a git checkout,
   `flow_tool`, every `architecture_analysis_tool` mode, and every
-  `refactor_tool` mode (a `rename` previewed in Rust is applied by
-  `apply_refactor_tool` as before), and `ensure_graph_tool` when the graph
+  `refactor_tool` mode and `apply_refactor_tool` (a preview either side
+  makes is applied by either side, and a dry run's diff is Python
+  `difflib`'s byte for byte), and `ensure_graph_tool` when the graph
   is already ready (building, updating, seeding, and embedding stay
   Python's); on the full surface (`--tools all`), `find_large_functions_tool`,
   `get_suggested_questions_tool`, `get_wiki_page_tool`, `list_repos_tool`,

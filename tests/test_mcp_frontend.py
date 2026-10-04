@@ -657,8 +657,9 @@ def test_refactor_dead_code_and_suggest_answer_in_rust_as_python_does(git_repo: 
     assert "orphan" in names
 
 
-def test_rename_previewed_in_rust_is_applied_by_python(git_repo: Path) -> None:
-    """The preview lands in the pending store both sides share."""
+def test_rename_previewed_in_rust_is_applied_by_either_side(git_repo: Path) -> None:
+    """The preview lands in the pending store both sides share: a dry run
+    fastmcp has to coerce is Python's, the write is Rust's."""
     session = Session(git_repo)
     session.open()
     session.send(
@@ -674,7 +675,7 @@ def test_rename_previewed_in_rust_is_applied_by_python(git_repo: Path) -> None:
     preview = session.read()["result"]["structuredContent"]
     assert preview["status"] == "ok"
     refactor_id = preview["refactor_id"]
-    for request_id, dry_run in ((2, True), (3, False)):
+    for request_id, dry_run in ((2, "true"), (3, False)):
         session.send(
             {
                 "id": request_id,
@@ -687,10 +688,71 @@ def test_rename_previewed_in_rust_is_applied_by_python(git_repo: Path) -> None:
         )
         applied = session.read()["result"]["structuredContent"]
         assert applied["status"] == "ok", applied
+        if request_id == 2:
+            assert "+def assist():" in applied["diffs"]["app.py"]
     status, _, stderr = session.close()
     assert status == 0
     assert REFACTOR_TRACE in stderr
+    assert stderr.count(APPLY_TRACE) == 1
+    assert BOOT_TRACE in stderr
     assert "def assist():" in (git_repo / "app.py").read_text()
+
+
+APPLY_TRACE = "answered apply_refactor_tool in Rust"
+
+
+def test_apply_dry_run_answers_in_rust_as_python_does(git_repo: Path) -> None:
+    (git_repo / "app.py").write_text(
+        "def main():\n    return helper()\n\n\n"
+        + "".join(f"# filler {i}\n" for i in range(12))
+        + "def helper():\n    return 'helper'  # helper\n"
+    )
+    subprocess.run(
+        [DAGAYN, "build", "--repo", git_repo], env=_env(), check=True, capture_output=True
+    )
+    sides = []
+    for env in ({}, {"DAGAYN_PYTHON_CLI": "1"}):
+        session = Session(git_repo, **env)
+        session.open()
+        session.send(
+            {
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "refactor_tool",
+                    "arguments": {"mode": "rename", "old_name": "helper", "new_name": "assist"},
+                },
+            }
+        )
+        refactor_id = session.read()["result"]["structuredContent"]["refactor_id"]
+        results = []
+        for request_id, arguments in enumerate(
+            (
+                {"refactor_id": refactor_id, "dry_run": True},
+                {"refactor_id": "00000000", "dry_run": True},
+                {"refactor_id": "00000000"},
+            ),
+            2,
+        ):
+            session.send(
+                {
+                    "id": request_id,
+                    "method": "tools/call",
+                    "params": {"name": "apply_refactor_tool", "arguments": arguments},
+                }
+            )
+            results.append(session.read()["result"]["structuredContent"])
+        status, _, stderr = session.close()
+        assert status == 0
+        if not env:
+            assert stderr.count(APPLY_TRACE) == 3
+        sides.append(results)
+    assert sides[0] == sides[1]
+    diff = sides[0][0]["diffs"]["app.py"]
+    assert diff.startswith("--- a/app.py\n+++ b/app.py\n@@ -1,5 +1,5 @@\n")
+    # The call and the definition are 15 lines apart: two hunks.
+    assert diff.count("\n@@ ") == 2, diff
+    assert "+def assist():\n" in diff
 
 
 ENSURE_TRACE = "answered ensure_graph_tool in Rust"

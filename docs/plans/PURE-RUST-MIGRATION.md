@@ -619,7 +619,19 @@ the keyword arm's top hit, under the same gate as
 `semantic_search_nodes_tool`). Every call compared here, on a larger copy, and
 on a fresh checkout matches fastmcp's.
 
-Next: the tools that write (`apply_refactor_tool`, `generate_wiki_tool`,
+Twenty-second slice (done): `apply_refactor_tool`, reading the preview
+from the shared pending store. Edits are applied at their recorded line to
+whole identifiers outside single-line strings, files are read with
+universal newlines and split as `str.splitlines` splits them, and a dry run
+returns `difflib.unified_diff` as CPython 3.14 computes it (`difflib` in
+`dagayn-tools` ports `SequenceMatcher` with its popular-element
+heuristic; 3000 random line sequences, up to 450 lines, match Python's
+output). Every file is read before any is written; a file that is not UTF-8
+or an edit path that does not exist yet stays Python's. Applying a Rust or a
+Python preview here, dry and for real on two copies of a checkout, gives the
+same replies and the same trees.
+
+Next: the tools that write (`generate_wiki_tool`,
 `build_or_update_graph_tool`, `run_postprocess_tool`, `embed_graph_tool`) and
 `cross_repo_search_tool`, then the Python server's remaining role.
 
