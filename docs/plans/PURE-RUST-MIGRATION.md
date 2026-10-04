@@ -715,6 +715,13 @@ and scores.
 limit and a step budget. A truncated list is the same prefix on every run
 (#179), and the front end answers it instead of leaving it to Python.
 
+Acceptance criterion 1, for the front end (done): `tests/test_mcp_snapshots.py`
+runs the tool and protocol snapshots against fastmcp's server and against
+`dagayn serve`, whose Rust front end answers most of those cases itself (32 of
+the 36 on `python_only` and `mixed`), so every native answer on the nine
+fixtures is held to the committed snapshots in CI. `run_postprocess_tool`
+joined the cases, after the reads.
+
 Next: the remaining tools that write (`generate_wiki_tool`,
 `build_or_update_graph_tool`, `run_postprocess_tool`, `embed_graph_tool`) and
 `cross_repo_search_tool`, then the Python server's remaining role.

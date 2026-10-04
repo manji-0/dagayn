@@ -64,6 +64,11 @@ _COMMON_CASES: list[tuple[str, str, dict[str, Any]]] = [
     ("large_functions", "find_large_functions_tool", {"min_lines": 1}),
 ]
 
+#: Run after every other case: they rewrite what the reads above see.
+_WRITE_CASES: list[tuple[str, str, dict[str, Any]]] = [
+    ("postprocess", "run_postprocess_tool", {}),
+]
+
 FIXTURE_CASES: dict[str, list[tuple[str, str, dict[str, Any]]]] = {
     "python_only": [
         ("callers_of", "query_graph_tool", {"pattern": "callers_of", "target": "create_user"}),
@@ -634,7 +639,7 @@ def snapshot_protocol() -> str:
 
 
 def fixture_cases(name: str) -> list[tuple[str, str, dict[str, Any]]]:
-    return [*_COMMON_CASES, *FIXTURE_CASES[name]]
+    return [*_COMMON_CASES, *FIXTURE_CASES[name], *_WRITE_CASES]
 
 
 def _graph_metadata(db_path: Path) -> dict[str, str]:

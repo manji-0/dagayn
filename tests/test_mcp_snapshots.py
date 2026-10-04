@@ -4,6 +4,10 @@ Each parity fixture is built with the CLI and queried through ``dagayn serve``
 over stdio; payloads must match ``tests/fixtures/parity/__mcp_snapshots__/``.
 Set ``DAGAYN_CLI_CMD`` and ``DAGAYN_MCP_SERVER_CMD`` to run the same checks
 against another implementation. See ``tools/mcp_snapshot.py``.
+
+The tool and protocol checks run twice: against fastmcp's own server and
+against the ``dagayn serve`` front end, which answers what it can in Rust and
+relays the rest, so every native answer is held to the same snapshots.
 """
 
 from __future__ import annotations
@@ -18,9 +22,24 @@ import mcp_snapshot  # noqa: E402
 
 REGENERATE = "uv run python tools/mcp_snapshot.py --regenerate"
 
+#: The installed ``dagayn`` command, whose ``serve`` is the Rust front end.
+_DAGAYN = Path(sys.executable).with_name("dagayn")
+
+
+@pytest.fixture(params=["python", "front_end"])
+def server(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Which server answers: fastmcp alone, or the Rust front end before it."""
+    if request.param == "front_end":
+        if not _DAGAYN.exists():
+            pytest.skip("the dagayn command is not installed next to this interpreter")  # ty: ignore[too-many-positional-arguments]
+        monkeypatch.setenv("DAGAYN_MCP_SERVER_CMD", f"{_DAGAYN} serve")
+    else:
+        monkeypatch.delenv("DAGAYN_MCP_SERVER_CMD", raising=False)
+    return str(request.param)
+
 
 @pytest.mark.parametrize("name", sorted(mcp_snapshot.FIXTURE_CASES))
-def test_tool_responses_match_snapshots(name: str) -> None:
+def test_tool_responses_match_snapshots(name: str, server: str) -> None:
     snapshot_dir = mcp_snapshot.SNAPSHOT_DIR / name
     if not snapshot_dir.is_dir():
         pytest.skip(f"No snapshots for '{name}'. Run:\n  {REGENERATE} {name}")  # ty: ignore[too-many-positional-arguments]
@@ -44,7 +63,7 @@ def test_tool_and_prompt_listing_matches_snapshot() -> None:
     )
 
 
-def test_protocol_replies_match_snapshot() -> None:
+def test_protocol_replies_match_snapshot(server: str) -> None:
     path = mcp_snapshot.SNAPSHOT_DIR / "protocol.json"
     if not path.exists():
         pytest.skip(f"No protocol snapshot. Run:\n  {REGENERATE}")  # ty: ignore[too-many-positional-arguments]

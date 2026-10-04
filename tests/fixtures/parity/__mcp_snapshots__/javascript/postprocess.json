@@ -1,0 +1,14 @@
+{
+  "_repo": {
+    "db_path": "<VOLATILE>",
+    "repo_root": "<REPO>",
+    "source": "explicit"
+  },
+  "communities_detected": 5,
+  "flows_detected": 5,
+  "fts_indexed": 25,
+  "signatures_updated": true,
+  "status": "ok",
+  "summary": "Post-processing complete.",
+  "warnings": []
+}
