@@ -446,14 +446,15 @@ impl ConfidenceTier {
 pub type EdgeEndpointMap = HashMap<String, Vec<GraphEdge>>;
 type ChangedRanges = HashMap<String, Vec<(i64, i64)>>;
 
-struct ChangeRiskInputs<'a> {
-    node: &'a GraphNode,
-    inbound_edges: &'a [GraphEdge],
-    flow_criticalities: &'a [f64],
-    flow_count: i64,
-    node_community_id: Option<i64>,
-    caller_community_ids: &'a HashMap<String, Option<i64>>,
-    transitive_test_count: i64,
+/// `compute_risk_score`'s prefetched inputs for one changed node.
+pub struct ChangeRiskInputs<'a> {
+    pub node: &'a GraphNode,
+    pub inbound_edges: &'a [GraphEdge],
+    pub flow_criticalities: &'a [f64],
+    pub flow_count: i64,
+    pub node_community_id: Option<i64>,
+    pub caller_community_ids: &'a HashMap<String, Option<i64>>,
+    pub transitive_test_count: i64,
 }
 #[derive(Clone, Debug)]
 pub struct GraphStats {

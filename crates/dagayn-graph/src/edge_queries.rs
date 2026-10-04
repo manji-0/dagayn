@@ -46,7 +46,11 @@ impl GraphStore {
             .iter()
             .map(|qn| (qn.clone(), HashSet::new()))
             .collect::<HashMap<_, _>>();
-        let keys = keys.into_iter().collect::<Vec<_>>();
+        // Sorted: an edge is found through whichever chunk holds its source or
+        // target first, so a set's order would reorder each endpoint's edges
+        // from run to run once there is more than one chunk.
+        let mut keys = keys.into_iter().collect::<Vec<_>>();
+        keys.sort();
         for chunk in keys.chunks(225) {
             let placeholders = std::iter::repeat_n("?", chunk.len())
                 .collect::<Vec<_>>()

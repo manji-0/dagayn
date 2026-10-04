@@ -92,7 +92,8 @@ impl GraphStore {
         Ok(out)
     }
 
-    pub(crate) fn compute_change_risk_score(&self, inputs: ChangeRiskInputs<'_>) -> Result<f64> {
+    /// `dagayn.changes.compute_risk_score` with its inputs prefetched.
+    pub fn compute_change_risk_score(&self, inputs: ChangeRiskInputs<'_>) -> Result<f64> {
         let mut score = 0.0_f64;
 
         if inputs.flow_criticalities.is_empty() {
@@ -107,12 +108,17 @@ impl GraphStore {
             .filter(|edge| edge.kind == "CALLS")
             .collect::<Vec<_>>();
         if let Some(node_cid) = inputs.node_community_id {
-            let cross_community = caller_edges
+            // One count per caller, as Python's `{qn: cid}` map keeps it.
+            let callers: HashSet<&str> = caller_edges
                 .iter()
-                .filter(|edge| {
+                .map(|edge| edge.source_qualified.as_str())
+                .collect();
+            let cross_community = callers
+                .into_iter()
+                .filter(|caller| {
                     inputs
                         .caller_community_ids
-                        .get(&edge.source_qualified)
+                        .get(*caller)
                         .and_then(|cid| *cid)
                         .is_some_and(|cid| cid != node_cid)
                 })
@@ -127,6 +133,8 @@ impl GraphStore {
         }
 
         score += (caller_edges.len() as f64 / 20.0).min(0.10);
-        Ok((score.clamp(0.0, 1.0) * 10_000.0).round() / 10_000.0)
+        // Python's `round(score, 4)`: correctly rounded, as formatting is.
+        let clamped = score.clamp(0.0, 1.0);
+        Ok(format!("{clamped:.4}").parse().unwrap_or(clamped))
     }
 }
