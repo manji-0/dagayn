@@ -19,6 +19,7 @@ use std::collections::HashMap;
 
 mod from_py;
 mod hints;
+mod pending;
 mod to_py;
 
 use dagayn_build::parse_batch::*;
@@ -1095,6 +1096,11 @@ impl PyGraphStore {
 fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyGraphStore>()?;
     module.add_class::<hints::PyHintSession>()?;
+    module.add_function(wrap_pyfunction!(pending::pending_refactor_set, module)?)?;
+    module.add_function(wrap_pyfunction!(pending::pending_refactor_get, module)?)?;
+    module.add_function(wrap_pyfunction!(pending::pending_refactor_remove, module)?)?;
+    module.add_function(wrap_pyfunction!(pending::pending_refactor_keys, module)?)?;
+    module.add_function(wrap_pyfunction!(pending::pending_refactor_clear, module)?)?;
     module.add_function(wrap_pyfunction!(hints::reset_hint_session, module)?)?;
     module.add_function(wrap_pyfunction!(filter_parseable_files, module)?)?;
     module.add_function(wrap_pyfunction!(filter_ignored_paths, module)?)?;

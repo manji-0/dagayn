@@ -860,9 +860,35 @@ fn refactor_finds_dead_code_and_suggests() {
             .is_some_and(|s| s.iter().any(|x| x["type"] == "remove"))
     );
     assert!(suggest["work_packs"].is_array());
-    assert!(declines(
+    let preview = answer(
         &context,
         "refactor_tool",
-        json!({"mode": "rename", "old_name": "a", "new_name": "b"})
-    ));
+        json!({"mode": "rename", "old_name": "orphan", "new_name": "kept"}),
+    );
+    let id = preview["refactor_id"].as_str().expect("id").to_string();
+    assert_eq!(preview["edits"][0]["source"], "definition");
+    let stored: Value =
+        serde_json::from_str(&dagayn_tools::pending::get(&id).expect("pending")).expect("json");
+    assert_eq!(stored["new_name"], "kept");
+    let bad = answer(
+        &context,
+        "refactor_tool",
+        json!({"mode": "rename", "old_name": "orphan", "new_name": "1x"}),
+    );
+    assert_eq!(bad["status"], "error");
+    let missing = answer(
+        &context,
+        "refactor_tool",
+        json!({"mode": "rename", "old_name": "zz_none_qq", "new_name": "x"}),
+    );
+    assert_eq!(missing["status"], "not_found");
+    for arguments in [
+        json!({"mode": "rename", "old_name": "", "new_name": "b"}),
+        json!({"mode": "rename", "old_name": "a", "new_name": "\u{e9}"}),
+    ] {
+        assert!(
+            declines(&context, "refactor_tool", arguments.clone()),
+            "{arguments}"
+        );
+    }
 }

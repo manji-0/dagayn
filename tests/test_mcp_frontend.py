@@ -649,13 +649,45 @@ def test_refactor_dead_code_and_suggest_answer_in_rust_as_python_does(git_repo: 
         (refactor, {"mode": "dead_code"}),
         (refactor, {"mode": "dead_code", "kind": "Class", "file_pattern": "unused"}),
         (refactor, {"mode": "dead_code", "limit": 0}),
-        # The preview goes to Python's pending store for apply_refactor_tool.
-        (refactor, {"mode": "rename", "old_name": "orphan", "new_name": "orphan2"}),
     ]
     rust, python, stderr = _session_both(git_repo, calls)
-    assert stderr.count(REFACTOR_TRACE) == len(calls) - 1
-    assert [r["structuredContent"] for r in rust[:-1]] == [
-        p["structuredContent"] for p in python[:-1]
-    ]
+    assert stderr.count(REFACTOR_TRACE) == len(calls)
+    assert [r["structuredContent"] for r in rust] == [p["structuredContent"] for p in python]
     names = [d["name"] for d in rust[2]["structuredContent"]["dead_code"]]
     assert "orphan" in names
+
+
+def test_rename_previewed_in_rust_is_applied_by_python(git_repo: Path) -> None:
+    """The preview lands in the pending store both sides share."""
+    session = Session(git_repo)
+    session.open()
+    session.send(
+        {
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "refactor_tool",
+                "arguments": {"mode": "rename", "old_name": "helper", "new_name": "assist"},
+            },
+        }
+    )
+    preview = session.read()["result"]["structuredContent"]
+    assert preview["status"] == "ok"
+    refactor_id = preview["refactor_id"]
+    for request_id, dry_run in ((2, True), (3, False)):
+        session.send(
+            {
+                "id": request_id,
+                "method": "tools/call",
+                "params": {
+                    "name": "apply_refactor_tool",
+                    "arguments": {"refactor_id": refactor_id, "dry_run": dry_run},
+                },
+            }
+        )
+        applied = session.read()["result"]["structuredContent"]
+        assert applied["status"] == "ok", applied
+    status, _, stderr = session.close()
+    assert status == 0
+    assert REFACTOR_TRACE in stderr
+    assert "def assist():" in (git_repo / "app.py").read_text()

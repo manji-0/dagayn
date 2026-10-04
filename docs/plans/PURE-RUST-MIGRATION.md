@@ -581,8 +581,20 @@ graph (1102 suggestions) and on a larger copy match fastmcp's, all
 answered in Rust. `rename` stays Python's: its preview is kept in
 Python's pending store for `apply_refactor_tool`.
 
-Next: `rename` with a pending store both sides share (as the hint session
-is shared), then the maintenance tools.
+Nineteenth slice (done): `refactor_tool` `rename`, so every default tool
+is answered in Rust. The pending refactor store moved into `dagayn-tools`
+(`pending`, JSON text in insertion order), and
+`dagayn.refactor.pending._pending_refactors` is a mapping over it through
+`_core.pending_refactor_*` (a plain dict without the extension), so a
+preview made in Rust is one the Python `apply_refactor_tool` applies. The
+preview's edit sites, import-line checks, identifier check, `not_found`, and
+error replies match fastmcp's; 19 calls here, applying each Rust preview
+with Python's `apply_refactor_tool` in the same session, differ only in the
+random `refactor_id` and timestamp. Non-ASCII names stay Python's, as its
+`\w` and Rust's cover different characters.
+
+Next: the maintenance tools on the full surface (`apply_refactor_tool` and
+the rest), then the Python server's remaining role.
 
 ### 5.4 Remaining Python surfaces
 

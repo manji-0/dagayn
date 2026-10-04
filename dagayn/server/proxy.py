@@ -8,8 +8,8 @@ importing fastmcp or the tools. Calls ``dagayn-tools`` answers in Rust
 (``list_graph_stats_tool``, ``get_docs_section_tool``,
 ``get_minimal_context_tool``, ``query_graph_tool``,
 ``semantic_search_nodes_tool`` without embeddings, every ``review_tool``
-mode, ``flow_tool``, ``architecture_analysis_tool``, and ``refactor_tool``
-but ``rename``) never reach Python; the
+mode, ``flow_tool``, ``architecture_analysis_tool``, and
+``refactor_tool``) never reach Python; the
 first message it does not answer itself boots the fastmcp server of
 :mod:`dagayn.server.main` in this process on a pipe pair
 (:func:`dagayn.server.main.serve_on_fds`) and relays the session to it.

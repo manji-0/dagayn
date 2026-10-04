@@ -31,8 +31,9 @@ All notable changes to `dagayn` are documented here.
   embedding provider is configured, and `review_tool`
   `mode="changes"` (`standard` and `minimal`), `mode="context"`,
   `mode="affected_flows"`, and `mode="impact"` in a git checkout,
-  `flow_tool`, every `architecture_analysis_tool` mode, and
-  `refactor_tool`'s `suggest` and `dead_code`; a `changes` review takes 2.0 s and
+  `flow_tool`, every `architecture_analysis_tool` mode, and every
+  `refactor_tool` mode (a `rename` previewed in Rust is applied by
+  `apply_refactor_tool` as before); a `changes` review takes 2.0 s and
   410 MB instead of 9.8 s and 772 MB here.
 - The installed `dagayn` command now runs `build`, `update`, and `status` in
   the Rust CLI, compiled into `dagayn._core` (no second binary in the

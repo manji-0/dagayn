@@ -18,6 +18,7 @@ mod dead_code;
 mod docs;
 mod flow;
 pub mod hints;
+pub mod pending;
 mod pyrandom;
 mod query;
 mod refactor;
