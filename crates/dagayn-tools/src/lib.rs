@@ -8,6 +8,7 @@
 
 mod answerability;
 mod context;
+mod coverage;
 mod docs;
 pub mod hints;
 mod query;

@@ -329,8 +329,20 @@ fn query_graph_answers_callers_and_callees_of_exact_targets() {
     assert_eq!(summary["status"], "not_found");
     assert_eq!(summary["pattern"], "file_summary");
 
-    for arguments in [
+    // `test_main` is linked by TESTED_BY and by its module and name.
+    let tests = answer(
+        &context,
+        "query_graph_tool",
         json!({"pattern": "tests_for", "target": "app.py::main"}),
+    );
+    assert_eq!(
+        tests["results"][0]["qualified_name"],
+        "test_app.py::test_main"
+    );
+    assert_eq!(tests["results"][0]["confidence"], "high");
+    assert_eq!(tests["results"][0]["coverage_source"], "graph_edge");
+
+    for arguments in [
         json!({"pattern": "callers_of", "target": "app.py::helper", "depth": 0}),
         json!({"pattern": "callees_of", "target": "app.py::helper", "depth": 2}),
         json!({"pattern": "nope", "target": "app.py::helper"}),

@@ -1,8 +1,8 @@
-//! `query_graph_tool` (`dagayn.tools.query.query_graph`): every pattern but
-//! `tests_for` (its heuristic test inference is Python's), at every detail
-//! level and depth, on a node named exactly or found by name.
+//! `query_graph_tool` (`dagayn.tools.query.query_graph`): every pattern
+//! (`tests_for` through [`crate::coverage`]), at every detail level and
+//! depth, on a node named exactly or found by name.
 //!
-//! Python's: `tests_for`, an invalid `depth`, and an answer large enough for
+//! Python's: an invalid `depth`, and an answer large enough for
 //! `apply_output_budget` to trim.
 
 use std::collections::{HashMap, HashSet};
@@ -245,7 +245,7 @@ fn sanitize(name: &str) -> String {
 }
 
 /// A result row in Python's key order.
-type Row = Vec<(&'static str, Value)>;
+pub(crate) type Row = Vec<(&'static str, Value)>;
 
 fn get<'a>(row: &'a Row, key: &str) -> Option<&'a Value> {
     row.iter().find(|(k, _)| *k == key).map(|(_, v)| v)
@@ -263,7 +263,7 @@ fn object(row: Row) -> Value {
 }
 
 /// `node_to_dict`.
-fn node_row(node: &GraphNode) -> Row {
+pub(crate) fn node_row(node: &GraphNode) -> Row {
     vec![
         ("id", json!(node.id)),
         ("kind", json!(node.kind)),
@@ -975,6 +975,19 @@ fn run_pattern(
                 found.edges.push(edge_dict(&edge));
             }
         }
+        "tests_for" => {
+            let Some(node) = node else {
+                return Some(found);
+            };
+            let mut state = crate::coverage::ScanState::build(store)?;
+            found.rows =
+                crate::coverage::infer_tests_for_node(store, &mut state, node, 25, "medium")?;
+            found.edges = edges_of(true)?
+                .iter()
+                .filter(|e| e.kind == "TESTED_BY")
+                .map(edge_dict)
+                .collect();
+        }
         "children_of" => {
             let edges: Vec<GraphEdge> = edges_of(true)?
                 .into_iter()
@@ -1170,8 +1183,8 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
     // Python treats any other level as `standard`.
     let (full, minimal) = (detail_level == "full", detail_level == "minimal");
     let depth = args.integer("depth", 1)?;
-    // The pattern and depth errors are Python's, and so is `tests_for`.
-    if description(pattern).is_none() || pattern == "tests_for" || depth < 1 {
+    // The pattern and depth errors are Python's.
+    if description(pattern).is_none() || depth < 1 {
         return None;
     }
     let transitive = matches!(pattern, "callers_of" | "importers_of");

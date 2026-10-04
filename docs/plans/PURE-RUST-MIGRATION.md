@@ -487,8 +487,20 @@ return the same order) and the low-confidence bridges of `changes`'
 this repository's graph and 32 on a larger copy match fastmcp's, 40 and 28
 of them answered in Rust.
 
-Next: `review_tool` `changes` (risk scoring, and the test inference it
-shares with `query_graph_tool` `tests_for`), then `context`.
+Eleventh slice (done): `query_graph_tool` `tests_for`, so every pattern is
+answered in Rust. `dagayn.coverage`'s inference (`TESTED_BY` edges, then
+each test-like candidate scored by module markers, co-location, imports,
+and name or source references) is `dagayn-tools`' `coverage`, which
+`changes` will share. `str.casefold` is reproduced for the characters whose
+folding differs from lower-casing in a simple way; the others (expanded
+Greek, Cherokee, some ligatures) leave the call to Python. 82 exact and 96
+by-name calls on this repository's graph and on a larger copy match
+fastmcp's, all answered in Rust.
+
+Next: `review_tool` `changes`, in two parts: `analyze_changes` (diff
+ranges, renames, attribution, risk scoring) against
+`ChangeAnalysisResult`, then `_change_analysis_summary` one helper at a
+time; then `context`.
 
 ### 5.4 Remaining Python surfaces
 

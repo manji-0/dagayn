@@ -316,6 +316,9 @@ NATIVE_TRACE = "answered query_graph_tool in Rust"
         {"pattern": "inheritors_of", "target": "app.py::main"},
         {"pattern": "docs_for", "target": "app.py::main", "detail_level": "full"},
         {"pattern": "callers_of", "target": "map"},
+        {"pattern": "tests_for", "target": "app.py::main"},
+        {"pattern": "tests_for", "target": "helper", "detail_level": "full"},
+        {"pattern": "tests_for", "target": "app.py::helper", "detail_level": "minimal"},
     ],
 )
 def test_query_graph_answers_in_rust_as_python_does(
@@ -331,7 +334,6 @@ def test_query_graph_answers_in_rust_as_python_does(
 @pytest.mark.parametrize(
     "arguments",
     [
-        {"pattern": "tests_for", "target": "app.py::main"},
         {"pattern": "callers_of", "target": "app.py::helper", "depth": 0},
         {"pattern": "callees_of", "target": "app.py::helper", "depth": 2},
         {"pattern": "no_such_pattern", "target": "app.py::helper"},
@@ -389,6 +391,7 @@ def test_search_leaves_embedding_and_errors_to_python(
         ("get_minimal_context", {"task": "review"}),
         ("query_graph", {"pattern": "callers_of", "target": "app.py::helper"}),
         ("query_graph", {"pattern": "source_of", "target": "main"}),
+        ("query_graph", {"pattern": "tests_for", "target": "app.py::main"}),
         ("query_graph", {"pattern": "children_of", "target": "app.py", "detail_level": "full"}),
         ("semantic_search_nodes", {"query": "helper"}),
         ("semantic_search_nodes", {"query": "zz_none", "detail_level": "minimal"}),

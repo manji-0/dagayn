@@ -25,8 +25,8 @@ All notable changes to `dagayn` are documented here.
   minimal context and such queries stays at 71 MB instead of 215 MB.
   `source_of`, targets given by name, and `callers_of` through the
   bare-name fallback are answered in Rust as well (as is every other
-  `query_graph_tool` pattern but `tests_for`, at any depth and detail
-  level), and so is
+  `query_graph_tool` pattern, `tests_for` included, at any depth and
+  detail level), and so is
   `semantic_search_nodes_tool` on a graph without embeddings when no
   embedding provider is configured, and `review_tool`
   `mode="affected_flows"` and `mode="impact"` in a git checkout.

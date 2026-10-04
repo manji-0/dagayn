@@ -6,7 +6,7 @@ resource listings from ``mcp_surface.json``, recorded from the fastmcp server
 ``tests/test_mcp_snapshots.py`` checks it), so a session starts without
 importing fastmcp or the tools. Calls ``dagayn-tools`` answers in Rust
 (``list_graph_stats_tool``, ``get_docs_section_tool``,
-``get_minimal_context_tool``, most of ``query_graph_tool``,
+``get_minimal_context_tool``, ``query_graph_tool``,
 ``semantic_search_nodes_tool`` without embeddings, and ``review_tool``
 ``affected_flows`` and ``impact``) never reach Python; the
 first message it does not answer itself boots the fastmcp server of
