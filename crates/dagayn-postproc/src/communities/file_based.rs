@@ -4,7 +4,7 @@ use dagayn_graph::{GraphEdge, GraphNode};
 
 use super::DetectedCommunity;
 use super::cohesion::compute_cohesion_batch;
-use super::naming::generate_community_name;
+use super::naming::{dominant_language, generate_community_name};
 
 pub(crate) fn detect_file_based(
     nodes: &[GraphNode],
@@ -123,20 +123,6 @@ pub(crate) fn detect_file_based(
             }
         })
         .collect()
-}
-
-fn dominant_language(members: &[GraphNode]) -> String {
-    let mut counts: HashMap<&str, usize> = HashMap::new();
-    for node in members {
-        if !node.language.is_empty() {
-            *counts.entry(node.language.as_str()).or_default() += 1;
-        }
-    }
-    counts
-        .into_iter()
-        .max_by_key(|(_, count)| *count)
-        .map(|(language, _)| language.to_string())
-        .unwrap_or_default()
 }
 
 fn round_cohesion(value: f64) -> f64 {

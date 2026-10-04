@@ -97,6 +97,12 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- Community detection gives the same communities for the same graph. Splitting
+  an oversized community re-ran Leiden over its members in a hash set's order,
+  so the parts (their number, members, and `-subN` names) changed from run to
+  run, even within one process; a tie for the dominant language was broken
+  the same way. Members are now visited in sorted order and ties go to the
+  smallest language name.
 - Semantic search reported a different `embedding_health` on the first call
   in a server process than on later ones when the embedding provider leaves
   the dimension unpinned (as the `dagayn serve --local-embedding` sidecar

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use dagayn_graph::{GraphEdge, GraphNode};
 use leiden_rs::{Leiden, LeidenConfig, QualityType, from_petgraph};
@@ -8,7 +8,7 @@ use petgraph::graph::Graph;
 use super::DetectedCommunity;
 use super::cohesion::compute_cohesion_batch;
 use super::file_based::detect_file_based;
-use super::naming::generate_community_name;
+use super::naming::{dominant_language, generate_community_name};
 
 const LEIDEN_RANDOM_SEED: u64 = 20260813;
 
@@ -97,7 +97,8 @@ pub(crate) fn detect_leiden(
         Err(_) => return detect_file_based(nodes, edges, min_size),
     };
 
-    let mut clusters: HashMap<usize, Vec<usize>> = HashMap::new();
+    // Ordered by community id, so everything downstream sees one order.
+    let mut clusters: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
     for idx in 0..nodes.len() {
         let community_id = result.partition.community_of(idx);
         clusters.entry(community_id).or_default().push(idx);
@@ -194,14 +195,18 @@ pub(crate) fn split_oversized(
     }
 
     for (idx, community) in communities.into_iter().enumerate() {
-        let members: HashSet<String> = community.members.iter().cloned().collect();
         if community.size <= threshold {
             result.push(community);
             continue;
         }
 
-        let member_nodes: Vec<GraphNode> = members
+        // In the members' (sorted) order: Leiden's result depends on the node
+        // order, so a set's iteration order made each run split differently.
+        let mut seen: HashSet<&str> = HashSet::new();
+        let member_nodes: Vec<GraphNode> = community
+            .members
             .iter()
+            .filter(|qn| seen.insert(qn.as_str()))
             .filter_map(|qn| nodes_by_qn.get(qn.as_str()).cloned())
             .cloned()
             .collect();
@@ -294,7 +299,7 @@ fn detect_leiden_subgraph(
         Err(_) => return Vec::new(),
     };
 
-    let mut clusters: HashMap<usize, Vec<usize>> = HashMap::new();
+    let mut clusters: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
     for idx in 0..nodes.len() {
         clusters
             .entry(result.partition.community_of(idx))
@@ -340,20 +345,6 @@ fn backfill_split_cohesion(communities: &mut [DetectedCommunity], edges: &[Graph
             community.cohesion = round_cohesion(cohesion);
         }
     }
-}
-
-fn dominant_language(members: &[GraphNode]) -> String {
-    let mut counts: HashMap<&str, usize> = HashMap::new();
-    for node in members {
-        if !node.language.is_empty() {
-            *counts.entry(node.language.as_str()).or_default() += 1;
-        }
-    }
-    counts
-        .into_iter()
-        .max_by_key(|(_, count)| *count)
-        .map(|(language, _)| language.to_string())
-        .unwrap_or_default()
 }
 
 fn round_cohesion(value: f64) -> f64 {
@@ -469,5 +460,68 @@ mod tests {
         assert!((leiden_resolution(10) - 1.0).abs() < 1e-9);
         assert!(leiden_resolution(1_000_000) >= 0.05);
         assert!(leiden_resolution(100) < leiden_resolution(10));
+    }
+
+    #[test]
+    fn an_oversized_community_always_splits_the_same_way() {
+        // Two 12-function cliques joined by one call, as one community of 24
+        // beside small ones: re-running Leiden on it depends on the order it
+        // sees the members in, which came from a set.
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+        let name = |block: usize, i: usize| format!("b{block}.py::f{i}");
+        for block in 0..2 {
+            for i in 0..12 {
+                nodes.push(test_node(&name(block, i)));
+                for j in 0..i {
+                    edges.push(test_edge(&name(block, j), &name(block, i)));
+                }
+            }
+        }
+        edges.push(test_edge(&name(0, 0), &name(1, 0)));
+        let mut members: Vec<String> = nodes.iter().map(|n| n.qualified_name.clone()).collect();
+        members.sort();
+        let mut communities = vec![DetectedCommunity {
+            name: "blocks".to_string(),
+            level: 0,
+            size: 24,
+            cohesion: 0.0,
+            dominant_language: "python".to_string(),
+            description: String::new(),
+            members: members.into(),
+        }];
+        for group in 0..6 {
+            let small: Vec<String> = (0..4).map(|k| format!("s{group}.py::g{k}")).collect();
+            for qn in &small {
+                nodes.push(test_node(qn));
+            }
+            communities.push(DetectedCommunity {
+                name: format!("small{group}"),
+                level: 0,
+                size: 4,
+                cohesion: 0.0,
+                dominant_language: "python".to_string(),
+                description: String::new(),
+                members: small.into(),
+            });
+        }
+        let run = || {
+            serde_json::to_string(&split_oversized(
+                communities.clone(),
+                &nodes,
+                &edges,
+                0.25,
+                10,
+            ))
+            .expect("json")
+        };
+        let first = run();
+        assert!(
+            first.contains("blocks-sub"),
+            "the blocks are split: {first}"
+        );
+        for _ in 0..12 {
+            assert_eq!(run(), first);
+        }
     }
 }

@@ -80,6 +80,19 @@ fn extract_file_prefix(file_paths: &[String]) -> String {
         .unwrap_or_default()
 }
 
+/// The most common non-empty language, ties going to the smallest name.
+pub(crate) fn dominant_language(members: &[GraphNode]) -> String {
+    let mut counts: HashMap<&str, usize> = HashMap::new();
+    for node in members {
+        if !node.language.is_empty() {
+            *counts.entry(node.language.as_str()).or_default() += 1;
+        }
+    }
+    most_common(counts)
+        .map(|(language, _)| language.to_string())
+        .unwrap_or_default()
+}
+
 /// The highest count, ties broken by the smallest key: HashMap iteration
 /// order would otherwise pick a different name for the same members per run.
 fn most_common<K: Ord>(counts: HashMap<K, usize>) -> Option<(K, usize)> {

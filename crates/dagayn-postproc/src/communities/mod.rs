@@ -37,15 +37,24 @@ pub fn detect_communities_from(
     if results.is_empty() {
         results = detect_file_based(nodes, edges, min_size);
     }
+    // Splitting runs Leiden again on each oversized community and numbers the
+    // parts as it goes, so it needs one order of communities and of members.
+    sort_communities(&mut results);
     let mut communities = split_oversized(results, nodes, edges, 0.25, 10);
     // Clusters come out of HashMaps, and storage assigns ids in this order, so
     // without a sort the same graph got different community ids per build.
     // Communities partition the nodes, so the first member name is unique.
-    for community in &mut communities {
+    sort_communities(&mut communities);
+    communities
+}
+
+/// Members sorted, and communities by their first member (communities
+/// partition the nodes, so it is unique).
+fn sort_communities(communities: &mut [DetectedCommunity]) {
+    for community in communities.iter_mut() {
         community.members.sort_unstable();
     }
     communities.sort_by(|left, right| left.members.first().cmp(&right.members.first()));
-    communities
 }
 
 pub fn detect_communities_json(store: &GraphStore, min_size: i64) -> Result<String> {
