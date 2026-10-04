@@ -630,7 +630,8 @@ fn is_entry_point(node: &GraphNode, is_called: bool) -> bool {
     has_framework_decorator(node) || matches_entry_name(&node.name)
 }
 
-fn has_framework_decorator(node: &GraphNode) -> bool {
+/// `has_framework_decorator`.
+pub fn has_framework_decorator(node: &GraphNode) -> bool {
     let Some(decorators) = node.extra.get("decorators") else {
         return false;
     };

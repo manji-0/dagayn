@@ -627,3 +627,35 @@ def test_architecture_metrics_answer_in_rust_as_python_does(git_repo: Path) -> N
     assert stderr.count(ARCHITECTURE_TRACE) == len(calls) - 1
     assert rust == python
     assert rust[0]["structuredContent"]["count"] == 1
+
+
+REFACTOR_TRACE = "answered refactor_tool in Rust"
+
+
+def test_refactor_dead_code_and_suggest_answer_in_rust_as_python_does(git_repo: Path) -> None:
+    (git_repo / "unused.py").write_text(
+        "def orphan():\n    return 1\n\n\nclass Lonely:\n    pass\n\n\n"
+        + "def big(a, b, c, d, e, f, is_x, use_y):\n"
+        + "".join(f"    if a > {i}:\n        b = c + {i}\n" for i in range(40))
+        + "    return b\n"
+    )
+    subprocess.run(
+        [DAGAYN, "build", "--repo", git_repo], env=_env(), check=True, capture_output=True
+    )
+    refactor = "refactor_tool"
+    calls: list[tuple[str, dict[str, Any]]] = [
+        (refactor, {}),
+        (refactor, {"mode": "suggest", "limit": 1}),
+        (refactor, {"mode": "dead_code"}),
+        (refactor, {"mode": "dead_code", "kind": "Class", "file_pattern": "unused"}),
+        (refactor, {"mode": "dead_code", "limit": 0}),
+        # The preview goes to Python's pending store for apply_refactor_tool.
+        (refactor, {"mode": "rename", "old_name": "orphan", "new_name": "orphan2"}),
+    ]
+    rust, python, stderr = _session_both(git_repo, calls)
+    assert stderr.count(REFACTOR_TRACE) == len(calls) - 1
+    assert [r["structuredContent"] for r in rust[:-1]] == [
+        p["structuredContent"] for p in python[:-1]
+    ]
+    names = [d["name"] for d in rust[2]["structuredContent"]["dead_code"]]
+    assert "orphan" in names

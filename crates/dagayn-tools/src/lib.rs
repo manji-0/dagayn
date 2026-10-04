@@ -14,16 +14,19 @@ mod changes;
 mod community;
 mod context;
 mod coverage;
+mod dead_code;
 mod docs;
 mod flow;
 pub mod hints;
 mod pyrandom;
 mod query;
+mod refactor;
 mod review;
 mod review_summary;
 mod search;
 mod source;
 mod stats;
+mod suggestions;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -74,6 +77,7 @@ pub fn call(context: &Context, name: &str, arguments: &Value) -> Option<Payload>
         "review_tool" => review::review(context, arguments),
         "flow_tool" => flow::flow(context, arguments),
         "architecture_analysis_tool" => arch_tool::architecture(context, arguments),
+        "refactor_tool" => refactor::refactor(context, arguments),
         _ => None,
     }
 }

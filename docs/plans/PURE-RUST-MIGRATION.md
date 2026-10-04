@@ -568,7 +568,21 @@ calls on this repository's graph and 101 on a larger copy match fastmcp's,
 98 and 99 answered in Rust; the only difference is the Python-only ADP
 truncation filed as #179.
 
-Next: `refactor_tool`.
+Eighteenth slice (done): `refactor_tool`'s `dead_code` and `suggest`
+(the default). `dead_code` is `find_dead_code` with its node filters,
+batched reference lookups, plausible bare-name callers, abstract-base and
+base-method reachability, unresolved entrypoint bridges, and public-API
+source checks; `suggest` adds the move, split, and document suggestions
+with `concerns`' function profiles, the execution plans and work packs,
+the stable-component guard, and the guidance. Python's split suggestion
+shares one list between `reason_codes` and `evidence.reason_codes`, so the
+guard appears in both; Rust mirrors that. 21 calls on this repository's
+graph (1102 suggestions) and on a larger copy match fastmcp's, all
+answered in Rust. `rename` stays Python's: its preview is kept in
+Python's pending store for `apply_refactor_tool`.
+
+Next: `rename` with a pending store both sides share (as the hint session
+is shared), then the maintenance tools.
 
 ### 5.4 Remaining Python surfaces
 

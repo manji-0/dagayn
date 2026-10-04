@@ -834,3 +834,35 @@ fn architecture_metrics_follow_the_requested_view() {
         );
     }
 }
+
+#[test]
+fn refactor_finds_dead_code_and_suggests() {
+    let repo = Repo::new("refactor", true);
+    repo.write("unused.py", "def orphan():\n    return 1\n");
+    repo.build();
+    let context = repo.context();
+    let dead = answer(&context, "refactor_tool", json!({"mode": "dead_code"}));
+    let names: Vec<&str> = dead["dead_code"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|d| d["name"].as_str())
+        .collect();
+    assert!(names.contains(&"orphan"), "{names:?}");
+    assert_eq!(
+        dead["_hints"]["next_steps"].as_array().map(Vec::is_empty),
+        Some(false)
+    );
+    let suggest = answer(&context, "refactor_tool", json!({}));
+    assert!(
+        suggest["suggestions"]
+            .as_array()
+            .is_some_and(|s| s.iter().any(|x| x["type"] == "remove"))
+    );
+    assert!(suggest["work_packs"].is_array());
+    assert!(declines(
+        &context,
+        "refactor_tool",
+        json!({"mode": "rename", "old_name": "a", "new_name": "b"})
+    ));
+}
