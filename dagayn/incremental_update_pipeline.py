@@ -71,7 +71,8 @@ class IncrementalUpdateState:
     stale_scope: list[str]
     store_failures: list[str] = field(default_factory=list)
     removed_files: list[str] = field(default_factory=list)
-    dependent_files: set[str] = field(default_factory=set)
+    #: In ``find_dependents_for_files`` order (hop distance, then path).
+    dependent_files: list[str] = field(default_factory=list)
     content_changed_files: set[str] = field(default_factory=set)
     all_files: set[str] = field(default_factory=set)
     candidates: list[str] = field(default_factory=list)
@@ -219,7 +220,7 @@ def classify_incremental_changes(state: IncrementalUpdateState) -> None:
 
     changed_candidates, removed_files = _filter_incremental_candidates(
         state.repo_root,
-        set(state.changed_files),
+        sorted(set(state.changed_files)),
         state.ignore_patterns,
     )
     changed_candidates = [path for path in changed_candidates if path in state.indexable]
@@ -256,16 +257,21 @@ def classify_incremental_changes(state: IncrementalUpdateState) -> None:
         state.mtime_only_updates.extend(python_mtime_updates)
 
     dependency_roots = set(removed_files) | state.content_changed_files
-    state.dependent_files = {
-        _make_repo_relative(dep, state.repo_root)
-        for dep in find_dependents_for_files(state.store, dependency_roots)
-    }
-    state.all_files = state.content_changed_files | set(removed_files) | state.dependent_files
+    # Ordered lists, not sets: the parse order assigns the new rows' ids, so
+    # walking these in hash order stored the same change differently in each
+    # process (the Rust update walks them sorted).
+    state.dependent_files = _dedupe_preserve_order(
+        [
+            _make_repo_relative(dep, state.repo_root)
+            for dep in find_dependents_for_files(state.store, dependency_roots)
+        ]
+    )
+    state.all_files = state.content_changed_files | set(removed_files) | set(state.dependent_files)
 
     if state.dependent_files:
         candidates, extra_removed = _filter_incremental_candidates(
             state.repo_root,
-            state.all_files,
+            sorted(state.all_files),
             state.ignore_patterns,
         )
         candidates = [path for path in candidates if path in state.indexable]
@@ -275,7 +281,9 @@ def classify_incremental_changes(state: IncrementalUpdateState) -> None:
         state.candidates = candidates
     else:
         state.removed_files = removed_files
-        state.candidates = [path for path in state.content_changed_files if path in state.indexable]
+        state.candidates = [
+            path for path in sorted(state.content_changed_files) if path in state.indexable
+        ]
 
 
 def plan_incremental_reparses(state: IncrementalUpdateState) -> None:

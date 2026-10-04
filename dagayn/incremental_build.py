@@ -10,6 +10,7 @@ import logging
 import os
 import sqlite3
 import time
+from collections.abc import Collection
 from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
@@ -309,7 +310,7 @@ def _submodule_tracked_files(submodule_root: Path) -> list[str]:
 
 def _filter_incremental_candidates(
     repo_root: Path,
-    rel_paths: set[str],
+    rel_paths: Collection[str],
     ignore_patterns: list[str],
 ) -> tuple[list[str], list[str]]:
     """Return ``(parseable_files, removed_files)`` for incremental update."""

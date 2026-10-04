@@ -1014,6 +1014,45 @@ class TestIncrementalUpdate:
         finally:
             store.close()
 
+    def test_dependents_come_back_by_hop_then_path(self, tmp_path):
+        """The parse order assigns the new rows' ids, so dependents are walked
+        in ``find_dependents_for_files`` order, not a set's hash order."""
+        (tmp_path / "core.py").write_text("def core():\n    return 1\n")
+        for name in ("zeta", "alpha", "mid", "beta", "omega"):
+            (tmp_path / f"{name}.py").write_text(
+                f"from core import core\n\n\ndef {name}():\n    return core()\n"
+            )
+        (tmp_path / "top.py").write_text(
+            "from alpha import alpha\n\n\ndef top():\n    return alpha()\n"
+        )
+        store = GraphStore(tmp_path / "test.db")
+        try:
+            incremental_update(
+                tmp_path,
+                store,
+                changed_files=[
+                    "core.py",
+                    "zeta.py",
+                    "alpha.py",
+                    "mid.py",
+                    "beta.py",
+                    "omega.py",
+                    "top.py",
+                ],
+            )
+            (tmp_path / "core.py").write_text("def core():\n    return 2\n")
+            result = incremental_update(tmp_path, store, changed_files=["core.py"])
+            assert result.dependent_files == [
+                "alpha.py",
+                "beta.py",
+                "mid.py",
+                "omega.py",
+                "zeta.py",
+                "top.py",
+            ]
+        finally:
+            store.close()
+
     def test_incremental_with_changed_file(self, tmp_path):
         py_file = tmp_path / "mod.py"
         py_file.write_text("def greet():\n    return 'hi'\n")

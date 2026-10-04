@@ -688,6 +688,26 @@ set's order), fixed first; now the replies and the stored communities,
 flows, memberships, and FTS rows match Python's but for their timestamps,
 here and on a larger copy.
 
+Not ported, on inspection: `build_or_update_graph_tool` and
+`embed_graph_tool`. The MCP wrapper resolves an omitted `local_embedding`
+to the server's default, and the installed `dagayn serve --local-embedding`
+always has one, so on every real installation the build runs an embedding
+pass the front end cannot; the Rust path would only ever serve
+`local_embedding="none"` or a server without embeddings, and only before
+Python starts. Its payload also needs `change_file_sources` and the
+embedding-orphan count Python's `EmbeddingStore` reports. Both move with
+the Python server's replacement.
+
+Determinism sweep (done): two full builds of a copy of this repository,
+and a Rust and a Python full build, leave identical tables once timestamps
+and the checkout's own path and SHA are set aside. Incremental updates did
+not: Python walked changed and dependent files in hash order, and the
+incremental flow trace read callees and traced entry points in hash order,
+so the new nodes' ids and the members of capped flows changed from run to
+run. After the fix, two Rust updates and a Rust and a Python update of the
+same edit leave identical nodes, edges, flows, memberships, communities,
+and scores.
+
 Next: the remaining tools that write (`generate_wiki_tool`,
 `build_or_update_graph_tool`, `run_postprocess_tool`, `embed_graph_tool`) and
 `cross_repo_search_tool`, then the Python server's remaining role.

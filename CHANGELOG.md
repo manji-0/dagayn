@@ -99,6 +99,16 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- An incremental update stores the same change the same way every time, and
+  `dagayn update` with the Rust CLI and with `DAGAYN_PYTHON_CLI=1` now leave
+  identical graphs. Python walked the changed and dependent files in a set's
+  hash order (so the new nodes' ids, and the flows that list them, depended
+  on the process), and the incremental flow trace read each function's
+  callees in a hash-set-chunked order and traced new entry points in hash
+  order, so a flow capped at its 512-node budget kept different nodes from
+  one run to the next. Dependents keep their hop-then-path order, callees
+  are read in edge-id order as a full rebuild reads them, and entry points
+  are traced sorted.
 - Community detection gives the same communities for the same graph. Splitting
   an oversized community re-ran Leiden over its members in a hash set's order,
   so the parts (their number, members, and `-subN` names) changed from run to

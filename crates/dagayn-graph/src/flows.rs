@@ -22,7 +22,8 @@ impl GraphStore {
         let mut stmt = self.conn.prepare(
             "SELECT kind, source_qualified, target_qualified, confidence_tier, extra \
              FROM edges \
-             WHERE kind IN ('CALLS', 'TESTED_BY', 'CROSS_ARTIFACT')",
+             WHERE kind IN ('CALLS', 'TESTED_BY', 'CROSS_ARTIFACT') \
+             ORDER BY id",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok((
@@ -59,13 +60,21 @@ impl GraphStore {
         if qns.is_empty() {
             return Ok((calls_out, has_tested_by));
         }
-        let names: Vec<String> = qns.iter().cloned().collect();
+        // Edges in id order, each once (one whose ends fall in two chunks
+        // matches both), so callee lists are in the order a full rebuild
+        // reads them: a traversal capped at its node budget keeps whatever
+        // it reaches first.
+        type Row = (String, String, String, Option<String>, Option<String>);
+        let mut rows_by_id: std::collections::BTreeMap<i64, Row> =
+            std::collections::BTreeMap::new();
+        let mut names: Vec<String> = qns.iter().cloned().collect();
+        names.sort();
         for chunk in names.chunks(450) {
             let placeholders = std::iter::repeat_n("?", chunk.len())
                 .collect::<Vec<_>>()
                 .join(",");
             let sql = format!(
-                "SELECT kind, source_qualified, target_qualified, confidence_tier, extra \
+                "SELECT id, kind, source_qualified, target_qualified, confidence_tier, extra \
                  FROM edges \
                  WHERE kind IN ('CALLS', 'TESTED_BY', 'CROSS_ARTIFACT') \
                    AND (source_qualified IN ({placeholders}) \
@@ -77,28 +86,34 @@ impl GraphStore {
             let mut stmt = self.conn.prepare(&sql)?;
             let rows = stmt.query_map(rusqlite::params_from_iter(params), |row| {
                 Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, i64>(0)?,
+                    (
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                        row.get::<_, Option<String>>(5)?,
+                    ),
                 ))
             })?;
             for row in rows {
-                let (kind, source, target, confidence_tier, extra_json) = row?;
-                if kind == "CALLS" {
-                    calls_out.entry(source).or_default().push(target);
-                } else if kind == "TESTED_BY" {
-                    has_tested_by.insert(source);
-                } else if kind == "CROSS_ARTIFACT"
-                    && is_reportable_cross_artifact(
-                        &target,
-                        confidence_tier.as_deref(),
-                        extra_json.as_deref(),
-                    )
-                {
-                    calls_out.entry(source).or_default().push(target);
-                }
+                let (id, row) = row?;
+                rows_by_id.insert(id, row);
+            }
+        }
+        for (kind, source, target, confidence_tier, extra_json) in rows_by_id.into_values() {
+            if kind == "CALLS" {
+                calls_out.entry(source).or_default().push(target);
+            } else if kind == "TESTED_BY" {
+                has_tested_by.insert(source);
+            } else if kind == "CROSS_ARTIFACT"
+                && is_reportable_cross_artifact(
+                    &target,
+                    confidence_tier.as_deref(),
+                    extra_json.as_deref(),
+                )
+            {
+                calls_out.entry(source).or_default().push(target);
             }
         }
         Ok((calls_out, has_tested_by))

@@ -130,8 +130,11 @@ impl GraphStore {
             self.delete_flows_by_ids(&flow_ids.into_iter().collect::<Vec<_>>())?;
         }
 
+        // Sorted: insertion order assigns the new flows' ids.
+        let mut entries: Vec<&String> = relevant_qns.iter().collect();
+        entries.sort();
         let mut new_flows = Vec::new();
-        for qn in &relevant_qns {
+        for qn in entries {
             let Some(node) = graph.nodes_by_qn.get(qn) else {
                 continue;
             };

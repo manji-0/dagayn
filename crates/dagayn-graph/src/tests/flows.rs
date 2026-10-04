@@ -659,3 +659,82 @@ fn incremental_trace_flows_scoped_load_still_follows_reverse_calls() {
     assert!(members > 0);
     let _ = std::fs::remove_file(path);
 }
+
+#[test]
+fn incremental_trace_keeps_the_same_nodes_when_a_flow_is_capped() {
+    // An entry calling 750 functions: past the 512-node budget, so what the
+    // flow keeps depends on the order of its callee list, and the scoped load
+    // queries more names than one 450-name chunk. Calls are stored in a
+    // shuffled order, so edge-id order is not name order.
+    let mut order: Vec<usize> = (0..750).collect();
+    let mut state: u64 = 11;
+    for i in (1..order.len()).rev() {
+        state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        order.swap(i, (state >> 33) as usize % (i + 1));
+    }
+    let callee = |i: usize| (format!("f{}.py", i / 25), format!("fn{i}"));
+    let mut seen: Option<String> = None;
+    for run in 0..6 {
+        let path = temp_db(&format!("capped-flow-{run}"));
+        let mut store = GraphStore::open(&path).expect("open graph store");
+        let mut batch = Vec::new();
+        // Unrelated functions, so the scoped load (capped at half the graph)
+        // is the one used.
+        for file in 0..40 {
+            let name = format!("other{file}.py");
+            let mut nodes = vec![flow_test_node("File", &name, &name)];
+            for i in 0..40 {
+                nodes.push(flow_test_node("Function", &format!("o{i}"), &name));
+            }
+            batch.push((name, nodes, vec![], format!("hash-o{file}"), 0));
+        }
+        for file in 0..30 {
+            let name = format!("f{file}.py");
+            let mut nodes = vec![flow_test_node("File", &name, &name)];
+            for i in file * 25..(file + 1) * 25 {
+                nodes.push(flow_test_node("Function", &callee(i).1, &name));
+            }
+            batch.push((name, nodes, vec![], format!("hash-{file}"), 0));
+        }
+        let calls: Vec<_> = order
+            .iter()
+            .map(|&i| {
+                let (file, name) = callee(i);
+                flow_test_call("a.py::entry", &format!("{file}::{name}"), "a.py")
+            })
+            .collect();
+        batch.push((
+            "a.py".to_string(),
+            vec![
+                flow_test_node("File", "a.py", "a.py"),
+                flow_test_node("Function", "entry", "a.py"),
+            ],
+            calls,
+            "hash-a".to_string(),
+            0,
+        ));
+        store.store_file_batch(&batch).unwrap();
+        store.rebuild_flows_json(15, false).unwrap();
+        store
+            .incremental_trace_flows(&["a.py".to_string()], 15)
+            .unwrap();
+        let (path_json, truncated): (String, bool) = store
+            .conn
+            .query_row(
+                "SELECT path_json, truncated FROM flows f JOIN nodes n ON n.id = f.entry_point_id \
+                 WHERE n.qualified_name = 'a.py::entry'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert!(truncated);
+        match &seen {
+            None => seen = Some(path_json),
+            Some(first) => assert_eq!(&path_json, first, "run {run}"),
+        }
+        drop(store);
+        let _ = std::fs::remove_file(path);
+    }
+}
