@@ -548,7 +548,8 @@ SURFACE_PATH = REPO_ROOT / "dagayn" / "server" / "mcp_surface.json"
 def surface_from_python_server() -> str:
     """What the stdio front end in ``dagayn._core`` answers without Python:
     the fastmcp server's ``initialize`` (minus the version and the negotiated
-    protocol revision) and its full tool and prompt listings."""
+    protocol revision), its full tool and prompt listings, and the
+    ``prompts/get`` replies the front end fills in (:func:`_prompt_replies`)."""
     with built_fixture("python_only") as (repo, env):
         replies = _session(
             repo,
@@ -562,6 +563,8 @@ def surface_from_python_server() -> str:
             ],
             base_cmd=PYTHON_SERVER_CMD,
         )
+        prompts = replies["prompts"]["result"]["prompts"]
+        prompt_replies = _prompt_replies(repo, env, prompts)
     initialize = replies["initialize"]["result"]
     surface = {
         "initialize": {
@@ -570,9 +573,53 @@ def surface_from_python_server() -> str:
             "serverInfo": {"name": initialize["serverInfo"]["name"]},
         },
         "tools": replies["tools"]["result"]["tools"],
-        "prompts": replies["prompts"]["result"]["prompts"],
+        "prompts": prompts,
+        "prompt_replies": prompt_replies,
     }
     return json.dumps(surface, indent=1, ensure_ascii=False) + "\n"
+
+
+#: Stands for an argument's value in a recorded ``prompts/get`` reply; the
+#: front end substitutes the caller's value for it.
+PROMPT_ARGUMENT_PLACEHOLDER = "\u0000dagayn-prompt-argument\u0000"
+
+
+def _prompt_replies(
+    repo: Path, env: dict[str, str], prompts: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Each prompt's ``prompts/get`` result without arguments and, per
+    argument, with it empty (a prompt may substitute its own default) and set
+    to :data:`PROMPT_ARGUMENT_PLACEHOLDER`."""
+    requests: list[tuple[str, str, dict[str, Any]]] = [
+        ("initialize", "initialize", _client_init("2025-11-25")),
+        ("initialized", "notifications/initialized", {}),
+    ]
+    for prompt in prompts:
+        name = prompt["name"]
+        requests.append((f"{name}", "prompts/get", {"name": name, "arguments": {}}))
+        for argument in prompt.get("arguments") or []:
+            arg = argument["name"]
+            for variant, value in (("empty", ""), ("template", PROMPT_ARGUMENT_PLACEHOLDER)):
+                requests.append(
+                    (
+                        f"{name}/{arg}/{variant}",
+                        "prompts/get",
+                        {"name": name, "arguments": {arg: value}},
+                    )
+                )
+    replies = _session(repo, env, "all", requests, base_cmd=PYTHON_SERVER_CMD)
+    out: dict[str, Any] = {}
+    for prompt in prompts:
+        name = prompt["name"]
+        entry: dict[str, Any] = {"default": replies[name]["result"], "arguments": {}}
+        for argument in prompt.get("arguments") or []:
+            arg = argument["name"]
+            entry["arguments"][arg] = {
+                variant: replies[f"{name}/{arg}/{variant}"]["result"]
+                for variant in ("empty", "template")
+            }
+        out[name] = entry
+    return out
 
 
 def snapshot_protocol() -> str:

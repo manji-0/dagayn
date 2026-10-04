@@ -8,7 +8,9 @@ All notable changes to `dagayn` are documented here.
 
 - `dagayn serve` over stdio (from the `dagayn` command) answers
   `initialize`, `ping`, and the tool, prompt, and resource listings from a
-  Rust front end and loads fastmcp and the tools only for the first call,
+  Rust front end (and, from the replies recorded with that surface,
+  `prompts/get` for every prompt) and loads fastmcp and the tools only for
+  the first call,
   which it then relays to them unchanged. `initialize` returns in 0.15 s
   instead of 0.50 s here, and a session that only lists stays at 66 MB
   instead of 150 MB; a session that calls a tool ends up where it was.

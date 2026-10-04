@@ -1,7 +1,8 @@
 """``dagayn serve`` over stdio with the Rust front end in ``dagayn._core``.
 
-The front end answers ``initialize``, ``ping``, and the tool, prompt, and
-resource listings from ``mcp_surface.json``, recorded from the fastmcp server
+The front end answers ``initialize``, ``ping``, the tool, prompt, and
+resource listings, and ``prompts/get`` from ``mcp_surface.json``, recorded
+from the fastmcp server
 (``tools/mcp_snapshot.py --regenerate`` rewrites it, and
 ``tests/test_mcp_snapshots.py`` checks it), so a session starts without
 importing fastmcp or the tools. Calls ``dagayn-tools`` answers in Rust

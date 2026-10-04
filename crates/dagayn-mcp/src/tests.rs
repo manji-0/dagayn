@@ -44,6 +44,19 @@ fn surface() -> Surface {
             },
             "tools": [{"name": "a_tool"}, {"name": "b_tool"}],
             "prompts": [{"name": "a_prompt"}],
+            "prompt_replies": {
+                "a_prompt": {
+                    "default": {"messages": [{"content": {"text": "on HEAD~1"}}]},
+                    "arguments": {
+                        "base": {
+                            "empty": {"messages": [{"content": {"text": "on <base>"}}]},
+                            "template": {"messages": [{"content": {
+                                "text": format!("on {}", super::PROMPT_ARGUMENT_PLACEHOLDER)
+                            }}]},
+                        },
+                    },
+                },
+            },
         })
         .to_string(),
     )
@@ -315,4 +328,55 @@ fn native_tools_answer_exposed_calls_without_booting() {
         .filter(|reply| reply["result"]["echo"] == "tools/call")
         .count();
     assert_eq!(echoed, 4, "{replies:?}");
+}
+
+#[test]
+fn prompts_are_filled_in_from_the_recorded_replies() {
+    let backend = Echo::default();
+    let get = |id: i64, arguments: Value| {
+        request(
+            id,
+            "prompts/get",
+            json!({"name": "a_prompt", "arguments": arguments}),
+        )
+    };
+    let replies = run(
+        &[
+            init("2025-06-18"),
+            initialized(),
+            get(1, json!({})),
+            get(2, json!({"base": ""})),
+            get(3, json!({"base": "main \"x\"", "undeclared": "ignored"})),
+        ],
+        None,
+        backend.clone(),
+    );
+    assert_eq!(*backend.boots.lock().unwrap(), 0);
+    let text = |index: usize| replies[index]["result"]["messages"][0]["content"]["text"].clone();
+    assert_eq!(text(1), "on HEAD~1");
+    assert_eq!(text(2), "on <base>");
+    assert_eq!(text(3), "on main \"x\"");
+
+    // An unknown prompt, a non-string argument, or `prompts/get` before
+    // `initialize` is the backend's.
+    let backend = Echo::default();
+    let replies = run(
+        &[
+            request(9, "prompts/get", json!({"name": "a_prompt"})),
+            init("2025-06-18"),
+            request(1, "prompts/get", json!({"name": "nope"})),
+            get(2, json!({"base": 3})),
+        ],
+        None,
+        backend.clone(),
+    );
+    assert_eq!(*backend.boots.lock().unwrap(), 1);
+    assert!(
+        replies
+            .iter()
+            .filter(|reply| reply.get("result").and_then(|r| r.get("echo")).is_some())
+            .count()
+            >= 3,
+        "{replies:?}"
+    );
 }

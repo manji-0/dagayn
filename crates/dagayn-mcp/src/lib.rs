@@ -37,7 +37,14 @@ pub struct Surface {
     /// Every registered tool, in listing order.
     pub tools: Vec<Value>,
     pub prompts: Vec<Value>,
+    /// Recorded `prompts/get` results by prompt: `default` (no arguments)
+    /// and, per argument, `empty` and `template` (the value replaced by
+    /// [`PROMPT_ARGUMENT_PLACEHOLDER`]).
+    pub prompt_replies: Map<String, Value>,
 }
+
+/// `tools/mcp_snapshot.py`'s `PROMPT_ARGUMENT_PLACEHOLDER`.
+pub const PROMPT_ARGUMENT_PLACEHOLDER: &str = "\u{0}dagayn-prompt-argument\u{0}";
 
 impl Surface {
     /// `{"initialize": {...}, "tools": [...], "prompts": [...]}`, as
@@ -68,7 +75,28 @@ impl Surface {
                 .to_string(),
             tools: list("tools")?,
             prompts: list("prompts")?,
+            prompt_replies: value
+                .get("prompt_replies")
+                .and_then(Value::as_object)
+                .cloned()
+                .unwrap_or_default(),
         })
+    }
+}
+
+/// Every string in `value` with the placeholder replaced by `argument`.
+fn fill_placeholder(value: &mut Value, argument: &str) {
+    match value {
+        Value::String(text) if text.contains(PROMPT_ARGUMENT_PLACEHOLDER) => {
+            *text = text.replace(PROMPT_ARGUMENT_PLACEHOLDER, argument);
+        }
+        Value::Array(items) => items
+            .iter_mut()
+            .for_each(|item| fill_placeholder(item, argument)),
+        Value::Object(map) => map
+            .values_mut()
+            .for_each(|item| fill_placeholder(item, argument)),
+        _ => {}
     }
 }
 
@@ -211,6 +239,7 @@ impl<B: Backend> Session<'_, B> {
                 let params = message.get("params");
                 let result = match method {
                     "tools/call" => self.native_call(params),
+                    "prompts/get" => self.prompt_get(params),
                     _ => self.local_result(method, params),
                 };
                 match result {
@@ -292,6 +321,58 @@ impl<B: Backend> Session<'_, B> {
             "resources/templates/list" => Some(json!({"resourceTemplates": []})),
             _ => None,
         }
+    }
+
+    /// A `prompts/get` result from the recorded replies: after `initialize`,
+    /// for params that carry nothing but the name, string arguments, and a
+    /// plain `_meta`. Arguments the prompt does not declare are ignored, as
+    /// fastmcp ignores them; more than one given argument is the backend's.
+    fn prompt_get(&self, params: Option<&Value>) -> Option<Value> {
+        self.init_params.as_ref()?;
+        let params = params?.as_object()?;
+        if !params
+            .keys()
+            .all(|key| matches!(key.as_str(), "name" | "arguments" | "_meta"))
+            || params.get("_meta").is_some_and(|meta| {
+                meta.as_object()
+                    .is_none_or(|meta| meta.contains_key("io.modelcontextprotocol/protocolVersion"))
+            })
+        {
+            return None;
+        }
+        let name = params.get("name")?.as_str()?;
+        let replies = self.config.surface.prompt_replies.get(name)?;
+        let declared = replies.get("arguments")?.as_object()?;
+        let arguments = match params.get("arguments") {
+            None | Some(Value::Null) => Map::new(),
+            Some(Value::Object(arguments)) => arguments.clone(),
+            Some(_) => return None,
+        };
+        if !arguments.values().all(Value::is_string) {
+            return None;
+        }
+        let given: Vec<(&String, &str)> = arguments
+            .iter()
+            .filter(|(key, _)| declared.contains_key(*key))
+            .filter_map(|(key, value)| value.as_str().map(|value| (key, value)))
+            .collect();
+        let result = match given.as_slice() {
+            [] => replies.get("default")?.clone(),
+            [(argument, "")] => declared.get(*argument)?.get("empty")?.clone(),
+            [(argument, value)] => {
+                if value.contains(PROMPT_ARGUMENT_PLACEHOLDER) {
+                    return None;
+                }
+                let mut template = declared.get(*argument)?.get("template")?.clone();
+                fill_placeholder(&mut template, value);
+                template
+            }
+            _ => return None,
+        };
+        if std::env::var_os("DAGAYN_MCP_TRACE").is_some() {
+            eprintln!("dagayn: answered prompt {name} in Rust");
+        }
+        Some(result)
     }
 
     /// A `tools/call` result from [`Native`], shaped as fastmcp shapes a

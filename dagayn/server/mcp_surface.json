@@ -1457,5 +1457,163 @@
    "description": "PR readiness check with risk scoring, test gaps, and dead code detection.\n\nProduces a merge readiness report with risk assessment and recommendations.",
    "name": "pre_merge_check"
   }
- ]
+ ],
+ "prompt_replies": {
+  "review_changes": {
+   "default": {
+    "description": "Pre-commit review workflow using review_tool, affected flows, and test gaps.\n\nProduces a structured code review with risk levels and actionable findings.",
+    "messages": [
+     {
+      "content": {
+       "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Review Workflow\n1. Call `get_minimal_context_tool(task=\"review changes against HEAD~1\")` to get risk overview.\n2. If risk is \"low\": call `review_tool(mode=\"changes\", base=\"HEAD~1\", detail_level=\"minimal\")` → report summary + any test gaps.\n3. If risk is \"medium\" or \"high\":\n   a. Call `review_tool(mode=\"changes\", base=\"HEAD~1\", detail_level=\"standard\")` for full change list.\n   b. For each high-risk function, call `query_graph_tool(pattern=\"callers_of\", target=<func>, detail_level=\"minimal\")`.\n   c. Call `review_tool(mode=\"affected_flows\", base=\"HEAD~1\", detail_level=\"minimal\")` only if >3 changed functions.\n4. Summarize: risk level, what changed, test gaps, specific improvements needed.\n\nDo NOT call review_tool(mode=\"context\") unless you need source code snippets for a specific function.",
+       "type": "text"
+      },
+      "role": "user"
+     }
+    ]
+   },
+   "arguments": {
+    "base": {
+     "empty": {
+      "description": "Pre-commit review workflow using review_tool, affected flows, and test gaps.\n\nProduces a structured code review with risk levels and actionable findings.",
+      "messages": [
+       {
+        "content": {
+         "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Review Workflow\n1. Call `get_minimal_context_tool(task=\"review changes against \")` to get risk overview.\n2. If risk is \"low\": call `review_tool(mode=\"changes\", base=\"\", detail_level=\"minimal\")` → report summary + any test gaps.\n3. If risk is \"medium\" or \"high\":\n   a. Call `review_tool(mode=\"changes\", base=\"\", detail_level=\"standard\")` for full change list.\n   b. For each high-risk function, call `query_graph_tool(pattern=\"callers_of\", target=<func>, detail_level=\"minimal\")`.\n   c. Call `review_tool(mode=\"affected_flows\", base=\"\", detail_level=\"minimal\")` only if >3 changed functions.\n4. Summarize: risk level, what changed, test gaps, specific improvements needed.\n\nDo NOT call review_tool(mode=\"context\") unless you need source code snippets for a specific function.",
+         "type": "text"
+        },
+        "role": "user"
+       }
+      ]
+     },
+     "template": {
+      "description": "Pre-commit review workflow using review_tool, affected flows, and test gaps.\n\nProduces a structured code review with risk levels and actionable findings.",
+      "messages": [
+       {
+        "content": {
+         "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Review Workflow\n1. Call `get_minimal_context_tool(task=\"review changes against \u0000dagayn-prompt-argument\u0000\")` to get risk overview.\n2. If risk is \"low\": call `review_tool(mode=\"changes\", base=\"\u0000dagayn-prompt-argument\u0000\", detail_level=\"minimal\")` → report summary + any test gaps.\n3. If risk is \"medium\" or \"high\":\n   a. Call `review_tool(mode=\"changes\", base=\"\u0000dagayn-prompt-argument\u0000\", detail_level=\"standard\")` for full change list.\n   b. For each high-risk function, call `query_graph_tool(pattern=\"callers_of\", target=<func>, detail_level=\"minimal\")`.\n   c. Call `review_tool(mode=\"affected_flows\", base=\"\u0000dagayn-prompt-argument\u0000\", detail_level=\"minimal\")` only if >3 changed functions.\n4. Summarize: risk level, what changed, test gaps, specific improvements needed.\n\nDo NOT call review_tool(mode=\"context\") unless you need source code snippets for a specific function.",
+         "type": "text"
+        },
+        "role": "user"
+       }
+      ]
+     }
+    }
+   }
+  },
+  "architecture_map": {
+   "default": {
+    "description": "Architecture documentation using communities, flows, and Mermaid diagrams.\n\nGenerates a comprehensive architecture map with module summaries and coupling warnings.",
+    "messages": [
+     {
+      "content": {
+       "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Architecture Mapping Workflow\n1. Call `get_minimal_context_tool(task=\"map architecture\")`.\n2. Call `architecture_analysis_tool(mode=\"overview\", detail_level=\"minimal\")` for community coupling summary.\n3. Call `flow_tool(mode=\"list\", detail_level=\"minimal\")` for critical flow names + criticality scores.\n4. Only call `architecture_analysis_tool(mode=\"community\", community_name=<X>)` for the 1-2 communities the user is most interested in.\n5. Produce a concise Mermaid diagram showing communities as boxes and key flows as arrows.",
+       "type": "text"
+      },
+      "role": "user"
+     }
+    ]
+   },
+   "arguments": {}
+  },
+  "debug_issue": {
+   "default": {
+    "description": "Guided debugging using search, flow tracing, and recent changes.\n\nSystematic debugging workflow that traces execution paths and identifies root causes.",
+    "messages": [
+     {
+      "content": {
+       "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Debug Workflow\n1. Call `get_minimal_context_tool(task=\"debug: <description>\")`.\n2. Call `semantic_search_nodes_tool(query=<keywords from description>, detail_level=\"minimal\", limit=5)`.\n3. For the top 1-2 results, call `query_graph_tool(pattern=\"callers_of\", target=<name>, detail_level=\"minimal\")`.\n4. If the issue involves a reachable set from an entry point: call `flow_tool(mode=\"get\", flow_name=<relevant flow>)` for the single most relevant flow.\n5. Only call `review_tool(mode=\"context\")` or `review_tool(mode=\"impact\")` if you need to trace the blast radius of a specific change.",
+       "type": "text"
+      },
+      "role": "user"
+     }
+    ]
+   },
+   "arguments": {
+    "description": {
+     "empty": {
+      "description": "Guided debugging using search, flow tracing, and recent changes.\n\nSystematic debugging workflow that traces execution paths and identifies root causes.",
+      "messages": [
+       {
+        "content": {
+         "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Debug Workflow\n1. Call `get_minimal_context_tool(task=\"debug: <description>\")`.\n2. Call `semantic_search_nodes_tool(query=<keywords from description>, detail_level=\"minimal\", limit=5)`.\n3. For the top 1-2 results, call `query_graph_tool(pattern=\"callers_of\", target=<name>, detail_level=\"minimal\")`.\n4. If the issue involves a reachable set from an entry point: call `flow_tool(mode=\"get\", flow_name=<relevant flow>)` for the single most relevant flow.\n5. Only call `review_tool(mode=\"context\")` or `review_tool(mode=\"impact\")` if you need to trace the blast radius of a specific change.",
+         "type": "text"
+        },
+        "role": "user"
+       }
+      ]
+     },
+     "template": {
+      "description": "Guided debugging using search, flow tracing, and recent changes.\n\nSystematic debugging workflow that traces execution paths and identifies root causes.",
+      "messages": [
+       {
+        "content": {
+         "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Debug Workflow\n1. Call `get_minimal_context_tool(task=\"debug: \u0000dagayn-prompt-argument\u0000\")`.\n2. Call `semantic_search_nodes_tool(query=<keywords from description>, detail_level=\"minimal\", limit=5)`.\n3. For the top 1-2 results, call `query_graph_tool(pattern=\"callers_of\", target=<name>, detail_level=\"minimal\")`.\n4. If the issue involves a reachable set from an entry point: call `flow_tool(mode=\"get\", flow_name=<relevant flow>)` for the single most relevant flow.\n5. Only call `review_tool(mode=\"context\")` or `review_tool(mode=\"impact\")` if you need to trace the blast radius of a specific change.",
+         "type": "text"
+        },
+        "role": "user"
+       }
+      ]
+     }
+    }
+   }
+  },
+  "onboard_developer": {
+   "default": {
+    "description": "New developer orientation using stats, architecture, and critical flows.\n\nCreates an onboarding guide covering codebase structure, key modules, and patterns.",
+    "messages": [
+     {
+      "content": {
+       "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Onboarding Workflow\n1. Call `get_minimal_context_tool(task=\"onboard developer\")`.\n2. Call `architecture_analysis_tool(mode=\"overview\", detail_level=\"minimal\")` for the 30-second mental model.\n3. Call `architecture_analysis_tool(mode=\"communities\", detail_level=\"minimal\")` — present as a table of module names + sizes.\n4. Call `flow_tool(mode=\"list\", detail_level=\"minimal\")` — highlight the top 3 critical flows.\n5. Only drill into a specific community or flow if the developer asks.",
+       "type": "text"
+      },
+      "role": "user"
+     }
+    ]
+   },
+   "arguments": {}
+  },
+  "pre_merge_check": {
+   "default": {
+    "description": "PR readiness check with risk scoring, test gaps, and dead code detection.\n\nProduces a merge readiness report with risk assessment and recommendations.",
+    "messages": [
+     {
+      "content": {
+       "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Pre-Merge Check Workflow\n1. Call `get_minimal_context_tool(task=\"pre-merge check against HEAD~1\")`.\n2. Call `review_tool(mode=\"changes\", base=\"HEAD~1\", detail_level=\"minimal\")` for risk score and test gaps.\n3. If risk > 0.4: call `review_tool(mode=\"affected_flows\", base=\"HEAD~1\", detail_level=\"minimal\")`.\n4. If test_gap_count > 0: call `query_graph_tool(pattern=\"tests_for\", target=<each untested function>, detail_level=\"minimal\")` for up to 3 functions.\n5. Call `refactor_tool(mode=\"dead_code\")` to check for newly dead code.\n6. Only call `refactor_tool(mode=\"suggest\")` or `review_tool(mode=\"impact\", base=\"HEAD~1\")` if risk > 0.7.\n7. Output: GO/NO-GO recommendation with 1-sentence justification + list of required follow-ups.",
+       "type": "text"
+      },
+      "role": "user"
+     }
+    ]
+   },
+   "arguments": {
+    "base": {
+     "empty": {
+      "description": "PR readiness check with risk scoring, test gaps, and dead code detection.\n\nProduces a merge readiness report with risk assessment and recommendations.",
+      "messages": [
+       {
+        "content": {
+         "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Pre-Merge Check Workflow\n1. Call `get_minimal_context_tool(task=\"pre-merge check against \")`.\n2. Call `review_tool(mode=\"changes\", base=\"\", detail_level=\"minimal\")` for risk score and test gaps.\n3. If risk > 0.4: call `review_tool(mode=\"affected_flows\", base=\"\", detail_level=\"minimal\")`.\n4. If test_gap_count > 0: call `query_graph_tool(pattern=\"tests_for\", target=<each untested function>, detail_level=\"minimal\")` for up to 3 functions.\n5. Call `refactor_tool(mode=\"dead_code\")` to check for newly dead code.\n6. Only call `refactor_tool(mode=\"suggest\")` or `review_tool(mode=\"impact\", base=\"\")` if risk > 0.7.\n7. Output: GO/NO-GO recommendation with 1-sentence justification + list of required follow-ups.",
+         "type": "text"
+        },
+        "role": "user"
+       }
+      ]
+     },
+     "template": {
+      "description": "PR readiness check with risk scoring, test gaps, and dead code detection.\n\nProduces a merge readiness report with risk assessment and recommendations.",
+      "messages": [
+       {
+        "content": {
+         "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Pre-Merge Check Workflow\n1. Call `get_minimal_context_tool(task=\"pre-merge check against \u0000dagayn-prompt-argument\u0000\")`.\n2. Call `review_tool(mode=\"changes\", base=\"\u0000dagayn-prompt-argument\u0000\", detail_level=\"minimal\")` for risk score and test gaps.\n3. If risk > 0.4: call `review_tool(mode=\"affected_flows\", base=\"\u0000dagayn-prompt-argument\u0000\", detail_level=\"minimal\")`.\n4. If test_gap_count > 0: call `query_graph_tool(pattern=\"tests_for\", target=<each untested function>, detail_level=\"minimal\")` for up to 3 functions.\n5. Call `refactor_tool(mode=\"dead_code\")` to check for newly dead code.\n6. Only call `refactor_tool(mode=\"suggest\")` or `review_tool(mode=\"impact\", base=\"\u0000dagayn-prompt-argument\u0000\")` if risk > 0.7.\n7. Output: GO/NO-GO recommendation with 1-sentence justification + list of required follow-ups.",
+         "type": "text"
+        },
+        "role": "user"
+       }
+      ]
+     }
+    }
+   }
+  }
+ }
 }

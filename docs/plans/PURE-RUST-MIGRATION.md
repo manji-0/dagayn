@@ -660,6 +660,18 @@ stays in Rust on a graph with vectors; the gate and the provider-less
 health moved into `search::embedding_request` / `embedding_arm_for`, which
 both tools share.
 
+Twenty-fifth slice (done): `prompts/get`. `tools/mcp_snapshot.py` records,
+with the surface, each prompt's reply without arguments and, per argument,
+with it empty and with a placeholder; the front end returns the matching
+reply with the caller's value put in place of the placeholder, so the
+template text and Python's own defaulting (`description or
+"<description>"`) stay in `dagayn/prompts.py`, and
+`test_static_surface_matches_the_python_server` keeps the recording
+current. An unknown prompt, a non-string argument, or more than one
+declared argument is the backend's. With this, a session that only reads
+starts Python's server only for embeddings it cannot reach, prompts it
+does not know, and the tools that write.
+
 Next: the tools that write (`generate_wiki_tool`,
 `build_or_update_graph_tool`, `run_postprocess_tool`, `embed_graph_tool`) and
 `cross_repo_search_tool`, then the Python server's remaining role.

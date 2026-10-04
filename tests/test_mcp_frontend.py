@@ -889,3 +889,30 @@ def test_search_with_stored_vectors_answers_in_rust_as_python_does(git_repo: Pat
     assert first["results"][0]["qualified_name"] == "app.py::helper"
     assert rust[1]["structuredContent"]["search_mode"] == "hybrid"
     assert rust[4]["structuredContent"]["start_node"] == "app.py::helper"
+
+
+def test_prompts_answer_from_the_recorded_replies_as_python_does(repo: Path) -> None:
+    requests = [
+        {"name": "review_changes"},
+        {"name": "review_changes", "arguments": {"base": "main"}},
+        {"name": "debug_issue", "arguments": {"description": ""}},
+        {"name": "debug_issue", "arguments": {"description": 'flaky "login"\nretry'}},
+        {"name": "architecture_map", "arguments": {"undeclared": "x"}},
+        {"name": "pre_merge_check", "arguments": {"base": "origin/main"}},
+    ]
+    sides = []
+    for env in ({}, {"DAGAYN_PYTHON_CLI": "1"}):
+        session = Session(repo, **env)
+        session.open()
+        results = []
+        for request_id, params in enumerate(requests, 1):
+            session.send({"id": request_id, "method": "prompts/get", "params": params})
+            results.append(session.read()["result"])
+        status, _, stderr = session.close()
+        assert status == 0
+        if not env:
+            assert BOOT_TRACE not in stderr
+            assert stderr.count("answered prompt") == len(requests)
+        sides.append(results)
+    assert sides[0] == sides[1]
+    assert 'flaky "login"\nretry' in sides[0][3]["messages"][0]["content"]["text"]
