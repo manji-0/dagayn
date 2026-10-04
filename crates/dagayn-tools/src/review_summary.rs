@@ -1708,7 +1708,7 @@ fn risk_level(score: f64) -> &'static str {
 /// `make_guidance_item`, sealed: an evidence or missingness record drops its
 /// `None` fields and an evidence `type` Python does not know becomes
 /// `computed`.
-fn guidance_item(
+pub(crate) fn guidance_item(
     claim: String,
     evidence: Value,
     confidence: &str,

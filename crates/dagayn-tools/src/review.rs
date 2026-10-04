@@ -134,36 +134,15 @@ pub(crate) fn review(context: &Context, arguments: &Map<String, Value>) -> Optio
         "affected_flows" => ("get_affected_flows_func", review.affected_flows(&request)?),
         _ => ("get_impact_radius", review.impact(&request)?),
     };
-    // `_with_dispatch_metadata`: `attach_answerability` adds `_runtime`, then
-    // the review hints are built (and recorded) even when the subtool's stay.
-    let mut seen = out.value();
-    if let Some(object) = seen.as_object_mut() {
-        object.insert("mode".to_string(), json!(mode));
-        object.insert("called_subtool".to_string(), json!(subtool));
-        object.insert("_runtime".to_string(), runtime.clone());
-    }
-    let review_hints = review.hints("review", &seen);
-    let has_hints = out.value().get("_hints").is_some();
-    // `seal_dispatcher_ok`: the envelope's fields first, then the subtool's
-    // in its order; the server's `attach_repo_context` last.
-    let mut sealed = Ordered::default()
-        .put("status", "ok")
-        .put("mode", mode)
-        .put("called_subtool", subtool)
-        .put(
-            "summary",
-            seen.get("summary").cloned().unwrap_or(Value::Null),
-        );
-    for (key, value) in out.into_entries() {
-        if !matches!(key.as_str(), "status" | "summary") {
-            sealed = sealed.put(&key, value);
-        }
-    }
-    sealed = sealed.put("_runtime", runtime);
-    if !has_hints {
-        sealed = sealed.put("_hints", review_hints);
-    }
-    Some(sealed.put("_repo", graph.repo_context()).into_payload())
+    Some(crate::seal_dispatch(
+        out,
+        mode,
+        subtool,
+        runtime,
+        "review",
+        &exposed,
+        graph.repo_context(),
+    ))
 }
 
 struct Review<'a> {
@@ -874,7 +853,7 @@ fn sources_value(sources: ChangeSources) -> Value {
 
 /// `guidance_actions_to_hints(guidance)`: the first three actions as next
 /// steps, and the medium or high missingness codes met on the way.
-fn guidance_actions_to_hints(guidance: &[Value]) -> Value {
+pub(crate) fn guidance_actions_to_hints(guidance: &[Value]) -> Value {
     let mut next_steps = Vec::new();
     let mut warnings = Vec::new();
     for item in guidance {

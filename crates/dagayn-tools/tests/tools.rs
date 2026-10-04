@@ -707,3 +707,55 @@ fn review_context_reads_contained_sources_and_caps_long_files() {
     let none = review(json!({"mode": "context", "changed_files": []}));
     assert_eq!(none["summary"], "No changes detected. Nothing to review.");
 }
+
+#[test]
+fn flow_tool_lists_and_reads_stored_flows() {
+    let repo = Repo::new("flows", true);
+    repo.build();
+    let context = Context {
+        runtime: Some(json!({})),
+        ..repo.context()
+    };
+    let listed = answer(&context, "flow_tool", json!({}));
+    assert_eq!(listed["called_subtool"], "list_flows");
+    let flows = listed["flows"].as_array().expect("flows");
+    assert!(!flows.is_empty());
+    assert_eq!(flows[0]["missing_node_count"], 0);
+    assert_eq!(listed["_hints"]["next_steps"][0]["tool"], "flow_tool");
+    let id = flows[0]["id"].clone();
+
+    let got = answer(
+        &context,
+        "flow_tool",
+        json!({"mode": "get", "flow_id": id, "include_source": true}),
+    );
+    assert_eq!(got["called_subtool"], "get_flow");
+    assert_eq!(got["status"], "ok");
+    let steps = got["flow"]["steps"].as_array().expect("steps");
+    assert_eq!(steps[0]["step_kind"], "entry");
+    assert!(
+        steps[0]["source"]
+            .as_str()
+            .is_some_and(|s| s.starts_with("1: def "))
+    );
+
+    let missing = answer(
+        &context,
+        "flow_tool",
+        json!({"mode": "get", "flow_id": 999}),
+    );
+    assert_eq!(missing["status"], "not_found");
+    assert_eq!(missing["_hints"]["next_steps"][0]["tool"], "flow_tool");
+
+    for arguments in [
+        json!({"mode": "get"}),
+        json!({"mode": "get", "flow_name": ""}),
+        json!({"sort_by": "bogus"}),
+        json!({"flow_id": true, "mode": "get"}),
+    ] {
+        assert!(
+            declines(&context, "flow_tool", arguments.clone()),
+            "{arguments}"
+        );
+    }
+}

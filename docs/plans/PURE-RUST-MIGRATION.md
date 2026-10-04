@@ -527,8 +527,19 @@ graph and 47 on a larger copy match fastmcp's, 42 of each answered in Rust,
 including dropped and clipped snippets, graph truncation, and merged
 relevant-line ranges.
 
-Next: `flow_tool`, then `architecture_analysis_tool` (its ADP, SDP, SAP, and
-stability pieces are already in `review_summary`).
+Fourteenth slice (done): `flow_tool` (`list` and `get`), with the stored
+flows' liveness annotation, the kind filter, the minimal listing, flows
+found by name, live steps re-read with their bridge arrivals, stale and
+truncated flows (`degraded`), per-step source with its 2000-character cap
+and output budget, and `not_found`. The dispatcher envelope is shared with
+`review_tool` (`seal_dispatch`), and `hints.rs` now carries the whole
+`_WORKFLOW` table: it had only two tools, so a `changes` review whose
+guidance came out empty got no next steps from Rust. 30 calls on this
+repository's graph, 30 on a larger copy (bridge and truncated flows), and
+24 on a graph whose stored flow went stale match fastmcp's.
+
+Next: `architecture_analysis_tool` (its ADP, SDP, SAP, and stability pieces
+are already in `review_summary`), then `refactor_tool`.
 
 ### 5.4 Remaining Python surfaces
 

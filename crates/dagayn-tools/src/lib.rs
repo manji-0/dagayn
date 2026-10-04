@@ -11,6 +11,7 @@ mod changes;
 mod context;
 mod coverage;
 mod docs;
+mod flow;
 pub mod hints;
 mod pyrandom;
 mod query;
@@ -67,8 +68,48 @@ pub fn call(context: &Context, name: &str, arguments: &Value) -> Option<Payload>
         "query_graph_tool" => query::query_graph(context, arguments),
         "semantic_search_nodes_tool" => search::semantic_search(context, arguments),
         "review_tool" => review::review(context, arguments),
+        "flow_tool" => flow::flow(context, arguments),
         _ => None,
     }
+}
+
+/// `_with_dispatch_metadata` and `seal_dispatcher_ok` for a mode-based tool
+/// whose subtool answered `out`: `mode`, `called_subtool`, and `_runtime`
+/// added, the dispatcher's hints built (and recorded) even where the
+/// subtool's stay, the envelope's fields first; then the server's `_repo`.
+pub(crate) fn seal_dispatch(
+    out: Ordered,
+    mode: &str,
+    subtool: &str,
+    runtime: Value,
+    hints_tool: &str,
+    exposed: &dyn Fn(&str) -> bool,
+    repo: Value,
+) -> Payload {
+    let mut seen = out.value();
+    if let Some(object) = seen.as_object_mut() {
+        object.insert("mode".to_string(), json!(mode));
+        object.insert("called_subtool".to_string(), json!(subtool));
+        object.insert("_runtime".to_string(), runtime.clone());
+    }
+    let dispatcher_hints = hints::generate_hints(hints_tool, &seen, &mut hints::session(), exposed);
+    let has_hints = out.get("_hints").is_some();
+    let field = |key: &str| seen.get(key).cloned().unwrap_or(Value::Null);
+    let mut sealed = Ordered::default()
+        .put("status", field("status"))
+        .put("mode", mode)
+        .put("called_subtool", subtool)
+        .put("summary", field("summary"));
+    for (key, value) in out.into_entries() {
+        if !matches!(key.as_str(), "status" | "summary") {
+            sealed = sealed.put(&key, value);
+        }
+    }
+    sealed = sealed.put("_runtime", runtime);
+    if !has_hints {
+        sealed = sealed.put("_hints", dispatcher_hints);
+    }
+    sealed.put("_repo", repo).into_payload()
 }
 
 /// A JSON object that keeps its keys in insertion order, as Python's dicts

@@ -548,3 +548,37 @@ def test_review_leaves_the_rest_to_python(git_repo: Path, arguments: dict[str, A
     rust, python, stderr = _session_both(git_repo, [("review_tool", arguments)])
     assert REVIEW_TRACE not in stderr
     assert rust == python
+
+
+FLOW_TRACE = "answered flow_tool in Rust"
+
+
+@pytest.mark.parametrize("stale", [False, True])
+def test_flow_tool_answers_in_rust_as_python_does(git_repo: Path, stale: bool) -> None:
+    if stale:
+        # The stored flow keeps member ids the update replaces.
+        (git_repo / "app.py").write_text("def main():\n    return 1\n")
+        subprocess.run(
+            [DAGAYN, "update", "--skip-flows", "--repo", git_repo],
+            env=_env(),
+            check=True,
+            capture_output=True,
+        )
+    flow = "flow_tool"
+    calls: list[tuple[str, dict[str, Any]]] = [
+        (flow, {}),
+        (flow, {"sort_by": "name", "detail_level": "minimal"}),
+        (flow, {"kind": "Function", "limit": 1}),
+        (flow, {"kind": "Nope"}),
+        (flow, {"mode": "get", "flow_id": 1}),
+        (flow, {"mode": "get", "flow_id": 1, "include_source": True}),
+        (flow, {"mode": "get", "flow_name": "MAI"}),
+        (flow, {"mode": "get", "flow_id": 999}),
+        # Python's own validation error.
+        (flow, {"mode": "get"}),
+    ]
+    rust, python, stderr = _session_both(git_repo, calls)
+    assert stderr.count(FLOW_TRACE) == len(calls) - 1
+    assert rust == python
+    if stale:
+        assert rust[4]["structuredContent"]["status"] == "degraded"
