@@ -99,10 +99,21 @@ fn dead_code(
     file_pattern: Option<&str>,
     limit: i64,
 ) -> Option<Ordered> {
-    let dead = crate::dead_code::find_dead_code(store, kind, file_pattern)?;
+    let report = crate::dead_code::dead_code_report(store, kind, file_pattern)?;
+    let dead = report.dead;
     let total = dead.len();
     let truncated = total as i64 > limit;
-    let mut summary = format!("Found {total} dead code symbol(s).");
+    let left_out: usize = report.suppressed.values().sum();
+    let mut summary = if report.verification.status == "unavailable" {
+        "Could not scan the repository's sources, so no symbol is reported as dead.".to_string()
+    } else {
+        format!("Found {total} dead code symbol(s) that nothing in the repository refers to.")
+    };
+    if left_out > 0 {
+        summary.push_str(&format!(
+            " Left out {left_out} graph candidate(s) that may still be used (see suppressed)."
+        ));
+    }
     if truncated {
         summary.push_str(&format!(" Showing first {limit}."));
     }
@@ -112,6 +123,13 @@ fn dead_code(
         "severity": "medium",
         "claim_effect": "dead-code claims do not cover dynamic runtime references",
     }));
+    if report.verification.status != "complete" {
+        missingness.push(json!({
+            "reason_code": "source_scan_incomplete",
+            "severity": "medium",
+            "claim_effect": "some repository files were not searched for the reported names",
+        }));
+    }
     Some(
         Ordered::default()
             .put("status", "ok")
@@ -119,6 +137,8 @@ fn dead_code(
             .put("dead_code", Value::Array(py_prefix(&dead, limit)))
             .put("total", total)
             .put("truncated", truncated)
+            .put("suppressed", json!(report.suppressed))
+            .put("verification", report.verification.value())
             .put(
                 "caveats",
                 json!(["Dead-code results are graph-backed candidates; verify dynamic dispatch, plugin registration, reflection, and generated entry points before deleting."]),

@@ -16,6 +16,7 @@ mod community;
 mod context;
 mod coverage;
 mod dead_code;
+mod dead_code_verify;
 mod difflib;
 mod docs;
 mod embedding_arm;
@@ -459,15 +460,34 @@ pub(crate) fn open_graph_for_write(root: &Path) -> Option<WritableGraph> {
     })
 }
 
-/// `dagayn.refactor.dead_code.find_dead_code` as JSON: the candidates the
-/// native `refactor_tool` reports, for Python callers to share; `None` when
-/// the graph cannot be read.
+/// `dagayn.refactor.dead_code.dead_code_report` as JSON (`dead`,
+/// `suppressed`, `verification`): what the native `refactor_tool` reports,
+/// for Python callers to share; `None` when the graph cannot be read.
 pub fn find_dead_code_json(
     store: &GraphStore,
     kind: Option<&str>,
     file_pattern: Option<&str>,
 ) -> Option<String> {
-    dead_code::find_dead_code(store, kind, file_pattern).map(|dead| Value::Array(dead).to_string())
+    let report = dead_code::dead_code_report(store, kind, file_pattern)?;
+    Some(
+        json!({
+            "dead": report.dead,
+            "suppressed": report.suppressed,
+            "verification": report.verification.value(),
+        })
+        .to_string(),
+    )
+}
+
+/// The graph's dead-code candidates before the repository check, as JSON:
+/// for testing the graph heuristics only.
+pub fn graph_dead_code_candidates_json(
+    store: &GraphStore,
+    kind: Option<&str>,
+    file_pattern: Option<&str>,
+) -> Option<String> {
+    dead_code::graph_candidate_records(store, kind, file_pattern)
+        .map(|records| Value::Array(records).to_string())
 }
 
 /// Tools that write the graph database, which the front end may answer only

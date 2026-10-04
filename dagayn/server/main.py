@@ -803,8 +803,11 @@ def refactor_tool(
 
     Modes:
     - suggest (default): remove, move, split, and document candidates.
-    - dead_code: functions/classes with no callers, tests, or importers that are
-      not entry points (filter with ``kind``, ``file_pattern``).
+    - dead_code: functions/classes nothing in the repository refers to: no
+      graph callers, tests, or importers, not an entry point, registration, FFI
+      export, or override, and the name appears in no other file or line of the
+      repository. Candidates that may still be used are counted in
+      ``suppressed`` (filter with ``kind``, ``file_pattern``).
     - rename: preview renaming ``old_name`` to ``new_name``. Returns edits and a
       ``refactor_id`` (valid 10 min) for ``apply_refactor_tool`` in the same
       ``dagayn serve`` session (advanced surface: ``dagayn serve --tools all``).

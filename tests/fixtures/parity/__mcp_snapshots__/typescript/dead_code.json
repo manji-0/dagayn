@@ -86,39 +86,8 @@
         "no_importers",
         "no_references",
         "no_subclasses",
-        "public_api_candidate"
-      ]
-    },
-    {
-      "caveats": [
-        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
-        "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
-      ],
-      "confidence": "low",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 1,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "file": "src/classes.ts",
-      "kind": "Class",
-      "language": "typescript",
-      "line": 49,
-      "name": "Anon",
-      "public_api_candidate": true,
-      "qualified_name": "src/classes.ts::Anon",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references",
-        "no_subclasses",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -150,38 +119,8 @@
         "no_importers",
         "no_references",
         "no_subclasses",
-        "public_api_candidate"
-      ]
-    },
-    {
-      "caveats": [
-        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
-      ],
-      "confidence": "low",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 2,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "file": "src/export-assign.ts",
-      "kind": "Class",
-      "language": "typescript",
-      "line": 2,
-      "name": "Exported",
-      "public_api_candidate": false,
-      "qualified_name": "src/export-assign.ts::Exported",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references",
-        "no_subclasses",
-        "ambiguous_symbol_name"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -213,7 +152,8 @@
         "no_importers",
         "no_references",
         "no_subclasses",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -245,7 +185,8 @@
         "no_importers",
         "no_references",
         "no_subclasses",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -276,245 +217,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
-      ]
-    },
-    {
-      "caveats": [
-        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
-      ],
-      "confidence": "low",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 4,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "file": "src/calls.ts",
-      "kind": "Function",
-      "language": "typescript",
-      "line": 13,
-      "name": "run",
-      "public_api_candidate": false,
-      "qualified_name": "src/calls.ts::Caller.run",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references",
-        "ambiguous_symbol_name"
-      ]
-    },
-    {
-      "caveats": [
-        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
-      ],
-      "confidence": "medium",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 1,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "file": "src/calls.ts",
-      "kind": "Function",
-      "language": "typescript",
-      "line": 31,
-      "name": "later",
-      "public_api_candidate": false,
-      "qualified_name": "src/calls.ts::Caller.later",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references"
-      ]
-    },
-    {
-      "caveats": [
-        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
-      ],
-      "confidence": "low",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 2,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "file": "src/classes.ts",
-      "kind": "Function",
-      "language": "typescript",
-      "line": 6,
-      "name": "label",
-      "public_api_candidate": false,
-      "qualified_name": "src/classes.ts::AbstractShape.label",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references",
-        "ambiguous_symbol_name"
-      ]
-    },
-    {
-      "caveats": [
-        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
-      ],
-      "confidence": "medium",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 1,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "file": "src/classes.ts",
-      "kind": "Function",
-      "language": "typescript",
-      "line": 7,
-      "name": "describe",
-      "public_api_candidate": false,
-      "qualified_name": "src/classes.ts::AbstractShape.describe",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references"
-      ]
-    },
-    {
-      "caveats": [
-        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
-      ],
-      "confidence": "low",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 2,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "file": "src/classes.ts",
-      "kind": "Function",
-      "language": "typescript",
-      "line": 16,
-      "name": "label",
-      "public_api_candidate": false,
-      "qualified_name": "src/classes.ts::DefaultShape.label",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references",
-        "ambiguous_symbol_name"
-      ]
-    },
-    {
-      "caveats": [
-        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
-      ],
-      "confidence": "low",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 2,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "file": "src/classes.ts",
-      "kind": "Function",
-      "language": "typescript",
-      "line": 17,
-      "name": "find",
-      "public_api_candidate": false,
-      "qualified_name": "src/classes.ts::DefaultShape.find",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references",
-        "ambiguous_symbol_name"
-      ]
-    },
-    {
-      "caveats": [
-        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
-      ],
-      "confidence": "low",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 2,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "file": "src/classes.ts",
-      "kind": "Function",
-      "language": "typescript",
-      "line": 18,
-      "name": "log",
-      "public_api_candidate": false,
-      "qualified_name": "src/classes.ts::DefaultShape.log",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references",
-        "ambiguous_symbol_name"
-      ]
-    },
-    {
-      "caveats": [
-        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
-      ],
-      "confidence": "low",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 4,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "file": "src/classes.ts",
-      "kind": "Function",
-      "language": "typescript",
-      "line": 50,
-      "name": "run",
-      "public_api_candidate": false,
-      "qualified_name": "src/classes.ts::Anon.run",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references",
-        "ambiguous_symbol_name"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -543,7 +247,8 @@
         "no_callers",
         "no_test_references",
         "no_importers",
-        "no_references"
+        "no_references",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -574,7 +279,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -605,7 +311,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -636,7 +343,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -667,97 +375,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
-      ]
-    },
-    {
-      "caveats": [
-        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
-      ],
-      "confidence": "medium",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 1,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "file": "src/extra/heritage.ts",
-      "kind": "Function",
-      "language": "typescript",
-      "line": 10,
-      "name": "c",
-      "public_api_candidate": false,
-      "qualified_name": "src/extra/heritage.ts::WithThis.c",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references"
-      ]
-    },
-    {
-      "caveats": [
-        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
-      ],
-      "confidence": "medium",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 1,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "file": "src/extra/heritage.ts",
-      "kind": "Function",
-      "language": "typescript",
-      "line": 11,
-      "name": "s",
-      "public_api_candidate": false,
-      "qualified_name": "src/extra/heritage.ts::WithThis.s",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references"
-      ]
-    },
-    {
-      "caveats": [
-        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
-        "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
-      ],
-      "confidence": "low",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 2,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "file": "src/extra/heritage.ts",
-      "kind": "Function",
-      "language": "typescript",
-      "line": 14,
-      "name": "b",
-      "public_api_candidate": true,
-      "qualified_name": "src/extra/heritage.ts::Other.b",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references",
         "public_api_candidate",
-        "ambiguous_symbol_name"
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -788,7 +407,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -819,7 +439,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -850,7 +471,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -881,7 +503,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -912,7 +535,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -943,7 +567,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -974,7 +599,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -1005,7 +631,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -1034,7 +661,8 @@
         "no_callers",
         "no_test_references",
         "no_importers",
-        "no_references"
+        "no_references",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -1065,7 +693,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -1096,7 +725,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -1127,7 +757,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -1156,7 +787,8 @@
         "no_callers",
         "no_test_references",
         "no_importers",
-        "no_references"
+        "no_references",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -1185,7 +817,8 @@
         "no_callers",
         "no_test_references",
         "no_importers",
-        "no_references"
+        "no_references",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -1216,7 +849,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -1247,67 +881,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
-      ]
-    },
-    {
-      "caveats": [
-        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
-      ],
-      "confidence": "low",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 2,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "file": "src/interfaces.ts",
-      "kind": "Function",
-      "language": "typescript",
-      "line": 7,
-      "name": "log",
-      "public_api_candidate": false,
-      "qualified_name": "src/interfaces.ts::Logger.log",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references",
-        "ambiguous_symbol_name"
-      ]
-    },
-    {
-      "caveats": [
-        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
-      ],
-      "confidence": "low",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 4,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "file": "src/interfaces.ts",
-      "kind": "Function",
-      "language": "typescript",
-      "line": 11,
-      "name": "run",
-      "public_api_candidate": false,
-      "qualified_name": "src/interfaces.ts::Service.run",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references",
-        "ambiguous_symbol_name"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -1336,7 +911,8 @@
         "no_callers",
         "no_test_references",
         "no_importers",
-        "no_references"
+        "no_references",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -1367,7 +943,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -1398,7 +975,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -1429,7 +1007,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -1460,7 +1039,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -1491,7 +1071,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ]
     }
   ],
@@ -1508,7 +1089,16 @@
     }
   ],
   "status": "ok",
-  "summary": "Found 47 dead code symbol(s).",
-  "total": 47,
-  "truncated": false
+  "summary": "Found 32 dead code symbol(s) that nothing in the repository refers to. Left out 15 graph candidate(s) that may still be used (see suppressed).",
+  "suppressed": {
+    "name_referenced_in_source": 9,
+    "overrides_or_implements": 6
+  },
+  "total": 32,
+  "truncated": false,
+  "verification": {
+    "files_scanned": 37,
+    "files_skipped": 0,
+    "status": "complete"
+  }
 }

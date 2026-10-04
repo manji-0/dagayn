@@ -67,175 +67,9 @@
     "status": "ok"
   },
   "counts_by_type": {
-    "remove": 47
+    "remove": 32
   },
   "guidance": [
-    {
-      "action": "refactor_tool mode=\"suggest\" -- inspect work_pack, then run the verification commands before editing",
-      "claim": "Remove unused function 'later'",
-      "confidence": "low",
-      "counts": {
-        "affected_file_count": 1,
-        "affected_files": [
-          "src/calls.ts"
-        ],
-        "estimated_risk": "medium",
-        "symbol_count": 1
-      },
-      "evidence": [
-        {
-          "raw": {
-            "caller_count": 0,
-            "importer_count": 0,
-            "name_definition_count": 1,
-            "reachable_via_cross_artifact": false,
-            "reference_count": 0,
-            "source_available": true,
-            "subclass_count": 0,
-            "test_ref_count": 0
-          },
-          "reason_codes": [
-            "no_callers",
-            "no_test_references",
-            "no_importers",
-            "no_references",
-            "stable_component_guard"
-          ],
-          "suggestion_type": "remove",
-          "symbols": [
-            "src/calls.ts::Caller.later"
-          ],
-          "type": "computed"
-        }
-      ],
-      "missingness": [
-        {
-          "claim_effect": "verify runtime registration, generated code, and public APIs",
-          "reason_code": "dynamic_dispatch_not_proven_absent",
-          "severity": "medium"
-        },
-        {
-          "claim_effect": "The symbol is public API.",
-          "reason_code": "defer_condition",
-          "severity": "medium"
-        },
-        {
-          "claim_effect": "The only evidence is absence from the graph and dynamic use is plausible.",
-          "reason_code": "defer_condition",
-          "severity": "medium"
-        },
-        {
-          "claim_effect": "The affected component is stable or should be stable by shared policy.",
-          "reason_code": "defer_condition",
-          "severity": "medium"
-        }
-      ],
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references",
-        "stable_component_guard"
-      ],
-      "work_pack": {
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "required_tests": [
-          "Run tests covering src/calls.ts"
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions."
-      }
-    },
-    {
-      "action": "refactor_tool mode=\"suggest\" -- inspect work_pack, then run the verification commands before editing",
-      "claim": "Remove unused function 'describe'",
-      "confidence": "low",
-      "counts": {
-        "affected_file_count": 1,
-        "affected_files": [
-          "src/classes.ts"
-        ],
-        "estimated_risk": "medium",
-        "symbol_count": 1
-      },
-      "evidence": [
-        {
-          "raw": {
-            "caller_count": 0,
-            "importer_count": 0,
-            "name_definition_count": 1,
-            "reachable_via_cross_artifact": false,
-            "reference_count": 0,
-            "source_available": true,
-            "subclass_count": 0,
-            "test_ref_count": 0
-          },
-          "reason_codes": [
-            "no_callers",
-            "no_test_references",
-            "no_importers",
-            "no_references",
-            "stable_component_guard"
-          ],
-          "suggestion_type": "remove",
-          "symbols": [
-            "src/classes.ts::AbstractShape.describe"
-          ],
-          "type": "computed"
-        }
-      ],
-      "missingness": [
-        {
-          "claim_effect": "verify runtime registration, generated code, and public APIs",
-          "reason_code": "dynamic_dispatch_not_proven_absent",
-          "severity": "medium"
-        },
-        {
-          "claim_effect": "The symbol is public API.",
-          "reason_code": "defer_condition",
-          "severity": "medium"
-        },
-        {
-          "claim_effect": "The only evidence is absence from the graph and dynamic use is plausible.",
-          "reason_code": "defer_condition",
-          "severity": "medium"
-        },
-        {
-          "claim_effect": "The affected component is stable or should be stable by shared policy.",
-          "reason_code": "defer_condition",
-          "severity": "medium"
-        }
-      ],
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references",
-        "stable_component_guard"
-      ],
-      "work_pack": {
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "required_tests": [
-          "Run tests covering src/classes.ts"
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions."
-      }
-    },
     {
       "action": "refactor_tool mode=\"suggest\" -- inspect work_pack, then run the verification commands before editing",
       "claim": "Remove unused function 'go'",
@@ -265,6 +99,7 @@
             "no_test_references",
             "no_importers",
             "no_references",
+            "name_unreferenced_in_source",
             "stable_component_guard"
           ],
           "suggestion_type": "remove",
@@ -301,6 +136,7 @@
         "no_test_references",
         "no_importers",
         "no_references",
+        "name_unreferenced_in_source",
         "stable_component_guard"
       ],
       "work_pack": {
@@ -318,6 +154,176 @@
         "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
         "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions."
       }
+    },
+    {
+      "action": "refactor_tool mode=\"suggest\" -- inspect work_pack, then run the verification commands before editing",
+      "claim": "Remove unused function 'deep'",
+      "confidence": "low",
+      "counts": {
+        "affected_file_count": 1,
+        "affected_files": [
+          "src/functions.ts"
+        ],
+        "estimated_risk": "medium",
+        "symbol_count": 1
+      },
+      "evidence": [
+        {
+          "raw": {
+            "caller_count": 0,
+            "importer_count": 0,
+            "name_definition_count": 1,
+            "reachable_via_cross_artifact": false,
+            "reference_count": 0,
+            "source_available": true,
+            "subclass_count": 0,
+            "test_ref_count": 0
+          },
+          "reason_codes": [
+            "no_callers",
+            "no_test_references",
+            "no_importers",
+            "no_references",
+            "name_unreferenced_in_source",
+            "stable_component_guard"
+          ],
+          "suggestion_type": "remove",
+          "symbols": [
+            "src/functions.ts::api.nested.deep"
+          ],
+          "type": "computed"
+        }
+      ],
+      "missingness": [
+        {
+          "claim_effect": "verify runtime registration, generated code, and public APIs",
+          "reason_code": "dynamic_dispatch_not_proven_absent",
+          "severity": "medium"
+        },
+        {
+          "claim_effect": "The symbol is public API.",
+          "reason_code": "defer_condition",
+          "severity": "medium"
+        },
+        {
+          "claim_effect": "The only evidence is absence from the graph and dynamic use is plausible.",
+          "reason_code": "defer_condition",
+          "severity": "medium"
+        },
+        {
+          "claim_effect": "The affected component is stable or should be stable by shared policy.",
+          "reason_code": "defer_condition",
+          "severity": "medium"
+        }
+      ],
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "name_unreferenced_in_source",
+        "stable_component_guard"
+      ],
+      "work_pack": {
+        "defer_conditions": [
+          "The symbol is public API.",
+          "The only evidence is absence from the graph and dynamic use is plausible.",
+          "The affected component is stable or should be stable by shared policy."
+        ],
+        "documentation_obligations": [
+          "Check docs_for/implementations_of for authored contracts before editing."
+        ],
+        "required_tests": [
+          "Run tests covering src/functions.ts"
+        ],
+        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
+        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions."
+      }
+    },
+    {
+      "action": "refactor_tool mode=\"suggest\" -- inspect work_pack, then run the verification commands before editing",
+      "claim": "Remove unused function 'put'",
+      "confidence": "low",
+      "counts": {
+        "affected_file_count": 1,
+        "affected_files": [
+          "src/functions.ts"
+        ],
+        "estimated_risk": "medium",
+        "symbol_count": 1
+      },
+      "evidence": [
+        {
+          "raw": {
+            "caller_count": 0,
+            "importer_count": 0,
+            "name_definition_count": 1,
+            "reachable_via_cross_artifact": false,
+            "reference_count": 0,
+            "source_available": true,
+            "subclass_count": 0,
+            "test_ref_count": 0
+          },
+          "reason_codes": [
+            "no_callers",
+            "no_test_references",
+            "no_importers",
+            "no_references",
+            "name_unreferenced_in_source",
+            "stable_component_guard"
+          ],
+          "suggestion_type": "remove",
+          "symbols": [
+            "src/functions.ts::api.put"
+          ],
+          "type": "computed"
+        }
+      ],
+      "missingness": [
+        {
+          "claim_effect": "verify runtime registration, generated code, and public APIs",
+          "reason_code": "dynamic_dispatch_not_proven_absent",
+          "severity": "medium"
+        },
+        {
+          "claim_effect": "The symbol is public API.",
+          "reason_code": "defer_condition",
+          "severity": "medium"
+        },
+        {
+          "claim_effect": "The only evidence is absence from the graph and dynamic use is plausible.",
+          "reason_code": "defer_condition",
+          "severity": "medium"
+        },
+        {
+          "claim_effect": "The affected component is stable or should be stable by shared policy.",
+          "reason_code": "defer_condition",
+          "severity": "medium"
+        }
+      ],
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "name_unreferenced_in_source",
+        "stable_component_guard"
+      ],
+      "work_pack": {
+        "defer_conditions": [
+          "The symbol is public API.",
+          "The only evidence is absence from the graph and dynamic use is plausible.",
+          "The affected component is stable or should be stable by shared policy."
+        ],
+        "documentation_obligations": [
+          "Check docs_for/implementations_of for authored contracts before editing."
+        ],
+        "required_tests": [
+          "Run tests covering src/functions.ts"
+        ],
+        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
+        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions."
+      }
     }
   ],
   "missingness": [
@@ -329,240 +335,6 @@
   ],
   "status": "ok",
   "suggestions": [
-    {
-      "affected_files": [
-        "src/calls.ts"
-      ],
-      "category": "executable",
-      "confidence": "low",
-      "description": "Remove unused function 'later'",
-      "estimated_risk": "medium",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 1,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "Stable component policy requires contract and test evidence first."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/calls.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
-      },
-      "priority": "low",
-      "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references",
-        "stable_component_guard"
-      ],
-      "stability_policy": {
-        "profiles": [
-          {
-            "instability": 0.2857,
-            "reason_codes": [
-              "observed_stable_component",
-              "high_afferent_coupling_should_be_stable"
-            ],
-            "scope_key": "src",
-            "thresholds": {
-              "afferent_coupling_should_be_stable_min": 3,
-              "default_expected_doc_density": 0.25,
-              "default_expected_test_density": 0.5,
-              "instability_max": 0.35,
-              "stable_expected_doc_density": 0.5,
-              "stable_expected_test_density": 0.8
-            }
-          }
-        ],
-        "status": "stable_component_guard"
-      },
-      "symbols": [
-        "src/calls.ts::Caller.later"
-      ],
-      "type": "remove",
-      "verification_steps": [
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/calls.ts"
-          ],
-          "estimated_risk": "medium",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src",
-        "primary_file": "src/calls.ts",
-        "required_tests": [
-          "Run tests covering src/calls.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/calls.ts"
-        ]
-      }
-    },
-    {
-      "affected_files": [
-        "src/classes.ts"
-      ],
-      "category": "executable",
-      "confidence": "low",
-      "description": "Remove unused function 'describe'",
-      "estimated_risk": "medium",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 1,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "Stable component policy requires contract and test evidence first."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/classes.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
-      },
-      "priority": "low",
-      "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references",
-        "stable_component_guard"
-      ],
-      "stability_policy": {
-        "profiles": [
-          {
-            "instability": 0.2857,
-            "reason_codes": [
-              "observed_stable_component",
-              "high_afferent_coupling_should_be_stable"
-            ],
-            "scope_key": "src",
-            "thresholds": {
-              "afferent_coupling_should_be_stable_min": 3,
-              "default_expected_doc_density": 0.25,
-              "default_expected_test_density": 0.5,
-              "instability_max": 0.35,
-              "stable_expected_doc_density": 0.5,
-              "stable_expected_test_density": 0.8
-            }
-          }
-        ],
-        "status": "stable_component_guard"
-      },
-      "symbols": [
-        "src/classes.ts::AbstractShape.describe"
-      ],
-      "type": "remove",
-      "verification_steps": [
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/classes.ts"
-          ],
-          "estimated_risk": "medium",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src",
-        "primary_file": "src/classes.ts",
-        "required_tests": [
-          "Run tests covering src/classes.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/classes.ts"
-        ]
-      }
-    },
     {
       "affected_files": [
         "src/classes.ts"
@@ -609,6 +381,7 @@
         "no_test_references",
         "no_importers",
         "no_references",
+        "name_unreferenced_in_source",
         "stable_component_guard"
       ],
       "stability_policy": {
@@ -682,192 +455,6 @@
     },
     {
       "affected_files": [
-        "src/extra/heritage.ts"
-      ],
-      "category": "executable",
-      "confidence": "medium",
-      "description": "Remove unused function 'c'",
-      "estimated_risk": "medium",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 1,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/extra/heritage.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
-      },
-      "priority": "low",
-      "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references"
-      ],
-      "symbols": [
-        "src/extra/heritage.ts::WithThis.c"
-      ],
-      "type": "remove",
-      "verification_steps": [
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/extra/heritage.ts"
-          ],
-          "estimated_risk": "medium",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src/extra",
-        "primary_file": "src/extra/heritage.ts",
-        "required_tests": [
-          "Run tests covering src/extra/heritage.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/extra/heritage.ts"
-        ]
-      }
-    },
-    {
-      "affected_files": [
-        "src/extra/heritage.ts"
-      ],
-      "category": "executable",
-      "confidence": "medium",
-      "description": "Remove unused function 's'",
-      "estimated_risk": "medium",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 1,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/extra/heritage.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
-      },
-      "priority": "low",
-      "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references"
-      ],
-      "symbols": [
-        "src/extra/heritage.ts::WithThis.s"
-      ],
-      "type": "remove",
-      "verification_steps": [
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/extra/heritage.ts"
-          ],
-          "estimated_risk": "medium",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src/extra",
-        "primary_file": "src/extra/heritage.ts",
-        "required_tests": [
-          "Run tests covering src/extra/heritage.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/extra/heritage.ts"
-        ]
-      }
-    },
-    {
-      "affected_files": [
         "src/functions.ts"
       ],
       "category": "executable",
@@ -912,6 +499,7 @@
         "no_test_references",
         "no_importers",
         "no_references",
+        "name_unreferenced_in_source",
         "stable_component_guard"
       ],
       "stability_policy": {
@@ -1029,6 +617,7 @@
         "no_test_references",
         "no_importers",
         "no_references",
+        "name_unreferenced_in_source",
         "stable_component_guard"
       ],
       "stability_policy": {
@@ -1146,6 +735,7 @@
         "no_test_references",
         "no_importers",
         "no_references",
+        "name_unreferenced_in_source",
         "stable_component_guard"
       ],
       "stability_policy": {
@@ -1263,6 +853,7 @@
         "no_test_references",
         "no_importers",
         "no_references",
+        "name_unreferenced_in_source",
         "stable_component_guard"
       ],
       "stability_policy": {
@@ -1288,1069 +879,6 @@
       },
       "symbols": [
         "src/interfaces.ts::Repo.save"
-      ],
-      "type": "remove",
-      "verification_steps": [
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/interfaces.ts"
-          ],
-          "estimated_risk": "medium",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src",
-        "primary_file": "src/interfaces.ts",
-        "required_tests": [
-          "Run tests covering src/interfaces.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/interfaces.ts"
-        ]
-      }
-    },
-    {
-      "affected_files": [
-        "src/calls.ts"
-      ],
-      "category": "executable",
-      "confidence": "low",
-      "description": "Remove unused function 'run'",
-      "estimated_risk": "medium",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 4,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "Stable component policy requires contract and test evidence first."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/calls.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
-      },
-      "priority": "low",
-      "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references",
-        "ambiguous_symbol_name",
-        "stable_component_guard"
-      ],
-      "stability_policy": {
-        "profiles": [
-          {
-            "instability": 0.2857,
-            "reason_codes": [
-              "observed_stable_component",
-              "high_afferent_coupling_should_be_stable"
-            ],
-            "scope_key": "src",
-            "thresholds": {
-              "afferent_coupling_should_be_stable_min": 3,
-              "default_expected_doc_density": 0.25,
-              "default_expected_test_density": 0.5,
-              "instability_max": 0.35,
-              "stable_expected_doc_density": 0.5,
-              "stable_expected_test_density": 0.8
-            }
-          }
-        ],
-        "status": "stable_component_guard"
-      },
-      "symbols": [
-        "src/calls.ts::Caller.run"
-      ],
-      "type": "remove",
-      "verification_steps": [
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/calls.ts"
-          ],
-          "estimated_risk": "medium",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src",
-        "primary_file": "src/calls.ts",
-        "required_tests": [
-          "Run tests covering src/calls.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/calls.ts"
-        ]
-      }
-    },
-    {
-      "affected_files": [
-        "src/classes.ts"
-      ],
-      "category": "executable",
-      "confidence": "low",
-      "description": "Remove unused function 'label'",
-      "estimated_risk": "medium",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 2,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "Stable component policy requires contract and test evidence first."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/classes.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
-      },
-      "priority": "low",
-      "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references",
-        "ambiguous_symbol_name",
-        "stable_component_guard"
-      ],
-      "stability_policy": {
-        "profiles": [
-          {
-            "instability": 0.2857,
-            "reason_codes": [
-              "observed_stable_component",
-              "high_afferent_coupling_should_be_stable"
-            ],
-            "scope_key": "src",
-            "thresholds": {
-              "afferent_coupling_should_be_stable_min": 3,
-              "default_expected_doc_density": 0.25,
-              "default_expected_test_density": 0.5,
-              "instability_max": 0.35,
-              "stable_expected_doc_density": 0.5,
-              "stable_expected_test_density": 0.8
-            }
-          }
-        ],
-        "status": "stable_component_guard"
-      },
-      "symbols": [
-        "src/classes.ts::AbstractShape.label"
-      ],
-      "type": "remove",
-      "verification_steps": [
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/classes.ts"
-          ],
-          "estimated_risk": "medium",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src",
-        "primary_file": "src/classes.ts",
-        "required_tests": [
-          "Run tests covering src/classes.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/classes.ts"
-        ]
-      }
-    },
-    {
-      "affected_files": [
-        "src/classes.ts"
-      ],
-      "category": "executable",
-      "confidence": "low",
-      "description": "Remove unused function 'run'",
-      "estimated_risk": "medium",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 4,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "Stable component policy requires contract and test evidence first."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/classes.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
-      },
-      "priority": "low",
-      "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references",
-        "ambiguous_symbol_name",
-        "stable_component_guard"
-      ],
-      "stability_policy": {
-        "profiles": [
-          {
-            "instability": 0.2857,
-            "reason_codes": [
-              "observed_stable_component",
-              "high_afferent_coupling_should_be_stable"
-            ],
-            "scope_key": "src",
-            "thresholds": {
-              "afferent_coupling_should_be_stable_min": 3,
-              "default_expected_doc_density": 0.25,
-              "default_expected_test_density": 0.5,
-              "instability_max": 0.35,
-              "stable_expected_doc_density": 0.5,
-              "stable_expected_test_density": 0.8
-            }
-          }
-        ],
-        "status": "stable_component_guard"
-      },
-      "symbols": [
-        "src/classes.ts::Anon.run"
-      ],
-      "type": "remove",
-      "verification_steps": [
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/classes.ts"
-          ],
-          "estimated_risk": "medium",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src",
-        "primary_file": "src/classes.ts",
-        "required_tests": [
-          "Run tests covering src/classes.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/classes.ts"
-        ]
-      }
-    },
-    {
-      "affected_files": [
-        "src/classes.ts"
-      ],
-      "category": "executable",
-      "confidence": "low",
-      "description": "Remove unused function 'find'",
-      "estimated_risk": "medium",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 2,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "Stable component policy requires contract and test evidence first."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/classes.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
-      },
-      "priority": "low",
-      "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references",
-        "ambiguous_symbol_name",
-        "stable_component_guard"
-      ],
-      "stability_policy": {
-        "profiles": [
-          {
-            "instability": 0.2857,
-            "reason_codes": [
-              "observed_stable_component",
-              "high_afferent_coupling_should_be_stable"
-            ],
-            "scope_key": "src",
-            "thresholds": {
-              "afferent_coupling_should_be_stable_min": 3,
-              "default_expected_doc_density": 0.25,
-              "default_expected_test_density": 0.5,
-              "instability_max": 0.35,
-              "stable_expected_doc_density": 0.5,
-              "stable_expected_test_density": 0.8
-            }
-          }
-        ],
-        "status": "stable_component_guard"
-      },
-      "symbols": [
-        "src/classes.ts::DefaultShape.find"
-      ],
-      "type": "remove",
-      "verification_steps": [
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/classes.ts"
-          ],
-          "estimated_risk": "medium",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src",
-        "primary_file": "src/classes.ts",
-        "required_tests": [
-          "Run tests covering src/classes.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/classes.ts"
-        ]
-      }
-    },
-    {
-      "affected_files": [
-        "src/classes.ts"
-      ],
-      "category": "executable",
-      "confidence": "low",
-      "description": "Remove unused function 'label'",
-      "estimated_risk": "medium",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 2,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "Stable component policy requires contract and test evidence first."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/classes.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
-      },
-      "priority": "low",
-      "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references",
-        "ambiguous_symbol_name",
-        "stable_component_guard"
-      ],
-      "stability_policy": {
-        "profiles": [
-          {
-            "instability": 0.2857,
-            "reason_codes": [
-              "observed_stable_component",
-              "high_afferent_coupling_should_be_stable"
-            ],
-            "scope_key": "src",
-            "thresholds": {
-              "afferent_coupling_should_be_stable_min": 3,
-              "default_expected_doc_density": 0.25,
-              "default_expected_test_density": 0.5,
-              "instability_max": 0.35,
-              "stable_expected_doc_density": 0.5,
-              "stable_expected_test_density": 0.8
-            }
-          }
-        ],
-        "status": "stable_component_guard"
-      },
-      "symbols": [
-        "src/classes.ts::DefaultShape.label"
-      ],
-      "type": "remove",
-      "verification_steps": [
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/classes.ts"
-          ],
-          "estimated_risk": "medium",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src",
-        "primary_file": "src/classes.ts",
-        "required_tests": [
-          "Run tests covering src/classes.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/classes.ts"
-        ]
-      }
-    },
-    {
-      "affected_files": [
-        "src/classes.ts"
-      ],
-      "category": "executable",
-      "confidence": "low",
-      "description": "Remove unused function 'log'",
-      "estimated_risk": "medium",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 2,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "Stable component policy requires contract and test evidence first."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/classes.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
-      },
-      "priority": "low",
-      "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references",
-        "ambiguous_symbol_name",
-        "stable_component_guard"
-      ],
-      "stability_policy": {
-        "profiles": [
-          {
-            "instability": 0.2857,
-            "reason_codes": [
-              "observed_stable_component",
-              "high_afferent_coupling_should_be_stable"
-            ],
-            "scope_key": "src",
-            "thresholds": {
-              "afferent_coupling_should_be_stable_min": 3,
-              "default_expected_doc_density": 0.25,
-              "default_expected_test_density": 0.5,
-              "instability_max": 0.35,
-              "stable_expected_doc_density": 0.5,
-              "stable_expected_test_density": 0.8
-            }
-          }
-        ],
-        "status": "stable_component_guard"
-      },
-      "symbols": [
-        "src/classes.ts::DefaultShape.log"
-      ],
-      "type": "remove",
-      "verification_steps": [
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/classes.ts"
-          ],
-          "estimated_risk": "medium",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src",
-        "primary_file": "src/classes.ts",
-        "required_tests": [
-          "Run tests covering src/classes.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/classes.ts"
-        ]
-      }
-    },
-    {
-      "affected_files": [
-        "src/export-assign.ts"
-      ],
-      "category": "executable",
-      "confidence": "low",
-      "description": "Remove unused class 'Exported'",
-      "estimated_risk": "medium",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 2,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "Stable component policy requires contract and test evidence first."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/export-assign.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
-      },
-      "priority": "low",
-      "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references",
-        "no_subclasses",
-        "ambiguous_symbol_name",
-        "stable_component_guard"
-      ],
-      "stability_policy": {
-        "profiles": [
-          {
-            "instability": 0.2857,
-            "reason_codes": [
-              "observed_stable_component",
-              "high_afferent_coupling_should_be_stable"
-            ],
-            "scope_key": "src",
-            "thresholds": {
-              "afferent_coupling_should_be_stable_min": 3,
-              "default_expected_doc_density": 0.25,
-              "default_expected_test_density": 0.5,
-              "instability_max": 0.35,
-              "stable_expected_doc_density": 0.5,
-              "stable_expected_test_density": 0.8
-            }
-          }
-        ],
-        "status": "stable_component_guard"
-      },
-      "symbols": [
-        "src/export-assign.ts::Exported"
-      ],
-      "type": "remove",
-      "verification_steps": [
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/export-assign.ts"
-          ],
-          "estimated_risk": "medium",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src",
-        "primary_file": "src/export-assign.ts",
-        "required_tests": [
-          "Run tests covering src/export-assign.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/export-assign.ts"
-        ]
-      }
-    },
-    {
-      "affected_files": [
-        "src/interfaces.ts"
-      ],
-      "category": "executable",
-      "confidence": "low",
-      "description": "Remove unused function 'log'",
-      "estimated_risk": "medium",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 2,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "Stable component policy requires contract and test evidence first."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/interfaces.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
-      },
-      "priority": "low",
-      "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references",
-        "ambiguous_symbol_name",
-        "stable_component_guard"
-      ],
-      "stability_policy": {
-        "profiles": [
-          {
-            "instability": 0.2857,
-            "reason_codes": [
-              "observed_stable_component",
-              "high_afferent_coupling_should_be_stable"
-            ],
-            "scope_key": "src",
-            "thresholds": {
-              "afferent_coupling_should_be_stable_min": 3,
-              "default_expected_doc_density": 0.25,
-              "default_expected_test_density": 0.5,
-              "instability_max": 0.35,
-              "stable_expected_doc_density": 0.5,
-              "stable_expected_test_density": 0.8
-            }
-          }
-        ],
-        "status": "stable_component_guard"
-      },
-      "symbols": [
-        "src/interfaces.ts::Logger.log"
-      ],
-      "type": "remove",
-      "verification_steps": [
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/interfaces.ts"
-          ],
-          "estimated_risk": "medium",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src",
-        "primary_file": "src/interfaces.ts",
-        "required_tests": [
-          "Run tests covering src/interfaces.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/interfaces.ts"
-        ]
-      }
-    },
-    {
-      "affected_files": [
-        "src/interfaces.ts"
-      ],
-      "category": "executable",
-      "confidence": "low",
-      "description": "Remove unused function 'run'",
-      "estimated_risk": "medium",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 4,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "Stable component policy requires contract and test evidence first."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/interfaces.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
-      },
-      "priority": "low",
-      "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references",
-        "ambiguous_symbol_name",
-        "stable_component_guard"
-      ],
-      "stability_policy": {
-        "profiles": [
-          {
-            "instability": 0.2857,
-            "reason_codes": [
-              "observed_stable_component",
-              "high_afferent_coupling_should_be_stable"
-            ],
-            "scope_key": "src",
-            "thresholds": {
-              "afferent_coupling_should_be_stable_min": 3,
-              "default_expected_doc_density": 0.25,
-              "default_expected_test_density": 0.5,
-              "instability_max": 0.35,
-              "stable_expected_doc_density": 0.5,
-              "stable_expected_test_density": 0.8
-            }
-          }
-        ],
-        "status": "stable_component_guard"
-      },
-      "symbols": [
-        "src/interfaces.ts::Service.run"
       ],
       "type": "remove",
       "verification_steps": [
@@ -2444,6 +972,7 @@
         "no_importers",
         "no_references",
         "public_api_candidate",
+        "name_unreferenced_in_source",
         "stable_component_guard"
       ],
       "stability_policy": {
@@ -2564,6 +1093,7 @@
         "no_references",
         "no_subclasses",
         "public_api_candidate",
+        "name_unreferenced_in_source",
         "stable_component_guard"
       ],
       "stability_policy": {
@@ -2642,126 +1172,6 @@
       ],
       "category": "public_api",
       "confidence": "low",
-      "description": "Remove unused class 'Anon'",
-      "estimated_risk": "high",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 1,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "Stable component policy requires contract and test evidence first."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/classes.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
-      },
-      "priority": "low",
-      "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references",
-        "no_subclasses",
-        "public_api_candidate",
-        "stable_component_guard"
-      ],
-      "stability_policy": {
-        "profiles": [
-          {
-            "instability": 0.2857,
-            "reason_codes": [
-              "observed_stable_component",
-              "high_afferent_coupling_should_be_stable"
-            ],
-            "scope_key": "src",
-            "thresholds": {
-              "afferent_coupling_should_be_stable_min": 3,
-              "default_expected_doc_density": 0.25,
-              "default_expected_test_density": 0.5,
-              "instability_max": 0.35,
-              "stable_expected_doc_density": 0.5,
-              "stable_expected_test_density": 0.8
-            }
-          }
-        ],
-        "status": "stable_component_guard"
-      },
-      "symbols": [
-        "src/classes.ts::Anon"
-      ],
-      "type": "remove",
-      "verification_steps": [
-        "Verify crate-level and downstream API consumers before deleting.",
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/classes.ts"
-          ],
-          "estimated_risk": "high",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src",
-        "primary_file": "src/classes.ts",
-        "required_tests": [
-          "Run tests covering src/classes.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/classes.ts"
-        ]
-      }
-    },
-    {
-      "affected_files": [
-        "src/classes.ts"
-      ],
-      "category": "public_api",
-      "confidence": "low",
       "description": "Remove unused class 'Named'",
       "estimated_risk": "high",
       "evidence": {
@@ -2804,6 +1214,7 @@
         "no_references",
         "no_subclasses",
         "public_api_candidate",
+        "name_unreferenced_in_source",
         "stable_component_guard"
       ],
       "stability_policy": {
@@ -2921,7 +1332,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ],
       "symbols": [
         "src/components/App.tsx::Fwd"
@@ -3016,7 +1428,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ],
       "symbols": [
         "src/components/App.tsx::Memo"
@@ -3113,6 +1526,7 @@
         "no_importers",
         "no_references",
         "public_api_candidate",
+        "name_unreferenced_in_source",
         "stable_component_guard"
       ],
       "stability_policy": {
@@ -3230,7 +1644,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ],
       "symbols": [
         "src/extra/Testimonial.tsx::TestimonialCard"
@@ -3326,7 +1741,8 @@
         "no_importers",
         "no_references",
         "no_subclasses",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ],
       "symbols": [
         "src/extra/heritage.ts::G2"
@@ -3422,106 +1838,11 @@
         "no_importers",
         "no_references",
         "no_subclasses",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ],
       "symbols": [
         "src/extra/heritage.ts::Other"
-      ],
-      "type": "remove",
-      "verification_steps": [
-        "Verify crate-level and downstream API consumers before deleting.",
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/extra/heritage.ts"
-          ],
-          "estimated_risk": "high",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src/extra",
-        "primary_file": "src/extra/heritage.ts",
-        "required_tests": [
-          "Run tests covering src/extra/heritage.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/extra/heritage.ts"
-        ]
-      }
-    },
-    {
-      "affected_files": [
-        "src/extra/heritage.ts"
-      ],
-      "category": "public_api",
-      "confidence": "low",
-      "description": "Remove unused function 'b'",
-      "estimated_risk": "high",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 2,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/extra/heritage.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
-      },
-      "priority": "low",
-      "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references",
-        "public_api_candidate",
-        "ambiguous_symbol_name"
-      ],
-      "symbols": [
-        "src/extra/heritage.ts::Other.b"
       ],
       "type": "remove",
       "verification_steps": [
@@ -3613,7 +1934,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ],
       "symbols": [
         "src/extra/heritage.ts::wrapped"
@@ -3708,7 +2030,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ],
       "symbols": [
         "src/frameworks/express.ts::lambdaHandler"
@@ -3803,7 +2126,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ],
       "symbols": [
         "src/frameworks/next/app/api/users/route.ts::GET"
@@ -3898,7 +2222,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ],
       "symbols": [
         "src/frameworks/next/app/api/users/route.ts::POST"
@@ -3993,7 +2318,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ],
       "symbols": [
         "src/frameworks/next/app/page.tsx::Page"
@@ -4088,7 +2414,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ],
       "symbols": [
         "src/frameworks/next/app/page.tsx::generateMetadata"
@@ -4185,6 +2512,7 @@
         "no_importers",
         "no_references",
         "public_api_candidate",
+        "name_unreferenced_in_source",
         "stable_component_guard"
       ],
       "stability_policy": {
@@ -4304,6 +2632,7 @@
         "no_importers",
         "no_references",
         "public_api_candidate",
+        "name_unreferenced_in_source",
         "stable_component_guard"
       ],
       "stability_policy": {
@@ -4423,6 +2752,7 @@
         "no_importers",
         "no_references",
         "public_api_candidate",
+        "name_unreferenced_in_source",
         "stable_component_guard"
       ],
       "stability_policy": {
@@ -4542,6 +2872,7 @@
         "no_importers",
         "no_references",
         "public_api_candidate",
+        "name_unreferenced_in_source",
         "stable_component_guard"
       ],
       "stability_policy": {
@@ -4661,6 +2992,7 @@
         "no_importers",
         "no_references",
         "public_api_candidate",
+        "name_unreferenced_in_source",
         "stable_component_guard"
       ],
       "stability_policy": {
@@ -4780,6 +3112,7 @@
         "no_importers",
         "no_references",
         "public_api_candidate",
+        "name_unreferenced_in_source",
         "stable_component_guard"
       ],
       "stability_policy": {
@@ -4899,6 +3232,7 @@
         "no_importers",
         "no_references",
         "public_api_candidate",
+        "name_unreferenced_in_source",
         "stable_component_guard"
       ],
       "stability_policy": {
@@ -5018,6 +3352,7 @@
         "no_importers",
         "no_references",
         "public_api_candidate",
+        "name_unreferenced_in_source",
         "stable_component_guard"
       ],
       "stability_policy": {
@@ -5137,6 +3472,7 @@
         "no_importers",
         "no_references",
         "public_api_candidate",
+        "name_unreferenced_in_source",
         "stable_component_guard"
       ],
       "stability_policy": {
@@ -5256,6 +3592,7 @@
         "no_importers",
         "no_references",
         "public_api_candidate",
+        "name_unreferenced_in_source",
         "stable_component_guard"
       ],
       "stability_policy": {
@@ -5375,6 +3712,7 @@
         "no_importers",
         "no_references",
         "public_api_candidate",
+        "name_unreferenced_in_source",
         "stable_component_guard"
       ],
       "stability_policy": {
@@ -5494,6 +3832,7 @@
         "no_importers",
         "no_references",
         "public_api_candidate",
+        "name_unreferenced_in_source",
         "stable_component_guard"
       ],
       "stability_policy": {
@@ -5567,96 +3906,10 @@
       }
     }
   ],
-  "summary": "Generated 47 refactoring suggestion(s).",
-  "total": 47,
+  "summary": "Generated 32 refactoring suggestion(s).",
+  "total": 32,
   "truncated": false,
   "work_packs": [
-    {
-      "blast_radius": {
-        "affected_file_count": 1,
-        "affected_files": [
-          "src/calls.ts"
-        ],
-        "estimated_risk": "medium",
-        "symbol_count": 1
-      },
-      "defer_conditions": [
-        "The symbol is public API.",
-        "The only evidence is absence from the graph and dynamic use is plausible.",
-        "The affected component is stable or should be stable by shared policy."
-      ],
-      "documentation_obligations": [
-        "Check docs_for/implementations_of for authored contracts before editing."
-      ],
-      "estimated_size": "small",
-      "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-      "owner_scope": "src",
-      "primary_file": "src/calls.ts",
-      "required_tests": [
-        "Run tests covering src/calls.ts"
-      ],
-      "risk_controls": [
-        "Treat public API, fixtures, and plugin entry points as high-risk.",
-        "Verify generated code and downstream package exports manually."
-      ],
-      "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-      "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-      "success_criteria": [
-        "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-        "Focused tests pass for the affected file or package.",
-        "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-      ],
-      "symbols": [
-        "src/calls.ts::Caller.later"
-      ],
-      "type": "remove",
-      "verification_commands": [
-        "Run tests covering src/calls.ts"
-      ]
-    },
-    {
-      "blast_radius": {
-        "affected_file_count": 1,
-        "affected_files": [
-          "src/classes.ts"
-        ],
-        "estimated_risk": "medium",
-        "symbol_count": 1
-      },
-      "defer_conditions": [
-        "The symbol is public API.",
-        "The only evidence is absence from the graph and dynamic use is plausible.",
-        "The affected component is stable or should be stable by shared policy."
-      ],
-      "documentation_obligations": [
-        "Check docs_for/implementations_of for authored contracts before editing."
-      ],
-      "estimated_size": "small",
-      "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-      "owner_scope": "src",
-      "primary_file": "src/classes.ts",
-      "required_tests": [
-        "Run tests covering src/classes.ts"
-      ],
-      "risk_controls": [
-        "Treat public API, fixtures, and plugin entry points as high-risk.",
-        "Verify generated code and downstream package exports manually."
-      ],
-      "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-      "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-      "success_criteria": [
-        "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-        "Focused tests pass for the affected file or package.",
-        "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-      ],
-      "symbols": [
-        "src/classes.ts::AbstractShape.describe"
-      ],
-      "type": "remove",
-      "verification_commands": [
-        "Run tests covering src/classes.ts"
-      ]
-    },
     {
       "blast_radius": {
         "affected_file_count": 1,
@@ -5704,24 +3957,25 @@
       "blast_radius": {
         "affected_file_count": 1,
         "affected_files": [
-          "src/extra/heritage.ts"
+          "src/functions.ts"
         ],
         "estimated_risk": "medium",
         "symbol_count": 1
       },
       "defer_conditions": [
         "The symbol is public API.",
-        "The only evidence is absence from the graph and dynamic use is plausible."
+        "The only evidence is absence from the graph and dynamic use is plausible.",
+        "The affected component is stable or should be stable by shared policy."
       ],
       "documentation_obligations": [
         "Check docs_for/implementations_of for authored contracts before editing."
       ],
       "estimated_size": "small",
       "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-      "owner_scope": "src/extra",
-      "primary_file": "src/extra/heritage.ts",
+      "owner_scope": "src",
+      "primary_file": "src/functions.ts",
       "required_tests": [
-        "Run tests covering src/extra/heritage.ts"
+        "Run tests covering src/functions.ts"
       ],
       "risk_controls": [
         "Treat public API, fixtures, and plugin entry points as high-risk.",
@@ -5735,35 +3989,36 @@
         "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
       ],
       "symbols": [
-        "src/extra/heritage.ts::WithThis.c"
+        "src/functions.ts::api.nested.deep"
       ],
       "type": "remove",
       "verification_commands": [
-        "Run tests covering src/extra/heritage.ts"
+        "Run tests covering src/functions.ts"
       ]
     },
     {
       "blast_radius": {
         "affected_file_count": 1,
         "affected_files": [
-          "src/extra/heritage.ts"
+          "src/functions.ts"
         ],
         "estimated_risk": "medium",
         "symbol_count": 1
       },
       "defer_conditions": [
         "The symbol is public API.",
-        "The only evidence is absence from the graph and dynamic use is plausible."
+        "The only evidence is absence from the graph and dynamic use is plausible.",
+        "The affected component is stable or should be stable by shared policy."
       ],
       "documentation_obligations": [
         "Check docs_for/implementations_of for authored contracts before editing."
       ],
       "estimated_size": "small",
       "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-      "owner_scope": "src/extra",
-      "primary_file": "src/extra/heritage.ts",
+      "owner_scope": "src",
+      "primary_file": "src/functions.ts",
       "required_tests": [
-        "Run tests covering src/extra/heritage.ts"
+        "Run tests covering src/functions.ts"
       ],
       "risk_controls": [
         "Treat public API, fixtures, and plugin entry points as high-risk.",
@@ -5777,11 +4032,97 @@
         "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
       ],
       "symbols": [
-        "src/extra/heritage.ts::WithThis.s"
+        "src/functions.ts::api.put"
       ],
       "type": "remove",
       "verification_commands": [
-        "Run tests covering src/extra/heritage.ts"
+        "Run tests covering src/functions.ts"
+      ]
+    },
+    {
+      "blast_radius": {
+        "affected_file_count": 1,
+        "affected_files": [
+          "src/functions.ts"
+        ],
+        "estimated_risk": "medium",
+        "symbol_count": 1
+      },
+      "defer_conditions": [
+        "The symbol is public API.",
+        "The only evidence is absence from the graph and dynamic use is plausible.",
+        "The affected component is stable or should be stable by shared policy."
+      ],
+      "documentation_obligations": [
+        "Check docs_for/implementations_of for authored contracts before editing."
+      ],
+      "estimated_size": "small",
+      "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
+      "owner_scope": "src",
+      "primary_file": "src/functions.ts",
+      "required_tests": [
+        "Run tests covering src/functions.ts"
+      ],
+      "risk_controls": [
+        "Treat public API, fixtures, and plugin entry points as high-risk.",
+        "Verify generated code and downstream package exports manually."
+      ],
+      "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
+      "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
+      "success_criteria": [
+        "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
+        "Focused tests pass for the affected file or package.",
+        "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
+      ],
+      "symbols": [
+        "src/functions.ts::namedExpr"
+      ],
+      "type": "remove",
+      "verification_commands": [
+        "Run tests covering src/functions.ts"
+      ]
+    },
+    {
+      "blast_radius": {
+        "affected_file_count": 1,
+        "affected_files": [
+          "src/interfaces.ts"
+        ],
+        "estimated_risk": "medium",
+        "symbol_count": 1
+      },
+      "defer_conditions": [
+        "The symbol is public API.",
+        "The only evidence is absence from the graph and dynamic use is plausible.",
+        "The affected component is stable or should be stable by shared policy."
+      ],
+      "documentation_obligations": [
+        "Check docs_for/implementations_of for authored contracts before editing."
+      ],
+      "estimated_size": "small",
+      "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
+      "owner_scope": "src",
+      "primary_file": "src/interfaces.ts",
+      "required_tests": [
+        "Run tests covering src/interfaces.ts"
+      ],
+      "risk_controls": [
+        "Treat public API, fixtures, and plugin entry points as high-risk.",
+        "Verify generated code and downstream package exports manually."
+      ],
+      "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
+      "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
+      "success_criteria": [
+        "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
+        "Focused tests pass for the affected file or package.",
+        "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
+      ],
+      "symbols": [
+        "src/interfaces.ts::Repo.save"
+      ],
+      "type": "remove",
+      "verification_commands": [
+        "Run tests covering src/interfaces.ts"
       ]
     }
   ]

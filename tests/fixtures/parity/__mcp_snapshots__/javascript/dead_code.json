@@ -87,7 +87,8 @@
         "no_importers",
         "no_references",
         "no_subclasses",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -119,7 +120,8 @@
         "no_importers",
         "no_references",
         "no_subclasses",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -150,7 +152,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -181,7 +184,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -212,36 +216,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
-      ]
-    },
-    {
-      "caveats": [
-        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
-      ],
-      "confidence": "medium",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 1,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "file": "legacy.js",
-      "kind": "Function",
-      "language": "javascript",
-      "line": 9,
-      "name": "Base",
-      "public_api_candidate": false,
-      "qualified_name": "legacy.js::Base",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -270,7 +246,8 @@
         "no_callers",
         "no_test_references",
         "no_importers",
-        "no_references"
+        "no_references",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -299,7 +276,8 @@
         "no_callers",
         "no_test_references",
         "no_importers",
-        "no_references"
+        "no_references",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -330,7 +308,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -361,7 +340,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ]
     }
   ],
@@ -383,7 +363,15 @@
     }
   ],
   "status": "ok",
-  "summary": "Found 10 dead code symbol(s).",
-  "total": 10,
-  "truncated": false
+  "summary": "Found 9 dead code symbol(s) that nothing in the repository refers to. Left out 1 graph candidate(s) that may still be used (see suppressed).",
+  "suppressed": {
+    "name_referenced_in_source": 1
+  },
+  "total": 9,
+  "truncated": false,
+  "verification": {
+    "files_scanned": 7,
+    "files_skipped": 0,
+    "status": "complete"
+  }
 }

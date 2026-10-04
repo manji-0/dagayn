@@ -85,7 +85,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "no_subclasses"
+        "no_subclasses",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -114,7 +115,8 @@
         "no_callers",
         "no_test_references",
         "no_importers",
-        "no_references"
+        "no_references",
+        "name_unreferenced_in_source"
       ]
     },
     {
@@ -143,7 +145,8 @@
         "no_callers",
         "no_test_references",
         "no_importers",
-        "no_references"
+        "no_references",
+        "name_unreferenced_in_source"
       ]
     }
   ],
@@ -165,7 +168,13 @@
     }
   ],
   "status": "ok",
-  "summary": "Found 3 dead code symbol(s).",
+  "summary": "Found 3 dead code symbol(s) that nothing in the repository refers to.",
+  "suppressed": {},
   "total": 3,
-  "truncated": false
+  "truncated": false,
+  "verification": {
+    "files_scanned": 3,
+    "files_skipped": 0,
+    "status": "complete"
+  }
 }

@@ -57,66 +57,7 @@
   "caveats": [
     "Dead-code results are graph-backed candidates; verify dynamic dispatch, plugin registration, reflection, and generated entry points before deleting."
   ],
-  "dead_code": [
-    {
-      "caveats": [
-        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
-      ],
-      "confidence": "medium",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 1,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "file": "app.py",
-      "kind": "Function",
-      "language": "python",
-      "line": 1,
-      "name": "build_graph",
-      "public_api_candidate": false,
-      "qualified_name": "app.py::build_graph",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references"
-      ]
-    },
-    {
-      "caveats": [
-        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports."
-      ],
-      "confidence": "medium",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 1,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "file": "app.py",
-      "kind": "Function",
-      "language": "python",
-      "line": 5,
-      "name": "run_analysis",
-      "public_api_candidate": false,
-      "qualified_name": "app.py::run_analysis",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references"
-      ]
-    }
-  ],
+  "dead_code": [],
   "missingness": [
     {
       "claim_effect": "claims should be treated as graph-limited until this is resolved",
@@ -135,7 +76,15 @@
     }
   ],
   "status": "ok",
-  "summary": "Found 2 dead code symbol(s).",
-  "total": 2,
-  "truncated": false
+  "summary": "Found 0 dead code symbol(s) that nothing in the repository refers to. Left out 2 graph candidate(s) that may still be used (see suppressed).",
+  "suppressed": {
+    "name_referenced_in_source": 2
+  },
+  "total": 0,
+  "truncated": false,
+  "verification": {
+    "files_scanned": 3,
+    "files_skipped": 0,
+    "status": "complete"
+  }
 }

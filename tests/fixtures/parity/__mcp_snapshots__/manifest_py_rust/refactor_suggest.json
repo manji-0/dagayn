@@ -90,7 +90,8 @@
             "no_callers",
             "no_test_references",
             "no_importers",
-            "no_references"
+            "no_references",
+            "name_unreferenced_in_source"
           ],
           "suggestion_type": "remove",
           "symbols": [
@@ -120,7 +121,8 @@
         "no_callers",
         "no_test_references",
         "no_importers",
-        "no_references"
+        "no_references",
+        "name_unreferenced_in_source"
       ],
       "work_pack": {
         "defer_conditions": [
@@ -165,7 +167,8 @@
             "no_callers",
             "no_test_references",
             "no_importers",
-            "no_references"
+            "no_references",
+            "name_unreferenced_in_source"
           ],
           "suggestion_type": "remove",
           "symbols": [
@@ -195,7 +198,8 @@
         "no_callers",
         "no_test_references",
         "no_importers",
-        "no_references"
+        "no_references",
+        "name_unreferenced_in_source"
       ],
       "work_pack": {
         "defer_conditions": [
@@ -276,7 +280,8 @@
         "no_callers",
         "no_test_references",
         "no_importers",
-        "no_references"
+        "no_references",
+        "name_unreferenced_in_source"
       ],
       "symbols": [
         "demo_native/__init__.py::ping"
@@ -369,7 +374,8 @@
         "no_callers",
         "no_test_references",
         "no_importers",
-        "no_references"
+        "no_references",
+        "name_unreferenced_in_source"
       ],
       "symbols": [
         "rust/src/lib.rs::add"

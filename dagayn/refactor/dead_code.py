@@ -123,8 +123,44 @@ def find_dead_code(
 
     Returns:
         List of dead-code dicts with name, qualified_name, kind, file, line,
-        and a top-level ``caveats`` note.
+        and a top-level ``caveats`` note. Only candidates that pass
+        :func:`dead_code_report`'s checks are listed.
     """
-    dead: list[DeadPayload] = json.loads(store.find_dead_code_json(kind, file_pattern))
+    dead: list[DeadPayload] = dead_code_report(store, kind, file_pattern)["dead"]
     logger.info("find_dead_code: found %d dead symbols", len(dead))
     return dead
+
+
+def dead_code_report(
+    store: GraphStore,
+    kind: Optional[str] = None,
+    file_pattern: Optional[str] = None,
+) -> DeadPayload:
+    """:func:`find_dead_code` with what it left out and how the check went.
+
+    A graph candidate (no callers, tests, importers, references, or
+    subclasses) is reported only when nothing can still reach it: it is not
+    an FFI export, registered by a decorator or Rust attribute, or a trait
+    method, and its name appears nowhere in the repository's files outside
+    its own definition. The rest are counted under ``suppressed`` by reason;
+    ``verification`` says whether every file could be searched.
+
+    Returns:
+        ``{"dead": [...], "suppressed": {reason: count}, "verification":
+        {"status", "files_scanned", "files_skipped"}}``.
+    """
+    report: DeadPayload = json.loads(store.find_dead_code_json(kind, file_pattern))
+    return report
+
+
+def _graph_dead_code_candidates(
+    store: GraphStore,
+    kind: Optional[str] = None,
+    file_pattern: Optional[str] = None,
+) -> list[DeadPayload]:
+    """The graph's candidates before :func:`dead_code_report`'s repository
+    check. For testing the graph heuristics; never report these as dead."""
+    candidates: list[DeadPayload] = json.loads(
+        store.graph_dead_code_candidates_json(kind, file_pattern)
+    )
+    return candidates

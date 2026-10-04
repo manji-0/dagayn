@@ -718,6 +718,23 @@ impl PyGraphStore {
             .ok_or_else(|| PyRuntimeError::new_err("dead-code analysis could not read the graph"))
     }
 
+    /// The graph's candidates before the repository check (tests only).
+    #[pyo3(signature = (kind = None, file_pattern = None))]
+    fn graph_dead_code_candidates_json(
+        &self,
+        kind: Option<&str>,
+        file_pattern: Option<&str>,
+    ) -> PyResult<String> {
+        self.with_store(|store| {
+            Ok(dagayn_tools::graph_dead_code_candidates_json(
+                store,
+                kind,
+                file_pattern,
+            ))
+        })?
+        .ok_or_else(|| PyRuntimeError::new_err("dead-code analysis could not read the graph"))
+    }
+
     #[pyo3(signature = (min_lines = 50, max_lines = None, kind = None, file_path_pattern = None, limit = 50))]
     fn get_nodes_by_size(
         &self,

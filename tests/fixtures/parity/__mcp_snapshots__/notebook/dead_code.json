@@ -76,7 +76,13 @@
     }
   ],
   "status": "ok",
-  "summary": "Found 0 dead code symbol(s).",
+  "summary": "Found 0 dead code symbol(s) that nothing in the repository refers to.",
+  "suppressed": {},
   "total": 0,
-  "truncated": false
+  "truncated": false,
+  "verification": {
+    "files_scanned": 0,
+    "files_skipped": 0,
+    "status": "complete"
+  }
 }

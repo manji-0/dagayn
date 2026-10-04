@@ -99,6 +99,21 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- `refactor_tool(mode="dead_code")` (and the `remove` suggestions of
+  `mode="suggest"`) no longer calls a symbol dead while the repository may
+  still use it. A graph candidate (no callers, tests, importers, references,
+  or subclasses) is now reported only if it is not an FFI export, registered
+  by a decorator or a Rust attribute, a method of a class with a base or an
+  interface, a trait method, or a module, and its name appears nowhere in
+  the repository's files (tracked and untracked, Markdown and config
+  included) outside its own definition. The rest are counted in a new
+  `suppressed` field by reason, `verification` says how many files were
+  searched, and the summary says how many were left out. On this repository
+  the list went from 482 candidates, most of them used through callbacks,
+  type annotations, re-exports, string registries, decorators, and trait
+  dispatch, to 33 symbols nothing refers to. When the sources cannot be read
+  nothing is claimed. The Python `find_dead_code` now runs the same Rust
+  analysis as the native tool.
 - `architecture_analysis_tool(mode="adp_violations")` returns the same
   partial list in every process once a graph has more than 5000 cycles
   (#179). `networkx.simple_cycles` met cycles in hash order, so which 5000

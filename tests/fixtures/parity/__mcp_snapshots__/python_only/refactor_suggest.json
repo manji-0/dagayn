@@ -96,7 +96,8 @@
             "no_callers",
             "no_test_references",
             "no_importers",
-            "no_references"
+            "no_references",
+            "name_unreferenced_in_source"
           ],
           "suggestion_type": "remove",
           "symbols": [
@@ -126,7 +127,8 @@
         "no_callers",
         "no_test_references",
         "no_importers",
-        "no_references"
+        "no_references",
+        "name_unreferenced_in_source"
       ],
       "work_pack": {
         "defer_conditions": [
@@ -172,7 +174,8 @@
             "no_test_references",
             "no_importers",
             "no_references",
-            "no_subclasses"
+            "no_subclasses",
+            "name_unreferenced_in_source"
           ],
           "suggestion_type": "remove",
           "symbols": [
@@ -203,7 +206,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "no_subclasses"
+        "no_subclasses",
+        "name_unreferenced_in_source"
       ],
       "work_pack": {
         "defer_conditions": [
@@ -248,7 +252,8 @@
             "no_callers",
             "no_test_references",
             "no_importers",
-            "no_references"
+            "no_references",
+            "name_unreferenced_in_source"
           ],
           "suggestion_type": "remove",
           "symbols": [
@@ -278,7 +283,8 @@
         "no_callers",
         "no_test_references",
         "no_importers",
-        "no_references"
+        "no_references",
+        "name_unreferenced_in_source"
       ],
       "work_pack": {
         "defer_conditions": [
@@ -354,7 +360,8 @@
         "no_callers",
         "no_test_references",
         "no_importers",
-        "no_references"
+        "no_references",
+        "name_unreferenced_in_source"
       ],
       "symbols": [
         "main.py::run"
@@ -448,7 +455,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "no_subclasses"
+        "no_subclasses",
+        "name_unreferenced_in_source"
       ],
       "symbols": [
         "models.py::Address"
@@ -541,7 +549,8 @@
         "no_callers",
         "no_test_references",
         "no_importers",
-        "no_references"
+        "no_references",
+        "name_unreferenced_in_source"
       ],
       "symbols": [
         "services.py::get_email"

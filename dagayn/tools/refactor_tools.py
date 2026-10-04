@@ -311,22 +311,55 @@ def refactor_func(
             return seal_refactor_ok(result)
 
         if request.mode == "dead_code":
-            from ..refactor import find_dead_code
+            from ..refactor import dead_code_report
 
-            dead = find_dead_code(
+            report = dead_code_report(
                 store,
                 kind=request.kind,
                 file_pattern=request.file_pattern,
             )
+            dead = report["dead"]
+            suppressed: dict[str, int] = report["suppressed"]
+            verification = report["verification"]
             total = len(dead)
             truncated = total > request.limit
+            left_out = sum(suppressed.values())
+            if verification["status"] == "unavailable":
+                summary = (
+                    "Could not scan the repository's sources, so no symbol is reported as dead."
+                )
+            else:
+                summary = (
+                    f"Found {total} dead code symbol(s) that nothing in the repository refers to."
+                )
+            if left_out:
+                summary += (
+                    f" Left out {left_out} graph candidate(s) that may still be used"
+                    " (see suppressed)."
+                )
+            if truncated:
+                summary += f" Showing first {request.limit}."
+            scan_missingness = (
+                [
+                    {
+                        "reason_code": "source_scan_incomplete",
+                        "severity": "medium",
+                        "claim_effect": (
+                            "some repository files were not searched for the reported names"
+                        ),
+                    }
+                ]
+                if verification["status"] != "complete"
+                else []
+            )
             result: RefactorPayload = {
                 "status": "ok",
-                "summary": f"Found {total} dead code symbol(s)."
-                + (f" Showing first {request.limit}." if truncated else ""),
+                "summary": summary,
                 "dead_code": dead[: request.limit],
                 "total": total,
                 "truncated": truncated,
+                "suppressed": suppressed,
+                "verification": verification,
                 "caveats": [
                     "Dead-code results are graph-backed candidates; verify dynamic dispatch, "
                     "plugin registration, reflection, and generated entry points before deleting."
@@ -339,6 +372,7 @@ def refactor_func(
                         "severity": "medium",
                         "claim_effect": "dead-code claims do not cover dynamic runtime references",
                     },
+                    *scan_missingness,
                 ],
             }
             result["_hints"] = generate_hints("refactor", result, get_session())

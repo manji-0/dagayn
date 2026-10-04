@@ -65,84 +65,9 @@
     "status": "ok"
   },
   "counts_by_type": {
-    "remove": 10
+    "remove": 9
   },
   "guidance": [
-    {
-      "action": "refactor_tool mode=\"suggest\" -- inspect work_pack, then run the verification commands before editing",
-      "claim": "Remove unused function 'Base'",
-      "confidence": "medium",
-      "counts": {
-        "affected_file_count": 1,
-        "affected_files": [
-          "legacy.js"
-        ],
-        "estimated_risk": "medium",
-        "symbol_count": 1
-      },
-      "evidence": [
-        {
-          "raw": {
-            "caller_count": 0,
-            "importer_count": 0,
-            "name_definition_count": 1,
-            "reachable_via_cross_artifact": false,
-            "reference_count": 0,
-            "source_available": true,
-            "subclass_count": 0,
-            "test_ref_count": 0
-          },
-          "reason_codes": [
-            "no_callers",
-            "no_test_references",
-            "no_importers",
-            "no_references"
-          ],
-          "suggestion_type": "remove",
-          "symbols": [
-            "legacy.js::Base"
-          ],
-          "type": "computed"
-        }
-      ],
-      "missingness": [
-        {
-          "claim_effect": "verify runtime registration, generated code, and public APIs",
-          "reason_code": "dynamic_dispatch_not_proven_absent",
-          "severity": "medium"
-        },
-        {
-          "claim_effect": "The symbol is public API.",
-          "reason_code": "defer_condition",
-          "severity": "medium"
-        },
-        {
-          "claim_effect": "The only evidence is absence from the graph and dynamic use is plausible.",
-          "reason_code": "defer_condition",
-          "severity": "medium"
-        }
-      ],
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references"
-      ],
-      "work_pack": {
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "required_tests": [
-          "Run tests covering legacy.js"
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions."
-      }
-    },
     {
       "action": "refactor_tool mode=\"suggest\" -- inspect work_pack, then run the verification commands before editing",
       "claim": "Remove unused function 'field'",
@@ -171,7 +96,8 @@
             "no_callers",
             "no_test_references",
             "no_importers",
-            "no_references"
+            "no_references",
+            "name_unreferenced_in_source"
           ],
           "suggestion_type": "remove",
           "symbols": [
@@ -201,7 +127,8 @@
         "no_callers",
         "no_test_references",
         "no_importers",
-        "no_references"
+        "no_references",
+        "name_unreferenced_in_source"
       ],
       "work_pack": {
         "defer_conditions": [
@@ -246,7 +173,8 @@
             "no_callers",
             "no_test_references",
             "no_importers",
-            "no_references"
+            "no_references",
+            "name_unreferenced_in_source"
           ],
           "suggestion_type": "remove",
           "symbols": [
@@ -276,7 +204,8 @@
         "no_callers",
         "no_test_references",
         "no_importers",
-        "no_references"
+        "no_references",
+        "name_unreferenced_in_source"
       ],
       "work_pack": {
         "defer_conditions": [
@@ -288,6 +217,85 @@
         ],
         "required_tests": [
           "Run tests covering types.js"
+        ],
+        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
+        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions."
+      }
+    },
+    {
+      "action": "refactor_tool mode=\"suggest\" -- inspect work_pack, then run the verification commands before editing",
+      "claim": "Remove unused function 'Arrow'",
+      "confidence": "low",
+      "counts": {
+        "affected_file_count": 1,
+        "affected_files": [
+          "comp.jsx"
+        ],
+        "estimated_risk": "high",
+        "symbol_count": 1
+      },
+      "evidence": [
+        {
+          "raw": {
+            "caller_count": 0,
+            "importer_count": 0,
+            "name_definition_count": 1,
+            "reachable_via_cross_artifact": false,
+            "reference_count": 0,
+            "source_available": true,
+            "subclass_count": 0,
+            "test_ref_count": 0
+          },
+          "reason_codes": [
+            "no_callers",
+            "no_test_references",
+            "no_importers",
+            "no_references",
+            "public_api_candidate",
+            "name_unreferenced_in_source"
+          ],
+          "suggestion_type": "remove",
+          "symbols": [
+            "comp.jsx::Arrow"
+          ],
+          "type": "computed"
+        }
+      ],
+      "missingness": [
+        {
+          "claim_effect": "verify runtime registration, generated code, and public APIs",
+          "reason_code": "dynamic_dispatch_not_proven_absent",
+          "severity": "medium"
+        },
+        {
+          "claim_effect": "The symbol is public API.",
+          "reason_code": "defer_condition",
+          "severity": "medium"
+        },
+        {
+          "claim_effect": "The only evidence is absence from the graph and dynamic use is plausible.",
+          "reason_code": "defer_condition",
+          "severity": "medium"
+        }
+      ],
+      "reason_codes": [
+        "no_callers",
+        "no_test_references",
+        "no_importers",
+        "no_references",
+        "public_api_candidate",
+        "name_unreferenced_in_source"
+      ],
+      "work_pack": {
+        "defer_conditions": [
+          "The symbol is public API.",
+          "The only evidence is absence from the graph and dynamic use is plausible."
+        ],
+        "documentation_obligations": [
+          "Check docs_for/implementations_of for authored contracts before editing."
+        ],
+        "required_tests": [
+          "Run tests covering comp.jsx"
         ],
         "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
         "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions."
@@ -308,99 +316,6 @@
   ],
   "status": "ok",
   "suggestions": [
-    {
-      "affected_files": [
-        "legacy.js"
-      ],
-      "category": "executable",
-      "confidence": "medium",
-      "description": "Remove unused function 'Base'",
-      "estimated_risk": "medium",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 1,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering legacy.js"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
-      },
-      "priority": "low",
-      "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references"
-      ],
-      "symbols": [
-        "legacy.js::Base"
-      ],
-      "type": "remove",
-      "verification_steps": [
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "legacy.js"
-          ],
-          "estimated_risk": "medium",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": ".",
-        "primary_file": "legacy.js",
-        "required_tests": [
-          "Run tests covering legacy.js"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering legacy.js"
-        ]
-      }
-    },
     {
       "affected_files": [
         "types.js"
@@ -445,7 +360,8 @@
         "no_callers",
         "no_test_references",
         "no_importers",
-        "no_references"
+        "no_references",
+        "name_unreferenced_in_source"
       ],
       "symbols": [
         "types.js::JsClass.field"
@@ -538,7 +454,8 @@
         "no_callers",
         "no_test_references",
         "no_importers",
-        "no_references"
+        "no_references",
+        "name_unreferenced_in_source"
       ],
       "symbols": [
         "types.js::JsClass.g"
@@ -632,7 +549,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ],
       "symbols": [
         "comp.jsx::Arrow"
@@ -727,7 +645,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ],
       "symbols": [
         "comp.jsx::JsxComp"
@@ -823,7 +742,8 @@
         "no_importers",
         "no_references",
         "no_subclasses",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ],
       "symbols": [
         "esm.mjs::EsmDefault"
@@ -918,7 +838,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ],
       "symbols": [
         "esm.mjs::esmFn"
@@ -1014,7 +935,8 @@
         "no_importers",
         "no_references",
         "no_subclasses",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ],
       "symbols": [
         "types.js::JsClass"
@@ -1109,7 +1031,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ],
       "symbols": [
         "types.js::obj.m"
@@ -1204,7 +1127,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ],
       "symbols": [
         "types.js::obj.n"
@@ -1255,52 +1179,10 @@
       }
     }
   ],
-  "summary": "Generated 10 refactoring suggestion(s).",
-  "total": 10,
+  "summary": "Generated 9 refactoring suggestion(s).",
+  "total": 9,
   "truncated": false,
   "work_packs": [
-    {
-      "blast_radius": {
-        "affected_file_count": 1,
-        "affected_files": [
-          "legacy.js"
-        ],
-        "estimated_risk": "medium",
-        "symbol_count": 1
-      },
-      "defer_conditions": [
-        "The symbol is public API.",
-        "The only evidence is absence from the graph and dynamic use is plausible."
-      ],
-      "documentation_obligations": [
-        "Check docs_for/implementations_of for authored contracts before editing."
-      ],
-      "estimated_size": "small",
-      "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-      "owner_scope": ".",
-      "primary_file": "legacy.js",
-      "required_tests": [
-        "Run tests covering legacy.js"
-      ],
-      "risk_controls": [
-        "Treat public API, fixtures, and plugin entry points as high-risk.",
-        "Verify generated code and downstream package exports manually."
-      ],
-      "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-      "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-      "success_criteria": [
-        "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-        "Focused tests pass for the affected file or package.",
-        "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-      ],
-      "symbols": [
-        "legacy.js::Base"
-      ],
-      "type": "remove",
-      "verification_commands": [
-        "Run tests covering legacy.js"
-      ]
-    },
     {
       "blast_radius": {
         "affected_file_count": 1,
@@ -1467,6 +1349,48 @@
       "type": "remove",
       "verification_commands": [
         "Run tests covering comp.jsx"
+      ]
+    },
+    {
+      "blast_radius": {
+        "affected_file_count": 1,
+        "affected_files": [
+          "esm.mjs"
+        ],
+        "estimated_risk": "high",
+        "symbol_count": 1
+      },
+      "defer_conditions": [
+        "The symbol is public API.",
+        "The only evidence is absence from the graph and dynamic use is plausible."
+      ],
+      "documentation_obligations": [
+        "Check docs_for/implementations_of for authored contracts before editing."
+      ],
+      "estimated_size": "small",
+      "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
+      "owner_scope": ".",
+      "primary_file": "esm.mjs",
+      "required_tests": [
+        "Run tests covering esm.mjs"
+      ],
+      "risk_controls": [
+        "Treat public API, fixtures, and plugin entry points as high-risk.",
+        "Verify generated code and downstream package exports manually."
+      ],
+      "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
+      "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
+      "success_criteria": [
+        "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
+        "Focused tests pass for the affected file or package.",
+        "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
+      ],
+      "symbols": [
+        "esm.mjs::EsmDefault"
+      ],
+      "type": "remove",
+      "verification_commands": [
+        "Run tests covering esm.mjs"
       ]
     }
   ]

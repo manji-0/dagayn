@@ -27,6 +27,7 @@ from dagayn.hints import generate_hints, get_session, reset_session
 from dagayn.parser import EdgeInfo, NodeInfo
 from dagayn.prompts import review_changes_prompt
 from dagayn.refactor import find_dead_code, rename_preview
+from dagayn.refactor.dead_code import _graph_dead_code_candidates
 from dagayn.registry import Registry
 from dagayn.search import hybrid_search, rebuild_fts_index
 from dagayn.wiki import generate_wiki
@@ -411,11 +412,14 @@ class TestV2Integration:
         )
 
         # ---- Step 6: find_dead_code ----
-        dead = find_dead_code(self.store)
-        assert isinstance(dead, list)
-        dead_names = [d["name"] for d in dead]
-        # format_date has no callers, no tests, no importers -- should be dead
-        assert "format_date" in dead_names, f"format_date should be dead code, got: {dead_names}"
+        candidates = _graph_dead_code_candidates(self.store)
+        candidate_names = [d["name"] for d in candidates]
+        # format_date has no callers, no tests, no importers -- a graph candidate
+        assert "format_date" in candidate_names, (
+            f"format_date should be a dead-code candidate, got: {candidate_names}"
+        )
+        # but these nodes have no source on disk, so nothing is claimed dead
+        assert find_dead_code(self.store) == []
 
         # ---- Step 7: rename_preview ----
         preview = rename_preview(self.store, "verify_token", "validate_token")

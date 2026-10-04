@@ -370,11 +370,46 @@ fn strings(values: &[&str]) -> Vec<String> {
 }
 
 /// `find_dead_code(kind, file_pattern)`.
+/// The symbols nothing in the repository uses: the graph's candidates that
+/// survive [`crate::dead_code_verify::verify`].
 pub(crate) fn find_dead_code(
     store: &GraphStore,
     kind: Option<&str>,
     file_pattern: Option<&str>,
 ) -> Option<Vec<Value>> {
+    Some(dead_code_report(store, kind, file_pattern)?.dead)
+}
+
+/// [`find_dead_code`] with what it left out and how the check went.
+pub(crate) fn dead_code_report(
+    store: &GraphStore,
+    kind: Option<&str>,
+    file_pattern: Option<&str>,
+) -> Option<crate::dead_code_verify::Verified> {
+    let (candidates, sources) = graph_candidates(store, kind, file_pattern)?;
+    crate::dead_code_verify::verify(store, candidates, &sources)
+}
+
+/// The graph's candidates alone, before the check that keeps only symbols
+/// nothing in the repository uses: for testing the graph heuristics, never
+/// for reporting.
+pub(crate) fn graph_candidate_records(
+    store: &GraphStore,
+    kind: Option<&str>,
+    file_pattern: Option<&str>,
+) -> Option<Vec<Value>> {
+    let (candidates, _) = graph_candidates(store, kind, file_pattern)?;
+    Some(candidates.into_iter().map(|(_, record)| record).collect())
+}
+
+/// The graph's view: symbols without callers, tests, importers, references,
+/// or subclasses, with their records, and the source lines read for them.
+#[allow(clippy::type_complexity)]
+fn graph_candidates(
+    store: &GraphStore,
+    kind: Option<&str>,
+    file_pattern: Option<&str>,
+) -> Option<(Vec<(GraphNode, Value)>, HashMap<String, Vec<String>>)> {
     let kinds = match kind.filter(|k| !k.is_empty()) {
         Some(kind) => vec![kind.to_string()],
         None => strings(&["Function", "Class"]),
@@ -728,28 +763,31 @@ pub(crate) fn find_dead_code(
             || entrypoint
             || definitions > 1
             || !source_available;
-        dead.push(json!({
-            "name": sanitize(&node.name),
-            "qualified_name": sanitize(&node.qualified_name),
-            "kind": node.kind,
-            "file": node.file_path,
-            "line": node.line_start,
-            "language": node.language,
-            "confidence": if low { "low" } else { "medium" },
-            "public_api_candidate": public,
-            "reason_codes": reasons,
-            "evidence": {
-                "caller_count": callers,
-                "test_ref_count": tests_n,
-                "importer_count": importers,
-                "reference_count": reference_count,
-                "subclass_count": subclasses,
-                "name_definition_count": definitions,
-                "source_available": source_available,
-                "reachable_via_cross_artifact": entrypoint,
-            },
-            "caveats": caveats,
-        }));
+        dead.push((
+            node.clone(),
+            json!({
+                "name": sanitize(&node.name),
+                "qualified_name": sanitize(&node.qualified_name),
+                "kind": node.kind,
+                "file": node.file_path,
+                "line": node.line_start,
+                "language": node.language,
+                "confidence": if low { "low" } else { "medium" },
+                "public_api_candidate": public,
+                "reason_codes": reasons,
+                "evidence": {
+                    "caller_count": callers,
+                    "test_ref_count": tests_n,
+                    "importer_count": importers,
+                    "reference_count": reference_count,
+                    "subclass_count": subclasses,
+                    "name_definition_count": definitions,
+                    "source_available": source_available,
+                    "reachable_via_cross_artifact": entrypoint,
+                },
+                "caveats": caveats,
+            }),
+        ));
     }
-    Some(dead)
+    Some((dead, cache))
 }

@@ -87,38 +87,8 @@
         "no_test_references",
         "no_importers",
         "no_references",
-        "public_api_candidate"
-      ]
-    },
-    {
-      "caveats": [
-        "Static analysis can miss runtime dispatch, plugin registration, reflection, and dynamic imports.",
-        "Public API symbols may be consumed outside the indexed graph; verify downstream users before deleting."
-      ],
-      "confidence": "low",
-      "evidence": {
-        "caller_count": 0,
-        "importer_count": 0,
-        "name_definition_count": 1,
-        "reachable_via_cross_artifact": false,
-        "reference_count": 0,
-        "source_available": true,
-        "subclass_count": 0,
-        "test_ref_count": 0
-      },
-      "file": "packages/api-client/src/index.ts",
-      "kind": "Function",
-      "language": "typescript",
-      "line": 11,
-      "name": "getHealth",
-      "public_api_candidate": true,
-      "qualified_name": "packages/api-client/src/index.ts::getHealth",
-      "reason_codes": [
-        "no_callers",
-        "no_test_references",
-        "no_importers",
-        "no_references",
-        "public_api_candidate"
+        "public_api_candidate",
+        "name_unreferenced_in_source"
       ]
     }
   ],
@@ -145,7 +115,15 @@
     }
   ],
   "status": "ok",
-  "summary": "Found 2 dead code symbol(s).",
-  "total": 2,
-  "truncated": false
+  "summary": "Found 1 dead code symbol(s) that nothing in the repository refers to. Left out 1 graph candidate(s) that may still be used (see suppressed).",
+  "suppressed": {
+    "name_referenced_in_source": 1
+  },
+  "total": 1,
+  "truncated": false,
+  "verification": {
+    "files_scanned": 6,
+    "files_skipped": 0,
+    "status": "complete"
+  }
 }

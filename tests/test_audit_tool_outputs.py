@@ -172,7 +172,14 @@ def test_refactor_dead_code_truncates(monkeypatch) -> None:
         "dagayn.tools.refactor_tools._get_store",
         lambda repo_root: (_Closable(), None),
     )
-    monkeypatch.setattr("dagayn.refactor.find_dead_code", lambda store, **kwargs: dead)
+    monkeypatch.setattr(
+        "dagayn.refactor.dead_code_report",
+        lambda store, **kwargs: {
+            "dead": dead,
+            "suppressed": {"name_referenced_in_source": 3},
+            "verification": {"status": "complete", "files_scanned": 1, "files_skipped": 0},
+        },
+    )
 
     result = refactor_func(mode="dead_code", top_n=2, repo_root="/repo")
 
@@ -180,6 +187,8 @@ def test_refactor_dead_code_truncates(monkeypatch) -> None:
     assert result["total"] == 5
     assert result["truncated"] is True
     assert len(result["dead_code"]) == 2
+    assert result["suppressed"] == {"name_referenced_in_source": 3}
+    assert "Left out 3 graph candidate(s)" in result["summary"]
     assert result["missingness"]
 
 
