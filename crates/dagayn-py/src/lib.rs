@@ -1096,6 +1096,7 @@ impl PyGraphStore {
 fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyGraphStore>()?;
     module.add_class::<hints::PyHintSession>()?;
+    module.add_function(wrap_pyfunction!(bounded_simple_cycles, module)?)?;
     module.add_function(wrap_pyfunction!(pending::pending_refactor_set, module)?)?;
     module.add_function(wrap_pyfunction!(pending::pending_refactor_get, module)?)?;
     module.add_function(wrap_pyfunction!(pending::pending_refactor_remove, module)?)?;
@@ -1239,6 +1240,27 @@ fn discover_manifest_bridges_json(
 
 /// `declared` resolved against the repo-relative `base_dir`; `None` when it
 /// escapes the repository root.
+/// `dagayn_graph::bounded_simple_cycles`: `(cycles as indices into names,
+/// cycles examined, truncated)`.
+#[pyfunction]
+#[pyo3(signature = (names, edges, min_size, max_length, max_cycles, max_steps))]
+fn bounded_simple_cycles(
+    py: Python<'_>,
+    names: Vec<String>,
+    edges: Vec<(usize, usize)>,
+    min_size: usize,
+    max_length: usize,
+    max_cycles: usize,
+    max_steps: usize,
+) -> (Vec<Vec<usize>>, usize, bool) {
+    let found = py.detach(|| {
+        dagayn_graph::bounded_simple_cycles(
+            &names, &edges, min_size, max_length, max_cycles, max_steps,
+        )
+    });
+    (found.cycles, found.examined, found.truncated)
+}
+
 #[pyfunction]
 fn resolve_manifest_path(base_dir: &str, declared: &str) -> Option<String> {
     dagayn_postproc::manifest_bridges::resolve_rel(base_dir, declared)

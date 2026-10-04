@@ -621,6 +621,8 @@ pub use bridges::{
 };
 mod communities;
 mod core;
+mod cycles;
+pub use cycles::{BoundedCycles, bounded_simple_cycles};
 mod edge_lookups;
 mod edge_queries;
 mod embeddings;

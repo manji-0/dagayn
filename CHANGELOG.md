@@ -99,6 +99,12 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- `architecture_analysis_tool(mode="adp_violations")` returns the same
+  partial list in every process once a graph has more than 5000 cycles
+  (#179). `networkx.simple_cycles` met cycles in hash order, so which 5000
+  were kept changed per process; the cycles now come from one Rust walk
+  (`_core.bounded_simple_cycles`) that goes in node-name order and is shared
+  with the native tool, which therefore answers truncated lists too.
 - An incremental update stores the same change the same way every time, and
   `dagayn update` with the Rust CLI and with `DAGAYN_PYTHON_CLI=1` now leave
   identical graphs. Python walked the changed and dependent files in a set's

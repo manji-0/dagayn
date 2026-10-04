@@ -321,6 +321,32 @@ class TestFindAdpViolations:
                 dependency_profile=cast(DependencyProfile, "typo"),
             )
 
+    def test_a_limit_keeps_the_same_prefix_in_name_order(self, tmp_path):
+        """Past ``max_cycles`` the kept cycles are the first ones walking from
+        the smallest name, not whatever ``networkx`` met first in hash order
+        (which changed per process, #179)."""
+        from dagayn.architecture import find_adp_violations
+
+        store = GraphStore(tmp_path / "complete.db")
+        files = ("src/c.py", "src/a.py", "src/b.py")
+        for f in files:
+            store.upsert_node(_node("File", f, f))
+        for source in files:
+            for target in files:
+                if source != target:
+                    store.upsert_edge(_edge("IMPORTS_FROM", source, target))
+        store.commit()
+        assert len(find_adp_violations(store, granularity="file")) == 5
+        violations = find_adp_violations(store, granularity="file", max_cycles=2)
+        assert [v["nodes"] for v in violations] == [
+            ["src/a.py", "src/b.py", "src/c.py"],
+            ["src/a.py", "src/b.py"],
+        ]
+        assert violations[-1]["truncated"] is True
+        assert violations[-1]["cycles_examined"] == 3
+        assert violations[-1]["cycle_limit"] == 2
+        store.close()
+
     def test_severity_equals_length_times_edge_weight(self, two_cycle_store):
         from dagayn.architecture import find_adp_violations
 

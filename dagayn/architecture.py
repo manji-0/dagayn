@@ -112,6 +112,8 @@ def _project_dependency_graph(
 #: (``architecture_analysis_tool``) and also runs inside ``generate_wiki``, so
 #: one such subsystem hung both. Enumeration stops here and says it stopped.
 _MAX_ADP_CYCLES = 5000
+#: A walk budget for graphs whose cycles are few but whose paths are many.
+_MAX_ADP_STEPS = 2_000_000
 
 
 def find_adp_violations(
@@ -126,14 +128,17 @@ def find_adp_violations(
 ) -> list[AdpViolationRecord]:
     """Find cyclic dependencies (ADP violations).
 
-    Uses nx.simple_cycles on the artifact-scoped dependency subgraph
-    (IMPORTS_FROM, DEPENDS_ON, INHERITS, IMPLEMENTS). Each result includes the
-    nodes in the cycle, its length, total edge weight, and a severity score
+    Enumerates the bounded simple cycles of the artifact-scoped dependency
+    subgraph (IMPORTS_FROM, DEPENDS_ON, INHERITS, IMPLEMENTS) with
+    ``_core.bounded_simple_cycles``. Each result includes the nodes in the
+    cycle, its length, total edge weight, and a severity score
     (length × edge_weight).
 
     Enumeration stops after *max_cycles* cycles; when it does, the last entry
     carries ``truncated: True`` alongside ``cycles_examined`` so callers can say
-    the list is partial rather than presenting it as exhaustive.
+    the list is partial rather than presenting it as exhaustive. The walk goes
+    in node-name order, so a partial list is the same on every run (with
+    ``networkx.simple_cycles`` it followed hash order and changed per process).
 
     ``snapshot`` may supply the shared node/edge lists to skip re-reading the
     graph tables.
@@ -152,41 +157,40 @@ def find_adp_violations(
     if g.number_of_nodes() == 0:
         return []
 
+    from ._core import bounded_simple_cycles
+
+    nodes = list(g.nodes)
+    index = {node: position for position, node in enumerate(nodes)}
+    found, examined, truncated = bounded_simple_cycles(
+        [str(node) for node in nodes],
+        [(index[source], index[target]) for source, target in g.edges],
+        max(min_cycle_size, 0),
+        max(max_cycle_length, 0),
+        max_cycles,
+        _MAX_ADP_STEPS,
+    )
+    if truncated:
+        logger.warning(
+            "ADP cycle enumeration stopped at %d cycles; the graph has more",
+            len(found),
+        )
     violations: list[AdpViolationRecord] = []
-    truncated = False
-    examined = 0
-    try:
-        for cycle in nx.simple_cycles(g, length_bound=max_cycle_length):
-            examined += 1
-            if len(violations) >= max_cycles:
-                truncated = True
-                logger.warning(
-                    "ADP cycle enumeration stopped at %d cycles; the graph has more",
-                    max_cycles,
-                )
-                break
-            if len(cycle) < min_cycle_size:
-                continue
-            # simple_cycles starts each cycle at an arbitrary member; rotate to
-            # the smallest so the same cycle reads the same on every run.
-            start = min(range(len(cycle)), key=lambda i: str(cycle[i]))
-            cycle = cycle[start:] + cycle[:start]
-            edge_weight = sum(
-                g[cycle[i]][cycle[(i + 1) % len(cycle)]].get("weight", 1)
-                for i in range(len(cycle))
-                if g.has_edge(cycle[i], cycle[(i + 1) % len(cycle)])
-            )
-            violations.append(
-                {
-                    "nodes": [str(node) for node in cycle],
-                    "length": len(cycle),
-                    "edge_weight": edge_weight,
-                    "severity": len(cycle) * edge_weight,
-                    "dependency_profile": dependency_profile,
-                }
-            )
-    except (nx.NetworkXError, RuntimeError, ValueError, RecursionError, MemoryError) as exc:
-        logger.warning("Cycle detection failed: %s", exc)
+    for positions in found:
+        # Each cycle starts at its smallest member, so it reads the same on
+        # every run.
+        cycle = [nodes[position] for position in positions]
+        edge_weight = sum(
+            g[cycle[i]][cycle[(i + 1) % len(cycle)]].get("weight", 1) for i in range(len(cycle))
+        )
+        violations.append(
+            {
+                "nodes": [str(node) for node in cycle],
+                "length": len(cycle),
+                "edge_weight": edge_weight,
+                "severity": len(cycle) * edge_weight,
+                "dependency_profile": dependency_profile,
+            }
+        )
 
     # Deterministic tie-break: severity ties are common and callers truncate.
     violations.sort(key=lambda x: (-x["severity"], tuple(x["nodes"])))

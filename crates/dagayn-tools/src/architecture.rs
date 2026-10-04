@@ -359,55 +359,30 @@ impl ScopeGraph {
         violations.into_iter().map(|(_, value)| value).collect()
     }
 
-    /// `find_adp_violations`: every simple cycle up to ten nodes, or `None`
-    /// past Python's 5000-cycle limit.
+    /// `find_adp_violations`: the simple cycles of at most `max_length`
+    /// nodes, the first [`MAX_ADP_CYCLES`] in the shared deterministic order
+    /// when there are more (the last one then marked `truncated`).
     pub(crate) fn adp_violations(
         &self,
         min_size: i64,
         max_length: i64,
         profile: Profile,
     ) -> Option<Vec<Value>> {
-        let mut cycles: Vec<Vec<usize>> = Vec::new();
-        let mut steps = 0_usize;
-        for start in 0..self.nodes.len() {
-            // Each cycle once: from its smallest index, through larger ones.
-            let mut path = vec![start];
-            let mut on_path = vec![false; self.nodes.len()];
-            on_path[start] = true;
-            let mut stack: Vec<usize> = vec![0];
-            while let Some(position) = stack.last_mut() {
-                steps += 1;
-                if steps > MAX_ADP_STEPS {
-                    return None;
-                }
-                let node = *path.last()?;
-                let successors = &self.successors[node];
-                if *position >= successors.len() {
-                    stack.pop();
-                    let left = path.pop()?;
-                    on_path[left] = false;
-                    continue;
-                }
-                let (next, _) = successors[*position];
-                *position += 1;
-                if next == start {
-                    if max_length < 1 || (path.len() as i64) > max_length {
-                        continue;
-                    }
-                    if (path.len() as i64) < min_size {
-                        continue;
-                    }
-                    cycles.push(path.clone());
-                    if cycles.len() > MAX_ADP_CYCLES {
-                        return None;
-                    }
-                } else if next > start && !on_path[next] && (path.len() as i64) < max_length {
-                    path.push(next);
-                    on_path[next] = true;
-                    stack.push(0);
-                }
-            }
-        }
+        let edges: Vec<(usize, usize)> = self
+            .successors
+            .iter()
+            .enumerate()
+            .flat_map(|(from, targets)| targets.iter().map(move |(to, _)| (from, *to)))
+            .collect();
+        let found = dagayn_graph::bounded_simple_cycles(
+            &self.nodes,
+            &edges,
+            usize::try_from(min_size.max(0)).ok()?,
+            usize::try_from(max_length.max(0)).ok()?,
+            MAX_ADP_CYCLES,
+            MAX_ADP_STEPS,
+        );
+        let cycles = found.cycles;
         let weight = |from: usize, to: usize| {
             self.successors[from]
                 .iter()
@@ -440,7 +415,15 @@ impl ScopeGraph {
             })
             .collect();
         violations.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| left.1.cmp(&right.1)));
-        Some(violations.into_iter().map(|(_, _, value)| value).collect())
+        let mut out: Vec<Value> = violations.into_iter().map(|(_, _, value)| value).collect();
+        if found.truncated
+            && let Some(Value::Object(last)) = out.last_mut()
+        {
+            last.insert("truncated".into(), json!(true));
+            last.insert("cycles_examined".into(), json!(found.examined));
+            last.insert("cycle_limit".into(), json!(MAX_ADP_CYCLES));
+        }
+        Some(out)
     }
 }
 

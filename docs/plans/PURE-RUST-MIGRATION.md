@@ -708,6 +708,13 @@ run. After the fix, two Rust updates and a Rust and a Python update of the
 same edit leave identical nodes, edges, flows, memberships, communities,
 and scores.
 
+5.4, first item (done): ADP cycle enumeration. `find_adp_violations` keeps
+`networkx` only to project the dependency graph; its cycles come from
+`dagayn_graph::bounded_simple_cycles` (through `_core`), the walk the native
+`adp_violations` mode now shares, in node-name order with the same 5000-cycle
+limit and a step budget. A truncated list is the same prefix on every run
+(#179), and the front end answers it instead of leaving it to Python.
+
 Next: the remaining tools that write (`generate_wiki_tool`,
 `build_or_update_graph_tool`, `run_postprocess_tool`, `embed_graph_tool`) and
 `cross_repo_search_tool`, then the Python server's remaining role.
