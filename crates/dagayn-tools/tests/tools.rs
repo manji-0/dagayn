@@ -827,8 +827,20 @@ fn architecture_metrics_follow_the_requested_view() {
     );
     let sap = arch(json!({"mode": "sap_metrics", "detail_level": "verbose"}));
     assert_eq!(sap["inapplicable_visibility"], "included_in_metrics");
+    let tiny = arch(json!({"mode": "sdp_violations", "min_delta": 0.00001}));
+    assert!(
+        tiny["summary"]
+            .as_str()
+            .is_some_and(|s| s.contains("min_delta=1e-05)"))
+    );
     let sap_v = arch(json!({"mode": "sap_violations", "min_distance": 0.0}));
     assert!(sap_v["violations"].is_array());
+    let huge = arch(json!({"mode": "sap_violations", "min_distance": 1.5e16}));
+    assert!(
+        huge["summary"]
+            .as_str()
+            .is_some_and(|s| s.contains("min_distance=1.5e+16)"))
+    );
     let hubs = arch(json!({"mode": "hubs", "artifact_scope": "all"}));
     assert_eq!(hubs["called_subtool"], "get_hub_nodes_func");
     assert!(hubs["hub_nodes"].as_array().is_some_and(|h| !h.is_empty()));
@@ -864,7 +876,6 @@ fn architecture_metrics_follow_the_requested_view() {
         "Value error, mode=\"community\" requires community_id or community_name."
     );
     for arguments in [
-        json!({"mode": "sdp_violations", "min_delta": 0.00001}),
         json!({"mode": "adp_violations", "dependency_profile": "bogus"}),
         json!({"mode": "sap_metrics", "unit_filter": "pkg"}),
     ] {

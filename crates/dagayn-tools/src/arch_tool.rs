@@ -54,17 +54,30 @@ const MODES: &[&str] = &[
 /// `detect_sap_violations_func`'s output budget, in tokens.
 const SAP_VIOLATIONS_BUDGET: usize = 5000;
 
-/// `repr(float)` where Python spells it without an exponent.
-fn py_float(value: f64) -> Option<String> {
-    if !value.is_finite() || (value != 0.0 && !(1e-4..1e16).contains(&value.abs())) {
-        return None;
+/// Python's `repr(float)` (`float_repr_style='short'`): the shortest
+/// round-trip digits, in exponent form (`1e-05`, `1.5e+16`) when the decimal
+/// exponent is below -4 or at least 16, otherwise positional with at least
+/// one fractional digit.
+fn py_float(value: f64) -> String {
+    if value.is_nan() {
+        return "nan".to_owned();
+    }
+    if value.is_infinite() {
+        return if value > 0.0 { "inf" } else { "-inf" }.to_owned();
+    }
+    let sci = format!("{value:e}");
+    let (mantissa, exponent) = sci.split_once('e').unwrap_or((sci.as_str(), "0"));
+    let exponent: i32 = exponent.parse().unwrap_or(0);
+    if value != 0.0 && !(-4..16).contains(&exponent) {
+        let sign = if exponent < 0 { '-' } else { '+' };
+        return format!("{mantissa}e{sign}{:02}", exponent.unsigned_abs());
     }
     let text = value.to_string();
-    Some(if text.contains('.') {
+    if text.contains('.') {
         text
     } else {
         format!("{text}.0")
-    })
+    }
 }
 
 /// The arguments once fastmcp and `parse_architecture_analysis_request`
@@ -495,7 +508,7 @@ fn sdp_violations(
         request.granularity,
         request.artifact_scope,
         profile.name(),
-        py_float(request.min_delta)?
+        py_float(request.min_delta)
     );
     if truncated {
         summary.push_str(&format!(
@@ -658,7 +671,7 @@ fn sap_violation_list(
         .collect();
     let total = violations.len();
     let truncated = total as i64 > request.top_n;
-    let min_distance = py_float(request.min_distance)?;
+    let min_distance = py_float(request.min_distance);
     let mut summary = format!(
         "Found {total} SAP violation(s) at {} level (artifact_scope={}, dependency_profile={}, min_distance={min_distance}). sap_violations suppresses test and fixture scopes; inspect sap_metrics notes for raw values.",
         request.scope_kind,
@@ -947,4 +960,45 @@ fn knowledge_gaps(
             .replace("gap_counts", after);
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::py_float;
+
+    /// Expected strings are CPython 3 `repr(x)` outputs.
+    #[test]
+    fn py_float_matches_python_repr() {
+        let cases: &[(f64, &str)] = &[
+            (0.1, "0.1"),
+            (0.5, "0.5"),
+            (0.0, "0.0"),
+            (-0.0, "-0.0"),
+            (1.0, "1.0"),
+            (2.0, "2.0"),
+            (1e-4, "0.0001"),
+            (123e-6, "0.000123"),
+            (0.00012345, "0.00012345"),
+            (1e-5, "1e-05"),
+            (-1e-5, "-1e-05"),
+            (1.5e-7, "1.5e-07"),
+            (-2.5e-10, "-2.5e-10"),
+            (5e-324, "5e-324"),
+            (0.1 + 0.2, "0.30000000000000004"),
+            (123456789.123, "123456789.123"),
+            (1e15, "1000000000000000.0"),
+            (9999999999999998.0, "9999999999999998.0"),
+            (1e16, "1e+16"),
+            (1.5e16, "1.5e+16"),
+            (1e22, "1e+22"),
+            (1e100, "1e+100"),
+            (f64::MAX, "1.7976931348623157e+308"),
+            (f64::INFINITY, "inf"),
+            (f64::NEG_INFINITY, "-inf"),
+            (f64::NAN, "nan"),
+        ];
+        for &(value, expected) in cases {
+            assert_eq!(py_float(value), expected, "repr({value:?})");
+        }
+    }
 }
