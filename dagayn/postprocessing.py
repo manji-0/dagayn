@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -87,94 +89,81 @@ def run_post_processing(
         raise RuntimeError(f"Rust post-processing returned invalid payload: {e}") from e
 
 
+_STEP_ERRORS = (OSError, RuntimeError, TypeError, ValueError)
+
+
+@contextmanager
+def _warn_on_failure(
+    label: str, errors: tuple[type[Exception], ...], warnings: list[str]
+) -> Iterator[None]:
+    """Log and record *errors* raised by one post-process step instead of raising."""
+    try:
+        yield
+    except errors as e:
+        logger.warning(label + " failed: %s", e)
+        warnings.append(f"{label} failed: {type(e).__name__}: {e}")
+
+
 def _resolve_bare_name_edges(
-    store: GraphStore,
-    result: PostprocessResult,
-    warnings: list[str],
+    store: GraphStore, result: PostprocessResult, warnings: list[str]
 ) -> None:
     """Resolve bare-name CALLS and INHERITS/IMPLEMENTS edges."""
-    try:
+    with _warn_on_failure(
+        "Bare-name edge resolution", (OSError, RuntimeError, TypeError, AttributeError), warnings
+    ):
         result.bare_call_targets_resolved = int(store.resolve_bare_call_targets())
         result.bare_inheritance_targets_resolved = int(store.resolve_bare_inheritance_targets())
-    except (OSError, RuntimeError, TypeError, AttributeError) as e:
-        logger.warning("Bare-name edge resolution failed: %s", e)
-        warnings.append(f"Bare-name edge resolution failed: {type(e).__name__}: {e}")
 
 
 def _resolve_terraform_module_references(
-    store: GraphStore,
-    result: PostprocessResult,
-    warnings: list[str],
+    store: GraphStore, result: PostprocessResult, warnings: list[str]
 ) -> None:
     """Qualify bare Terraform REFERENCES declared in another file of the module."""
-    try:
+    with _warn_on_failure("Terraform module reference resolution", _STEP_ERRORS, warnings):
         resolved = store.resolve_terraform_module_references()
         result.terraform_module_references_resolved = int(resolved)
-    except (OSError, RuntimeError, TypeError, ValueError) as e:
-        logger.warning("Terraform module reference resolution failed: %s", e)
-        warnings.append(f"Terraform module reference resolution failed: {type(e).__name__}: {e}")
 
 
 def _demote_unresolved_endpoint_edges(
-    store: GraphStore,
-    result: PostprocessResult,
-    warnings: list[str],
+    store: GraphStore, result: PostprocessResult, warnings: list[str]
 ) -> None:
     """Lower confidence on edges whose node-qualified endpoints are absent."""
-    try:
+    with _warn_on_failure("Unresolved endpoint demotion", _STEP_ERRORS, warnings):
         result.unresolved_endpoint_edges_demoted = int(store.demote_unresolved_endpoint_edges())
-    except (OSError, RuntimeError, TypeError, ValueError) as e:
-        logger.warning("Unresolved endpoint demotion failed: %s", e)
-        warnings.append(f"Unresolved endpoint demotion failed: {type(e).__name__}: {e}")
 
 
 def _resolve_markdown_artifact_refs(
-    store: GraphStore,
-    result: PostprocessResult,
-    warnings: list[str],
+    store: GraphStore, result: PostprocessResult, warnings: list[str]
 ) -> None:
     """Resolve Markdown→code CROSS_ARTIFACT edges in the native store."""
-    try:
+    with _warn_on_failure("Markdown artifact ref resolution", _STEP_ERRORS, warnings):
         resolved, dropped, re_resolved, still_unresolved = store.resolve_markdown_artifact_refs()
         result.markdown_artifact_refs_resolved = int(resolved)
         result.markdown_artifact_refs_dropped = int(dropped)
         result.markdown_artifact_refs_re_resolved = int(re_resolved)
         result.markdown_artifact_refs_still_unresolved = int(still_unresolved)
-    except (OSError, RuntimeError, TypeError, ValueError) as e:
-        logger.warning("Markdown artifact ref resolution failed: %s", e)
-        warnings.append(f"Markdown artifact ref resolution failed: {type(e).__name__}: {e}")
 
 
 def _resolve_terraform_artifact_refs(
-    store: GraphStore,
-    result: PostprocessResult,
-    warnings: list[str],
+    store: GraphStore, result: PostprocessResult, warnings: list[str]
 ) -> None:
     """Resolve Terraform entrypoint CROSS_ARTIFACT edges in the native store."""
-    try:
+    with _warn_on_failure("Terraform artifact ref resolution", _STEP_ERRORS, warnings):
         resolved, still_unresolved = store.resolve_terraform_artifact_refs()
         result.terraform_artifact_refs_resolved = int(resolved)
         result.terraform_artifact_refs_still_unresolved = int(still_unresolved)
-    except (OSError, RuntimeError, TypeError, ValueError) as e:
-        logger.warning("Terraform artifact ref resolution failed: %s", e)
-        warnings.append(f"Terraform artifact ref resolution failed: {type(e).__name__}: {e}")
 
 
 def _resolve_native_bindings(
-    store: GraphStore,
-    result: PostprocessResult,
-    warnings: list[str],
+    store: GraphStore, result: PostprocessResult, warnings: list[str]
 ) -> None:
     """Bind Python imports / calls / ctypes loads to the Rust crates they reach.
 
     Runs after :func:`_apply_manifest_bridges`, whose ``Cargo.toml`` bridges
     name the crates.
     """
-    try:
+    with _warn_on_failure("Native binding resolution", _STEP_ERRORS, warnings):
         result.native_bindings_resolved = int(store.resolve_native_bindings())
-    except (OSError, RuntimeError, TypeError, ValueError) as e:
-        logger.warning("Native binding resolution failed: %s", e)
-        warnings.append(f"Native binding resolution failed: {type(e).__name__}: {e}")
 
 
 def _apply_manifest_bridges(
@@ -184,7 +173,7 @@ def _apply_manifest_bridges(
     changed_files: list[str] | None = None,
 ) -> None:
     """Extract Layer-2 manifest bridges and swap them natively."""
-    try:
+    with _warn_on_failure("Manifest bridge extraction", _STEP_ERRORS, warnings):
         from .parser.manifest_bridges import EXTRACTOR_ID
 
         if not _should_scan_manifests(changed_files):
@@ -203,9 +192,6 @@ def _apply_manifest_bridges(
         )
         result.manifest_bridges_edges = discovered.edge_count
         result.manifest_bridges_nodes = nodes_upserted
-    except (OSError, RuntimeError, TypeError, ValueError) as e:
-        logger.warning("Manifest bridge extraction failed: %s", e)
-        warnings.append(f"Manifest bridge extraction failed: {type(e).__name__}: {e}")
 
 
 def _persist_centrality_scores(
@@ -215,7 +201,9 @@ def _persist_centrality_scores(
     changed_files: list[str] | None = None,
 ) -> None:
     """Persist query-time hub / bridge scores after graph post-processing."""
-    try:
+    with _warn_on_failure(
+        "Centrality score persistence", (OSError, ImportError, RuntimeError), warnings
+    ):
         from .analysis import persist_centrality_scores
 
         counts = persist_centrality_scores(store, changed_files=changed_files)
@@ -223,9 +211,6 @@ def _persist_centrality_scores(
         result.bridge_scores_persisted = counts.get("bridge_scores_persisted", 0)
         result.hub_scores_code_persisted = counts.get("hub_scores_code_persisted", 0)
         result.bridge_scores_code_persisted = counts.get("bridge_scores_code_persisted", 0)
-    except (OSError, ImportError, RuntimeError) as e:
-        logger.warning("Centrality score persistence failed: %s", e)
-        warnings.append(f"Centrality score persistence failed: {type(e).__name__}: {e}")
 
 
 __all__ = [
