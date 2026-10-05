@@ -30,6 +30,12 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- The ADP/SDP/SAP architecture tools (`detect_adp_violations_func`,
+  `compute_sdp_metrics_func`, `detect_sdp_violations_func`,
+  `compute_sap_metrics_func`, `detect_sap_violations_func`) and
+  `get_wiki_page_tool` never closed the graph they opened, so each call left
+  its store lease and the shared read lock held, and a later writer in the
+  same server waited on it.
 - `dagayn install --mode remote-embedding` now prints the environment
   variables the chosen provider needs: the check compared the mode against
   the legacy `remote` name, which was normalized away first, so it never

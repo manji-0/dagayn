@@ -406,7 +406,8 @@ def get_wiki_page_func(
     from ..paths import get_data_dir
     from ..wiki import get_wiki_page
 
-    _, root = _get_store(repo_root)
+    store, root = _get_store(repo_root)
+    store.close()
     wiki_dir = get_data_dir(root) / "wiki"
     content = get_wiki_page(wiki_dir, community_name)
     if content is None:

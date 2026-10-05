@@ -39,14 +39,17 @@ def detect_adp_violations_func(
     except ValueError as exc:
         return _error_response(str(exc), dependency_profile=dependency_profile)
     store, _root = _get_store(repo_root)
-    violations = find_adp_violations(
-        store,
-        granularity=granularity,
-        artifact_scope=artifact_scope,
-        dependency_profile=dependency_profile,
-        min_cycle_size=min_cycle_size,
-        max_cycle_length=max_cycle_length,
-    )
+    try:
+        violations = find_adp_violations(
+            store,
+            granularity=granularity,
+            artifact_scope=artifact_scope,
+            dependency_profile=dependency_profile,
+            min_cycle_size=min_cycle_size,
+            max_cycle_length=max_cycle_length,
+        )
+    finally:
+        store.close()
     total = len(violations)
     truncated = total > top_n
     next_tool_suggestions = [
@@ -99,12 +102,15 @@ def compute_sdp_metrics_func(
     except ValueError as exc:
         return _error_response(str(exc), dependency_profile=dependency_profile)
     store, _root = _get_store(repo_root)
-    metrics = compute_sdp_metrics(
-        store,
-        granularity=granularity,
-        artifact_scope=artifact_scope,
-        dependency_profile=dependency_profile,
-    )
+    try:
+        metrics = compute_sdp_metrics(
+            store,
+            granularity=granularity,
+            artifact_scope=artifact_scope,
+            dependency_profile=dependency_profile,
+        )
+    finally:
+        store.close()
     return make_response(
         "ok",
         f"Computed SDP instability for {len(metrics)} {granularity}(s) "
@@ -149,13 +155,16 @@ def detect_sdp_violations_func(
     except ValueError as exc:
         return _error_response(str(exc), dependency_profile=dependency_profile)
     store, _root = _get_store(repo_root)
-    violations = find_sdp_violations(
-        store,
-        granularity=granularity,
-        artifact_scope=artifact_scope,
-        dependency_profile=dependency_profile,
-        min_delta=min_delta,
-    )
+    try:
+        violations = find_sdp_violations(
+            store,
+            granularity=granularity,
+            artifact_scope=artifact_scope,
+            dependency_profile=dependency_profile,
+            min_delta=min_delta,
+        )
+    finally:
+        store.close()
     total = len(violations)
     truncated = total > top_n
     return make_response(

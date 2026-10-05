@@ -72,13 +72,16 @@ def compute_sap_metrics_func(
     except ValueError as exc:
         return _error_response(str(exc), dependency_profile=dependency_profile)
     store, _root = _get_store(repo_root)
-    raw_metrics = compute_sap_metrics(
-        store,
-        scope_kind=scope_kind,
-        unit_filter=unit_filter,
-        artifact_scope=artifact_scope,
-        dependency_profile=dependency_profile,
-    )
+    try:
+        raw_metrics = compute_sap_metrics(
+            store,
+            scope_kind=scope_kind,
+            unit_filter=unit_filter,
+            artifact_scope=artifact_scope,
+            dependency_profile=dependency_profile,
+        )
+    finally:
+        store.close()
     applicable_metrics = [m for m in raw_metrics if m.get("sap_applicable", True)]
     inapplicable_metrics = [m for m in raw_metrics if not m.get("sap_applicable", True)]
     visible_metrics = raw_metrics if detail_level == "verbose" else applicable_metrics
@@ -152,13 +155,16 @@ def detect_sap_violations_func(
     except ValueError as exc:
         return _error_response(str(exc), dependency_profile=dependency_profile)
     store, _root = _get_store(repo_root)
-    raw_violations = find_sap_violations(
-        store,
-        scope_kind=scope_kind,
-        artifact_scope=artifact_scope,
-        dependency_profile=dependency_profile,
-        min_distance=min_distance,
-    )
+    try:
+        raw_violations = find_sap_violations(
+            store,
+            scope_kind=scope_kind,
+            artifact_scope=artifact_scope,
+            dependency_profile=dependency_profile,
+            min_distance=min_distance,
+        )
+    finally:
+        store.close()
     violations = [
         {
             "scope_key": violation["scope_key"],
