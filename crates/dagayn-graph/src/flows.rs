@@ -26,13 +26,7 @@ impl GraphStore {
              ORDER BY id",
         )?;
         let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, Option<String>>(3)?,
-                row.get::<_, Option<String>>(4)?,
-            ))
+            <(String, String, String, Option<String>, Option<String>)>::try_from(row)
         })?;
         for row in rows {
             let (kind, source, target, confidence_tier, extra_json) = row?;
@@ -147,13 +141,7 @@ impl GraphStore {
             );
             let mut stmt = self.conn.prepare(&sql)?;
             let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                    row.get::<_, Option<String>>(4)?,
-                ))
+                <(String, String, String, Option<String>, Option<String>)>::try_from(row)
             })?;
             for row in rows {
                 let (kind, source, target, confidence_tier, extra_json) = row?;
@@ -189,12 +177,7 @@ impl GraphStore {
             );
             let mut stmt = self.conn.prepare(&sql)?;
             let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                ))
+                <(String, String, Option<String>, Option<String>)>::try_from(row)
             })?;
             for row in rows {
                 let (kind, target, confidence_tier, extra_json) = row?;

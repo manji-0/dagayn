@@ -13,9 +13,7 @@ impl GraphStore {
         let mut node_stmt = self
             .conn
             .prepare("SELECT kind, COUNT(*) as cnt FROM nodes GROUP BY kind")?;
-        let node_rows = node_stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-        })?;
+        let node_rows = node_stmt.query_map([], |row| <(String, i64)>::try_from(row))?;
         for row in node_rows {
             let (kind, count) = row?;
             nodes_by_kind.insert(kind, count);
@@ -25,9 +23,7 @@ impl GraphStore {
         let mut edge_stmt = self
             .conn
             .prepare("SELECT kind, COUNT(*) as cnt FROM edges GROUP BY kind")?;
-        let edge_rows = edge_stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-        })?;
+        let edge_rows = edge_stmt.query_map([], |row| <(String, i64)>::try_from(row))?;
         for row in edge_rows {
             let (kind, count) = row?;
             edges_by_kind.insert(kind, count);

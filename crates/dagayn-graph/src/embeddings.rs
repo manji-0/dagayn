@@ -167,7 +167,7 @@ fn embeddings_version(conn: &Connection) -> Result<Option<EmbeddingsVersion>> {
         .query_row(
             "SELECT epoch, generation FROM embeddings_generation WHERE id = 1",
             [],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+            |row| <(String, i64)>::try_from(row),
         )
         .optional()?)
 }
@@ -241,7 +241,7 @@ fn embedding_row_shape_hint(conn: &Connection, provider: &str) -> Result<(usize,
     let (count, min_len, max_len): (i64, Option<i64>, Option<i64>) = conn.query_row(
         "SELECT COUNT(*), MIN(length(vector)), MAX(length(vector)) FROM embeddings WHERE provider = ?",
         params![provider],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        |row| <(_, _, _)>::try_from(row),
     )?;
     let uniform_dim = match (min_len, max_len) {
         (Some(min_len), Some(max_len))

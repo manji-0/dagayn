@@ -21,13 +21,7 @@ pub(super) fn bind_js_modules(
          WHERE kind IN ('IMPORTS_FROM', 'CALLS') ORDER BY file_path, line",
     )?;
     let rows = stmt.query_map([], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-            row.get::<_, String>(3)?,
-            row.get::<_, i64>(4)?,
-        ))
+        <(String, String, String, String, i64)>::try_from(row)
     })?;
     let mut linked: HashSet<(String, usize)> = HashSet::new();
     for row in rows {
@@ -104,14 +98,7 @@ pub(super) fn bind_node_addon_loaders(
          WHERE kind = 'CROSS_ARTIFACT' \
            AND json_extract(extra, '$.relationship_role') = 'loads_node_addon'",
     )?;
-    let rows = stmt.query_map([], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-            row.get::<_, i64>(3)?,
-        ))
-    })?;
+    let rows = stmt.query_map([], |row| <(String, String, String, i64)>::try_from(row))?;
     for row in rows {
         let (source, target, file_path, line) = row?;
         let name = target.strip_suffix(".node").unwrap_or(&target);
@@ -205,14 +192,7 @@ pub(super) fn bind_js_globals(
          JOIN nodes t ON t.qualified_name = e.target_qualified \
          WHERE e.kind = 'CALLS' AND t.extra LIKE '%\"ambient\":true%'",
     )?;
-    let rows = stmt.query_map([], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, i64>(2)?,
-            row.get::<_, String>(3)?,
-        ))
-    })?;
+    let rows = stmt.query_map([], |row| <(String, String, i64, String)>::try_from(row))?;
     for row in rows {
         let (caller, file_path, line, name) = row?;
         let Some(language) = javascript_language(&file_path) else {

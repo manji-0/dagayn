@@ -16,9 +16,7 @@ pub(super) fn bind_cgo(tx: &Transaction<'_>, bridges: &mut Vec<NewBridge>) -> Re
              WHERE e.kind = 'IMPORTS_FROM' AND e.target_qualified = 'C' \
                AND e.file_path LIKE '%.go'",
         )?;
-        let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
-        })?;
+        let rows = stmt.query_map([], |row| <(String, Option<String>)>::try_from(row))?;
         rows.collect::<std::result::Result<_, _>>()?
     };
     if go_files.is_empty() {
@@ -34,12 +32,7 @@ pub(super) fn bind_cgo(tx: &Transaction<'_>, bridges: &mut Vec<NewBridge>) -> Re
              FROM nodes WHERE json_extract(extra, '$.ffi_export.abi') = 'c'",
         )?;
         let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, Option<String>>(2)?,
-                row.get::<_, String>(3)?,
-            ))
+            <(String, String, Option<String>, String)>::try_from(row)
         })?;
         for row in rows {
             let (qualified, file_path, language, symbol) = row?;

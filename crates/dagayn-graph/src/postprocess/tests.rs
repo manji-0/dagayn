@@ -90,12 +90,10 @@ fn tested_by_rows(store: &GraphStore) -> Vec<(String, String, i64, String)> {
              WHERE kind = 'TESTED_BY' ORDER BY line, source_qualified",
         )
         .unwrap();
-    stmt.query_map([], |row| {
-        Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
-    })
-    .unwrap()
-    .collect::<std::result::Result<Vec<_>, _>>()
-    .unwrap()
+    stmt.query_map([], |row| <(_, _, _, _)>::try_from(row))
+        .unwrap()
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .unwrap()
 }
 
 /// A test file importing `a.py`: `test_run` calls `helper` (resolvable),
@@ -417,17 +415,10 @@ fn resolves_terraform_references_within_module_directory() {
                  WHERE kind='REFERENCES' ORDER BY file_path, line",
             )
             .unwrap();
-        stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-            ))
-        })
-        .unwrap()
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .unwrap()
+        stmt.query_map([], |row| <(String, i64, String, String)>::try_from(row))
+            .unwrap()
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .unwrap()
     };
     let targets = rows
         .iter()
@@ -783,12 +774,7 @@ fn external_package_calls_keep_their_package_target() {
         .unwrap();
     let rows = stmt
         .query_map([], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, Option<String>>(3)?,
-            ))
+            <(i64, String, String, Option<String>)>::try_from(row)
         })
         .unwrap()
         .collect::<std::result::Result<Vec<_>, _>>()
@@ -928,9 +914,7 @@ fn standard_library_calls_keep_their_package_target() {
         .prepare("SELECT line, target_qualified FROM edges WHERE kind = 'CALLS' ORDER BY line")
         .unwrap();
     let rows = stmt
-        .query_map([], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-        })
+        .query_map([], |row| <(i64, String)>::try_from(row))
         .unwrap()
         .collect::<std::result::Result<Vec<_>, _>>()
         .unwrap();
@@ -980,9 +964,7 @@ fn standard_library_edges_keep_their_tier() {
         .prepare("SELECT line, confidence_tier FROM edges WHERE kind = 'CALLS' ORDER BY line")
         .unwrap();
     let rows = stmt
-        .query_map([], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-        })
+        .query_map([], |row| <(i64, String)>::try_from(row))
         .unwrap()
         .collect::<std::result::Result<Vec<_>, _>>()
         .unwrap();
@@ -1154,13 +1136,7 @@ fn reexported_targets_follow_the_package_imports() {
         )
         .unwrap();
     let rows = stmt
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-            ))
-        })
+        .query_map([], |row| <(i64, String, String)>::try_from(row))
         .unwrap()
         .collect::<std::result::Result<Vec<_>, _>>()
         .unwrap();
@@ -1335,12 +1311,7 @@ fn names_a_glob_imports_from_a_crate_point_at_it() {
         .unwrap();
     let rows = stmt
         .query_map([], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, Option<String>>(2)?,
-                row.get::<_, i64>(3)?,
-            ))
+            <(i64, String, Option<String>, i64)>::try_from(row)
         })
         .unwrap()
         .collect::<std::result::Result<Vec<_>, _>>()
@@ -1455,13 +1426,7 @@ fn methods_a_type_lacks_are_those_it_dereferences_to() {
         )
         .unwrap();
     let rows = stmt
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, Option<String>>(2)?,
-            ))
-        })
+        .query_map([], |row| <(i64, String, Option<String>)>::try_from(row))
         .unwrap()
         .collect::<std::result::Result<Vec<_>, _>>()
         .unwrap();
@@ -1585,9 +1550,7 @@ fn standard_methods_yield_only_to_functions_the_caller_can_see() {
         )
         .unwrap();
     let rows = stmt
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })
+        .query_map([], |row| <(String, String)>::try_from(row))
         .unwrap()
         .collect::<std::result::Result<Vec<_>, _>>()
         .unwrap();
@@ -1690,13 +1653,7 @@ fn calls_on_a_returned_value_follow_the_declared_return_type() {
         )
         .unwrap();
     let rows = stmt
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, Option<String>>(2)?,
-            ))
-        })
+        .query_map([], |row| <(String, String, Option<String>)>::try_from(row))
         .unwrap()
         .collect::<std::result::Result<Vec<_>, _>>()
         .unwrap();
@@ -1915,9 +1872,7 @@ fn unknown_receivers_take_the_package_typed_calls_of_the_method_reach() {
         .prepare("SELECT line, target_qualified FROM edges WHERE kind = 'CALLS' AND line >= 10 ORDER BY line")
         .unwrap();
     let rows = stmt
-        .query_map([], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-        })
+        .query_map([], |row| <(i64, String)>::try_from(row))
         .unwrap()
         .collect::<std::result::Result<Vec<_>, _>>()
         .unwrap();
@@ -2107,13 +2062,7 @@ fn awaited_promises_and_package_qualified_types_type_their_results() {
         )
         .unwrap();
     let rows = stmt
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, Option<String>>(2)?,
-            ))
-        })
+        .query_map([], |row| <(String, String, Option<String>)>::try_from(row))
         .unwrap()
         .collect::<std::result::Result<Vec<_>, _>>()
         .unwrap();
@@ -2174,13 +2123,7 @@ fn enum_variant_calls_construct_their_enum() {
         )
         .unwrap();
     let rows = stmt
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, Option<String>>(2)?,
-            ))
-        })
+        .query_map([], |row| <(i64, String, Option<String>)>::try_from(row))
         .unwrap()
         .collect::<std::result::Result<Vec<_>, _>>()
         .unwrap();
@@ -2239,13 +2182,7 @@ fn calls_on_what_an_observed_method_returned_follow_its_package() {
              FROM edges WHERE kind = 'CALLS' AND line >= 10 ORDER BY line",
         )
         .unwrap()
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, Option<String>>(2)?,
-            ))
-        })
+        .query_map([], |row| <(i64, String, Option<String>)>::try_from(row))
         .unwrap()
         .collect::<std::result::Result<Vec<_>, _>>()
         .unwrap();
@@ -2319,13 +2256,7 @@ fn python_standard_library_calls_of_known_return_type_type_their_result() {
                AND json_extract(extra, '$.receiver_from') IS NOT NULL ORDER BY line",
         )
         .unwrap()
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, Option<String>>(2)?,
-            ))
-        })
+        .query_map([], |row| <(i64, String, Option<String>)>::try_from(row))
         .unwrap()
         .collect::<std::result::Result<Vec<_>, _>>()
         .unwrap();
@@ -2396,13 +2327,7 @@ fn javascript_package_calls_of_known_return_type_type_their_result() {
                AND json_extract(extra, '$.receiver_from') IS NOT NULL ORDER BY line, id",
         )
         .unwrap()
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, Option<String>>(2)?,
-            ))
-        })
+        .query_map([], |row| <(i64, String, Option<String>)>::try_from(row))
         .unwrap()
         .collect::<std::result::Result<Vec<_>, _>>()
         .unwrap();
@@ -2509,9 +2434,7 @@ fn methods_on_a_borrowed_cell_are_its_contents_not_the_standard_librarys() {
                AND json_extract(extra, '$.receiver_from') IS NOT NULL ORDER BY line",
         )
         .unwrap()
-        .query_map([], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-        })
+        .query_map([], |row| <(i64, String)>::try_from(row))
         .unwrap()
         .collect::<std::result::Result<Vec<_>, _>>()
         .unwrap();
@@ -2582,9 +2505,7 @@ fn unknown_receivers_do_not_bind_to_the_callers_own_class() {
         .conn
         .prepare("SELECT line, target_qualified FROM edges WHERE kind = 'CALLS' ORDER BY line")
         .unwrap()
-        .query_map([], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-        })
+        .query_map([], |row| <(i64, String)>::try_from(row))
         .unwrap()
         .collect::<std::result::Result<Vec<_>, _>>()
         .unwrap();
@@ -2781,14 +2702,14 @@ fn a_scip_index_settles_calls_by_the_reference_at_their_name() {
         )
         .unwrap()
         .query_map([], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, Option<String>>(3)?,
-                row.get::<_, Option<String>>(4)?,
-                row.get::<_, Option<i64>>(5)?,
-            ))
+            <(
+                i64,
+                String,
+                String,
+                Option<String>,
+                Option<String>,
+                Option<i64>,
+            )>::try_from(row)
         })
         .unwrap()
         .collect::<std::result::Result<Vec<_>, _>>()

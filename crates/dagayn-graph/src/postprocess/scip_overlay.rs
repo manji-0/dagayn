@@ -370,9 +370,7 @@ impl GraphStore {
         let hashes: HashMap<String, String> = {
             let mut stmt =
                 tx.prepare("SELECT DISTINCT file_path, file_hash FROM nodes WHERE kind = 'File'")?;
-            let rows = stmt.query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-            })?;
+            let rows = stmt.query_map([], |row| <(String, String)>::try_from(row))?;
             rows.collect::<std::result::Result<_, _>>()?
         };
         let edges = {
@@ -381,14 +379,7 @@ impl GraphStore {
                  FROM edges WHERE kind = 'CALLS' ORDER BY file_path, line",
             )?;
             let rows = stmt.query_map([], |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, i64>(3)?,
-                    row.get::<_, Option<String>>(4)?,
-                    row.get::<_, Option<String>>(5)?,
-                ))
+                <(i64, String, String, i64, Option<String>, Option<String>)>::try_from(row)
             })?;
             rows.collect::<std::result::Result<Vec<_>, _>>()?
         };

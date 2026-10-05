@@ -726,7 +726,7 @@ fn incremental_trace_keeps_the_same_nodes_when_a_flow_is_capped() {
                 "SELECT path_json, truncated FROM flows f JOIN nodes n ON n.id = f.entry_point_id \
                  WHERE n.qualified_name = 'a.py::entry'",
                 [],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| <(_, _)>::try_from(row),
             )
             .unwrap();
         assert!(truncated);

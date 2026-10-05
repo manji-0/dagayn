@@ -83,13 +83,8 @@ impl GraphStore {
                 "SELECT id, target_qualified, extra FROM edges \
                  WHERE kind='CROSS_ARTIFACT' AND extra LIKE '%original_symbol_name%'",
             )?;
-            let mapped = stmt.query_map([], |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                ))
-            })?;
+            let mapped =
+                stmt.query_map([], |row| <(i64, String, Option<String>)>::try_from(row))?;
             mapped.collect::<std::result::Result<Vec<_>, _>>()?
         };
 
@@ -169,13 +164,7 @@ impl GraphStore {
                 "SELECT name, qualified_name, file_path FROM nodes \
                  WHERE language = 'terraform' AND kind != 'File'",
             )?;
-            let mapped = stmt.query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            })?;
+            let mapped = stmt.query_map([], |row| <(String, String, String)>::try_from(row))?;
             let mut index = HashMap::<String, Vec<(String, String)>>::new();
             for row in mapped {
                 let (name, qualified_name, file_path) = row?;
@@ -193,13 +182,7 @@ impl GraphStore {
                  AND EXISTS (SELECT 1 FROM nodes f WHERE f.qualified_name = e.file_path \
                              AND f.kind = 'File' AND f.language = 'terraform')",
             )?;
-            let mapped = stmt.query_map([], |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            })?;
+            let mapped = stmt.query_map([], |row| <(i64, String, String)>::try_from(row))?;
             mapped.collect::<std::result::Result<Vec<_>, _>>()?
         };
         let mut resolved = 0_i64;

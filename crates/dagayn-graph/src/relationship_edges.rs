@@ -18,7 +18,7 @@ impl GraphStore {
             );
             let mut stmt = self.conn.prepare(&sql)?;
             let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                <(String, String)>::try_from(row)
             })?;
             for row in rows {
                 let (qualified_name, kind) = row?;
@@ -64,7 +64,7 @@ impl GraphStore {
             params.extend(chunk.iter().cloned());
             let mut stmt = self.conn.prepare(&sql)?;
             let rows = stmt.query_map(rusqlite::params_from_iter(params), |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                <(String, String)>::try_from(row)
             })?;
             for row in rows {
                 let (source, target) = row?;
@@ -93,7 +93,7 @@ impl GraphStore {
             );
             let mut stmt = self.conn.prepare(&sql)?;
             let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                <(String, String)>::try_from(row)
             })?;
             for row in rows {
                 out.push(row?);

@@ -6,7 +6,7 @@ use petgraph::Undirected;
 use petgraph::graph::Graph;
 
 use super::DetectedCommunity;
-use super::cohesion::compute_cohesion_batch;
+use super::cohesion::{compute_cohesion_batch, round_cohesion};
 use super::file_based::detect_file_based;
 use super::naming::{dominant_language, generate_community_name};
 
@@ -345,10 +345,6 @@ fn backfill_split_cohesion(communities: &mut [DetectedCommunity], edges: &[Graph
             community.cohesion = round_cohesion(cohesion);
         }
     }
-}
-
-fn round_cohesion(value: f64) -> f64 {
-    (value * 10_000.0).round() / 10_000.0
 }
 
 #[cfg(test)]

@@ -340,14 +340,14 @@ fn load_graph(tx: &Transaction<'_>) -> Result<Graph> {
         "SELECT qualified_name, kind, name, parent_name, file_path, return_type FROM nodes",
     )?;
     let rows = stmt.query_map([], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-            row.get::<_, Option<String>>(3)?,
-            row.get::<_, String>(4)?,
-            row.get::<_, Option<String>>(5)?,
-        ))
+        <(
+            String,
+            String,
+            String,
+            Option<String>,
+            String,
+            Option<String>,
+        )>::try_from(row)
     })?;
     let mut class_names_by_qn: HashMap<String, String> = HashMap::new();
     for row in rows {
@@ -396,13 +396,7 @@ fn load_graph(tx: &Transaction<'_>) -> Result<Graph> {
     let mut stmt = tx.prepare(
         "SELECT file_path, target_qualified, extra FROM edges WHERE kind = 'IMPORTS_FROM'",
     )?;
-    let rows = stmt.query_map([], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-        ))
-    })?;
+    let rows = stmt.query_map([], |row| <(String, String, String)>::try_from(row))?;
     for row in rows {
         let (file, target, extra) = row?;
         let extra: Value = serde_json::from_str(&extra).unwrap_or(Value::Null);
@@ -1041,13 +1035,7 @@ fn pending_calls(tx: &Transaction<'_>) -> Result<Vec<PendingCall>> {
                            WHERE n.qualified_name = edges.target_qualified)",
     )?;
     let rows = stmt.query_map([], |row| {
-        Ok((
-            row.get::<_, i64>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-            row.get::<_, String>(3)?,
-            row.get::<_, String>(4)?,
-        ))
+        <(i64, String, String, String, String)>::try_from(row)
     })?;
     let mut calls = Vec::new();
     for row in rows {
@@ -1076,11 +1064,7 @@ fn origin_call(
          WHERE kind = 'CALLS' AND source_qualified = ? AND file_path = ? AND line = ?",
     )?;
     let rows = stmt.query_map(params![source, file, line], |row| {
-        Ok((
-            row.get::<_, i64>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-        ))
+        <(i64, String, String)>::try_from(row)
     })?;
     let mut unresolved = None;
     for row in rows {
@@ -1306,14 +1290,14 @@ pub(crate) fn resolve_pyo3_methods(tx: &Transaction<'_>) -> Result<i64> {
              WHERE json_extract(extra, '$.ffi_export.abi') = 'pyo3'",
         )?;
         let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, Option<String>>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, Option<String>>(4)?,
-                row.get::<_, Option<String>>(5)?,
-            ))
+            <(
+                String,
+                String,
+                Option<String>,
+                String,
+                Option<String>,
+                Option<String>,
+            )>::try_from(row)
         })?;
         for row in rows {
             let (qualified, kind, parent, file, export_kind, export_name) = row?;
@@ -1344,14 +1328,7 @@ pub(crate) fn resolve_pyo3_methods(tx: &Transaction<'_>) -> Result<i64> {
                AND NOT EXISTS (SELECT 1 FROM nodes n \
                                WHERE n.qualified_name = edges.target_qualified)",
         )?;
-        let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-            ))
-        })?;
+        let rows = stmt.query_map([], |row| <(i64, String, String, String)>::try_from(row))?;
         rows.collect::<std::result::Result<Vec<_>, _>>()?
     };
     let mut resolved = 0_i64;

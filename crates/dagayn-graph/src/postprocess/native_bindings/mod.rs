@@ -532,9 +532,7 @@ fn load_crates(tx: &Transaction<'_>) -> Result<Vec<NativeCrate>> {
         "SELECT target_qualified, extra FROM edges WHERE kind = 'CROSS_ARTIFACT' \
          AND json_extract(extra, '$.relationship_role') = 'builds_from_source'",
     )?;
-    let rows = stmt.query_map([], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
-    })?;
+    let rows = stmt.query_map([], |row| <(String, Option<String>)>::try_from(row))?;
     let mut crates = Vec::new();
     for row in rows {
         let (root, extra) = row?;
@@ -666,13 +664,7 @@ fn load_crates(tx: &Transaction<'_>) -> Result<Vec<NativeCrate>> {
         "SELECT file_path, language, json_extract(extra, '$.python_module') FROM nodes \
          WHERE kind = 'File' AND json_extract(extra, '$.python_module') IS NOT NULL",
     )?;
-    let rows = stmt.query_map([], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, Option<String>>(1)?,
-            row.get::<_, String>(2)?,
-        ))
-    })?;
+    let rows = stmt.query_map([], |row| <(String, Option<String>, String)>::try_from(row))?;
     for row in rows {
         let (file_path, language, module) = row?;
         crates.push(NativeCrate {
@@ -703,13 +695,7 @@ fn load_exports(tx: &Transaction<'_>, crates: &[NativeCrate]) -> Result<Vec<Crat
     let mut stmt = tx.prepare(
         "SELECT qualified_name, file_path, extra FROM nodes WHERE extra LIKE '%ffi_export%'",
     )?;
-    let rows = stmt.query_map([], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, Option<String>>(2)?,
-        ))
-    })?;
+    let rows = stmt.query_map([], |row| <(String, String, Option<String>)>::try_from(row))?;
     for row in rows {
         let (qualified, file_path, extra) = row?;
         let owners = owning_crates(crates, &file_path);
@@ -803,9 +789,7 @@ fn load_exports(tx: &Transaction<'_>, crates: &[NativeCrate]) -> Result<Vec<Crat
             continue;
         }
         for file in files {
-            let rows = entry_stmt.query_map([file], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-            })?;
+            let rows = entry_stmt.query_map([file], |row| <(String, String)>::try_from(row))?;
             for row in rows {
                 let (qualified, name) = row?;
                 exports[index].js.entry(name).or_default().push(qualified);
@@ -825,12 +809,7 @@ fn calls_in_file(tx: &Transaction<'_>, file_path: &str) -> Result<Vec<CallRow>> 
          FROM edges WHERE kind = 'CALLS' AND file_path = ?",
     )?;
     let rows = stmt.query_map([file_path], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, i64>(2)?,
-            row.get::<_, Option<String>>(3)?,
-        ))
+        <(String, String, i64, Option<String>)>::try_from(row)
     })?;
     let mut calls = Vec::new();
     for row in rows {
@@ -883,9 +862,7 @@ fn load_native_libraries(tx: &Transaction<'_>) -> Result<Vec<NativeLibraryRow>> 
         "SELECT source_qualified, extra FROM edges WHERE kind = 'CROSS_ARTIFACT' \
            AND json_extract(extra, '$.manifest_kind') = 'native_library'",
     )?;
-    let rows = stmt.query_map([], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
-    })?;
+    let rows = stmt.query_map([], |row| <(String, Option<String>)>::try_from(row))?;
     let mut libraries = Vec::new();
     for row in rows {
         let (config, extra) = row?;

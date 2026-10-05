@@ -169,9 +169,7 @@ pub(crate) fn symbol_visibility(conn: &rusqlite::Connection) -> Result<SymbolVis
         let mut stmt = conn.prepare(
             "SELECT file_path, extra FROM nodes WHERE kind = 'File' AND extra LIKE '%namespaces%'",
         )?;
-        let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
-        })?;
+        let rows = stmt.query_map([], |row| <(String, Option<String>)>::try_from(row))?;
         for row in rows {
             let (file_path, extra_raw) = row?;
             let extra = parse_json_column(extra_raw)?;
@@ -193,9 +191,7 @@ pub(crate) fn symbol_visibility(conn: &rusqlite::Connection) -> Result<SymbolVis
     }
     {
         let mut stmt = conn.prepare("SELECT name, file_path FROM nodes WHERE kind = 'Class'")?;
-        let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?;
+        let rows = stmt.query_map([], |row| <(String, String)>::try_from(row))?;
         for row in rows {
             let (name, file_path) = row?;
             visibility
@@ -212,9 +208,7 @@ pub(crate) fn symbol_visibility(conn: &rusqlite::Connection) -> Result<SymbolVis
         let mut stmt = conn.prepare(
             "SELECT DISTINCT file_path, target_qualified FROM edges WHERE kind = 'IMPORTS_FROM'",
         )?;
-        let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?;
+        let rows = stmt.query_map([], |row| <(String, String)>::try_from(row))?;
         for row in rows {
             let (file_path, target) = row?;
             if !is_namespace_candidate(&target) {
@@ -549,7 +543,7 @@ fn load_bare_name_index(
     );
     let mut stmt = tx.prepare(&sql)?;
     let rows = stmt.query_map(rusqlite::params_from_iter(kinds), |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        <(String, String)>::try_from(row)
     })?;
     let mut index = HashMap::<String, Vec<String>>::new();
     for row in rows {
@@ -804,13 +798,7 @@ impl GraphStore {
                  AND target_qualified NOT LIKE '%::%'",
             )?;
             let mapped = stmt.query_map([], |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, Option<String>>(4)?,
-                ))
+                <(i64, String, String, String, Option<String>)>::try_from(row)
             })?;
             mapped.collect::<std::result::Result<Vec<_>, _>>()?
         };

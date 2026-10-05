@@ -12,15 +12,7 @@ impl GraphStore {
                  file_count, path_json FROM flows",
             )?;
             let rows = stmt.query_map([], |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, i64>(2)?,
-                    row.get::<_, f64>(3)?,
-                    row.get::<_, i64>(4)?,
-                    row.get::<_, i64>(5)?,
-                    row.get::<_, String>(6)?,
-                ))
+                <(i64, String, i64, f64, i64, i64, String)>::try_from(row)
             })?;
             rows.collect::<std::result::Result<Vec<_>, _>>()?
         };
@@ -55,7 +47,7 @@ impl GraphStore {
             let sql = format!("SELECT id, qualified_name FROM nodes WHERE id IN ({placeholders})");
             let mut stmt = tx.prepare(&sql)?;
             let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+                <(i64, String)>::try_from(row)
             })?;
             for row in rows {
                 let (node_id, qualified_name) = row?;

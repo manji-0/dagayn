@@ -176,9 +176,7 @@ impl GraphStore {
         let mut stmt = self
             .conn
             .prepare("SELECT id, name FROM communities ORDER BY id")?;
-        let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-        })?;
+        let rows = stmt.query_map([], |row| <(i64, String)>::try_from(row))?;
         for row in rows {
             let (id, name) = row?;
             let size = *community_sizes.get(&id).unwrap_or(&0);

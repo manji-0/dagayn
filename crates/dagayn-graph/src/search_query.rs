@@ -129,14 +129,12 @@ impl GraphStore {
             params.push(SqlValue::Integer(limit.saturating_mul(4)));
             let mut stmt = self.conn.prepare(&sql)?;
             let rows = stmt.query_map(rusqlite::params_from_iter(params), |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+                <(i64, String)>::try_from(row)
             })?;
             rows.collect::<std::result::Result<Vec<_>, _>>()?
         } else {
             let mut stmt = self.conn.prepare("SELECT id, name FROM nodes")?;
-            let rows = stmt.query_map([], |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-            })?;
+            let rows = stmt.query_map([], |row| <(i64, String)>::try_from(row))?;
             rows.collect::<std::result::Result<Vec<_>, _>>()?
         };
 

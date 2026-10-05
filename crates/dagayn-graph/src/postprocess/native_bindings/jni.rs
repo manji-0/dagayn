@@ -15,13 +15,7 @@ pub(super) fn bind_jni_methods(tx: &Transaction<'_>, bridges: &mut Vec<NewBridge
              WHERE json_extract(extra, '$.ffi_export.abi') = 'c' \
                AND json_extract(extra, '$.ffi_export.name') LIKE 'Java\\_%' ESCAPE '\\'",
         )?;
-        let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, Option<String>>(1)?,
-                row.get::<_, String>(2)?,
-            ))
-        })?;
+        let rows = stmt.query_map([], |row| <(String, Option<String>, String)>::try_from(row))?;
         for row in rows {
             let (qualified, language, symbol) = row?;
             exports
@@ -39,13 +33,7 @@ pub(super) fn bind_jni_methods(tx: &Transaction<'_>, bridges: &mut Vec<NewBridge
          FROM nodes WHERE json_extract(extra, '$.ffi_import.abi') = 'jni'",
     )?;
     let rows = stmt.query_map([], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, i64>(2)?,
-            row.get::<_, Option<String>>(3)?,
-            row.get::<_, Option<String>>(4)?,
-        ))
+        <(String, String, i64, Option<String>, Option<String>)>::try_from(row)
     })?;
     for row in rows {
         let (qualified, file_path, line, language, symbol) = row?;

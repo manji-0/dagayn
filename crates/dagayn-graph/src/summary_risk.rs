@@ -12,9 +12,7 @@ impl GraphStore {
                 "SELECT target_qualified, COUNT(*) FROM edges \
                  WHERE kind = 'CALLS' GROUP BY target_qualified",
             )?;
-            let rows = stmt.query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-            })?;
+            let rows = stmt.query_map([], |row| <(String, i64)>::try_from(row))?;
             for row in rows {
                 let (qualified_name, count) = row?;
                 caller_counts.insert(qualified_name, count);
@@ -27,9 +25,7 @@ impl GraphStore {
                 "SELECT source_qualified, COUNT(*) FROM edges \
                  WHERE kind = 'TESTED_BY' GROUP BY source_qualified",
             )?;
-            let rows = stmt.query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-            })?;
+            let rows = stmt.query_map([], |row| <(String, i64)>::try_from(row))?;
             for row in rows {
                 let (qualified_name, count) = row?;
                 tested_counts.insert(qualified_name, count);
@@ -41,13 +37,7 @@ impl GraphStore {
                 "SELECT id, qualified_name, name FROM nodes \
                  WHERE kind IN ('Function', 'Class', 'Test')",
             )?;
-            let rows = stmt.query_map([], |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            })?;
+            let rows = stmt.query_map([], |row| <(i64, String, String)>::try_from(row))?;
             rows.collect::<std::result::Result<Vec<_>, _>>()?
         };
 

@@ -464,14 +464,7 @@ impl GraphStore {
                 let mut stmt = self
                     .conn
                     .prepare("SELECT id, depth, path_json, criticality FROM flows")?;
-                let mapped = stmt.query_map([], |row| {
-                    Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, i64>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, f64>(3)?,
-                    ))
-                })?;
+                let mapped = stmt.query_map([], |row| <(i64, i64, String, f64)>::try_from(row))?;
                 for row in mapped {
                     out.push(row?);
                 }
@@ -491,12 +484,7 @@ impl GraphStore {
                     );
                     let mut stmt = self.conn.prepare(&sql)?;
                     let mapped = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
-                        Ok((
-                            row.get::<_, i64>(0)?,
-                            row.get::<_, i64>(1)?,
-                            row.get::<_, String>(2)?,
-                            row.get::<_, f64>(3)?,
-                        ))
+                        <(i64, i64, String, f64)>::try_from(row)
                     })?;
                     for row in mapped {
                         out.push(row?);

@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use dagayn_graph::{GraphEdge, GraphNode};
 
 use super::DetectedCommunity;
-use super::cohesion::compute_cohesion_batch;
+use super::cohesion::{compute_cohesion_batch, round_cohesion};
 use super::naming::{dominant_language, generate_community_name};
 
 pub(crate) fn detect_file_based(
@@ -123,8 +123,4 @@ pub(crate) fn detect_file_based(
             }
         })
         .collect()
-}
-
-fn round_cohesion(value: f64) -> f64 {
-    (value * 10_000.0).round() / 10_000.0
 }

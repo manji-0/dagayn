@@ -81,9 +81,7 @@ fn ensure_edge_target_name_backfills_legacy_edges_without_column() {
         .conn
         .prepare("SELECT target_qualified, target_name FROM edges ORDER BY id")
         .unwrap()
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })
+        .query_map([], |row| <(String, String)>::try_from(row))
         .unwrap()
         .map(|row| row.unwrap())
         .collect::<Vec<_>>();

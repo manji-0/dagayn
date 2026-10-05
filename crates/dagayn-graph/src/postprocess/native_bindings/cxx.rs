@@ -18,14 +18,14 @@ pub(super) fn bind_cxx_bridges(tx: &Transaction<'_>, bridges: &mut Vec<NewBridge
                 OR json_extract(extra, '$.ffi_export.abi') = 'cxx'",
         )?;
         let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, i64>(2)?,
-                row.get::<_, Option<String>>(3)?,
-                row.get::<_, Option<String>>(4)?,
-                row.get::<_, Option<String>>(5)?,
-            ))
+            <(
+                String,
+                String,
+                i64,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+            )>::try_from(row)
         })?;
         rows.collect::<std::result::Result<Vec<_>, _>>()?
     };
@@ -47,12 +47,7 @@ pub(super) fn bind_cxx_bridges(tx: &Transaction<'_>, bridges: &mut Vec<NewBridge
         };
         let named = functions_named
             .query_map([&name], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                ))
+                <(String, String, Option<String>, Option<String>)>::try_from(row)
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         if import.is_some() {

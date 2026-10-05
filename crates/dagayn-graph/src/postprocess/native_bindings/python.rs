@@ -20,13 +20,7 @@ pub(super) fn bind_extension_imports(
         "SELECT file_path, line, extra FROM edges \
          WHERE kind = 'IMPORTS_FROM' AND extra LIKE '%\"module\"%' ORDER BY file_path, line",
     )?;
-    let rows = stmt.query_map([], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, i64>(1)?,
-            row.get::<_, Option<String>>(2)?,
-        ))
-    })?;
+    let rows = stmt.query_map([], |row| <(String, i64, Option<String>)>::try_from(row))?;
     let mut linked: HashSet<(String, usize)> = HashSet::new();
     for row in rows {
         let (file_path, line, extra) = row?;

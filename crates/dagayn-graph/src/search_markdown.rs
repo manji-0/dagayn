@@ -172,11 +172,7 @@ impl GraphStore {
             );
             let mut stmt = tx.prepare(&sql)?;
             let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                ))
+                <(String, String, Option<String>)>::try_from(row)
             })?;
             for row in rows {
                 let (name, qualified_name, language) = row?;

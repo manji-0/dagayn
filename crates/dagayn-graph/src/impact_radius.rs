@@ -75,9 +75,7 @@ impl GraphStore {
                 "SELECT qn, depth FROM _impact_visited WHERE depth > 0 \
                  ORDER BY depth, qn LIMIT ?",
             )?;
-            let rows = stmt.query_map(params![max_nodes], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-            })?;
+            let rows = stmt.query_map(params![max_nodes], |row| <(String, i64)>::try_from(row))?;
             for row in rows {
                 depth_by_qn.push(row?);
             }

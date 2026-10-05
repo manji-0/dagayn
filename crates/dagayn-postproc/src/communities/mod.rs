@@ -7,6 +7,7 @@ use dagayn_graph::{GraphError, GraphStore, Result};
 use serde::Serialize;
 use serde_json::json;
 
+use cohesion::round_cohesion;
 use file_based::detect_file_based;
 use leiden::{detect_leiden, split_oversized};
 
@@ -148,8 +149,4 @@ pub fn refresh_community_stats_json(store: &mut GraphStore) -> Result<String> {
     deleted += store.delete_orphan_communities()?;
     serde_json::to_string(&json!({"updated": updated, "deleted": deleted}))
         .map_err(GraphError::from)
-}
-
-fn round_cohesion(value: f64) -> f64 {
-    (value * 10_000.0).round() / 10_000.0
 }

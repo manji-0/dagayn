@@ -100,7 +100,7 @@ impl GraphStore {
             );
             let mut stmt = self.conn.prepare(&sql)?;
             let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+                <(i64, String)>::try_from(row)
             })?;
             for row in rows {
                 let (community_id, qualified_name) = row?;
@@ -119,9 +119,7 @@ impl GraphStore {
         let Ok(mut stmt) = self.conn.prepare("SELECT id, name FROM communities") else {
             return Ok(Vec::new());
         };
-        let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-        })?;
+        let rows = stmt.query_map([], |row| <(i64, String)>::try_from(row))?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(Into::into)
     }
@@ -132,9 +130,7 @@ impl GraphStore {
             "SELECT community_id, qualified_name FROM nodes \
              WHERE community_id IS NOT NULL ORDER BY community_id",
         )?;
-        let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-        })?;
+        let rows = stmt.query_map([], |row| <(i64, String)>::try_from(row))?;
         for row in rows {
             let (community_id, qualified_name) = row?;
             out.entry(community_id)
@@ -372,13 +368,7 @@ impl GraphStore {
         let sql =
             format!("SELECT name, size, cohesion FROM communities WHERE size >= ? ORDER BY {sort}");
         let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map([min_size], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, f64>(2)?,
-            ))
-        })?;
+        let rows = stmt.query_map([min_size], |row| <(String, i64, f64)>::try_from(row))?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(Into::into)
     }

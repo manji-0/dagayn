@@ -18,14 +18,14 @@ pub(super) fn bind_c_imports(tx: &Transaction<'_>, bridges: &mut Vec<NewBridge>)
              FROM nodes WHERE json_extract(extra, '$.ffi_import.abi') = 'c'",
         )?;
         let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, i64>(2)?,
-                row.get::<_, Option<String>>(3)?,
-                row.get::<_, Option<String>>(4)?,
-                row.get::<_, Option<String>>(5)?,
-            ))
+            <(
+                String,
+                String,
+                i64,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+            )>::try_from(row)
         })?;
         let mut imports = rows.collect::<std::result::Result<Vec<_>, _>>()?;
         // Zig calls through `const c = @cImport(...)`: `c.fast_sum(...)`.
@@ -33,14 +33,7 @@ pub(super) fn bind_c_imports(tx: &Transaction<'_>, bridges: &mut Vec<NewBridge>)
             "SELECT source_qualified, file_path, line, COALESCE(target_name, target_qualified) \
              FROM edges WHERE kind = 'CALLS' AND json_extract(extra, '$.c_import') = 1",
         )?;
-        let rows = calls.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, i64>(2)?,
-                row.get::<_, String>(3)?,
-            ))
-        })?;
+        let rows = calls.query_map([], |row| <(String, String, i64, String)>::try_from(row))?;
         for row in rows {
             let (caller, file_path, line, target) = row?;
             let name = target.rsplit('.').next().unwrap_or(&target).to_string();
@@ -66,12 +59,7 @@ pub(super) fn bind_c_imports(tx: &Transaction<'_>, bridges: &mut Vec<NewBridge>)
              FROM nodes WHERE json_extract(extra, '$.ffi_export.abi') = 'c'",
         )?;
         let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, Option<String>>(2)?,
-                row.get::<_, String>(3)?,
-            ))
+            <(String, String, Option<String>, String)>::try_from(row)
         })?;
         for row in rows {
             let (qualified, file_path, language, symbol) = row?;

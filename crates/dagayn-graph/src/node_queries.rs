@@ -73,7 +73,7 @@ impl GraphStore {
         );
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map(rusqlite::params_from_iter(kinds), |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            <(String, i64)>::try_from(row)
         })?;
         for row in rows {
             let (name, count) = row?;
@@ -112,13 +112,7 @@ impl GraphStore {
             "SELECT id, name, kind, params, return_type FROM nodes WHERE signature IS NULL",
         )?;
         let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, Option<String>>(3)?,
-                row.get::<_, Option<String>>(4)?,
-            ))
+            <(i64, String, String, Option<String>, Option<String>)>::try_from(row)
         })?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(Into::into)

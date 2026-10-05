@@ -25,9 +25,7 @@ impl GraphStore {
         let mut stmt = self.conn.prepare(
             "SELECT qualified_name, community_id FROM nodes WHERE community_id IS NOT NULL",
         )?;
-        let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-        })?;
+        let rows = stmt.query_map([], |row| <(String, i64)>::try_from(row))?;
         rows.collect::<std::result::Result<HashMap<_, _>, _>>()
             .map_err(Into::into)
     }

@@ -58,13 +58,7 @@ impl GraphStore {
             else {
                 return Ok(0);
             };
-            let rows = stmt.query_map([], |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, i64>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            })?;
+            let rows = stmt.query_map([], |row| <(i64, i64, String)>::try_from(row))?;
             rows.collect::<std::result::Result<Vec<_>, _>>()?
         };
 
@@ -276,9 +270,7 @@ impl GraphStore {
             .conn
             .prepare("SELECT provider, COUNT(*) FROM embeddings GROUP BY provider")?;
         let counts = stmt
-            .query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-            })?
+            .query_map([], |row| <(String, i64)>::try_from(row))?
             .collect::<std::result::Result<HashMap<_, _>, _>>()?;
         Ok(Some(counts))
     }

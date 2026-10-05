@@ -22,13 +22,7 @@ pub(super) fn bind_wasm_loaders(
                AND COALESCE(json_extract(extra, '$.extractor'), '') != ?",
         )?;
         let rows = stmt.query_map([NATIVE_BINDINGS_EXTRACTOR], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, i64>(3)?,
-                row.get::<_, Option<String>>(4)?,
-            ))
+            <(String, String, String, i64, Option<String>)>::try_from(row)
         })?;
         rows.collect::<std::result::Result<Vec<_>, _>>()?
     };
@@ -114,13 +108,7 @@ pub(super) fn bind_wasm_export_calls(
            AND json_extract(extra, '$.relationship_role') = 'calls_wasm_export'",
     )?;
     let rows = stmt.query_map([], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-            row.get::<_, i64>(3)?,
-            row.get::<_, Option<String>>(4)?,
-        ))
+        <(String, String, String, i64, Option<String>)>::try_from(row)
     })?;
     for row in rows {
         let (source, name, file_path, line, language) = row?;
@@ -182,15 +170,15 @@ pub(super) fn bind_wasm_imports(tx: &Transaction<'_>, bridges: &mut Vec<NewBridg
              FROM nodes WHERE json_extract(extra, '$.ffi_import.abi') IN ('wasm', 'wasmimport')",
         )?;
         let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, i64>(2)?,
-                row.get::<_, Option<String>>(3)?,
-                row.get::<_, String>(4)?,
-                row.get::<_, Option<String>>(5)?,
-                row.get::<_, Option<String>>(6)?,
-            ))
+            <(
+                String,
+                String,
+                i64,
+                Option<String>,
+                String,
+                Option<String>,
+                Option<String>,
+            )>::try_from(row)
         })?;
         rows.collect::<std::result::Result<Vec<_>, _>>()?
     };
@@ -243,7 +231,7 @@ pub(super) fn bind_wasm_imports(tx: &Transaction<'_>, bridges: &mut Vec<NewBridg
                 .collect::<std::result::Result<_, _>>()?
         } else {
             let rows = in_object.query_map(params![name, module, module], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                <(String, String)>::try_from(row)
             })?;
             rows.collect::<std::result::Result<Vec<_>, _>>()?
                 .into_iter()

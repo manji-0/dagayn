@@ -49,3 +49,7 @@ pub(crate) fn compute_cohesion_batch(
         })
         .collect()
 }
+
+pub(crate) fn round_cohesion(value: f64) -> f64 {
+    (value * 10_000.0).round() / 10_000.0
+}

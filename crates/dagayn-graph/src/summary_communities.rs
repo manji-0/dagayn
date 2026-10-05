@@ -11,9 +11,7 @@ impl GraphStore {
             let mut stmt = tx.prepare(
                 "SELECT source_qualified, COUNT(*) FROM edges GROUP BY source_qualified",
             )?;
-            let rows = stmt.query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-            })?;
+            let rows = stmt.query_map([], |row| <(String, i64)>::try_from(row))?;
             for row in rows {
                 let (qualified, count) = row?;
                 *edge_counts.entry(qualified).or_default() += count;
@@ -23,9 +21,7 @@ impl GraphStore {
             let mut stmt = tx.prepare(
                 "SELECT target_qualified, COUNT(*) FROM edges GROUP BY target_qualified",
             )?;
-            let rows = stmt.query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-            })?;
+            let rows = stmt.query_map([], |row| <(String, i64)>::try_from(row))?;
             for row in rows {
                 let (qualified, count) = row?;
                 *edge_counts.entry(qualified).or_default() += count;
@@ -38,13 +34,7 @@ impl GraphStore {
                 "SELECT community_id, name, qualified_name FROM nodes \
                  WHERE community_id IS NOT NULL AND kind != 'File'",
             )?;
-            let rows = stmt.query_map([], |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            })?;
+            let rows = stmt.query_map([], |row| <(i64, String, String)>::try_from(row))?;
             for row in rows {
                 let (community_id, name, qualified_name) = row?;
                 nodes_by_comm
@@ -60,9 +50,7 @@ impl GraphStore {
             let mut stmt = tx.prepare(
                 "SELECT community_id, file_path FROM nodes WHERE community_id IS NOT NULL",
             )?;
-            let rows = stmt.query_map([], |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-            })?;
+            let rows = stmt.query_map([], |row| <(i64, String)>::try_from(row))?;
             for row in rows {
                 let (community_id, file_path) = row?;
                 let seen = seen_files.entry(community_id).or_default();
@@ -79,12 +67,7 @@ impl GraphStore {
             let mut stmt =
                 tx.prepare("SELECT id, name, size, dominant_language FROM communities")?;
             let rows = stmt.query_map([], |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, i64>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                ))
+                <(i64, String, i64, Option<String>)>::try_from(row)
             })?;
             rows.collect::<std::result::Result<Vec<_>, _>>()?
         };

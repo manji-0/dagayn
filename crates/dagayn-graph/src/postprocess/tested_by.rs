@@ -40,16 +40,7 @@ pub(crate) fn sync_tested_by_with_calls(tx: &Transaction<'_>) -> Result<i64> {
              ORDER BY tb.id",
         )?;
         let mapped = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, i64>(4)?,
-                row.get::<_, String>(5)?,
-                row.get::<_, f64>(6)?,
-                row.get::<_, String>(7)?,
-            ))
+            <(i64, String, String, String, i64, String, f64, String)>::try_from(row)
         })?;
         mapped.collect::<std::result::Result<Vec<_>, _>>()?
     };
@@ -134,14 +125,7 @@ pub(crate) fn reconcile_tested_by_with_calls(tx: &Transaction<'_>) -> Result<(i6
              ORDER BY c.id",
         )?;
         let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, i64>(3)?,
-                row.get::<_, f64>(4)?,
-                row.get::<_, String>(5)?,
-            ))
+            <(String, String, String, i64, f64, String)>::try_from(row)
         })?;
         rows.collect::<std::result::Result<Vec<_>, _>>()?
     };

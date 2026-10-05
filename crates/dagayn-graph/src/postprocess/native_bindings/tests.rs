@@ -138,7 +138,7 @@ mod store_tests {
                  ORDER BY 1, 2",
             )
             .unwrap();
-        stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        stmt.query_map([], |row| <(_, _, _)>::try_from(row))
             .unwrap()
             .collect::<std::result::Result<Vec<_>, _>>()
             .unwrap()

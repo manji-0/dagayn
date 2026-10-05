@@ -57,14 +57,7 @@ fn resolves_markdown_artifact_refs() {
             "SELECT target_qualified, confidence, confidence_tier, extra \
                  FROM edges WHERE kind = 'CROSS_ARTIFACT'",
             [],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, f64>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                ))
-            },
+            |row| <(String, f64, String, String)>::try_from(row),
         )
         .unwrap();
     assert_eq!(row.0, "parser.py::BridgePattern");
@@ -268,17 +261,10 @@ fn markdown_resolver_retiers_resolved_code_span_bridges_left_at_high() {
                  WHERE kind = 'CROSS_ARTIFACT' ORDER BY line",
             )
             .unwrap();
-        stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, f64>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-            ))
-        })
-        .unwrap()
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .unwrap()
+        stmt.query_map([], |row| <(i64, f64, String, String)>::try_from(row))
+            .unwrap()
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .unwrap()
     };
     let before = rows(&store);
     assert_eq!((before[0].1, before[0].2.as_str()), (0.8, "HIGH"));
@@ -398,9 +384,7 @@ fn directives_to_missing_targets_are_no_longer_authored_evidence() {
                 "SELECT target_qualified, confidence_tier FROM edges ORDER BY target_qualified",
             )
             .unwrap()
-            .query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-            })
+            .query_map([], |row| <(String, String)>::try_from(row))
             .unwrap()
             .collect::<std::result::Result<Vec<_>, _>>()
             .unwrap()

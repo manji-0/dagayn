@@ -101,9 +101,7 @@ impl GraphStore {
                                   LEFT JOIN nodes n ON n.id = f.entry_point_id \
                                   WHERE n.id IS NULL";
         let mut stmt = self.conn.prepare(dangling_entry_sql)?;
-        let dangling_rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-        })?;
+        let dangling_rows = stmt.query_map([], |row| <(i64, String)>::try_from(row))?;
         for row in dangling_rows {
             let (flow_id, flow_name) = row?;
             let match_sql = format!(
@@ -139,13 +137,7 @@ impl GraphStore {
                            WHERE n.id IS NULL\
                          )";
         let mut stmt = self.conn.prepare(stale_sql)?;
-        let stale_rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, String>(2)?,
-            ))
-        })?;
+        let stale_rows = stmt.query_map([], |row| <(i64, i64, String)>::try_from(row))?;
 
         let is_changed = |qn: &str| {
             changed_qnames.contains(qn) || changed_file_set.contains(qualified_name_file(qn))
@@ -251,7 +243,7 @@ impl GraphStore {
             );
             let mut stmt = self.conn.prepare(&sql)?;
             let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+                <(i64, String)>::try_from(row)
             })?;
             for row in rows {
                 let (flow_id, qualified_name) = row?;

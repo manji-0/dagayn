@@ -16,13 +16,7 @@ pub(super) fn bind_shared_libraries(
                AND COALESCE(json_extract(extra, '$.extractor'), '') != ?",
         )?;
         let rows = stmt.query_map([NATIVE_BINDINGS_EXTRACTOR], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, i64>(3)?,
-                row.get::<_, Option<String>>(4)?,
-            ))
+            <(String, String, String, i64, Option<String>)>::try_from(row)
         })?;
         rows.collect::<std::result::Result<Vec<_>, _>>()?
     };

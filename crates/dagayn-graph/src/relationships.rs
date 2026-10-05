@@ -50,7 +50,7 @@ impl GraphStore {
             );
             let mut stmt = self.conn.prepare(&sql)?;
             let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
+                <(i64, i64)>::try_from(row)
             })?;
             for row in rows {
                 let (node_id, count) = row?;
@@ -94,7 +94,7 @@ impl GraphStore {
             );
             let mut stmt = self.conn.prepare(&sql)?;
             let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?))
+                <(i64, f64)>::try_from(row)
             })?;
             for row in rows {
                 let (node_id, criticality) = row?;
@@ -135,7 +135,7 @@ impl GraphStore {
             let sql = format!("SELECT id, community_id FROM nodes WHERE id IN ({placeholders})");
             let mut stmt = self.conn.prepare(&sql)?;
             let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, Option<i64>>(1)?))
+                <(i64, Option<i64>)>::try_from(row)
             })?;
             for row in rows {
                 let (node_id, community_id) = row?;
@@ -163,7 +163,7 @@ impl GraphStore {
             );
             let mut stmt = self.conn.prepare(&sql)?;
             let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?))
+                <(String, Option<i64>)>::try_from(row)
             })?;
             for row in rows {
                 let (qualified_name, community_id) = row?;
@@ -177,9 +177,7 @@ impl GraphStore {
         let mut stmt = self
             .conn
             .prepare("SELECT qualified_name, community_id FROM nodes")?;
-        let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?))
-        })?;
+        let rows = stmt.query_map([], |row| <(String, Option<i64>)>::try_from(row))?;
         rows.collect::<std::result::Result<HashMap<_, _>, _>>()
             .map_err(Into::into)
     }

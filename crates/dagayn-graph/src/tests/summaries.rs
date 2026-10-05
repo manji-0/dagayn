@@ -141,7 +141,7 @@ fn computes_summary_tables() {
         .query_row(
             "SELECT name, size, key_symbols FROM community_summaries",
             [],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| <(_, _, _)>::try_from(row),
         )
         .unwrap();
     assert_eq!(community_row.0, "auth-cluster");
@@ -164,15 +164,7 @@ fn computes_summary_tables() {
             "SELECT qualified_name, caller_count, test_coverage, security_relevant, risk_score \
                  FROM risk_index WHERE qualified_name = 'auth.py::check_token'",
             [],
-            |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                ))
-            },
+            |row| <(_, _, _, _, _)>::try_from(row),
         )
         .unwrap();
     assert_eq!(risk_row.0, "auth.py::check_token");

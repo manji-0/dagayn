@@ -43,13 +43,7 @@ pub(super) fn bind_components(tx: &Transaction<'_>, bridges: &mut Vec<NewBridge>
                AND json_extract(extra, '$.relationship_role') = 'calls_component_export'",
         )?;
         let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, i64>(3)?,
-                row.get::<_, Option<String>>(4)?,
-            ))
+            <(String, String, String, i64, Option<String>)>::try_from(row)
         })?;
         for row in rows {
             let (caller, name, file_path, line, hint) = row?;
@@ -88,14 +82,7 @@ pub(super) fn bind_components(tx: &Transaction<'_>, bridges: &mut Vec<NewBridge>
              FROM edges WHERE kind = 'CALLS' AND file_path LIKE '%.rs' \
                AND target_qualified LIKE '%::%'",
         )?;
-        let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, i64>(3)?,
-            ))
-        })?;
+        let rows = stmt.query_map([], |row| <(String, String, String, i64)>::try_from(row))?;
         for row in rows {
             let (caller, target, file_path, line) = row?;
             let mut segments: Vec<&str> = target.split("::").collect();

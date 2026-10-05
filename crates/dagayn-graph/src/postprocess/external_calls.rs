@@ -377,14 +377,7 @@ pub(crate) fn mark_stdlib_method_calls(
                AND COALESCE(json_extract(extra, '$.receiver_unknown'), 0) = 1 \
                AND COALESCE(json_extract(extra, '$.external'), 0) = 0",
         )?;
-        let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-            ))
-        })?;
+        let rows = stmt.query_map([], |row| <(i64, String, String, String)>::try_from(row))?;
         rows.collect::<std::result::Result<Vec<_>, _>>()?
     };
     let mut marked = 0_i64;
@@ -477,9 +470,7 @@ fn glob_imports(tx: &Transaction<'_>) -> Result<HashMap<String, Vec<String>>> {
         "SELECT DISTINCT file_path, target_qualified FROM edges \
          WHERE kind = 'IMPORTS_FROM' AND COALESCE(json_extract(extra, '$.glob'), 0) = 1",
     )?;
-    let rows = stmt.query_map([], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-    })?;
+    let rows = stmt.query_map([], |row| <(String, String)>::try_from(row))?;
     let mut direct: HashMap<String, Vec<String>> = HashMap::new();
     for row in rows {
         let (file, module) = row?;
@@ -521,13 +512,7 @@ pub(crate) fn mark_glob_imported_external_calls(tx: &Transaction<'_>) -> Result<
                                WHERE n.qualified_name = edges.target_qualified)",
         )?;
         let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, Option<String>>(3)?,
-                row.get::<_, String>(4)?,
-            ))
+            <(i64, String, String, Option<String>, String)>::try_from(row)
         })?;
         rows.collect::<std::result::Result<Vec<_>, _>>()?
     };
@@ -630,9 +615,7 @@ pub(crate) fn mark_deref_calls(tx: &Transaction<'_>) -> Result<i64> {
              WHERE kind = 'Class' AND file_path LIKE '%.rs' \
                AND json_extract(extra, '$.deref_target') IS NOT NULL",
         )?;
-        let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?;
+        let rows = stmt.query_map([], |row| <(String, String)>::try_from(row))?;
         rows.collect::<std::result::Result<_, _>>()?
     };
     let edges = {
@@ -644,14 +627,7 @@ pub(crate) fn mark_deref_calls(tx: &Transaction<'_>) -> Result<i64> {
                AND json_extract(extra, '$.receiver_type') IS NOT NULL \
                AND COALESCE(json_extract(extra, '$.external'), 0) = 0",
         )?;
-        let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-            ))
-        })?;
+        let rows = stmt.query_map([], |row| <(i64, String, String, String)>::try_from(row))?;
         rows.collect::<std::result::Result<Vec<_>, _>>()?
     };
     let mut marked = 0_i64;
@@ -782,14 +758,7 @@ pub(crate) fn mark_observed_method_calls(
                AND COALESCE(json_extract(extra, '$.receiver_unknown'), 0) = 1 \
                AND COALESCE(json_extract(extra, '$.external'), 0) = 0",
         )?;
-        let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-            ))
-        })?;
+        let rows = stmt.query_map([], |row| <(i64, String, String, String)>::try_from(row))?;
         rows.collect::<std::result::Result<Vec<_>, _>>()?
     };
     let mut marked = 0_i64;
@@ -860,14 +829,7 @@ pub(crate) fn resolve_enum_variant_calls(tx: &Transaction<'_>) -> Result<i64> {
              FROM nodes WHERE kind = 'Class' AND file_path LIKE '%.rs' \
                AND json_extract(extra, '$.variants') IS NOT NULL",
         )?;
-        let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-            ))
-        })?;
+        let rows = stmt.query_map([], |row| <(String, String, String, String)>::try_from(row))?;
         for row in rows {
             let (qualified, name, file, variants) = row?;
             let variants: HashSet<String> = serde_json::from_str(&variants).unwrap_or_default();
@@ -890,13 +852,7 @@ pub(crate) fn resolve_enum_variant_calls(tx: &Transaction<'_>) -> Result<i64> {
                AND COALESCE(json_extract(extra, '$.external'), 0) = 0",
         )?;
         let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, String>(4)?,
-            ))
+            <(i64, String, String, String, String)>::try_from(row)
         })?;
         rows.collect::<std::result::Result<Vec<_>, _>>()?
     };

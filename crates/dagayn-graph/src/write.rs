@@ -84,7 +84,7 @@ impl GraphStore {
             );
             let mut stmt = self.conn.prepare(&sql)?;
             let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                <(String, String)>::try_from(row)
             })?;
             for row in rows {
                 let (file_path, file_hash) = row?;

@@ -54,7 +54,7 @@ fn store_file_batch_populates_edge_target_name() {
         .query_row(
             "SELECT target_qualified, target_name FROM edges WHERE kind = 'CALLS'",
             [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| <(_, _)>::try_from(row),
         )
         .unwrap();
     assert_eq!(target_qualified, "app.py::helper");
@@ -451,9 +451,7 @@ fn computes_missing_signatures() {
         .conn
         .prepare("SELECT qualified_name, signature FROM nodes ORDER BY qualified_name")
         .unwrap()
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })
+        .query_map([], |row| <(String, String)>::try_from(row))
         .unwrap()
         .collect::<std::result::Result<Vec<_>, _>>()
         .unwrap();

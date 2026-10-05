@@ -116,9 +116,7 @@ fn follow(
 pub(crate) fn resolve_reexported_targets(tx: &Transaction<'_>) -> Result<i64> {
     let (nodes, files) = {
         let mut stmt = tx.prepare("SELECT qualified_name, kind FROM nodes")?;
-        let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?;
+        let rows = stmt.query_map([], |row| <(String, String)>::try_from(row))?;
         let mut nodes = HashSet::new();
         let mut files = HashSet::new();
         for row in rows {
@@ -139,9 +137,7 @@ pub(crate) fn resolve_reexported_targets(tx: &Transaction<'_>) -> Result<i64> {
                AND NOT EXISTS (SELECT 1 FROM nodes n \
                                WHERE n.qualified_name = e.target_qualified)",
         )?;
-        let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-        })?;
+        let rows = stmt.query_map([], |row| <(i64, String)>::try_from(row))?;
         rows.collect::<std::result::Result<Vec<_>, _>>()?
     };
     let mut resolved = 0_i64;

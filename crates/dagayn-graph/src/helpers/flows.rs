@@ -149,10 +149,7 @@ struct CommunityJson {
 }
 
 pub(crate) fn flow_json_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
-    let path_json: String = row.get("path_json")?;
-    let path = serde_json::from_str::<Vec<i64>>(&path_json).unwrap_or_default();
-    let name: String = row.get("name")?;
-    flow_json_value_from_parts(row, &name, &path)
+    flow_value_from_row(row).map(|flow| flow.value)
 }
 
 pub(crate) struct FlowValue {
@@ -201,10 +198,11 @@ pub(crate) fn flow_steps_from_nodes(
     path_ids: &[i64],
     nodes_by_id: &HashMap<i64, GraphNode>,
 ) -> Vec<Value> {
-    let mut steps = Vec::new();
-    for node_id in path_ids {
-        if let Some(node) = nodes_by_id.get(node_id) {
-            steps.push(json!(FlowStepJson {
+    path_ids
+        .iter()
+        .filter_map(|node_id| nodes_by_id.get(node_id))
+        .map(|node| {
+            json!(FlowStepJson {
                 node_id: node.id,
                 name: sanitize_name(&node.name),
                 kind: node.kind.clone(),
@@ -212,10 +210,9 @@ pub(crate) fn flow_steps_from_nodes(
                 line_start: node.line_start,
                 line_end: node.line_end,
                 qualified_name: sanitize_name(&node.qualified_name),
-            }));
-        }
-    }
-    steps
+            })
+        })
+        .collect()
 }
 
 pub(crate) fn community_json_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {

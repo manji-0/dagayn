@@ -57,14 +57,7 @@ pub(super) fn bind_uniffi(
          WHERE kind = 'IMPORTS_FROM' \
            AND (file_path LIKE '%.kt' OR file_path LIKE '%.kts' OR file_path LIKE '%.swift')",
     )?;
-    let rows = stmt.query_map([], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-            row.get::<_, i64>(3)?,
-        ))
-    })?;
+    let rows = stmt.query_map([], |row| <(String, String, String, i64)>::try_from(row))?;
     let mut importing: HashMap<(String, &'static str), HashSet<usize>> = HashMap::new();
     for row in rows {
         let (source, target, file_path, line) = row?;
