@@ -203,7 +203,7 @@ mod tests {
     // Expected values below were produced by running the Python parsers
     // (`_get_svn_changed_files`, `_svn_revision_info` with `subprocess.run`
     // returning this text, `_SAFE_SVN_REV`, `str.splitlines`) on the same
-    // input; tests/test_svn_parity.py checks the same recordings end to end.
+    // input; tests/test_mcp_vcs_parity.py checks the same recordings end to end.
 
     const STATUS: &str = "M       app.py\n\
                           ?       scratch.txt\n\
