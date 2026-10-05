@@ -60,7 +60,7 @@ docs、commands、roadmap、README に波及するため、計画変更は docs 
 
 <!-- derived-from ../audits/dagayn-fundamental-principles-recommendations.md#decision-model -->
 <!-- dagayn: discusses-artifact ../../dagayn/tools/_common.py::make_response -->
-<!-- dagayn: discusses-artifact ../../dagayn/tools/_common.py::compact_response -->
+<!-- dagayn: discusses-artifact ../../crates/dagayn-tools/src/context.rs -->
 
 最初に、すべての workflow tool が共有できる guidance contract を定義する。
 
@@ -88,7 +88,7 @@ Done criteria:
 ## Step 2: Answerability Propagation
 
 <!-- derived-from ../audits/dagayn-fundamental-principles-recommendations.md#implementation-recommendations -->
-<!-- dagayn: discusses-artifact ../../dagayn/tools/context.py::_graph_answerability -->
+<!-- dagayn: discusses-artifact ../../crates/dagayn-tools/src/answerability.rs -->
 <!-- dagayn: discusses-artifact ../../dagayn/tools/context.py::get_minimal_context -->
 
 次に、answerability を `get_minimal_context_tool` だけの metadata から、すべての claim を

@@ -25,8 +25,10 @@ in whether those edits are in the graph yet: session-start / explicit
 (`needs_structure_prepare`), and skips `worktree_ahead` entirely because an
 edit hook already indexed them. MCP `get_minimal_context(auto_prepare=True)`
 **enqueues** a background `session_prepare` on `unbuilt` / `commit_drift`
-(`needs_mcp_auto_prepare`) and returns immediately with the current `sync`
-plus `repair`/`prepare` queued state — it does not wait for the repair.
+(answered in Rust, `crates/dagayn-tools/src/context.rs`, which writes
+`.dagayn/task_queue.db` and starts the Python queue worker with the serving
+interpreter) and returns immediately with the current `sync` plus
+`repair`/`prepare` queued state — it does not wait for the repair.
 Call `ensure_graph_tool` (or CLI `session prepare`) when analysis must wait
 for structure. A dirty tree does not re-queue on every tool call; ongoing
 dirty indexing is UC-E1 (a structure-only update enqueued by the edit hook
@@ -36,8 +38,8 @@ and drained by the queue worker).
 repository (`sync.vcs == "none"`, typically a misdetected root such as `$HOME`
 when an editor spawns the MCP server outside the project) must not trigger a
 build — bootstrapping there would scan the entire non-repo tree.
-`needs_mcp_auto_prepare` returns `False` for it, `get_minimal_context` skips the
-auto-prepare block, and `session_prepare` / `ensure_graph` refuse outright with
+`get_minimal_context` never queues a repair for it, and `session_prepare` /
+`ensure_graph` refuse outright with
 `reason == "not_vcs_repo"` without touching `.dagayn/`. The root still resolves
 for graph reading when a leftover `.dagayn/graph.db` exists, and explicit
 `dagayn build --repo` on a non-repo directory remains available.
@@ -63,8 +65,9 @@ requires `session prepare` / `worktree sync` / MCP auto_prepare enqueue
 
 Authority: `GraphSyncState` in `dagayn/contracts/state_types.py` (a Pydantic
 discriminated union on `state`) plus `assess_graph_sync` / `sync_state` /
-`is_structure_ready` / `needs_structure_prepare` / `needs_mcp_auto_prepare` in
-`dagayn/tools/sync_status.py`.
+`is_structure_ready` / `needs_structure_prepare` in
+`dagayn/tools/sync_status.py` (ported to Rust as
+`dagayn_build::assess_graph_sync`).
 
 Freshness is decided in two tiers. The **commit tier** compares the graph's
 stored `git_head_sha` with HEAD. The **diff tier** applies only once the commit
@@ -137,8 +140,9 @@ cannot appear in `git diff`, so prepare re-ran every session, reported
 Session / explicit prepare runs when `needs_structure_prepare` is true
 (`unbuilt` / `commit_drift` / `worktree_behind`, or `force=True`) — notably
 **not** `worktree_ahead`, whose edits the graph already has. MCP auto_prepare
-runs when `needs_mcp_auto_prepare` is true (`unbuilt` / `commit_drift`, or
-force).
+queues a prepare on `unbuilt` / `commit_drift` (or a local embedding index
+missing at least `DAGAYN_EMBED_INLINE_MISSING_RATIO` of its vectors; a smaller
+gap queues an `embed`), never on a `vcs == "none"` root.
 
 Assessments also carry a legacy 4-value `status`
 (`empty` / `git_drift` / `dirty_worktree` / `synced`) for MCP clients and hook

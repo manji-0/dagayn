@@ -103,10 +103,6 @@ _STRUCTURE_PREPARE_STATES: frozenset[GraphSyncStateName] = frozenset(
     {"unbuilt", "commit_drift", "worktree_behind"}
 )
 
-#: MCP first-tool auto_prepare only bootstraps when analysis would otherwise
-#: run against a missing or wrong commit; a dirty tree is left to prepare/hooks.
-_MCP_AUTO_PREPARE_STATES: frozenset[GraphSyncStateName] = frozenset({"unbuilt", "commit_drift"})
-
 #: Session/MCP may block on an embedding pass when this much of the embeddable
 #: corpus is missing. Below it, refresh is queued instead of starting the
 #: sidecar on the interactive path. Override with
@@ -278,23 +274,6 @@ def commit_tier_freshness(store: Any, repo_root: str | Path) -> SyncPayload:
     except Exception:  # noqa: BLE001 — a status failure is not dirtiness
         dirty = False
     return _commit_tier_payload(stored_sha, current_sha, dirty, outdated_extractors(store))
-
-
-def commit_tier_from_sync(sync: Mapping[str, Any]) -> SyncPayload:
-    """Derive :func:`commit_tier_freshness` from an :func:`assess_graph_sync` result.
-
-    The full assessment already ran the same ``git`` invocations and metadata
-    reads, so a caller holding one need not pay for them twice.
-    """
-    current_sha = sync.get("current_head_sha")
-    if sync.get("vcs") not in GIT_BACKED_VCS or not current_sha:
-        return {"state": None}
-    return _commit_tier_payload(
-        sync.get("git_head_sha"),
-        current_sha,
-        bool(sync.get("worktree_dirty")),
-        sync.get("extractor_drift"),
-    )
 
 
 def _seed_needs_verification(store: Any) -> bool:
@@ -492,25 +471,6 @@ def needs_structure_prepare(sync: Mapping[str, object], *, force: bool = False) 
     if force:
         return True
     return sync_state(sync) in _STRUCTURE_PREPARE_STATES
-
-
-def needs_mcp_auto_prepare(sync: Mapping[str, object], *, force: bool = False) -> bool:
-    """True when MCP first-tool auto_prepare should bootstrap the graph.
-
-    Only ``unbuilt`` / ``commit_drift`` block analysis against the wrong or
-    missing commit. A dirty tree is HEAD-aligned; ongoing dirty indexing is left
-    to session-start prepare and edit hooks (``dagayn update --skip-flows``).
-
-    A root outside any repository (``vcs == "none"`` — typically a misdetected
-    root like ``$HOME``) is never auto-prepared: bootstrapping there would scan
-    the whole non-repo tree. Legacy sync dicts without a ``vcs`` key keep the
-    old behavior.
-    """
-    if force:
-        return True
-    if sync.get("vcs") == "none":
-        return False
-    return sync_state(sync) in _MCP_AUTO_PREPARE_STATES
 
 
 def is_structure_ready(sync: Mapping[str, object]) -> bool:

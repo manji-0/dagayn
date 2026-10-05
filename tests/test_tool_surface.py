@@ -2,7 +2,6 @@
 
 from dagayn.tool_surface import (
     filter_suggestions,
-    filter_tool_names,
     set_active_tool_surface,
     suggestion_is_callable,
     tool_is_exposed,
@@ -33,9 +32,8 @@ class TestToolSurfaceFilter:
         assert suggestion_is_callable("dagayn tool apply_refactor_tool --arg refactor_id='x'")
         assert suggestion_is_callable("Run: dagayn register /path")
 
-    def test_filter_tool_names_and_suggestions(self):
+    def test_filter_suggestions(self):
         set_active_tool_surface({"review_tool", "flow_tool"})
-        assert filter_tool_names(["review_tool", "find_large_functions_tool"]) == ["review_tool"]
         assert filter_suggestions(
             [
                 "review_tool -- inspect changes",

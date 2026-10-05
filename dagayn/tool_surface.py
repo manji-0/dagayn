@@ -32,13 +32,6 @@ def tool_is_exposed(name: str) -> bool:
     return name in _active_allow_list
 
 
-def filter_tool_names(names: list[str]) -> list[str]:
-    """Drop tool names that are not on the active MCP surface."""
-    if _active_allow_list is None:
-        return names
-    return [name for name in names if name in _active_allow_list]
-
-
 def _suggestion_tool_name(suggestion: str) -> str:
     """Extract a leading MCP tool name from a free-form suggestion string."""
     head, _, _tail = suggestion.partition(" -- ")

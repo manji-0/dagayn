@@ -22,6 +22,8 @@ from __future__ import annotations
 import argparse
 import io
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -52,7 +54,6 @@ from dagayn.tools.sync_status import (
     SyncPayload,
     assess_graph_sync,
     is_structure_ready,
-    needs_mcp_auto_prepare,
     needs_structure_prepare,
     sync_state,
 )
@@ -130,10 +131,9 @@ class TestAssessGraphSyncContract:
         assert sync["state"] == "unbuilt"
         assert sync["status"] == "empty"
         assert needs_structure_prepare(sync) is True
-        assert needs_mcp_auto_prepare(sync) is True
         assert is_structure_ready(sync) is False
 
-    def test_non_git_root_assessed_as_none_and_never_auto_prepares(self, tmp_path: Path):
+    def test_non_git_root_assessed_as_none(self, tmp_path: Path):
         """UC-M3: sync assessment carries vcs; non-repo roots never bootstrap."""
         db = tmp_path / ".dagayn" / "graph.db"
         GraphStore(str(db)).close()
@@ -141,12 +141,9 @@ class TestAssessGraphSyncContract:
         assert sync["vcs"] == "none"
         assert sync["state"] == "unbuilt"
         assert sync["status"] == "empty"
-        assert needs_mcp_auto_prepare(sync) is False
         # Structure prepare remains the explicit/session-start path; the
         # session_prepare guard below is what stops the build.
         assert needs_structure_prepare(sync) is True
-        # Legacy dicts without vcs keep the old behavior.
-        assert needs_mcp_auto_prepare({"state": "unbuilt", "status": "empty"}) is True
 
     def test_git_drift_when_head_differs(self, main_repo: Path):
         _seed_store(main_repo, head_sha="0" * 40)
@@ -154,7 +151,6 @@ class TestAssessGraphSyncContract:
         assert sync["state"] == "commit_drift"
         assert sync["status"] == "git_drift"
         assert needs_structure_prepare(sync) is True
-        assert needs_mcp_auto_prepare(sync) is True
         assert is_structure_ready(sync) is False
 
     def test_dirty_worktree_is_structure_ready(self, main_repo: Path):
@@ -169,7 +165,6 @@ class TestAssessGraphSyncContract:
         assert sync["worktree_dirty"] is True
         assert sync["pending_files"] == ["hello.py"]
         assert needs_structure_prepare(sync) is True
-        assert needs_mcp_auto_prepare(sync) is False
         assert is_structure_ready(sync) is True
 
     def test_synced_when_head_matches_and_clean(self, main_repo: Path):
@@ -178,7 +173,6 @@ class TestAssessGraphSyncContract:
         assert sync["state"] == "commit_synced"
         assert sync["status"] == "synced"
         assert needs_structure_prepare(sync) is False
-        assert needs_mcp_auto_prepare(sync) is False
         assert needs_structure_prepare(sync, force=True) is True
         assert is_structure_ready(sync) is True
 
@@ -203,7 +197,6 @@ class TestAssessGraphSyncContract:
         assert sync["worktree_dirty"] is True
         assert "hello.py" in sync["indexed_files"]
         assert is_structure_ready(sync) is True
-        assert needs_mcp_auto_prepare(sync) is False
         # The point of the state: no repeated re-index on every session start.
         assert needs_structure_prepare(sync) is False
         assert needs_structure_prepare(sync, force=True) is True
@@ -237,29 +230,6 @@ class TestAssessGraphSyncContract:
         assert needs_structure_prepare(sync) is True
         # Still HEAD-aligned: analysis is not blocked, it is just behind.
         assert is_structure_ready(sync) is True
-        assert needs_mcp_auto_prepare(sync) is False
-
-    def test_commit_tier_from_sync_matches_commit_tier_freshness(self, main_repo: Path):
-        """get_minimal_context derives freshness from its sync instead of re-running git."""
-        from dagayn.tools.sync_status import commit_tier_freshness, commit_tier_from_sync
-
-        db = main_repo / ".dagayn" / "graph.db"
-        db.parent.mkdir(parents=True, exist_ok=True)
-        store = GraphStore(str(db))
-        try:
-            full_build(main_repo, store)
-
-            def check() -> None:
-                derived = commit_tier_from_sync(assess_graph_sync(store, main_repo))
-                assert derived == commit_tier_freshness(store, main_repo)
-
-            check()
-            (main_repo / "hello.py").write_text("def edited():\n    pass\n", encoding="utf-8")
-            check()
-            git(main_repo, "commit", "-am", "move HEAD")
-            check()
-        finally:
-            store.close()
 
     def test_older_extractor_is_commit_drift_until_update(self, main_repo: Path):
         """A graph parsed by an older extractor is degraded even at HEAD."""
@@ -287,7 +257,6 @@ class TestAssessGraphSyncContract:
             assert sync["state"] == "commit_drift"
             assert sync["extractor_drift"] == ["javascript"]
             assert needs_structure_prepare(sync)
-            assert needs_mcp_auto_prepare(sync)
 
             from dagayn.tools.sync_status import commit_tier_freshness
 
@@ -471,19 +440,40 @@ class TestSessionPrepareContract:
         _assert_structure_ready(second, main_repo)
 
 
+@contextmanager
+def _no_queue_worker(repo: Path) -> Iterator[None]:
+    """Hold the queue worker's lock, so a queued repair starts no worker."""
+    import fcntl
+
+    lock = repo / ".dagayn" / "queue_worker.lock"
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    with lock.open("a+", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        yield
+
+
+def _queued(repo: Path) -> list[tuple[str, dict[str, Any]]]:
+    """The queued tasks' kinds and payloads, oldest first."""
+    import sqlite3
+
+    db = repo / ".dagayn" / "task_queue.db"
+    if not db.exists():
+        return []
+    conn = sqlite3.connect(db)
+    try:
+        rows = conn.execute("SELECT kind, payload FROM tasks ORDER BY id").fetchall()
+    finally:
+        conn.close()
+    return [(kind, json.loads(payload)) for kind, payload in rows]
+
+
 class TestMinimalContextAutoPrepare:
     """UC-M1: MCP first-tool path auto-prepares on drift, not dirty loops."""
 
     def test_uc_m1_auto_prepare_on_git_drift(self, main_repo: Path):
         _seed_store(main_repo, head_sha="0" * 40)
 
-        with (
-            patch(
-                "dagayn.task_queue.enqueue_session_prepare",
-                return_value=("added", 1),
-            ) as enqueue,
-            patch("dagayn.tools.session_prepare") as prepare,
-        ):
+        with _no_queue_worker(main_repo):
             result = get_minimal_context(
                 task="explore codebase",
                 repo_root=str(main_repo),
@@ -492,24 +482,33 @@ class TestMinimalContextAutoPrepare:
                 prepare_budget_seconds=60,
             )
 
-        enqueue.assert_called_once()
-        prepare.assert_not_called()
+        assert _queued(main_repo) == [
+            (
+                "prepare",
+                {
+                    "local_embedding": "none",
+                    "keep_local_embedding_server": True,
+                    "budget_seconds": 60,
+                },
+            )
+        ]
         assert result["prepare"]["action"] == "queued"
         assert result["prepare"]["reason"] == "enqueued_background_prepare"
         assert result["repair"]["kind"] == "prepare"
         assert result["sync"]["status"] == "git_drift"
+        # Queued, not run: the graph still describes the old commit.
+        assert _assess(main_repo)["status"] == "git_drift"
 
     def test_auto_prepare_skipped_when_synced(self, main_repo: Path):
         _seed_store(main_repo, head_sha=_head(main_repo))
-        with patch("dagayn.task_queue.enqueue_session_prepare") as enqueue:
-            result = get_minimal_context(
-                task="explore codebase",
-                repo_root=str(main_repo),
-                auto_prepare=True,
-                local_embedding="none",
-            )
-        enqueue.assert_not_called()
-        assert "prepare" not in result or result.get("prepare") is None
+        result = get_minimal_context(
+            task="explore codebase",
+            repo_root=str(main_repo),
+            auto_prepare=True,
+            local_embedding="none",
+        )
+        assert _queued(main_repo) == []
+        assert "prepare" not in result
         assert result["sync"]["status"] == "synced"
 
     def test_uc_m1_dirty_does_not_auto_prepare_loop(self, main_repo: Path):
@@ -519,16 +518,22 @@ class TestMinimalContextAutoPrepare:
             encoding="utf-8",
         )
         assert _assess(main_repo)["status"] == "dirty_worktree"
-        with patch("dagayn.task_queue.enqueue_session_prepare") as enqueue:
-            result = get_minimal_context(
-                task="explore codebase",
-                repo_root=str(main_repo),
-                auto_prepare=True,
-                local_embedding="none",
-            )
-        enqueue.assert_not_called()
+        result = get_minimal_context(
+            task="explore codebase",
+            repo_root=str(main_repo),
+            auto_prepare=True,
+            local_embedding="none",
+        )
+        assert _queued(main_repo) == []
         assert result["sync"]["status"] == "dirty_worktree"
         assert "ensure_graph_tool" not in result.get("recommended_action", "")
+
+    def test_drift_without_auto_prepare_queues_nothing(self, main_repo: Path):
+        _seed_store(main_repo, head_sha="0" * 40)
+        result = get_minimal_context(task="explore codebase", repo_root=str(main_repo))
+        assert _queued(main_repo) == []
+        assert "repair" not in result
+        assert result["recommended_action"] == "Call ensure_graph_tool to sync the graph."
 
     def test_uc_m3_non_git_root_never_auto_prepares(self, tmp_path: Path):
         """UC-M3: a misdetected non-repo root (e.g. $HOME) must not bootstrap.
@@ -539,15 +544,14 @@ class TestMinimalContextAutoPrepare:
         ``vcs == "none"`` and leaves the graph untouched.
         """
         GraphStore(str(tmp_path / ".dagayn" / "graph.db")).close()
-        with patch("dagayn.task_queue.enqueue_session_prepare") as enqueue:
-            result = get_minimal_context(
-                task="explore codebase",
-                repo_root=str(tmp_path),
-                auto_prepare=True,
-                local_embedding="none",
-                prepare_budget_seconds=60,
-            )
-        enqueue.assert_not_called()
+        result = get_minimal_context(
+            task="explore codebase",
+            repo_root=str(tmp_path),
+            auto_prepare=True,
+            local_embedding="none",
+            prepare_budget_seconds=60,
+        )
+        assert _queued(tmp_path) == []
         assert result["sync"]["vcs"] == "none"
         assert result["sync"]["state"] == "unbuilt"
 
@@ -810,10 +814,7 @@ class TestWorktreeFreshnessIntegration:
         assert again.status == "skipped"
         assert _assess(linked_worktree)["status"] == "git_drift"
 
-        with patch(
-            "dagayn.task_queue.enqueue_session_prepare",
-            return_value=("added", 1),
-        ) as enqueue:
+        with _no_queue_worker(linked_worktree):
             result = get_minimal_context(
                 task="implement feature in worktree",
                 repo_root=str(linked_worktree),
@@ -821,7 +822,7 @@ class TestWorktreeFreshnessIntegration:
                 local_embedding="none",
                 prepare_budget_seconds=120,
             )
-        enqueue.assert_called_once()
+        assert [kind for kind, _payload in _queued(linked_worktree)] == ["prepare"]
         assert result["prepare"]["action"] == "queued"
         assert result["repair"]["kind"] == "prepare"
         assert result["sync"]["status"] == "git_drift"

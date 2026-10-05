@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from dagayn.contracts.state_types import BuildResult, ChangeAnalysisResult
+from dagayn.contracts.state_types import BuildResult
 from dagayn.extractor_versions import record_extractor_versions
 from dagayn.graph import GraphStore, _sanitize_name, node_to_dict
 from dagayn.parser import EdgeInfo, NodeInfo
@@ -2603,29 +2603,24 @@ class TestGetMinimalContext:
     def test_retries_once_on_sqlite_corrupt(self, monkeypatch):
         import sqlite3
 
-        from dagayn.tools.context import get_minimal_context
-
-        try:
-            from dagayn._core import GraphStore as StoreCls
-        except ImportError:
-            from dagayn.graph import GraphStore as StoreCls
+        from dagayn.tools import context as context_module
 
         calls = {"n": 0}
-        original = getattr(StoreCls, "get_stats")
+        original = context_module._get_store
 
-        def flaky(self):
+        def flaky(repo_root, *, cached=True):
             calls["n"] += 1
             if calls["n"] == 1:
                 raise sqlite3.DatabaseError("database disk image is malformed")
-            return original(self)
+            return original(repo_root, cached=cached)
 
-        monkeypatch.setattr(StoreCls, "get_stats", flaky)
-        result = get_minimal_context(
+        monkeypatch.setattr(context_module, "_get_store", flaky)
+        result = context_module.get_minimal_context(
             task="explore codebase",
             repo_root=str(self.root),
         )
         assert result["status"] == "ok"
-        assert calls["n"] >= 2
+        assert calls["n"] == 2
 
     def test_graph_health_excludes_unresolved_markdown_code_span_candidates(self):
         from dagayn.tools.context import get_minimal_context
@@ -2667,6 +2662,8 @@ class TestGetMinimalContext:
             task="review changes",
             repo_root=str(self.root),
         )
+        # `_repo` names the repository on every tool's answer.
+        result.pop("_repo")
         serialized = json.dumps(result, default=str)
         assert len(serialized) < 800
 
@@ -2724,54 +2721,26 @@ class TestGetMinimalContext:
         assert result["why"]
         assert result["confidence"] == "high"
 
-    def test_uses_review_priorities_and_affected_flows(self, monkeypatch):
-        import dagayn.changes as changes
+    def test_review_task_without_changed_files_reports_no_risk(self):
         from dagayn.tools.context import get_minimal_context
-
-        monkeypatch.setattr(
-            changes,
-            "analyze_changes",
-            lambda *args, **kwargs: ChangeAnalysisResult.model_validate(
-                {
-                    "risk_score": 0.8,
-                    "changed_functions": [{"name": "low-priority"}],
-                    "review_priorities": [
-                        {"name": "highest-priority"},
-                        {"name": "second-priority"},
-                    ],
-                    "affected_flows": [
-                        {"name": "login-flow"},
-                        {"name": "signup-flow"},
-                    ],
-                    "test_gaps": [{"name": "missing-test"}],
-                }
-            ),
-        )
-
-        result = get_minimal_context(
-            task="review changes",
-            changed_files=["app.py"],
-            repo_root=str(self.root),
-        )
-
-        assert result["key_entities"] == ["highest-priority", "second-priority"]
-        assert result["flows_affected"] == ["login-flow", "signup-flow"]
-        assert "top_flows" not in result
-
-    def test_review_task_without_changed_files_does_not_analyze_changes(self, monkeypatch):
-        import dagayn.changes as changes
-        from dagayn.tools.context import get_minimal_context
-
-        def fail_analyze_changes(*_args, **_kwargs):
-            raise AssertionError("get_minimal_context should stay cheap without changed_files")
-
-        monkeypatch.setattr(changes, "analyze_changes", fail_analyze_changes)
 
         result = get_minimal_context(task="review changes", repo_root=str(self.root))
 
         assert result["workflow"] == "review"
         assert "risk" not in result
         assert "review_tool" in result["next_tool_suggestions"]
+
+    def test_changed_files_are_scored(self):
+        from dagayn.tools.context import get_minimal_context
+
+        result = get_minimal_context(
+            task="review changes", changed_files=["app.py"], repo_root=str(self.root)
+        )
+
+        # Not a git checkout: the default base does not resolve, so nothing
+        # changed is attributed and the priority is zero.
+        assert result["risk"] == "low"
+        assert "Review priority: low (0.00)." in result["summary"]
 
     def test_reports_top_flows_separately_from_affected_flows(self):
         from dagayn.tools.context import get_minimal_context

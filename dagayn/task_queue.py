@@ -610,19 +610,3 @@ def enqueue_embed_refresh(
     if files:
         body["files"] = sorted({str(path) for path in files if str(path)})
     return _enqueue_and_spawn(root, "embed", body, spawn_worker=spawn_worker)
-
-
-def enqueue_session_prepare(
-    repo_root: str | Path,
-    *,
-    spawn_worker: bool = True,
-    payload: dict[str, Any] | None = None,
-) -> tuple[str, int]:
-    """Enqueue a ``prepare`` task (session structure + embedding refresh).
-
-    Used by MCP ``get_minimal_context`` so Observe never waits on Repair.
-    ``spawn_worker=False`` is for a worker that is already draining.
-    """
-    return _enqueue_and_spawn(
-        Path(repo_root), "prepare", dict(payload or {}), spawn_worker=spawn_worker
-    )
