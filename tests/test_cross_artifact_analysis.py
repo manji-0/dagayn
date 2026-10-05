@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -11,16 +12,11 @@ from dagayn.contracts.cross_artifact import (
     is_low_confidence_bridge,
     is_reportable_bridge,
 )
-from dagayn.contracts.state_types import ChangeAnalysisResult
 from dagayn.flows import _hydrate_flow_rows, get_affected_flows, store_flows, trace_flows
 from dagayn.graph import GraphStore
 from dagayn.parser._base.types import EdgeInfo, NodeInfo
 from dagayn.tools import query as query_module
-from dagayn.tools.review_helpers import (
-    _change_analysis_summary,
-    _cross_artifact_proximity,
-    _review_guidance_items,
-)
+from dagayn.tools.review_dispatcher import review_func
 from tests.store_sql import store_conn
 
 
@@ -80,7 +76,9 @@ class _EdgeView:
 
 @pytest.fixture
 def bridge_store(tmp_path: Path):
-    db = tmp_path / "graph.db"
+    # The repository's own graph, so review_tool can read it too.
+    (tmp_path / ".dagayn").mkdir()
+    db = tmp_path / ".dagayn" / "graph.db"
     store = GraphStore(str(db))
     wrapper = str(tmp_path / "wrapper.py")
     native = str(tmp_path / "native_entry.py")
@@ -192,9 +190,6 @@ class TestCrossArtifactImpact:
                 (item["bridge"]["target"], item["bridge"]["confidence_tier"])
                 for item in result["low_confidence_bridges"]
             ] == [(cli_qn, "MEDIUM")]
-
-            proximity = _cross_artifact_proximity(store, result, [{"qualified_name": wrapper_qn}])
-            assert proximity["counts"] == {"reportable": 0, "low_confidence": 1}
         finally:
             store.close()
 
@@ -377,69 +372,73 @@ class TestCrossArtifactImpactNetworkX:
         assert result["low_confidence_bridges"]
 
 
+def _git_init(root: Path) -> None:
+    """A git repository with one (empty) commit, so ``HEAD`` resolves."""
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+    subprocess.run([*git, "init", "-q"], cwd=root, check=True)
+    subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "i"], cwd=root, check=True)
+
+
 class TestCrossArtifactReviewGuidance:
     def test_review_guidance_recommends_docs_for_and_bridge_followups(self, bridge_store):
         store, paths = bridge_store
-        impact = store.get_impact_radius([paths["wrapper"]], max_depth=2)
-        changed_functions = [
-            {
-                "qualified_name": paths["wrapper_qn"],
-                "kind": "Function",
-                "file_path": paths["wrapper"],
-                "name": "launch_native",
-            }
-        ]
-        proximity = _cross_artifact_proximity(store, impact, changed_functions)
+        root = paths["root"]
+        _git_init(root)
+
+        result = review_func(
+            mode="changes", base="HEAD", changed_files=["wrapper.py"], repo_root=str(root)
+        )
+
+        assert result["status"] == "ok", result
+        summary = result["analysis_summary"]
+        proximity = summary["cross_artifact_proximity"]
         assert proximity["counts"]["reportable"] >= 1
         assert proximity["counts"]["low_confidence"] >= 1
+        assert proximity["reportable_bridges"]
         assert any("docs_for" in item for item in proximity["follow_ups"])
         assert any("implementations_of" in item for item in proximity["follow_ups"])
-
-        summary = _change_analysis_summary(
-            store,
-            ChangeAnalysisResult(
-                risk_score=0.4,
-                changed_functions=changed_functions,
-            ),
-            impact,
-            [paths["wrapper"]],
-        )
         assert "cross_artifact_proximity" in summary["reason_codes"]
         assert "low_confidence_cross_artifact_bridge" in summary["reason_codes"]
-        assert summary["cross_artifact_proximity"]["reportable_bridges"]
         guidance_actions = [str(item.get("action")) for item in summary["guidance"]]
         assert any("docs_for" in action for action in guidance_actions)
         assert any("implementations_of" in action for action in guidance_actions)
 
-        items = _review_guidance_items(
-            risk="medium",
-            risk_score=0.4,
-            reason_codes=["low_confidence_cross_artifact_bridge"],
-            recommended_tests=[],
-            docs=[],
-            test_gap_ranking={"counts": {}},
-            stability_contracts=[],
-            affected_flow_rankings=[],
-            hotspots={
-                "changed_hubs": [],
-                "changed_bridges": [],
-                "impacted_hubs": [],
-                "impacted_bridges": [],
-            },
-            architecture_delta={"counts": {}},
-            signal_quality={"graph_facts": []},
-            cross_artifact_proximity={
-                "reportable_bridges": [],
-                "low_confidence_bridges": proximity["low_confidence_bridges"],
-                "follow_ups": proximity["follow_ups"],
-                "counts": proximity["counts"],
-            },
-        )
+    def test_review_guidance_flags_a_lone_low_confidence_bridge(self, tmp_path):
+        """With no reportable bridge, the caveat is the guidance item."""
+        (tmp_path / ".dagayn").mkdir()
+        store = GraphStore(str(tmp_path / ".dagayn" / "graph.db"))
+        try:
+            wrapper = str(tmp_path / "wrapper.py")
+            wrapper_qn = _add_func(store, "launch", wrapper)
+            cli_qn = _add_func(store, "cli_main", str(tmp_path / "cli.py"))
+            store.upsert_edge(
+                _bridge(
+                    source=wrapper_qn,
+                    target=cli_qn,
+                    file_path=wrapper,
+                    tier="MEDIUM",
+                    confidence=0.4,
+                )
+            )
+            store.commit()
+            _git_init(tmp_path)
+
+            result = review_func(
+                mode="changes", base="HEAD", changed_files=["wrapper.py"], repo_root=str(tmp_path)
+            )
+        finally:
+            store.close()
+
+        summary = result["analysis_summary"]
+        assert summary["cross_artifact_proximity"]["counts"] == {
+            "reportable": 0,
+            "low_confidence": 1,
+        }
         assert any(
             item["reason_codes"] == ["low_confidence_cross_artifact_bridge"]
             and item["confidence"] == "low"
-            for item in items
-        )
+            for item in summary["guidance"]
+        ), summary["guidance"]
 
 
 class TestCrossArtifactHelpers:

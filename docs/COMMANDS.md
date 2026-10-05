@@ -246,7 +246,7 @@ coverage. Configure cases with `guidance_precision_cases` in an eval YAML file.
 guidance_precision_cases:
   - name: review-guidance-contract
     kind: guidance_items
-    changed_files: ["dagayn/tools/review.py"]
+    changed_files: ["dagayn/tools/review_dispatcher.py"]
     expected: ["test_gaps", "documentation_update_candidates"]
     k: 3
   - name: answerability-warning
@@ -256,7 +256,7 @@ guidance_precision_cases:
     k: 5
   - name: field-coverage
     kind: guidance_field_coverage
-    changed_files: ["dagayn/tools/review.py"]
+    changed_files: ["dagayn/tools/review_dispatcher.py"]
     expected: ["1.0"]
     k: 1
 ```

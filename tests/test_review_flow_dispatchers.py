@@ -46,87 +46,56 @@ def test_flow_wrapper_exposes_typed_dispatch_args() -> None:
     assert params["sort_by"].default == "criticality"
 
 
-def test_review_routes_every_mode(monkeypatch) -> None:
+def test_review_hands_every_mode_to_rust(monkeypatch) -> None:
     calls: list[tuple[str, dict]] = []
+    opened: list[str | None] = []
 
-    def fake(name):
-        def _inner(**kwargs):
-            calls.append((name, kwargs))
-            return {"status": "ok", "summary": name}
+    class _Store:
+        def close(self) -> None:
+            pass
 
-        return _inner
+    def fake_get_store(repo_root):
+        opened.append(repo_root)
+        return _Store(), Path("/repo")
 
-    mapping = {
-        "changes": (
-            "detect_changes_func",
-            {"include_source": True, "max_depth": 4, "detail_level": "minimal"},
-        ),
-        "context": (
-            "get_review_context",
-            {"include_source": True, "max_lines_per_file": 25, "detail_level": "minimal"},
-        ),
-        "affected_flows": ("get_affected_flows_func", {}),
-        "impact": ("get_impact_radius", {"max_depth": 4, "max_results": 12}),
-    }
+    def fake_native(name, **kwargs):
+        calls.append((name, kwargs))
+        return {"status": "ok", "summary": name}
 
-    for subtool, _kwargs in mapping.values():
-        monkeypatch.setattr(review_dispatcher, subtool, fake(subtool))
+    monkeypatch.setattr(review_dispatcher, "_get_store", fake_get_store)
+    monkeypatch.setattr(review_dispatcher, "native_tool", fake_native)
 
-    for mode, (subtool, expected) in mapping.items():
-        result = review_dispatcher.review_func(
+    for mode in ("changes", "context", "affected_flows", "impact"):
+        review_dispatcher.review_func(
             mode=cast(ReviewMode, mode),
             changed_files=["a.py"],
             base="main",
-            include_source=True,
             max_depth=4,
             max_nodes=12,
             max_lines_per_file=25,
             detail_level="minimal",
             repo_root="/repo",
         )
+    review_dispatcher.review_func(mode="context", include_source=False, repo_root="/repo")
 
-        assert result["status"] == "ok"
-        assert result["mode"] == mode
-        assert result["called_subtool"] == subtool
-        assert "answerability" in result
-        called_name, kwargs = calls.pop(0)
-        assert called_name == subtool
-        assert kwargs["repo_root"] == "/repo"
-        if "changed_files" in kwargs:
-            assert kwargs["changed_files"] == ["a.py"]
-        if "base" in kwargs:
-            assert kwargs["base"] == "main"
-        for key, value in expected.items():
-            assert kwargs[key] == value
-
-
-def test_review_dispatcher_preserves_guidance_hints(monkeypatch) -> None:
-    expected_hints = {"next_steps": [{"tool": "review_tool", "suggestion": "from guidance"}]}
-
-    monkeypatch.setattr(
-        review_dispatcher,
-        "detect_changes_func",
-        lambda **_kwargs: {"status": "ok", "summary": "changes", "_hints": expected_hints},
-    )
-
-    result = review_dispatcher.review_func(mode="changes", repo_root="/repo")
-
-    assert result["_hints"] == expected_hints
-    assert "answerability" in result
-
-
-def test_review_context_defaults_to_source_when_unspecified(monkeypatch) -> None:
-    calls: list[dict] = []
-
-    def fake_context(**kwargs):
-        calls.append(kwargs)
-        return {"status": "ok", "summary": "context"}
-
-    monkeypatch.setattr(review_dispatcher, "get_review_context", fake_context)
-
-    review_dispatcher.review_func(mode="context")
-
-    assert calls[0]["include_source"] is True
+    assert opened == ["/repo"] * 5
+    for (name, kwargs), mode in zip(
+        calls, ["changes", "context", "affected_flows", "impact"], strict=False
+    ):
+        assert name == "review_tool"
+        assert kwargs == {
+            "mode": mode,
+            "base": "main",
+            "changed_files": ["a.py"],
+            # Left unset, so Rust applies each mode's own default.
+            "include_source": None,
+            "max_depth": 4,
+            "max_nodes": 12,
+            "max_lines_per_file": 25,
+            "detail_level": "minimal",
+            "repo_root": "/repo",
+        }
+    assert calls[4][1]["include_source"] is False
 
 
 def test_flow_routes_modes(monkeypatch) -> None:
@@ -256,23 +225,19 @@ def test_review_changes_single_commit_repo_returns_graceful_error(tmp_path) -> N
     assert "diff_base_unreachable" in reason_codes
 
 
-def test_review_dispatcher_routes_subtool_error_envelopes(monkeypatch) -> None:
-    monkeypatch.setattr(
-        review_dispatcher,
-        "detect_changes_func",
-        lambda **_kwargs: {
-            "status": "error",
-            "summary": "Could not resolve the diff base 'HEAD~1'.",
-            "error": "Could not resolve the diff base 'HEAD~1'.",
-        },
-    )
+def test_review_dispatcher_routes_store_errors_into_its_envelope(monkeypatch) -> None:
+    def _boom(repo_root):
+        raise ValueError("graph unavailable")
 
-    result = review_dispatcher.review_func(mode="changes", repo_root="/repo")
+    monkeypatch.setattr(review_dispatcher, "_get_store", _boom)
+
+    result = review_dispatcher.review_func(mode="impact", repo_root="/repo")
 
     assert result["status"] == "error"
-    assert result["mode"] == "changes"
-    assert result["called_subtool"] == "detect_changes_func"
-    assert "HEAD~1" in result["error"]
+    assert result["mode"] == "impact"
+    assert result["called_subtool"] == "get_impact_radius"
+    assert result["error"] == "graph unavailable"
+    assert result["missingness"][0]["reason_code"] == "tool_runtime_error"
     assert "answerability" in result
 
 

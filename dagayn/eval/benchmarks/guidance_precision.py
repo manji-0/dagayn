@@ -59,9 +59,10 @@ def _review_cache_key(case: BenchmarkPayload) -> tuple[tuple[str, ...], str, str
 
 
 def _review_predictions(repo_path: Path, case: BenchmarkPayload) -> dict[str, list[str]]:
-    from dagayn.tools.review import detect_changes_func
+    from dagayn.tools.review_dispatcher import review_func
 
-    result = detect_changes_func(
+    result = review_func(
+        mode="changes",
         repo_root=str(repo_path),
         changed_files=list(case.get("changed_files", [])),
         base=str(case.get("base", "HEAD~1")),

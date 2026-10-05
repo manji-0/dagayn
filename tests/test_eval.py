@@ -520,13 +520,13 @@ def test_token_efficiency_context_failure_is_status_error(tmp_path, monkeypatch)
         capture_output=True,
     )
 
-    import dagayn.tools.review
+    import dagayn.tools.review_dispatcher
     from dagayn.eval.benchmarks import token_efficiency
 
     def fail_context(**_kwargs):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(dagayn.tools.review, "get_review_context", fail_context)
+    monkeypatch.setattr(dagayn.tools.review_dispatcher, "review_func", fail_context)
     rows = token_efficiency.run(
         repo_path,
         None,
@@ -641,7 +641,7 @@ def test_guidance_precision_review_case_kinds(tmp_path):
             },
         ]
     }
-    with patch("dagayn.tools.review.detect_changes_func", return_value=fake_result):
+    with patch("dagayn.tools.review_dispatcher.review_func", return_value=fake_result):
         rows = guidance_precision.run(tmp_path, None, config)
 
     by_name = {row["case"]: row for row in rows}

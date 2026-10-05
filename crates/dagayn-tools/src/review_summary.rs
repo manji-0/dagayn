@@ -1593,6 +1593,62 @@ mod tests {
     use super::*;
 
     #[test]
+    fn documentation_helpers_follow_python() {
+        assert_eq!(
+            directive_hint(Some("implements_contract"), true),
+            "# dagayn: implements <doc-section>"
+        );
+        assert_eq!(
+            directive_hint(Some("implemented_by"), false),
+            "<!-- dagayn: implemented-by <code-symbol> -->"
+        );
+        assert_eq!(
+            directive_hint(None, false),
+            "<!-- dagayn: discusses-artifact <code-symbol> -->"
+        );
+        assert_eq!(doc_evidence_type(Some("implemented_by"), "LOW"), "authored");
+        assert_eq!(
+            doc_evidence_type(Some("describes_symbol"), "HIGH"),
+            "extracted"
+        );
+        assert_eq!(doc_evidence_type(None, "UNKNOWN"), "heuristic_reachable");
+        assert!(doc_missingness(Some("implemented_by"), "HIGH").is_empty());
+        let codes: Vec<Value> = doc_missingness(Some("describes_symbol"), "LOW")
+            .iter()
+            .map(|item| item["reason_code"].clone())
+            .collect();
+        assert_eq!(
+            codes,
+            vec![
+                json!("not_contract_documentation_edge"),
+                json!("low_confidence_documentation_edge")
+            ]
+        );
+        assert_eq!(confidence_weight(0.2, "HIGH"), 0.9);
+        assert!(
+            doc_role_weight(Some("implemented_by")) > doc_role_weight(Some("discusses_artifact"))
+        );
+        assert!(is_low_signal_doc_path("AGENTS.md"));
+        assert!(!is_low_signal_doc_path("docs/COMMANDS.md"));
+    }
+
+    #[test]
+    fn test_gaps_split_docs_tests_and_code() {
+        assert_eq!(
+            classify_gap(&json!({"file": "docs/COMMANDS.md"})),
+            "documentation"
+        );
+        assert_eq!(
+            classify_gap(&json!({"file": "tests/test_tools.py"})),
+            "test_artifact"
+        );
+        assert_eq!(
+            classify_gap(&json!({"file": "dagayn/tools/x.py"})),
+            "actionable"
+        );
+    }
+
+    #[test]
     fn scopes_follow_pathlib() {
         use crate::architecture::{file_to_package, suffix};
         assert_eq!(file_to_package("a/b/c.py"), "a/b");

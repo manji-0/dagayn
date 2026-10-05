@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
 
 from dagayn.tools.query import traverse_graph_func
 from dagayn.tools.registry_tools import list_repos_func
-from dagayn.tools.review import get_review_context
 
 
 class _Closable:
@@ -35,39 +33,6 @@ def test_traverse_graph_not_found_has_standard_envelope(monkeypatch) -> None:
         "nodes_visited": 0,
     }
     assert result["_hints"]["next_steps"][0]["tool"] == "semantic_search_nodes_tool"
-
-
-def test_get_review_context_minimal_uses_relative_key_entities(monkeypatch) -> None:
-    changed_node = SimpleNamespace(
-        qualified_name="/repo/dagayn/tools/_common.py",
-        name="/repo/dagayn/tools/_common.py",
-        kind="File",
-        is_test=False,
-    )
-
-    class _Store(_Closable):
-        def get_impact_radius(self, abs_files, max_depth):
-            return {
-                "changed_nodes": [changed_node],
-                "impacted_nodes": [],
-                "impacted_files": [],
-                "edges": [],
-            }
-
-    monkeypatch.setattr(
-        "dagayn.tools.review_context._get_store",
-        lambda repo_root: (_Store(), Path("/repo")),
-    )
-
-    result = get_review_context(
-        changed_files=["dagayn/tools/_common.py"],
-        include_source=False,
-        detail_level="minimal",
-        repo_root="/repo",
-    )
-
-    assert result["status"] == "ok"
-    assert result["key_entities"] == ["dagayn/tools/_common.py"]
 
 
 def test_list_repos_has_hints(monkeypatch, tmp_path: Path) -> None:

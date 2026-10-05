@@ -955,6 +955,15 @@ def test_verbose_review_with_sources_answers_in_rust_as_python_does(
     assert any(doc["evidence_level"] == "heuristic_reachable" for doc in docs), docs
     sourced = rust[1]["structuredContent"]["changed_functions"]
     assert any("source" in function for function in sourced), sourced
+    # At standard detail neither supplemental pass runs.
+    standard = rust[2]["structuredContent"]["analysis_summary"]
+    (contract,) = standard["stability_contracts"]
+    assert contract["supplemental_test_density_evaluated"] is False
+    assert contract["observed_heuristic_test_density"] is None
+    assert all(
+        doc["evidence_level"] != "heuristic_reachable"
+        for doc in standard["documentation_update_candidates"]
+    )
 
 
 @pytest.mark.parametrize("dirty", [False, True])

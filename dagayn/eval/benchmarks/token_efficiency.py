@@ -60,14 +60,14 @@ def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[Benchmark
         naive_tokens = _count_file_tokens(repo_path, changed)
         diff_tokens = _count_diff_tokens(repo_path, sha)
 
-        # Graph-based: use get_review_context
+        # Graph-based: use review_tool's context mode
         try:
-            from dagayn.tools.review import get_review_context
+            from dagayn.tools.review_dispatcher import review_func
 
-            ctx = get_review_context(changed_files=changed, repo_root=str(repo_path))
+            ctx = review_func(mode="context", changed_files=changed, repo_root=str(repo_path))
             graph_tokens, token_counter = count_tokens(json.dumps(ctx))
         except Exception as exc:
-            logger.warning("get_review_context failed: %s", exc)
+            logger.warning("review_tool context failed: %s", exc)
             _, token_counter = count_tokens("")
             results.append(
                 {

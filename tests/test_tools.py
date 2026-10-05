@@ -14,7 +14,7 @@ from dagayn.tools.architecture_analysis import architecture_analysis_func
 from dagayn.tools.docs import get_docs_section
 from dagayn.tools.flow_dispatcher import flow_func
 from dagayn.tools.query import query_graph
-from dagayn.tools.review_flows import get_affected_flows_func
+from dagayn.tools.review_dispatcher import review_func
 from tests.store_sql import store_conn
 
 
@@ -1324,7 +1324,9 @@ class TestFlowTools:
         assert result["flows"][0]["truncated"] is True
 
     def test_get_affected_flows_with_changed_file(self):
-        result = get_affected_flows_func(changed_files=["auth.py"], repo_root=str(self.root))
+        result = review_func(
+            mode="affected_flows", changed_files=["auth.py"], repo_root=str(self.root)
+        )
         assert result["status"] == "ok"
         assert result["total"] >= 1
         # The handle_request flow passes through auth.py
@@ -1332,18 +1334,22 @@ class TestFlowTools:
         assert any("handle_request" in n for n in flow_names)
 
     def test_get_affected_flows_no_changed_files(self):
-        result = get_affected_flows_func(changed_files=[], repo_root=str(self.root))
+        result = review_func(mode="affected_flows", changed_files=[], repo_root=str(self.root))
         assert result["status"] == "ok"
         assert result["total"] == 0
         assert result["affected_flows"] == []
 
     def test_get_affected_flows_unrelated_file(self):
-        result = get_affected_flows_func(changed_files=["unrelated.py"], repo_root=str(self.root))
+        result = review_func(
+            mode="affected_flows", changed_files=["unrelated.py"], repo_root=str(self.root)
+        )
         assert result["status"] == "ok"
         assert result["total"] == 0
 
     def test_get_affected_flows_summary(self):
-        result = get_affected_flows_func(changed_files=["auth.py"], repo_root=str(self.root))
+        result = review_func(
+            mode="affected_flows", changed_files=["auth.py"], repo_root=str(self.root)
+        )
         assert "flow(s) affected" in result["summary"]
         assert "changed_files" in result
 
@@ -3179,32 +3185,6 @@ class TestImpactRadiusBudgeting:
         assert result["status"] == "ok"
         assert result["truncated"] is True
         assert len(result["edges"]) < 400 or len(result["impacted_nodes"]) < 200
-
-
-class TestReviewDispatcher:
-    def test_review_context_accepts_verbose_detail_level(self, monkeypatch):
-        from dagayn.tools import review_dispatcher
-
-        observed: dict[str, str] = {}
-
-        def fake_get_review_context(**kwargs):
-            observed["detail_level"] = kwargs["detail_level"]
-            return {"status": "ok", "summary": "context"}
-
-        monkeypatch.setattr(
-            review_dispatcher,
-            "get_review_context",
-            fake_get_review_context,
-        )
-
-        result = review_dispatcher.review_func(
-            mode="context",
-            changed_files=["app.py"],
-            detail_level="verbose",
-        )
-
-        assert result["status"] == "ok"
-        assert observed["detail_level"] == "verbose"
 
 
 class TestSearchLimitValidation:

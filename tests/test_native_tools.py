@@ -15,6 +15,7 @@ from dagayn.tools.analysis_tools import get_suggested_questions_func
 from dagayn.tools.flow_dispatcher import flow_func
 from dagayn.tools.query import find_large_functions, list_graph_stats
 from dagayn.tools.refactor_tools import apply_refactor_func, refactor_func
+from dagayn.tools.review_dispatcher import review_func
 
 DAGAYN = Path(sys.executable).with_name("dagayn")
 
@@ -404,3 +405,86 @@ def test_apply_refactor_resolves_its_root_as_python_did(
     assert (
         repo / "app.py"
     ).read_bytes() == b"def main():\n    return assist()\n\n\ndef assist():\n"
+
+
+@pytest.fixture
+def reviewed_repo(tmp_path: Path) -> Path:
+    """A committed repository whose stable ``core`` package has a test and a
+    section that names its implementation, with a built graph and an
+    uncommitted edit to ``core/service.py``."""
+    root = tmp_path / "reviewed"
+    (root / "core").mkdir(parents=True)
+    (root / "core" / "service.py").write_text("def stable_api():\n    return 1\n")
+    for name in ("api", "cli", "web", "jobs"):
+        (root / name).mkdir()
+        (root / name / "main.py").write_text(
+            f"from core.service import stable_api\n\n\ndef {name}_main():\n"
+            "    return stable_api()\n"
+        )
+    (root / "tests").mkdir()
+    (root / "tests" / "test_service.py").write_text(
+        "from core.service import stable_api\n\n\ndef test_stable_api():\n    stable_api()\n"
+    )
+    (root / "docs").mkdir()
+    (root / "docs" / "service.md").write_text(
+        "# Service\n\n## Stable API contract\n\n"
+        "<!-- dagayn: implemented-by core/service.py::stable_api -->\n\nReturns one.\n"
+    )
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+    for args in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "init"]):
+        subprocess.run([*git, *args], cwd=root, check=True, capture_output=True)
+    subprocess.run([DAGAYN, "build", "--repo", root], check=True, capture_output=True)
+    (root / "core" / "service.py").write_text("def stable_api():\n    return 2\n")
+    return root
+
+
+def test_review_changes_answers_through_rust(reviewed_repo: Path) -> None:
+    result = review_func(mode="changes", base="HEAD", repo_root=str(reviewed_repo))
+
+    assert result["status"] == "ok", result["summary"]
+    assert result["called_subtool"] == "detect_changes_func"
+    assert result["change_file_sources"]["unstaged"] == ["core/service.py"]
+    summary = result["analysis_summary"]
+    assert summary["risk_level"] in {"low", "medium", "high"}
+    assert summary["changed_node_count"] >= 1
+    test = summary["recommended_tests"][0]
+    assert test["qualified_name"].endswith("tests/test_service.py::test_stable_api")
+    assert test["stability"]["stable"] is True
+    doc = summary["documentation_update_candidates"][0]
+    assert doc["stable_contract"] is True
+    assert doc["directive_hint"] == "<!-- dagayn: implemented-by <code-symbol> -->"
+    assert any(
+        item["reason_codes"] == ["documentation_update_candidates"]
+        and item["evidence"][0]["type"] == "authored"
+        for item in summary["guidance"]
+    )
+    contract = summary["stability_contracts"][0]
+    assert contract["scope_key"] == "core"
+    assert contract["stable"] is True
+    assert set(summary["guidance"][0]) >= {
+        "claim",
+        "evidence",
+        "confidence",
+        "missingness",
+        "action",
+        "reason_codes",
+        "counts",
+    }
+
+
+def test_review_context_answers_through_rust(reviewed_repo: Path) -> None:
+    """TESTED_BY runs production -> test: the tested change is no gap, and
+    its entities read repo-relative."""
+    result = review_func(
+        mode="context",
+        changed_files=["core/service.py"],
+        detail_level="minimal",
+        repo_root=str(reviewed_repo),
+    )
+
+    assert result["status"] == "ok", result["summary"]
+    assert result["called_subtool"] == "get_review_context"
+    assert result["test_gaps"] == 0
+    assert result["key_entities"]
+    assert all(not entity.startswith("/") for entity in result["key_entities"])
+    assert "core/service.py::stable_api" in result["key_entities"]
