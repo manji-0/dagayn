@@ -118,6 +118,16 @@ jobs:
         run: uv sync --frozen --extra dev
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Clippy and tests on grammar subsets
+        # Each grammar is a `lang-*` feature (docs/GRAMMAR-PROVISIONING.md).
+        # No grammar, a pair, and bash (which reads JavaScript's headers) must
+        # each build cleanly; these recompile only dagayn-parser and a few
+        # grammars.
+        run: |
+          cargo clippy -p dagayn-parser --no-default-features --all-targets -- -D warnings
+          cargo clippy -p dagayn-parser --no-default-features --features lang-bash -- -D warnings
+          cargo clippy -p dagayn-parser --no-default-features --features lang-python,lang-rust --all-targets -- -D warnings
+          cargo test -p dagayn-parser --no-default-features --features lang-python,lang-rust
       - name: Rust tests with coverage
         # dagayn-py is the PyO3 layer, exercised by the Python test job.
         run: >
