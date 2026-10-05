@@ -52,20 +52,6 @@ const RUST: GrammarSpec = GrammarSpec {
     parser_subdirectory: None,
 };
 
-const PYTHON: GrammarSpec = GrammarSpec {
-    language: "python",
-    symbol: "python",
-    required_paths: &[
-        "src/parser.c",
-        "src/scanner.c",
-        "src/tree_sitter/alloc.h",
-        "src/tree_sitter/array.h",
-        "src/tree_sitter/parser.h",
-        "bindings/python/binding.c",
-    ],
-    parser_subdirectory: None,
-};
-
 const JAVASCRIPT: GrammarSpec = GrammarSpec {
     language: "javascript",
     symbol: "javascript",
@@ -427,11 +413,10 @@ fn main() {
         repo_root.join("dagayn/vendor_grammars.py").display()
     );
 
-    let all_grammars: [&GrammarSpec; 29] = [
+    let all_grammars: [&GrammarSpec; 28] = [
         &MARKDOWN,
         &TERRAFORM,
         &RUST,
-        &PYTHON,
         &JAVASCRIPT,
         &TYPESCRIPT,
         &TSX,

@@ -26,7 +26,6 @@ all-languages = [
 lang-markdown = ["dagayn-parser/lang-markdown"]
 lang-terraform = ["dagayn-parser/lang-terraform"]
 lang-rust = ["dagayn-parser/lang-rust"]
-lang-python = ["dagayn-parser/lang-python"]
 lang-javascript = ["dagayn-parser/lang-javascript"]
 lang-typescript = ["dagayn-parser/lang-typescript"]
 lang-tsx = ["dagayn-parser/lang-tsx"]

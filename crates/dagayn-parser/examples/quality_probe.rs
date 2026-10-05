@@ -190,7 +190,6 @@ fn check(path: &str, source: &[u8], nodes: &[ParsedNode], edges: &[ParsedEdge], 
 fn raw_language(ext: &str) -> Option<tree_sitter::Language> {
     use dagayn_grammars::*;
     Some(match ext {
-        "py" => python_language(),
         "rs" => rust_language(),
         "js" | "mjs" | "cjs" | "jsx" => javascript_language(),
         "ts" | "mts" | "cts" => typescript_language(),

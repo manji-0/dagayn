@@ -14,8 +14,6 @@ unsafe extern "C" {
     fn tree_sitter_terraform() -> *const ();
     #[cfg(feature = "lang-rust")]
     fn tree_sitter_rust() -> *const ();
-    #[cfg(feature = "lang-python")]
-    fn tree_sitter_python() -> *const ();
     #[cfg(feature = "lang-javascript")]
     fn tree_sitter_javascript() -> *const ();
     #[cfg(feature = "lang-typescript")]
@@ -77,9 +75,6 @@ pub const TERRAFORM_LANGUAGE: tree_sitter_language::LanguageFn =
 #[cfg(feature = "lang-rust")]
 pub const RUST_LANGUAGE: tree_sitter_language::LanguageFn =
     unsafe { tree_sitter_language::LanguageFn::from_raw(tree_sitter_rust) };
-#[cfg(feature = "lang-python")]
-pub const PYTHON_LANGUAGE: tree_sitter_language::LanguageFn =
-    unsafe { tree_sitter_language::LanguageFn::from_raw(tree_sitter_python) };
 #[cfg(feature = "lang-javascript")]
 pub const JAVASCRIPT_LANGUAGE: tree_sitter_language::LanguageFn =
     unsafe { tree_sitter_language::LanguageFn::from_raw(tree_sitter_javascript) };
@@ -169,11 +164,6 @@ pub fn terraform_language() -> tree_sitter::Language {
 #[cfg(feature = "lang-rust")]
 pub fn rust_language() -> tree_sitter::Language {
     RUST_LANGUAGE.into()
-}
-
-#[cfg(feature = "lang-python")]
-pub fn python_language() -> tree_sitter::Language {
-    PYTHON_LANGUAGE.into()
 }
 
 #[cfg(feature = "lang-javascript")]
@@ -339,19 +329,6 @@ mod tests {
             .set_language(&rust_language())
             .expect("load pinned Rust grammar");
         let tree = parser.parse("fn main() {}\n", None).expect("parse Rust");
-        assert!(!tree.root_node().has_error());
-    }
-
-    #[cfg(feature = "lang-python")]
-    #[test]
-    fn loads_python_language() {
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&python_language())
-            .expect("load pinned Python grammar");
-        let tree = parser
-            .parse("def main():\n    return 1\n", None)
-            .expect("parse Python");
         assert!(!tree.root_node().has_error());
     }
 

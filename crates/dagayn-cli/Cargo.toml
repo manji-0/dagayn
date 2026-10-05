@@ -23,7 +23,6 @@ all-languages = [
 lang-markdown = ["dagayn-build/lang-markdown"]
 lang-terraform = ["dagayn-build/lang-terraform"]
 lang-rust = ["dagayn-build/lang-rust"]
-lang-python = ["dagayn-build/lang-python"]
 lang-javascript = ["dagayn-build/lang-javascript"]
 lang-typescript = ["dagayn-build/lang-typescript"]
 lang-tsx = ["dagayn-build/lang-tsx"]

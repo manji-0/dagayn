@@ -15,7 +15,6 @@ all-languages = [
     "lang-markdown",
     "lang-terraform",
     "lang-rust",
-    "lang-python",
     "lang-javascript",
     "lang-typescript",
     "lang-tsx",
@@ -45,7 +44,6 @@ all-languages = [
 lang-markdown = []
 lang-terraform = []
 lang-rust = []
-lang-python = []
 lang-javascript = []
 lang-typescript = []
 lang-tsx = []

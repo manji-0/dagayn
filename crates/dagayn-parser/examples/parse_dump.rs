@@ -9,7 +9,6 @@ fn language(path: &str) -> Option<tree_sitter::Language> {
     use dagayn_grammars::*;
     let ext = path.rsplit('.').next()?.to_ascii_lowercase();
     Some(match ext.as_str() {
-        "py" => python_language(),
         "rs" => rust_language(),
         "js" | "mjs" | "cjs" | "jsx" => javascript_language(),
         "ts" | "mts" | "cts" => typescript_language(),

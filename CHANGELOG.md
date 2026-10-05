@@ -25,6 +25,11 @@ All notable changes to `dagayn` are documented here.
 
 ### Removed
 
+- The tree-sitter Python grammar: `dagayn-grammars` no longer compiles it,
+  `dagayn.vendor_grammars` no longer fetches it, and the `lang-python` Cargo
+  feature is gone from every crate. Python needs no grammar, so every build,
+  including `--no-default-features`, parses Python and notebooks.
+
 - Compatibility layers, now that nothing in the package needs them:
   the `dagayn.incremental` re-export module (import from
   `dagayn.incremental_build`, `dagayn.incremental_files`,

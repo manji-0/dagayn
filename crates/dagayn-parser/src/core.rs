@@ -1252,7 +1252,6 @@ mod parser_core_tests {
         assert!(has_rust_test_attribute(function, source));
     }
 
-    #[cfg(any(feature = "lang-python", feature = "lang-vue"))]
     fn assert_shared_file_path(nodes: &[super::ParsedNode], edges: &[super::ParsedEdge]) {
         let first = nodes
             .first()
@@ -1271,7 +1270,6 @@ mod parser_core_tests {
         );
     }
 
-    #[cfg(feature = "lang-python")]
     #[test]
     fn python_nodes_and_edges_share_one_file_path() {
         let (nodes, edges) = super::parse_python(

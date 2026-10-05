@@ -46,7 +46,6 @@ fn assert_local_helpers(file_path: &str, source: &str) {
     }
 }
 
-#[cfg(feature = "lang-python")]
 #[test]
 fn python_nested_functions() {
     assert_local_helpers(

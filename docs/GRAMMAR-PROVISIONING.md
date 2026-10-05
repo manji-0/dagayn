@@ -13,7 +13,6 @@ The current provisioned grammars are:
 - Markdown
 - Terraform
 - Rust
-- Python
 - JavaScript
 - TypeScript
 - TSX
@@ -39,6 +38,10 @@ The current provisioned grammars are:
 - Svelte
 - Zig
 - Swift
+
+Python is not among them: the Python extractor parses with Ruff's parser
+(`ruff_python_parser`, a Cargo dependency of `dagayn-parser`), so it needs
+no grammar and no provisioning (see `docs/plans/RUFF-PYTHON-PARSER.md`).
 
 ## Provisioning model
 
@@ -72,7 +75,7 @@ sources after installation.
 
 Each grammar is a Cargo feature, as in ast-grep's language crate:
 `dagayn-grammars` has one `lang-<language>` feature per grammar it compiles
-(`lang-markdown`, `lang-terraform`, `lang-rust`, `lang-python`,
+(`lang-markdown`, `lang-terraform`, `lang-rust`,
 `lang-javascript`, `lang-typescript`, `lang-tsx`, `lang-bash`, `lang-go`,
 `lang-java`, `lang-ruby`, `lang-csharp`, `lang-php`, `lang-kotlin`,
 `lang-scala`, `lang-dart`, `lang-lua`, `lang-c`, `lang-cpp`, `lang-objc`,
@@ -81,6 +84,7 @@ Each grammar is a Cargo feature, as in ast-grep's language crate:
 on every one and is the default, so a plain `cargo build`, `uv sync`, and
 every published wheel keep all languages and produce the same graph as
 before. Markdown and Terraform are features too, but stay in the default.
+Python has no feature: it needs no grammar, so every build parses it.
 
 `dagayn-parser`, `dagayn-build`, `dagayn-cli`, and `dagayn-py` forward the
 same `lang-*` names; `dagayn-graph`, `dagayn-postproc`, and `dagayn-tools`
@@ -90,7 +94,7 @@ their script blocks. To build or test a subset, turn the default off:
 
 ```bash
 cargo check -p dagayn-parser --no-default-features
-cargo test -p dagayn-parser --no-default-features --features lang-python,lang-rust
+cargo test -p dagayn-parser --no-default-features --features lang-rust
 cargo build -p dagayn-cli --no-default-features --features lang-go,lang-markdown
 ```
 
@@ -105,17 +109,17 @@ A file whose language is disabled is still Rust-owned: it gets its File node
 a missing file, or the Python fallback parser. This goes by the file's kind,
 so a `.tf.json` file is File-only without `lang-terraform` although its JSON
 needs no grammar. A file whose own grammar is on but which embeds a disabled
-one keeps what its grammar finds: a marimo Markdown file without
-`lang-python` gets its sections but no Python symbols. A graph built that way keeps
+one keeps what its grammar finds. A graph built that way keeps
 those File-only entries until a full build re-parses them
 (`dagayn build --force-full-build`), so use subsets for development and CI,
 not for a graph you keep.
 
 On an 18-core Apple Silicon machine, a clean `cargo build --release -p
 dagayn-parser` took 20 s wall / 74 s CPU with every grammar, and 16 s wall /
-31 s CPU with none (17 s / 34 s with `lang-python,lang-rust`). The 29
-compiled grammar archives total about 51 MB; Python and Rust account for
-1.6 MB of them.
+31 s CPU with none (17 s / 34 s with the Python and Rust grammars). The 29
+compiled grammar archives totalled about 51 MB; Python and Rust accounted
+for 1.6 MB of them. These figures predate the move of Python to Ruff's
+parser, which left 28 grammars.
 
 ## Cache behavior
 

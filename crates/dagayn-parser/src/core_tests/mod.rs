@@ -49,19 +49,6 @@ mod javascript_test_detection;
 mod julia;
 #[cfg(feature = "lang-kotlin")]
 mod kotlin;
-#[cfg(any(
-    feature = "lang-python",
-    feature = "lang-rust",
-    feature = "lang-lua",
-    feature = "lang-kotlin",
-    feature = "lang-swift",
-    feature = "lang-dart",
-    all(feature = "lang-java", feature = "lang-go", feature = "lang-zig"),
-    feature = "lang-scala",
-    feature = "lang-julia",
-    feature = "lang-r",
-    feature = "lang-csharp"
-))]
 mod local_scopes;
 #[cfg(feature = "lang-lua")]
 mod lua;
@@ -79,7 +66,6 @@ mod namespaces;
 mod perl;
 #[cfg(feature = "lang-php")]
 mod php;
-#[cfg(feature = "lang-python")]
 mod python;
 #[cfg(feature = "lang-r")]
 mod r;

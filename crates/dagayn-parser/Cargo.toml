@@ -13,7 +13,6 @@ all-languages = [
     "lang-markdown",
     "lang-terraform",
     "lang-rust",
-    "lang-python",
     "lang-javascript",
     "lang-typescript",
     "lang-tsx",
@@ -43,7 +42,6 @@ all-languages = [
 lang-markdown = ["dagayn-grammars/lang-markdown"]
 lang-terraform = ["dagayn-grammars/lang-terraform"]
 lang-rust = ["dagayn-grammars/lang-rust"]
-lang-python = ["dagayn-grammars/lang-python"]
 lang-javascript = ["dagayn-grammars/lang-javascript"]
 lang-typescript = ["dagayn-grammars/lang-typescript"]
 lang-tsx = ["dagayn-grammars/lang-tsx"]

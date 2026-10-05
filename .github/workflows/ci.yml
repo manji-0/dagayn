@@ -126,8 +126,8 @@ jobs:
         run: |
           cargo clippy -p dagayn-parser --no-default-features --all-targets -- -D warnings
           cargo clippy -p dagayn-parser --no-default-features --features lang-bash -- -D warnings
-          cargo clippy -p dagayn-parser --no-default-features --features lang-python,lang-rust --all-targets -- -D warnings
-          cargo test -p dagayn-parser --no-default-features --features lang-python,lang-rust
+          cargo clippy -p dagayn-parser --no-default-features --features lang-rust --all-targets -- -D warnings
+          cargo test -p dagayn-parser --no-default-features --features lang-rust
       - name: Rust tests with coverage
         # dagayn-py is the PyO3 layer, exercised by the Python test job.
         run: >

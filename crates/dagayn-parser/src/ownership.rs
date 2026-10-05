@@ -49,7 +49,8 @@ impl RustOwnedPathKind {
             Self::Markdown => cfg!(feature = "lang-markdown"),
             Self::Terraform => cfg!(feature = "lang-terraform"),
             Self::Rust => cfg!(feature = "lang-rust"),
-            Self::Python | Self::Notebook => cfg!(feature = "lang-python"),
+            // Ruff's parser, no tree-sitter grammar.
+            Self::Python | Self::Notebook => true,
             Self::JavaScript => cfg!(feature = "lang-javascript"),
             Self::TypeScript => cfg!(feature = "lang-typescript"),
             Self::Tsx => cfg!(feature = "lang-tsx"),
