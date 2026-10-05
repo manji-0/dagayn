@@ -621,6 +621,20 @@ fn query_graph_answers_trimmed_unread_and_dotted_targets() {
     assert_eq!(dotted["status"], "ok");
     assert_eq!(dotted["result_count"], 3);
 
+    // Every name in `_BUILTIN_CALL_NAMES` is skipped, not only array methods.
+    let builtin = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": "addEventListener"}),
+    );
+    assert_eq!(builtin["results"], json!([]));
+    assert!(
+        builtin["summary"]
+            .as_str()
+            .unwrap()
+            .contains("common builtin")
+    );
+
     // A file gone from the worktree: a `read_error` row, not a decline.
     std::fs::remove_file(repo.0.join("app.py")).expect("remove");
     let gone = answer(
