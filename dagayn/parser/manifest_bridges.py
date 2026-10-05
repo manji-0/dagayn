@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Iterable
 
 from ._base.types import EdgeInfo, NodeInfo
@@ -56,15 +56,3 @@ def discover_manifest_bridges(
 
 def refine_node_line_ends(repo_root: Path, nodes: Iterable[NodeInfo]) -> None:
     """No-op: :func:`discover_manifest_bridges` returns refined line ends."""
-
-
-def _resolve_rel(base_dir: PurePosixPath, declared: str) -> str | None:
-    """Resolve *declared* against *base_dir* as a repo-root-relative path.
-
-    Absolute inputs are treated as repo-root-relative by stripping the leading
-    slash. Returns ``None`` when lexical normalization would escape the
-    repository root via ``..`` (path traversal).
-    """
-    from dagayn._core import resolve_manifest_path
-
-    return resolve_manifest_path(str(base_dir), declared)

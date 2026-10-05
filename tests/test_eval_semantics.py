@@ -5,11 +5,7 @@ from __future__ import annotations
 import csv
 import json
 
-from dagayn.eval.aggregate import (
-    normalize_higher_better,
-    normalize_lower_better,
-    summarize_profile,
-)
+from dagayn.eval.aggregate import normalize_lower_better, summarize_profile
 from dagayn.eval.reporter import generate_full_report
 from dagayn.eval.semantics import decorate_metric_row, get_metric_spec
 
@@ -119,9 +115,6 @@ def test_guidance_and_build_rows_get_expected_semantics():
 
 
 def test_normalization_helpers_clamp_and_handle_missing():
-    assert normalize_higher_better(0.5, target=1.0) == 0.5
-    assert normalize_higher_better(2.0, target=1.0) == 1.0
-    assert normalize_higher_better(None, target=1.0) is None
     assert normalize_lower_better(100, budget=100) == 1.0
     assert normalize_lower_better(400, budget=100) == 0.0
     assert normalize_lower_better(None, budget=100) is None

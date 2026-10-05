@@ -7,15 +7,11 @@ from dagayn.contracts.state_types import (
     AnswerabilitySummary,
     ArchitectureCommunityRequest,
     ChangeAnalysisResult,
-    DroppedMarkdownArtifactResolution,
     EmbeddingCoverageStatus,
     FlowGetRequest,
     GuidanceItem,
     MissingnessItem,
     RefactorRenameRequest,
-    ResolvedMarkdownArtifactResolution,
-    StillUnresolvedMarkdownArtifactResolution,
-    build_markdown_artifact_resolution,
     format_validation_error,
     parse_architecture_analysis_request,
     parse_flow_request,
@@ -32,51 +28,6 @@ from dagayn.contracts.state_types import (
     seal_refactor_not_found,
     seal_refactor_ok,
 )
-
-
-def test_resolved_markdown_artifact_resolution() -> None:
-    resolution = build_markdown_artifact_resolution(
-        state="resolved",
-        edge_id=7,
-        target_qualified="pkg.mod::fn",
-        target_language="python",
-        confidence=0.8,
-        confidence_tier="HIGH",
-        extra={"original_symbol_name": "fn"},
-    )
-
-    assert isinstance(resolution, ResolvedMarkdownArtifactResolution)
-    assert resolution.state == "resolved"
-    assert resolution.target_qualified == "pkg.mod::fn"
-
-
-def test_implicit_drop_requires_edge_id_only() -> None:
-    resolution = build_markdown_artifact_resolution(state="dropped", edge_id=3)
-
-    assert isinstance(resolution, DroppedMarkdownArtifactResolution)
-    assert resolution.target_qualified is None
-
-
-def test_demoted_drop_requires_full_payload() -> None:
-    with pytest.raises(ValidationError):
-        build_markdown_artifact_resolution(
-            state="dropped",
-            edge_id=3,
-            target_qualified="<unresolved:fn>",
-            confidence=0.2,
-        )
-
-
-def test_still_unresolved_markdown_artifact_resolution() -> None:
-    resolution = build_markdown_artifact_resolution(
-        state="still_unresolved",
-        edge_id=9,
-        target_qualified="<unresolved:fn>",
-        confidence=0.2,
-        confidence_tier="LOW",
-    )
-
-    assert isinstance(resolution, StillUnresolvedMarkdownArtifactResolution)
 
 
 def test_flow_get_request_requires_selector() -> None:

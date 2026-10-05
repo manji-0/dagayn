@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -114,54 +113,6 @@ class SymbolVisibility:
         if not owner:
             return set()
         return self.class_files.get(owner, set())
-
-
-def build_symbol_visibility(conn: Any) -> SymbolVisibility:
-    """Read declared namespaces from File nodes and imported ones from edges.
-
-    Parsers record the namespaces a file declares (C# ``namespace``,
-    Java/Kotlin/Scala ``package``, PHP ``namespace``) on the File node.
-    """
-    declared: dict[str, set[str]] = {}
-    for row in conn.execute(
-        "SELECT file_path, extra FROM nodes WHERE kind = 'File' AND extra LIKE '%namespaces%'"
-    ).fetchall():
-        try:
-            extra = json.loads(row["extra"] or "{}")
-        except (json.JSONDecodeError, TypeError):
-            continue
-        namespaces = extra.get("namespaces")
-        if not isinstance(namespaces, list):
-            continue
-        for namespace in namespaces:
-            if not isinstance(namespace, str):
-                continue
-            key = normalize_namespace(namespace)
-            if key:
-                declared.setdefault(row["file_path"], set()).add(key)
-
-    imported: dict[str, set[str]] = {}
-    if declared:
-        for row in conn.execute(
-            "SELECT DISTINCT file_path, target_qualified FROM edges WHERE kind = 'IMPORTS_FROM'"
-        ).fetchall():
-            target = row["target_qualified"]
-            if not is_namespace_candidate(target):
-                continue
-            key = normalize_namespace(target)
-            if not key:
-                continue
-            entry = imported.setdefault(row["file_path"], set())
-            entry.add(key)
-            # `using A.B.Type` / `use A\B\Type` names a symbol inside `A.B`.
-            parent = key.rpartition(".")[0]
-            if parent:
-                entry.add(parent)
-
-    class_files: dict[str, set[str]] = {}
-    for row in conn.execute("SELECT name, file_path FROM nodes WHERE kind = 'Class'").fetchall():
-        class_files.setdefault(row["name"], set()).add(row["file_path"])
-    return SymbolVisibility(declared=declared, imported=imported, class_files=class_files)
 
 
 def is_namespace_candidate(target: str) -> bool:

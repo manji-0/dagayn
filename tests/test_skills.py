@@ -46,7 +46,6 @@ from dagayn.skills.instructions import (
     _CLAUDE_MD_SECTION_MARKER,
     _MARKDOWN_POLICY_HEADING,
     _MARKDOWN_POLICY_MARKER,
-    _has_instruction_section,
 )
 from dagayn.skills.opencode import _opencode_plugin_content
 from dagayn.skills.platforms import (
@@ -1474,20 +1473,6 @@ class TestInstallCodexHooks:
 
 
 class TestInjectClaudeMd:
-    def test_has_instruction_section_accepts_markers_and_heading_aliases(self):
-        assert _has_instruction_section(_CLAUDE_MD_SECTION_MARKER, _CLAUDE_MD_SECTION_MARKER)
-        assert _has_instruction_section(_CLAUDE_MD_SECTION_HEADING, _CLAUDE_MD_SECTION_MARKER)
-        assert _has_instruction_section(_MARKDOWN_POLICY_MARKER, _MARKDOWN_POLICY_MARKER)
-        assert _has_instruction_section(
-            _MARKDOWN_POLICY_HEADING,
-            _MARKDOWN_POLICY_MARKER,
-        )
-        assert _has_instruction_section(
-            "## Markdown documentation policy\nBody",
-            _MARKDOWN_POLICY_MARKER,
-        )
-        assert not _has_instruction_section("plain text", _CLAUDE_MD_SECTION_MARKER)
-
     def test_creates_section_in_new_file(self, tmp_path):
         with patch("pathlib.Path.home", return_value=tmp_path):
             inject_claude_md(tmp_path)

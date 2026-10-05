@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import concurrent.futures
 import hashlib
-import importlib.util
 import json
 import logging
 import os
@@ -159,28 +158,6 @@ def find_dependents_for_files(
             )
             return DependentList(ordered[:_MAX_DEPENDENT_FILES], truncated=True)
     return DependentList(ordered)
-
-
-def _parse_single_file(
-    args: tuple[str, str],
-) -> WorkerParseResult:
-    """Parse one file in a worker process.
-
-    Returns ``(rel_path, nodes, edges, error_or_none, file_hash, mtime_ns)``.
-    Must be a module-level function so ``ProcessPoolExecutor`` can
-    serialise it across processes.
-    """
-    rel_path, repo_root_str = args
-    abs_path = Path(repo_root_str) / rel_path
-    try:
-        mtime_ns = abs_path.stat().st_mtime_ns
-        raw = abs_path.read_bytes()
-        fhash = hashlib.sha256(raw).hexdigest()
-        parser = _worker_parser if _worker_parser is not None else CodeParser()
-        nodes, edges = parser.parse_bytes(abs_path, raw)
-        return (rel_path, nodes, edges, None, fhash, mtime_ns)
-    except _PARSE_FILE_ERRORS as e:
-        return (rel_path, [], [], str(e), "", 0)
 
 
 def _parse_single_python_file_compact(
@@ -518,10 +495,6 @@ def _serialize_edges(edges: list[Any]) -> list[Any]:
 
 def _is_compact_entities(entities: list[Any]) -> bool:
     return bool(entities) and isinstance(entities[0], (list, tuple))
-
-
-def _rust_backend_available() -> bool:
-    return importlib.util.find_spec("dagayn._core") is not None
 
 
 def _rust_parser_owns_path(rel_path: str, repo_root: Path | None = None) -> bool:

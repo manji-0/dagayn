@@ -1091,18 +1091,6 @@ def _registered_tool_names() -> list[str]:
     return names
 
 
-def _snapshot_components() -> ComponentPayload:
-    """Copy the current FastMCP local component registry."""
-    return dict(_tool_components())
-
-
-def _restore_components(snapshot: ComponentPayload) -> None:
-    """Restore the FastMCP local component registry from a snapshot."""
-    components = _tool_components()
-    components.clear()
-    components.update(snapshot)
-
-
 def _remove_mcp_tool(name: str) -> None:
     """Remove a registered MCP tool from the server surface."""
     local_provider = getattr(mcp, "local_provider", None) or getattr(mcp, "_local_provider", None)

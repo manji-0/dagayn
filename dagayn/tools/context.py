@@ -167,17 +167,6 @@ _WORKFLOW_GUIDANCE: dict[str, dict[str, str]] = {
 }
 
 
-def _row_name(row: Any) -> str | None:
-    """Extract a ``name`` value from a sqlite row/tuple/dict-like object."""
-    if row is None:
-        return None
-    if hasattr(row, "keys"):
-        name = row["name"]
-    else:
-        name = row[0]
-    return name if isinstance(name, str) and name else None
-
-
 def _names_from_items(items: Sequence[Mapping[str, object]], *, limit: int) -> list[str]:
     """Return up to *limit* non-empty names from tool payload items."""
     names: list[str] = []

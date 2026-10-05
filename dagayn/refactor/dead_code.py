@@ -27,10 +27,6 @@ _TEST_FILE_RE = re.compile(
 )
 
 
-def _is_test_file(file_path: str) -> bool:
-    return bool(_TEST_FILE_RE.search(file_path))
-
-
 def _load_source_lines(store: GraphStore, file_path: str) -> list[str]:
     try:
         path = store.resolve_file_path(file_path)
@@ -151,16 +147,3 @@ def dead_code_report(
     """
     report: DeadPayload = json.loads(store.find_dead_code_json(kind, file_pattern))
     return report
-
-
-def _graph_dead_code_candidates(
-    store: GraphStore,
-    kind: Optional[str] = None,
-    file_pattern: Optional[str] = None,
-) -> list[DeadPayload]:
-    """The graph's candidates before :func:`dead_code_report`'s repository
-    check. For testing the graph heuristics; never report these as dead."""
-    candidates: list[DeadPayload] = json.loads(
-        store.graph_dead_code_candidates_json(kind, file_pattern)
-    )
-    return candidates

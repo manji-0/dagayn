@@ -16,6 +16,12 @@ All notable changes to `dagayn` are documented here.
   `dagayn.migrations` (the schema version lives in `dagayn-graph`).
 - Modules nothing reached: `dagayn.enrich` (its CLI subcommand was already
   gone), `dagayn.eval.token_benchmark`, and `dagayn.graph._edge_records`.
+- Python functions only tests called, most of them the Python halves of
+  work the Rust core now does: Markdown artifact resolution and its typed
+  result models, namespace visibility for bare-name resolution, the
+  git/svn file listing and the per-file worker parse of the old Python
+  build, and small helpers (`projection_for_detail_level`,
+  `embedding_needs_refresh`, `active_tool_surface`, and others).
 - `dagayn install` no longer accepts the legacy `--mode` names `fts`,
   `local`, `llama-qwen3`, and `remote`, the no-op `--skills`, `--hooks`,
   and `--all` flags, or `--local-embedding <level>` to pick the mode; a

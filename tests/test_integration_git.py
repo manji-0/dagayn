@@ -21,7 +21,6 @@ from dagayn.graph import GraphStore
 from dagayn.incremental_build import full_build
 from dagayn.incremental_files import (
     collect_all_files,
-    get_all_tracked_files,
     get_changed_file_sources,
     get_changed_files,
     get_vcs_indexable_files,
@@ -329,25 +328,6 @@ def git_repo_with_submodule(tmp_path: Path) -> Path:
     _git(parent, "commit", "-m", "add lib submodule")
 
     return parent
-
-
-def test_get_all_tracked_files_without_recurse(
-    git_repo_with_submodule: Path,
-) -> None:
-    """Without recurse_submodules, submodule files are NOT listed."""
-    files = get_all_tracked_files(git_repo_with_submodule, recurse_submodules=False)
-    assert "main.py" in files
-    # Submodule entry appears as a gitlink, not as individual files
-    assert not any(f.startswith("lib/") for f in files)
-
-
-def test_get_all_tracked_files_with_recurse(
-    git_repo_with_submodule: Path,
-) -> None:
-    """With recurse_submodules=True, submodule files ARE listed."""
-    files = get_all_tracked_files(git_repo_with_submodule, recurse_submodules=True)
-    assert "main.py" in files
-    assert "lib/util.py" in files
 
 
 def test_collect_all_files_with_recurse(

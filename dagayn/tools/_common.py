@@ -1213,28 +1213,6 @@ def apply_output_budget(
     return cast(ToolPayload, payload)
 
 
-def projection_for_detail_level(
-    item: Mapping[str, object],
-    level: str,
-    fields_minimal: list[str],
-    fields_standard: list[str] | None = None,
-) -> dict[str, object]:
-    """Return a subset of item's fields based on detail_level.
-
-    - "minimal": only fields_minimal keys
-    - "standard": fields_minimal + fields_standard keys (or all if fields_standard is None)
-    - "verbose": all keys
-    """
-    if level == "verbose":
-        return dict(item)
-    if level == "minimal":
-        return {k: item[k] for k in fields_minimal if k in item}
-    # standard
-    if fields_standard is None:
-        return dict(item)
-    return {k: item[k] for k in fields_minimal + fields_standard if k in item}
-
-
 def compact_response(
     summary: str,
     key_entities: list[str] | None = None,

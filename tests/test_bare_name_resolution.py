@@ -7,7 +7,6 @@ import pytest
 
 from dagayn.bare_name_resolution import (
     SymbolVisibility,
-    build_symbol_visibility,
     is_namespace_candidate,
     is_plausible_bare_edge,
     looks_like_file_target,
@@ -134,9 +133,6 @@ class TestResolveBareCallTargets:
         store.upsert_node(_node("Function", "CreateCriteria", "Decoy.cs"))
         store.upsert_edge(_edge("CALLS", "Broker.cs::Resolve", "CreateCriteria", "Broker.cs"))
         store.commit()
-
-        visibility = build_symbol_visibility(store_conn(store))
-        assert visibility.declared["Broker.cs"] == {"Repro.Infra"}
 
         assert store.resolve_bare_call_targets() == 1
         row = (

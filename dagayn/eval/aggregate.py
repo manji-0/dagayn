@@ -44,16 +44,6 @@ def _clamp(value: float) -> float:
     return min(1.0, max(0.0, value))
 
 
-def normalize_higher_better(value: Any, target: float, floor: float = 0.0) -> float | None:
-    """Normalize a higher-is-better metric to [0, 1]."""
-    numeric = _to_float(value)
-    if numeric is None:
-        return None
-    if target <= floor:
-        return None
-    return _clamp((numeric - floor) / (target - floor))
-
-
 def normalize_lower_better(value: Any, budget: float, worst: float | None = None) -> float | None:
     """Normalize a lower-is-better cost metric to [0, 1]."""
     numeric = _to_float(value)

@@ -15,9 +15,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from .contracts.state_types import (
-    MarkdownArtifactResolution,
     PostprocessResult,
-    build_markdown_artifact_resolution,
 )
 from .graph import GraphStore
 
@@ -87,69 +85,6 @@ def run_post_processing(
         return result
     except (json.JSONDecodeError, ValidationError) as e:
         raise RuntimeError(f"Rust post-processing returned invalid payload: {e}") from e
-
-
-def _markdown_artifact_resolution(
-    *,
-    edge_id: int,
-    current_target: str,
-    symbol: str,
-    extra: dict[str, Any],
-    matches: list[tuple[str, str]],
-) -> MarkdownArtifactResolution:
-    """Return the typed target state for one Markdown artifact edge."""
-    unresolved_target = f"<unresolved:{symbol}>"
-    is_implicit_code_span = (
-        extra.get("evidence_kind") == "markdown_code_span"
-        and extra.get("evidence_source") == "code_span"
-    )
-
-    if len(matches) == 1:
-        qname, lang = matches[0]
-        new_extra = dict(extra)
-        new_extra["target_language"] = lang
-        if is_implicit_code_span:
-            confidence = 0.4
-            confidence_tier = "MEDIUM"
-        else:
-            confidence = 0.8
-            confidence_tier = "HIGH"
-        new_extra["confidence"] = confidence
-        new_extra["confidence_tier"] = confidence_tier
-        return build_markdown_artifact_resolution(
-            state="resolved" if current_target.startswith("<unresolved:") else "re_resolved",
-            edge_id=edge_id,
-            target_qualified=qname,
-            target_language=lang,
-            confidence=confidence,
-            confidence_tier=confidence_tier,
-            extra=new_extra,
-        )
-
-    if is_implicit_code_span:
-        return build_markdown_artifact_resolution(state="dropped", edge_id=edge_id)
-
-    if current_target == unresolved_target:
-        return build_markdown_artifact_resolution(
-            state="still_unresolved",
-            edge_id=edge_id,
-            target_qualified=unresolved_target,
-            confidence=0.2,
-            confidence_tier="LOW",
-        )
-
-    new_extra = dict(extra)
-    new_extra.pop("target_language", None)
-    new_extra["confidence"] = 0.2
-    new_extra["confidence_tier"] = "LOW"
-    return build_markdown_artifact_resolution(
-        state="dropped",
-        edge_id=edge_id,
-        target_qualified=unresolved_target,
-        confidence=0.2,
-        confidence_tier="LOW",
-        extra=new_extra,
-    )
 
 
 def _resolve_bare_name_edges(

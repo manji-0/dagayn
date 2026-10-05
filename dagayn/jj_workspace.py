@@ -127,10 +127,6 @@ def _jj_argv(root: Path, *args: str) -> list[str]:
     return ["jj", "--no-pager", "--color=never", "-R", str(root), *args]
 
 
-def _jj(root: Path, *args: str) -> str | None:
-    return _run(_jj_argv(root, *args), root)
-
-
 def git_argv(root: Path, *args: str) -> list[str] | None:
     """Return a git argv bound to the workspace's git dir and work tree."""
     git_dir = jj_git_dir(root)

@@ -62,13 +62,6 @@ def _refresh_instruction_section(content: str, marker: str, section: str) -> str
     return content[:start] + section.rstrip("\n") + trailing + content[end:]
 
 
-def _has_instruction_section(content: str, marker: str) -> bool:
-    """Return True when content already has a dagayn section, marker or not."""
-    return marker in content or any(
-        alias in content for alias in _instruction_section_aliases(marker)
-    )
-
-
 _MARKDOWN_POLICY_SECTION = f"""{_MARKDOWN_POLICY_MARKER}
 ## Markdown documentation policy: declare dependencies via directive comments
 

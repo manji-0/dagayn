@@ -488,93 +488,9 @@ def seal_graph_sync_state(payload: Mapping[str, object]) -> JsonObject:
     return _GRAPH_SYNC_STATE_ADAPTER.validate_python(payload).model_dump()
 
 
-def normalize_confidence_tier(value: Any, default: ConfidenceTier = "EXTRACTED") -> ConfidenceTier:
-    """Return a known confidence tier, preserving type-level state invariants."""
-    tier = str(value or default).upper()
-    if tier in {"EXACT", "EXTRACTED", "HIGH", "MEDIUM", "LOW", "UNKNOWN"}:
-        return tier
-    return default
-
-
 # ---------------------------------------------------------------------------
 # Pydantic boundary DTOs
 # ---------------------------------------------------------------------------
-
-
-class ResolvedMarkdownArtifactResolution(BaseModel):
-    """Unique match promoted to a concrete graph target."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    state: Literal["resolved", "re_resolved"]
-    edge_id: int
-    target_qualified: str
-    target_language: str
-    confidence: float
-    confidence_tier: ConfidenceTier
-    extra: JsonObject
-
-
-class DroppedMarkdownArtifactResolution(BaseModel):
-    """Implicit code-span drop or explicit demotion to unresolved."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    state: Literal["dropped"]
-    edge_id: int
-    target_qualified: str | None = None
-    confidence: float | None = None
-    confidence_tier: ConfidenceTier | None = None
-    extra: JsonObject | None = None
-
-    @model_validator(mode="after")
-    def validate_drop_shape(self) -> DroppedMarkdownArtifactResolution:
-        implicit = (
-            self.target_qualified is None
-            and self.confidence is None
-            and self.confidence_tier is None
-            and self.extra is None
-        )
-        demoted = (
-            self.target_qualified is not None
-            and self.confidence is not None
-            and self.confidence_tier is not None
-            and self.extra is not None
-        )
-        if not (implicit or demoted):
-            msg = (
-                "dropped resolution must be either an implicit code-span drop "
-                "(edge_id only) or an explicit demotion with target/confidence/extra"
-            )
-            raise ValueError(msg)
-        return self
-
-
-class StillUnresolvedMarkdownArtifactResolution(BaseModel):
-    """Explicit documentation reference with no unique target yet."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    state: Literal["still_unresolved"]
-    edge_id: int
-    target_qualified: str
-    confidence: float
-    confidence_tier: ConfidenceTier
-
-
-MarkdownArtifactResolution = Annotated[
-    ResolvedMarkdownArtifactResolution
-    | DroppedMarkdownArtifactResolution
-    | StillUnresolvedMarkdownArtifactResolution,
-    Field(discriminator="state"),
-]
-
-_MARKDOWN_RESOLUTION_ADAPTER = TypeAdapter(MarkdownArtifactResolution)
-
-
-def build_markdown_artifact_resolution(**payload: Any) -> MarkdownArtifactResolution:
-    """Validate and construct one Markdown artifact resolution transition."""
-    return _MARKDOWN_RESOLUTION_ADAPTER.validate_python(payload)
 
 
 class PostprocessResult(BaseModel):

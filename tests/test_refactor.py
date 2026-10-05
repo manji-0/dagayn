@@ -18,11 +18,8 @@ from dagayn.refactor import (
     rename_preview,
     suggest_refactorings,
 )
-from dagayn.refactor.dead_code import (
-    _graph_dead_code_candidates,
-    _is_test_file,
-    _source_line,
-)
+from dagayn.refactor.dead_code import _source_line
+from tests.dead_code_candidates import graph_dead_code_candidates
 
 
 class TestRenamePreview:
@@ -328,37 +325,37 @@ class TestFindDeadCode:
 
     def test_find_dead_code(self):
         """find_dead_code detects unreferenced functions."""
-        dead = _graph_dead_code_candidates(self.store)
+        dead = graph_dead_code_candidates(self.store)
         dead_names = {d["name"] for d in dead}
         assert "dead_func" in dead_names
 
     def test_find_dead_code_excludes_called(self):
         """find_dead_code does NOT include functions with callers."""
-        dead = _graph_dead_code_candidates(self.store)
+        dead = graph_dead_code_candidates(self.store)
         dead_names = {d["name"] for d in dead}
         assert "used_func" not in dead_names
 
     def test_find_dead_code_excludes_entry_points(self):
         """Entry points (like 'main') are not flagged as dead code."""
-        dead = _graph_dead_code_candidates(self.store)
+        dead = graph_dead_code_candidates(self.store)
         dead_names = {d["name"] for d in dead}
         assert "main" not in dead_names
 
     def test_find_dead_code_excludes_tests(self):
         """Test nodes are not flagged as dead code."""
-        dead = _graph_dead_code_candidates(self.store)
+        dead = graph_dead_code_candidates(self.store)
         dead_names = {d["name"] for d in dead}
         assert "test_something" not in dead_names
 
     def test_find_dead_code_kind_filter(self):
         """kind filter restricts results."""
-        dead = _graph_dead_code_candidates(self.store, kind="Class")
+        dead = graph_dead_code_candidates(self.store, kind="Class")
         # We have no Class nodes, so should be empty
         assert len(dead) == 0
 
     def test_find_dead_code_file_pattern(self):
         """file_pattern filter works."""
-        dead = _graph_dead_code_candidates(self.store, file_pattern="nonexistent")
+        dead = graph_dead_code_candidates(self.store, file_pattern="nonexistent")
         assert len(dead) == 0
 
     def test_find_dead_code_excludes_dunder(self):
@@ -375,7 +372,7 @@ class TestFindDeadCode:
             )
         )
         self.store.commit()
-        dead = _graph_dead_code_candidates(self.store)
+        dead = graph_dead_code_candidates(self.store)
         dead_names = {d["name"] for d in dead}
         assert "__init__" not in dead_names
 
@@ -393,7 +390,7 @@ class TestFindDeadCode:
             )
         )
         self.store.commit()
-        dead = _graph_dead_code_candidates(self.store)
+        dead = graph_dead_code_candidates(self.store)
         dead_names = {d["name"] for d in dead}
         assert "constructor" not in dead_names
 
@@ -419,7 +416,7 @@ class TestFindDeadCode:
                 )
             )
         self.store.commit()
-        dead = _graph_dead_code_candidates(self.store)
+        dead = graph_dead_code_candidates(self.store)
         dead_names = {d["name"] for d in dead}
         for name in (
             "ngOnInit",
@@ -445,7 +442,7 @@ class TestFindDeadCode:
             )
         )
         self.store.commit()
-        dead = _graph_dead_code_candidates(self.store)
+        dead = graph_dead_code_candidates(self.store)
         dead_names = {d["name"] for d in dead}
         assert "get_users" not in dead_names
 
@@ -474,7 +471,7 @@ class TestFindDeadCode:
             )
         )
         self.store.commit()
-        dead = _graph_dead_code_candidates(self.store)
+        dead = graph_dead_code_candidates(self.store)
         dead_names = {d["name"] for d in dead}
         assert "UserSchema" not in dead_names
 
@@ -502,7 +499,7 @@ class TestFindDeadCode:
             )
         )
         self.store.commit()
-        dead = _graph_dead_code_candidates(self.store)
+        dead = graph_dead_code_candidates(self.store)
         dead_names = {d["name"] for d in dead}
         assert "UserResponse" not in dead_names
 
@@ -528,7 +525,7 @@ class TestFindDeadCode:
             )
         )
         self.store.commit()
-        dead = _graph_dead_code_candidates(self.store)
+        dead = graph_dead_code_candidates(self.store)
         dead_names = {d["name"] for d in dead}
         assert "User" not in dead_names
 
@@ -554,7 +551,7 @@ class TestFindDeadCode:
             )
         )
         self.store.commit()
-        dead = _graph_dead_code_candidates(self.store)
+        dead = graph_dead_code_candidates(self.store)
         dead_names = {d["name"] for d in dead}
         assert "AppConfig" not in dead_names
 
@@ -582,7 +579,7 @@ class TestFindDeadCode:
         )
         self.store.commit()
 
-        dead_qnames = {d["qualified_name"] for d in _graph_dead_code_candidates(self.store)}
+        dead_qnames = {d["qualified_name"] for d in graph_dead_code_candidates(self.store)}
 
         assert "/repo/services/_protocol.py::UserStoreProtocol" not in dead_qnames
         assert "/repo/services/helpers.py::OrphanHelper" in dead_qnames
@@ -640,7 +637,7 @@ class TestFindDeadCode:
             self.store.upsert_node(node)
         self.store.commit()
 
-        dead_qnames = {d["qualified_name"] for d in _graph_dead_code_candidates(self.store)}
+        dead_qnames = {d["qualified_name"] for d in graph_dead_code_candidates(self.store)}
 
         assert "/repo/services/_protocol.py::UserStoreProtocol" not in dead_qnames
         assert "/repo/src/backend/cli.ts::ExecError" not in dead_qnames
@@ -675,7 +672,7 @@ class TestFindDeadCode:
         )
         self.store.commit()
 
-        dead_qnames = {d["qualified_name"] for d in _graph_dead_code_candidates(self.store)}
+        dead_qnames = {d["qualified_name"] for d in graph_dead_code_candidates(self.store)}
 
         for name in ("api", "Outer", "ext"):
             assert f"/repo/src/api.ts::{name}" not in dead_qnames
@@ -708,7 +705,7 @@ class TestFindDeadCode:
             )
         self.store.commit()
 
-        dead_qnames = {d["qualified_name"] for d in _graph_dead_code_candidates(self.store)}
+        dead_qnames = {d["qualified_name"] for d in graph_dead_code_candidates(self.store)}
 
         prefix = "/repo/src/users.controller.ts::"
         assert f"{prefix}UsersController" not in dead_qnames
@@ -734,7 +731,7 @@ class TestFindDeadCode:
             )
         self.store.commit()
 
-        dead_qnames = {d["qualified_name"] for d in _graph_dead_code_candidates(self.store)}
+        dead_qnames = {d["qualified_name"] for d in graph_dead_code_candidates(self.store)}
 
         assert "/repo/src/decls.ts::declaredFn" not in dead_qnames
         assert "/repo/src/decls.ts::localFn" in dead_qnames
@@ -874,7 +871,7 @@ class TestFindDeadCode:
             self.store.upsert_node(node)
         self.store.commit()
 
-        dead_by_qn = {d["qualified_name"]: d for d in _graph_dead_code_candidates(self.store)}
+        dead_by_qn = {d["qualified_name"]: d for d in graph_dead_code_candidates(self.store)}
 
         assert "/repo/src/types.rs::Payload" not in dead_by_qn
         assert "/repo/src/types.rs::Status" not in dead_by_qn
@@ -915,7 +912,7 @@ class TestFindDeadCode:
         )
         self.store.commit()
 
-        dead_qnames = {d["qualified_name"] for d in _graph_dead_code_candidates(self.store)}
+        dead_qnames = {d["qualified_name"] for d in graph_dead_code_candidates(self.store)}
 
         assert "/repo/src/core.rs::Default" not in dead_qnames
         assert "/repo/src/concrete.rs::UnusedConcrete" in dead_qnames
@@ -934,7 +931,7 @@ class TestFindDeadCode:
             )
         )
         self.store.commit()
-        dead = _graph_dead_code_candidates(self.store)
+        dead = graph_dead_code_candidates(self.store)
         dead_names = {d["name"] for d in dead}
         assert "query_data" not in dead_names
 
@@ -961,7 +958,7 @@ class TestFindDeadCode:
             )
         )
         self.store.commit()
-        dead = _graph_dead_code_candidates(self.store)
+        dead = graph_dead_code_candidates(self.store)
         dead_names = {d["name"] for d in dead}
         assert "upgrade" not in dead_names
         assert "downgrade" not in dead_names
@@ -989,7 +986,7 @@ class TestFindDeadCode:
             )
         )
         self.store.commit()
-        dead = _graph_dead_code_candidates(self.store)
+        dead = graph_dead_code_candidates(self.store)
         dead_names = {d["name"] for d in dead}
         assert "BaseConnector" not in dead_names
 
@@ -1037,7 +1034,7 @@ class TestFindDeadCode:
         )
         self.store.commit()
 
-        dead = _graph_dead_code_candidates(self.store)
+        dead = graph_dead_code_candidates(self.store)
         dead_qnames = {d["qualified_name"] for d in dead}
         assert "/repo/connectors.py::GarminConnector.sync" not in dead_qnames
 
@@ -1085,7 +1082,7 @@ class TestFindDeadCode:
             )
         )
         self.store.commit()
-        dead = _graph_dead_code_candidates(self.store)
+        dead = graph_dead_code_candidates(self.store)
         dead_qnames = {d["qualified_name"] for d in dead}
         # routes.py processor is saved (caller imports its file)
         assert "/repo/api/routes.py::processor" not in dead_qnames
@@ -1106,7 +1103,7 @@ class TestFindDeadCode:
                 )
             )
         self.store.commit()
-        dead = _graph_dead_code_candidates(self.store)
+        dead = graph_dead_code_candidates(self.store)
         dead_names = {d["name"] for d in dead}
         for name in ("mockDynamoClient", "s3ClientMock", "MockService", "createMockRequest"):
             assert name not in dead_names, f"{name} should not be dead (mock pattern)"
@@ -1125,7 +1122,7 @@ class TestFindDeadCode:
             )
         )
         self.store.commit()
-        dead = _graph_dead_code_candidates(self.store)
+        dead = graph_dead_code_candidates(self.store)
         dead_names = {d["name"] for d in dead}
         assert "ClipboardButtonComponent" not in dead_names
 
@@ -1143,7 +1140,7 @@ class TestFindDeadCode:
             )
         )
         self.store.commit()
-        dead = _graph_dead_code_candidates(self.store)
+        dead = graph_dead_code_candidates(self.store)
         dead_names = {d["name"] for d in dead}
         assert "db" not in dead_names
 
@@ -1161,7 +1158,7 @@ class TestFindDeadCode:
             )
         )
         self.store.commit()
-        dead = _graph_dead_code_candidates(self.store)
+        dead = graph_dead_code_candidates(self.store)
         dead_qnames = {d["qualified_name"] for d in dead}
         assert "/repo/README.md::getting-started" not in dead_qnames
 
@@ -1179,7 +1176,7 @@ class TestFindDeadCode:
             )
         )
         self.store.commit()
-        dead_qnames = {d["qualified_name"] for d in _graph_dead_code_candidates(self.store)}
+        dead_qnames = {d["qualified_name"] for d in graph_dead_code_candidates(self.store)}
         assert "/repo/src/lib.rs::Default" not in dead_qnames
 
     def test_find_dead_code_excludes_rust_cfg_test_functions(self):
@@ -1196,13 +1193,13 @@ class TestFindDeadCode:
             )
         )
         self.store.commit()
-        dead = _graph_dead_code_candidates(self.store)
+        dead = graph_dead_code_candidates(self.store)
         dead_names = {d["name"] for d in dead}
         assert "loads_markdown_language" not in dead_names
 
     def test_find_dead_code_includes_evidence(self):
         """Dead-code output includes enough evidence for review decisions."""
-        dead = _graph_dead_code_candidates(self.store)
+        dead = graph_dead_code_candidates(self.store)
         orphan = next(d for d in dead if d["name"] == "dead_func")
         assert orphan["confidence"] == "low"
         assert "no_callers" in orphan["reason_codes"]
@@ -1229,7 +1226,7 @@ class TestFindDeadCode:
         )
         self.store.commit()
 
-        dead = _graph_dead_code_candidates(self.store)
+        dead = graph_dead_code_candidates(self.store)
         exported = next(d for d in dead if d["name"] == "exported_api")
         assert exported["confidence"] == "low"
         assert exported["public_api_candidate"] is True
@@ -1257,7 +1254,7 @@ class TestFindDeadCode:
             )
         self.store.commit()
 
-        dead = [d for d in _graph_dead_code_candidates(self.store) if d["name"] == "duplicate"]
+        dead = [d for d in graph_dead_code_candidates(self.store) if d["name"] == "duplicate"]
         assert {d["confidence"] for d in dead} == {"low"}
         assert {d["evidence"]["name_definition_count"] for d in dead} == {2}
         assert all("ambiguous_symbol_name" in d["reason_codes"] for d in dead)
@@ -1287,7 +1284,7 @@ class TestFindDeadCodeCrossArtifact:
         )
         self.store.commit()
 
-        dead = _graph_dead_code_candidates(self.store)
+        dead = graph_dead_code_candidates(self.store)
         assert dead == []
 
     def test_excludes_handler_target_with_reportable_cross_artifact(self):
@@ -1322,7 +1319,7 @@ class TestFindDeadCodeCrossArtifact:
         )
         self.store.commit()
 
-        dead = _graph_dead_code_candidates(self.store)
+        dead = graph_dead_code_candidates(self.store)
         assert dead == []
 
     def test_excludes_unresolved_maps_entrypoint_matching_symbol_name(self):
@@ -1358,7 +1355,7 @@ class TestFindDeadCodeCrossArtifact:
         )
         self.store.commit()
 
-        dead = _graph_dead_code_candidates(self.store)
+        dead = graph_dead_code_candidates(self.store)
         assert dead == []
 
     def test_mixed_terraform_fixture_after_postprocess(self, tmp_path):
@@ -1383,7 +1380,7 @@ class TestFindDeadCodeCrossArtifact:
                 full_build(tmp_path, store)
             run_post_processing(store)
 
-            dead = _graph_dead_code_candidates(store)
+            dead = graph_dead_code_candidates(store)
             dead_qnames = {d["qualified_name"] for d in dead}
 
             assert "app/hello.py::main" not in dead_qnames
@@ -2359,25 +2356,25 @@ class TestFindDeadCodeWithReferences:
 
     def test_referenced_function_not_dead(self):
         """Functions with REFERENCES edges should NOT be flagged as dead code."""
-        dead = _graph_dead_code_candidates(self.store)
+        dead = graph_dead_code_candidates(self.store)
         dead_names = {d["name"] for d in dead}
         assert "handleCreate" not in dead_names
 
     def test_called_function_not_dead(self):
         """Functions with CALLS edges remain excluded (existing behavior)."""
-        dead = _graph_dead_code_candidates(self.store)
+        dead = graph_dead_code_candidates(self.store)
         dead_names = {d["name"] for d in dead}
         assert "calledFunc" not in dead_names
 
     def test_truly_dead_function_still_reported(self):
         """Functions with no edges at all should still be flagged as dead code."""
-        dead = _graph_dead_code_candidates(self.store)
+        dead = graph_dead_code_candidates(self.store)
         dead_names = {d["name"] for d in dead}
         assert "deadFunc" in dead_names
 
     def test_only_references_edge_sufficient(self):
         """A function with ONLY a REFERENCES edge (no CALLS/IMPORTS) is not dead."""
-        dead = _graph_dead_code_candidates(self.store)
+        dead = graph_dead_code_candidates(self.store)
         dead_names = {d["name"] for d in dead}
         # handleCreate has only a REFERENCES edge, no CALLS targeting it
         assert "handleCreate" not in dead_names
@@ -2444,7 +2441,7 @@ class TestTransitiveImportResolution:
             )
         )
         self.store.commit()
-        dead = _graph_dead_code_candidates(self.store)
+        dead = graph_dead_code_candidates(self.store)
         dead_names = {d["name"] for d in dead}
         assert "safeJsonParse" not in dead_names, (
             "2-hop import chain should make consumer a plausible caller"
@@ -2485,7 +2482,7 @@ class TestFindDeadCodeModuleScope:
         path.write_bytes(b"def run_job():\n    return 1\n\nrun_job()\n")
         self._store_parsed(path, path.read_bytes())
 
-        dead = _graph_dead_code_candidates(self.store)
+        dead = graph_dead_code_candidates(self.store)
         dead_names = {d["name"] for d in dead}
         assert "run_job" not in dead_names, (
             "module-scope caller should prevent run_job from being flagged dead"
@@ -2499,7 +2496,7 @@ class TestFindDeadCodeModuleScope:
         )
         self._store_parsed(path, path.read_bytes())
 
-        dead = _graph_dead_code_candidates(self.store)
+        dead = graph_dead_code_candidates(self.store)
         dead_names = {d["name"] for d in dead}
         assert "launch" not in dead_names
 
@@ -2519,7 +2516,7 @@ class TestFindDeadCodeModuleScope:
         for path in (engine, car):
             self._store_parsed(path, path.read_bytes())
 
-        dead_names = {d["name"] for d in _graph_dead_code_candidates(self.store)}
+        dead_names = {d["name"] for d in graph_dead_code_candidates(self.store)}
         assert "Engine" not in dead_names
         # A body-level `as Wheel` counts too.
         assert "Wheel" not in dead_names
@@ -2540,7 +2537,7 @@ class TestFindDeadCodeModuleScope:
 
         calls = [e for e in self.store.get_edges_by_source(f"{app}::show") if e.kind == "CALLS"]
         assert [e.target_qualified for e in calls] == ["date-fns::format"]
-        dead_names = {d["name"] for d in _graph_dead_code_candidates(self.store)}
+        dead_names = {d["name"] for d in graph_dead_code_candidates(self.store)}
         assert "format" in dead_names
 
 
@@ -2734,23 +2731,6 @@ class TestRefactorToolWithNativeBackend:
 
         assert result["status"] == "ok", result
         assert result["edits"]
-
-
-@pytest.mark.parametrize(
-    ("path", "expected"),
-    [
-        ("src/App.test.tsx", True),
-        ("src/app.spec.mts", True),
-        ("src/app.test.cjs", True),
-        ("cypress/e2e/login.cy.ts", True),
-        ("src/__tests__/util.ts", True),
-        ("src/latest.ts", False),
-        ("src/contest.tsx", False),
-    ],
-)
-def test_dead_code_test_file_pattern_covers_javascript_variants(path, expected):
-    """Dead-code test exclusion matches the parser's JS / TS test-file rules."""
-    assert _is_test_file(path) is expected
 
 
 class TestDeadCodeVerification:

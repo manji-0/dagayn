@@ -54,6 +54,18 @@ DEFAULT_MCP_TOOL_NAMES = {
 }
 
 
+def _snapshot_components() -> dict[str, object]:
+    """Copy the FastMCP local component registry."""
+    return dict(crg_main._tool_components())
+
+
+def _restore_components(snapshot: dict[str, object]) -> None:
+    """Restore the FastMCP local component registry from a snapshot."""
+    components = crg_main._tool_components()
+    components.clear()
+    components.update(snapshot)
+
+
 def _tool_names() -> set[str]:
     import asyncio
 
@@ -305,12 +317,12 @@ class TestServeMainTransport:
 
     @pytest.fixture(autouse=True)
     def _restore_tools_and_env(self, monkeypatch):
-        original = crg_main._snapshot_components()
+        original = _snapshot_components()
         original_provider = crg_main._default_embedding_provider
         original_model = crg_main._default_embedding_model
         monkeypatch.delenv("CRG_TOOLS", raising=False)
         yield
-        crg_main._restore_components(original)
+        _restore_components(original)
         crg_main._default_embedding_provider = original_provider
         crg_main._default_embedding_model = original_model
 
@@ -521,9 +533,9 @@ class TestApplyToolFilter:
         _apply_tool_filter calls ``_remove_mcp_tool()`` which is
         permanent.  We restore by re-adding from the saved snapshot.
         """
-        original = crg_main._snapshot_components()
+        original = _snapshot_components()
         yield
-        crg_main._restore_components(original)
+        _restore_components(original)
         from dagayn.tool_surface import set_active_tool_surface
 
         set_active_tool_surface(None)
@@ -559,15 +571,13 @@ class TestApplyToolFilter:
 
     def test_filter_records_active_tool_surface(self):
         """Hints/prompts consult the allow-list that serve just applied. See: #107."""
-        from dagayn.tool_surface import active_tool_surface, tool_is_exposed
+        from dagayn.tool_surface import tool_is_exposed
 
         crg_main._apply_tool_filter("query_graph_tool")
-        assert active_tool_surface() == {"query_graph_tool"}
         assert tool_is_exposed("query_graph_tool")
         assert not tool_is_exposed("apply_refactor_tool")
 
         crg_main._apply_tool_filter("all")
-        assert active_tool_surface() is None
         assert tool_is_exposed("apply_refactor_tool")
 
     def test_all_sentinel_via_argument_keeps_all_registered_tools(self):

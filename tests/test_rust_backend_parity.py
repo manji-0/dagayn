@@ -96,7 +96,6 @@ def test_get_affected_flows_absolute_path_matches_rust_backend(tmp_path):
 def test_rust_backend_is_default_when_extension_is_available(monkeypatch):
     """DAGAYN_BACKEND defaults to Rust when the native extension can be loaded."""
     monkeypatch.delenv("DAGAYN_BACKEND", raising=False)
-    monkeypatch.setattr("dagayn.incremental_build._rust_backend_available", lambda: True)
 
     assert _rust_backend_enabled() is True
 
@@ -148,7 +147,6 @@ def test_python_backend_is_rejected(monkeypatch):
 def test_python_store_uses_python_parser_when_rust_is_default(tmp_path, monkeypatch):
     """Direct Python GraphStore callers still parse through the Rust parser wrapper."""
     monkeypatch.delenv("DAGAYN_BACKEND", raising=False)
-    monkeypatch.setattr("dagayn.incremental_build._rust_backend_available", lambda: True)
 
     repo = tmp_path / "repo"
     repo.mkdir()

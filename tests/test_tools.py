@@ -1732,20 +1732,15 @@ class TestBuildPostprocess:
         assert _common._selected_graph_store() is GraphStore
 
     def test_postprocess_none_produces_nodes_no_flows(self, monkeypatch):
-        from unittest.mock import patch
 
         from dagayn.tools.build import build_or_update_graph
 
         monkeypatch.delenv("DAGAYN_BACKEND", raising=False)
-        with patch(
-            "dagayn.incremental_files.get_all_tracked_files",
-            return_value=["sample.py"],
-        ):
-            result = build_or_update_graph(
-                full_rebuild=True,
-                repo_root=str(self.root),
-                postprocess="none",
-            )
+        result = build_or_update_graph(
+            full_rebuild=True,
+            repo_root=str(self.root),
+            postprocess="none",
+        )
         assert result["status"] == "ok"
         assert result["total_nodes"] > 0
         assert result.get("postprocess_level") == "none"
@@ -1754,20 +1749,15 @@ class TestBuildPostprocess:
         assert "fts_indexed" not in result
 
     def test_postprocess_minimal_has_fts_no_flows(self, monkeypatch):
-        from unittest.mock import patch
 
         from dagayn.tools.build import build_or_update_graph
 
         monkeypatch.delenv("DAGAYN_BACKEND", raising=False)
-        with patch(
-            "dagayn.incremental_files.get_all_tracked_files",
-            return_value=["sample.py"],
-        ):
-            result = build_or_update_graph(
-                full_rebuild=True,
-                repo_root=str(self.root),
-                postprocess="minimal",
-            )
+        result = build_or_update_graph(
+            full_rebuild=True,
+            repo_root=str(self.root),
+            postprocess="minimal",
+        )
         assert result["status"] == "ok"
         assert result.get("postprocess_level") == "minimal"
         assert result.get("signatures_updated") is True
@@ -1775,20 +1765,15 @@ class TestBuildPostprocess:
         assert "communities_detected" not in result
 
     def test_postprocess_full_matches_default(self, monkeypatch):
-        from unittest.mock import patch
 
         from dagayn.tools.build import build_or_update_graph
 
         monkeypatch.delenv("DAGAYN_BACKEND", raising=False)
-        with patch(
-            "dagayn.incremental_files.get_all_tracked_files",
-            return_value=["sample.py"],
-        ):
-            result = build_or_update_graph(
-                full_rebuild=True,
-                repo_root=str(self.root),
-                postprocess="full",
-            )
+        result = build_or_update_graph(
+            full_rebuild=True,
+            repo_root=str(self.root),
+            postprocess="full",
+        )
         assert result["status"] == "ok"
         assert result.get("postprocess_level") == "full"
         # Full postprocess should have flows and communities
@@ -1812,10 +1797,6 @@ class TestBuildPostprocess:
             "total_embeddings": 3,
         }
         with (
-            patch(
-                "dagayn.incremental_files.get_all_tracked_files",
-                return_value=["sample.py"],
-            ),
             patch("dagayn.tools.build._run_local_embedding", return_value=embed_result) as run,
         ):
             result = build_or_update_graph(
@@ -1848,10 +1829,6 @@ class TestBuildPostprocess:
 
         monkeypatch.delenv("DAGAYN_BACKEND", raising=False)
         with (
-            patch(
-                "dagayn.incremental_files.get_all_tracked_files",
-                return_value=["sample.py"],
-            ),
             patch("dagayn.tools.build._run_local_embedding") as run,
         ):
             result = build_or_update_graph(
@@ -1997,10 +1974,6 @@ class TestBuildPostprocess:
             return embed_result
 
         with (
-            patch(
-                "dagayn.incremental_files.get_all_tracked_files",
-                return_value=["sample.py"],
-            ),
             patch("dagayn.tools.build._get_store", side_effect=tracking_get_store),
             patch("dagayn.tools.build._run_local_embedding", side_effect=fake_embed) as run,
         ):

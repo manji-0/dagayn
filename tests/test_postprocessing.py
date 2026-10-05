@@ -9,11 +9,7 @@ from dagayn.contracts.state_types import BuildResult, PostprocessResult
 from dagayn.graph import GraphStore
 from dagayn.incremental_build import full_build
 from dagayn.parser import EdgeInfo, NodeInfo
-from dagayn.postprocessing import (
-    _markdown_artifact_resolution,
-    _resolve_markdown_artifact_refs,
-    run_post_processing,
-)
+from dagayn.postprocessing import _resolve_markdown_artifact_refs, run_post_processing
 from tests.store_sql import store_conn
 
 
@@ -27,54 +23,6 @@ def _get_signature(store, qualified_name):
         .fetchone()
     )
     return row["signature"] if row else None
-
-
-def test_markdown_artifact_resolution_returns_typed_states():
-    resolved = _markdown_artifact_resolution(
-        edge_id=1,
-        current_target="<unresolved:Service>",
-        symbol="Service",
-        extra={"evidence_kind": "markdown_code_span", "evidence_source": "code_span"},
-        matches=[("/repo/app.py::Service", "python")],
-    )
-    assert resolved.state == "resolved"
-    assert resolved.target_qualified == "/repo/app.py::Service"
-    assert resolved.confidence_tier == "MEDIUM"
-    assert resolved.confidence == 0.4
-
-    directive_resolved = _markdown_artifact_resolution(
-        edge_id=4,
-        current_target="<unresolved:Service>",
-        symbol="Service",
-        extra={
-            "evidence_kind": "markdown_directive",
-            "evidence_source": "dagayn_directive",
-        },
-        matches=[("/repo/app.py::Service", "python")],
-    )
-    assert directive_resolved.confidence_tier == "HIGH"
-    assert directive_resolved.confidence == 0.8
-
-    dropped = _markdown_artifact_resolution(
-        edge_id=2,
-        current_target="<unresolved:Missing>",
-        symbol="Missing",
-        extra={"evidence_kind": "markdown_code_span", "evidence_source": "code_span"},
-        matches=[],
-    )
-    assert dropped.state == "dropped"
-    assert dropped.edge_id == 2
-    assert dropped.target_qualified is None
-
-    still_unresolved = _markdown_artifact_resolution(
-        edge_id=3,
-        current_target="<unresolved:Missing>",
-        symbol="Missing",
-        extra={"relationship_role": "implemented_by"},
-        matches=[],
-    )
-    assert still_unresolved.state == "still_unresolved"
-    assert still_unresolved.confidence_tier == "LOW"
 
 
 class TestRunPostProcessing:
@@ -279,9 +227,7 @@ class TestToolBuildUsesSharedPipeline:
         db_path = tmp_path / ".dagayn" / "graph.db"
         store = GraphStore(db_path)
         try:
-            mock_target = "dagayn.incremental_files.get_all_tracked_files"
-            with patch(mock_target, return_value=["sample.py"]):
-                full_build(tmp_path, store)
+            full_build(tmp_path, store)
 
             unsigned_before_pp = store.get_nodes_without_signature()
             run_post_processing(store)
@@ -705,7 +651,6 @@ class TestTerraformArtifactResolver:
 
     def test_mixed_fixture_survives_postprocess_and_is_queryable(self, tmp_path):
         import shutil
-        from unittest.mock import patch
 
         from dagayn.incremental_build import full_build
         from dagayn.postprocessing import run_post_processing

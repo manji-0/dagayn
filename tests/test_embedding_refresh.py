@@ -8,11 +8,7 @@ from unittest.mock import patch
 
 from dagayn.embeddings_store import _encode_vector, get_embedding_status
 from dagayn.tools.queue_worker import _enqueue_scoped_embed_after_update
-from dagayn.tools.sync_status import (
-    embedding_needs_refresh,
-    embedding_refresh_action,
-    graph_uses_local_embedding_sidecar,
-)
+from dagayn.tools.sync_status import embedding_refresh_action
 
 
 def _coverage_db(
@@ -58,7 +54,6 @@ class TestEmbeddingRefreshAction:
     def test_none_mode_skips(self, tmp_path: Path) -> None:
         db = _coverage_db(tmp_path / "graph.db", embeddable=0, indexed=0)
         assert embedding_refresh_action(db, local_embedding="none") == "skip"
-        assert embedding_needs_refresh(db, local_embedding="none") is False
 
     def test_empty_index_is_inline(self, tmp_path: Path) -> None:
         db = tmp_path / "graph.db"
@@ -74,34 +69,24 @@ class TestEmbeddingRefreshAction:
         conn.commit()
         conn.close()
         assert embedding_refresh_action(db, local_embedding="bge-m3") == "inline"
-        assert embedding_needs_refresh(db, local_embedding="bge-m3") is True
 
     def test_complete_coverage_skips(self, tmp_path: Path) -> None:
         db = _coverage_db(tmp_path / "graph.db", embeddable=10, indexed=10)
         assert embedding_refresh_action(db, local_embedding="bge-m3") == "skip"
-        assert embedding_needs_refresh(db, local_embedding="bge-m3") is False
 
     def test_small_hole_is_queued(self, tmp_path: Path) -> None:
         db = _coverage_db(tmp_path / "graph.db", embeddable=100, indexed=99)
         assert get_embedding_status(db)["missing_embeddings"] == 1
         assert embedding_refresh_action(db, local_embedding="bge-m3") == "queue"
-        assert embedding_needs_refresh(db, local_embedding="bge-m3") is False
 
     def test_large_hole_is_inline(self, tmp_path: Path) -> None:
         db = _coverage_db(tmp_path / "graph.db", embeddable=20, indexed=10)
         assert embedding_refresh_action(db, local_embedding="bge-m3") == "inline"
-        assert embedding_needs_refresh(db, local_embedding="bge-m3") is True
 
     def test_sidecar_detection(self, tmp_path: Path) -> None:
         from dagayn.tools.sync_status import sidecar_embed_payload
 
         local = _coverage_db(tmp_path / "local.db", embeddable=1, indexed=1)
-        remote = _coverage_db(
-            tmp_path / "remote.db",
-            embeddable=1,
-            indexed=1,
-            provider="google:gemini-embedding-001#text=material",
-        )
         qwen = _coverage_db(
             tmp_path / "qwen.db",
             embeddable=1,
@@ -111,8 +96,6 @@ class TestEmbeddingRefreshAction:
                 "@http://127.0.0.1:18081/v1#dim=1024#text=material"
             ),
         )
-        assert graph_uses_local_embedding_sidecar(local) is True
-        assert graph_uses_local_embedding_sidecar(remote) is False
         local_payload = sidecar_embed_payload(local)
         qwen_payload = sidecar_embed_payload(qwen)
         assert local_payload is not None

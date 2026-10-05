@@ -4,17 +4,13 @@ from __future__ import annotations
 
 import json
 import tempfile
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 from dagayn.contracts.state_types import PostprocessResult
 from dagayn.graph import GraphStore
 from dagayn.incremental_build import full_build
 from dagayn.parser._base.types import NodeInfo
-from dagayn.parser.manifest_bridges import (
-    EXTRACTOR_ID,
-    _resolve_rel,
-    discover_manifest_bridges,
-)
+from dagayn.parser.manifest_bridges import EXTRACTOR_ID, discover_manifest_bridges
 from dagayn.postprocessing import _apply_manifest_bridges, run_post_processing
 from tests.store_sql import store_conn
 
@@ -42,20 +38,6 @@ def _manifest_edges(store: GraphStore) -> list:
 
 
 class TestResolveRelContainment:
-    def test_rejects_parent_traversal_escape(self):
-        assert _resolve_rel(PurePosixPath("pkg"), "../../../etc/passwd") is None
-        assert _resolve_rel(PurePosixPath("pkg/sub"), "../../..") is None
-        assert _resolve_rel(PurePosixPath("."), "../../outside.toml") is None
-        assert _resolve_rel(PurePosixPath("pkg"), "/../../etc/passwd") is None
-
-    def test_allows_contained_relative_paths(self):
-        assert _resolve_rel(PurePosixPath("pkg/sub"), "../Cargo.toml") == "pkg/Cargo.toml"
-        assert _resolve_rel(PurePosixPath("."), "rust/Cargo.toml") == "rust/Cargo.toml"
-        assert _resolve_rel(PurePosixPath("pkg"), "Cargo.toml") == "pkg/Cargo.toml"
-
-    def test_absolute_paths_become_repo_relative_when_contained(self):
-        assert _resolve_rel(PurePosixPath("pkg"), "/rust/Cargo.toml") == "rust/Cargo.toml"
-
     def test_discover_skips_escaping_maturin_manifest_path(self, tmp_path: Path):
         (tmp_path / "pyproject.toml").write_text(
             '[tool.maturin]\nmanifest-path = "../../../etc/passwd"\nmodule-name = "evil"\n',

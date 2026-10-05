@@ -9,7 +9,6 @@ import pytest
 from dagayn.contracts.state_types import BuildResult
 from dagayn.graph import GraphStore
 from dagayn.incremental_build import (
-    _parse_single_file,
     _single_hop_dependents,
     find_dependents,
     find_dependents_for_files,
@@ -21,7 +20,6 @@ from dagayn.incremental_files import (
     ensure_repo_gitignore_excludes_crg,
     find_project_root,
     find_repo_root,
-    get_all_tracked_files,
     get_changed_file_sources,
     get_changed_files,
     get_staged_and_unstaged,
@@ -715,63 +713,6 @@ class TestGitOperations:
         assert "--untracked-files=all" in mock_run.call_args[0][0]
 
     @patch("subprocess.run")
-    def test_get_all_tracked_files(self, mock_run, tmp_path):
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout="a.py\0b.py\0c.go\0",
-        )
-        result = get_all_tracked_files(tmp_path)
-        assert result == ["a.py", "b.py", "c.go"]
-
-    @patch("subprocess.run")
-    def test_get_all_tracked_files_recurse_submodules_param(self, mock_run, tmp_path):
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout="a.py\0sub/b.py\0",
-        )
-        result = get_all_tracked_files(tmp_path, recurse_submodules=True)
-        assert result == ["a.py", "sub/b.py"]
-        cmd = mock_run.call_args[0][0]
-        assert "--recurse-submodules" in cmd
-
-    @patch("subprocess.run")
-    def test_get_all_tracked_files_no_recurse_by_default(self, mock_run, tmp_path):
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout="a.py\0",
-        )
-        result = get_all_tracked_files(tmp_path)
-        assert result == ["a.py"]
-        cmd = mock_run.call_args[0][0]
-        assert "--recurse-submodules" not in cmd
-
-    @patch("subprocess.run")
-    @patch("dagayn.incremental_files._RECURSE_SUBMODULES", True)
-    def test_get_all_tracked_files_env_var_fallback(self, mock_run, tmp_path):
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout="a.py\0sub/c.py\0",
-        )
-        # None -> falls back to env var (_RECURSE_SUBMODULES=True)
-        result = get_all_tracked_files(tmp_path, recurse_submodules=None)
-        assert result == ["a.py", "sub/c.py"]
-        cmd = mock_run.call_args[0][0]
-        assert "--recurse-submodules" in cmd
-
-    @patch("subprocess.run")
-    @patch("dagayn.incremental_files._RECURSE_SUBMODULES", True)
-    def test_get_all_tracked_files_param_overrides_env(self, mock_run, tmp_path):
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout="a.py\0",
-        )
-        # Explicit False overrides env var
-        result = get_all_tracked_files(tmp_path, recurse_submodules=False)
-        assert result == ["a.py"]
-        cmd = mock_run.call_args[0][0]
-        assert "--recurse-submodules" not in cmd
-
-    @patch("subprocess.run")
     def test_get_vcs_indexable_files_includes_untracked(self, mock_run, tmp_path):
         mock_run.side_effect = [
             MagicMock(returncode=0, stdout="tracked.py\0"),
@@ -810,9 +751,7 @@ class TestFullBuild:
         db_path = tmp_path / "test.db"
         store = GraphStore(db_path)
         try:
-            mock_target = "dagayn.incremental_files.get_all_tracked_files"
-            with patch(mock_target, return_value=["sample.py"]):
-                result = full_build(tmp_path, store)
+            result = full_build(tmp_path, store)
             assert result.files_parsed == 1
             assert (result.total_nodes or 0) > 0
             assert result.errors == []
@@ -1282,23 +1221,6 @@ class TestIncrementalUpdate:
 
 
 class TestParallelParsing:
-    def test_parse_single_file(self, tmp_path):
-        py_file = tmp_path / "single.py"
-        py_file.write_text("def foo():\n    pass\n")
-        result = _parse_single_file(("single.py", str(tmp_path)))
-        rel_path, nodes, edges, error, fhash, mtime_ns = result
-        assert rel_path == "single.py"
-        assert error is None
-        assert len(nodes) > 0
-        assert fhash != ""
-
-    def test_parse_single_file_missing(self, tmp_path):
-        result = _parse_single_file(("missing.py", str(tmp_path)))
-        rel_path, nodes, edges, error, fhash, mtime_ns = result
-        assert error is not None
-        assert nodes == []
-        assert edges == []
-
     def test_parallel_build_produces_same_results(self, tmp_path):
         """Serial and parallel builds produce identical node/edge counts."""
         (tmp_path / ".git").mkdir()
@@ -1308,16 +1230,12 @@ class TestParallelParsing:
                 f"def func_{i}():\n    return {i}\n\nclass Cls{i}:\n    pass\n"
             )
 
-        tracked = [f"mod{i}.py" for i in range(10)]
-        mock_target = "dagayn.incremental_files.get_all_tracked_files"
-
         # Serial build
         db_serial = tmp_path / "serial.db"
         store_serial = GraphStore(db_serial)
         try:
-            with patch(mock_target, return_value=tracked):
-                with patch.dict("os.environ", {"CRG_SERIAL_PARSE": "1"}):
-                    result_serial = full_build(tmp_path, store_serial)
+            with patch.dict("os.environ", {"CRG_SERIAL_PARSE": "1"}):
+                result_serial = full_build(tmp_path, store_serial)
             serial_nodes = result_serial.total_nodes
             serial_edges = result_serial.total_edges
             serial_files = result_serial.files_parsed
@@ -1328,9 +1246,8 @@ class TestParallelParsing:
         db_parallel = tmp_path / "parallel.db"
         store_parallel = GraphStore(db_parallel)
         try:
-            with patch(mock_target, return_value=tracked):
-                with patch.dict("os.environ", {"CRG_SERIAL_PARSE": ""}):
-                    result_parallel = full_build(tmp_path, store_parallel)
+            with patch.dict("os.environ", {"CRG_SERIAL_PARSE": ""}):
+                result_parallel = full_build(tmp_path, store_parallel)
             parallel_nodes = result_parallel.total_nodes
             parallel_edges = result_parallel.total_edges
             parallel_files = result_parallel.files_parsed

@@ -1,8 +1,3 @@
-"""Unit tests for _common.py helpers.
-
-Cover make_response, apply_output_budget, and projection_for_detail_level.
-"""
-
 from __future__ import annotations
 
 import sqlite3
@@ -21,7 +16,6 @@ from dagayn.tools._common import (
     make_guidance_item,
     make_response,
     missingness_from_answerability,
-    projection_for_detail_level,
     tool_runtime_summary,
 )
 
@@ -308,29 +302,6 @@ class TestGuidanceItems:
 
 class TestProjectionForDetailLevel:
     ITEM = {"name": "foo", "size": 10, "lang": "py", "description": "bar", "extra": "baz"}
-
-    def test_minimal_returns_only_minimal_fields(self) -> None:
-        r = projection_for_detail_level(self.ITEM, "minimal", ["name", "size"])
-        assert set(r.keys()) == {"name", "size"}
-
-    def test_standard_includes_minimal_and_standard_fields(self) -> None:
-        r = projection_for_detail_level(
-            self.ITEM, "standard", ["name", "size"], ["lang", "description"]
-        )
-        assert set(r.keys()) == {"name", "size", "lang", "description"}
-
-    def test_standard_without_fields_standard_returns_all(self) -> None:
-        r = projection_for_detail_level(self.ITEM, "standard", ["name"])
-        assert r == dict(self.ITEM)
-
-    def test_verbose_returns_all(self) -> None:
-        r = projection_for_detail_level(self.ITEM, "verbose", ["name"])
-        assert r == dict(self.ITEM)
-
-    def test_missing_keys_are_skipped(self) -> None:
-        r = projection_for_detail_level(self.ITEM, "minimal", ["name", "nonexistent"])
-        assert "nonexistent" not in r
-        assert r["name"] == "foo"
 
 
 class TestCompactResponse:

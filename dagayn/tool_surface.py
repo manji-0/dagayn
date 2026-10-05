@@ -20,11 +20,6 @@ def set_active_tool_surface(names: set[str] | frozenset[str] | None) -> None:
     _active_allow_list = frozenset(names) if names is not None else None
 
 
-def active_tool_surface() -> frozenset[str] | None:
-    """Return the active allow-list, or ``None`` when unrestricted."""
-    return _active_allow_list
-
-
 def tool_is_exposed(name: str) -> bool:
     """Return True when *name* is callable on the active MCP surface."""
     if _active_allow_list is None:

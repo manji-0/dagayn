@@ -448,11 +448,6 @@ def sidecar_embed_payload(db_path: str | Path) -> dict[str, Any] | None:
     }
 
 
-def graph_uses_local_embedding_sidecar(db_path: str | Path) -> bool:
-    """True when stored vectors come from a managed localhost sidecar."""
-    return sidecar_embed_payload(db_path) is not None
-
-
 def embedding_refresh_action(
     db_path: str | Path, *, local_embedding: str | None
 ) -> EmbeddingRefreshAction:
@@ -486,15 +481,6 @@ def embedding_refresh_action(
     if missing / embeddable >= _inline_missing_ratio():
         return "inline"
     return "queue"
-
-
-def embedding_needs_refresh(db_path: str | Path, *, local_embedding: str | None) -> bool:
-    """True when an interactive path should run an embedding pass now.
-
-    Small residual holes (``queue``) no longer trip session/MCP blocking;
-    use :func:`embedding_refresh_action` when the caller can enqueue instead.
-    """
-    return embedding_refresh_action(db_path, local_embedding=local_embedding) == "inline"
 
 
 def needs_structure_prepare(sync: Mapping[str, object], *, force: bool = False) -> bool:

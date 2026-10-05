@@ -27,10 +27,10 @@ from dagayn.hints import generate_hints, get_session, reset_session
 from dagayn.parser import EdgeInfo, NodeInfo
 from dagayn.prompts import review_changes_prompt
 from dagayn.refactor import find_dead_code, rename_preview
-from dagayn.refactor.dead_code import _graph_dead_code_candidates
 from dagayn.registry import Registry
 from dagayn.search import hybrid_search, rebuild_fts_index
 from dagayn.wiki import generate_wiki
+from tests.dead_code_candidates import graph_dead_code_candidates
 
 
 class TestV2Integration:
@@ -412,7 +412,7 @@ class TestV2Integration:
         )
 
         # ---- Step 6: find_dead_code ----
-        candidates = _graph_dead_code_candidates(self.store)
+        candidates = graph_dead_code_candidates(self.store)
         candidate_names = [d["name"] for d in candidates]
         # format_date has no callers, no tests, no importers -- a graph candidate
         assert "format_date" in candidate_names, (

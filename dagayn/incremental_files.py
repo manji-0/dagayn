@@ -860,35 +860,6 @@ def _git_ls_files(repo_root: Path, extra_args: list[str]) -> list[str]:
     return _nul_fields(result.stdout)
 
 
-def get_all_tracked_files(
-    repo_root: Path,
-    recurse_submodules: bool | None = None,
-) -> list[str]:
-    """Get all files tracked by git or svn.
-
-    Args:
-        repo_root: Repository root directory.
-        recurse_submodules: If True, pass ``--recurse-submodules`` to
-            ``git ls-files`` so that files inside git submodules are
-            included.  When *None* (default), falls back to the
-            ``CRG_RECURSE_SUBMODULES`` environment variable.
-            (Ignored for SVN working copies and jj workspaces.)
-    """
-    vcs = detect_vcs(repo_root)
-    if vcs == "svn":
-        return _get_svn_all_tracked_files(repo_root)
-    if vcs == "jj":
-        return _jj_working_copy_files(repo_root)
-
-    if recurse_submodules is None:
-        recurse_submodules = _RECURSE_SUBMODULES
-
-    extra: list[str] = []
-    if recurse_submodules:
-        extra.append("--recurse-submodules")
-    return _git_ls_files(repo_root, extra)
-
-
 def get_vcs_indexable_files(
     repo_root: Path,
     recurse_submodules: bool | None = None,
