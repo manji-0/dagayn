@@ -796,6 +796,19 @@ porting the task queue's schema, payload merge, and worker lock, and the
 worker it spawns is Python anyway. It moves with the embedding phase, like
 `embed_graph_tool`.
 
+Grammar size (decided, 2026-10-06). A survey of pure-Rust parsers found
+none with error recovery for the large grammars (Kotlin, C++, C#,
+Objective-C, Scala, Swift, Perl, Julia, Ruby: about 37 of the 52 MB of
+compiled grammar tables), and oxc_parser was rejected for JS/TS
+(./OXC-PARSER-EVALUATION.md). PowerShell is no longer parsed (it only
+ever produced a File node). Grammars get one Cargo feature each so
+development and CI can build a subset. Loading the heavy grammars lazily
+from separate libraries in the same wheel is not pursued: importing the
+112 MB `_core` takes about 0.01 s and adds about 1.2 MB of resident
+memory, because untouched grammar pages are never paged in, so it would
+save neither time, memory, install size, nor build time. Only a separate
+package would shrink the wheel; revisit if wheel size becomes a problem.
+
 ### 5.4 Remaining Python surfaces
 
 | Python | Rust |
