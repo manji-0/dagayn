@@ -25,27 +25,8 @@ from ._common import (
     handle_tool_runtime_error,
     missingness_from_answerability,
 )
-from .review_context import _generate_review_guidance, get_review_context
-from .review_helpers import (
-    SUPPLEMENTAL_TEST_DENSITY_NODE_LIMIT,
-    _change_analysis_summary,
-    _classify_test_gap,
-    _component_density_by_scope,
-    _confidence_weight,
-    _directive_hint_for_role,
-    _doc_evidence_type,
-    _doc_missingness,
-    _doc_role_weight,
-    _documentation_update_candidates,
-    _is_low_signal_doc_path,
-    _is_production_code_node,
-    _rank_test_gaps,
-    _recommend_tests,
-    _review_guidance_items,
-    _review_signal_quality,
-    _risk_level,
-    _scope_key_for_file,
-)
+from .review_context import get_review_context
+from .review_helpers import SUPPLEMENTAL_TEST_DENSITY_NODE_LIMIT, _change_analysis_summary
 
 logger = logging.getLogger(__name__)
 
@@ -272,22 +253,4 @@ __all__ = [
     "detect_changes_func",
     "get_review_context",
     "infer_tests_for_node",
-    "_change_analysis_summary",
-    "_classify_test_gap",
-    "_component_density_by_scope",
-    "_confidence_weight",
-    "_directive_hint_for_role",
-    "_doc_evidence_type",
-    "_doc_missingness",
-    "_doc_role_weight",
-    "_documentation_update_candidates",
-    "_generate_review_guidance",
-    "_is_low_signal_doc_path",
-    "_is_production_code_node",
-    "_rank_test_gaps",
-    "_recommend_tests",
-    "_review_guidance_items",
-    "_review_signal_quality",
-    "_risk_level",
-    "_scope_key_for_file",
 ]

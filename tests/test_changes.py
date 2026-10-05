@@ -886,7 +886,8 @@ class TestChanges:
 
     def test_get_review_context_minimal_uses_tested_by_source_as_covered_node(self):
         """Minimal review context should treat TESTED_BY as production -> test."""
-        from dagayn.tools.review import _generate_review_guidance, get_review_context
+        from dagayn.tools.review import get_review_context
+        from dagayn.tools.review_context import _generate_review_guidance
 
         self._add_func("core_func", path="/repo/app.py", line_start=1, line_end=10)
         self._add_func("test_core_func", path="/repo/tests/test_app.py", is_test=True)
@@ -921,7 +922,7 @@ class TestChanges:
 
     def test_documentation_candidates_hide_heuristic_reachable_by_default(self):
         """Reachable Markdown is an exploratory lead unless explicitly requested."""
-        from dagayn.tools.review import _documentation_update_candidates
+        from dagayn.tools.review_helpers import _documentation_update_candidates
 
         self._add_func("service", path="app.py", line_start=1, line_end=10)
         self.store.upsert_node(
@@ -964,7 +965,7 @@ class TestChanges:
         assert verbose_candidates[0]["evidence_type"] == "heuristic_reachable"
 
     def test_component_density_separates_direct_heuristic_and_transitive_tests(self):
-        from dagayn.tools.review import _component_density_by_scope
+        from dagayn.tools.review_helpers import _component_density_by_scope
 
         self._add_func("direct_target", path="app/direct.py")
         self._add_func("heuristic_target", path="app/heuristic.py")
@@ -990,7 +991,7 @@ class TestChanges:
         assert density["transitive_test_density"] == 0.3333
 
     def test_component_density_default_skips_supplemental_test_inference(self):
-        from dagayn.tools import review
+        from dagayn.tools import review_helpers
 
         self._add_func("direct_target", path="app/direct.py")
         self._add_func("heuristic_target", path="app/heuristic.py")
@@ -998,7 +999,7 @@ class TestChanges:
         self._add_tested_by("app/direct.py::direct_target", "tests/test_app.py::test_direct_target")
 
         with patch("dagayn.tools.review_helpers.infer_tests_for_node") as infer_tests_for_node:
-            density = review._component_density_by_scope(self.store, {"app"})["app"]
+            density = review_helpers._component_density_by_scope(self.store, {"app"})["app"]
 
         infer_tests_for_node.assert_not_called()
         assert density["production_node_count"] == 2
@@ -1008,7 +1009,7 @@ class TestChanges:
         assert density["transitive_test_density"] == 0.0
 
     def test_component_density_verbose_supplemental_tests_are_bounded(self):
-        from dagayn.tools import review
+        from dagayn.tools import review_helpers
 
         self._add_func("a_target", path="app/a.py")
         self._add_func("b_target", path="app/b.py")
@@ -1018,7 +1019,7 @@ class TestChanges:
             "dagayn.tools.review_helpers.infer_tests_for_node",
             return_value=[],
         ) as infer_tests_for_node:
-            density = review._component_density_by_scope(
+            density = review_helpers._component_density_by_scope(
                 self.store,
                 {"app"},
                 include_supplemental_tests=True,
@@ -1107,7 +1108,7 @@ class TestChanges:
 
     def test_classify_test_gap_buckets_docs_and_tests(self):
         """Review gap classification separates docs, tests, and production code."""
-        from dagayn.tools.review import _classify_test_gap
+        from dagayn.tools.review_helpers import _classify_test_gap
 
         assert _classify_test_gap({"file": "docs/COMMANDS.md"}) == "documentation"
         assert _classify_test_gap({"file": "tests/test_tools.py"}) == "test_artifact"
@@ -1115,7 +1116,7 @@ class TestChanges:
 
     def test_stability_helper_weights_and_node_filters(self):
         """Stable-component helper scoring stays deterministic and code-only."""
-        from dagayn.tools.review import (
+        from dagayn.tools.review_helpers import (
             _confidence_weight,
             _doc_role_weight,
             _is_low_signal_doc_path,
@@ -1302,7 +1303,7 @@ class TestChanges:
 
     def test_directive_hint_for_role_uses_dagayn_directives(self):
         """Documentation candidate hints should use supported dagayn directive syntax."""
-        from dagayn.tools.review import (
+        from dagayn.tools.review_helpers import (
             _directive_hint_for_role,
             _doc_evidence_type,
             _doc_missingness,
