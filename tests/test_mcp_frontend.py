@@ -186,8 +186,7 @@ def test_a_request_larger_than_a_pipe_buffer_is_relayed(repo: Path) -> None:
 
 def test_the_python_cli_keeps_fastmcps_own_loop(repo: Path) -> None:
     session = Session(repo, DAGAYN_PYTHON_CLI="1")
-    reply = session.open()
-    assert reply["result"]["serverInfo"]["version"] != _version()
+    session.open()
     session.send(
         {
             "id": 1,
@@ -198,6 +197,8 @@ def test_the_python_cli_keeps_fastmcps_own_loop(repo: Path) -> None:
     assert session.read()["id"] == 1
     status, _, stderr = session.close()
     assert status == 0
+    # The front end would have answered it natively and said so.
+    assert "answered list_graph_stats_tool in Rust" not in stderr
     assert BOOT_TRACE not in stderr
 
 
@@ -465,6 +466,134 @@ def test_a_graph_under_crg_data_dir_is_answered_in_rust(tmp_path: Path) -> None:
     assert NATIVE_TRACE in stderr
     assert rust["structuredContent"] == python["structuredContent"]
     assert rust["structuredContent"]["_repo"]["db_path"] == str(data_dir / "graph.db")
+
+
+MODERN_META: dict[str, Any] = {
+    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+    "io.modelcontextprotocol/clientInfo": {"name": "claude-code", "version": "2.1.289"},
+    "io.modelcontextprotocol/clientCapabilities": {"roots": {"listChanged": True}},
+}
+
+
+def _modern_session(
+    repo: Path, requests: list[tuple[str, dict[str, Any]]], **env: str
+) -> tuple[list[dict[str, Any]], str]:
+    """Send *requests* as Claude Code does over the 2026-07-28 protocol: no
+    ``initialize``, every request with the ``_meta`` envelope (a tool call's
+    also with a tool-use id and a progress token)."""
+    session = Session(repo, **env)
+    replies = []
+    for request_id, (method, params) in enumerate(requests):
+        meta = dict(MODERN_META)
+        if method == "tools/call":
+            meta.update(
+                {"claudecode/toolUseId": f"toolu_{request_id}", "progressToken": request_id}
+            )
+        session.send({"id": request_id, "method": method, "params": {**params, "_meta": meta}})
+        reply = session.read()
+        assert reply["id"] == request_id
+        replies.append(reply)
+    status, _, stderr = session.close()
+    assert status == 0
+    return replies, stderr
+
+
+def _comparable(replies: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """*replies* with each tool result's text parsed (its key order is the
+    implementation's) and the process id dropped."""
+    for reply in replies:
+        result = reply.get("result") or {}
+        for item in result.get("content") or []:
+            if isinstance(result.get("structuredContent"), dict):
+                item["text"] = json.loads(item["text"])
+                item["text"].get("_runtime", {}).pop("pid", None)
+        structured = result.get("structuredContent")
+        if isinstance(structured, dict):
+            structured.get("_runtime", {}).pop("pid", None)
+    return replies
+
+
+def test_a_modern_session_is_answered_in_rust_as_python_does(git_repo: Path) -> None:
+    """Claude Code opens with ``server/discover`` and sends every request in
+    the 2026-07-28 envelope; the listings and native calls carry
+    ``resultType`` and the ``serverInfo`` stamp as the SDK's runner adds them."""
+    requests: list[tuple[str, dict[str, Any]]] = [
+        ("server/discover", {}),
+        ("prompts/list", {}),
+        ("resources/list", {}),
+        ("tools/list", {}),
+        ("tools/call", {"name": "get_minimal_context_tool", "arguments": {"task": "review"}}),
+        (
+            "tools/call",
+            {
+                "name": "query_graph_tool",
+                "arguments": {"pattern": "callers_of", "target": "app.py::helper"},
+            },
+        ),
+        (
+            "tools/call",
+            {"name": "query_graph_tool", "arguments": {"pattern": "nope", "target": "x"}},
+        ),
+        ("tools/call", {"name": "flow_tool", "arguments": {"mode": "get"}}),
+    ]
+    rust, stderr = _modern_session(git_repo, requests)
+    python, _ = _modern_session(git_repo, requests, DAGAYN_PYTHON_CLI="1")
+    assert BOOT_TRACE not in stderr
+    assert stderr.count(" in Rust") == 4
+    assert _comparable(rust) == _comparable(python)
+    stamp = {"io.modelcontextprotocol/serverInfo": {"name": "dagayn", "version": _version()}}
+    assert all(reply["result"]["_meta"] == stamp for reply in rust)
+    assert rust[0]["result"]["supportedVersions"] == ["2026-07-28"]
+
+
+def test_a_modern_call_left_to_python_stays_modern(git_repo: Path) -> None:
+    """A call the front end declines boots the backend with that very request
+    (no ``initialize`` to replay), so the backend serves the modern era too;
+    ``initialize`` on the modern connection gets the backend's refusal."""
+    requests: list[tuple[str, dict[str, Any]]] = [
+        ("server/discover", {}),
+        (
+            "tools/call",
+            {
+                "name": "query_graph_tool",
+                "arguments": {"pattern": "callers_of", "target": "app.py::main", "x": 1},
+            },
+        ),
+        (
+            "tools/call",
+            {
+                "name": "query_graph_tool",
+                "arguments": {"pattern": "callers_of", "target": "app.py::helper"},
+            },
+        ),
+    ]
+    rust, stderr = _modern_session(git_repo, requests)
+    python, _ = _modern_session(git_repo, requests, DAGAYN_PYTHON_CLI="1")
+    assert stderr.count(BOOT_TRACE) == 1
+    assert stderr.count(" in Rust") == 1
+    assert _comparable(rust) == _comparable(python)
+    assert rust[1]["result"]["resultType"] == "complete"
+
+    def opened_then_initialized(**env: str) -> dict[str, Any]:
+        session = Session(git_repo, **env)
+        session.send({"id": 0, "method": "server/discover", "params": {"_meta": MODERN_META}})
+        session.read()
+        session.send(
+            {
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "0"},
+                },
+            }
+        )
+        reply = session.read()
+        session.close()
+        return reply
+
+    assert opened_then_initialized() == opened_then_initialized(DAGAYN_PYTHON_CLI="1")
 
 
 def test_ensure_graph_reports_an_auto_detected_root_as_python_does(git_repo: Path) -> None:

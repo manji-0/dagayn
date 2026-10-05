@@ -24,6 +24,21 @@ use serde_json::{Map, Value, json};
 pub const HANDSHAKE_PROTOCOL_VERSIONS: [&str; 4] =
     ["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"];
 
+/// The protocol revision that drops `initialize` for a per-request `_meta`
+/// envelope (`mcp_types._v2026_07_28`).
+pub const MODERN_PROTOCOL_VERSION: &str = "2026-07-28";
+
+const PROTOCOL_VERSION_META: &str = "io.modelcontextprotocol/protocolVersion";
+const SERVER_INFO_META: &str = "io.modelcontextprotocol/serverInfo";
+
+/// The protocol revision a request's `_meta` envelope names, if it has one
+/// (`mcp.server.runner._has_modern_envelope`).
+fn envelope_version(params: Option<&Value>) -> Option<Option<&str>> {
+    let meta = params?.get("_meta")?.as_object()?;
+    meta.contains_key(PROTOCOL_VERSION_META)
+        .then(|| meta.get(PROTOCOL_VERSION_META).and_then(Value::as_str))
+}
+
 /// Request id of the replayed `initialize`; a string no client numbering hits.
 pub const PROXY_INIT_ID: &str = "dagayn-proxy-init";
 
@@ -37,6 +52,8 @@ pub struct Surface {
     /// Every registered tool, in listing order.
     pub tools: Vec<Value>,
     pub prompts: Vec<Value>,
+    /// The 2026-07-28 `server/discover` result, without its `_meta` stamp.
+    pub discover: Option<Value>,
     /// Recorded `prompts/get` results by prompt: `default` (no arguments)
     /// and, per argument, `empty` and `template` (the value replaced by
     /// [`PROMPT_ARGUMENT_PLACEHOLDER`]).
@@ -75,6 +92,7 @@ impl Surface {
                 .to_string(),
             tools: list("tools")?,
             prompts: list("prompts")?,
+            discover: value.get("discover").cloned(),
             prompt_replies: value
                 .get("prompt_replies")
                 .and_then(Value::as_object)
@@ -207,6 +225,11 @@ struct Session<'n, B: Backend> {
     /// The client's `initialize` params, once it sent them.
     init_params: Option<Value>,
     initialized: bool,
+    /// The `_meta` envelope of the 2026-07-28 request the client opened the
+    /// connection with: it has no `initialize`, and every request carries
+    /// one. Replayed to the backend as `server/discover` so it serves the
+    /// same era.
+    modern: Option<Value>,
     proxy: Option<Proxy>,
 }
 
@@ -221,7 +244,7 @@ impl<B: Backend> Session<'_, B> {
         let id = message.get("id");
         match (method, id) {
             (Some("initialize"), Some(id))
-                if self.init_params.is_none() && self.proxy.is_none() =>
+                if self.init_params.is_none() && self.proxy.is_none() && self.modern.is_none() =>
             {
                 let params = message.get("params").cloned().unwrap_or(Value::Null);
                 let result = self.initialize_result(&params);
@@ -231,7 +254,9 @@ impl<B: Backend> Session<'_, B> {
             // The backend already serves a session that began before
             // `initialize`: it answers this one, and the listings are local
             // again from here on.
-            (Some("initialize"), Some(_)) if self.init_params.is_none() => {
+            (Some("initialize"), Some(_))
+                if self.init_params.is_none() && self.modern.is_none() =>
+            {
                 self.init_params = Some(message.get("params").cloned().unwrap_or(Value::Null));
                 self.delegate(line)
             }
@@ -244,6 +269,23 @@ impl<B: Backend> Session<'_, B> {
             }
             (Some(method), Some(id)) => {
                 let params = message.get("params");
+                if let Some(version) = envelope_version(params) {
+                    // The first request decides the connection's era, once
+                    // (`serve_dual_era_loop`); a modern request on a
+                    // handshake connection, or a revision this front end
+                    // does not speak, gets the backend's error.
+                    let fresh = self.init_params.is_none() && self.proxy.is_none();
+                    if (self.modern.is_some() || fresh) && version == Some(MODERN_PROTOCOL_VERSION)
+                    {
+                        if self.modern.is_none() {
+                            self.modern = params.and_then(|params| params.get("_meta")).cloned();
+                        }
+                        if let Some(result) = self.modern_result(method, params) {
+                            return reply(&self.output, id, result);
+                        }
+                    }
+                    return self.delegate(line);
+                }
                 let result = match method {
                     "tools/call" => self.native_call(params),
                     "prompts/get" => self.prompt_get(params),
@@ -289,7 +331,7 @@ impl<B: Backend> Session<'_, B> {
         let modern_envelope = params
             .and_then(|params| params.pointer("/_meta"))
             .and_then(Value::as_object)
-            .is_some_and(|meta| meta.contains_key("io.modelcontextprotocol/protocolVersion"));
+            .is_some_and(|meta| meta.contains_key(PROTOCOL_VERSION_META));
         if modern_envelope {
             return None;
         }
@@ -308,21 +350,7 @@ impl<B: Backend> Session<'_, B> {
         let surface = &self.config.surface;
         match method {
             "ping" => Some(json!({})),
-            "tools/list" => {
-                let tools: Vec<Value> = surface
-                    .tools
-                    .iter()
-                    .filter(|tool| {
-                        let name = tool.get("name").and_then(Value::as_str).unwrap_or("");
-                        self.config
-                            .allowed_tools
-                            .as_ref()
-                            .is_none_or(|allowed| allowed.contains(name))
-                    })
-                    .cloned()
-                    .collect();
-                Some(json!({"tools": tools}))
-            }
+            "tools/list" => Some(json!({"tools": self.exposed_tools()})),
             "prompts/list" => Some(json!({"prompts": surface.prompts})),
             "resources/list" => Some(json!({"resources": []})),
             "resources/templates/list" => Some(json!({"resourceTemplates": []})),
@@ -342,7 +370,7 @@ impl<B: Backend> Session<'_, B> {
             .all(|key| matches!(key.as_str(), "name" | "arguments" | "_meta"))
             || params.get("_meta").is_some_and(|meta| {
                 meta.as_object()
-                    .is_none_or(|meta| meta.contains_key("io.modelcontextprotocol/protocolVersion"))
+                    .is_none_or(|meta| meta.contains_key(PROTOCOL_VERSION_META))
             })
         {
             return None;
@@ -388,6 +416,18 @@ impl<B: Backend> Session<'_, B> {
     /// but the name, the arguments, and a plain `_meta`.
     fn native_call(&self, params: Option<&Value>) -> Option<Value> {
         self.init_params.as_ref()?;
+        let (text, value) = self.native_answer(params)?;
+        Some(json!({
+            "content": [{"type": "text", "text": text}],
+            "structuredContent": value,
+            "isError": false,
+        }))
+    }
+
+    /// The text and value of a `tools/call` this front end answers: an
+    /// exposed tool, params that carry nothing but the name, the arguments,
+    /// and `_meta`, and a [`Native`] answer.
+    fn native_answer(&self, params: Option<&Value>) -> Option<(String, Value)> {
         let params = params?.as_object()?;
         if !params
             .keys()
@@ -395,11 +435,8 @@ impl<B: Backend> Session<'_, B> {
         {
             return None;
         }
-        let modern_envelope = params
-            .get("_meta")
-            .and_then(Value::as_object)
-            .is_some_and(|meta| meta.contains_key("io.modelcontextprotocol/protocolVersion"));
-        if modern_envelope {
+        if self.modern.is_none() && envelope_version(Some(&Value::Object(params.clone()))).is_some()
+        {
             return None;
         }
         let name = params.get("name")?.as_str()?;
@@ -423,15 +460,81 @@ impl<B: Backend> Session<'_, B> {
         }
         let empty = json!({});
         let arguments = params.get("arguments").unwrap_or(&empty);
-        let (text, value) = self.native.call_tool(name, arguments)?;
+        let answer = self.native.call_tool(name, arguments)?;
         if std::env::var_os("DAGAYN_MCP_TRACE").is_some() {
             eprintln!("dagayn: answered {name} in Rust");
         }
-        Some(json!({
-            "content": [{"type": "text", "text": text}],
-            "structuredContent": value,
-            "isError": false,
-        }))
+        Some(answer)
+    }
+
+    /// `serverInfo`, as the 2026-07-28 protocol stamps it on every result.
+    fn server_info_stamp(&self) -> Value {
+        json!({SERVER_INFO_META: {
+            "name": self.config.surface.server_name,
+            "version": self.config.version,
+        }})
+    }
+
+    /// A 2026-07-28 request this front end answers, shaped as the Python
+    /// SDK's runner shapes it: `server/discover` from the recorded result,
+    /// the listings (params with nothing but `_meta`, so no cursor), and a
+    /// native `tools/call`, each with `resultType` and the `serverInfo`
+    /// stamp. `None` delegates.
+    fn modern_result(&self, method: &str, params: Option<&Value>) -> Option<Value> {
+        let only_meta = params
+            .and_then(Value::as_object)
+            .is_some_and(|map| map.keys().all(|key| key == "_meta"));
+        let listing = |key: &str, items: Value| -> Value {
+            json!({
+                "cacheScope": "private",
+                key: items,
+                "resultType": "complete",
+                "ttlMs": 0,
+                "_meta": self.server_info_stamp(),
+            })
+        };
+        match method {
+            "server/discover" if only_meta => {
+                let mut result = self.config.surface.discover.clone()?;
+                result
+                    .as_object_mut()?
+                    .insert("_meta".into(), self.server_info_stamp());
+                Some(result)
+            }
+            "tools/list" if only_meta => Some(listing("tools", json!(self.exposed_tools()))),
+            "prompts/list" if only_meta => {
+                Some(listing("prompts", json!(self.config.surface.prompts)))
+            }
+            "resources/list" if only_meta => Some(listing("resources", json!([]))),
+            "tools/call" => {
+                let (text, value) = self.native_answer(params)?;
+                Some(json!({
+                    "content": [{"type": "text", "text": text}],
+                    "isError": false,
+                    "resultType": "complete",
+                    "structuredContent": value,
+                    "_meta": self.server_info_stamp(),
+                }))
+            }
+            _ => None,
+        }
+    }
+
+    /// The tools this session exposes, in listing order.
+    fn exposed_tools(&self) -> Vec<Value> {
+        self.config
+            .surface
+            .tools
+            .iter()
+            .filter(|tool| {
+                let name = tool.get("name").and_then(Value::as_str).unwrap_or("");
+                self.config
+                    .allowed_tools
+                    .as_ref()
+                    .is_none_or(|allowed| allowed.contains(name))
+            })
+            .cloned()
+            .collect()
     }
 
     fn forward_if_booted(&mut self, line: &str) -> io::Result<()> {
@@ -455,7 +558,16 @@ impl<B: Backend> Session<'_, B> {
             .boot(OwnedFd::from(requests_read), OwnedFd::from(replies_write))?;
         let output = Arc::clone(&self.output);
         let relay = std::thread::spawn(move || relay(replies_read, &output));
-        if let Some(params) = &self.init_params {
+        if let Some(meta) = &self.modern {
+            // The backend decides its era from the first request it reads.
+            let discover = json!({
+                "jsonrpc": "2.0",
+                "id": PROXY_INIT_ID,
+                "method": "server/discover",
+                "params": {"_meta": meta},
+            });
+            send(&mut requests_write, &discover.to_string())?;
+        } else if let Some(params) = &self.init_params {
             let init = json!({
                 "jsonrpc": "2.0",
                 "id": PROXY_INIT_ID,
@@ -485,7 +597,7 @@ fn send(pipe: &mut File, line: &str) -> io::Result<()> {
 }
 
 /// Copy the backend's lines to the client, except its reply to the replayed
-/// `initialize`.
+/// `initialize` or `server/discover`.
 fn relay(replies: File, output: &Output) {
     for line in BufReader::new(replies).lines() {
         let Ok(line) = line else { break };
@@ -519,6 +631,7 @@ pub fn serve(
         output: Arc::new(Mutex::new(output)),
         init_params: None,
         initialized: false,
+        modern: None,
         proxy: None,
     };
     let mut result = Ok(());

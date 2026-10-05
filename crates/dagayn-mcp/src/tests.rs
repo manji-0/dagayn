@@ -42,6 +42,12 @@ fn surface() -> Surface {
                 "instructions": "use the graph",
                 "serverInfo": {"name": "dagayn", "version": "ignored"},
             },
+            "discover": {
+                "ttlMs": 0,
+                "supportedVersions": ["2026-07-28"],
+                "capabilities": {"tools": {"listChanged": false}},
+                "resultType": "complete",
+            },
             "tools": [{"name": "a_tool"}, {"name": "b_tool"}],
             "prompts": [{"name": "a_prompt"}],
             "prompt_replies": {
@@ -434,4 +440,104 @@ fn graph_writers_are_native_only_before_the_backend_runs() {
         by_id(4)["result"]["structuredContent"],
         json!({"b_tool": 1})
     );
+}
+
+fn modern(id: i64, method: &str, params: Value) -> Value {
+    let mut params = params;
+    params["_meta"] = json!({
+        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+        "io.modelcontextprotocol/clientInfo": {"name": "t"},
+    });
+    request(id, method, params)
+}
+
+#[test]
+fn a_modern_connection_is_answered_without_initialize() {
+    let backend = Echo::default();
+    let replies = run_with(
+        &[
+            modern(1, "server/discover", json!({})),
+            modern(2, "tools/list", json!({})),
+            modern(3, "resources/list", json!({})),
+            modern(
+                4,
+                "tools/call",
+                json!({"name": "a_tool", "arguments": {"x": 1}}),
+            ),
+        ],
+        Some(&["a_tool"]),
+        backend.clone(),
+        &EchoA,
+    );
+    let stamp =
+        json!({"io.modelcontextprotocol/serverInfo": {"name": "dagayn", "version": "7.1.1"}});
+    assert_eq!(replies.len(), 4);
+    for reply in &replies {
+        assert_eq!(reply["result"]["_meta"], stamp, "{reply}");
+    }
+    assert_eq!(
+        replies[0]["result"]["supportedVersions"],
+        json!(["2026-07-28"])
+    );
+    assert_eq!(replies[1]["result"]["tools"], json!([{"name": "a_tool"}]));
+    assert_eq!(replies[1]["result"]["resultType"], "complete");
+    assert_eq!(replies[2]["result"]["resources"], json!([]));
+    assert_eq!(replies[3]["result"]["structuredContent"], json!({"x": 1}));
+    assert_eq!(replies[3]["result"]["resultType"], "complete");
+    assert_eq!(*backend.boots.lock().unwrap(), 0);
+}
+
+#[test]
+fn a_modern_connection_boots_the_backend_in_its_era() {
+    let backend = Echo::default();
+    let replies = run_with(
+        &[
+            modern(1, "server/discover", json!({})),
+            // Declined natively, then an `initialize` the backend refuses.
+            modern(2, "tools/call", json!({"name": "b_tool", "arguments": {}})),
+            init("2025-06-18"),
+            // Another revision, or a modern request after a handshake, is
+            // the backend's to refuse.
+            request(4, "tools/list", json!({})),
+        ],
+        Some(&["a_tool", "b_tool"]),
+        backend.clone(),
+        &EchoA,
+    );
+    let received = backend.received.lock().unwrap();
+    assert_eq!(received[0]["id"], PROXY_INIT_ID);
+    assert_eq!(received[0]["method"], "server/discover");
+    assert_eq!(
+        received[0]["params"]["_meta"]["io.modelcontextprotocol/protocolVersion"],
+        "2026-07-28"
+    );
+    let methods: Vec<&str> = received[1..]
+        .iter()
+        .map(|message| message["method"].as_str().unwrap())
+        .collect();
+    assert_eq!(methods, ["tools/call", "initialize", "tools/list"]);
+    // The replayed discover's reply is not relayed.
+    assert!(replies.iter().all(|reply| reply["id"] != PROXY_INIT_ID));
+    assert_eq!(replies.len(), 4);
+}
+
+#[test]
+fn an_unknown_revision_or_a_handshake_connection_delegates_modern_requests() {
+    let backend = Echo::default();
+    let mut other = modern(1, "tools/list", json!({}));
+    other["params"]["_meta"]["io.modelcontextprotocol/protocolVersion"] = json!("2099-01-01");
+    let replies = run(&[other], None, backend.clone());
+    assert_eq!(replies[0]["result"], json!({"echo": "tools/list"}));
+
+    let backend = Echo::default();
+    let replies = run(
+        &[
+            init("2025-06-18"),
+            initialized(),
+            modern(1, "tools/list", json!({})),
+        ],
+        None,
+        backend.clone(),
+    );
+    assert_eq!(replies[1]["result"], json!({"echo": "tools/list"}));
 }

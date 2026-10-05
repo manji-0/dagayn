@@ -278,12 +278,18 @@ counter-offering 2025-11-25), `ping`, `tools/list` (filtered by the
 `--tools` / `CRG_TOOLS` surface), `prompts/list`, the empty resource
 listings, and `logging/setLevel` before the Python server runs, from
 `dagayn/server/mcp_surface.json`, which `tools/mcp_snapshot.py --regenerate`
-records from the fastmcp server and a test keeps current. Every other
-message (`tools/call`, `prompts/get`, unknown methods, anything before
-`initialize`, the 2026-07-28 envelope, pagination cursors) boots the fastmcp
-server of `dagayn.server.main` in a thread on a pipe pair, replays the
-client's `initialize` to it under the id `dagayn-proxy-init`, and relays the
-session from then on, so validation, serialization, errors, and
+records from the fastmcp server and a test keeps current. A client that
+opens with a 2026-07-28 request (Claude Code does: `server/discover`, then
+every request in the `_meta` envelope, no `initialize`) gets the recorded
+`server/discover` result and the listings the same way, with `resultType`,
+`cacheScope`, `ttlMs`, and the `serverInfo` stamp the SDK's runner adds.
+Every other message (`tools/call` the native tools decline, `prompts/get`
+in that envelope, unknown methods, anything before `initialize`, a
+revision it does not speak, pagination cursors) boots the fastmcp server
+of `dagayn.server.main` in a thread on a pipe pair, replays the client's
+`initialize` (or, on a 2026-07-28 connection, its first `server/discover`)
+to it under the id `dagayn-proxy-init`, and relays the session from then
+on, so validation, serialization, errors, and
 notifications are fastmcp's own. As fastmcp's stdio loop does, fd 0 then
 reads `/dev/null` and fd 1 writes to stderr. On stdin EOF the front end
 closes the pipe, waits for the Python server to finish, and returns, so a

@@ -549,6 +549,14 @@ def _handshake_variants(repo: Path, env: dict[str, str]) -> dict[str, Any]:
 
 SURFACE_PATH = REPO_ROOT / "dagayn" / "server" / "mcp_surface.json"
 
+#: The per-request envelope of the 2026-07-28 protocol, as Claude Code sends
+#: it (no `initialize`; every request carries it).
+MODERN_META: dict[str, Any] = {
+    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+    "io.modelcontextprotocol/clientInfo": {"name": "mcp-snapshot", "version": "0"},
+    "io.modelcontextprotocol/clientCapabilities": {},
+}
+
 
 def surface_from_python_server() -> str:
     """What the stdio front end in ``dagayn._core`` answers without Python:
@@ -570,13 +578,24 @@ def surface_from_python_server() -> str:
         )
         prompts = replies["prompts"]["result"]["prompts"]
         prompt_replies = _prompt_replies(repo, env, prompts)
+        discover = _session(
+            repo,
+            env,
+            "all",
+            [("discover", "server/discover", {"_meta": MODERN_META})],
+            base_cmd=PYTHON_SERVER_CMD,
+        )["discover"]["result"]
     initialize = replies["initialize"]["result"]
+    # The 2026-07-28 `server/discover` result, without the `serverInfo` stamp
+    # every result of that protocol carries (the front end adds its own).
+    discover.pop("_meta", None)
     surface = {
         "initialize": {
             "capabilities": initialize["capabilities"],
             "instructions": initialize.get("instructions"),
             "serverInfo": {"name": initialize["serverInfo"]["name"]},
         },
+        "discover": discover,
         "tools": replies["tools"]["result"]["tools"],
         "prompts": prompts,
         "prompt_replies": prompt_replies,

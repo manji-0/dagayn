@@ -15,6 +15,7 @@ import sys
 from importlib import import_module
 from typing import Any, Literal, Optional
 
+from .. import __version__
 from ..contracts import _python314_compat
 from ..contracts.state_types import RefactorMode, TraversalMode
 from ..prompts import (
@@ -255,6 +256,9 @@ def _tool(name: str) -> Any:
 # ProcessPoolExecutor met the only event-loop thread (#46, #136).
 mcp = FastMCP(
     "dagayn",
+    # Without a version fastmcp reports its own, which the 2026-07-28 protocol
+    # stamps on every result; the Rust front end reports this one.
+    version=__version__,
     instructions=(
         "dagayn is a knowledge graph of this repository: code, Markdown docs, "
         "and Terraform are nodes, linked by calls, imports, tests, and doc "

@@ -6,6 +6,14 @@ All notable changes to `dagayn` are documented here.
 
 ### Changed
 
+- The Rust front end of `dagayn serve` now speaks the 2026-07-28 MCP
+  protocol that Claude Code uses: it answers `server/discover`, the
+  listings, and the natively answered tools in that envelope. Before, every
+  request of a 2026-07-28 connection went to Python, so in Claude Code none
+  of the tools answered in Rust and every session started Python's server.
+  A session of `server/discover`, the listings, and eight tool calls is now
+  answered without starting it. The Python server now reports dagayn's
+  version in `serverInfo` instead of fastmcp's, as the front end does.
 - The Rust front end now answers argument errors itself instead of
   starting Python's server for them: an unknown `query_graph_tool` pattern
   or a depth it does not apply, a `semantic_search_nodes_tool` limit below
