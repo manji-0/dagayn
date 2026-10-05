@@ -109,7 +109,10 @@ fn perl_error_recovery_does_not_invent_callees() {
         .filter(|edge| edge.kind == "CALLS")
         .map(|edge| edge.target.as_str())
         .collect();
-    assert_eq!(calls, vec!["input_avail"]);
+    // tree-sitter-perl 2.x parses this without an error and reads the
+    // undeclared `input_avail` as a bareword, not a call; older grammars
+    // recovered into `input_avail(&do ...)` and could invent `do`.
+    assert!(calls.iter().all(|target| *target != "do"), "{calls:?}");
 }
 
 #[test]

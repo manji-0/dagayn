@@ -232,7 +232,7 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
         language="csharp",
         owner="tree-sitter",
         repo="tree-sitter-c-sharp",
-        commit="cac6d5fb595f5811a076336682d5d595ac1c9e85",
+        commit="8c0abe0b84a3681d3e6852ce2e2a1eecb4f731c5",
         required_paths=(
             "src/parser.c",
             "src/scanner.c",
@@ -247,7 +247,7 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
         language="php",
         owner="tree-sitter",
         repo="tree-sitter-php",
-        commit="3f2465c217d0a966d41e584b42d75522f2a3149e",
+        commit="92b5271b60bec77fb65b5e5bc41561e8dac81299",
         required_paths=(
             "php/src/parser.c",
             "php/src/scanner.c",
@@ -264,7 +264,7 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
         language="kotlin",
         owner="fwcd",
         repo="tree-sitter-kotlin",
-        commit="f66d2908542e93c0204c6c241f794afe4e9cd5d1",
+        commit="1852ea17b7f60fb3f9d84e0b1555d56b46b39fb1",
         required_paths=(
             "src/parser.c",
             "src/scanner.c",
@@ -279,7 +279,7 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
         language="scala",
         owner="tree-sitter",
         repo="tree-sitter-scala",
-        commit="a68000002745b94eec61cef741efe7cede4ff465",
+        commit="db390f312a54b04b13790e1767bfac32665c17ac",
         required_paths=(
             "src/parser.c",
             "src/scanner.c",
@@ -293,7 +293,7 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
         language="dart",
         owner="UserNobody14",
         repo="tree-sitter-dart",
-        commit="0fc19c3a57b1109802af41d2b8f60d8835c5da3a",
+        commit="be07cf7118d3dba06236a3f19541685a68209934",
         required_paths=(
             "src/parser.c",
             "src/scanner.c",
@@ -321,7 +321,7 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
         language="c",
         owner="tree-sitter",
         repo="tree-sitter-c",
-        commit="ae19b676b13bdcc13b7665397e6d9b14975473dd",
+        commit="b780e47fc780ddc8da13afa35a3f4ed5c157823d",
         required_paths=(
             "src/parser.c",
             "src/tree_sitter/alloc.h",
@@ -334,7 +334,7 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
         language="cpp",
         owner="tree-sitter",
         repo="tree-sitter-cpp",
-        commit="12bd6f7e96080d2e70ec51d4068f2f66120dde35",
+        commit="c009222808634c1014f82438d4883753516a2c24",
         required_paths=(
             "src/parser.c",
             "src/scanner.c",
@@ -361,7 +361,7 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
         language="elixir",
         owner="elixir-lang",
         repo="tree-sitter-elixir",
-        commit="d24cecee673c4c770f797bac6f87ae4b6d7ddec5",
+        commit="4b0c7118760af58a2e7081bbc8396e136f820b37",
         required_paths=(
             "src/parser.c",
             "src/scanner.c",
@@ -375,7 +375,7 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
         language="gdscript",
         owner="PrestonKnopp",
         repo="tree-sitter-gdscript",
-        commit="cc1c5518f7de0518af8ab842503b87e2d97c56c2",
+        commit="8ecb27ed77c09edd7cca123bbecebd44930b765c",
         required_paths=(
             "src/parser.c",
             "src/scanner.c",
@@ -389,7 +389,7 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
         language="r",
         owner="r-lib",
         repo="tree-sitter-r",
-        commit="0e6ef7741712c09dc3ee6e81c42e919820cc65ef",
+        commit="58a22794466c0fc15b0d3b40531db751593721e8",
         required_paths=(
             "src/parser.c",
             "src/scanner.c",
@@ -417,7 +417,7 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
         language="perl",
         owner="tree-sitter-perl",
         repo="tree-sitter-perl",
-        commit="ecd90bd8b381bcc7219fed4fe351903630e761c6",
+        commit="04477eeb0f165f29fbc8f398bb1c1689f870f67a",
         required_paths=(
             "src/parser.c",
             "src/scanner.c",
@@ -425,6 +425,10 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
             "src/tree_sitter/array.h",
             "src/tree_sitter/parser.h",
             "src/bsearch.h",
+            "src/tsp_intuit_keywords.h",
+            "src/tsp_intuit_more.h",
+            "src/tsp_intuit_readline.h",
+            "src/tsp_keywords.h",
             "src/tsp_unicode.h",
         ),
     ),
@@ -432,7 +436,7 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
         language="vue",
         owner="tree-sitter-grammars",
         repo="tree-sitter-vue",
-        commit="22bdfa6c9fc0f5ffa44c6e938ec46869ac8a99ff",
+        commit="ce8011a414fdf8091f4e4071752efc376f4afb08",
         required_paths=(
             "src/parser.c",
             "src/scanner.c",
@@ -474,7 +478,7 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
         language="swift",
         owner="alex-pinkus",
         repo="tree-sitter-swift",
-        commit="78d84ef82c387fceeb6094038da28717ea052e39",
+        commit="82bb3a533e0801fd2bbaa11dc49676e10bf41948",
         required_paths=(
             "src/parser.c",
             "src/scanner.c",
@@ -482,12 +486,6 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
             "src/tree_sitter/array.h",
             "src/tree_sitter/parser.h",
         ),
-        source_subdirectory="parsers/swift",
-        archive_url_override=(
-            "https://files.pythonhosted.org/packages/source/t/"
-            "tree-sitter-language-pack/tree_sitter_language_pack-0.13.0.tar.gz"
-        ),
-        cache_dir_override="tree-sitter-language-pack-0.13.0-swift-78d84ef82c387fceeb6094038da28717ea052e39",
     ),
 }
 
