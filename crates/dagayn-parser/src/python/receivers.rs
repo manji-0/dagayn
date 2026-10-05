@@ -7,21 +7,19 @@
 
 use std::collections::HashMap;
 
-use super::super::util::node_text;
+use ruff_python_ast::statement_visitor::{StatementVisitor, walk_stmt};
+use ruff_python_ast::{self as ast, Expr, Operator, Stmt};
+
+use super::source::{PySource, for_each_statement};
 
 /// The type an annotation names, as written: `GraphStore`, `pkg.Store`;
 /// `Optional[T]`, `T | None`, and `"T"` give `T`; a generic `list[str]`
 /// gives `list`. `None` for `None` or anything else.
-pub(super) fn python_annotation_type(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    match node.kind() {
-        "type" | "type_annotation" | "parenthesized_expression" => {
-            let mut cursor = node.walk();
-            node.named_children(&mut cursor)
-                .find_map(|child| python_annotation_type(child, source))
-        }
-        "identifier" | "attribute" => Some(node_text(node, source)),
-        "string" => {
-            let text = node_text(node, source);
+pub(super) fn python_annotation_type(expr: &Expr, src: &PySource<'_>) -> Option<String> {
+    match expr {
+        Expr::Name(_) | Expr::Attribute(_) => Some(src.slice(expr).to_string()),
+        Expr::StringLiteral(_) => {
+            let text = src.slice(expr);
             let inner = text.trim_matches(|c| c == '"' || c == '\'').trim();
             let valid = !inner.is_empty()
                 && inner
@@ -30,11 +28,10 @@ pub(super) fn python_annotation_type(node: tree_sitter::Node<'_>, source: &[u8])
             valid.then(|| inner.to_string())
         }
         // `T | None`
-        "binary_operator" => {
-            let mut cursor = node.walk();
-            let types = node
-                .named_children(&mut cursor)
-                .filter_map(|child| python_annotation_type(child, source))
+        Expr::BinOp(binary) if binary.op == Operator::BitOr => {
+            let types = [&*binary.left, &*binary.right]
+                .into_iter()
+                .filter_map(|side| python_annotation_type(side, src))
                 .collect::<Vec<_>>();
             match types.as_slice() {
                 [single] => Some(single.clone()),
@@ -42,24 +39,17 @@ pub(super) fn python_annotation_type(node: tree_sitter::Node<'_>, source: &[u8])
             }
         }
         // `Optional[T]` / `Union[T, None]` give `T`; `list[str]` gives `list`.
-        "generic_type" | "subscript" => {
-            let mut cursor = node.walk();
-            let children = node.named_children(&mut cursor).collect::<Vec<_>>();
-            let base = children.first()?;
-            let base_name = python_annotation_type(*base, source)?;
+        Expr::Subscript(subscript) => {
+            let base_name = python_annotation_type(&subscript.value, src)?;
             let wrapper = base_name.rsplit('.').next().unwrap_or(&base_name);
             if matches!(wrapper, "Optional" | "Union") {
-                let arguments = children[1..]
-                    .iter()
-                    .flat_map(|child| {
-                        if child.kind() == "type_parameter" {
-                            let mut inner = child.walk();
-                            child.named_children(&mut inner).collect::<Vec<_>>()
-                        } else {
-                            vec![*child]
-                        }
-                    })
-                    .filter_map(|child| python_annotation_type(child, source))
+                let arguments = match &*subscript.slice {
+                    Expr::Tuple(tuple) => tuple.elts.iter().collect::<Vec<_>>(),
+                    slice => vec![slice],
+                };
+                let arguments = arguments
+                    .into_iter()
+                    .filter_map(|argument| python_annotation_type(argument, src))
                     .collect::<Vec<_>>();
                 return match arguments.as_slice() {
                     [single] => Some(single.clone()),
@@ -72,149 +62,127 @@ pub(super) fn python_annotation_type(node: tree_sitter::Node<'_>, source: &[u8])
     }
 }
 
-/// `(name, annotated type)` of each parameter of a `parameters` node.
+/// `(name, annotated type)` of each annotated parameter that is neither
+/// `*args` nor `**kwargs`.
 pub(super) fn python_parameter_types(
-    parameters: tree_sitter::Node<'_>,
-    source: &[u8],
+    parameters: &ast::Parameters,
+    src: &PySource<'_>,
 ) -> Vec<(String, String)> {
-    let mut types = Vec::new();
-    let mut cursor = parameters.walk();
-    for parameter in parameters.named_children(&mut cursor) {
-        if !matches!(
-            parameter.kind(),
-            "typed_parameter" | "typed_default_parameter"
-        ) {
-            continue;
-        }
-        let name = parameter.child_by_field_name("name").or_else(|| {
-            let mut inner = parameter.walk();
-            parameter
-                .named_children(&mut inner)
-                .find(|child| child.kind() == "identifier")
-        });
-        let annotation = parameter
-            .child_by_field_name("type")
-            .and_then(|annotation| python_annotation_type(annotation, source));
-        if let (Some(name), Some(annotation)) = (name, annotation) {
-            types.push((node_text(name, source), annotation));
-        }
-    }
-    types
+    parameters
+        .iter_non_variadic_params()
+        .filter_map(|parameter| {
+            let annotation = parameter.parameter.annotation.as_deref()?;
+            let annotation = python_annotation_type(annotation, src)?;
+            Some((parameter.parameter.name.to_string(), annotation))
+        })
+        .collect()
 }
 
 /// Class name -> attribute -> type, for every class of the file.
 pub(super) type AttributeTypes = HashMap<String, HashMap<String, String>>;
 
-pub(super) fn collect_python_attribute_types(
-    root: tree_sitter::Node<'_>,
-    source: &[u8],
-) -> AttributeTypes {
+pub(super) fn collect_python_attribute_types(body: &[Stmt], src: &PySource<'_>) -> AttributeTypes {
     let mut types = AttributeTypes::new();
-    collect_classes(root, source, &mut types);
+    for_each_statement(body, |stmt| {
+        if let Stmt::ClassDef(class) = stmt
+            && !class.name.is_empty()
+        {
+            let attributes = collect_class_attributes(class, src);
+            types
+                .entry(class.name.to_string())
+                .or_default()
+                .extend(attributes);
+        }
+    });
     types
 }
 
-fn collect_classes(node: tree_sitter::Node<'_>, source: &[u8], types: &mut AttributeTypes) {
-    if node.kind() == "class_definition"
-        && let Some(name) = node.child_by_field_name("name")
-        && let Some(body) = node.child_by_field_name("body")
-    {
-        let mut attributes = HashMap::new();
-        let mut cursor = body.walk();
-        for statement in body.named_children(&mut cursor) {
-            // `store: GraphStore` in the class body (dataclasses, attrs).
-            let assignment = if statement.kind() == "expression_statement" {
-                statement.named_child(0)
-            } else {
-                Some(statement)
-            };
-            if let Some(assignment) = assignment
-                && assignment.kind() == "assignment"
-                && let Some(left) = assignment.child_by_field_name("left")
-                && left.kind() == "identifier"
-                && let Some(annotation) = assignment
-                    .child_by_field_name("type")
-                    .and_then(|annotation| python_annotation_type(annotation, source))
-            {
-                attributes.insert(node_text(left, source), annotation);
-            }
+fn collect_class_attributes(
+    class: &ast::StmtClassDef,
+    src: &PySource<'_>,
+) -> HashMap<String, String> {
+    let mut attributes = HashMap::new();
+    // `store: GraphStore` in the class body (dataclasses, attrs).
+    for statement in &class.body {
+        if let Stmt::AnnAssign(assignment) = statement
+            && let Expr::Name(name) = &*assignment.target
+            && let Some(annotation) = python_annotation_type(&assignment.annotation, src)
+        {
+            attributes.insert(name.id.to_string(), annotation);
         }
-        let mut cursor = body.walk();
-        for statement in body.named_children(&mut cursor) {
-            let function = if statement.kind() == "decorated_definition" {
-                statement.child_by_field_name("definition")
-            } else {
-                Some(statement)
-            };
-            if let Some(function) = function.filter(|f| f.kind() == "function_definition") {
-                let parameters = function
-                    .child_by_field_name("parameters")
-                    .map(|parameters| python_parameter_types(parameters, source))
-                    .unwrap_or_default()
-                    .into_iter()
-                    .collect::<HashMap<_, _>>();
-                if let Some(function_body) = function.child_by_field_name("body") {
-                    collect_self_assignments(function_body, source, &parameters, &mut attributes);
-                }
-            }
-        }
-        types
-            .entry(node_text(name, source))
-            .or_default()
-            .extend(attributes);
     }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_classes(child, source, types);
+    for statement in &class.body {
+        let Stmt::FunctionDef(function) = statement else {
+            continue;
+        };
+        let parameters = python_parameter_types(&function.parameters, src)
+            .into_iter()
+            .collect::<HashMap<_, _>>();
+        let mut collector = SelfAssignments {
+            src,
+            parameters: &parameters,
+            attributes: &mut attributes,
+        };
+        collector.visit_body(&function.body);
     }
+    attributes
 }
 
 /// `self.x: T = ...`, `self.x = T(...)`, `self.x = param` (annotated).
-fn collect_self_assignments(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    parameters: &HashMap<String, String>,
-    attributes: &mut HashMap<String, String>,
-) {
-    if node.kind() == "assignment"
-        && let Some(left) = node.child_by_field_name("left")
-        && left.kind() == "attribute"
-        && left
-            .child_by_field_name("object")
-            .is_some_and(|object| node_text(object, source) == "self")
-        && let Some(attribute) = left.child_by_field_name("attribute")
-    {
-        let annotated = node
-            .child_by_field_name("type")
-            .and_then(|annotation| python_annotation_type(annotation, source));
-        let assigned =
-            node.child_by_field_name("right")
-                .and_then(|right| match right.kind() {
-                    // A class is capitalized; `self.x = make()` says nothing.
-                    "call" => right
-                        .child_by_field_name("function")
-                        .filter(|callee| matches!(callee.kind(), "identifier" | "attribute"))
-                        .map(|callee| node_text(callee, source))
-                        .filter(|callee| {
-                            callee.rsplit('.').next().is_some_and(|name| {
-                                name.starts_with(|c: char| c.is_ascii_uppercase())
-                            })
-                        }),
-                    "identifier" => parameters.get(&node_text(right, source)).cloned(),
-                    _ => None,
-                });
-        if let Some(type_name) = annotated.or(assigned) {
-            attributes
-                .entry(node_text(attribute, source))
-                .or_insert(type_name);
+struct SelfAssignments<'a, 's> {
+    src: &'a PySource<'s>,
+    parameters: &'a HashMap<String, String>,
+    attributes: &'a mut HashMap<String, String>,
+}
+
+impl<'ast> StatementVisitor<'ast> for SelfAssignments<'_, '_> {
+    fn visit_stmt(&mut self, stmt: &'ast Stmt) {
+        match stmt {
+            // Nested functions and classes have their own `self`.
+            Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {}
+            // `self.a = self.b = T()`: only the last target takes the value.
+            Stmt::Assign(assignment) => {
+                if let Some(target) = assignment.targets.last() {
+                    self.record(target, None, Some(&assignment.value));
+                }
+            }
+            Stmt::AnnAssign(assignment) => self.record(
+                &assignment.target,
+                Some(&assignment.annotation),
+                assignment.value.as_deref(),
+            ),
+            _ => walk_stmt(self, stmt),
         }
     }
-    // Nested functions and classes have their own `self`.
-    if matches!(node.kind(), "function_definition" | "class_definition") {
-        return;
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_self_assignments(child, source, parameters, attributes);
+}
+
+impl SelfAssignments<'_, '_> {
+    fn record(&mut self, target: &Expr, annotation: Option<&Expr>, value: Option<&Expr>) {
+        let Expr::Attribute(attribute) = target else {
+            return;
+        };
+        if self.src.slice(&*attribute.value) != "self" || attribute.attr.is_empty() {
+            return;
+        }
+        let annotated =
+            annotation.and_then(|annotation| python_annotation_type(annotation, self.src));
+        let assigned = value.and_then(|value| match value {
+            // A class is capitalized; `self.x = make()` says nothing.
+            Expr::Call(call) => matches!(&*call.func, Expr::Name(_) | Expr::Attribute(_))
+                .then(|| self.src.slice(&*call.func).to_string())
+                .filter(|callee| {
+                    callee
+                        .rsplit('.')
+                        .next()
+                        .is_some_and(|name| name.starts_with(|c: char| c.is_ascii_uppercase()))
+                }),
+            Expr::Name(name) => self.parameters.get(name.id.as_str()).cloned(),
+            _ => None,
+        });
+        if let Some(type_name) = annotated.or(assigned) {
+            self.attributes
+                .entry(attribute.attr.to_string())
+                .or_insert(type_name);
+        }
     }
 }

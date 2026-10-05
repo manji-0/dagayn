@@ -77,6 +77,9 @@ dagayn-grammars = { path = "../dagayn-grammars", default-features = false }
 globset.workspace = true
 memchr.workspace = true
 regex.workspace = true
+ruff_python_ast.workspace = true
+ruff_python_parser.workspace = true
+ruff_text_size.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -90,3 +93,7 @@ required-features = ["all-languages"]
 [[example]]
 name = "quality_probe"
 required-features = ["all-languages"]
+
+[[example]]
+name = "python_parser_diff"
+required-features = ["lang-python"]

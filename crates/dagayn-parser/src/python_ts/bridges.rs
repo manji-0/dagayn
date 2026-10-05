@@ -1,19 +1,18 @@
 //! Cross-language bridges from Python calls: subprocess launches, file I/O, shared-library loads (ctypes, cffi), and WebAssembly hosts (wasmtime, wasmer).
 
-use ruff_python_ast::ArgOrKeyword;
-
 use super::*;
 
 pub(crate) fn python_bridge_edge(
-    call: &ast::ExprCall,
-    src: &PySource<'_>,
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
     file_path: &FilePath,
     caller: &str,
     import_aliases: &HashMap<String, String>,
 ) -> Option<ParsedEdge> {
-    let signature = python_canonical_signature(python_call_signature(call, src)?, import_aliases);
-    let line = src.start_line(call);
-    if let Some((relationship_role, target)) = python_wasm_host_bridge(call, &signature) {
+    let signature =
+        python_canonical_signature(python_call_signature(node, source)?, import_aliases);
+    let line = node.start_position().row as i64 + 1;
+    if let Some((relationship_role, target)) = python_wasm_host_bridge(node, source, &signature) {
         return Some(ParsedEdge {
             kind: crate::core::types::EdgeKind::CrossArtifact,
             source: caller.to_string(),
@@ -33,7 +32,7 @@ pub(crate) fn python_bridge_edge(
         });
     }
     let (relationship_role, bridge_kind) = python_bridge_pattern(&signature)?;
-    let (target, confidence, confidence_tier) = match python_first_string_arg(call) {
+    let (target, confidence, confidence_tier) = match python_first_string_arg(node, source) {
         Some(target) if !target.is_empty() => (target, 0.8, "HIGH"),
         _ => (
             format!("<dynamic:{signature}@{file_path}:{line}>"),
@@ -81,8 +80,13 @@ fn python_canonical_signature(
     }
 }
 
-fn python_call_signature(call: &ast::ExprCall, src: &PySource<'_>) -> Option<String> {
-    Some(src.slice(&*call.func).trim().to_string()).filter(|value| !value.is_empty())
+fn python_call_signature(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+
+    node.children(&mut cursor)
+        .find(|child| child.kind() != "argument_list")
+        .map(|child| node_text(child, source).trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 /// A WebAssembly host (wasmtime / wasmer): a call with a string argument
@@ -90,14 +94,17 @@ fn python_call_signature(call: &ast::ExprCall, src: &PySource<'_>) -> Option<Str
 /// the module; `instance.exports(store).get("add")` and wasmer's
 /// `instance.exports.add(...)` call its export.
 fn python_wasm_host_bridge(
-    call: &ast::ExprCall,
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
     signature: &str,
 ) -> Option<(&'static str, String)> {
-    let strings: Vec<String> = call
-        .arguments
-        .args
-        .iter()
-        .filter_map(string_like_text)
+    let arguments = node
+        .children(&mut node.walk())
+        .find(|child| child.kind() == "argument_list")?;
+    let strings: Vec<String> = arguments
+        .children(&mut arguments.walk())
+        .filter(|child| child.kind() == "string")
+        .filter_map(|child| python_string_literal_text(child, source))
         .collect();
     if let Some(path) = strings
         .iter()
@@ -145,25 +152,36 @@ fn python_bridge_pattern(signature: &str) -> Option<(&'static str, &'static str)
     }
 }
 
-/// The literal first argument of a call (`open("data.csv")`), or the first
-/// string of a literal list or tuple (`subprocess.run(["git", ...])`). An
-/// f-string that interpolates a value names no fixed target.
-fn python_first_string_arg(call: &ast::ExprCall) -> Option<String> {
-    let ArgOrKeyword::Arg(first) = call.arguments.iter_source_order().next()? else {
+fn python_first_string_arg(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    let arguments = node
+        .children(&mut cursor)
+        .find(|child| child.kind() == "argument_list")?;
+    let mut arg_cursor = arguments.walk();
+    for child in arguments.children(&mut arg_cursor) {
+        if matches!(child.kind(), "," | "(" | ")" | "{" | "}" | "[" | "]") {
+            continue;
+        }
+        if child.kind() == "string" {
+            return Some(decode_python_string_literal(child, source));
+        }
+        if matches!(child.kind(), "list" | "tuple") {
+            return python_first_string_in_sequence(child, source);
+        }
         return None;
-    };
-    match first {
-        Expr::List(ast::ExprList { elts, .. }) | Expr::Tuple(ast::ExprTuple { elts, .. }) => elts
-            .iter()
-            .find(|element| string_like_text(element).is_some())
-            .and_then(python_fixed_string),
-        expr => python_fixed_string(expr),
     }
+    None
 }
 
-fn python_fixed_string(expr: &Expr) -> Option<String> {
-    if has_interpolation(expr) {
-        return None;
+fn python_first_string_in_sequence(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if matches!(child.kind(), "," | "(" | ")" | "{" | "}" | "[" | "]") {
+            continue;
+        }
+        if child.kind() == "string" {
+            return Some(decode_python_string_literal(child, source));
+        }
     }
-    string_like_text(expr)
+    None
 }

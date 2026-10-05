@@ -2,15 +2,14 @@
 //! Databricks `.py` / `.r` exports, parsed cell by cell with the Python
 //! extractor, plus SQL table imports and cell dataflow edges.
 
-use ruff_python_ast::visitor::source_order::{SourceOrderVisitor, walk_expr};
-
 use super::*;
 
 mod marimo;
 
 use marimo::*;
 pub(crate) use marimo::{
-    looks_like_marimo_md, looks_like_marimo_py, parse_marimo_md_with_parser, parse_marimo_py,
+    looks_like_marimo_md, looks_like_marimo_py, parse_marimo_md_with_parser,
+    parse_marimo_py_with_parser,
 };
 
 static NOTEBOOK_SQL_TABLE_RE: LazyLock<Regex> = LazyLock::new(|| {
@@ -27,9 +26,10 @@ static NOTEBOOK_R_FUNCTION_RE: LazyLock<Regex> = LazyLock::new(|| {
 static NOTEBOOK_R_CALL_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b([A-Za-z_.][A-Za-z0-9_.]*)\s*\(").unwrap());
 
-pub(crate) fn parse_notebook(
+pub(crate) fn parse_notebook_with_parser(
     file_path: &str,
     source: &[u8],
+    parser: Option<&mut tree_sitter::Parser>,
     repo_root: Option<&Path>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let file_path = FilePath::new(file_path);
@@ -79,7 +79,14 @@ pub(crate) fn parse_notebook(
             Vec::new(),
         );
     }
-    parse_notebook_cells(&file_path, &cells, default_language, None, repo_root)
+    parse_notebook_cells_with_parser(
+        &file_path,
+        &cells,
+        default_language,
+        None,
+        parser,
+        repo_root,
+    )
 }
 
 #[derive(Clone)]
@@ -120,15 +127,20 @@ fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
             .any(|window| window == needle)
 }
 
-/// The call a statement is, when it is a call on its own (`app.run()`).
-fn expression_statement_call(stmt: &Stmt) -> Option<&ast::ExprCall> {
-    match stmt {
-        Stmt::Expr(ast::StmtExpr { value, .. }) => match &**value {
-            Expr::Call(call) => Some(call),
-            _ => None,
-        },
-        _ => None,
+fn expression_statement_call(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
+    if node.kind() != "expression_statement" {
+        return None;
     }
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .find(|child| child.kind() == "call")
+}
+
+fn collect_named_children(node: tree_sitter::Node<'_>) -> Vec<tree_sitter::Node<'_>> {
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .filter(tree_sitter::Node::is_named)
+        .collect()
 }
 
 fn with_trailing_newline(mut source: String) -> String {
@@ -138,89 +150,119 @@ fn with_trailing_newline(mut source: String) -> String {
     source
 }
 
-/// The parameter names of a marimo cell function: the names the cell
-/// reads from other cells.
-fn python_function_param_names(function: &ast::StmtFunctionDef) -> Vec<String> {
+fn python_function_param_names(function: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
+    let Some(params) = function.child_by_field_name("parameters") else {
+        return Vec::new();
+    };
     let mut names = Vec::new();
-    for parameter in function.parameters.iter_source_order() {
-        let (name, annotated, variadic) = match parameter {
-            ast::AnyParameterRef::NonVariadic(parameter) => (
-                &parameter.parameter.name,
-                parameter.parameter.annotation.is_some(),
-                false,
-            ),
-            ast::AnyParameterRef::Variadic(parameter) => {
-                (&parameter.name, parameter.annotation.is_some(), true)
+    let mut cursor = params.walk();
+    for child in params.children(&mut cursor) {
+        match child.kind() {
+            "identifier" => names.push(node_text(child, source)),
+            "typed_parameter"
+            | "default_parameter"
+            | "typed_default_parameter"
+            | "list_splat_pattern"
+            | "dictionary_splat_pattern" => {
+                if let Some(name) = python_identifier_child(child, source) {
+                    names.push(name);
+                }
             }
-        };
-        // `*args: T` names no single value.
-        if variadic && annotated {
-            continue;
+            _ => {}
         }
-        names.push(name.to_string());
     }
     names.retain(|name| !is_default_marimo_cell_name(name) && name != "self" && name != "cls");
     names
 }
 
-/// The names a marimo cell function returns: the names it defines for
-/// other cells.
-fn python_function_return_names(function: &ast::StmtFunctionDef) -> Vec<String> {
-    let Some(Stmt::Return(ret)) = function.body.last() else {
+fn python_function_return_names(function: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
+    let Some(body) = function.child_by_field_name("body") else {
+        return Vec::new();
+    };
+    let statements = named_block_statements(body);
+    let Some(ret) = statements
+        .last()
+        .copied()
+        .filter(|statement| statement.kind() == "return_statement")
+    else {
         return Vec::new();
     };
     let mut names = Vec::new();
-    if let Some(value) = &ret.value {
-        python_collect_export_identifiers(value, &mut names);
-    }
+    python_collect_export_identifiers(ret, source, &mut names);
     names.retain(|name| !is_default_marimo_cell_name(name));
     names
 }
 
-fn python_collect_export_identifiers(expr: &Expr, out: &mut Vec<String>) {
-    match expr {
-        Expr::Name(name) => out.push(name.id.to_string()),
-        Expr::Tuple(ast::ExprTuple { elts, .. })
-        | Expr::List(ast::ExprList { elts, .. })
-        | Expr::Set(ast::ExprSet { elts, .. }) => {
-            for element in elts {
-                python_collect_export_identifiers(element, out);
+fn python_collect_export_identifiers(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    out: &mut Vec<String>,
+) {
+    match node.kind() {
+        "identifier" => out.push(node_text(node, source)),
+        "call" | "attribute" | "subscript" => {}
+        "return_statement"
+        | "tuple"
+        | "list"
+        | "set"
+        | "parenthesized_expression"
+        | "expression_list"
+        | "pattern_list" => {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.is_named() {
+                    python_collect_export_identifiers(child, source, out);
+                }
             }
         }
         _ => {}
     }
 }
 
+fn decorated_definition_target<'tree>(
+    node: tree_sitter::Node<'tree>,
+    kind: &str,
+) -> Option<tree_sitter::Node<'tree>> {
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .find(|child| child.kind() == kind)
+}
+
 fn block_source_without_trailing_return(
-    body: &[Stmt],
-    src: &PySource<'_>,
+    body: tree_sitter::Node<'_>,
+    source: &[u8],
     strip_return: bool,
 ) -> String {
-    let kept = if strip_return && matches!(body.last(), Some(Stmt::Return(_))) {
-        &body[..body.len().saturating_sub(1)]
+    let statements = named_block_statements(body);
+    let kept = if strip_return
+        && statements
+            .last()
+            .is_some_and(|statement| statement.kind() == "return_statement")
+    {
+        &statements[..statements.len().saturating_sub(1)]
     } else {
-        body
+        statements.as_slice()
     };
-    let (Some(first), Some(last)) = (kept.first(), kept.last()) else {
-        return String::new();
-    };
-    if first.start() >= last.end() {
+    if kept.is_empty() {
         return String::new();
     }
-    // From the start of the first statement's line, so its indentation is
-    // dedented with the rest of the block's.
-    let text = src.text();
-    let first_start = first.start().to_usize();
-    let line_start = text[..first_start].rfind('\n').map_or(0, |at| at + 1);
-    let start = if text[line_start..first_start]
-        .bytes()
-        .all(|byte| matches!(byte, b' ' | b'\t'))
-    {
-        TextSize::new(line_start as u32)
-    } else {
-        first.start()
-    };
-    dedent_source(src.slice_range(TextRange::new(start, last.end())))
+    let start = kept[0].start_byte();
+    let end = kept[kept.len() - 1].end_byte();
+    if start >= end || end > source.len() {
+        return String::new();
+    }
+    dedent_source(std::str::from_utf8(&source[start..end]).unwrap_or_default())
+}
+
+fn named_block_statements<'tree>(body: tree_sitter::Node<'tree>) -> Vec<tree_sitter::Node<'tree>> {
+    let mut statements = Vec::new();
+    let mut cursor = body.walk();
+    for child in body.children(&mut cursor) {
+        if child.is_named() && child.kind() != "comment" {
+            statements.push(child);
+        }
+    }
+    statements
 }
 
 fn dedent_source(text: &str) -> String {
@@ -257,43 +299,30 @@ fn leading_ws_len(line: &str) -> usize {
         .count()
 }
 
-/// The strings passed to every `<receiver>.sql(...)` call under a statement
-/// (`spark.sql("SELECT ...")`, `mo.sql(f"...")`).
-fn collect_attribute_sql_strings(stmt: &Stmt, out: &mut Vec<String>) {
-    struct SqlCalls<'o> {
-        out: &'o mut Vec<String>,
+fn collect_attribute_sql_strings(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    out: &mut Vec<String>,
+) {
+    if node.kind() == "call"
+        && python_first_child(node).is_some_and(|callee| callee.kind() == "attribute")
+        && python_call_name(node, source).as_deref() == Some("sql")
+    {
+        collect_call_string_args(node, source, out);
     }
-    impl<'ast> SourceOrderVisitor<'ast> for SqlCalls<'_> {
-        fn visit_expr(&mut self, expr: &'ast Expr) {
-            if let Expr::Call(call) = expr
-                && let Expr::Attribute(attribute) = &*call.func
-                && attribute.attr.as_str() == "sql"
-            {
-                collect_call_string_args(call, self.out);
-            }
-            walk_expr(self, expr);
-        }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor).collect::<Vec<_>>() {
+        collect_attribute_sql_strings(child, source, out);
     }
-    SqlCalls { out }.visit_stmt(stmt);
 }
 
-/// The non-blank strings among a call's arguments, at any depth.
-fn collect_call_string_args(call: &ast::ExprCall, out: &mut Vec<String>) {
-    struct Strings<'o> {
-        out: &'o mut Vec<String>,
-    }
-    impl<'ast> SourceOrderVisitor<'ast> for Strings<'_> {
-        fn visit_expr(&mut self, expr: &'ast Expr) {
-            if let Some(text) = string_like_text(expr)
-                && !text.trim().is_empty()
-            {
-                self.out.push(text);
-                return;
-            }
-            walk_expr(self, expr);
+fn collect_call_string_args(node: tree_sitter::Node<'_>, source: &[u8], out: &mut Vec<String>) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "argument_list" {
+            collect_string_literals(child, source, out);
         }
     }
-    Strings { out }.visit_arguments(&call.arguments);
 }
 
 fn push_sql_table_imports(file_path: &FilePath, sql: &str, edges: &mut Vec<ParsedEdge>) {
@@ -311,9 +340,10 @@ fn push_sql_table_imports(file_path: &FilePath, sql: &str, edges: &mut Vec<Parse
     }
 }
 
-pub(super) fn parse_databricks_py(
+pub(super) fn parse_databricks_py_with_parser(
     file_path: &FilePath,
     source: &[u8],
+    parser: Option<&mut tree_sitter::Parser>,
     repo_root: Option<&Path>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let text = String::from_utf8_lossy(source);
@@ -324,26 +354,29 @@ pub(super) fn parse_databricks_py(
             Vec::new(),
         );
     }
-    parse_notebook_cells(
+    parse_notebook_cells_with_parser(
         file_path,
         &cells,
         "python",
         Some("databricks_py"),
+        parser,
         repo_root,
     )
 }
 
-fn parse_notebook_cells(
+fn parse_notebook_cells_with_parser(
     file_path: &FilePath,
     cells: &[NotebookCell],
     default_language: &'static str,
     notebook_format: Option<&'static str>,
+    parser: Option<&mut tree_sitter::Parser>,
     repo_root: Option<&Path>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let mut nodes = Vec::new();
     let mut edges = Vec::new();
     let mut cell_offsets = Vec::new();
     let mut max_line = 1_i64;
+    let mut parser = parser;
     let mut languages = Vec::<&'static str>::new();
     for cell in cells {
         if !languages.contains(&cell.language) {
@@ -360,7 +393,12 @@ fn parse_notebook_cells(
         match language {
             "python" => {
                 let (mut parsed_nodes, parsed_edges, offsets, current_line) =
-                    parse_databricks_python_cells(file_path, &lang_cells, repo_root);
+                    parse_databricks_python_cells(
+                        file_path,
+                        &lang_cells,
+                        parser.as_deref_mut(),
+                        repo_root,
+                    );
                 nodes.append(&mut parsed_nodes);
                 edges.extend(parsed_edges);
                 cell_offsets.extend(offsets);
@@ -618,10 +656,12 @@ type NotebookOffsets = Vec<(i64, i64, i64)>;
 fn parse_databricks_python_cells(
     file_path: &FilePath,
     cells: &[NotebookCell],
+    parser: Option<&mut tree_sitter::Parser>,
     repo_root: Option<&Path>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>, NotebookOffsets, i64) {
     let (source, offsets, current_line) = concatenate_notebook_cells(cells);
-    let (nodes, edges) = parse_python_module(file_path, source.as_bytes(), repo_root);
+    let (nodes, edges) =
+        parse_python_module_with_parser(file_path, source.as_bytes(), parser, repo_root);
     (
         nodes
             .into_iter()

@@ -37,6 +37,7 @@ pub(crate) fn parse_marimo_md_with_parser(
     file_path: &str,
     source: &[u8],
     markdown_parser: Option<&mut tree_sitter::Parser>,
+    python_parser: Option<&mut tree_sitter::Parser>,
     repo_root: Option<&Path>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let (mut nodes, mut edges) = super::super::super::markdown::parse_markdown_with_parser(
@@ -56,8 +57,14 @@ pub(crate) fn parse_marimo_md_with_parser(
     if cells.is_empty() {
         return (nodes, edges);
     }
-    let (cell_nodes, mut cell_edges) =
-        parse_notebook_cells(&file_path, &cells, "python", Some("marimo"), repo_root);
+    let (cell_nodes, mut cell_edges) = parse_notebook_cells_with_parser(
+        &file_path,
+        &cells,
+        "python",
+        Some("marimo"),
+        python_parser,
+        repo_root,
+    );
     nodes.extend(
         cell_nodes
             .into_iter()
@@ -233,25 +240,24 @@ pub(crate) fn is_default_marimo_cell_name(name: &str) -> bool {
     name.is_empty() || name == "_" || name == "__"
 }
 
-pub(crate) fn parse_marimo_py(
+pub(crate) fn parse_marimo_py_with_parser(
     file_path: &FilePath,
     source: &[u8],
+    parser: Option<&mut tree_sitter::Parser>,
     repo_root: Option<&Path>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    let src = PySource::new(source);
-    let parsed = src.parse();
-    let body = &parsed.syntax().body;
-    if !is_marimo_notebook(body, &src) {
-        return parse_python_module_tree(
-            file_path,
-            source,
-            &src,
-            body,
-            parsed.has_syntax_errors(),
-            repo_root,
-        );
+    let Some(parser) = parser else {
+        return parse_python_module_with_parser(file_path, source, None, repo_root);
+    };
+    let Some(tree) = parser.parse(source, None) else {
+        return parse_python_module_with_parser(file_path, source, None, repo_root);
+    };
+    let root = tree.root_node();
+    if !is_marimo_notebook(root, source) {
+        return parse_python_module_with_parser(file_path, source, Some(parser), repo_root);
     }
-    let (cells, mut sql_edges) = collect_marimo_cells(file_path, body, &src);
+    let (cells, mut sql_edges) = collect_marimo_cells(file_path, root, source);
+    drop(tree);
     if cells.is_empty() {
         return (
             vec![notebook_file_node(
@@ -264,20 +270,26 @@ pub(crate) fn parse_marimo_py(
             sql_edges,
         );
     }
-    let (nodes, mut edges) =
-        parse_notebook_cells(file_path, &cells, "python", Some("marimo"), repo_root);
+    let (nodes, mut edges) = parse_notebook_cells_with_parser(
+        file_path,
+        &cells,
+        "python",
+        Some("marimo"),
+        Some(parser),
+        repo_root,
+    );
     edges.append(&mut sql_edges);
     (nodes, edges)
 }
 
-fn is_marimo_notebook(body: &[Stmt], src: &PySource<'_>) -> bool {
+fn is_marimo_notebook(root: tree_sitter::Node<'_>, source: &[u8]) -> bool {
     let mut has_import = false;
     let mut has_cell = false;
-    for stmt in body {
-        if !has_import && is_marimo_import(stmt, src) {
+    for child in collect_named_children(root) {
+        if !has_import && is_marimo_import(child, source) {
             has_import = true;
         }
-        if !has_cell && is_marimo_cell_construct(stmt, src) {
+        if !has_cell && is_marimo_cell_construct(child, source) {
             has_cell = true;
         }
         if has_import && has_cell {
@@ -287,9 +299,11 @@ fn is_marimo_notebook(body: &[Stmt], src: &PySource<'_>) -> bool {
     false
 }
 
-fn is_marimo_import(stmt: &Stmt, src: &PySource<'_>) -> bool {
-    match stmt {
-        Stmt::Import(_) | Stmt::ImportFrom(_) => marimo_import_text_matches(src.slice(stmt)),
+fn is_marimo_import(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    match node.kind() {
+        "import_statement" | "import_from_statement" => {
+            marimo_import_text_matches(&node_text(node, source))
+        }
         _ => false,
     }
 }
@@ -304,15 +318,14 @@ fn marimo_import_text_matches(text: &str) -> bool {
         || trimmed.starts_with("from marimo.")
 }
 
-fn is_marimo_cell_construct(stmt: &Stmt, src: &PySource<'_>) -> bool {
-    marimo_cell_kind(stmt, src).is_some() || marimo_unparsable_call(stmt, src).is_some()
+fn is_marimo_cell_construct(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    marimo_cell_kind(node, source).is_some() || is_marimo_unparsable_cell(node, source)
 }
 
-fn marimo_cell_kind(stmt: &Stmt, src: &PySource<'_>) -> Option<MarimoCellKind> {
-    match stmt {
-        Stmt::With(with) if is_marimo_setup_with(with, src) => Some(MarimoCellKind::Setup),
-        Stmt::FunctionDef(function) => marimo_decorator_kind(&function.decorator_list, src),
-        Stmt::ClassDef(class) => marimo_decorator_kind(&class.decorator_list, src),
+fn marimo_cell_kind(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<MarimoCellKind> {
+    match node.kind() {
+        "with_statement" if is_marimo_setup_with(node, source) => Some(MarimoCellKind::Setup),
+        "decorated_definition" => marimo_decorator_kind(node, source),
         _ => None,
     }
 }
@@ -325,8 +338,8 @@ enum MarimoCellKind {
     Class,
 }
 
-fn marimo_decorator_kind(decorators: &[Decorator], src: &PySource<'_>) -> Option<MarimoCellKind> {
-    python_decorator_names(decorators, src)
+fn marimo_decorator_kind(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<MarimoCellKind> {
+    python_decorator_names(node, source)
         .into_iter()
         .find_map(|name| match name.as_str() {
             "app.cell" => Some(MarimoCellKind::Cell),
@@ -336,67 +349,94 @@ fn marimo_decorator_kind(decorators: &[Decorator], src: &PySource<'_>) -> Option
         })
 }
 
-/// `with app.setup:` (or `with app.setup(...)`).
-fn is_marimo_setup_with(with: &ast::StmtWith, src: &PySource<'_>) -> bool {
-    with.items.iter().any(|item| match &item.context_expr {
-        expr @ Expr::Attribute(_) => src.slice(expr) == "app.setup",
-        Expr::Call(call) => src.slice(&*call.func) == "app.setup",
+fn is_marimo_setup_with(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    let mut cursor = node.walk();
+    node.children(&mut cursor).any(|child| match child.kind() {
+        "attribute" => node_text(child, source) == "app.setup",
+        "call" => {
+            python_first_child(child).is_some_and(|callee| node_text(callee, source) == "app.setup")
+        }
+        "with_clause" | "with_item" => is_marimo_setup_with(child, source),
         _ => false,
     })
 }
 
-fn marimo_unparsable_call<'a>(stmt: &'a Stmt, src: &PySource<'_>) -> Option<&'a ast::ExprCall> {
-    expression_statement_call(stmt).filter(|call| is_marimo_unparsable_callee(call, src))
+fn is_marimo_unparsable_cell(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    marimo_unparsable_call(node, source).is_some()
 }
 
-fn is_marimo_unparsable_callee(call: &ast::ExprCall, src: &PySource<'_>) -> bool {
-    let callee = src.slice(&*call.func);
-    callee == "app._unparsable_cell"
-        || callee.ends_with("._unparsable_cell")
-        || python_call_name(&call.func).as_deref() == Some("_unparsable_cell")
+fn marimo_unparsable_call<'tree>(
+    node: tree_sitter::Node<'tree>,
+    source: &[u8],
+) -> Option<tree_sitter::Node<'tree>> {
+    match node.kind() {
+        "call" if is_marimo_unparsable_callee(node, source) => Some(node),
+        "expression_statement" => {
+            let call = expression_statement_call(node)?;
+            is_marimo_unparsable_callee(call, source).then_some(call)
+        }
+        _ => None,
+    }
 }
 
-fn marimo_unparsable_source(call: &ast::ExprCall) -> Option<String> {
+fn is_marimo_unparsable_callee(call: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    python_first_child(call).is_some_and(|callee| {
+        let text = node_text(callee, source);
+        text == "app._unparsable_cell" || text.ends_with("._unparsable_cell")
+    }) || python_call_name(call, source).as_deref() == Some("_unparsable_cell")
+}
+
+fn marimo_unparsable_source(call: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     let mut strings = Vec::new();
-    collect_call_string_args(call, &mut strings);
+    collect_call_string_args(call, source, &mut strings);
     strings
         .into_iter()
         .next()
         .filter(|text| !text.trim().is_empty())
 }
 
-fn marimo_unparsable_name(call: &ast::ExprCall) -> Option<String> {
-    call.arguments
-        .keywords
-        .iter()
-        .filter(|keyword| {
-            keyword
-                .arg
-                .as_ref()
-                .is_some_and(|arg| arg.as_str() == "name")
-        })
-        .find_map(|keyword| {
-            string_like_text(&keyword.value)
-                .filter(|name| !name.trim().is_empty() && !is_default_marimo_cell_name(name))
-        })
+fn marimo_unparsable_name(call: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = call.walk();
+    let args = call
+        .children(&mut cursor)
+        .find(|child| child.kind() == "argument_list")?;
+    let mut cursor = args.walk();
+    for child in args.children(&mut cursor) {
+        if child.kind() != "keyword_argument" {
+            continue;
+        }
+        if python_identifier_child(child, source).as_deref() != Some("name") {
+            continue;
+        }
+        let mut strings = Vec::new();
+        collect_string_literals(child, source, &mut strings);
+        if let Some(name) = strings
+            .into_iter()
+            .next()
+            .filter(|name| !is_default_marimo_cell_name(name))
+        {
+            return Some(name);
+        }
+    }
+    None
 }
 
 fn collect_marimo_cells(
     file_path: &FilePath,
-    body: &[Stmt],
-    src: &PySource<'_>,
+    root: tree_sitter::Node<'_>,
+    source: &[u8],
 ) -> (Vec<NotebookCell>, Vec<ParsedEdge>) {
     let mut cells = Vec::new();
     let mut sql_edges = Vec::new();
     let mut cell_index = 0_i64;
-    for stmt in body {
-        if let Some(call) = marimo_unparsable_call(stmt, src) {
-            if let Some(cell_source) = marimo_unparsable_source(call) {
+    for child in collect_named_children(root) {
+        if let Some(call) = marimo_unparsable_call(child, source) {
+            if let Some(cell_source) = marimo_unparsable_source(call, source) {
                 cells.push(NotebookCell {
                     cell_index,
                     language: "python",
                     source: with_trailing_newline(cell_source),
-                    name: marimo_unparsable_name(call),
+                    name: marimo_unparsable_name(call, source),
                     refs: Vec::new(),
                     defs: Vec::new(),
                 });
@@ -404,32 +444,32 @@ fn collect_marimo_cells(
             cell_index += 1;
             continue;
         }
-        let Some(kind) = marimo_cell_kind(stmt, src) else {
+        let Some(kind) = marimo_cell_kind(child, source) else {
             continue;
         };
-        if kind == MarimoCellKind::Cell && is_marimo_markdown_only(stmt) {
+        if kind == MarimoCellKind::Cell && is_marimo_markdown_only(child, source) {
             cell_index += 1;
             continue;
         }
-        if let Some(cell_source) = marimo_cell_source(stmt, kind, src)
+        if let Some(cell_source) = marimo_cell_source(child, kind, source)
             && !cell_source.trim().is_empty()
         {
-            collect_marimo_sql_imports(file_path, stmt, &mut sql_edges);
+            collect_marimo_sql_imports(file_path, child, source, &mut sql_edges);
             let name = if kind == MarimoCellKind::Cell {
-                marimo_cell_symbol_name(stmt).filter(|name| !is_default_marimo_cell_name(name))
+                marimo_cell_function_name(child, source)
+                    .filter(|name| !is_default_marimo_cell_name(name))
             } else {
                 None
             };
-            let (refs, defs) = match (kind, stmt) {
-                (MarimoCellKind::Cell, Stmt::FunctionDef(function)) => (
-                    python_function_param_names(function),
-                    python_function_return_names(function),
-                ),
-                (MarimoCellKind::Function | MarimoCellKind::Class, _) => (
+            let (refs, defs) = match kind {
+                MarimoCellKind::Cell => marimo_cell_refs_defs(child, source),
+                MarimoCellKind::Function | MarimoCellKind::Class => (
                     Vec::new(),
-                    marimo_cell_symbol_name(stmt).into_iter().collect(),
+                    marimo_cell_symbol_name(child, kind, source)
+                        .into_iter()
+                        .collect(),
                 ),
-                _ => (Vec::new(), Vec::new()),
+                MarimoCellKind::Setup => (Vec::new(), Vec::new()),
             };
             cells.push(NotebookCell {
                 cell_index,
@@ -445,60 +485,101 @@ fn collect_marimo_cells(
     (cells, sql_edges)
 }
 
-fn marimo_cell_source(stmt: &Stmt, kind: MarimoCellKind, src: &PySource<'_>) -> Option<String> {
-    match (kind, stmt) {
-        (MarimoCellKind::Setup, Stmt::With(with)) => {
-            Some(block_source_without_trailing_return(&with.body, src, false))
+fn marimo_cell_source(
+    node: tree_sitter::Node<'_>,
+    kind: MarimoCellKind,
+    source: &[u8],
+) -> Option<String> {
+    match kind {
+        MarimoCellKind::Setup => {
+            let body = node.child_by_field_name("body")?;
+            Some(block_source_without_trailing_return(body, source, false))
         }
-        (MarimoCellKind::Cell, Stmt::FunctionDef(function)) => Some(
-            block_source_without_trailing_return(&function.body, src, true),
-        ),
-        // The definition without its marimo decorator.
-        (MarimoCellKind::Function, Stmt::FunctionDef(function)) => {
-            let start = src.definition_start(function.range, &function.decorator_list);
-            Some(
-                src.slice_range(TextRange::new(start, function.end()))
-                    .to_string(),
-            )
+        MarimoCellKind::Cell => {
+            let function = decorated_definition_target(node, "function_definition")?;
+            let body = function.child_by_field_name("body")?;
+            Some(block_source_without_trailing_return(body, source, true))
         }
-        (MarimoCellKind::Class, Stmt::ClassDef(class)) => {
-            let start = src.definition_start(class.range, &class.decorator_list);
-            Some(
-                src.slice_range(TextRange::new(start, class.end()))
-                    .to_string(),
-            )
+        MarimoCellKind::Function => {
+            let function = decorated_definition_target(node, "function_definition")?;
+            Some(node_text(function, source))
         }
-        _ => None,
+        MarimoCellKind::Class => {
+            let class = decorated_definition_target(node, "class_definition")?;
+            Some(node_text(class, source))
+        }
     }
 }
 
-fn marimo_cell_symbol_name(stmt: &Stmt) -> Option<String> {
-    match stmt {
-        Stmt::FunctionDef(function) => Some(function.name.to_string()),
-        Stmt::ClassDef(class) => Some(class.name.to_string()),
-        _ => None,
-    }
-    .filter(|name| !name.is_empty())
+fn marimo_cell_function_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let function = decorated_definition_target(node, "function_definition")?;
+    python_identifier_child(function, source)
 }
 
-fn is_marimo_markdown_only(stmt: &Stmt) -> bool {
-    let Stmt::FunctionDef(function) = stmt else {
+fn marimo_cell_symbol_name(
+    node: tree_sitter::Node<'_>,
+    kind: MarimoCellKind,
+    source: &[u8],
+) -> Option<String> {
+    match kind {
+        MarimoCellKind::Cell | MarimoCellKind::Function => marimo_cell_function_name(node, source),
+        MarimoCellKind::Class => {
+            let class = decorated_definition_target(node, "class_definition")?;
+            python_identifier_child(class, source)
+        }
+        MarimoCellKind::Setup => None,
+    }
+}
+
+fn marimo_cell_refs_defs(node: tree_sitter::Node<'_>, source: &[u8]) -> (Vec<String>, Vec<String>) {
+    let Some(function) = decorated_definition_target(node, "function_definition") else {
+        return (Vec::new(), Vec::new());
+    };
+    (
+        python_function_param_names(function, source),
+        python_function_return_names(function, source),
+    )
+}
+
+fn is_marimo_markdown_only(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    let Some(function) = decorated_definition_target(node, "function_definition") else {
         return false;
     };
-    let mut statements = function.body.iter().collect::<Vec<_>>();
-    if matches!(statements.last(), Some(Stmt::Return(_))) {
+    let Some(body) = function.child_by_field_name("body") else {
+        return false;
+    };
+    let mut statements = named_block_statements(body);
+    if statements
+        .last()
+        .is_some_and(|statement| statement.kind() == "return_statement")
+    {
         statements.pop();
     }
     !statements.is_empty()
-        && statements.iter().all(|statement| {
-            expression_statement_call(statement)
-                .is_some_and(|call| python_call_name(&call.func).as_deref() == Some("md"))
-        })
+        && statements
+            .iter()
+            .all(|statement| is_marimo_md_expression(*statement, source))
 }
 
-fn collect_marimo_sql_imports(file_path: &FilePath, stmt: &Stmt, edges: &mut Vec<ParsedEdge>) {
+fn is_marimo_md_expression(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    let call = if node.kind() == "call" {
+        node
+    } else if let Some(call) = expression_statement_call(node) {
+        call
+    } else {
+        return false;
+    };
+    python_call_name(call, source).as_deref() == Some("md")
+}
+
+fn collect_marimo_sql_imports(
+    file_path: &FilePath,
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    edges: &mut Vec<ParsedEdge>,
+) {
     let mut sql_sources = Vec::new();
-    collect_attribute_sql_strings(stmt, &mut sql_sources);
+    collect_attribute_sql_strings(node, source, &mut sql_sources);
     for sql in sql_sources {
         push_sql_table_imports(file_path, &sql, edges);
     }

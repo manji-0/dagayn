@@ -1,9 +1,17 @@
+//! The Python extractor, on the syntax tree of Ruff's parser
+//! (`ruff_python_parser`): definitions, imports, calls, references, and the
+//! receiver types of member calls, for `.py` files, notebooks, marimo apps,
+//! and Databricks exports.
+
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 use regex::Regex;
+use ruff_python_ast::visitor::source_order::{SourceOrderVisitor, walk_expr, walk_stmt};
+use ruff_python_ast::{self as ast, Decorator, Expr, ExprContext, Stmt};
+use ruff_text_size::{Ranged, TextRange, TextSize};
 use serde_json::{Value, json};
 
 use super::documentation_directives::{
@@ -11,21 +19,22 @@ use super::documentation_directives::{
     push_documentation_directive_edge,
 };
 use super::member_calls::{CallOrigin, MemberCallBindings};
-use super::rust_lang::rust_rightmost_identifier;
 use super::stdlib::python::{
     is_python_builtin, python_constructs_stdlib_value, python_stdlib_package,
 };
 use super::stdlib::{StdlibEvidence, mark_external_edge, mark_stdlib_edge};
 use super::types::{FilePath, ParsedEdge, ParsedNode};
-use super::util::{direct_child_text, is_test_file, line_count, line_of, node_text};
+use super::util::{is_test_file, line_count};
 use super::{qualify, resolve_rust_call_targets};
+
+mod source;
+
+use source::*;
 
 mod notebook;
 
 use notebook::*;
-pub(super) use notebook::{
-    looks_like_marimo_md, parse_marimo_md_with_parser, parse_notebook_with_parser,
-};
+pub(super) use notebook::{looks_like_marimo_md, parse_marimo_md_with_parser, parse_notebook};
 
 mod bridges;
 
@@ -35,83 +44,104 @@ mod receivers;
 
 use receivers::*;
 
-pub(super) fn parse_python_with_parser(
+pub(super) fn parse_python(
     file_path: &str,
     source: &[u8],
-    parser: Option<&mut tree_sitter::Parser>,
     repo_root: Option<&Path>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let file_path = FilePath::new(file_path);
     if is_databricks_py_source(source) {
-        return parse_databricks_py_with_parser(&file_path, source, parser, repo_root);
+        return parse_databricks_py(&file_path, source, repo_root);
     }
     if looks_like_marimo_py(source) {
-        return parse_marimo_py_with_parser(&file_path, source, parser, repo_root);
+        return parse_marimo_py(&file_path, source, repo_root);
     }
 
-    parse_python_module_with_parser(&file_path, source, parser, repo_root)
+    parse_python_module(&file_path, source, repo_root)
 }
 
-fn parse_python_module_with_parser(
+pub(super) fn syntax_error_count(source: &[u8]) -> usize {
+    PySource::new(source).parse().errors().len()
+}
+
+fn parse_python_module(
     file_path: &FilePath,
     source: &[u8],
-    parser: Option<&mut tree_sitter::Parser>,
+    repo_root: Option<&Path>,
+) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
+    let src = PySource::new(source);
+    let parsed = src.parse();
+    parse_python_module_tree(
+        file_path,
+        source,
+        &src,
+        &parsed.syntax().body,
+        parsed.has_syntax_errors(),
+        repo_root,
+    )
+}
+
+fn parse_python_module_tree(
+    file_path: &FilePath,
+    source: &[u8],
+    src: &PySource<'_>,
+    body: &[Stmt],
+    recovered: bool,
     repo_root: Option<&Path>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let line_end = line_count(source);
     let mut nodes = vec![ParsedNode::file(file_path, line_end, "python")];
     let mut edges = Vec::new();
 
-    if let Some(parser) = parser
-        && let Some(tree) = parser.parse(source, None)
-    {
-        let root = tree.root_node();
-        let (import_map, top_level_defined_names, protocol_names) =
-            collect_python_file_scope(root, source);
-        let class_names = collect_python_class_names(root, source);
-        let mut import_aliases = HashMap::new();
-        collect_python_import_aliases(root, source, &mut import_aliases);
-        let stdlib_aliases = python_stdlib_aliases(&import_aliases, file_path, repo_root);
-        let external_aliases = python_external_aliases(&import_aliases, file_path, repo_root);
-        let mut defined_names = HashSet::new();
-        collect_python_defined_names(root, source, &mut defined_names);
-        let attribute_types = collect_python_attribute_types(root, source);
-        let context = PythonParseContext {
-            source,
-            file_path: file_path.clone(),
-            repo_root,
-            import_map: &import_map,
-            top_level_defined_names: &top_level_defined_names,
-            protocol_names: &protocol_names,
-            import_aliases: &import_aliases,
-            stdlib_aliases: &stdlib_aliases,
-            external_aliases: &external_aliases,
-            defined_names: &defined_names,
-            class_names: &class_names,
-            attribute_types: &attribute_types,
-            pytest_file: is_test_file(file_path.as_str())
-                || file_path.as_str().rsplit('/').next() == Some("conftest.py"),
-            bindings: RefCell::new(MemberCallBindings::with_types(class_names.clone())),
-        };
-        python_walk_children(root, &context, None, None, &mut nodes, &mut edges);
-        python_emit_lazy_exports(root, &context, &mut edges);
-        extract_python_documentation_directives(file_path, source, &nodes, &mut edges);
-        let edges = resolve_python_call_targets(&nodes, edges, file_path);
-        let edges = add_python_tested_by_edges(&nodes, edges, file_path);
-        return (nodes, edges);
-    }
-
+    let (import_map, top_level_defined_names, protocol_names) =
+        collect_python_file_scope(body, src);
+    let (class_names, defined_names) = collect_python_defined_names(body);
+    let import_aliases = collect_python_import_aliases(body);
+    let stdlib_aliases = python_stdlib_aliases(&import_aliases, file_path, repo_root);
+    let external_aliases = python_external_aliases(&import_aliases, file_path, repo_root);
+    let attribute_types = collect_python_attribute_types(body, src);
+    let context = PythonParseContext {
+        src,
+        recovered,
+        file_path: file_path.clone(),
+        repo_root,
+        import_map: &import_map,
+        top_level_defined_names: &top_level_defined_names,
+        protocol_names: &protocol_names,
+        import_aliases: &import_aliases,
+        stdlib_aliases: &stdlib_aliases,
+        external_aliases: &external_aliases,
+        defined_names: &defined_names,
+        class_names: &class_names,
+        attribute_types: &attribute_types,
+        pytest_file: is_test_file(file_path.as_str())
+            || file_path.as_str().rsplit('/').next() == Some("conftest.py"),
+        bindings: RefCell::new(MemberCallBindings::with_types(class_names.clone())),
+    };
+    let mut walker = PythonWalker {
+        context: &context,
+        enclosing_class: None,
+        enclosing_qualified: None,
+        class_bases: Vec::new(),
+        scopes: Vec::new(),
+        nodes: &mut nodes,
+        edges: &mut edges,
+    };
+    walker.visit_body(body);
+    python_emit_lazy_exports(body, &context, &mut edges);
+    extract_python_documentation_directives(file_path, src.text(), &nodes, &mut edges);
+    let edges = resolve_python_call_targets(&nodes, edges, file_path);
+    let edges = add_python_tested_by_edges(&nodes, edges, file_path);
     (nodes, edges)
 }
 
 fn extract_python_documentation_directives(
     file_path: &FilePath,
-    source: &[u8],
+    text: &str,
     nodes: &[ParsedNode],
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let text = String::from_utf8_lossy(source);
-    for directive in extract_line_comment_dagayn_directives(&text, &["#"]) {
+    for directive in extract_line_comment_dagayn_directives(text, &["#"]) {
         let source = nearest_documentation_source(file_path, nodes, directive.line);
         push_documentation_directive_edge(
             edges,
@@ -125,7 +155,9 @@ fn extract_python_documentation_directives(
 }
 
 struct PythonParseContext<'a> {
-    source: &'a [u8],
+    src: &'a PySource<'a>,
+    /// The parse recovered from syntax errors.
+    recovered: bool,
     file_path: FilePath,
     repo_root: Option<&'a Path>,
     import_map: &'a HashMap<String, String>,
@@ -159,344 +191,553 @@ struct PythonParseContext<'a> {
     bindings: RefCell<MemberCallBindings>,
 }
 
-fn collect_string_literals(node: tree_sitter::Node<'_>, source: &[u8], out: &mut Vec<String>) {
-    if node.kind() == "string"
-        && let Some(text) = python_string_literal_text(node, source)
-        && !text.trim().is_empty()
-    {
-        out.push(text);
-        return;
+impl PythonParseContext<'_> {
+    fn text<T: Ranged>(&self, node: &T) -> String {
+        self.src.slice(node).to_string()
     }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_string_literals(child, source, out);
+
+    fn line<T: Ranged>(&self, node: &T) -> i64 {
+        self.src.start_line(node)
     }
 }
 
-fn python_string_literal_text(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let mut parts = Vec::new();
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == "string_content" {
-            parts.push(node_text(child, source));
-        }
-    }
-    if !parts.is_empty() {
-        return Some(parts.concat());
-    }
-    let raw = node_text(node, source);
-    Some(unquote_python_string(&raw))
+/// Walks a module in source order, emitting definitions, imports, calls,
+/// and references, and tracking the receiver bindings of member calls.
+struct PythonWalker<'w, 'a> {
+    context: &'w PythonParseContext<'a>,
+    /// Dotted path of the innermost enclosing class (`Outer.Inner`).
+    enclosing_class: Option<String>,
+    /// Qualified name of the innermost enclosing class or function.
+    enclosing_qualified: Option<String>,
+    /// The base names of each enclosing class, innermost last.
+    class_bases: Vec<Vec<String>>,
+    /// The definitions being walked, outermost first, by the column of
+    /// their keyword. Only kept for a file with syntax errors (see
+    /// [`PythonWalker::visit_stmt`]).
+    scopes: Vec<WalkerScope>,
+    nodes: &'w mut Vec<ParsedNode>,
+    edges: &'w mut Vec<ParsedEdge>,
 }
 
-fn unquote_python_string(raw: &str) -> String {
-    let trimmed = raw.trim();
-    let prefixes = [
-        "fr", "Fr", "fR", "FR", "rf", "Rf", "rF", "RF", "f", "F", "r", "R", "b", "B", "u", "U",
-    ];
-    let mut body = trimmed;
-    for prefix in prefixes {
-        if let Some(rest) = body.strip_prefix(prefix) {
-            body = rest;
-            break;
-        }
-    }
-    for quote in ["\"\"\"", "'''", "\"", "'"] {
-        if let Some(inner) = body.strip_prefix(quote)
-            && let Some(inner) = inner.strip_suffix(quote)
-        {
-            return inner.to_string();
-        }
-    }
-    body.to_string()
+/// A definition being walked: its keyword's column, and the walker's
+/// state outside it.
+struct WalkerScope {
+    column: u32,
+    enclosing_class: Option<String>,
+    enclosing_qualified: Option<String>,
+    class_bases: Vec<Vec<String>>,
 }
 
-fn python_walk_children(
-    node: tree_sitter::Node<'_>,
-    context: &PythonParseContext<'_>,
-    enclosing_class: Option<&str>,
-    enclosing_qualified: Option<&str>,
-    nodes: &mut Vec<ParsedNode>,
-    edges: &mut Vec<ParsedEdge>,
-) {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        match child.kind() {
-            "class_definition" => {
-                if let Some(name) = python_identifier_child(child, context.source) {
-                    let scope = python_scope_path(&context.file_path, enclosing_qualified);
-                    let qualified = qualify(&context.file_path, &name, scope);
-                    let class_path = scope
-                        .map(|scope| format!("{scope}.{name}"))
-                        .unwrap_or_else(|| name.clone());
-                    let bases = python_class_base_names(child, context.source);
-                    let decorators = python_parent_decorators(child, context.source);
-                    nodes.push(ParsedNode {
-                        kind: crate::core::types::NodeKind::Class,
-                        name: name.clone(),
-                        file_path: context.file_path.clone(),
-                        line_start: child.start_position().row as i64 + 1,
-                        line_end: child.end_position().row as i64 + 1,
-                        language: "python".to_string(),
-                        parent_name: scope.map(str::to_string),
-                        params: None,
-                        return_type: None,
-                        modifiers: None,
-                        is_test: false,
-                        extra: python_class_extra(&bases, &decorators),
-                    });
-                    edges.push(ParsedEdge::new(
-                        crate::core::types::EdgeKind::Contains,
-                        enclosing_qualified
-                            .unwrap_or(&context.file_path)
-                            .to_string(),
-                        qualified.clone(),
-                        context.file_path.clone(),
-                        line_of(child),
-                    ));
-                    python_emit_bases(child, context, &qualified, &bases, edges);
-                    python_walk_children(
-                        child,
-                        context,
-                        Some(&class_path),
-                        Some(&qualified),
-                        nodes,
-                        edges,
-                    );
-                    continue;
-                }
-            }
-            "function_definition" => {
-                if let Some(name) = python_identifier_child(child, context.source) {
-                    let scope = python_scope_path(&context.file_path, enclosing_qualified);
-                    let qualified = qualify(&context.file_path, &name, scope);
-                    let params = direct_child_text(child, context.source, &["parameters"]);
-                    let return_type = python_return_type(child, context.source);
-                    let is_test =
-                        python_is_test_function(&name, &context.file_path, child, context.source);
-                    let decorators = python_parent_decorators(child, context.source);
-                    let mut extra = json!({});
-                    if !decorators.is_empty() {
-                        extra["decorators"] = json!(decorators);
-                    }
-                    if decorators
-                        .iter()
-                        .any(|decorator| decorator.rsplit('.').next() == Some("abstractmethod"))
-                    {
-                        extra["is_abstract"] = json!(true);
-                    }
-                    nodes.push(ParsedNode {
-                        kind: if is_test {
-                            crate::core::types::NodeKind::Test
-                        } else {
-                            crate::core::types::NodeKind::Function
-                        },
-                        name: name.clone(),
-                        file_path: context.file_path.clone(),
-                        line_start: child.start_position().row as i64 + 1,
-                        line_end: child.end_position().row as i64 + 1,
-                        language: "python".to_string(),
-                        parent_name: scope.map(str::to_string),
-                        params,
-                        return_type,
-                        modifiers: None,
-                        is_test,
-                        extra,
-                    });
-                    edges.push(ParsedEdge::new(
-                        crate::core::types::EdgeKind::Contains,
-                        enclosing_qualified
-                            .unwrap_or(&context.file_path)
-                            .to_string(),
-                        qualified.clone(),
-                        context.file_path.clone(),
-                        line_of(child),
-                    ));
-                    let snapshot = context.bindings.borrow().snapshot();
-                    if let Some(class_name) = enclosing_class {
-                        context
-                            .bindings
-                            .borrow_mut()
-                            .bind_implicit_receivers(class_name);
-                    }
-                    if let Some(parameters) = child.child_by_field_name("parameters") {
-                        for (name, type_name) in python_parameter_types(parameters, context.source)
-                        {
-                            python_bind_type(&name, &type_name, context);
-                        }
-                        if context.pytest_file {
-                            python_bind_pytest_fixtures(parameters, context);
-                        }
-                    }
-                    python_walk_children(
-                        child,
-                        context,
-                        enclosing_class,
-                        Some(&qualified),
-                        nodes,
-                        edges,
-                    );
-                    context.bindings.borrow_mut().restore(snapshot);
-                    continue;
-                }
-            }
-            "type_alias_statement" => {
-                if let Some(name) = python_type_alias_name(child, context.source) {
-                    let scope = python_scope_path(&context.file_path, enclosing_qualified);
-                    let qualified = qualify(&context.file_path, &name, scope);
-                    nodes.push(ParsedNode {
-                        kind: crate::core::types::NodeKind::Type,
-                        name: name.clone(),
-                        file_path: context.file_path.clone(),
-                        line_start: child.start_position().row as i64 + 1,
-                        line_end: child.end_position().row as i64 + 1,
-                        language: "python".to_string(),
-                        parent_name: scope.map(str::to_string),
-                        params: None,
-                        return_type: None,
-                        modifiers: None,
-                        is_test: false,
-                        extra: json!({"type_role": "alias"}),
-                    });
-                    edges.push(ParsedEdge::new(
-                        crate::core::types::EdgeKind::Contains,
-                        enclosing_qualified
-                            .unwrap_or(&context.file_path)
-                            .to_string(),
-                        qualified,
-                        context.file_path.clone(),
-                        line_of(child),
-                    ));
-                    continue;
-                }
-            }
-            "import_statement" | "import_from_statement" => {
-                for (target, extra) in python_import_targets(
-                    child,
-                    context.source,
-                    &context.file_path,
-                    context.repo_root,
-                ) {
-                    let (mut target, mut extra) = (target, extra);
-                    // Unresolved (`target` is the module as written) and of
-                    // the standard library: an import of its package.
-                    if extra["module"].as_str() == Some(target.as_str()) {
-                        if let Some(package) = python_stdlib_package(&target) {
-                            mark_stdlib_edge(
-                                &mut target,
-                                &mut extra,
-                                package,
-                                StdlibEvidence::Certain,
-                            );
-                        } else if let Some(package) =
-                            python_external_package(&target, &context.file_path, context.repo_root)
-                        {
-                            mark_external_edge(
-                                &mut target,
-                                &mut extra,
-                                &package,
-                                StdlibEvidence::Likely,
-                            );
-                        }
-                    }
-                    edges.push(ParsedEdge {
-                        kind: crate::core::types::EdgeKind::ImportsFrom,
-                        source: context.file_path.to_string(),
-                        target,
-                        file_path: context.file_path.clone(),
-                        line: child.start_position().row as i64 + 1,
-                        extra,
-                    });
-                }
-            }
-            "call" => {
-                if let Some(call_name) = python_call_name(child, context.source) {
-                    let caller = enclosing_qualified.unwrap_or(&context.file_path);
-                    let resolved = python_bound_member_target(child, context)
-                        .or_else(|| python_resolve_imported_call_target(&call_name, context));
-                    let mut extra = match python_import_receiver(child, context) {
-                        Some(receiver) => json!({"receiver": receiver}),
-                        None => json!({}),
-                    };
-                    let callee = child.child_by_field_name("function");
-                    let target = match resolved {
-                        Some(target) => target,
-                        None => match callee
-                            .and_then(|callee| python_stdlib_name(callee, context, true))
-                        {
-                            Some((package, mut symbol, evidence)) => {
-                                mark_stdlib_edge(&mut symbol, &mut extra, package, evidence);
-                                symbol
-                            }
-                            None => match callee
-                                .and_then(|callee| python_external_name(callee, context))
-                            {
-                                Some((package, mut symbol)) => {
-                                    mark_external_edge(
-                                        &mut symbol,
-                                        &mut extra,
-                                        &package,
-                                        StdlibEvidence::Likely,
-                                    );
-                                    symbol
-                                }
-                                None => {
-                                    python_mark_receiver(callee, context, &mut extra);
-                                    call_name
-                                }
-                            },
-                        },
-                    };
-                    edges.push(ParsedEdge {
-                        kind: crate::core::types::EdgeKind::Calls,
-                        source: caller.to_string(),
-                        target,
-                        file_path: context.file_path.clone(),
-                        line: child.start_position().row as i64 + 1,
-                        extra,
-                    });
-                    if let Some(edge) = python_bridge_edge(
-                        child,
-                        context.source,
-                        &context.file_path,
-                        caller,
-                        context.import_aliases,
-                    ) {
-                        edges.push(edge);
-                    }
-                }
-            }
-            "assignment"
-                if python_emit_lambda_assignment(
-                    child,
-                    context,
-                    enclosing_class,
-                    enclosing_qualified,
-                    nodes,
-                    edges,
-                ) =>
-            {
-                python_bind_assignment(child, context);
-                continue;
-            }
-            "pair" | "assignment" | "list" => {
-                python_emit_value_references(
-                    child,
-                    context,
-                    enclosing_qualified.unwrap_or(&context.file_path),
-                    edges,
+impl<'ast> SourceOrderVisitor<'ast> for PythonWalker<'_, '_> {
+    /// After a syntax error, Ruff's parser may keep the statements that
+    /// follow in the body of the definition the error is in, whatever their
+    /// indentation (an unexpected indent nests the rest of the file one
+    /// level deeper). A statement indented no deeper than the keyword of an
+    /// enclosing definition is not in it: it is walked in the scope its
+    /// indentation puts it in.
+    fn visit_stmt(&mut self, stmt: &'ast Stmt) {
+        if !self.scopes.is_empty() {
+            let column = self.context.src.column(stmt.start());
+            if let Some(depth) = self.scopes.iter().position(|scope| scope.column >= column) {
+                let inner = self.scopes.split_off(depth);
+                let outer = &inner[0];
+                let enclosing_class =
+                    std::mem::replace(&mut self.enclosing_class, outer.enclosing_class.clone());
+                let enclosing_qualified = std::mem::replace(
+                    &mut self.enclosing_qualified,
+                    outer.enclosing_qualified.clone(),
                 );
+                let class_bases =
+                    std::mem::replace(&mut self.class_bases, outer.class_bases.clone());
+                self.visit_statement(stmt);
+                self.enclosing_class = enclosing_class;
+                self.enclosing_qualified = enclosing_qualified;
+                self.class_bases = class_bases;
+                self.scopes.extend(inner);
+                return;
             }
-            _ => {}
         }
-        python_walk_children(
-            child,
-            context,
-            enclosing_class,
-            enclosing_qualified,
-            nodes,
-            edges,
-        );
-        python_bind_assignment(child, context);
+        self.visit_statement(stmt);
+    }
+
+    fn visit_expr(&mut self, expr: &'ast Expr) {
+        match expr {
+            Expr::Call(call) => {
+                self.emit_call(call);
+                walk_expr(self, expr);
+            }
+            Expr::Dict(dict) => {
+                // `{"key": handler}`: a value naming a function or class of
+                // this file or an import is a reference to it.
+                for item in &dict.items {
+                    if item.key.is_some()
+                        && let Expr::Name(name) = &item.value
+                    {
+                        self.emit_reference_if_known(name);
+                    }
+                    if let Some(key) = &item.key {
+                        self.visit_expr(key);
+                    }
+                    self.visit_expr(&item.value);
+                }
+            }
+            // `{key: handler for key in keys}`
+            Expr::DictComp(comprehension) => {
+                if let Expr::Name(name) = &*comprehension.value {
+                    self.emit_reference_if_known(name);
+                }
+                walk_expr(self, expr);
+            }
+            Expr::List(list) if matches!(list.ctx, ExprContext::Load) => {
+                for element in &list.elts {
+                    if let Expr::Name(name) = element {
+                        self.emit_reference_if_known(name);
+                    }
+                }
+                walk_expr(self, expr);
+            }
+            _ => walk_expr(self, expr),
+        }
+    }
+}
+
+impl PythonWalker<'_, '_> {
+    /// Enters a definition whose keyword is at `start`, when the file has
+    /// syntax errors.
+    fn push_scope(&mut self, start: TextSize) {
+        if self.context.recovered {
+            self.scopes.push(WalkerScope {
+                column: self.context.src.column(start),
+                enclosing_class: self.enclosing_class.clone(),
+                enclosing_qualified: self.enclosing_qualified.clone(),
+                class_bases: self.class_bases.clone(),
+            });
+        }
+    }
+
+    fn pop_scope(&mut self) {
+        if self.context.recovered {
+            self.scopes.pop();
+        }
+    }
+
+    /// The end of a definition: of its body, without the statements a
+    /// syntax error left in it that are indented no deeper than its keyword.
+    fn definition_end(&self, start: TextSize, range: TextRange, body: &[Stmt]) -> TextSize {
+        if !self.context.recovered {
+            return range.end();
+        }
+        let src = self.context.src;
+        let column = src.column(start);
+        body.iter()
+            .rev()
+            .find(|stmt| src.column(stmt.start()) > column)
+            .map_or(start, |stmt| match stmt {
+                Stmt::FunctionDef(function) => {
+                    let start = src.definition_start(function.range, &function.decorator_list);
+                    self.definition_end(start, function.range, &function.body)
+                }
+                Stmt::ClassDef(class) => {
+                    let start = src.definition_start(class.range, &class.decorator_list);
+                    self.definition_end(start, class.range, &class.body)
+                }
+                stmt => stmt.end(),
+            })
+    }
+
+    fn visit_statement(&mut self, stmt: &Stmt) {
+        match stmt {
+            Stmt::FunctionDef(function) if !function.name.is_empty() => {
+                self.visit_function(function);
+            }
+            Stmt::ClassDef(class) if !class.name.is_empty() => self.visit_class(class),
+            Stmt::TypeAlias(alias) if matches!(&*alias.name, Expr::Name(_)) => {
+                self.emit_type_alias(alias);
+            }
+            Stmt::Import(_) | Stmt::ImportFrom(_) => self.emit_imports(stmt),
+            Stmt::Assign(assign) => self.visit_assign(assign),
+            Stmt::AnnAssign(assign) => self.visit_assignment(
+                &assign.target,
+                Some(&assign.annotation),
+                assign.value.as_deref(),
+                assign.range,
+            ),
+            Stmt::AugAssign(assign) => {
+                walk_stmt(self, stmt);
+                python_bind_assignment(&assign.target, None, Some(&assign.value), self.context);
+            }
+            _ => walk_stmt(self, stmt),
+        }
+    }
+    fn caller(&self) -> String {
+        self.enclosing_qualified
+            .clone()
+            .unwrap_or_else(|| self.context.file_path.to_string())
+    }
+
+    fn scope(&self) -> Option<String> {
+        python_scope_path(&self.context.file_path, self.enclosing_qualified.as_deref())
+            .map(str::to_string)
+    }
+
+    fn visit_function(&mut self, function: &ast::StmtFunctionDef) {
+        let context = self.context;
+        // Decorators run in the enclosing scope.
+        for decorator in &function.decorator_list {
+            self.visit_decorator(decorator);
+        }
+        let name = function.name.to_string();
+        let scope = self.scope();
+        let qualified = qualify(&context.file_path, &name, scope.as_deref());
+        let params = python_parameters_text(function, context.src);
+        let return_type = function
+            .returns
+            .as_deref()
+            .map(|returns| context.text(returns));
+        let is_test = python_is_test_function(&name, &context.file_path, function, context.src);
+        let decorators = python_decorator_names(&function.decorator_list, context.src);
+        let mut extra = json!({});
+        if !decorators.is_empty() {
+            extra["decorators"] = json!(decorators);
+        }
+        if decorators
+            .iter()
+            .any(|decorator| decorator.rsplit('.').next() == Some("abstractmethod"))
+        {
+            extra["is_abstract"] = json!(true);
+        }
+        let start = context
+            .src
+            .definition_start(function.range, &function.decorator_list);
+        let line_start = context.src.line(start);
+        self.nodes.push(ParsedNode {
+            kind: if is_test {
+                crate::core::types::NodeKind::Test
+            } else {
+                crate::core::types::NodeKind::Function
+            },
+            name,
+            file_path: context.file_path.clone(),
+            line_start,
+            line_end: context
+                .src
+                .line(self.definition_end(start, function.range, &function.body)),
+            language: "python".to_string(),
+            parent_name: scope,
+            params,
+            return_type,
+            modifiers: None,
+            is_test,
+            extra,
+        });
+        self.edges.push(ParsedEdge::new(
+            crate::core::types::EdgeKind::Contains,
+            self.caller(),
+            qualified.clone(),
+            context.file_path.clone(),
+            line_start,
+        ));
+        let snapshot = context.bindings.borrow().snapshot();
+        if let Some(class_name) = &self.enclosing_class {
+            context
+                .bindings
+                .borrow_mut()
+                .bind_implicit_receivers(class_name);
+        }
+        for (name, type_name) in python_parameter_types(&function.parameters, context.src) {
+            python_bind_type(&name, &type_name, context);
+        }
+        if context.pytest_file {
+            python_bind_pytest_fixtures(&function.parameters, context);
+        }
+        self.push_scope(start);
+        let outer = self.enclosing_qualified.replace(qualified);
+        if let Some(type_params) = &function.type_params {
+            self.visit_type_params(type_params);
+        }
+        self.visit_parameters(&function.parameters);
+        if let Some(returns) = &function.returns {
+            self.visit_annotation(returns);
+        }
+        self.visit_body(&function.body);
+        self.enclosing_qualified = outer;
+        self.pop_scope();
+        context.bindings.borrow_mut().restore(snapshot);
+    }
+
+    fn visit_class(&mut self, class: &ast::StmtClassDef) {
+        let context = self.context;
+        for decorator in &class.decorator_list {
+            self.visit_decorator(decorator);
+        }
+        let name = class.name.to_string();
+        let scope = self.scope();
+        let qualified = qualify(&context.file_path, &name, scope.as_deref());
+        let class_path = scope
+            .as_ref()
+            .map(|scope| format!("{scope}.{name}"))
+            .unwrap_or_else(|| name.clone());
+        let bases = python_class_base_names(class, context.src);
+        let decorators = python_decorator_names(&class.decorator_list, context.src);
+        let start = context
+            .src
+            .definition_start(class.range, &class.decorator_list);
+        let line_start = context.src.line(start);
+        self.nodes.push(ParsedNode {
+            kind: crate::core::types::NodeKind::Class,
+            name,
+            file_path: context.file_path.clone(),
+            line_start,
+            line_end: context
+                .src
+                .line(self.definition_end(start, class.range, &class.body)),
+            language: "python".to_string(),
+            parent_name: scope,
+            params: None,
+            return_type: None,
+            modifiers: None,
+            is_test: false,
+            extra: python_class_extra(&bases, &decorators),
+        });
+        self.edges.push(ParsedEdge::new(
+            crate::core::types::EdgeKind::Contains,
+            self.caller(),
+            qualified.clone(),
+            context.file_path.clone(),
+            line_start,
+        ));
+        python_emit_bases(line_start, context, &qualified, &bases, self.edges);
+        self.push_scope(start);
+        self.class_bases.push(bases);
+        let outer_class = self.enclosing_class.replace(class_path);
+        let outer = self.enclosing_qualified.replace(qualified);
+        if let Some(type_params) = &class.type_params {
+            self.visit_type_params(type_params);
+        }
+        if let Some(arguments) = &class.arguments {
+            self.visit_arguments(arguments);
+        }
+        self.visit_body(&class.body);
+        self.enclosing_qualified = outer;
+        self.enclosing_class = outer_class;
+        self.class_bases.pop();
+        self.pop_scope();
+    }
+
+    fn emit_type_alias(&mut self, alias: &ast::StmtTypeAlias) {
+        let context = self.context;
+        let name = context.text(&*alias.name);
+        let scope = self.scope();
+        let qualified = qualify(&context.file_path, &name, scope.as_deref());
+        let line_start = context.line(alias);
+        self.nodes.push(ParsedNode {
+            kind: crate::core::types::NodeKind::Type,
+            name,
+            file_path: context.file_path.clone(),
+            line_start,
+            line_end: context.src.end_line(alias),
+            language: "python".to_string(),
+            parent_name: scope,
+            params: None,
+            return_type: None,
+            modifiers: None,
+            is_test: false,
+            extra: json!({"type_role": "alias"}),
+        });
+        self.edges.push(ParsedEdge::new(
+            crate::core::types::EdgeKind::Contains,
+            self.caller(),
+            qualified,
+            context.file_path.clone(),
+            line_start,
+        ));
+    }
+
+    fn emit_imports(&mut self, stmt: &Stmt) {
+        let context = self.context;
+        for (target, extra) in python_import_targets(stmt, &context.file_path, context.repo_root) {
+            let (mut target, mut extra) = (target, extra);
+            // Unresolved (`target` is the module as written) and of the
+            // standard library: an import of its package.
+            if extra["module"].as_str() == Some(target.as_str()) {
+                if let Some(package) = python_stdlib_package(&target) {
+                    mark_stdlib_edge(&mut target, &mut extra, package, StdlibEvidence::Certain);
+                } else if let Some(package) =
+                    python_external_package(&target, &context.file_path, context.repo_root)
+                {
+                    mark_external_edge(&mut target, &mut extra, &package, StdlibEvidence::Likely);
+                }
+            }
+            self.edges.push(ParsedEdge {
+                kind: crate::core::types::EdgeKind::ImportsFrom,
+                source: context.file_path.to_string(),
+                target,
+                file_path: context.file_path.clone(),
+                line: context.line(stmt),
+                extra,
+            });
+        }
+    }
+
+    fn emit_call(&mut self, call: &ast::ExprCall) {
+        let context = self.context;
+        let Some(call_name) = python_call_name(&call.func) else {
+            return;
+        };
+        let caller = self.caller();
+        let resolved = python_bound_member_target(call, context)
+            .or_else(|| python_resolve_imported_call_target(&call_name, context));
+        let mut extra = match python_import_receiver(call, context) {
+            Some(receiver) => json!({"receiver": receiver}),
+            None => json!({}),
+        };
+        let callee = &*call.func;
+        let target = match resolved {
+            Some(target) => target,
+            None => match python_stdlib_name(callee, context, true) {
+                Some((package, mut symbol, evidence)) => {
+                    mark_stdlib_edge(&mut symbol, &mut extra, package, evidence);
+                    symbol
+                }
+                None => match python_external_name(callee, context) {
+                    Some((package, mut symbol)) => {
+                        mark_external_edge(
+                            &mut symbol,
+                            &mut extra,
+                            &package,
+                            StdlibEvidence::Likely,
+                        );
+                        symbol
+                    }
+                    None => {
+                        python_mark_receiver(callee, self.class_bases.last(), context, &mut extra);
+                        call_name
+                    }
+                },
+            },
+        };
+        let line = context.line(call);
+        self.edges.push(ParsedEdge {
+            kind: crate::core::types::EdgeKind::Calls,
+            source: caller.clone(),
+            target,
+            file_path: context.file_path.clone(),
+            line,
+            extra,
+        });
+        if let Some(edge) = python_bridge_edge(
+            call,
+            context.src,
+            &context.file_path,
+            &caller,
+            context.import_aliases,
+        ) {
+            self.edges.push(edge);
+        }
+    }
+
+    /// `a = b = value`: each target but the last is bound to the next
+    /// assignment, as tree-sitter nests a chained assignment, so only the
+    /// last target takes the value's type.
+    fn visit_assign(&mut self, assign: &ast::StmtAssign) {
+        let Some((last, others)) = assign.targets.split_last() else {
+            self.visit_expr(&assign.value);
+            return;
+        };
+        for target in others {
+            self.visit_expr(target);
+        }
+        let range = TextRange::new(last.start(), assign.end());
+        self.visit_assignment(last, None, Some(&assign.value), range);
+        for target in others.iter().rev() {
+            if let Expr::Name(name) = target {
+                self.context
+                    .bindings
+                    .borrow_mut()
+                    .forget_foreign(name.id.as_str());
+            }
+        }
+    }
+
+    /// One `target [: annotation] [= value]` assignment.
+    fn visit_assignment(
+        &mut self,
+        target: &Expr,
+        annotation: Option<&Expr>,
+        value: Option<&Expr>,
+        range: TextRange,
+    ) {
+        let context = self.context;
+        if let (Expr::Name(name), Some(Expr::Lambda(lambda))) = (target, value) {
+            self.emit_lambda(name, lambda, range);
+            python_bind_assignment(target, annotation, value, context);
+            return;
+        }
+        // `self.handler = handler`, `registry[key] = handler`.
+        if matches!(target, Expr::Attribute(_) | Expr::Subscript(_))
+            && let Some(Expr::Name(name)) = value
+        {
+            self.emit_reference_if_known(name);
+        }
+        self.visit_expr(target);
+        if let Some(annotation) = annotation {
+            self.visit_annotation(annotation);
+        }
+        if let Some(value) = value {
+            self.visit_expr(value);
+        }
+        python_bind_assignment(target, annotation, value, context);
+    }
+
+    /// Emits `name = lambda ...` as a function so calls in the lambda body
+    /// have a caller.
+    fn emit_lambda(&mut self, name: &ast::ExprName, lambda: &ast::ExprLambda, range: TextRange) {
+        let context = self.context;
+        let name = name.id.to_string();
+        let scope = self.scope();
+        let qualified = qualify(&context.file_path, &name, scope.as_deref());
+        let line_start = context.src.line(range.start());
+        self.nodes.push(ParsedNode {
+            kind: crate::core::types::NodeKind::Function,
+            name,
+            file_path: context.file_path.clone(),
+            line_start,
+            line_end: context.src.line(range.end()),
+            language: "python".to_string(),
+            parent_name: scope,
+            params: None,
+            return_type: None,
+            modifiers: None,
+            is_test: false,
+            extra: json!({"python_kind": "lambda"}),
+        });
+        self.edges.push(ParsedEdge::new(
+            crate::core::types::EdgeKind::Contains,
+            self.caller(),
+            qualified.clone(),
+            context.file_path.clone(),
+            line_start,
+        ));
+        let outer = self.enclosing_qualified.replace(qualified);
+        if let Some(parameters) = &lambda.parameters {
+            self.visit_parameters(parameters);
+        }
+        self.visit_expr(&lambda.body);
+        self.enclosing_qualified = outer;
+    }
+
+    fn emit_reference_if_known(&mut self, name: &ast::ExprName) {
+        let context = self.context;
+        let Some(target) = python_resolve_reference_target(name.id.as_str(), context) else {
+            return;
+        };
+        self.edges.push(ParsedEdge::new(
+            crate::core::types::EdgeKind::References,
+            self.caller(),
+            target,
+            context.file_path.clone(),
+            context.line(name),
+        ));
     }
 }
 
@@ -509,138 +750,10 @@ fn python_scope_path<'a>(file_path: &str, enclosing_qualified: Option<&'a str>) 
         .filter(|scope| !scope.is_empty())
 }
 
-/// Emits `name = lambda ...` as a function so calls in the lambda body have a
-/// caller. Returns false when the assignment is not a plain lambda binding.
-fn python_emit_lambda_assignment(
-    node: tree_sitter::Node<'_>,
-    context: &PythonParseContext<'_>,
-    enclosing_class: Option<&str>,
-    enclosing_qualified: Option<&str>,
-    nodes: &mut Vec<ParsedNode>,
-    edges: &mut Vec<ParsedEdge>,
-) -> bool {
-    let (Some(left), Some(right)) = (
-        node.child_by_field_name("left"),
-        node.child_by_field_name("right"),
-    ) else {
-        return false;
-    };
-    if left.kind() != "identifier" || right.kind() != "lambda" {
-        return false;
-    }
-    let name = node_text(left, context.source);
-    let scope = python_scope_path(&context.file_path, enclosing_qualified);
-    let qualified = qualify(&context.file_path, &name, scope);
-    nodes.push(ParsedNode {
-        kind: crate::core::types::NodeKind::Function,
-        name,
-        file_path: context.file_path.clone(),
-        line_start: node.start_position().row as i64 + 1,
-        line_end: node.end_position().row as i64 + 1,
-        language: "python".to_string(),
-        parent_name: scope.map(str::to_string),
-        params: direct_child_text(right, context.source, &["parameters"]),
-        return_type: None,
-        modifiers: None,
-        is_test: false,
-        extra: json!({"python_kind": "lambda"}),
-    });
-    edges.push(ParsedEdge::new(
-        crate::core::types::EdgeKind::Contains,
-        enclosing_qualified
-            .unwrap_or(&context.file_path)
-            .to_string(),
-        qualified.clone(),
-        context.file_path.clone(),
-        line_of(node),
-    ));
-    python_walk_children(
-        right,
-        context,
-        enclosing_class,
-        Some(&qualified),
-        nodes,
-        edges,
-    );
-    true
-}
-
-fn python_emit_value_references(
-    node: tree_sitter::Node<'_>,
-    context: &PythonParseContext<'_>,
-    caller: &str,
-    edges: &mut Vec<ParsedEdge>,
-) {
-    match node.kind() {
-        "pair" => {
-            if let Some(value_node) = python_last_value_child(node)
-                && value_node.kind() == "identifier"
-            {
-                python_emit_reference_if_known(value_node, context, caller, edges);
-            }
-        }
-        "assignment" => {
-            let Some(lhs) = python_first_child(node) else {
-                return;
-            };
-            if !matches!(lhs.kind(), "attribute" | "subscript") {
-                return;
-            }
-            if let Some(rhs) = python_last_value_child(node)
-                && rhs.kind() == "identifier"
-            {
-                python_emit_reference_if_known(rhs, context, caller, edges);
-            }
-        }
-        "list" => {
-            let mut cursor = node.walk();
-            for child in node.children(&mut cursor) {
-                if child.kind() == "identifier" {
-                    python_emit_reference_if_known(child, context, caller, edges);
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
-fn python_last_value_child(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
-    let mut last = None;
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if !matches!(
-            child.kind(),
-            ":" | "," | "=" | "comment" | "type_annotation"
-        ) {
-            last = Some(child);
-        }
-    }
-    last
-}
-
-fn python_first_child(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
-    let mut cursor = node.walk();
-
-    node.children(&mut cursor).next()
-}
-
-fn python_emit_reference_if_known(
-    node: tree_sitter::Node<'_>,
-    context: &PythonParseContext<'_>,
-    caller: &str,
-    edges: &mut Vec<ParsedEdge>,
-) {
-    let name = node_text(node, context.source);
-    let Some(target) = python_resolve_reference_target(&name, context) else {
-        return;
-    };
-    edges.push(ParsedEdge::new(
-        crate::core::types::EdgeKind::References,
-        caller.to_string(),
-        target,
-        context.file_path.clone(),
-        line_of(node),
-    ));
+/// The parameter list of a definition as written, parentheses included.
+fn python_parameters_text(function: &ast::StmtFunctionDef, src: &PySource<'_>) -> Option<String> {
+    let text = src.slice(&*function.parameters);
+    (!text.is_empty()).then(|| text.to_string())
 }
 
 fn python_resolve_reference_target(name: &str, context: &PythonParseContext<'_>) -> Option<String> {
@@ -679,143 +792,82 @@ fn python_skip_value_reference_name(name: &str) -> bool {
 }
 
 fn collect_python_file_scope(
-    root: tree_sitter::Node<'_>,
-    source: &[u8],
+    body: &[Stmt],
+    src: &PySource<'_>,
 ) -> (HashMap<String, String>, HashSet<String>, HashSet<String>) {
     let mut import_map = HashMap::new();
     let mut defined_names = HashSet::new();
     let mut protocol_names = HashSet::new();
-    let mut cursor = root.walk();
-    for child in root.children(&mut cursor) {
-        let target = if child.kind() == "decorated_definition" {
-            python_decorated_target(child)
-        } else {
-            Some(child)
-        };
-        if let Some(target) = target {
-            match target.kind() {
-                "class_definition" => {
-                    if let Some(name) = python_identifier_child(target, source) {
-                        if python_class_base_names(target, source)
-                            .iter()
-                            .any(|base| python_is_protocol_marker(base))
-                        {
-                            protocol_names.insert(name.clone());
-                        }
-                        defined_names.insert(name);
-                    }
-                }
-                "function_definition" | "type_alias_statement" => {
-                    if let Some(name) = python_identifier_child(target, source)
-                        .or_else(|| python_type_alias_name(target, source))
-                    {
-                        defined_names.insert(name);
-                    }
-                }
-                "import_statement" | "import_from_statement" => {
-                    collect_python_import_names(target, source, &mut import_map);
-                }
-                _ => {}
-            }
-        }
-    }
-    (import_map, defined_names, protocol_names)
-}
-
-fn python_decorated_target(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if matches!(
-            child.kind(),
-            "class_definition"
-                | "function_definition"
-                | "import_statement"
-                | "import_from_statement"
-        ) {
-            return Some(child);
-        }
-    }
-    None
-}
-
-fn collect_python_import_names(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    import_map: &mut HashMap<String, String>,
-) {
-    if node.kind() != "import_from_statement" {
-        return;
-    }
-
-    let mut module = None;
-    let mut seen_import = false;
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        match child.kind() {
-            // `from pkg.mod import x` and `from .mod import x`.
-            "dotted_name" | "relative_import" if !seen_import => {
-                module = Some(node_text(child, source));
-            }
-            "import" => {
-                seen_import = true;
-            }
-            "identifier" | "dotted_name" if seen_import => {
-                if let Some(module) = &module {
-                    import_map.insert(node_text(child, source), module.clone());
-                }
-            }
-            "aliased_import" if seen_import => {
-                if let Some(module) = &module
-                    && let Some(name) = python_aliased_import_name(child, source)
+    for stmt in body {
+        match stmt {
+            Stmt::ClassDef(class) if !class.name.is_empty() => {
+                let name = class.name.to_string();
+                if python_class_base_names(class, src)
+                    .iter()
+                    .any(|base| python_is_protocol_marker(base))
                 {
-                    import_map.insert(name, module.clone());
+                    protocol_names.insert(name.clone());
+                }
+                defined_names.insert(name);
+            }
+            Stmt::FunctionDef(function) if !function.name.is_empty() => {
+                defined_names.insert(function.name.to_string());
+            }
+            Stmt::TypeAlias(alias) => {
+                let name = src.slice(&*alias.name);
+                if !name.is_empty() {
+                    defined_names.insert(name.to_string());
+                }
+            }
+            Stmt::ImportFrom(import) => {
+                let module = python_import_from_module(import);
+                if module.is_empty() {
+                    continue;
+                }
+                for alias in python_import_from_names(import) {
+                    let bound = alias.asname.as_ref().unwrap_or(&alias.name);
+                    import_map.insert(bound.to_string(), module.clone());
                 }
             }
             _ => {}
         }
     }
+    (import_map, defined_names, protocol_names)
 }
 
-fn python_aliased_import_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let mut cursor = node.walk();
-    node.children(&mut cursor)
-        .filter(|child| matches!(child.kind(), "identifier" | "dotted_name"))
-        .map(|child| node_text(child, source))
-        .last()
-}
-
-fn python_identifier_child(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == "identifier" {
-            return Some(node_text(child, source));
-        }
+/// The module of `from <module> import ...` as written: `pkg.mod`,
+/// `.mod`, `..`.
+fn python_import_from_module(import: &ast::StmtImportFrom) -> String {
+    let mut module = ".".repeat(import.level as usize);
+    if let Some(name) = &import.module {
+        module.push_str(name);
     }
-    None
+    module
 }
 
-fn python_return_type(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let mut cursor = node.walk();
-    let children = node.children(&mut cursor).collect::<Vec<_>>();
-    for (index, child) in children.iter().enumerate() {
-        if child.kind() == "->" {
-            return children
-                .get(index + 1)
-                .map(|return_node| node_text(*return_node, source));
-        }
-    }
-    None
+/// The names `from m import ...` binds; none for `from m import *`, and
+/// none for `from __future__ import ...`, a compiler directive.
+fn python_import_from_names(import: &ast::StmtImportFrom) -> impl Iterator<Item = &ast::Alias> {
+    let future = import.level == 0
+        && import
+            .module
+            .as_ref()
+            .is_some_and(|module| module.as_str() == "__future__");
+    import
+        .names
+        .iter()
+        .filter(move |alias| !future && alias.name.as_str() != "*" && !alias.name.is_empty())
 }
 
 fn python_is_test_function(
     name: &str,
     file_path: &FilePath,
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
+    function: &ast::StmtFunctionDef,
+    src: &PySource<'_>,
 ) -> bool {
     python_name_matches_test_pattern(name)
         || (is_test_file(file_path) && python_is_test_runner_name(name))
-        || python_has_test_annotation(node, source)
+        || python_has_test_annotation(&function.decorator_list, src)
 }
 
 fn python_name_matches_test_pattern(name: &str) -> bool {
@@ -834,22 +886,10 @@ fn python_is_test_runner_name(name: &str) -> bool {
     )
 }
 
-fn python_has_test_annotation(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
-    let Some(parent) = node.parent() else {
-        return false;
-    };
-    if parent.kind() != "decorated_definition" {
-        return false;
-    }
-    let mut cursor = parent.walk();
-
-    parent.children(&mut cursor).any(|child| {
-        if child.kind() != "decorator" {
-            return false;
-        }
-        let text = node_text(child, source);
+fn python_has_test_annotation(decorators: &[Decorator], src: &PySource<'_>) -> bool {
+    decorators.iter().any(|decorator| {
         matches!(
-            text.trim_start_matches('@').trim(),
+            src.slice(&decorator.expression).trim(),
             "Test"
                 | "ParameterizedTest"
                 | "RepeatedTest"
@@ -861,7 +901,7 @@ fn python_has_test_annotation(node: tree_sitter::Node<'_>, source: &[u8]) -> boo
 }
 
 fn python_emit_bases(
-    node: tree_sitter::Node<'_>,
+    line: i64,
     context: &PythonParseContext<'_>,
     qualified: &str,
     bases: &[String],
@@ -883,41 +923,37 @@ fn python_emit_bases(
             source: qualified.to_string(),
             target: base.clone(),
             file_path: context.file_path.clone(),
-            line: node.start_position().row as i64 + 1,
+            line,
             extra: json!({
                 "relationship_role": role,
-                "syntax_source": node.kind(),
+                "syntax_source": "class_definition",
             }),
         });
     }
 }
 
-fn python_class_base_names(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
-    let mut bases = Vec::new();
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() != "argument_list" {
-            continue;
-        }
-        let mut arg_cursor = child.walk();
-        for arg in child.children(&mut arg_cursor) {
-            if let Some(name) = python_base_name(arg, source) {
-                bases.push(name);
-            }
-        }
-    }
-    bases
+/// The positional bases of a class, as written (`Base`, `pkg.Base`, and
+/// `Generic` of `Generic[T]`). Keyword arguments (`metaclass=`) are not
+/// bases.
+fn python_class_base_names(class: &ast::StmtClassDef, src: &PySource<'_>) -> Vec<String> {
+    class
+        .bases()
+        .iter()
+        .filter_map(|base| python_base_name(base, src))
+        .collect()
 }
 
-fn python_base_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    match node.kind() {
-        "identifier" | "attribute" => Some(node_text(node, source)),
-        "subscript" => {
-            let mut cursor = node.walk();
-            let children = node.children(&mut cursor).collect::<Vec<_>>();
-            children
-                .into_iter()
-                .find_map(|child| python_base_name(child, source))
+fn python_base_name(expr: &Expr, src: &PySource<'_>) -> Option<String> {
+    match expr {
+        Expr::Name(_) | Expr::Attribute(_) => Some(src.slice(expr).to_string()),
+        Expr::Subscript(subscript) => {
+            python_base_name(&subscript.value, src).or_else(|| match &*subscript.slice {
+                Expr::Tuple(tuple) if !tuple.parenthesized => tuple
+                    .elts
+                    .iter()
+                    .find_map(|element| python_base_name(element, src)),
+                slice => python_base_name(slice, src),
+            })
         }
         _ => None,
     }
@@ -963,57 +999,23 @@ fn python_is_typed_dict_marker(name: &str) -> bool {
     name.rsplit('.').next().unwrap_or(name) == "TypedDict"
 }
 
-fn python_parent_decorators(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
-    let Some(parent) = node.parent() else {
-        return Vec::new();
-    };
-    if parent.kind() != "decorated_definition" {
-        return Vec::new();
-    }
-    python_decorator_names(parent, source)
+/// The decorators of a definition by the name they call or name:
+/// `app.route` of `@app.route("/")`, `property` of `@property`.
+fn python_decorator_names(decorators: &[Decorator], src: &PySource<'_>) -> Vec<String> {
+    decorators
+        .iter()
+        .filter_map(|decorator| python_decorator_name(decorator, src))
+        .collect()
 }
 
-fn python_decorator_names(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
-    let mut names = Vec::new();
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() != "decorator" {
-            continue;
+fn python_decorator_name(decorator: &Decorator, src: &PySource<'_>) -> Option<String> {
+    match &decorator.expression {
+        expr @ (Expr::Name(_) | Expr::Attribute(_)) => Some(src.slice(expr).to_string()),
+        Expr::Call(call) if matches!(&*call.func, Expr::Name(_) | Expr::Attribute(_)) => {
+            Some(src.slice(&*call.func).to_string())
         }
-        if let Some(name) = python_decorator_name(child, source) {
-            names.push(name);
-        }
+        _ => None,
     }
-    names
-}
-
-fn python_decorator_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        match child.kind() {
-            "identifier" | "attribute" => return Some(node_text(child, source)),
-            "call" => {
-                if let Some(callee) = python_first_child(child)
-                    && matches!(callee.kind(), "identifier" | "attribute")
-                {
-                    return Some(node_text(callee, source));
-                }
-            }
-            _ => {}
-        }
-    }
-    None
-}
-
-fn python_type_alias_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    if node.kind() != "type_alias_statement" {
-        return None;
-    }
-    node.child_by_field_name("name")
-        .or_else(|| node.child_by_field_name("left"))
-        .map(|child| node_text(child, source))
-        .filter(|name| !name.is_empty())
-        .or_else(|| python_identifier_child(node, source))
 }
 
 /// IMPORTS_FROM targets of one import statement, each with the raw module
@@ -1021,180 +1023,132 @@ fn python_type_alias_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<
 /// a file, and native-binding resolution needs the module as written
 /// (`from pkg import _core` names `pkg._core`, a module with no `.py`).
 fn python_import_targets(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
+    stmt: &Stmt,
     file_path: &FilePath,
     repo_root: Option<&Path>,
 ) -> Vec<(String, serde_json::Value)> {
-    if node.kind() == "import_statement" {
-        let mut imports = Vec::new();
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            let (module, alias) = match child.kind() {
-                "dotted_name" => (node_text(child, source), None),
-                "aliased_import" => {
-                    let Some(module) = direct_child_text(child, source, &["dotted_name"]) else {
-                        continue;
-                    };
-                    let alias = child
-                        .child_by_field_name("alias")
-                        .map(|alias| node_text(alias, source));
-                    (module, alias)
+    match stmt {
+        Stmt::Import(import) => import
+            .names
+            .iter()
+            .filter(|alias| !alias.name.is_empty())
+            .map(|alias| {
+                let module = alias.name.to_string();
+                let mut extra = json!({"module": module});
+                if let Some(asname) = &alias.asname {
+                    extra["alias"] = json!(asname.as_str());
                 }
-                _ => continue,
-            };
-            let mut extra = json!({"module": module});
-            if let Some(alias) = alias {
-                extra["alias"] = json!(alias);
+                (
+                    python_resolve_module_to_file(&module, file_path, repo_root).unwrap_or(module),
+                    extra,
+                )
+            })
+            .collect(),
+        Stmt::ImportFrom(import) => {
+            let module = python_import_from_module(import);
+            // `from __future__ import annotations` is a compiler directive,
+            // not a dependency (tree-sitter parses it as its own statement).
+            if module.is_empty() || module == "__future__" {
+                return Vec::new();
             }
-            imports.push((
-                python_resolve_module_to_file(&module, file_path, repo_root).unwrap_or(module),
-                extra,
-            ));
+            // `from pkg import sub` imports the submodule `pkg/sub.py`, the
+            // same way `import pkg.sub` does; only names that are not
+            // submodules (or `*`) make it an import of `pkg` itself.
+            let mut submodules = Vec::new();
+            let mut imports_package = false;
+            let mut bound_names = Vec::new();
+            let mut names = python_import_from_names(import).peekable();
+            if names.peek().is_none() {
+                imports_package = true;
+            }
+            for alias in names {
+                let name = alias.name.to_string();
+                let bound = alias
+                    .asname
+                    .as_ref()
+                    .map_or_else(|| name.clone(), |asname| asname.to_string());
+                bound_names.push(json!([name, bound]));
+                let submodule = if module.ends_with('.') {
+                    format!("{module}{name}")
+                } else {
+                    format!("{module}.{name}")
+                };
+                match python_resolve_module_to_file(&submodule, file_path, repo_root) {
+                    Some(path) if !submodules.contains(&path) => submodules.push(path),
+                    Some(_) => {}
+                    None => imports_package = true,
+                }
+            }
+            let extra = json!({"module": module, "names": bound_names});
+            let mut imports = Vec::new();
+            if imports_package {
+                imports.push((
+                    python_resolve_module_to_file(&module, file_path, repo_root).unwrap_or(module),
+                    extra.clone(),
+                ));
+            }
+            imports.extend(submodules.into_iter().map(|path| (path, extra.clone())));
+            imports
         }
-        return imports;
+        _ => Vec::new(),
     }
-
-    let Some(module_node) = node.child_by_field_name("module_name") else {
-        return Vec::new();
-    };
-    let module = node_text(module_node, source);
-    // `from pkg import sub` imports the submodule `pkg/sub.py`, the same way
-    // `import pkg.sub` does; only names that are not submodules (or `*`)
-    // make it an import of `pkg` itself.
-    let mut submodules = Vec::new();
-    let mut imports_package = false;
-    let mut bound_names = Vec::new();
-    let mut cursor = node.walk();
-    let names = node
-        .children_by_field_name("name", &mut cursor)
-        .collect::<Vec<_>>();
-    if names.is_empty() {
-        imports_package = true;
-    }
-    for name_node in names {
-        let (dotted, alias) = if name_node.kind() == "aliased_import" {
-            (
-                name_node.child_by_field_name("name"),
-                name_node
-                    .child_by_field_name("alias")
-                    .map(|alias| node_text(alias, source)),
-            )
-        } else {
-            (Some(name_node), None)
-        };
-        let Some(dotted) = dotted else {
-            imports_package = true;
-            continue;
-        };
-        let name = node_text(dotted, source);
-        bound_names.push(json!([name, alias.unwrap_or_else(|| name.clone())]));
-        let submodule = if module.ends_with('.') {
-            format!("{module}{name}")
-        } else {
-            format!("{module}.{name}")
-        };
-        match python_resolve_module_to_file(&submodule, file_path, repo_root) {
-            Some(path) if !submodules.contains(&path) => submodules.push(path),
-            Some(_) => {}
-            None => imports_package = true,
-        }
-    }
-    let extra = json!({"module": module, "names": bound_names});
-    let mut imports = Vec::new();
-    if imports_package {
-        imports.push((
-            python_resolve_module_to_file(&module, file_path, repo_root).unwrap_or(module),
-            extra.clone(),
-        ));
-    }
-    imports.extend(submodules.into_iter().map(|path| (path, extra.clone())));
-    imports
 }
 
 /// Every local name an import statement binds, at any depth of the file,
 /// mapped to what it names: `import a.b` binds `a` -> `a`, `import a as b`
 /// binds `b` -> `a`, `from m import n as k` binds `k` -> `m.n`.
-fn collect_python_import_aliases(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    aliases: &mut HashMap<String, String>,
-) {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        match child.kind() {
-            "import_statement" => {
-                let mut inner = child.walk();
-                for name in child.children(&mut inner) {
-                    match name.kind() {
-                        "dotted_name" => {
-                            let text = node_text(name, source);
-                            if let Some(head) = text.split('.').next() {
-                                aliases.insert(head.to_string(), head.to_string());
-                            }
+fn collect_python_import_aliases(body: &[Stmt]) -> HashMap<String, String> {
+    let mut aliases = HashMap::new();
+    for_each_statement(body, |stmt| match stmt {
+        Stmt::Import(import) => {
+            for alias in &import.names {
+                match &alias.asname {
+                    Some(asname) => {
+                        aliases.insert(asname.to_string(), alias.name.to_string());
+                    }
+                    None => {
+                        if let Some(head) = alias.name.split('.').next()
+                            && !head.is_empty()
+                        {
+                            aliases.insert(head.to_string(), head.to_string());
                         }
-                        "aliased_import" => {
-                            if let (Some(module), Some(alias)) = (
-                                name.child_by_field_name("name"),
-                                name.child_by_field_name("alias"),
-                            ) {
-                                aliases.insert(node_text(alias, source), node_text(module, source));
-                            }
-                        }
-                        _ => {}
                     }
                 }
             }
-            "import_from_statement" => {
-                let module = child
-                    .child_by_field_name("module_name")
-                    .map(|module| node_text(module, source))
-                    .unwrap_or_default();
-                let mut inner = child.walk();
-                for name in child.children_by_field_name("name", &mut inner) {
-                    let (imported, bound) = if name.kind() == "aliased_import" {
-                        (
-                            name.child_by_field_name("name"),
-                            name.child_by_field_name("alias"),
-                        )
-                    } else {
-                        (Some(name), Some(name))
-                    };
-                    if let (Some(imported), Some(bound)) = (imported, bound) {
-                        let imported = node_text(imported, source);
-                        let origin = if module.is_empty() || module.ends_with('.') {
-                            format!("{module}{imported}")
-                        } else {
-                            format!("{module}.{imported}")
-                        };
-                        aliases.insert(node_text(bound, source), origin);
-                    }
-                }
-            }
-            _ => collect_python_import_aliases(child, source, aliases),
         }
-    }
+        Stmt::ImportFrom(import) => {
+            let module = python_import_from_module(import);
+            for alias in python_import_from_names(import) {
+                let origin = if module.is_empty() || module.ends_with('.') {
+                    format!("{module}{}", alias.name)
+                } else {
+                    format!("{module}.{}", alias.name)
+                };
+                let bound = alias.asname.as_ref().unwrap_or(&alias.name);
+                aliases.insert(bound.to_string(), origin);
+            }
+        }
+        _ => {}
+    });
+    aliases
 }
 
 /// The receiver of `alias.attr(...)` when `alias` was bound by an import.
 fn python_import_receiver(
-    node: tree_sitter::Node<'_>,
+    call: &ast::ExprCall,
     context: &PythonParseContext<'_>,
 ) -> Option<String> {
-    let mut cursor = node.walk();
-    let first = node.children(&mut cursor).next()?;
-    if first.kind() != "attribute" {
+    let Expr::Attribute(attribute) = &*call.func else {
         return None;
-    }
-    let receiver = first.child_by_field_name("object")?;
-    if receiver.kind() != "identifier" {
+    };
+    let Expr::Name(receiver) = &*attribute.value else {
         return None;
-    }
-    let receiver = node_text(receiver, context.source);
+    };
+    let receiver = receiver.id.as_str();
     context
         .import_aliases
-        .contains_key(&receiver)
-        .then_some(receiver)
+        .contains_key(receiver)
+        .then(|| receiver.to_string())
 }
 
 /// The import aliases of `import_aliases` that name a standard-library
@@ -1276,33 +1230,30 @@ fn python_external_aliases(
 /// The third-party package and dotted name a callee is written through: an
 /// import alias of a third-party module (`yaml.safe_load`, `np.array`) or a
 /// name imported from one (`from pytest import raises`).
-fn python_external_name(
-    node: tree_sitter::Node<'_>,
-    context: &PythonParseContext<'_>,
-) -> Option<(String, String)> {
-    match node.kind() {
-        "identifier" => {
-            let name = node_text(node, context.source);
-            if context.defined_names.contains(&name) {
+fn python_external_name(expr: &Expr, context: &PythonParseContext<'_>) -> Option<(String, String)> {
+    match expr {
+        Expr::Name(name) => {
+            let name = name.id.as_str();
+            if context.defined_names.contains(name) {
                 return None;
             }
-            context.external_aliases.get(&name).cloned()
+            context.external_aliases.get(name).cloned()
         }
-        "attribute" => {
-            let object = node.child_by_field_name("object")?;
-            if !matches!(object.kind(), "identifier" | "attribute") {
+        Expr::Attribute(attribute) => {
+            let object = &*attribute.value;
+            if !matches!(object, Expr::Name(_) | Expr::Attribute(_)) {
                 return None;
             }
-            let attribute = node_text(node.child_by_field_name("attribute")?, context.source);
+            let attr = attribute.attr.as_str();
             // A value of a third-party type (`monkeypatch.setattr` with
             // `monkeypatch: pytest.MonkeyPatch` or pytest's fixture).
             if let Some(PythonType::External(package, symbol)) =
                 python_receiver_type(object, context)
             {
-                return Some((package, format!("{symbol}.{attribute}")));
+                return Some((package, format!("{symbol}.{attr}")));
             }
             let (package, base) = python_external_name(object, context)?;
-            Some((package, format!("{base}.{attribute}")))
+            Some((package, format!("{base}.{attr}")))
         }
         _ => None,
     }
@@ -1321,168 +1272,153 @@ fn python_external_name(
 /// standard library; a builtin (a local may shadow it) or a variable bound
 /// to a standard-library value (it may be reassigned in a branch) is likely.
 fn python_stdlib_name(
-    node: tree_sitter::Node<'_>,
+    expr: &Expr,
     context: &PythonParseContext<'_>,
     bare_builtin: bool,
 ) -> Option<(&'static str, String, StdlibEvidence)> {
-    match node.kind() {
-        "identifier" => {
-            let name = node_text(node, context.source);
-            if let Some((package, origin)) = context.stdlib_aliases.get(&name) {
+    match expr {
+        Expr::Name(name) => {
+            let name = name.id.as_str();
+            if let Some((package, origin)) = context.stdlib_aliases.get(name) {
                 return Some((package, origin.clone(), StdlibEvidence::Certain));
             }
-            if let Some(PythonType::Stdlib(package, symbol)) = python_receiver_type(node, context) {
+            if let Some(PythonType::Stdlib(package, symbol)) = python_receiver_type(expr, context) {
                 return Some((package, symbol, StdlibEvidence::Likely));
             }
             let builtin = bare_builtin
-                && is_python_builtin(&name)
-                && !context.defined_names.contains(&name)
-                && !context.import_aliases.contains_key(&name);
-            builtin.then_some(("builtins", name, StdlibEvidence::Likely))
+                && is_python_builtin(name)
+                && !context.defined_names.contains(name)
+                && !context.import_aliases.contains_key(name);
+            builtin.then(|| ("builtins", name.to_string(), StdlibEvidence::Likely))
         }
-        "attribute" => {
-            if let Some(PythonType::Stdlib(package, symbol)) = python_receiver_type(node, context) {
+        Expr::Attribute(attribute) => {
+            if let Some(PythonType::Stdlib(package, symbol)) = python_receiver_type(expr, context) {
                 return Some((package, symbol, StdlibEvidence::Likely));
             }
-            let object = node.child_by_field_name("object")?;
-            let attribute = node_text(node.child_by_field_name("attribute")?, context.source);
-            let (package, base, evidence) = python_stdlib_name(object, context, false)?;
-            Some((package, format!("{base}.{attribute}"), evidence))
+            let (package, base, evidence) = python_stdlib_name(&attribute.value, context, false)?;
+            Some((package, format!("{base}.{}", attribute.attr), evidence))
         }
-        "call" => python_stdlib_name(node.child_by_field_name("function")?, context, true)
+        Expr::Call(call) => python_stdlib_name(&call.func, context, true)
             .filter(|(package, symbol, _)| python_constructs_stdlib_value(package, symbol)),
         _ => None,
     }
 }
 
-fn python_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let mut cursor = node.walk();
-    let first = node.children(&mut cursor).next()?;
-    match first.kind() {
-        "identifier" => Some(node_text(first, source)),
-        "attribute" => rust_rightmost_identifier(first, source),
+/// The name a call calls: `f` of `f()`, `m` of `obj.m()`.
+fn python_call_name(func: &Expr) -> Option<String> {
+    match func {
+        Expr::Name(name) => Some(name.id.to_string()),
+        Expr::Attribute(attribute) if !attribute.attr.is_empty() => {
+            Some(attribute.attr.to_string())
+        }
         _ => None,
     }
 }
 
 fn python_bound_member_target(
-    node: tree_sitter::Node<'_>,
+    call: &ast::ExprCall,
     context: &PythonParseContext<'_>,
 ) -> Option<String> {
-    let mut cursor = node.walk();
-    let first = node.children(&mut cursor).next()?;
-    if first.kind() != "attribute" {
+    let Expr::Attribute(attribute) = &*call.func else {
+        return None;
+    };
+    if attribute.attr.is_empty() {
         return None;
     }
-    let method = rust_rightmost_identifier(first, context.source)?;
-    let receiver = python_first_child(first)?;
-    if receiver.kind() == "attribute" {
+    let method = attribute.attr.as_str();
+    match &*attribute.value {
         // `self.store.save()` with `self.store = Store()`, `Store` of this file.
-        return match python_receiver_type(receiver, context)? {
+        receiver @ Expr::Attribute(_) => match python_receiver_type(receiver, context)? {
             PythonType::Local(type_name) => Some(format!("{type_name}::{method}")),
             _ => None,
-        };
-    }
-    if receiver.kind() != "identifier" {
-        return None;
-    }
-    context
-        .bindings
-        .borrow()
-        .resolve_member(&node_text(receiver, context.source), &method)
-}
-
-fn python_bind_assignment(node: tree_sitter::Node<'_>, context: &PythonParseContext<'_>) {
-    if !matches!(node.kind(), "assignment" | "augmented_assignment") {
-        return;
-    }
-    let Some(lhs) = python_first_child(node) else {
-        return;
-    };
-    if lhs.kind() != "identifier" {
-        return;
-    }
-    let var = node_text(lhs, context.source);
-    // A value of the standard library: `p = Path(x)`, `f = open(x)`.
-    context.bindings.borrow_mut().forget_foreign(&var);
-    if let Some(rhs) = python_last_value_child(node)
-        && rhs.kind() == "call"
-        && let Some((_, symbol, _)) = python_stdlib_name(rhs, context, true)
-    {
-        context.bindings.borrow_mut().bind_any(var, symbol);
-        return;
-    }
-    if let Some(rhs) = python_last_value_child(node)
-        && rhs.kind() == "call"
-        && let Some(call_name) = python_call_name(rhs, context.source)
-    {
-        let type_name = context
+        },
+        Expr::Name(receiver) => context
             .bindings
             .borrow()
-            .constructor_type(&call_name)
-            .map(str::to_string);
-        if let Some(type_name) = type_name {
-            context.bindings.borrow_mut().bind(var.clone(), type_name);
+            .resolve_member(receiver.id.as_str(), method),
+        _ => None,
+    }
+}
+
+/// Binds the variable an assignment assigns to what its value says: a
+/// standard-library value (`p = Path(x)`), an instance of a class of this
+/// file or an imported one (`store = GraphStore(path)`), the annotated type
+/// (`store: GraphStore = ...`), or the result of a call.
+fn python_bind_assignment(
+    target: &Expr,
+    annotation: Option<&Expr>,
+    value: Option<&Expr>,
+    context: &PythonParseContext<'_>,
+) {
+    let Expr::Name(target) = target else {
+        return;
+    };
+    let var = target.id.as_str();
+    // A value of the standard library: `p = Path(x)`, `f = open(x)`.
+    context.bindings.borrow_mut().forget_foreign(var);
+    if let Some(rhs @ Expr::Call(call)) = value {
+        if let Some((_, symbol, _)) = python_stdlib_name(rhs, context, true) {
+            context.bindings.borrow_mut().bind_any(var, symbol);
             return;
         }
-        // A class imported from another module of the repository:
-        // `store = GraphStore(path)`.
-        if let Some(callee) = rhs.child_by_field_name("function")
-            && matches!(callee.kind(), "identifier" | "attribute")
-        {
-            let callee = node_text(callee, context.source);
-            let root = callee.split('.').next().unwrap_or(&callee);
-            let is_class = callee
-                .rsplit('.')
-                .next()
-                .is_some_and(|name| name.starts_with(|c: char| c.is_ascii_uppercase()));
-            if is_class && context.import_aliases.contains_key(root) {
-                python_bind_type(&var, &callee, context);
+        if let Some(call_name) = python_call_name(&call.func) {
+            let type_name = context
+                .bindings
+                .borrow()
+                .constructor_type(&call_name)
+                .map(str::to_string);
+            if let Some(type_name) = type_name {
+                context.bindings.borrow_mut().bind(var, type_name);
                 return;
+            }
+            // A class imported from another module of the repository:
+            // `store = GraphStore(path)`.
+            if matches!(&*call.func, Expr::Name(_) | Expr::Attribute(_)) {
+                let callee = context.text(&*call.func);
+                let root = callee.split('.').next().unwrap_or(&callee);
+                let is_class = callee
+                    .rsplit('.')
+                    .next()
+                    .is_some_and(|name| name.starts_with(|c: char| c.is_ascii_uppercase()));
+                if is_class && context.import_aliases.contains_key(root) {
+                    python_bind_type(var, &callee, context);
+                    return;
+                }
             }
         }
     }
-    if let Some(annotation) = node
-        .child_by_field_name("type")
-        .and_then(|annotation| python_annotation_type(annotation, context.source))
+    if let Some(annotation) =
+        annotation.and_then(|annotation| python_annotation_type(annotation, context.src))
     {
-        python_bind_type(&var, &annotation, context);
+        python_bind_type(var, &annotation, context);
         return;
     }
     // `conn = store_conn(store)`: the type is the call's return type.
-    if let Some(origin) =
-        python_last_value_child(node).and_then(|rhs| python_call_origin(rhs, context))
-    {
+    if let Some(origin) = value.and_then(|rhs| python_call_origin(rhs, context)) {
         context.bindings.borrow_mut().bind_returned(var, origin);
     }
 }
 
 /// The call an expression is the result of (`store_conn(store)`,
 /// `self.store.connection()`), or of which a variable holds the result.
-fn python_call_origin(
-    expression: tree_sitter::Node<'_>,
-    context: &PythonParseContext<'_>,
-) -> Option<CallOrigin> {
-    match expression.kind() {
-        "call" => {
-            let function = expression.child_by_field_name("function")?;
-            let name = match function.kind() {
-                "identifier" => node_text(function, context.source),
-                "attribute" => {
-                    node_text(function.child_by_field_name("attribute")?, context.source)
-                }
+fn python_call_origin(expression: &Expr, context: &PythonParseContext<'_>) -> Option<CallOrigin> {
+    match expression {
+        Expr::Call(call) => {
+            let name = match &*call.func {
+                Expr::Name(name) => name.id.to_string(),
+                Expr::Attribute(attribute) => attribute.attr.to_string(),
                 _ => return None,
             };
             Some(CallOrigin {
                 name,
-                line: expression.start_position().row as i64 + 1,
+                line: context.line(call),
                 unwrap: false,
             })
         }
-        "identifier" => context
+        Expr::Name(name) => context
             .bindings
             .borrow()
-            .returned_by(&node_text(expression, context.source))
+            .returned_by(name.id.as_str())
             .cloned(),
         _ => None,
     }
@@ -1582,18 +1518,15 @@ fn python_bind(var: &str, python_type: PythonType, context: &PythonParseContext<
 
 /// The type of a receiver: a variable bound to one, or an attribute of
 /// `self` its class types.
-fn python_receiver_type(
-    node: tree_sitter::Node<'_>,
-    context: &PythonParseContext<'_>,
-) -> Option<PythonType> {
+fn python_receiver_type(expr: &Expr, context: &PythonParseContext<'_>) -> Option<PythonType> {
     let bindings = context.bindings.borrow();
-    match node.kind() {
-        "identifier" => {
-            let name = node_text(node, context.source);
-            if let Some(bound) = bindings.bound_type(&name).filter(|ty| !ty.contains("::")) {
+    match expr {
+        Expr::Name(name) => {
+            let name = name.id.as_str();
+            if let Some(bound) = bindings.bound_type(name).filter(|ty| !ty.contains("::")) {
                 return Some(PythonType::Local(bound.to_string()));
             }
-            let symbol = bindings.foreign_type(&name)?;
+            let symbol = bindings.foreign_type(name)?;
             // Standard-library values are bound to their dotted name
             // (`pathlib.Path`, `str`), third-party ones to
             // `package:dotted.name`, classes of other modules to theirs.
@@ -1611,18 +1544,19 @@ fn python_receiver_type(
             }
             Some(PythonType::Foreign(symbol.to_string()))
         }
-        "attribute" => {
-            let object = node.child_by_field_name("object")?;
-            if object.kind() != "identifier" || node_text(object, context.source) != "self" {
+        Expr::Attribute(attribute) => {
+            let Expr::Name(object) = &*attribute.value else {
+                return None;
+            };
+            if object.id.as_str() != "self" {
                 return None;
             }
             let class_path = bindings.bound_type("self")?;
             let class_name = class_path.rsplit('.').next().unwrap_or(class_path);
-            let attribute = node_text(node.child_by_field_name("attribute")?, context.source);
             let type_name = context
                 .attribute_types
                 .get(class_name)?
-                .get(&attribute)?
+                .get(attribute.attr.as_str())?
                 .clone();
             drop(bindings);
             python_type_of(&type_name, context)
@@ -1638,16 +1572,15 @@ fn python_receiver_type(
 /// is taken for it. A module (`helpers.run()`), `self` / `cls`, a class
 /// (`Repo.create()`), and `super()` are known receivers.
 fn python_mark_receiver(
-    callee: Option<tree_sitter::Node<'_>>,
+    callee: &Expr,
+    class_bases: Option<&Vec<String>>,
     context: &PythonParseContext<'_>,
     extra: &mut Value,
 ) {
-    let Some(callee) = callee.filter(|callee| callee.kind() == "attribute") else {
+    let Expr::Attribute(attribute) = callee else {
         return;
     };
-    let Some(receiver) = callee.child_by_field_name("object") else {
-        return;
-    };
+    let receiver = &*attribute.value;
     match python_receiver_type(receiver, context) {
         Some(PythonType::Foreign(type_name)) => {
             extra["receiver_type"] = json!(type_name);
@@ -1656,21 +1589,19 @@ fn python_mark_receiver(
         Some(_) => return,
         None => {}
     }
-    if receiver.kind() == "call"
-        && receiver
-            .child_by_field_name("function")
-            .is_some_and(|function| node_text(function, context.source) == "super")
+    if let Expr::Call(call) = receiver
+        && context.src.slice(&*call.func) == "super"
     {
-        python_mark_super_receiver(receiver, context, extra);
+        python_mark_super_receiver(class_bases, extra);
         return;
     }
-    let known = match receiver.kind() {
-        "identifier" => {
-            let name = node_text(receiver, context.source);
-            matches!(name.as_str(), "self" | "cls")
-                || context.import_aliases.contains_key(&name)
-                || context.class_names.contains(&name)
-                || context.bindings.borrow().is_bound(&name)
+    let known = match receiver {
+        Expr::Name(name) => {
+            let name = name.id.as_str();
+            matches!(name, "self" | "cls")
+                || context.import_aliases.contains_key(name)
+                || context.class_names.contains(name)
+                || context.bindings.borrow().is_bound(name)
         }
         _ => false,
     };
@@ -1686,22 +1617,10 @@ fn python_mark_receiver(
 /// the receiver is typed by the enclosing class's first base
 /// (`class AuthService(BaseService)` gives `BaseService`), and is unknown
 /// when the class names none (`object`'s).
-fn python_mark_super_receiver(
-    receiver: tree_sitter::Node<'_>,
-    context: &PythonParseContext<'_>,
-    extra: &mut Value,
-) {
-    let mut ancestor = receiver.parent();
-    while let Some(node) = ancestor {
-        if node.kind() == "class_definition" {
-            break;
-        }
-        ancestor = node.parent();
-    }
-    let base = ancestor
-        .map(|class| python_class_base_names(class, context.source))
-        .and_then(|bases| bases.into_iter().next())
-        .map(|base| base.rsplit('.').next().unwrap_or(&base).to_string())
+fn python_mark_super_receiver(class_bases: Option<&Vec<String>>, extra: &mut Value) {
+    let base = class_bases
+        .and_then(|bases| bases.first())
+        .map(|base| base.rsplit('.').next().unwrap_or(base).to_string())
         .filter(|base| base != "object");
     match base {
         Some(base) => extra["receiver_type"] = json!(base),
@@ -1709,49 +1628,22 @@ fn python_mark_super_receiver(
     }
 }
 
-fn collect_python_class_names(node: tree_sitter::Node<'_>, source: &[u8]) -> HashSet<String> {
-    let mut names = HashSet::new();
-    collect_python_class_names_into(node, source, &mut names);
-    names
-}
-
-/// Names of the functions and classes declared anywhere in the file.
-fn collect_python_defined_names(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    names: &mut HashSet<String>,
-) {
-    if matches!(node.kind(), "function_definition" | "class_definition")
-        && let Some(name) = python_identifier_child(node, source)
-    {
-        names.insert(name);
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_python_defined_names(child, source, names);
-    }
-}
-
-fn collect_python_class_names_into(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    names: &mut HashSet<String>,
-) {
-    let target = if node.kind() == "decorated_definition" {
-        python_decorated_target(node)
-    } else {
-        Some(node)
-    };
-    if let Some(target) = target
-        && target.kind() == "class_definition"
-        && let Some(name) = python_identifier_child(target, source)
-    {
-        names.insert(name);
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_python_class_names_into(child, source, names);
-    }
+/// The classes, and the functions and classes, declared anywhere in the
+/// file.
+fn collect_python_defined_names(body: &[Stmt]) -> (HashSet<String>, HashSet<String>) {
+    let mut class_names = HashSet::new();
+    let mut defined_names = HashSet::new();
+    for_each_statement(body, |stmt| match stmt {
+        Stmt::ClassDef(class) if !class.name.is_empty() => {
+            class_names.insert(class.name.to_string());
+            defined_names.insert(class.name.to_string());
+        }
+        Stmt::FunctionDef(function) if !function.name.is_empty() => {
+            defined_names.insert(function.name.to_string());
+        }
+        _ => {}
+    });
+    (class_names, defined_names)
 }
 
 fn resolve_python_call_targets(
@@ -1881,20 +1773,6 @@ fn python_module_candidate_path(candidate: PathBuf, repo_root: Option<&Path>) ->
         .map(|path| path.to_string_lossy().to_string())
 }
 
-fn decode_python_string_literal(node: tree_sitter::Node<'_>, source: &[u8]) -> String {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if matches!(child.kind(), "string_content" | "string_fragment") {
-            return node_text(child, source);
-        }
-    }
-    node_text(node, source)
-        .trim_matches('"')
-        .trim_matches('\'')
-        .trim_matches('`')
-        .to_string()
-}
-
 /// Lazy re-exports of a package (`__init__.py` with a module `__getattr__`,
 /// PEP 562) written as a table of `name: (module, attribute)` pairs:
 ///
@@ -1910,16 +1788,13 @@ fn decode_python_string_literal(node: tree_sitter::Node<'_>, source: &[u8]) -> S
 /// (`lazy_export`), as a `from .types import GraphNode` would be, so
 /// `from pkg import GraphNode` resolves to the declaration.
 fn python_emit_lazy_exports(
-    root: tree_sitter::Node<'_>,
+    body: &[Stmt],
     context: &PythonParseContext<'_>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let source = context.source;
-    let mut cursor = root.walk();
-    let statements = root.named_children(&mut cursor).collect::<Vec<_>>();
-    let has_getattr = statements.iter().any(|statement| {
-        statement.kind() == "function_definition"
-            && python_identifier_child(*statement, source).as_deref() == Some("__getattr__")
+    let has_getattr = body.iter().any(|stmt| {
+        matches!(stmt, Stmt::FunctionDef(function)
+            if function.decorator_list.is_empty() && function.name.as_str() == "__getattr__")
     });
     if !has_getattr {
         return;
@@ -1927,45 +1802,29 @@ fn python_emit_lazy_exports(
     // (module, [(attribute, exported name)], line), in order of appearance.
     type LazyModule = (String, Vec<(String, String)>, i64);
     let mut by_module: Vec<LazyModule> = Vec::new();
-    for statement in statements {
-        let assignment = if statement.kind() == "expression_statement" {
-            statement.named_child(0)
-        } else {
-            Some(statement)
+    for stmt in body {
+        let value = match stmt {
+            Stmt::Assign(assign) if assign.targets.len() == 1 => Some(&*assign.value),
+            Stmt::AnnAssign(assign) => assign.value.as_deref(),
+            _ => None,
         };
-        let Some(dictionary) = assignment
-            .filter(|assignment| assignment.kind() == "assignment")
-            .and_then(|assignment| assignment.child_by_field_name("right"))
-            .filter(|right| right.kind() == "dictionary")
-        else {
+        let Some(Expr::Dict(dictionary)) = value else {
             continue;
         };
-        let mut pairs = dictionary.walk();
-        for pair in dictionary.named_children(&mut pairs) {
-            if pair.kind() != "pair" {
-                continue;
-            }
-            let (Some(key), Some(value)) = (
-                pair.child_by_field_name("key"),
-                pair.child_by_field_name("value"),
-            ) else {
+        for item in &dictionary.items {
+            let (Some(Expr::StringLiteral(key)), Expr::Tuple(value)) = (&item.key, &item.value)
+            else {
                 continue;
             };
-            if key.kind() != "string" || value.kind() != "tuple" {
-                continue;
-            }
-            let mut items = value.walk();
-            let items = value.named_children(&mut items).collect::<Vec<_>>();
-            let [module, attribute] = items.as_slice() else {
+            let [Expr::StringLiteral(module), Expr::StringLiteral(attribute)] =
+                value.elts.as_slice()
+            else {
                 continue;
             };
-            if module.kind() != "string" || attribute.kind() != "string" {
-                continue;
-            }
-            let name = decode_python_string_literal(key, source);
-            let module = decode_python_string_literal(*module, source);
-            let attribute = decode_python_string_literal(*attribute, source);
-            let line = pair.start_position().row as i64 + 1;
+            let name = key.value.to_str().to_string();
+            let module = module.value.to_str().to_string();
+            let attribute = attribute.value.to_str().to_string();
+            let line = context.line(key);
             match by_module.iter_mut().find(|(known, _, _)| *known == module) {
                 Some((_, names, _)) => names.push((attribute, name)),
                 None => by_module.push((module, vec![(attribute, name)], line)),
@@ -1992,21 +1851,17 @@ fn python_emit_lazy_exports(
 /// Binds the parameters of a test or fixture named after a pytest fixture
 /// and left unannotated (`tmp_path`, `monkeypatch`, `capsys`) to the type
 /// pytest injects, unless the file declares a fixture of that name itself.
-fn python_bind_pytest_fixtures(
-    parameters: tree_sitter::Node<'_>,
-    context: &PythonParseContext<'_>,
-) {
-    let mut cursor = parameters.walk();
-    for parameter in parameters.named_children(&mut cursor) {
-        if parameter.kind() != "identifier" {
+fn python_bind_pytest_fixtures(parameters: &ast::Parameters, context: &PythonParseContext<'_>) {
+    for parameter in parameters.iter_non_variadic_params() {
+        if parameter.parameter.annotation.is_some() || parameter.default.is_some() {
             continue;
         }
-        let name = node_text(parameter, context.source);
-        if context.defined_names.contains(&name) {
+        let name = parameter.parameter.name.as_str();
+        if context.defined_names.contains(name) {
             continue;
         }
-        if let Some(fixture_type) = python_pytest_fixture_type(&name) {
-            python_bind(&name, fixture_type, context);
+        if let Some(fixture_type) = python_pytest_fixture_type(name) {
+            python_bind(name, fixture_type, context);
         }
     }
 }

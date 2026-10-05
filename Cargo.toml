@@ -37,6 +37,11 @@ globset = "0.4"
 memchr = "2"
 pyo3 = "0.28"
 regex = "1"
+# Ruff's parser crates are internal components of Ruff with no API
+# stability promise: every 0.0.x release may break, so pin exactly.
+ruff_python_ast = "=0.0.16"
+ruff_python_parser = "=0.0.16"
+ruff_text_size = "=0.0.16"
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip", "raw_value"] }

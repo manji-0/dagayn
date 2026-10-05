@@ -83,6 +83,11 @@ mod perl;
 mod php;
 #[path = "python/mod.rs"]
 mod python;
+// The tree-sitter Python extractor, kept beside the Ruff one while the two
+// are compared (`DAGAYN_PYTHON_PARSER`).
+#[allow(dead_code, unused_imports)]
+#[path = "python_ts/mod.rs"]
+mod python_ts;
 #[path = "r.rs"]
 mod r;
 #[path = "ruby.rs"]
@@ -135,6 +140,7 @@ pub struct RustOwnedParser {
     terraform_parser: Option<tree_sitter::Parser>,
     rust_parser: Option<tree_sitter::Parser>,
     python_parser: Option<tree_sitter::Parser>,
+    python_backend: PythonParserBackend,
     javascript_parser: Option<tree_sitter::Parser>,
     typescript_parser: Option<tree_sitter::Parser>,
     tsx_parser: Option<tree_sitter::Parser>,
@@ -173,6 +179,7 @@ impl RustOwnedParser {
             terraform_parser: None,
             rust_parser: None,
             python_parser: None,
+            python_backend: PythonParserBackend::from_env(),
             javascript_parser: None,
             typescript_parser: None,
             tsx_parser: None,
@@ -203,6 +210,12 @@ impl RustOwnedParser {
             javascript_tsconfig_cache: Default::default(),
             rust_module_cache: Default::default(),
         }
+    }
+
+    /// The same parser with the Python extractor on `backend`.
+    pub fn with_python_backend(mut self, backend: PythonParserBackend) -> Self {
+        self.python_backend = backend;
+        self
     }
 
     pub fn parse_file(
@@ -243,14 +256,24 @@ impl RustOwnedParser {
             RustOwnedPathKind::Markdown => {
                 if python::looks_like_marimo_md(source) {
                     ensure_parser(&mut self.markdown_parser, new_markdown_parser);
-                    ensure_parser(&mut self.python_parser, new_python_parser);
-                    python::parse_marimo_md_with_parser(
-                        file_path,
-                        source,
-                        self.markdown_parser.as_mut(),
-                        self.python_parser.as_mut(),
-                        repo_root,
-                    )
+                    match self.python_backend {
+                        PythonParserBackend::Ruff => python::parse_marimo_md_with_parser(
+                            file_path,
+                            source,
+                            self.markdown_parser.as_mut(),
+                            repo_root,
+                        ),
+                        PythonParserBackend::TreeSitter => {
+                            ensure_parser(&mut self.python_parser, new_python_parser);
+                            python_ts::parse_marimo_md_with_parser(
+                                file_path,
+                                source,
+                                self.markdown_parser.as_mut(),
+                                self.python_parser.as_mut(),
+                                repo_root,
+                            )
+                        }
+                    }
                 } else {
                     markdown::parse_markdown_with_parser(
                         file_path,
@@ -270,18 +293,24 @@ impl RustOwnedParser {
                 parser_slot(&mut self.rust_parser, new_rust_parser),
                 repo_root.map(|root| (root, &self.rust_module_cache)),
             ),
-            RustOwnedPathKind::Python => python::parse_python_with_parser(
-                file_path,
-                source,
-                parser_slot(&mut self.python_parser, new_python_parser),
-                repo_root,
-            ),
-            RustOwnedPathKind::Notebook => python::parse_notebook_with_parser(
-                file_path,
-                source,
-                parser_slot(&mut self.python_parser, new_python_parser),
-                repo_root,
-            ),
+            RustOwnedPathKind::Python => match self.python_backend {
+                PythonParserBackend::Ruff => python::parse_python(file_path, source, repo_root),
+                PythonParserBackend::TreeSitter => python_ts::parse_python_with_parser(
+                    file_path,
+                    source,
+                    parser_slot(&mut self.python_parser, new_python_parser),
+                    repo_root,
+                ),
+            },
+            RustOwnedPathKind::Notebook => match self.python_backend {
+                PythonParserBackend::Ruff => python::parse_notebook(file_path, source, repo_root),
+                PythonParserBackend::TreeSitter => python_ts::parse_notebook_with_parser(
+                    file_path,
+                    source,
+                    parser_slot(&mut self.python_parser, new_python_parser),
+                    repo_root,
+                ),
+            },
             RustOwnedPathKind::JavaScript => js_like::parse_javascript_like_with_parser(
                 file_path,
                 source,
@@ -612,15 +641,47 @@ fn parser_slot(
     slot.as_mut()
 }
 
+/// The parser the Python extractor runs on: the tree-sitter grammar (the
+/// default for now) or Ruff's parser (`ruff_python_parser`), selected with
+/// `DAGAYN_PYTHON_PARSER=ruff`, so the two can be compared.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PythonParserBackend {
+    Ruff,
+    TreeSitter,
+}
+
+impl PythonParserBackend {
+    pub fn from_env() -> Self {
+        match std::env::var("DAGAYN_PYTHON_PARSER").as_deref() {
+            Ok("ruff") => Self::Ruff,
+            _ => Self::TreeSitter,
+        }
+    }
+}
+
+/// The number of syntax errors Ruff's parser reports for a Python source.
+#[doc(hidden)]
+pub fn python_syntax_error_count(source: &[u8]) -> usize {
+    python::syntax_error_count(source)
+}
+
 pub fn parse_markdown(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     if python::looks_like_marimo_md(source) {
         let mut markdown_parser = new_markdown_parser();
-        let mut python_parser = new_python_parser();
+        if PythonParserBackend::from_env() == PythonParserBackend::TreeSitter {
+            let mut python_parser = new_python_parser();
+            return python_ts::parse_marimo_md_with_parser(
+                file_path,
+                source,
+                markdown_parser.as_mut(),
+                python_parser.as_mut(),
+                None,
+            );
+        }
         return python::parse_marimo_md_with_parser(
             file_path,
             source,
             markdown_parser.as_mut(),
-            python_parser.as_mut(),
             None,
         );
     }
@@ -717,13 +778,19 @@ pub fn parse_terraform(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<
 }
 
 pub fn parse_python(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    let mut parser = new_python_parser();
-    python::parse_python_with_parser(file_path, source, parser.as_mut(), None)
+    if PythonParserBackend::from_env() == PythonParserBackend::TreeSitter {
+        let mut parser = new_python_parser();
+        return python_ts::parse_python_with_parser(file_path, source, parser.as_mut(), None);
+    }
+    python::parse_python(file_path, source, None)
 }
 
 pub fn parse_notebook(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    let mut parser = new_python_parser();
-    python::parse_notebook_with_parser(file_path, source, parser.as_mut(), None)
+    if PythonParserBackend::from_env() == PythonParserBackend::TreeSitter {
+        let mut parser = new_python_parser();
+        return python_ts::parse_notebook_with_parser(file_path, source, parser.as_mut(), None);
+    }
+    python::parse_notebook(file_path, source, None)
 }
 
 pub fn parse_rust(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
