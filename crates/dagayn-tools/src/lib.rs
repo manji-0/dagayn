@@ -564,6 +564,19 @@ pub(crate) fn open_graph_for_write(root: &RepoRoot) -> Option<OpenGraph> {
     })
 }
 
+/// `get_docs_section_tool`'s answer read from `search_roots`, then the
+/// package's reference (`package_root`), as JSON and without `_repo`: what
+/// the Python tool reports when it has no graph to resolve the root from.
+pub fn docs_section_json(
+    search_roots: Vec<PathBuf>,
+    package_root: Option<&Path>,
+    section: &str,
+    max_chars: i64,
+) -> Option<String> {
+    docs::docs_section(search_roots, package_root, section, max_chars)
+        .map(|reply| reply.into_payload().text)
+}
+
 /// `dagayn.refactor.dead_code.dead_code_report` as JSON (`dead`,
 /// `suppressed`, `verification`): what the native `refactor_tool` reports,
 /// for Python callers to share; `None` when the graph cannot be read.

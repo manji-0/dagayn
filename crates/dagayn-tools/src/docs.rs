@@ -1,6 +1,6 @@
 //! `get_docs_section_tool` (`dagayn.tools.docs.get_docs_section`).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value};
 
@@ -21,13 +21,29 @@ pub(crate) fn get_docs_section(
     let graph = open_graph(&root)?;
     let repo = graph.repo_context();
     drop(graph);
+    let reply = docs_section(
+        vec![root.path.clone()],
+        context.package_root.as_deref(),
+        section,
+        max_chars,
+    )?;
+    Some(reply.put("_repo", repo).into_payload())
+}
 
-    let mut search_roots: Vec<PathBuf> = vec![root.path.clone()];
-    if let Some(package_root) = &context.package_root
+/// `get_docs_section`'s answer from `search_roots`' reference files, then the
+/// package's (`package_root`), without `_repo`: what the tool reports, and
+/// what the Python tool reports when it has no graph.
+pub(crate) fn docs_section(
+    mut search_roots: Vec<PathBuf>,
+    package_root: Option<&Path>,
+    section: &str,
+    max_chars: i64,
+) -> Option<Ordered> {
+    if let Some(package_root) = package_root
         && package_root.join(REFERENCE).exists()
-        && !search_roots.contains(package_root)
+        && !search_roots.iter().any(|known| known == package_root)
     {
-        search_roots.push(package_root.clone());
+        search_roots.push(package_root.to_path_buf());
     }
     let pattern = regex::Regex::new(&format!(
         r#"(?is)<section name="{}">(.*?)</section>"#,
@@ -73,24 +89,16 @@ pub(crate) fn get_docs_section(
                 .put("status", "ok")
                 .put("section", section)
                 .put("content", content)
-                .put("truncated", truncated)
-                .put("_repo", repo)
-                .into_payload(),
+                .put("truncated", truncated),
         );
     }
-    Some(
-        Ordered::default()
-            .put("status", "not_found")
-            .put(
-                "error",
-                format!(
-                    "Section '{section}' not found. Available: {}",
-                    available.join(", ")
-                ),
-            )
-            .put("_repo", repo)
-            .into_payload(),
-    )
+    Some(Ordered::default().put("status", "not_found").put(
+        "error",
+        format!(
+            "Section '{section}' not found. Available: {}",
+            available.join(", ")
+        ),
+    ))
 }
 
 /// `Path.read_text(errors="replace")`: universal newlines; `None` for bytes

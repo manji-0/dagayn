@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from dagayn.tools import docs
 from dagayn.tools.analysis_tools import get_suggested_questions_func
 from dagayn.tools.flow_dispatcher import flow_func
 from dagayn.tools.query import find_large_functions, list_graph_stats
@@ -79,3 +80,45 @@ def test_flow_tool_rejects_an_invalid_request_before_rust(repo: Path) -> None:
     result = flow_func(mode="get", repo_root=str(repo))
     assert result["status"] == "error"
     assert "flow_id or flow_name" in result["summary"]
+
+
+def _reference(repo: Path) -> None:
+    (repo / "docs").mkdir()
+    (repo / "docs" / "LLM-OPTIMIZED-REFERENCE.md").write_text(
+        '<section name="usage">from the repo</section>\n', encoding="utf-8"
+    )
+
+
+def test_docs_section_answers_through_rust(repo: Path) -> None:
+    _reference(repo)
+    result = docs.get_docs_section("usage", repo_root=str(repo))
+    assert result["status"] == "ok"
+    assert result["content"] == "from the repo"
+    assert result["_repo"]["repo_root"] == str(repo.resolve())
+    # A section only the package's reference holds.
+    trust = docs.get_docs_section("trust", repo_root=str(repo), max_chars=10)
+    assert trust["truncated"] is True
+    assert trust["content"].endswith("\n... (truncated)")
+
+
+def test_docs_section_without_a_graph_reads_the_root_and_package(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Python answers without a graph, from the validated root and the
+    package's reference, where the Rust tool needs the graph for `_repo`."""
+
+    def no_graph(repo_root: str | None) -> None:
+        raise RuntimeError("no graph")
+
+    monkeypatch.setattr(docs, "_get_store", no_graph)
+    _reference(repo)
+    assert docs.get_docs_section("usage", repo_root=str(repo)) == {
+        "status": "ok",
+        "section": "usage",
+        "content": "from the repo",
+        "truncated": False,
+    }
+    assert docs.get_docs_section("trust")["status"] == "ok"
+    missing = docs.get_docs_section("no-such-section")
+    assert missing["status"] == "not_found"
+    assert "trust" in missing["error"]

@@ -1138,6 +1138,7 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(run_cli, module)?)?;
     module.add_function(wrap_pyfunction!(serve_mcp, module)?)?;
     module.add_function(wrap_pyfunction!(call_tool, module)?)?;
+    module.add_function(wrap_pyfunction!(docs_section_json, module)?)?;
     Ok(())
 }
 
@@ -1174,6 +1175,28 @@ fn call_tool(
             .map_err(invalid)?,
     };
     Ok(py.detach(|| dagayn_tools::call(&context, name, &arguments).map(|payload| payload.text)))
+}
+
+/// `get_docs_section_tool`'s answer from `search_roots`' reference files,
+/// then the package's, without `_repo`: the Python tool's answer when it has
+/// no graph, which `call_tool` leaves to it.
+#[pyfunction]
+#[pyo3(signature = (search_roots, section_name, max_chars, package_root=None))]
+fn docs_section_json(
+    py: Python<'_>,
+    search_roots: Vec<std::path::PathBuf>,
+    section_name: &str,
+    max_chars: i64,
+    package_root: Option<std::path::PathBuf>,
+) -> Option<String> {
+    py.detach(|| {
+        dagayn_tools::docs_section_json(
+            search_roots,
+            package_root.as_deref(),
+            section_name,
+            max_chars,
+        )
+    })
 }
 
 /// Serve an MCP session on stdin and stdout until EOF with the front end of

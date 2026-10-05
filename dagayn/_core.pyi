@@ -74,6 +74,12 @@ def call_tool(
     embedding_model: str | None = None,
     runtime: str | None = None,
 ) -> str | None: ...
+def docs_section_json(
+    search_roots: list[str],
+    section_name: str,
+    max_chars: int,
+    package_root: str | None = None,
+) -> str | None: ...
 def embedding_search(
     db_path: str | PathLike[str],
     provider: str,

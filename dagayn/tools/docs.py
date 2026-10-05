@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from ._common import (
     _get_store,
     _validate_repo_root,
 )
+from ._native import _PACKAGE_ROOT, native_tool
 
 logger = logging.getLogger(__name__)
 
@@ -265,8 +267,6 @@ def get_docs_section(
     Returns:
         The section content, or an error if not found.
     """
-    import re as _re
-
     search_roots: list[Path] = []
 
     if repo_root:
@@ -280,56 +280,38 @@ def get_docs_section(
                 section=section_name,
             )
 
-    store = None
     try:
         store, root = _get_store(repo_root)
-        if root not in search_roots:
-            search_roots.append(root)
     except (RuntimeError, ValueError):
-        pass
-    finally:
-        if store is not None:
+        pass  # No graph: answer from the validated root and the package.
+    else:
+        try:
+            # The Rust tool reads the same files and reports the graph's `_repo`.
+            return native_tool(
+                "get_docs_section_tool",
+                section_name=section_name,
+                repo_root=repo_root,
+                max_chars=max_chars,
+            )
+        except RuntimeError:
+            # A graph the Rust tool could not read (busy past its lock wait):
+            # the answer needs only the root.
+            if root not in search_roots:
+                search_roots.append(root)
+        finally:
             store.close()
 
-    # Fallback: package directory (for uvx/pip installs)
-    pkg_docs = Path(__file__).parent.parent.parent / "docs" / "LLM-OPTIMIZED-REFERENCE.md"
-    if pkg_docs.exists():
-        pkg_root = pkg_docs.parent.parent
-        if pkg_root not in search_roots:
-            search_roots.append(pkg_root)
+    from .. import _core
 
-    available: list[str] = []
-    for search_root in search_roots:
-        candidate = search_root / "docs" / "LLM-OPTIMIZED-REFERENCE.md"
-        if candidate.exists():
-            content = candidate.read_text(encoding="utf-8", errors="replace")
-            for name in _re.findall(r'<section name="([^"]*)">', content, _re.IGNORECASE):
-                if name not in available:
-                    available.append(name)
-            match = _re.search(
-                rf'<section name="{_re.escape(section_name)}">'
-                r"(.*?)</section>",
-                content,
-                _re.DOTALL | _re.IGNORECASE,
-            )
-            if match:
-                content = match.group(1).strip()
-                truncated = len(content) > max_chars
-                if truncated:
-                    content = content[:max_chars] + "\n... (truncated)"
-                return {
-                    "status": "ok",
-                    "section": section_name,
-                    "content": content,
-                    "truncated": truncated,
-                }
-
-    # The sections the reference files actually hold: a fixed list here went
-    # stale and named sections that do not exist while omitting real ones.
-    return {
-        "status": "not_found",
-        "error": (f"Section '{section_name}' not found. Available: {', '.join(available)}"),
-    }
+    text = _core.docs_section_json(
+        [str(path) for path in search_roots],
+        section_name,
+        max_chars,
+        package_root=str(_PACKAGE_ROOT),
+    )
+    if text is None:
+        raise RuntimeError(f"get_docs_section has no answer for section {section_name!r}")
+    return json.loads(text)
 
 
 # ---------------------------------------------------------------------------
