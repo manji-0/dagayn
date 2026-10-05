@@ -18,7 +18,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from ...paths import db_path_for
-from ._shared import DEFAULT_LOCAL_EMBEDDING_BIN, CommandRegistry, _add_local_embedding_args
+from ._shared import CommandRegistry, _add_local_embedding_args
 
 
 def register_commands(sub: argparse._SubParsersAction) -> CommandRegistry:
@@ -206,20 +206,14 @@ def _handle_sync(args: argparse.Namespace) -> None:
     # would silently skip commits when re-entering an existing worktree.
     base = args.base or seed.base_sha or _graph_head_sha(repo_root) or "HEAD~1"
     from ...tools.build import build_or_update_graph
+    from .build_handlers import _local_embedding_kwargs
 
     build_result = build_or_update_graph(
         full_rebuild=full_rebuild,
         repo_root=str(repo_root),
         base=base,
         postprocess="minimal",
-        local_embedding=getattr(args, "local_embedding", "none"),
-        local_embedding_mode=getattr(args, "local_embedding_mode", None),
-        local_embedding_port=getattr(args, "local_embedding_port", None),
-        local_embedding_bin=getattr(args, "local_embedding_bin", DEFAULT_LOCAL_EMBEDDING_BIN),
-        keep_local_embedding_server=getattr(args, "keep_local_embedding_server", False),
-        local_embedding_timeout=getattr(args, "local_embedding_timeout", 300),
-        local_embedding_request_timeout=getattr(args, "local_embedding_request_timeout", 60),
-        local_embedding_batch_size=getattr(args, "local_embedding_batch_size", 1),
+        **_local_embedding_kwargs(args),
     )
 
     updated = build_result.get("files_updated", build_result.get("files_parsed", 0))

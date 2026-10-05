@@ -137,11 +137,6 @@ def _merge_payloads(kind: str, old: dict[str, Any], new: dict[str, Any]) -> dict
     # requester just ran one; otherwise the merged task must still do it.
     if not (old.get("skip_structure") and new.get("skip_structure")):
         merged.pop("skip_structure", None)
-    old_has = "files" in old
-    new_has = "files" in new
-    if not old_has or not new_has:
-        merged.pop("files", None)
-        return merged
     old_files = old.get("files")
     new_files = new.get("files")
     if not isinstance(old_files, list) or not isinstance(new_files, list):
@@ -305,11 +300,7 @@ class TaskQueue:
         claimable for ``retry_delay`` seconds.
         """
         if fatal or task["attempts"] >= MAX_ATTEMPTS:
-            self._log(task["id"], task["kind"], "dead", error)
-            self._conn.execute(
-                "UPDATE tasks SET state = 'dead', last_error = ?, updated_at = ? WHERE id = ?",
-                (error, _now(), task["id"]),
-            )
+            self._park_dead(task["id"], task["kind"], error)
             self._conn.commit()
             return False
         self._log(task["id"], task["kind"], "retry", error)
@@ -353,11 +344,7 @@ class TaskQueue:
         for row in rows:
             note = "worker exited mid-task"
             if row["attempts"] >= MAX_ATTEMPTS:
-                self._log(row["id"], row["kind"], "dead", note)
-                self._conn.execute(
-                    "UPDATE tasks SET state = 'dead', last_error = ?, updated_at = ? WHERE id = ?",
-                    (note, _now(), row["id"]),
-                )
+                self._park_dead(row["id"], row["kind"], note)
             else:
                 self._log(row["id"], row["kind"], "requeued", note)
                 self._conn.execute(
@@ -406,6 +393,14 @@ class TaskQueue:
             "updated_at": row["updated_at"],
             "last_error": row["last_error"],
         }
+
+    def _park_dead(self, task_id: int, kind: str, error: str) -> None:
+        """Log and mark a task ``dead``; the caller commits."""
+        self._log(task_id, kind, "dead", error)
+        self._conn.execute(
+            "UPDATE tasks SET state = 'dead', last_error = ?, updated_at = ? WHERE id = ?",
+            (error, _now(), task_id),
+        )
 
     def _log(self, task_id: int, kind: str, state: str, note: str | None) -> None:
         cur = self._conn.execute(
@@ -579,6 +574,19 @@ def _resolve_repo_root(repo_root: str | None) -> Path:
     return Path.cwd().resolve()
 
 
+def _enqueue_and_spawn(
+    root: Path, kind: str, body: dict[str, Any], *, spawn_worker: bool
+) -> tuple[str, int]:
+    queue = TaskQueue(queue_db_path(root))
+    try:
+        action, task_id = queue.enqueue(kind, payload=body)
+    finally:
+        queue.close()
+    if spawn_worker:
+        ensure_worker(root)
+    return action, task_id
+
+
 def enqueue_embed_refresh(
     repo_root: str | Path,
     *,
@@ -596,14 +604,7 @@ def enqueue_embed_refresh(
     body = dict(payload or {})
     if files:
         body["files"] = sorted({str(path) for path in files if str(path)})
-    queue = TaskQueue(queue_db_path(root))
-    try:
-        action, task_id = queue.enqueue("embed", payload=body)
-    finally:
-        queue.close()
-    if spawn_worker:
-        ensure_worker(root)
-    return action, task_id
+    return _enqueue_and_spawn(root, "embed", body, spawn_worker=spawn_worker)
 
 
 def enqueue_session_prepare(
@@ -617,13 +618,6 @@ def enqueue_session_prepare(
     Used by MCP ``get_minimal_context`` so Observe never waits on Repair.
     ``spawn_worker=False`` is for a worker that is already draining.
     """
-    root = Path(repo_root)
-    body = dict(payload or {})
-    queue = TaskQueue(queue_db_path(root))
-    try:
-        action, task_id = queue.enqueue("prepare", payload=body)
-    finally:
-        queue.close()
-    if spawn_worker:
-        ensure_worker(root)
-    return action, task_id
+    return _enqueue_and_spawn(
+        Path(repo_root), "prepare", dict(payload or {}), spawn_worker=spawn_worker
+    )

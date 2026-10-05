@@ -9,7 +9,7 @@ import os
 import sys
 import time
 from collections.abc import Callable
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager
 from importlib import import_module
 from typing import Any, Coroutine, cast
 
@@ -187,28 +187,24 @@ def _maybe_local_embedding_server(tool_name: str, kwargs: ToolArguments):
     """Ensure persisted localhost embeddings are queryable for CLI tool calls."""
     canonical = _canonical_tool_name(tool_name)
     if canonical not in _LOCAL_EMBEDDING_AWARE_TOOLS:
-        with nullcontext():
-            yield
+        yield
         return
 
     provider = kwargs.get("provider")
     if provider not in (None, "openai"):
-        with nullcontext():
-            yield
+        yield
         return
 
     from .serve import _infer_persisted_local_embedding
 
     inferred = _infer_persisted_local_embedding(kwargs.get("repo_root"))
     if inferred is None:
-        with nullcontext():
-            yield
+        yield
         return
 
     model = kwargs.get("model")
     if model is not None and model != inferred.model:
-        with nullcontext():
-            yield
+        yield
         return
 
     from ...local_embeddings import local_embedding_server

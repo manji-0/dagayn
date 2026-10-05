@@ -168,49 +168,36 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
         embedding_model: str | None = None,
         local_embedding_default: str | None = None,
     ) -> None:
+        serve_config = dict(
+            repo_root=pinned_repo,
+            tools=args.tools,
+            embedding_provider=embedding_provider,
+            embedding_model=embedding_model,
+            local_embedding=local_embedding_default,
+            local_embedding_port=effective_local_embedding_port,
+            local_embedding_bin=args.local_embedding_bin,
+            keep_local_embedding_server=args.keep_local_embedding_server,
+            local_embedding_timeout=args.local_embedding_timeout,
+            local_embedding_request_timeout=args.local_embedding_request_timeout,
+            local_embedding_batch_size=args.local_embedding_batch_size,
+        )
         if args.http:
             from ...server.main import main as serve_main
 
-            host = args.host if args.host is not None else "127.0.0.1"
-            port = args.port if args.port is not None else 5555
             serve_main(
-                repo_root=pinned_repo,
                 transport="streamable-http",
-                host=host,
-                port=port,
-                tools=args.tools,
-                embedding_provider=embedding_provider,
-                embedding_model=embedding_model,
-                local_embedding=local_embedding_default,
-                local_embedding_port=effective_local_embedding_port,
-                local_embedding_bin=args.local_embedding_bin,
-                keep_local_embedding_server=args.keep_local_embedding_server,
-                local_embedding_timeout=args.local_embedding_timeout,
-                local_embedding_request_timeout=args.local_embedding_request_timeout,
-                local_embedding_batch_size=args.local_embedding_batch_size,
+                host=args.host if args.host is not None else "127.0.0.1",
+                port=args.port if args.port is not None else 5555,
+                **serve_config,
             )
+        elif _rust_frontend_enabled():
+            from ...server.proxy import serve_stdio
+
+            serve_stdio(**serve_config)
         else:
-            stdio_config = dict(
-                repo_root=pinned_repo,
-                tools=args.tools,
-                embedding_provider=embedding_provider,
-                embedding_model=embedding_model,
-                local_embedding=local_embedding_default,
-                local_embedding_port=effective_local_embedding_port,
-                local_embedding_bin=args.local_embedding_bin,
-                keep_local_embedding_server=args.keep_local_embedding_server,
-                local_embedding_timeout=args.local_embedding_timeout,
-                local_embedding_request_timeout=args.local_embedding_request_timeout,
-                local_embedding_batch_size=args.local_embedding_batch_size,
-            )
-            if _rust_frontend_enabled():
-                from ...server.proxy import serve_stdio
+            from ...server.main import main as serve_main
 
-                serve_stdio(**stdio_config)
-            else:
-                from ...server.main import main as serve_main
-
-                serve_main(**stdio_config)
+            serve_main(**serve_config)
 
     inferred_local_embedding = None
     local_embedding = args.local_embedding

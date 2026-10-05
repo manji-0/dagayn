@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Iterator
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
+
+from .contracts.dependency_profiles import DependencyProfile, edge_matches_dependency_profile
 
 if TYPE_CHECKING:
     from .graph import GraphNode, GraphStore
@@ -87,3 +90,33 @@ def build_node_scope_maps(
         name: next(iter(scopes)) for name, scopes in name_scopes.items() if len(scopes) == 1
     }
     return qualified_to_scope, name_to_scope
+
+
+def iter_scope_edges(
+    store: "GraphStore",
+    snapshot: Any | None,
+    dependency_profile: DependencyProfile,
+    qualified_to_scope: dict[str, str],
+    name_to_scope: dict[str, str],
+) -> Iterator[tuple[str, str]]:
+    """Yield ``(source_scope, target_scope)`` for each in-profile cross-scope edge.
+
+    Edges come from ``snapshot.edges`` when present, else the store. Targets
+    resolve by qualified name, then by unambiguous bare name; edges with an
+    unresolved endpoint and self-loops are skipped.
+    """
+    edges = getattr(snapshot, "edges", None)
+    if edges is None:
+        edges = store.get_all_edges()
+    for edge in edges:
+        if not edge_matches_dependency_profile(edge, dependency_profile):
+            continue
+        src = qualified_to_scope.get(edge.source_qualified)
+        if src is None:
+            continue
+        tgt = qualified_to_scope.get(edge.target_qualified)
+        if tgt is None:
+            tgt = name_to_scope.get(edge.target_qualified)
+        if tgt is None or src == tgt:
+            continue
+        yield src, tgt

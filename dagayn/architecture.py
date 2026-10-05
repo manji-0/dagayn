@@ -7,10 +7,9 @@ from typing import Any, Literal, TypedDict
 
 import networkx as nx
 
-from ._scope import ArtifactScope, build_node_scope_maps
+from ._scope import ArtifactScope, build_node_scope_maps, iter_scope_edges
 from .contracts.dependency_profiles import (
     DependencyProfile,
-    edge_matches_dependency_profile,
     validate_dependency_profile,
 )
 from .graph import GraphStore
@@ -83,21 +82,9 @@ def _project_dependency_graph(
         nodes=getattr(snapshot, "all_nodes", None),
     )
 
-    edges = getattr(snapshot, "edges", None)
-    if edges is None:
-        edges = store.get_all_edges()
-    for e in edges:
-        if not edge_matches_dependency_profile(e, dependency_profile):
-            continue
-        src = qualified_to_scope.get(e.source_qualified)
-        if src is None:
-            continue
-        tgt = qualified_to_scope.get(e.target_qualified)
-        if tgt is None:
-            tgt = name_to_scope.get(e.target_qualified)
-        if tgt is None or src == tgt:
-            continue
-
+    for src, tgt in iter_scope_edges(
+        store, snapshot, dependency_profile, qualified_to_scope, name_to_scope
+    ):
         if g.has_edge(src, tgt):
             g[src][tgt]["weight"] += 1
         else:

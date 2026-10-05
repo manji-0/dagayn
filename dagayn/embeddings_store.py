@@ -92,6 +92,27 @@ logger = logging.getLogger(__name__)
 ACTIVE_EMBEDDING_PROVIDER_METADATA_KEY = "embedding_provider"
 
 
+def _table_names(conn: sqlite3.Connection) -> set[str]:
+    """Names of every table and view in *conn*'s main schema."""
+    return {
+        str(row[0])
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type IN ('table', 'view')"
+        ).fetchall()
+    }
+
+
+def _unavailable_status(exc: sqlite3.Error) -> EmbeddingStatusRecord:
+    return seal_embedding_status(
+        {
+            "status": "unavailable",
+            "total_embeddings": 0,
+            "provider_counts": {},
+            "error": str(exc),
+        }
+    )
+
+
 def get_embedding_provider_counts(db_path: str | Path) -> dict[str, int]:
     """Return persisted embedding row counts grouped by provider key."""
     path = Path(db_path)
@@ -100,12 +121,7 @@ def get_embedding_provider_counts(db_path: str | Path) -> dict[str, int]:
     except sqlite3.Error:
         return {}
     try:
-        tables = {
-            str(row[0])
-            for row in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type IN ('table', 'view')"
-            ).fetchall()
-        }
+        tables = _table_names(conn)
         if "embeddings" not in tables:
             return {}
         return {
@@ -134,12 +150,7 @@ def read_active_embedding_provider_metadata(
             return None
     assert conn is not None
     try:
-        tables = {
-            str(row[0])
-            for row in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type IN ('table', 'view')"
-            ).fetchall()
-        }
+        tables = _table_names(conn)
         if "metadata" not in tables:
             return None
         row = conn.execute(
@@ -249,12 +260,7 @@ def _persist_active_embedding_provider_metadata(
     conn: sqlite3.Connection,
     provider_key: str,
 ) -> None:
-    tables = {
-        str(row[0])
-        for row in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type IN ('table', 'view')"
-        ).fetchall()
-    }
+    tables = _table_names(conn)
     if "metadata" not in tables:
         return
     conn.execute(
@@ -273,23 +279,11 @@ def get_embedding_status(
     try:
         conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     except sqlite3.Error as exc:
-        return seal_embedding_status(
-            {
-                "status": "unavailable",
-                "total_embeddings": 0,
-                "provider_counts": {},
-                "error": str(exc),
-            }
-        )
+        return _unavailable_status(exc)
 
     try:
         conn.row_factory = sqlite3.Row
-        tables = {
-            str(row["name"])
-            for row in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type IN ('table', 'view')"
-            ).fetchall()
-        }
+        tables = _table_names(conn)
         if "embeddings" not in tables:
             return seal_embedding_status(
                 {
@@ -396,14 +390,7 @@ def get_embedding_status(
         )
         return seal_embedding_status(status)
     except sqlite3.Error as exc:
-        return seal_embedding_status(
-            {
-                "status": "unavailable",
-                "total_embeddings": 0,
-                "provider_counts": {},
-                "error": str(exc),
-            }
-        )
+        return _unavailable_status(exc)
     finally:
         conn.close()
 

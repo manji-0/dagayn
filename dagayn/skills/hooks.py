@@ -101,26 +101,32 @@ def generate_hermes_hooks_config() -> SkillPayload:
     }
 
 
+def _load_yaml_mapping_with_backup(path: Path, label: str) -> SkillPayload:
+    """Load a YAML mapping from *path* (``{}`` if absent or unusable), backing it up to ``.bak``."""
+    existing: SkillPayload = {}
+    if path.exists():
+        try:
+            loaded = yaml.safe_load(path.read_text(encoding="utf-8", errors="replace"))
+            if isinstance(loaded, dict):
+                existing = loaded
+            elif loaded is not None:
+                logger.warning("Invalid YAML shape in %s, will overwrite.", path)
+        except (yaml.YAMLError, OSError) as exc:
+            logger.warning("Could not read existing %s: %s", path, exc)
+    if path.exists():
+        backup_path = path.with_name(f"{path.name}.bak")
+        shutil.copy2(path, backup_path)
+        logger.info("Backed up existing %s to %s", label, backup_path)
+    return existing
+
+
 def install_hermes_hooks(
     extra_update_args: list[str] | None = None,
 ) -> Path:
     """Install Hermes Agent shell hooks in ``~/.hermes/config.yaml``."""
     hermes_dir = Path.home() / ".hermes"
     config_path = hermes_dir / "config.yaml"
-    existing: SkillPayload = {}
-    if config_path.exists():
-        try:
-            loaded = yaml.safe_load(config_path.read_text(encoding="utf-8", errors="replace"))
-            if isinstance(loaded, dict):
-                existing = loaded
-            elif loaded is not None:
-                logger.warning("Invalid YAML shape in %s, will overwrite.", config_path)
-        except (yaml.YAMLError, OSError) as exc:
-            logger.warning("Could not read existing %s: %s", config_path, exc)
-    if config_path.exists():
-        backup_path = hermes_dir / "config.yaml.bak"
-        shutil.copy2(config_path, backup_path)
-        logger.info("Backed up existing Hermes config to %s", backup_path)
+    existing = _load_yaml_mapping_with_backup(config_path, "Hermes config")
 
     _write_hook_scripts(hermes_dir / "agent-hooks", _dagayn_hook_scripts(extra_update_args))
     existing_hooks = existing.get("hooks", {})
@@ -157,20 +163,7 @@ def install_pi_hooks(
     """
     hook_dir = Path.home() / ".pi" / "agent" / "hook"
     hooks_path = hook_dir / "hooks.yaml"
-    existing: SkillPayload = {}
-    if hooks_path.exists():
-        try:
-            loaded = yaml.safe_load(hooks_path.read_text(encoding="utf-8", errors="replace"))
-            if isinstance(loaded, dict):
-                existing = loaded
-            elif loaded is not None:
-                logger.warning("Invalid YAML shape in %s, will overwrite.", hooks_path)
-        except (yaml.YAMLError, OSError) as exc:
-            logger.warning("Could not read existing %s: %s", hooks_path, exc)
-    if hooks_path.exists():
-        backup_path = hook_dir / "hooks.yaml.bak"
-        shutil.copy2(hooks_path, backup_path)
-        logger.info("Backed up existing Pi hooks to %s", backup_path)
+    existing = _load_yaml_mapping_with_backup(hooks_path, "Pi hooks")
 
     _write_hook_scripts(hook_dir, _dagayn_hook_scripts(extra_update_args))
     existing_hooks = existing.get("hooks", [])

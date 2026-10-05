@@ -34,10 +34,9 @@ import logging
 from collections import defaultdict
 from typing import Any, Iterable, Literal, Optional, TypedDict
 
-from ._scope import ArtifactScope, build_node_scope_maps
+from ._scope import ArtifactScope, build_node_scope_maps, iter_scope_edges
 from .contracts.dependency_profiles import (
     DependencyProfile,
-    edge_matches_dependency_profile,
     validate_dependency_profile,
 )
 from .graph import GraphStore
@@ -162,20 +161,9 @@ def compute_sap_metrics(
     dep_graph: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     all_scopes: set[str] = set(scope_member_count.keys())
 
-    edges = getattr(snapshot, "edges", None)
-    if edges is None:
-        edges = store.get_all_edges()
-    for edge in edges:
-        if not edge_matches_dependency_profile(edge, dependency_profile):
-            continue
-        src_scope = qualified_to_scope.get(edge.source_qualified)
-        if src_scope is None:
-            continue
-        tgt_scope = qualified_to_scope.get(edge.target_qualified)
-        if tgt_scope is None:
-            tgt_scope = name_to_scope.get(edge.target_qualified)
-        if tgt_scope is None or src_scope == tgt_scope:
-            continue
+    for src_scope, tgt_scope in iter_scope_edges(
+        store, snapshot, dependency_profile, qualified_to_scope, name_to_scope
+    ):
         dep_graph[src_scope][tgt_scope] += 1
         all_scopes.add(src_scope)
         all_scopes.add(tgt_scope)

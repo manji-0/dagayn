@@ -554,15 +554,20 @@ def local_embedding_server(
     preset = get_local_embedding_preset(level, runtime=runtime)
     port = resolve_local_embedding_port(port, preset.level)
     base_url = local_embedding_base_url(port)
+    reused = LocalEmbeddingServer(preset=preset, base_url=base_url, command=[], started=False)
+
+    def incompatible(detail: str) -> RuntimeError:
+        return RuntimeError(
+            f"Port {port} is already serving something, but it is not a compatible "
+            f"embedding endpoint for preset '{preset.level}': {detail}"
+        )
+
     probe = _probe_embedding_server(base_url, preset.model, preset.dimension)
     if probe.ready:
-        yield LocalEmbeddingServer(preset=preset, base_url=base_url, command=[], started=False)
+        yield reused
         return
     if probe.status == "incompatible":
-        raise RuntimeError(
-            f"Port {port} is already serving something, but it is not a compatible "
-            f"embedding endpoint for preset '{preset.level}': {probe.detail}"
-        )
+        raise incompatible(probe.detail)
     port_lock = _acquire_local_embedding_port_lock(port)
     proc: subprocess.Popen[bytes] | None = None
     ready = False
@@ -571,13 +576,10 @@ def local_embedding_server(
         if probe.ready:
             _release_local_embedding_port_lock(port_lock)
             port_lock = None
-            yield LocalEmbeddingServer(preset=preset, base_url=base_url, command=[], started=False)
+            yield reused
             return
         if probe.status == "incompatible":
-            raise RuntimeError(
-                f"Port {port} is already serving something, but it is not a compatible "
-                f"embedding endpoint for preset '{preset.level}': {probe.detail}"
-            )
+            raise incompatible(probe.detail)
         if probe.status == "not_ready":
             deadline = time.monotonic() + startup_timeout
             while time.monotonic() < deadline:
@@ -585,18 +587,10 @@ def local_embedding_server(
                 if probe.ready:
                     _release_local_embedding_port_lock(port_lock)
                     port_lock = None
-                    yield LocalEmbeddingServer(
-                        preset=preset,
-                        base_url=base_url,
-                        command=[],
-                        started=False,
-                    )
+                    yield reused
                     return
                 if probe.status == "incompatible":
-                    raise RuntimeError(
-                        f"Port {port} is already serving something, but it is not a compatible "
-                        f"embedding endpoint for preset '{preset.level}': {probe.detail}"
-                    )
+                    raise incompatible(probe.detail)
                 if probe.status == "unreachable":
                     break
                 time.sleep(0.5)

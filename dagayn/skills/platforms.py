@@ -484,37 +484,25 @@ def install_platform_configs(
         server_key = plat["key"]
         server_entry = _build_server_entry(plat, key=key, extra_serve_args=extra_serve_args)
 
-        if plat["format"] == "toml":
-            changed = _merge_toml_mcp_server(
-                config_path,
-                "dagayn",
-                server_entry,
-                dry_run=dry_run,
-            )
-            if not changed:
-                print(f"  {plat['name']}: already configured in {config_path}")
-                configured.append(plat["name"])
-                continue
-            if dry_run:
-                print(f"  [dry-run] {plat['name']}: would write {config_path}")
+        if plat["format"] in ("toml", "yaml"):
+            if plat["format"] == "toml":
+                changed = _merge_toml_mcp_server(
+                    config_path,
+                    "dagayn",
+                    server_entry,
+                    dry_run=dry_run,
+                )
             else:
-                print(f"  {plat['name']}: configured {config_path}")
-            configured.append(plat["name"])
-            continue
-
-        if plat["format"] == "yaml":
-            changed = _merge_yaml_mcp_server(
-                config_path,
-                server_key,
-                "dagayn",
-                server_entry,
-                dry_run=dry_run,
-            )
+                changed = _merge_yaml_mcp_server(
+                    config_path,
+                    server_key,
+                    "dagayn",
+                    server_entry,
+                    dry_run=dry_run,
+                )
             if not changed:
                 print(f"  {plat['name']}: already configured in {config_path}")
-                configured.append(plat["name"])
-                continue
-            if dry_run:
+            elif dry_run:
                 print(f"  [dry-run] {plat['name']}: would write {config_path}")
             else:
                 print(f"  {plat['name']}: configured {config_path}")
