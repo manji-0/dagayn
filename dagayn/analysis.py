@@ -20,17 +20,6 @@ from .graph.sqlite_errors import borrowed_sqlite_connection
 logger = logging.getLogger(__name__)
 
 
-def _sort_key_int(item: Mapping[str, object], field: str) -> int:
-    value = item.get(field)
-    if isinstance(value, bool):
-        return int(value)
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value)
-    return 0
-
-
 def _sort_key_float(item: Mapping[str, object], field: str) -> float:
     value = item.get(field)
     if isinstance(value, (int, float)):
@@ -55,18 +44,6 @@ class GraphSnapshot:
     out_degree: Counter[str]
     tested_sources: set[str]
     all_nodes: list[GraphNode] = dataclasses.field(default_factory=list)
-
-
-class HubNodeRecord(TypedDict, total=False):
-    name: str
-    qualified_name: str
-    kind: str
-    file: str
-    in_degree: int
-    out_degree: int
-    total_degree: int
-    community_id: int | None
-    score_source: str
 
 
 class BridgeNodeRecord(TypedDict, total=False):
@@ -102,61 +79,6 @@ def build_graph_snapshot(store: GraphStore) -> GraphSnapshot:
         tested_sources=tested_sources,
         all_nodes=all_nodes,
     )
-
-
-def find_hub_nodes(
-    store: GraphStore,
-    top_n: int = 10,
-    *,
-    snapshot: GraphSnapshot | None = None,
-    use_persisted: bool = True,
-    artifact_scope: ArtifactScope = "all",
-    include_tests: bool = True,
-) -> list[HubNodeRecord]:
-    """Find the most connected nodes (highest in+out degree), excluding File nodes.
-
-    Returns list of dicts with: name, qualified_name, kind, file,
-    in_degree, out_degree, total_degree, community_id
-    """
-    if use_persisted and _persisted_scope_matches(artifact_scope, include_tests):
-        persisted = _load_persisted_hub_scores(store, top_n=top_n, artifact_scope=artifact_scope)
-        if persisted:
-            return persisted
-
-    if snapshot is None:
-        snapshot = build_graph_snapshot(store)
-    nodes, scoped_edges = _scoped_nodes_and_edges(
-        snapshot, artifact_scope=artifact_scope, include_tests=include_tests
-    )
-    in_degree, out_degree = _degree_counters(scoped_edges)
-    community_map = snapshot.community_map
-
-    scored: list[HubNodeRecord] = []
-    for n in nodes:
-        qn = n.qualified_name
-        ind = in_degree.get(qn, 0)
-        outd = out_degree.get(qn, 0)
-        total = ind + outd
-        if total == 0:
-            continue
-        scored.append(
-            {
-                "name": _sanitize_name(n.name),
-                "qualified_name": n.qualified_name,
-                "kind": n.kind,
-                "file": n.file_path,
-                "in_degree": ind,
-                "out_degree": outd,
-                "total_degree": total,
-                "community_id": community_map.get(qn),
-            }
-        )
-
-    scored.sort(
-        key=lambda x: _sort_key_int(x, "total_degree"),
-        reverse=True,
-    )
-    return scored[:top_n]
 
 
 def find_bridge_nodes(
@@ -303,37 +225,6 @@ _CENTRALITY_SCORE_SCRIPT = (
 def _ensure_centrality_score_tables(store: GraphStore) -> None:
     with borrowed_sqlite_connection(store) as conn:
         conn.executescript(_CENTRALITY_SCORE_SCRIPT)
-
-
-def _load_persisted_hub_scores(
-    store: GraphStore, top_n: int, *, artifact_scope: ArtifactScope = "all"
-) -> list[HubNodeRecord]:
-    table = "hub_scores_code" if artifact_scope == "code" else "hub_scores"
-    try:
-        _ensure_centrality_score_tables(store)
-        with borrowed_sqlite_connection(store) as conn:
-            rows = conn.execute(
-                f"SELECT name, qualified_name, kind, file_path, in_degree, out_degree, "
-                f"total_degree, community_id "
-                f"FROM {table} ORDER BY total_degree DESC, qualified_name LIMIT ?",  # noqa: S608
-                (top_n,),
-            ).fetchall()
-    except sqlite3.OperationalError:
-        return []
-    return [
-        {
-            "name": row["name"],
-            "qualified_name": row["qualified_name"],
-            "kind": row["kind"],
-            "file": row["file_path"],
-            "in_degree": row["in_degree"],
-            "out_degree": row["out_degree"],
-            "total_degree": row["total_degree"],
-            "community_id": row["community_id"],
-            "score_source": "persisted",
-        }
-        for row in rows
-    ]
 
 
 def _load_persisted_bridge_scores(
@@ -526,13 +417,3 @@ def _scoped_nodes_and_edges(
         if e.source_qualified in scoped_qns and e.target_qualified in scoped_qns
     ]
     return nodes, edges
-
-
-def _degree_counters(edges: list[GraphEdge]) -> tuple[Counter[str], Counter[str]]:
-    """Build in/out degree counters for a scoped edge set."""
-    in_degree: Counter[str] = Counter()
-    out_degree: Counter[str] = Counter()
-    for e in edges:
-        out_degree[e.source_qualified] += 1
-        in_degree[e.target_qualified] += 1
-    return in_degree, out_degree
