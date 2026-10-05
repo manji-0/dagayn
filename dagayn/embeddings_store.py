@@ -982,22 +982,8 @@ class EmbeddingStore:
                     batch[0][0],
                     batch[-1][0],
                 )
-            self._conn.executemany(
-                """INSERT OR REPLACE INTO embeddings (qualified_name, vector, text_hash, provider)
-                   VALUES (?, ?, ?, ?)""",
-                [
-                    (
-                        qualified_name,
-                        _encode_vector(vec),
-                        text_hash,
-                        self.provider_key or (provider.name if provider else ""),
-                    )
-                    for (qualified_name, _text, text_hash), vec in zip(batch, vectors)
-                ],
-            )
             provider_name = self.provider_key or self.provider.name
-            self._conn.commit()
-            _invalidate_np_vec_cache(self.db_path, provider_name)
+            self._store_vectors(batch, vectors, provider_name)
             embedded += len(batch)
             if use_progress:
                 done = min(i + api_batch, total)
@@ -1007,6 +993,27 @@ class EmbeddingStore:
         self.checkpoint_writes()
 
         return embedded
+
+    def _store_vectors(
+        self, items: list[EmbedWorkItem], vectors: list[list[float]], cache_provider: str
+    ) -> None:
+        """Upsert one vector per item, commit, and drop *cache_provider*'s matrix cache."""
+        provider = self.provider
+        self._conn.executemany(
+            """INSERT OR REPLACE INTO embeddings (qualified_name, vector, text_hash, provider)
+               VALUES (?, ?, ?, ?)""",
+            [
+                (
+                    qualified_name,
+                    _encode_vector(vec),
+                    text_hash,
+                    self.provider_key or (provider.name if provider else ""),
+                )
+                for (qualified_name, _text, text_hash), vec in zip(items, vectors)
+            ],
+        )
+        self._conn.commit()
+        _invalidate_np_vec_cache(self.db_path, cache_provider)
 
     def _embed_nodes_individually_after_batch_failure(
         self,
@@ -1039,18 +1046,7 @@ class EmbeddingStore:
                 # Concrete providers learn their length from the first response;
                 # the abstract base does not declare the field.
                 setattr(provider, "_dimension", len(vectors[0]))  # noqa: B010
-            self._conn.execute(
-                """INSERT OR REPLACE INTO embeddings (qualified_name, vector, text_hash, provider)
-                   VALUES (?, ?, ?, ?)""",
-                (
-                    qualified_name,
-                    _encode_vector(vectors[0]),
-                    text_hash,
-                    self.provider_key or (provider.name if provider else ""),
-                ),
-            )
-            self._conn.commit()
-            _invalidate_np_vec_cache(self.db_path, provider_name)
+            self._store_vectors([(qualified_name, text, text_hash)], vectors, provider_name)
             embedded += 1
 
         if failures:
