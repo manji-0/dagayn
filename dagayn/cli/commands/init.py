@@ -70,10 +70,6 @@ def register_commands(sub: argparse._SubParsersAction) -> CommandRegistry:
             action="store_true",
             help="Auto-confirm instruction injection without an interactive prompt",
         )
-        # Legacy flags (kept for backwards compat, now no-ops since all is default)
-        p.add_argument("--skills", action="store_true", help=argparse.SUPPRESS)
-        p.add_argument("--hooks", action="store_true", help=argparse.SUPPRESS)
-        p.add_argument("--all", action="store_true", dest="install_all", help=argparse.SUPPRESS)
         p.add_argument(
             "--platform",
             choices=_PLATFORM_CHOICES,
@@ -81,8 +77,7 @@ def register_commands(sub: argparse._SubParsersAction) -> CommandRegistry:
             help="Target platform for MCP config (default: all detected)",
         )
         # Embedding mode selection. Omit to choose interactively on a TTY,
-        # fail-fast under -y or a non-TTY stdin. Legacy mode names and
-        # --local-embedding low still work as aliases.
+        # fail-fast under -y or a non-TTY stdin.
         p.add_argument(
             "--mode",
             choices=[
@@ -90,17 +85,12 @@ def register_commands(sub: argparse._SubParsersAction) -> CommandRegistry:
                 "local-embedding",
                 "local-embedding-llama",
                 "remote-embedding",
-                "fts",
-                "local",
-                "llama-qwen3",
-                "remote",
             ],
             default=None,
             help=(
                 "Embedding strategy: fts-only, local-embedding (managed "
                 "BGE-M3 sidecar), local-embedding-llama (managed Qwen sidecar), or "
-                "remote-embedding. Legacy fts/local/llama-qwen3/remote names "
-                "are accepted as aliases."
+                "remote-embedding."
             ),
         )
         p.add_argument(
@@ -276,8 +266,8 @@ def handle(args: argparse.Namespace) -> None:
     mode, preset, provider = _resolve_install_mode(args)
     sub_label = f" (preset={preset})" if preset else f" (provider={provider})" if provider else ""
     print(f"Selected mode: {mode}{sub_label}")
-    if mode == "remote":
-        # _resolve_install_mode guarantees provider is set when mode == "remote".
+    if mode == "remote-embedding":
+        # _resolve_install_mode guarantees provider is set for remote-embedding.
         assert provider is not None
         print(
             f"[remote/{provider}] Set these environment variables in the shell "
@@ -357,7 +347,6 @@ def handle(args: argparse.Namespace) -> None:
     # to opt out.
     skip_skills = getattr(args, "no_skills", False)
     skip_hooks = getattr(args, "no_hooks", False)
-    # Legacy: --skills/--hooks/--all still accepted (no-op, everything is default)
 
     from ...skills import (
         PLATFORMS,

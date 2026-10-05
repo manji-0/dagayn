@@ -58,7 +58,6 @@ _LOW_SIGNAL_DOC_FILES = {
     "QODER.md",
 }
 SUPPLEMENTAL_TEST_DENSITY_NODE_LIMIT = 10
-_SUPPLEMENTAL_TEST_DENSITY_NODE_LIMIT = SUPPLEMENTAL_TEST_DENSITY_NODE_LIMIT
 
 
 def _relative_qualified_name(qualified_name: str, root: Path) -> str:
@@ -214,7 +213,7 @@ def _component_density_by_scope(
     scopes: set[str],
     *,
     include_supplemental_tests: bool = False,
-    supplemental_test_density_node_limit: int = _SUPPLEMENTAL_TEST_DENSITY_NODE_LIMIT,
+    supplemental_test_density_node_limit: int = SUPPLEMENTAL_TEST_DENSITY_NODE_LIMIT,
 ) -> dict[str, ReviewPayload]:
     """Measure direct test and evidence-tiered documentation density for changed scopes."""
     if not scopes:

@@ -2,6 +2,32 @@
 
 All notable changes to `dagayn` are documented here.
 
+## Unreleased
+
+### Removed
+
+- Compatibility layers, now that nothing in the package needs them:
+  the `dagayn.incremental` re-export module (import from
+  `dagayn.incremental_build`, `dagayn.incremental_files`,
+  `dagayn.incremental_update_pipeline`, or `dagayn.paths`), the function
+  re-exports of the `dagayn.tools` package (import from the tool's own
+  module, e.g. `dagayn.tools.query`), `dagayn.parser.types` and
+  `dagayn.parser.test_detection` (use `dagayn.parser._base`), and
+  `dagayn.migrations` (the schema version lives in `dagayn-graph`).
+- Modules nothing reached: `dagayn.enrich` (its CLI subcommand was already
+  gone), `dagayn.eval.token_benchmark`, and `dagayn.graph._edge_records`.
+- `dagayn install` no longer accepts the legacy `--mode` names `fts`,
+  `local`, `llama-qwen3`, and `remote`, the no-op `--skills`, `--hooks`,
+  and `--all` flags, or `--local-embedding <level>` to pick the mode; a
+  `--local-embedding` value now fails with a pointer to `--mode`.
+
+### Fixed
+
+- `dagayn install --mode remote-embedding` now prints the environment
+  variables the chosen provider needs: the check compared the mode against
+  the legacy `remote` name, which was normalized away first, so it never
+  ran.
+
 ## 7.2.0 — 2026-10-05
 
 ### Changed

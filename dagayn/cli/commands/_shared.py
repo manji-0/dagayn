@@ -184,25 +184,13 @@ def _prompt_install_mode() -> tuple[str, str | None, str | None]:
     return "remote-embedding", None, provider
 
 
-def _normalize_install_mode(mode: str) -> str:
-    """Normalize legacy install mode names to the current explicit surface."""
-    aliases = {
-        "fts": "fts-only",
-        "local": "local-embedding",
-        "llama-qwen3": "local-embedding-llama",
-        "remote": "remote-embedding",
-    }
-    return aliases.get(mode, mode)
-
-
 def _resolve_install_mode(args: argparse.Namespace) -> tuple[str, str | None, str | None]:
     """Resolve the install mode from CLI flags or by prompting the user.
 
     Precedence:
     1. Explicit ``--mode`` flag (with paired ``--preset`` / ``--provider``
        validation).
-    2. Legacy ``--local-embedding low`` implies ``local-embedding-llama`` mode.
-    3. Otherwise: interactive prompt on a TTY, fail-fast under ``-y`` or
+    2. Otherwise: interactive prompt on a TTY, fail-fast under ``-y`` or
        a non-TTY stdin.
 
     Returns ``(mode, preset, provider)``.
@@ -210,19 +198,17 @@ def _resolve_install_mode(args: argparse.Namespace) -> tuple[str, str | None, st
     mode = getattr(args, "mode", None)
     preset = getattr(args, "preset", None)
     provider = getattr(args, "provider", None)
-    legacy_le = getattr(args, "local_embedding", "none") or "none"
+    local_embedding = getattr(args, "local_embedding", "none") or "none"
     auto_yes = getattr(args, "yes", False)
+    if local_embedding not in ("none", ""):
+        raise SystemExit(
+            "--local-embedding does not choose the install mode; use --mode local-embedding "
+            "or --mode local-embedding-llama [--preset low]."
+        )
 
     if mode is not None:
-        raw_mode = mode
-        mode = _normalize_install_mode(mode)
         if mode == "local-embedding":
-            if preset not in (None, "low"):
-                raise SystemExit("--mode local-embedding does not accept --preset")
-            if preset == "low":
-                # Backwards compatibility for the old Qwen spelling.
-                if raw_mode == "local":
-                    return "local-embedding-llama", "low", provider
+            if preset is not None:
                 raise SystemExit("--mode local-embedding does not accept --preset")
             return mode, None, provider
         if mode == "local-embedding-llama":
@@ -232,13 +218,6 @@ def _resolve_install_mode(args: argparse.Namespace) -> tuple[str, str | None, st
         if mode == "remote-embedding" and not provider:
             raise SystemExit("--mode remote-embedding requires --provider {openai,google,minimax}")
         return mode, preset, provider
-
-    if legacy_le in ("bge-m3", "local"):
-        return "local-embedding", None, None
-    if legacy_le in ("low", "llama-qwen3"):
-        return "local-embedding-llama", "low", None
-    if legacy_le not in ("none", ""):
-        raise SystemExit("--local-embedding only supports bge-m3, low, or llama-qwen3")
 
     if auto_yes or not sys.stdin.isatty():
         raise SystemExit(

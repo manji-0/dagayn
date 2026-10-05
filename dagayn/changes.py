@@ -403,10 +403,6 @@ def _parse_diff_result_cached(
     )
 
 
-# Backward-compatible alias used by tests and eval benchmarks.
-_parse_diff_ranges_cached = _parse_diff_result_cached
-
-
 def _decode_git_quoted_path(text: str) -> str:
     """Decode a git C-style quoted path (``core.quotePath``)."""
     if not (text.startswith('"') and text.endswith('"')):

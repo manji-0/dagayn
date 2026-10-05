@@ -27,12 +27,7 @@ from ..prompts import (
     review_changes_prompt,
 )
 from ..tools._common import ToolPayload
-from .tool_allowlist import (
-    _ALL_TOOL_SENTINELS,  # noqa: F401 - re-exported for callers of main
-    _DEFAULT_MCP_TOOL_NAMES,  # noqa: F401
-    _parse_tool_allow_list,  # noqa: F401
-    _resolve_tool_allow_list,
-)
+from .tool_allowlist import _resolve_tool_allow_list
 
 type ComponentPayload = dict[str, object]
 

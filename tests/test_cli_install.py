@@ -36,9 +36,9 @@ class TestResolveInstallMode:
     def test_explicit_fts_only(self):
         assert _resolve_install_mode(_ns(mode="fts-only")) == ("fts-only", None, None)
 
-    def test_legacy_explicit_local_with_preset_maps_to_llama(self):
-        ns = _ns(mode="local", preset="low")
-        assert _resolve_install_mode(ns) == ("local-embedding-llama", "low", None)
+    def test_local_embedding_value_points_at_mode(self):
+        with pytest.raises(SystemExit, match="use --mode local-embedding"):
+            _resolve_install_mode(_ns(mode="local-embedding", local_embedding="low"))
 
     def test_explicit_local_embedding_defaults_to_bge(self):
         assert _resolve_install_mode(_ns(mode="local-embedding")) == (
@@ -65,37 +65,6 @@ class TestResolveInstallMode:
     def test_explicit_remote_requires_provider(self):
         with pytest.raises(SystemExit, match="--mode remote-embedding requires --provider"):
             _resolve_install_mode(_ns(mode="remote-embedding"))
-
-    def test_legacy_local_embedding_low(self):
-        ns = _ns(local_embedding="low")
-        assert _resolve_install_mode(ns) == ("local-embedding-llama", "low", None)
-
-    def test_legacy_local_embedding_bare_bge(self):
-        ns = _ns(local_embedding="bge-m3")
-        assert _resolve_install_mode(ns) == ("local-embedding", None, None)
-
-    def test_legacy_local_embedding_rejects_removed_high(self):
-        with pytest.raises(SystemExit, match="only supports bge-m3, low, or llama-qwen3"):
-            _resolve_install_mode(_ns(local_embedding="high"))
-
-    def test_explicit_mode_overrides_legacy(self):
-        # --mode fts-only wins over --local-embedding low.
-        ns = _ns(mode="fts-only", local_embedding="low")
-        assert _resolve_install_mode(ns) == ("fts-only", None, None)
-
-    def test_legacy_mode_aliases_are_accepted(self):
-        assert _resolve_install_mode(_ns(mode="fts")) == ("fts-only", None, None)
-        assert _resolve_install_mode(_ns(mode="local")) == ("local-embedding", None, None)
-        assert _resolve_install_mode(_ns(mode="llama-qwen3")) == (
-            "local-embedding-llama",
-            "low",
-            None,
-        )
-        assert _resolve_install_mode(_ns(mode="remote", provider="google")) == (
-            "remote-embedding",
-            None,
-            "google",
-        )
 
     def test_fail_fast_with_yes(self):
         with pytest.raises(SystemExit, match="--mode is required"):

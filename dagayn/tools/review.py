@@ -49,9 +49,6 @@ from .review_helpers import (
 
 logger = logging.getLogger(__name__)
 
-# Backward-compatible alias used by detect_changes_func.
-_SUPPLEMENTAL_TEST_DENSITY_NODE_LIMIT = SUPPLEMENTAL_TEST_DENSITY_NODE_LIMIT
-
 
 def detect_changes_func(
     base: str = "HEAD~1",
@@ -157,7 +154,7 @@ def detect_changes_func(
             repo_root=str(root),
             base=base,
             include_heuristic_test_gap_evidence=True,
-            heuristic_test_gap_node_limit=_SUPPLEMENTAL_TEST_DENSITY_NODE_LIMIT,
+            heuristic_test_gap_node_limit=SUPPLEMENTAL_TEST_DENSITY_NODE_LIMIT,
             diff_parse_status=diff_result.status,
         )
 

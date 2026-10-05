@@ -12,7 +12,7 @@ import pytest
 from dagayn.changes import (
     ChangeMappingResult,
     DiffParseResult,
-    _parse_diff_ranges_cached,
+    _parse_diff_result_cached,
     _parse_unified_diff,
     analyze_changes,
     compute_risk_score,
@@ -233,7 +233,7 @@ class TestChanges:
             calls.append((repo_root, base))
             return DiffParseResult({"app.py": [(1, 2)]}, "ok")
 
-        _parse_diff_ranges_cached.cache_clear()
+        _parse_diff_result_cached.cache_clear()
         try:
             with patch("dagayn.changes.parse_git_diff", side_effect=fake_git_ranges):
                 first = parse_diff_ranges(str(repo), "HEAD~1")
@@ -246,7 +246,7 @@ class TestChanges:
             assert parsed.ranges == {"app.py": [(1, 2)]}
             assert parsed.status == "ok"
         finally:
-            _parse_diff_ranges_cached.cache_clear()
+            _parse_diff_result_cached.cache_clear()
 
     def test_map_changes_degrades_stale_line_ranges_to_file_granular(self, tmp_path):
         """Stale indexed content falls back to file-granular attribution."""
@@ -411,7 +411,7 @@ class TestChanges:
 
             return DiffParseResult({"app.py": [(len(calls), len(calls))]}, "ok")
 
-        _parse_diff_ranges_cached.cache_clear()
+        _parse_diff_result_cached.cache_clear()
         try:
             with patch("dagayn.changes.parse_git_diff", side_effect=fake_git_diff):
                 first = parse_diff_ranges(str(repo), "HEAD")
@@ -422,7 +422,7 @@ class TestChanges:
             assert second == {"app.py": [(2, 2)]}
             assert calls == [1, 1]
         finally:
-            _parse_diff_ranges_cached.cache_clear()
+            _parse_diff_result_cached.cache_clear()
 
     def test_parse_diff_ranges_invalidates_on_successive_dirty_edits(self, tmp_path):
         """Second edit to an already-dirty file must not reuse cached diff ranges."""
@@ -454,7 +454,7 @@ class TestChanges:
 
             return DiffParseResult({"app.py": [(len(calls), len(calls))]}, "ok")
 
-        _parse_diff_ranges_cached.cache_clear()
+        _parse_diff_result_cached.cache_clear()
         try:
             with patch("dagayn.changes.parse_git_diff", side_effect=fake_git_diff):
                 first = parse_diff_ranges(str(repo), "HEAD")
@@ -465,7 +465,7 @@ class TestChanges:
             assert second == {"app.py": [(2, 2)]}
             assert len(calls) == 2
         finally:
-            _parse_diff_ranges_cached.cache_clear()
+            _parse_diff_result_cached.cache_clear()
 
     # ---------------------------------------------------------------
     # map_changes_to_nodes

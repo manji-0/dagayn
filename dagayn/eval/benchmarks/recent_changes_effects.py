@@ -79,7 +79,7 @@ def _scenario_diff_cache(config: BenchmarkPayload) -> BenchmarkPayload:
             ),
             repeat=repeat,
         )
-        changes._parse_diff_ranges_cached.cache_clear()
+        changes._parse_diff_result_cached.cache_clear()
         cached_ms, cached = _measure_ms(
             lambda: (
                 changes.parse_diff_ranges(str(repo), "HEAD"),
@@ -87,7 +87,7 @@ def _scenario_diff_cache(config: BenchmarkPayload) -> BenchmarkPayload:
             ),
             repeat=repeat,
         )
-        changes._parse_diff_ranges_cached.cache_clear()
+        changes._parse_diff_result_cached.cache_clear()
 
     return {
         "scenario": "parse_diff_ranges_cache",
