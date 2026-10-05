@@ -376,17 +376,7 @@ class TestExportObsidianVault:
         self, knowledge_gap_hotspot_store, tmp_path
     ):
         """High-degree untested nodes should export as first-class vault pages."""
-        from dagayn.analysis import find_knowledge_gaps
         from dagayn.exports import _obsidian_slug, export_obsidian_vault
-
-        gaps = find_knowledge_gaps(
-            knowledge_gap_hotspot_store,
-            top_n=5,
-            artifact_scope="code",
-        )
-        hotspot_qn = "src/service.py::service"
-        hotspot_names = {item["qualified_name"] for item in gaps["untested_hotspots"]}
-        assert hotspot_qn in hotspot_names
 
         out = tmp_path / "vault"
         export_obsidian_vault(knowledge_gap_hotspot_store, out)

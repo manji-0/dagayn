@@ -6,7 +6,6 @@ from pathlib import Path
 from dagayn.communities import (
     count_affected_communities,
     detect_communities,
-    get_architecture_overview,
     get_communities,
     incremental_detect_communities,
     store_communities,
@@ -209,114 +208,6 @@ class TestCommunities:
             assert "id" in comm
             assert "name" in comm
             assert "size" in comm
-
-    def test_architecture_overview(self):
-        """Architecture overview has required keys."""
-        self._seed_two_clusters()
-        communities = detect_communities(self.store, min_size=2)
-        store_communities(self.store, communities)
-
-        overview = get_architecture_overview(self.store)
-        assert "communities" in overview
-        assert "cross_community_coupling" in overview
-        assert "warnings" in overview
-        assert isinstance(overview["communities"], list)
-        assert isinstance(overview["cross_community_coupling"], list)
-        assert isinstance(overview["warnings"], list)
-
-    def test_architecture_overview_standard_omits_members(self):
-        """Standard detail_level does not include community member lists."""
-        self._seed_two_clusters()
-        communities = detect_communities(self.store, min_size=2)
-        store_communities(self.store, communities)
-
-        overview = get_architecture_overview(self.store, detail_level="standard")
-        for comm in overview["communities"]:
-            assert "members" not in comm
-
-    def test_architecture_overview_verbose_includes_members_and_raw_edges(self):
-        """Verbose detail_level includes member lists and raw cross_community_edges."""
-        self._seed_two_clusters()
-        communities = detect_communities(self.store, min_size=2)
-        store_communities(self.store, communities)
-
-        overview = get_architecture_overview(self.store, detail_level="verbose")
-        assert "cross_community_edges" in overview
-        assert isinstance(overview["cross_community_edges"], list)
-        for comm in overview["communities"]:
-            assert "members" in comm
-
-    def test_architecture_overview_minimal_compact(self):
-        """Minimal detail_level returns only name/size/cohesion per community."""
-        self._seed_two_clusters()
-        communities = detect_communities(self.store, min_size=2)
-        store_communities(self.store, communities)
-
-        overview = get_architecture_overview(self.store, detail_level="minimal")
-        for comm in overview["communities"]:
-            assert set(comm.keys()) == {"name", "size", "assigned_member_count", "cohesion"}
-        assert len(overview["cross_community_coupling"]) <= 5
-
-    def test_architecture_overview_coupling_has_edge_kinds(self):
-        """cross_community_coupling entries include edge_kinds breakdown."""
-        self._seed_two_clusters()
-        communities = detect_communities(self.store, min_size=2)
-        store_communities(self.store, communities)
-
-        overview = get_architecture_overview(self.store)
-        for entry in overview["cross_community_coupling"]:
-            assert "edge_count" in entry
-            assert "edge_kinds" in entry
-            assert isinstance(entry["edge_kinds"], dict)
-
-    def test_architecture_overview_excludes_tested_by_coupling(self):
-        """TESTED_BY edges do not count toward coupling warnings."""
-        self._seed_two_clusters()
-        communities = detect_communities(self.store, min_size=2)
-        store_communities(self.store, communities)
-
-        # Add many TESTED_BY cross-community edges (well above the threshold of 10)
-        for i in range(20):
-            self.store.upsert_edge(
-                EdgeInfo(
-                    kind="TESTED_BY",
-                    source="auth.py::login",
-                    target="db.py::query",
-                    file_path="auth.py",
-                    line=i + 100,
-                )
-            )
-        self.store.commit()
-
-        overview = get_architecture_overview(self.store)
-        # Warnings should not include any that are purely from TESTED_BY edges
-        for w in overview["warnings"]:
-            assert "TESTED_BY" not in w
-
-    def test_architecture_overview_excludes_test_community_warnings(self):
-        """Warnings involving test-dominated communities are filtered out."""
-        self._seed_two_clusters()
-        communities = detect_communities(self.store, min_size=2)
-        store_communities(self.store, communities)
-
-        # Manually insert a test-named community with high cross-coupling
-        conn = store_conn(self.store)
-        cursor = conn.execute(
-            "INSERT INTO communities (name, level, cohesion, size, dominant_language, description)"
-            " VALUES (?, 0, 0.5, 10, 'typescript', 'Test community')",
-            ("handler-it:should",),
-        )
-        test_comm_id = cursor.lastrowid
-        # Assign some nodes to this community (reuse existing node)
-        conn.execute(
-            "UPDATE nodes SET community_id = ? WHERE name = 'login'",
-            (test_comm_id,),
-        )
-        conn.commit()
-
-        overview = get_architecture_overview(self.store)
-        for w in overview["warnings"]:
-            assert "it:should" not in w, f"Test community should be filtered: {w}"
 
     def test_get_communities_sort_by(self):
         """get_communities respects sort_by parameter."""

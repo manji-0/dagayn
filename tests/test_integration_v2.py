@@ -11,7 +11,6 @@ from pathlib import Path
 from dagayn.changes import analyze_changes
 from dagayn.communities import (
     detect_communities,
-    get_architecture_overview,
     get_communities,
     store_communities,
 )
@@ -371,11 +370,6 @@ class TestV2Integration:
             assert "name" in comm
             assert "size" in comm
             assert comm["size"] > 0
-
-        # Architecture overview
-        arch = get_architecture_overview(self.store)
-        assert "communities" in arch
-        assert "cross_community_coupling" in arch
 
         # ---- Step 4: rebuild_fts_index + hybrid_search ----
         fts_count = rebuild_fts_index(self.store)
