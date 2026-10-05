@@ -4,11 +4,11 @@ use std::path::{Path, PathBuf};
 
 use clap::Args;
 use dagayn_build::{BuildOptions, GraphWriteLock, db_path_for_build};
-use dagayn_graph::GraphStore;
 
 use crate::{
-    Failure, env_flag, postprocess_level, print_postprocess_summary, print_warnings,
-    require_ported_layout, resolve_repo_root, unsupported, write_lock_timeout,
+    Failure, env_flag, open_matching_graph, postprocess_level, print_postprocess_summary,
+    print_warnings, refuse_local_embedding, require_ported_layout, resolve_repo_root, unsupported,
+    write_lock_timeout,
 };
 
 #[derive(Args)]
@@ -37,13 +37,7 @@ pub(crate) fn run(args: &BuildArgs) -> Result<u8, Failure> {
     if args.scip {
         return Err(unsupported("--scip"));
     }
-    if args
-        .local_embedding
-        .as_deref()
-        .is_some_and(|mode| mode != "none")
-    {
-        return Err(unsupported("--local-embedding"));
-    }
+    refuse_local_embedding(args.local_embedding.as_deref())?;
     let postprocess = postprocess_level(args.skip_flows, args.skip_postprocess);
 
     let repo_root = resolve_repo_root(args.repo.as_deref())?;
@@ -54,12 +48,7 @@ pub(crate) fn run(args: &BuildArgs) -> Result<u8, Failure> {
     if args.force {
         remove_database(&db_path)?;
     }
-    let mut store = GraphStore::open(&db_path)?;
-    if let Some(recorded) = dagayn_build::graph_repo_mismatch(&store, &repo_root) {
-        return Err(Failure::Error(dagayn_build::graph_repo_mismatch_message(
-            &db_path, &recorded, &repo_root,
-        )));
-    }
+    let mut store = open_matching_graph(&db_path, &repo_root)?;
     let options = BuildOptions {
         recurse_submodules: env_flag("CRG_RECURSE_SUBMODULES"),
         postprocess,

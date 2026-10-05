@@ -141,8 +141,9 @@ const SIDE_EFFECTS: &[(&str, &[&str])] = &[
     ),
 ];
 
-/// `round(value, ndigits)` for 2 and 3 digits.
-fn round_to(value: f64, digits: usize) -> f64 {
+/// Python's `round(value, ndigits)` (correctly rounded, ties to even on the
+/// exact binary value, as Rust's formatting rounds).
+pub(crate) fn round_to(value: f64, digits: usize) -> f64 {
     format!("{value:.digits$}").parse().unwrap_or(value)
 }
 

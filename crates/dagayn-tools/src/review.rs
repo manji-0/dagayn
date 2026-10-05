@@ -116,14 +116,8 @@ pub(crate) fn review(context: &Context, arguments: &Map<String, Value>) -> Optio
     let runtime = context.runtime.clone()?;
     let root = resolve_repo(context, args.optional_string("repo_root")?)?;
     let graph = open_graph(&root)?;
-    let stats = graph.store.get_stats().ok()?;
-    let answerability = Answerability::recorded(&graph.store, &stats)?;
-    let exposed = |tool: &str| {
-        context
-            .allowed_tools
-            .as_ref()
-            .is_none_or(|allowed| allowed.contains(tool))
-    };
+    let answerability = graph.answerability()?;
+    let exposed = |tool: &str| context.exposes(tool);
     let review = Review {
         graph: &graph,
         answerability: &answerability,

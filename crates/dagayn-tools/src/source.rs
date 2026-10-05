@@ -6,6 +6,8 @@ use dagayn_graph::GraphNode;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+use crate::coverage::splitlines;
+
 /// `SOURCE_OF_MAX_CHARS`.
 const MAX_CHARS: usize = 4000;
 
@@ -61,44 +63,6 @@ impl SourceCoverage {
     }
 }
 
-/// Python's `str.splitlines()`: every line boundary it knows, `\r\n` as
-/// one, no empty last line after a final break.
-fn split_lines(text: &str) -> Vec<&str> {
-    let mut lines = Vec::new();
-    let mut start = 0;
-    let mut chars = text.char_indices().peekable();
-    while let Some((index, c)) = chars.next() {
-        let boundary = matches!(
-            c,
-            '\n' | '\r'
-                | '\u{0b}'
-                | '\u{0c}'
-                | '\u{1c}'
-                | '\u{1d}'
-                | '\u{1e}'
-                | '\u{85}'
-                | '\u{2028}'
-                | '\u{2029}'
-        );
-        if !boundary {
-            continue;
-        }
-        lines.push(&text[start..index]);
-        let mut next = index + c.len_utf8();
-        if c == '\r'
-            && let Some(&(_, '\n')) = chars.peek()
-        {
-            chars.next();
-            next += 1;
-        }
-        start = next;
-    }
-    if start < text.len() {
-        lines.push(&text[start..]);
-    }
-    lines
-}
-
 /// `node_source_line_span`: a clamped `[start, end)`, and for a
 /// `DocSection` the lines up to the next heading of its level or higher.
 fn line_span(node: &GraphNode, lines: &[&str]) -> (usize, usize) {
@@ -152,7 +116,7 @@ pub(crate) fn source_row(
     let stored = node.file_hash.as_deref().unwrap_or("");
     let stale = !stored.is_empty() && stored != live_hash;
     let text = String::from_utf8_lossy(&raw);
-    let lines = split_lines(&text);
+    let lines = splitlines(&text);
     let (start, end) = line_span(node, &lines);
     let span = lines[start..end].join("\n");
     let span_chars = span.chars().count();
@@ -200,7 +164,7 @@ pub(crate) fn source_row(
 
 #[cfg(test)]
 mod tests {
-    use super::split_lines;
+    use crate::coverage::splitlines as split_lines;
 
     #[test]
     fn lines_split_as_python_splits_them() {

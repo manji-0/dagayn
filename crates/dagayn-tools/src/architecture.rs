@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 use dagayn_graph::{GraphEdge, GraphNode, GraphStore, is_reportable_bridge};
 use serde_json::{Value, json};
 
-use crate::answerability::round4;
+use crate::suggestions::round_to;
 
 const DOC_SUFFIXES: &[&str] = &[".md", ".markdown", ".mdown", ".mkdn"];
 const MAX_ADP_CYCLES: usize = 5000;
@@ -315,7 +315,7 @@ impl ScopeGraph {
                     self.nodes[node].clone(),
                     self.predecessors[node].len() as i64,
                     self.successors[node].len() as i64,
-                    round4(self.instability(node)),
+                    round_to(self.instability(node), 4),
                 )
             })
             .collect();
@@ -337,13 +337,13 @@ impl ScopeGraph {
                 let delta = i_tgt - i_src;
                 if delta > min_delta {
                     violations.push((
-                        round4(delta),
+                        round_to(delta, 4),
                         json!({
                             "source": self.nodes[source],
                             "target": self.nodes[*target],
-                            "source_instability": round4(i_src),
-                            "target_instability": round4(i_tgt),
-                            "delta": round4(delta),
+                            "source_instability": round_to(i_src, 4),
+                            "target_instability": round_to(i_tgt, 4),
+                            "delta": round_to(delta, 4),
                             "dependency_profile": profile.name(),
                         }),
                     ));
@@ -570,9 +570,9 @@ pub(crate) fn sap_metrics(
             "nt": nt_count,
             "ca": ca,
             "ce": ce,
-            "abstractness": round4(abstractness),
-            "instability": round4(instability),
-            "distance": round4(distance),
+            "abstractness": round_to(abstractness, 4),
+            "instability": round_to(instability, 4),
+            "distance": round_to(distance, 4),
             "sap_applicable": applicable,
             "applicability_reason": reason,
             "dependency_profile": view.profile.name(),
@@ -583,7 +583,7 @@ pub(crate) fn sap_metrics(
         if !notes.is_empty() {
             entry["notes"] = json!(notes);
         }
-        results.push((round4(distance), scope, entry));
+        results.push((round_to(distance, 4), scope, entry));
     }
     results.sort_by(|left, right| {
         right

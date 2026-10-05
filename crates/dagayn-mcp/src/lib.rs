@@ -198,9 +198,7 @@ fn write_line(output: &Output, line: &str) -> io::Result<()> {
     let mut out = output
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    out.write_all(line.as_bytes())?;
-    out.write_all(b"\n")?;
-    out.flush()
+    send(&mut out, line)
 }
 
 fn reply(output: &Output, id: &Value, result: Value) -> io::Result<()> {
@@ -328,11 +326,7 @@ impl<B: Backend> Session<'_, B> {
     /// to the backend).
     fn local_result(&self, method: &str, params: Option<&Value>) -> Option<Value> {
         self.init_params.as_ref()?;
-        let modern_envelope = params
-            .and_then(|params| params.pointer("/_meta"))
-            .and_then(Value::as_object)
-            .is_some_and(|meta| meta.contains_key(PROTOCOL_VERSION_META));
-        if modern_envelope {
+        if envelope_version(params).is_some() {
             return None;
         }
         if method == "logging/setLevel" {
@@ -446,13 +440,7 @@ impl<B: Backend> Session<'_, B> {
             .tools
             .iter()
             .any(|tool| tool.get("name").and_then(Value::as_str) == Some(name));
-        let exposed = listed
-            && self
-                .config
-                .allowed_tools
-                .as_ref()
-                .is_none_or(|allowed| allowed.contains(name));
-        if !exposed {
+        if !(listed && self.allows(name)) {
             return None;
         }
         if self.proxy.is_some() && self.native.writes_graph(name) {
@@ -520,19 +508,21 @@ impl<B: Backend> Session<'_, B> {
         }
     }
 
+    /// Whether the session's allow-list admits the tool `name`.
+    fn allows(&self, name: &str) -> bool {
+        self.config
+            .allowed_tools
+            .as_ref()
+            .is_none_or(|allowed| allowed.contains(name))
+    }
+
     /// The tools this session exposes, in listing order.
     fn exposed_tools(&self) -> Vec<Value> {
         self.config
             .surface
             .tools
             .iter()
-            .filter(|tool| {
-                let name = tool.get("name").and_then(Value::as_str).unwrap_or("");
-                self.config
-                    .allowed_tools
-                    .as_ref()
-                    .is_none_or(|allowed| allowed.contains(name))
-            })
+            .filter(|tool| self.allows(tool.get("name").and_then(Value::as_str).unwrap_or("")))
             .cloned()
             .collect()
     }
@@ -634,23 +624,13 @@ pub fn serve(
         modern: None,
         proxy: None,
     };
-    let mut result = Ok(());
-    for line in BufReader::new(input).lines() {
-        let line = match line {
-            Ok(line) => line,
-            Err(err) => {
-                result = Err(err);
-                break;
-            }
-        };
+    let result = BufReader::new(input).lines().try_for_each(|line| {
+        let line = line?;
         if line.trim().is_empty() {
-            continue;
+            return Ok(());
         }
-        if let Err(err) = session.handle(&line) {
-            result = Err(err);
-            break;
-        }
-    }
+        session.handle(&line)
+    });
     if let Some(proxy) = session.proxy.take() {
         drop(proxy.requests);
         let _ = proxy.relay.join();

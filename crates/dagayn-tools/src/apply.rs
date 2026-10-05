@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{Map, Value, json};
 
 use crate::difflib::{splitlines, unified_diff};
+use crate::docs::read_text;
 use crate::{Args, Context, Ordered, Payload, pending, resolve_repo};
 
 struct Edit {
@@ -66,12 +67,6 @@ fn resolve(file: &str, root: &Path) -> Option<PathBuf> {
         root.join(path)
     };
     joined.canonicalize().ok()
-}
-
-/// `read_text(errors="replace")` with universal newlines.
-fn read_text(path: &Path) -> Option<String> {
-    let text = String::from_utf8(std::fs::read(path).ok()?).ok()?;
-    Some(text.replace("\r\n", "\n").replace('\r', "\n"))
 }
 
 fn is_ident(c: char) -> bool {

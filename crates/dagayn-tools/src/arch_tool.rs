@@ -182,8 +182,7 @@ pub(crate) fn architecture(context: &Context, arguments: &Map<String, Value>) ->
     let graph = open_graph(&root)?;
     let artifact = Artifact::parse(request.artifact_scope)?;
     let profile = Profile::parse(request.dependency_profile)?;
-    let stats = graph.store.get_stats().ok()?;
-    let answerability = Answerability::recorded(&graph.store, &stats)?;
+    let answerability = graph.answerability()?;
     let include_tests = request.artifact_scope != "code";
     let analysis = |mode: &str| -> Option<Ordered> {
         let read = Graph::read(&graph.store)?;
@@ -226,12 +225,7 @@ pub(crate) fn architecture(context: &Context, arguments: &Map<String, Value>) ->
             ),
         })
     };
-    let exposed = |tool: &str| {
-        context
-            .allowed_tools
-            .as_ref()
-            .is_none_or(|allowed| allowed.contains(tool))
-    };
+    let exposed = |tool: &str| context.exposes(tool);
     let (subtool, out, trailing) = match request.mode {
         "overview" => (
             "get_architecture_overview_func",

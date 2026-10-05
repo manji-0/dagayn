@@ -1236,8 +1236,7 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
         return None;
     }
     let store = &graph.store;
-    let stats = store.get_stats().ok()?;
-    let answerability = Answerability::recorded(store, &stats)?;
+    let answerability = graph.answerability()?;
 
     if pattern == "callers_of" && !target.contains("::") && BUILTIN_CALL_NAMES.contains(&target) {
         return Some(

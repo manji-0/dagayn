@@ -63,15 +63,9 @@ pub(crate) fn refactor(context: &Context, arguments: &Map<String, Value>) -> Opt
     let root = resolve_repo(context, args.optional_string("repo_root")?)?;
     let graph = open_graph(&root)?;
     let store = &graph.store;
-    let stats = store.get_stats().ok()?;
-    let answerability = Answerability::recorded(store, &stats)?;
+    let answerability = graph.answerability()?;
     if let Some((old, new)) = rename_names {
-        let exposed = |tool: &str| {
-            context
-                .allowed_tools
-                .as_ref()
-                .is_none_or(|allowed| allowed.contains(tool))
-        };
+        let exposed = |tool: &str| context.exposes(tool);
         let out = rename(store, &answerability, old, new, &exposed)?;
         return Some(out.put("_repo", graph.repo_context()).into_payload());
     }
@@ -80,12 +74,7 @@ pub(crate) fn refactor(context: &Context, arguments: &Map<String, Value>) -> Opt
     } else {
         suggest(store, &answerability, limit)?
     };
-    let exposed = |tool: &str| {
-        context
-            .allowed_tools
-            .as_ref()
-            .is_none_or(|allowed| allowed.contains(tool))
-    };
+    let exposed = |tool: &str| context.exposes(tool);
     // `suggest` takes its hints from its guidance when that names a step.
     let from_guidance = out
         .get("guidance")

@@ -13,13 +13,13 @@ use dagayn_graph::{
 };
 use serde_json::{Map, Value, json};
 
-use crate::answerability::round4;
 use crate::architecture::{
     Artifact, ScopeGraph, Snapshot, View, file_name, float_or, sap_metrics, sap_violations,
     scope_key_for_file, str_of, truthy,
 };
 use crate::coverage::{ScanState, infer_tests_for_node, is_test_file_path};
 use crate::query::cross_artifact_role;
+use crate::suggestions::round_to;
 
 const ARTIFACT_TO_DOC_ROLES: &[&str] = &[
     "implements_contract",
@@ -105,7 +105,7 @@ pub(crate) fn stability_profiles(graph: &ScopeGraph, sap: &[Value]) -> HashMap<S
                 "scope_key": scope,
                 "ca": ca,
                 "ce": ce,
-                "instability": round4(instability),
+                "instability": round_to(instability, 4),
                 "stable": reasons.contains(&"observed_stable_component"),
                 "should_be_stable": reasons.contains(&"high_afferent_coupling_should_be_stable"),
                 "reason_codes": reasons,
@@ -248,7 +248,7 @@ fn component_density(
         let documented = authored + extracted;
         let ratio = |count: i64| {
             if prod > 0 {
-                round4(count as f64 / prod as f64)
+                round_to(count as f64 / prod as f64, 4)
             } else {
                 0.0
             }
@@ -355,7 +355,7 @@ fn recommend_tests(
                 "reason": if indirect { "indirect coverage via changed dependency" } else { "direct coverage of changed code" },
                 "source": qn,
                 "scope_key": scope,
-                "score": round4((if indirect { 0.82_f64 } else { 0.95 } + bonus).min(1.0)),
+                "score": round_to((if indirect { 0.82_f64 } else { 0.95 } + bonus).min(1.0), 4),
                 "evidence_level": if indirect { "graph_indirect" } else { "graph_direct" },
                 "stability": stability,
             }));
@@ -386,7 +386,7 @@ fn recommend_tests(
                 "confidence": confidence,
                 "evidence": test.get("evidence").cloned().unwrap_or(json!([])),
                 "scope_key": scope,
-                "score": round4((if confidence == "high" { 0.75_f64 } else { 0.65 } + bonus).min(1.0)),
+                "score": round_to((if confidence == "high" { 0.75_f64 } else { 0.65 } + bonus).min(1.0), 4),
                 "evidence_level": "heuristic",
                 "stability": stability,
             }));
@@ -549,7 +549,7 @@ fn documentation_candidates(
                     "relationship_role": role,
                     "confidence": edge.confidence,
                     "confidence_tier": tier,
-                    "score": round4(score),
+                    "score": round_to(score, 4),
                     "evidence_level": "cross_artifact",
                     "evidence_type": doc_evidence_type(role, tier),
                     "missingness": doc_missingness(role, tier),

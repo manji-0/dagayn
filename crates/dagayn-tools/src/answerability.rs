@@ -5,11 +5,7 @@ use dagayn_build::CommitFreshness;
 use dagayn_graph::{GraphStats, GraphStore};
 use serde_json::{Map, Value, json};
 
-/// Python's `round(value, 4)` (correctly rounded, ties to even on the exact
-/// binary value, as Rust's formatting rounds).
-pub(crate) fn round4(value: f64) -> f64 {
-    format!("{value:.4}").parse().unwrap_or(value)
-}
+use crate::suggestions::round_to;
 
 pub(crate) struct Answerability {
     pub status: &'static str,
@@ -118,7 +114,7 @@ impl Answerability {
             freshness_counts.insert("current_head_sha".into(), json!(fresh.current_head_sha));
             freshness_counts.insert("worktree_dirty".into(), json!(fresh.worktree_dirty));
         }
-        let score = round4(score).max(0.0);
+        let score = round_to(score, 4).max(0.0);
         let status = if score >= 0.75 {
             "ok"
         } else if score > 0.0 {
@@ -154,7 +150,7 @@ impl Answerability {
                 counts.communities,
                 test_edges,
                 reportable_cross,
-                round4(unresolved_ratio)
+                round_to(unresolved_ratio, 4)
             ]),
             unresolved_edges: reportable_unresolved,
             counts: all_counts,

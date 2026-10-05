@@ -8,8 +8,7 @@ pub(crate) fn flow_adjacency_to_py(
     calls_out: std::collections::HashMap<String, Vec<String>>,
     has_tested_by: std::collections::HashSet<String>,
 ) -> PyResult<Py<PyAny>> {
-    let types = PyModule::import(py, "dagayn.graph.types")?;
-    let cls = types.getattr("FlowAdjacency")?;
+    let cls = graph_type(py, "FlowAdjacency")?;
 
     let py_calls_out = PyDict::new(py);
     for (source, targets) in calls_out {
@@ -20,7 +19,7 @@ pub(crate) fn flow_adjacency_to_py(
     let py_has_tested_by = PySet::new(py, has_tested_by)?;
     let py_nodes_by_qn = PyDict::new(py);
     let py_nodes_by_id = PyDict::new(py);
-    let node_cls = types.getattr("GraphNode")?;
+    let node_cls = graph_type(py, "GraphNode")?;
     for node in nodes {
         let node_id = node.id;
         let qualified_name = node.qualified_name.clone();
@@ -74,8 +73,7 @@ pub(crate) fn impact_radius_to_py(py: Python<'_>, radius: ImpactRadius) -> PyRes
 }
 
 pub(crate) fn graph_node_to_py(py: Python<'_>, node: GraphNode) -> PyResult<Py<PyAny>> {
-    let types = PyModule::import(py, "dagayn.graph.types")?;
-    let cls = types.getattr("GraphNode")?;
+    let cls = graph_type(py, "GraphNode")?;
     graph_node_to_py_with_cls(py, &cls, node)
 }
 
@@ -112,20 +110,18 @@ pub(crate) fn graph_nodes_to_py_vec(
     py: Python<'_>,
     nodes: Vec<GraphNode>,
 ) -> PyResult<Vec<Py<PyAny>>> {
-    let types = PyModule::import(py, "dagayn.graph.types")?;
-    let cls = types.getattr("GraphNode")?;
+    let cls = graph_type(py, "GraphNode")?;
     nodes
         .into_iter()
         .map(|node| graph_node_to_py_with_cls(py, &cls, node))
         .collect()
 }
 
-pub(crate) fn node_map_by_string_to_py(
-    py: Python<'_>,
-    nodes_by_key: std::collections::HashMap<String, GraphNode>,
+pub(crate) fn node_map_to_py<'py, K: IntoPyObject<'py>>(
+    py: Python<'py>,
+    nodes_by_key: std::collections::HashMap<K, GraphNode>,
 ) -> PyResult<Py<PyAny>> {
-    let types = PyModule::import(py, "dagayn.graph.types")?;
-    let cls = types.getattr("GraphNode")?;
+    let cls = graph_type(py, "GraphNode")?;
     let out = PyDict::new(py);
     for (key, node) in nodes_by_key {
         out.set_item(key, graph_node_to_py_with_cls(py, &cls, node)?.bind(py))?;
@@ -137,8 +133,7 @@ pub(crate) fn node_list_map_to_py(
     py: Python<'_>,
     nodes_by_key: std::collections::HashMap<String, Vec<GraphNode>>,
 ) -> PyResult<Py<PyAny>> {
-    let types = PyModule::import(py, "dagayn.graph.types")?;
-    let cls = types.getattr("GraphNode")?;
+    let cls = graph_type(py, "GraphNode")?;
     let out = PyDict::new(py);
     for (key, nodes) in nodes_by_key {
         let list = PyList::empty(py);
@@ -146,19 +141,6 @@ pub(crate) fn node_list_map_to_py(
             list.append(graph_node_to_py_with_cls(py, &cls, node)?.bind(py))?;
         }
         out.set_item(key, list)?;
-    }
-    Ok(out.unbind().into_any())
-}
-
-pub(crate) fn node_map_by_id_to_py(
-    py: Python<'_>,
-    nodes_by_id: std::collections::HashMap<i64, GraphNode>,
-) -> PyResult<Py<PyAny>> {
-    let types = PyModule::import(py, "dagayn.graph.types")?;
-    let cls = types.getattr("GraphNode")?;
-    let out = PyDict::new(py);
-    for (node_id, node) in nodes_by_id {
-        out.set_item(node_id, graph_node_to_py_with_cls(py, &cls, node)?.bind(py))?;
     }
     Ok(out.unbind().into_any())
 }
@@ -188,8 +170,7 @@ pub(crate) fn graph_edges_to_py_vec(
     py: Python<'_>,
     edges: Vec<GraphEdge>,
 ) -> PyResult<Vec<Py<PyAny>>> {
-    let types = PyModule::import(py, "dagayn.graph.types")?;
-    let cls = types.getattr("GraphEdge")?;
+    let cls = graph_type(py, "GraphEdge")?;
     edges
         .into_iter()
         .map(|edge| graph_edge_to_py_with_cls(py, &cls, edge))
@@ -200,8 +181,7 @@ pub(crate) fn edge_map_to_py(
     py: Python<'_>,
     edges_by_key: std::collections::HashMap<String, Vec<GraphEdge>>,
 ) -> PyResult<Py<PyAny>> {
-    let types = PyModule::import(py, "dagayn.graph.types")?;
-    let cls = types.getattr("GraphEdge")?;
+    let cls = graph_type(py, "GraphEdge")?;
     let out = PyDict::new(py);
     for (key, edges) in edges_by_key {
         let list = PyList::empty(py);
@@ -214,16 +194,9 @@ pub(crate) fn edge_map_to_py(
 }
 
 pub(crate) fn graph_stats_to_py(py: Python<'_>, stats: GraphStats) -> PyResult<Py<PyAny>> {
-    let types = PyModule::import(py, "dagayn.graph.types")?;
-    let cls = types.getattr("GraphStats")?;
-    let nodes_by_kind = PyDict::new(py);
-    for (kind, count) in stats.nodes_by_kind {
-        nodes_by_kind.set_item(kind, count)?;
-    }
-    let edges_by_kind = PyDict::new(py);
-    for (kind, count) in stats.edges_by_kind {
-        edges_by_kind.set_item(kind, count)?;
-    }
+    let cls = graph_type(py, "GraphStats")?;
+    let nodes_by_kind = stats.nodes_by_kind.into_py_dict(py)?;
+    let edges_by_kind = stats.edges_by_kind.into_py_dict(py)?;
     Ok(cls
         .call1((
             stats.total_nodes,
@@ -270,6 +243,11 @@ pub(crate) fn json_value_to_py(py: Python<'_>, value: &Value) -> PyResult<Py<PyA
             Ok(dict.unbind().into_any())
         }
     }
+}
+
+/// A class from `dagayn.graph.types`.
+pub(crate) fn graph_type<'py>(py: Python<'py>, name: &str) -> PyResult<Bound<'py, PyAny>> {
+    PyModule::import(py, "dagayn.graph.types")?.getattr(name)
 }
 
 pub(crate) fn to_py_runtime_error(err: dagayn_graph::GraphError) -> PyErr {

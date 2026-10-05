@@ -268,12 +268,7 @@ pub(crate) fn get_minimal_context(
         .tools
         .iter()
         .copied()
-        .filter(|tool| {
-            context
-                .allowed_tools
-                .as_ref()
-                .is_none_or(|allowed| allowed.contains(*tool))
-        })
+        .filter(|tool| context.exposes(tool))
         .collect();
     // `get_communities(store, sort_by="size")[:3]`, then their names.
     let community_rows = json_rows(graph.store.get_communities_json("size", 0));

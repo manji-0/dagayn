@@ -509,7 +509,7 @@ pub(crate) fn search(
         let coverage = (matching as f64 / embeddable as f64).min(1.0);
         health.insert(
             "embedding_coverage".into(),
-            json!(crate::answerability::round4(coverage)),
+            json!(crate::suggestions::round_to(coverage, 4)),
         );
         if coverage < PARTIAL_COVERAGE {
             health.insert("partial_coverage".into(), json!(true));

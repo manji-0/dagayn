@@ -12,7 +12,8 @@ use dagayn_build::{Vcs, detect_vcs};
 use dagayn_graph::{GraphNode, GraphStore};
 use serde_json::{Map, Value, json};
 
-use crate::answerability::Answerability;
+use crate::query::sanitize;
+use crate::suggestions::round_to;
 use crate::{Args, Context, Ordered, Payload, open_graph, resolve_repo};
 
 /// `_MAX_SEARCH_LIMIT`.
@@ -357,18 +358,6 @@ fn rrf_merge(lists: &[&[(i64, f64)]]) -> Vec<(i64, f64)> {
     merged
 }
 
-/// Python's `round(value, 6)`.
-fn round6(value: f64) -> f64 {
-    format!("{value:.6}").parse().unwrap_or(value)
-}
-
-fn sanitize(name: &str) -> String {
-    name.chars()
-        .filter(|c| *c == '\t' || *c == '\n' || (*c as u32) >= 0x20)
-        .take(256)
-        .collect()
-}
-
 struct Hits {
     mode: &'static str,
     results: Vec<Map<String, Value>>,
@@ -559,7 +548,7 @@ fn fts_search(
         result.insert("params".into(), json!(node.params));
         result.insert("return_type".into(), json!(node.return_type));
         result.insert("signature".into(), json!(node.signature));
-        result.insert("score".into(), json!(round6(*score)));
+        result.insert("score".into(), json!(round_to(*score, 6)));
         result.insert("rank".into(), json!(results.len() + 1));
         result.insert("source".into(), json!(source));
         result.insert("is_test".into(), json!(node.is_test));
@@ -634,8 +623,7 @@ pub(crate) fn semantic_search(
     let graph = open_graph(&root)?;
     let store = &graph.store;
 
-    let stats = store.get_stats().ok()?;
-    let answerability = Answerability::recorded(store, &stats)?;
+    let answerability = graph.answerability()?;
     let fetch = limit * if kind.is_some() { 48 } else { 3 };
     let (emb, health) = embedding_arm_for(store, &graph.db_path, query, fetch, &request)?;
     let hits = fts_search(store, query, kind, limit, &emb)?;

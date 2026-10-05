@@ -10,6 +10,7 @@ use dagayn_build::{Vcs, detect_vcs};
 use dagayn_graph::{GraphNode, GraphStore};
 use serde_json::{Map, Value, json};
 
+use crate::query::sanitize;
 use crate::search::{embedding_request, top_qualified_name};
 use crate::{Args, Context, Ordered, Payload, open_graph, resolve_repo, suggestions};
 
@@ -21,14 +22,6 @@ const FOUND_SUGGESTIONS: [&str; 2] = [
     "query_graph_tool callers_of -- focused relationship query",
     "review_tool mode=\"impact\" -- blast radius analysis",
 ];
-
-/// `_sanitize_name`.
-fn sanitize(name: &str) -> String {
-    name.chars()
-        .filter(|c| *c == '\t' || *c == '\n' || (*c as u32) >= 0x20)
-        .take(256)
-        .collect()
-}
 
 struct Entry {
     name: String,

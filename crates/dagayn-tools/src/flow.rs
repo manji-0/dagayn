@@ -7,7 +7,9 @@ use std::path::Path;
 use dagayn_graph::GraphStore;
 use serde_json::{Map, Value, json};
 
+use crate::analysis::py_prefix;
 use crate::answerability::Answerability;
+use crate::architecture::truthy;
 use crate::coverage::splitlines;
 use crate::review::guidance_actions_to_hints;
 use crate::review_summary::guidance_item;
@@ -28,30 +30,6 @@ const SORT_KEYS: &[&str] = &["criticality", "depth", "node_count", "file_count",
 /// `get_flow`'s per-step source cap, in characters, and its budget.
 const SOURCE_MAX_CHARS: usize = 2000;
 const FLOW_BUDGET: usize = 8000;
-
-/// Python truthiness of a JSON value.
-fn truthy(value: &Value) -> bool {
-    match value {
-        Value::Null => false,
-        Value::Bool(flag) => *flag,
-        Value::Number(n) => n.as_f64().is_some_and(|v| v != 0.0),
-        Value::String(s) => !s.is_empty(),
-        Value::Array(a) => !a.is_empty(),
-        Value::Object(o) => !o.is_empty(),
-    }
-}
-
-/// `items[:limit]`.
-fn py_prefix<T>(mut items: Vec<T>, limit: i64) -> Vec<T> {
-    let len = items.len() as i64;
-    let end = if limit < 0 {
-        (len + limit).max(0)
-    } else {
-        limit.min(len)
-    };
-    items.truncate(end as usize);
-    items
-}
 
 pub(crate) fn flow(context: &Context, arguments: &Map<String, Value>) -> Option<Payload> {
     let args = Args::new(arguments, DECLARED)?;
@@ -90,14 +68,8 @@ pub(crate) fn flow(context: &Context, arguments: &Map<String, Value>) -> Option<
     }
     let runtime = context.runtime.clone()?;
     let graph = open_graph(&root)?;
-    let stats = graph.store.get_stats().ok()?;
-    let answerability = Answerability::recorded(&graph.store, &stats)?;
-    let exposed = |tool: &str| {
-        context
-            .allowed_tools
-            .as_ref()
-            .is_none_or(|allowed| allowed.contains(tool))
-    };
+    let answerability = graph.answerability()?;
+    let exposed = |tool: &str| context.exposes(tool);
     let (subtool, out) = if mode == "list" {
         let out = list_flows(
             &graph.store,
@@ -219,7 +191,7 @@ fn list_flows(
                     .is_some_and(|node| node.kind == kind)
             })
             .collect();
-        flows = py_prefix(filtered, limit);
+        flows = py_prefix(&filtered, limit);
     }
     if detail_level == "minimal" {
         flows = flows

@@ -8,13 +8,12 @@ use dagayn_graph::{
 };
 use serde_json::{Value, json};
 
-use crate::answerability::round4;
 use crate::architecture::{Artifact, posix_parts};
-use crate::coverage::splitlines;
 use crate::query::sanitize;
+use crate::suggestions::round_to;
 
 /// `items[:limit]`.
-pub(crate) fn py_prefix(items: &[Value], limit: i64) -> Vec<Value> {
+pub(crate) fn py_prefix<T: Clone>(items: &[T], limit: i64) -> Vec<T> {
     let len = items.len() as i64;
     let end = if limit < 0 {
         (len + limit).max(0)
@@ -305,7 +304,7 @@ fn computed_bridges(
         if score <= 0.0 || node.kind == "File" {
             continue;
         }
-        let rounded: f64 = format!("{score:.6}").parse().unwrap_or(score);
+        let rounded = round_to(score, 6);
         results.push((
             rounded,
             json!({
@@ -334,15 +333,9 @@ fn source_lines<'a>(
     file_path: &str,
     cache: &'a mut HashMap<String, Vec<String>>,
 ) -> &'a [String] {
-    cache.entry(file_path.to_string()).or_insert_with(|| {
-        store
-            .resolve_file_path(file_path)
-            .ok()
-            .and_then(|path| std::fs::read(path).ok())
-            .and_then(|bytes| String::from_utf8(bytes).ok())
-            .map(|text| splitlines(&text).into_iter().map(str::to_string).collect())
-            .unwrap_or_default()
-    })
+    cache
+        .entry(file_path.to_string())
+        .or_insert_with(|| crate::dead_code::source_lines(store, file_path))
 }
 
 fn rust_public_item() -> &'static regex::Regex {
@@ -620,9 +613,9 @@ pub(crate) fn find_knowledge_gaps(
             internal: inner,
             external: outer,
             external_degree: neighbors.get(&cid).map_or(0, HashSet::len) as i64,
-            cohesion: round4((inner as f64 / max_internal as f64).min(1.0)),
+            cohesion: round_to((inner as f64 / max_internal as f64).min(1.0), 4),
             ratio: if total > 0 {
-                round4(outer as f64 / total as f64)
+                round_to(outer as f64 / total as f64, 4)
             } else {
                 0.0
             },
@@ -779,11 +772,6 @@ pub(crate) fn find_knowledge_gaps(
     })
 }
 
-/// `round(value, 3)`.
-fn round3(value: f64) -> f64 {
-    format!("{value:.3}").parse().unwrap_or(value)
-}
-
 /// `find_surprising_connections(top_n, artifact_scope, include_tests)`.
 pub(crate) fn find_surprising_connections(
     graph: &Graph,
@@ -857,7 +845,7 @@ pub(crate) fn find_surprising_connections(
             reasons.push("cross-community");
             boundary = true;
             let count = pair_counts[&(s.min(t), s.max(t), e.kind.as_str())];
-            let bonus = round3(0.05 / count as f64).min(0.05);
+            let bonus = round_to(0.05 / count as f64, 3).min(0.05);
             score += bonus;
             if bonus != 0.0 {
                 reasons.push("rare-community-pair");
@@ -881,7 +869,10 @@ pub(crate) fn find_surprising_connections(
             score += 0.2;
             reasons.push("peripheral-to-hub");
         }
-        let imbalance = round3((((sd - td).abs() as f64) / max_degree as f64 * 0.09).min(0.09));
+        let imbalance = round_to(
+            (((sd - td).abs() as f64) / max_degree as f64 * 0.09).min(0.09),
+            3,
+        );
         if imbalance != 0.0 {
             score += imbalance;
             reasons.push("degree-imbalance");
@@ -902,7 +893,7 @@ pub(crate) fn find_surprising_connections(
             boundary = true;
         }
         if score > 0.0 && boundary {
-            let rounded = round3(score);
+            let rounded = round_to(score, 3);
             scored.push((
                 rounded,
                 json!({

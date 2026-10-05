@@ -68,6 +68,15 @@ pub struct Context {
     pub runtime: Option<Value>,
 }
 
+impl Context {
+    /// Whether the session exposes `tool`.
+    pub(crate) fn exposes(&self, tool: &str) -> bool {
+        self.allowed_tools
+            .as_ref()
+            .is_none_or(|allowed| allowed.contains(tool))
+    }
+}
+
 /// A tool result: its JSON text with the Python tool's top-level key order,
 /// and the same value for `structuredContent`.
 #[derive(Debug, PartialEq)]
@@ -169,8 +178,7 @@ pub(crate) fn seal_dispatch(
 pub(crate) fn request_error(context: &Context, root: &RepoRoot, head: Ordered) -> Option<Payload> {
     let runtime = context.runtime.clone()?;
     let graph = open_graph(root)?;
-    let stats = graph.store.get_stats().ok()?;
-    let answerability = answerability::Answerability::recorded(&graph.store, &stats)?;
+    let answerability = graph.answerability()?;
     Some(
         head.put("_runtime", runtime)
             .put("answerability", answerability.full())
@@ -382,14 +390,18 @@ impl RepoRoot {
     /// `_get_store(str(root))`): validated like a named root, and reported
     /// as explicit.
     pub(crate) fn into_explicit(self) -> Option<RepoRoot> {
-        let is_project_root = self.path.join(".git").exists()
-            || self.path.join(".svn").exists()
-            || self.path.join(".dagayn").join("graph.db").is_file();
-        is_project_root.then_some(RepoRoot {
+        is_project_root(&self.path).then_some(RepoRoot {
             path: self.path,
             explicit: true,
         })
     }
+}
+
+/// `_validate_repo_root`'s check for a project root.
+fn is_project_root(path: &Path) -> bool {
+    path.join(".git").exists()
+        || path.join(".svn").exists()
+        || path.join(".dagayn").join("graph.db").is_file()
 }
 
 impl AsRef<Path> for RepoRoot {
@@ -438,10 +450,7 @@ pub(crate) fn resolve_repo(context: &Context, requested: Option<&str>) -> Option
         }
     };
     let resolved = candidate.canonicalize().ok().filter(|path| path.is_dir())?;
-    let is_project_root = resolved.join(".git").exists()
-        || resolved.join(".svn").exists()
-        || resolved.join(".dagayn").join("graph.db").is_file();
-    is_project_root.then_some(RepoRoot {
+    is_project_root(&resolved).then_some(RepoRoot {
         path: resolved,
         explicit: true,
     })
@@ -476,7 +485,8 @@ fn read_lock_wait() -> Duration {
     Duration::from_secs_f64(seconds).min(MAX_READ_LOCK_WAIT)
 }
 
-/// An open graph under the shared read lock, as `_get_store` leaves it.
+/// An open graph under its lock: the shared read lock, as `_get_store`
+/// leaves it, or the exclusive one, as `run_postprocess` holds it.
 pub(crate) struct OpenGraph {
     pub root: PathBuf,
     explicit: bool,
@@ -493,6 +503,12 @@ impl OpenGraph {
             "db_path": self.db_path.to_string_lossy(),
             "source": if self.explicit { "explicit" } else { "auto" },
         })
+    }
+
+    /// `Answerability::recorded` for the graph's current stats.
+    pub(crate) fn answerability(&self) -> Option<answerability::Answerability> {
+        let stats = self.store.get_stats().ok()?;
+        answerability::Answerability::recorded(&self.store, &stats)
     }
 }
 
@@ -521,27 +537,6 @@ pub(crate) fn open_graph(root: &RepoRoot) -> Option<OpenGraph> {
     })
 }
 
-/// A graph open for writing under the exclusive lock, as `run_postprocess`
-/// holds it.
-pub(crate) struct WritableGraph {
-    pub root: PathBuf,
-    explicit: bool,
-    pub db_path: PathBuf,
-    pub store: GraphStore,
-    _lock: GraphLock,
-}
-
-impl WritableGraph {
-    /// `_repo`, as `attach_repo_context` adds it for an explicit root.
-    pub(crate) fn repo_context(&self) -> Value {
-        json!({
-            "repo_root": self.root.to_string_lossy(),
-            "db_path": self.db_path.to_string_lossy(),
-            "source": if self.explicit { "explicit" } else { "auto" },
-        })
-    }
-}
-
 /// [`open_graph`]'s checks for a writer: the exclusive lock taken without
 /// waiting (a busy graph is Python's to wait for), a graph at the current
 /// schema (one Python would migrate is its), then a read-write connection.
@@ -550,7 +545,7 @@ impl WritableGraph {
 /// the graph: closing a read-write connection can remove the WAL index under
 /// one (see `GraphStore::open_read_only`). The front end calls the tools in
 /// [`writes_graph`] only before it boots the Python server.
-pub(crate) fn open_graph_for_write(root: &RepoRoot) -> Option<WritableGraph> {
+pub(crate) fn open_graph_for_write(root: &RepoRoot) -> Option<OpenGraph> {
     let db_path = existing_graph(root)?;
     let lock = GraphLock::acquire_mode(&db_path, LockMode::Exclusive, None).ok()?;
     {
@@ -560,7 +555,7 @@ pub(crate) fn open_graph_for_write(root: &RepoRoot) -> Option<WritableGraph> {
         }
     }
     let store = GraphStore::open(&db_path).ok()?;
-    Some(WritableGraph {
+    Some(OpenGraph {
         root: root.to_path_buf(),
         explicit: root.explicit,
         db_path,

@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use clap::{Parser, Subcommand};
 use dagayn_build::{BuildError, DataDirError, PostprocessLevel};
-use dagayn_graph::GraphError;
+use dagayn_graph::{GraphError, GraphStore};
 use serde_json::Value;
 
 const DEFAULT_WRITE_LOCK_TIMEOUT_SECS: f64 = 120.0;
@@ -169,6 +169,25 @@ impl From<DataDirError> for Failure {
 
 pub(crate) fn unsupported(what: &str) -> Failure {
     Failure::Fallback(format!("{what} is not supported by the Rust CLI yet"))
+}
+
+/// Refuse `--local-embedding` other than `none`, which is not ported.
+pub(crate) fn refuse_local_embedding(mode: Option<&str>) -> Result<(), Failure> {
+    if mode.is_some_and(|mode| mode != "none") {
+        return Err(unsupported("--local-embedding"));
+    }
+    Ok(())
+}
+
+/// Open the graph at `db_path`, refusing one that records another repository.
+pub(crate) fn open_matching_graph(db_path: &Path, repo_root: &Path) -> Result<GraphStore, Failure> {
+    let store = GraphStore::open(db_path)?;
+    if let Some(recorded) = dagayn_build::graph_repo_mismatch(&store, repo_root) {
+        return Err(Failure::Error(dagayn_build::graph_repo_mismatch_message(
+            db_path, &recorded, repo_root,
+        )));
+    }
+    Ok(store)
 }
 
 /// Refuse what is not ported before anything touches the graph: jj and SVN

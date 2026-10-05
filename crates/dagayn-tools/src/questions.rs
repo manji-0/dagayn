@@ -5,7 +5,6 @@
 use serde_json::{Map, Value, json};
 
 use crate::analysis::py_prefix;
-use crate::answerability::Answerability;
 use crate::arch_tool::analysis_response;
 use crate::review_summary::guidance_item;
 use crate::{Args, Context, Payload, open_graph, resolve_repo};
@@ -20,8 +19,7 @@ pub(crate) fn suggested_questions(
     let top_n = args.integer("top_n", 15)?;
     let root = resolve_repo(context, args.optional_string("repo_root")?)?;
     let graph = open_graph(&root)?;
-    let stats = graph.store.get_stats().ok()?;
-    let answerability = Answerability::recorded(&graph.store, &stats)?;
+    let answerability = graph.answerability()?;
     let questions: Vec<Value> =
         serde_json::from_str(&graph.store.generate_suggested_questions_json().ok()?).ok()?;
 

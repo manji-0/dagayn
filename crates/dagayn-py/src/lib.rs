@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 use dagayn_graph::{
     EdgeInput, FileBatchItem, GraphEdge, GraphNode, GraphStats, GraphStore as NativeGraphStore,
@@ -13,7 +13,9 @@ use dagayn_postproc::{
 };
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyBool, PyDict, PyIterator, PyList, PyModule, PySet, PyTuple};
+use pyo3::types::{
+    IntoPyDict, PyAny, PyBool, PyDict, PyIterator, PyList, PyModule, PySet, PyTuple,
+};
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -64,43 +66,28 @@ impl PyGraphStore {
     /// attribute 'stat'`.
     #[getter]
     fn db_path(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        let pathlib = PyModule::import(py, "pathlib")?;
-        Ok(pathlib.getattr("Path")?.call1((&self.db_path,))?.unbind())
+        Ok(pathlib_path(py, &self.db_path)?.unbind())
     }
 
     #[getter(_pinned)]
     fn get_pinned(&self) -> PyResult<bool> {
-        self.pinned
-            .lock()
-            .map(|value| *value)
-            .map_err(|err| PyRuntimeError::new_err(err.to_string()))
+        lock(&self.pinned).map(|value| *value)
     }
 
     #[setter(_pinned)]
     fn set_pinned(&self, value: bool) -> PyResult<()> {
-        let mut pinned = self
-            .pinned
-            .lock()
-            .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
-        *pinned = value;
+        *lock(&self.pinned)? = value;
         Ok(())
     }
 
     #[getter(_leases)]
     fn get_leases(&self) -> PyResult<i64> {
-        self.leases
-            .lock()
-            .map(|value| *value)
-            .map_err(|err| PyRuntimeError::new_err(err.to_string()))
+        lock(&self.leases).map(|value| *value)
     }
 
     #[setter(_leases)]
     fn set_leases(&self, value: i64) -> PyResult<()> {
-        let mut leases = self
-            .leases
-            .lock()
-            .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
-        *leases = value;
+        *lock(&self.leases)? = value;
         Ok(())
     }
 
@@ -116,11 +103,7 @@ impl PyGraphStore {
     fn get_repo_root(&self, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
         let raw = self.with_store(|store| store.get_metadata("repo_root"))?;
         match raw {
-            Some(value) => {
-                let pathlib = PyModule::import(py, "pathlib")?;
-                let path = pathlib.getattr("Path")?.call1((value,))?;
-                Ok(Some(path.unbind()))
-            }
+            Some(value) => Ok(Some(pathlib_path(py, &value)?.unbind())),
             None => Ok(None),
         }
     }
@@ -188,12 +171,12 @@ impl PyGraphStore {
     ) -> PyResult<Py<PyAny>> {
         let nodes =
             self.with_store(|store| store.get_nodes_by_qualified_names(&qualified_names))?;
-        node_map_by_string_to_py(py, nodes)
+        node_map_to_py(py, nodes)
     }
 
     fn get_nodes_by_ids(&self, py: Python<'_>, node_ids: Vec<i64>) -> PyResult<Py<PyAny>> {
         let nodes = self.with_store(|store| store.get_nodes_by_ids(&node_ids))?;
-        node_map_by_id_to_py(py, nodes)
+        node_map_to_py(py, nodes)
     }
 
     fn get_nodes_by_file(&self, py: Python<'_>, file_path: &str) -> PyResult<Vec<Py<PyAny>>> {
@@ -293,11 +276,7 @@ impl PyGraphStore {
     ) -> PyResult<Py<PyAny>> {
         let community_ids =
             self.with_store(|store| store.get_community_ids_by_node_ids(&node_ids))?;
-        let out = PyDict::new(py);
-        for (node_id, community_id) in community_ids {
-            out.set_item(node_id, community_id)?;
-        }
-        Ok(out.unbind().into_any())
+        Ok(community_ids.into_py_dict(py)?.unbind().into_any())
     }
 
     fn get_community_ids_by_qualified_names(
@@ -307,29 +286,17 @@ impl PyGraphStore {
     ) -> PyResult<Py<PyAny>> {
         let community_ids =
             self.with_store(|store| store.get_community_ids_by_qualified_names(&qns))?;
-        let out = PyDict::new(py);
-        for (qualified_name, community_id) in community_ids {
-            out.set_item(qualified_name, community_id)?;
-        }
-        Ok(out.unbind().into_any())
+        Ok(community_ids.into_py_dict(py)?.unbind().into_any())
     }
 
     fn get_all_community_member_qns(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let members = self.with_store(|store| store.get_all_community_member_qns())?;
-        let out = PyDict::new(py);
-        for (community_id, qualified_names) in members {
-            out.set_item(community_id, qualified_names)?;
-        }
-        Ok(out.unbind().into_any())
+        Ok(members.into_py_dict(py)?.unbind().into_any())
     }
 
     fn get_all_community_ids(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let community_ids = self.with_store(|store| store.get_all_community_ids())?;
-        let out = PyDict::new(py);
-        for (qualified_name, community_id) in community_ids {
-            out.set_item(qualified_name, community_id)?;
-        }
-        Ok(out.unbind().into_any())
+        Ok(community_ids.into_py_dict(py)?.unbind().into_any())
     }
 
     #[pyo3(signature = (qualified_name, max_depth = 1))]
@@ -714,24 +681,26 @@ impl PyGraphStore {
         kind: Option<&str>,
         file_pattern: Option<&str>,
     ) -> PyResult<String> {
-        self.with_store(|store| Ok(dagayn_tools::find_dead_code_json(store, kind, file_pattern)))?
-            .ok_or_else(|| PyRuntimeError::new_err("dead-code analysis could not read the graph"))
+        self.report_json(
+            |store| dagayn_tools::find_dead_code_json(store, kind, file_pattern),
+            "dead-code analysis could not read the graph",
+        )
     }
 
     /// The refactoring suggestions `refactor_tool(mode="suggest")` starts from.
     fn suggest_refactorings_json(&self) -> PyResult<String> {
-        self.with_store(|store| Ok(dagayn_tools::suggest_refactorings_json(store)))?
-            .ok_or_else(|| {
-                PyRuntimeError::new_err("refactoring suggestions could not read the graph")
-            })
+        self.report_json(
+            dagayn_tools::suggest_refactorings_json,
+            "refactoring suggestions could not read the graph",
+        )
     }
 
     /// The suggestions `refactor_tool(mode="suggest")` lists, policy applied.
     fn ranked_suggestions_json(&self) -> PyResult<String> {
-        self.with_store(|store| Ok(dagayn_tools::ranked_suggestions_json(store)))?
-            .ok_or_else(|| {
-                PyRuntimeError::new_err("refactoring suggestions could not read the graph")
-            })
+        self.report_json(
+            dagayn_tools::ranked_suggestions_json,
+            "refactoring suggestions could not read the graph",
+        )
     }
 
     /// The graph's candidates before the repository check (tests only).
@@ -741,14 +710,10 @@ impl PyGraphStore {
         kind: Option<&str>,
         file_pattern: Option<&str>,
     ) -> PyResult<String> {
-        self.with_store(|store| {
-            Ok(dagayn_tools::graph_dead_code_candidates_json(
-                store,
-                kind,
-                file_pattern,
-            ))
-        })?
-        .ok_or_else(|| PyRuntimeError::new_err("dead-code analysis could not read the graph"))
+        self.report_json(
+            |store| dagayn_tools::graph_dead_code_candidates_json(store, kind, file_pattern),
+            "dead-code analysis could not read the graph",
+        )
     }
 
     #[pyo3(signature = (min_lines = 50, max_lines = None, kind = None, file_path_pattern = None, limit = 50))]
@@ -912,11 +877,8 @@ impl PyGraphStore {
     ) -> PyResult<Py<PyAny>> {
         let (nodes, adjacency) =
             self.with_store(|store| store.get_local_subgraph(start_qn, max_depth))?;
-        let nodes_map = node_map_by_string_to_py(py, nodes)?;
-        let adjacency_map = PyDict::new(py);
-        for (qualified_name, neighbors) in adjacency {
-            adjacency_map.set_item(qualified_name, neighbors)?;
-        }
+        let nodes_map = node_map_to_py(py, nodes)?;
+        let adjacency_map = adjacency.into_py_dict(py)?;
         Ok(
             PyTuple::new(py, [nodes_map.bind(py).clone(), adjacency_map.into_any()])?
                 .unbind()
@@ -941,19 +903,13 @@ impl PyGraphStore {
 
     fn resolve_file_path(&self, py: Python<'_>, file_path: &str) -> PyResult<Py<PyAny>> {
         let resolved = self.with_store(|store| store.resolve_file_path(file_path))?;
-        let pathlib = PyModule::import(py, "pathlib")?;
-        Ok(pathlib
-            .getattr("Path")?
-            .call1((resolved.to_string_lossy().as_ref(),))?
-            .unbind())
+        Ok(pathlib_path(py, &resolved.to_string_lossy())?.unbind())
     }
 
     #[pyo3(signature = (query, limit = 50))]
     fn fts_query(&self, py: Python<'_>, query: &str, limit: i64) -> PyResult<Py<PyAny>> {
         let (hits, match_mode) = self.with_store(|store| store.fts_query(query, limit))?;
-        let types = PyModule::import(py, "dagayn.graph.types")?;
-        Ok(types
-            .getattr("FtsQueryResult")?
+        Ok(graph_type(py, "FtsQueryResult")?
             .call1((hits, match_mode))?
             .unbind())
     }
@@ -1042,10 +998,7 @@ impl PyGraphStore {
     /// overlapping leases still share the handle until the last `close()`.
     fn close(&self) -> PyResult<()> {
         let remaining = {
-            let mut leases = self
-                .leases
-                .lock()
-                .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
+            let mut leases = lock(&self.leases)?;
             if *leases > 0 {
                 *leases -= 1;
             }
@@ -1059,10 +1012,7 @@ impl PyGraphStore {
 
     /// Drop the SQLite connection regardless of leases.
     fn _force_close(&self) -> PyResult<()> {
-        let mut guard = self
-            .inner
-            .lock()
-            .map_err(|_| PyRuntimeError::new_err("GraphStore lock poisoned"))?;
+        let mut guard = self.store_guard()?;
         // Dropping the native store closes the connection, releasing its file
         // locks and its mmap of the database.
         guard.take();
@@ -1079,14 +1029,34 @@ impl PyGraphStore {
 }
 
 impl PyGraphStore {
+    fn store_guard(&self) -> PyResult<MutexGuard<'_, Option<NativeGraphStore>>> {
+        self.inner
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("GraphStore lock poisoned"))
+    }
+
+    fn pending_guard(&self) -> PyResult<MutexGuard<'_, HashMap<String, CachedRustChangedFile>>> {
+        self.pending_rust_changed
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Rust changed-file cache lock poisoned"))
+    }
+
+    /// A tools JSON report from the store, or `PyRuntimeError(message)` when
+    /// the report could not read the graph.
+    fn report_json(
+        &self,
+        report: impl FnOnce(&NativeGraphStore) -> Option<String>,
+        message: &'static str,
+    ) -> PyResult<String> {
+        self.with_store(|store| Ok(report(store)))?
+            .ok_or_else(|| PyRuntimeError::new_err(message))
+    }
+
     fn with_store<T>(
         &self,
         f: impl FnOnce(&NativeGraphStore) -> dagayn_graph::Result<T>,
     ) -> PyResult<T> {
-        let guard = self
-            .inner
-            .lock()
-            .map_err(|_| PyRuntimeError::new_err("GraphStore lock poisoned"))?;
+        let guard = self.store_guard()?;
         let store = guard.as_ref().ok_or_else(closed_store_error)?;
         f(store).map_err(to_py_runtime_error)
     }
@@ -1095,10 +1065,7 @@ impl PyGraphStore {
         &self,
         f: impl FnOnce(&mut NativeGraphStore) -> dagayn_graph::Result<T>,
     ) -> PyResult<T> {
-        let mut guard = self
-            .inner
-            .lock()
-            .map_err(|_| PyRuntimeError::new_err("GraphStore lock poisoned"))?;
+        let mut guard = self.store_guard()?;
         let store = guard.as_mut().ok_or_else(closed_store_error)?;
         f(store).map_err(to_py_runtime_error)
     }
@@ -1110,11 +1077,7 @@ impl PyGraphStore {
         if changed.is_empty() {
             return Ok(());
         }
-        let mut pending = self
-            .pending_rust_changed
-            .lock()
-            .map_err(|_| PyRuntimeError::new_err("Rust changed-file cache lock poisoned"))?;
-        pending.extend(changed);
+        self.pending_guard()?.extend(changed);
         Ok(())
     }
 
@@ -1122,18 +1085,26 @@ impl PyGraphStore {
         &self,
         file_paths: &[String],
     ) -> PyResult<HashMap<String, CachedRustChangedFile>> {
-        let mut pending = self
-            .pending_rust_changed
-            .lock()
-            .map_err(|_| PyRuntimeError::new_err("Rust changed-file cache lock poisoned"))?;
-        let mut cached = HashMap::new();
-        for file_path in file_paths {
-            if let Some(entry) = pending.remove(file_path) {
-                cached.insert(file_path.clone(), entry);
-            }
-        }
-        Ok(cached)
+        let mut pending = self.pending_guard()?;
+        Ok(file_paths
+            .iter()
+            .filter_map(|file_path| Some((file_path.clone(), pending.remove(file_path)?)))
+            .collect())
     }
+}
+
+/// Lock `mutex`, mapping a poisoned lock to `PyRuntimeError`.
+fn lock<T>(mutex: &Mutex<T>) -> PyResult<MutexGuard<'_, T>> {
+    mutex
+        .lock()
+        .map_err(|err| PyRuntimeError::new_err(err.to_string()))
+}
+
+/// `pathlib.Path(value)`.
+fn pathlib_path<'py>(py: Python<'py>, value: &str) -> PyResult<Bound<'py, PyAny>> {
+    PyModule::import(py, "pathlib")?
+        .getattr("Path")?
+        .call1((value,))
 }
 
 #[pymodule]

@@ -95,7 +95,7 @@ pub(crate) fn get_docs_section(
 
 /// `Path.read_text(errors="replace")`: universal newlines; `None` for bytes
 /// that are not UTF-8, whose replacement is Python's.
-fn read_text(path: &std::path::Path) -> Option<String> {
+pub(crate) fn read_text(path: &std::path::Path) -> Option<String> {
     let text = String::from_utf8(std::fs::read(path).ok()?).ok()?;
     Some(text.replace("\r\n", "\n").replace('\r', "\n"))
 }
