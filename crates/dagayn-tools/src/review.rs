@@ -210,13 +210,9 @@ impl Review<'_> {
         })
     }
 
-    /// `detect_changes_func` at `standard` and `minimal` detail, without
-    /// source snippets; `Err` for the error it reports when `base` does not
-    /// resolve.
+    /// `detect_changes_func`; `Err` for the error it reports when `base` does
+    /// not resolve.
     fn changes(&self, request: &Request) -> Option<Result<Ordered, BaseUnresolved>> {
-        if request.include_source == Some(true) || request.detail_level == "verbose" {
-            return None;
-        }
         let (changed_files, sources) = self.changed_files(request)?;
         if changed_files.is_empty() {
             return Some(Ok(Ordered::default()
@@ -236,7 +232,7 @@ impl Review<'_> {
                 return self.base_unresolved(request.base).map(Err);
             }
         };
-        let analysis = analyze_changes(
+        let mut analysis = analyze_changes(
             self.store(),
             self.root(),
             request.base,
@@ -251,8 +247,25 @@ impl Review<'_> {
             .store()
             .get_impact_radius(&absolute, request.max_depth, 500)
             .ok()?;
-        let summary = change_analysis_summary(self.store(), &analysis, &impact, &changed_files)?;
+        let summary = change_analysis_summary(
+            self.store(),
+            &analysis,
+            &impact,
+            &changed_files,
+            request.detail_level == "verbose",
+        )?;
         let full_guidance = summary["guidance"].clone();
+        if request.include_source == Some(true) {
+            for (key, value) in &mut analysis.fields {
+                if *key == "changed_functions"
+                    && let Value::Array(functions) = value
+                {
+                    for function in functions.iter_mut() {
+                        self.attach_source(function);
+                    }
+                }
+            }
+        }
 
         let out = if request.detail_level == "minimal" {
             let field = |key: &str| summary.get(key).cloned().unwrap_or(Value::Null);
@@ -372,6 +385,44 @@ impl Review<'_> {
             hints = self.hints("detect_changes", &value);
         }
         Some(Ok(out.put("_hints", hints)))
+    }
+
+    /// `detect_changes_func`'s `include_source`: the changed function's lines,
+    /// numbered, when its record names a file and a nonzero span.
+    fn attach_source(&self, function: &mut Value) {
+        let Value::Object(record) = function else {
+            return;
+        };
+        let file = record
+            .get("file_path")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let start = record
+            .get("line_start")
+            .and_then(Value::as_i64)
+            .unwrap_or(0);
+        let end = record.get("line_end").and_then(Value::as_i64).unwrap_or(0);
+        if file.is_empty() || start == 0 || end == 0 {
+            return;
+        }
+        let path = self.root().join(file);
+        if !path.is_file() {
+            return;
+        }
+        let source = match std::fs::read(&path) {
+            Ok(bytes) => {
+                let text = String::from_utf8_lossy(&bytes);
+                let lines = splitlines(&text);
+                let first = (start - 1).max(0);
+                let last = end.min(lines.len() as i64);
+                (first..last)
+                    .map(|index| format!("{}: {}", index + 1, lines[index as usize]))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            }
+            Err(_) => "(could not read file)".to_string(),
+        };
+        record.insert("source".to_string(), json!(source));
     }
 
     /// The error `detect_changes_func` reports for a `base` the diff cannot

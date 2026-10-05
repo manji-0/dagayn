@@ -819,13 +819,13 @@ def test_review_answers_in_rust_as_python_does(git_repo: Path, change: str) -> N
         (review, {"mode": "context", "changed_files": ["app.py", "../x.py", "gone.py"]}),
         (review, {"mode": "context", "changed_files": ["app.py"], "max_lines_per_file": 2}),
         (review, {"mode": "context", "changed_files": ["app.py"], "include_source": False}),
-        # Python answers this one, from the session the Rust calls updated.
         (review, {"mode": "changes", "changed_files": ["app.py"], "include_source": True}),
+        (review, {"mode": "changes", "detail_level": "verbose", "include_source": True}),
         (review, {"mode": "affected_flows", "changed_files": ["test_app.py"]}),
         (review, {"mode": "impact", "changed_files": ["test_app.py"], "detail_level": "verbose"}),
     ]
     rust, python, stderr = _session_both(git_repo, calls)
-    assert stderr.count(REVIEW_TRACE) == len(calls) - 1
+    assert stderr.count(REVIEW_TRACE) == len(calls)
     assert rust == python
     if change == "dirty":
         # A single-commit repository has no HEAD~1: changes on the default
@@ -840,7 +840,6 @@ def test_review_answers_in_rust_as_python_does(git_repo: Path, change: str) -> N
 @pytest.mark.parametrize(
     "arguments",
     [
-        {"mode": "changes", "changed_files": ["app.py"], "detail_level": "verbose"},
         {"mode": "affected_flows", "detail_level": "full"},
         {"mode": "affected_flows", "changed_files": "app.py"},
         {"mode": "affected_flows", "max_nodes": "5"},
@@ -853,6 +852,99 @@ def test_review_leaves_the_rest_to_python(git_repo: Path, arguments: dict[str, A
     rust, python, stderr = _session_both(git_repo, [("review_tool", arguments)])
     assert REVIEW_TRACE not in stderr
     assert rust == python
+
+
+def _write_layered_package(root: Path) -> None:
+    """A stable ``pkg/core`` scope of more than ten production nodes that four
+    other packages import, its tests, and docs that name it."""
+    core = root / "pkg" / "core"
+    core.mkdir(parents=True)
+    # op_0 calls op_1, whose tests then reach op_0 transitively.
+    functions = "def op_0(x):\n    return op_1(x)\n\n\n" + "".join(
+        f"def op_{i}(x):\n    return x + {i}\n\n\n" for i in range(1, 12)
+    )
+    (core / "ops.py").write_text(
+        f"class Engine:\n    def run(self):\n        return 1\n\n\n{functions}"
+    )
+    # Bytes that are not UTF-8 and CRLF line ends, as source snippets meet them.
+    (core / "legacy.py").write_bytes(b"def old():\r\n    return '\xff'\r\n")
+    for name in ("api", "cli", "web", "jobs"):
+        package = root / "pkg" / name
+        package.mkdir()
+        (package / "main.py").write_text(
+            f"from pkg.core.ops import op_1, Engine\n\n\ndef {name}_main():\n"
+            "    return op_1(Engine().run())\n"
+        )
+    tests = root / "tests"
+    tests.mkdir()
+    (tests / "test_ops.py").write_text(
+        "from pkg.core.ops import op_0, op_1\n\n\ndef test_op_0():\n    op_0(1)\n\n\n"
+        "def test_op_1_values():\n    assert op_1(1) == 2\n\n\n"
+        # Named for op_2 without calling it: heuristic evidence only.
+        "def test_op_2():\n    assert True\n"
+    )
+    # Tests api_main, which calls op_1: op_1's tests through a caller.
+    (tests / "test_api.py").write_text(
+        "from pkg.api.main import api_main\n\n\ndef test_api_main():\n    api_main()\n"
+    )
+    docs = root / "docs"
+    docs.mkdir()
+    (docs / "core.md").write_text(
+        "# Core\n\n## Ops\n\n`op_1` adds one; see `pkg/core/ops.py`.\n\n"
+        "## Engine\n\n`Engine.run` starts it.\n"
+    )
+    (docs / "guide.md").write_text(
+        "# Guide\n\n<!-- derived-from ./core.md#ops -->\n\nStart with [the ops](core.md#ops).\n"
+    )
+
+
+@pytest.mark.parametrize("change", ["committed", "dirty"])
+def test_verbose_review_with_sources_answers_in_rust_as_python_does(
+    git_repo: Path, change: str
+) -> None:
+    """``detail_level="verbose"`` samples heuristic and transitive test density
+    and reaches markdown sections; ``include_source`` numbers each changed
+    function's lines."""
+    _write_layered_package(git_repo)
+    _commit(git_repo, "layers")
+    subprocess.run(
+        [DAGAYN, "update", "--repo", git_repo], env=_env(), check=True, capture_output=True
+    )
+    ops = git_repo / "pkg" / "core" / "ops.py"
+    ops.write_text(ops.read_text().replace("return x + 1\n", "return x + 100\n"))
+    (git_repo / "pkg" / "core" / "legacy.py").write_bytes(b"def old():\r\n    return '\xfe'\r\n")
+    # A doc another doc derives from: the change reaches that one heuristically.
+    core_doc = git_repo / "docs" / "core.md"
+    core_doc.write_text(core_doc.read_text() + "\nOps are pure.\n")
+    if change == "committed":
+        _commit(git_repo, "edit")
+        subprocess.run(
+            [DAGAYN, "update", "--repo", git_repo], env=_env(), check=True, capture_output=True
+        )
+    base = "HEAD~1" if change == "committed" else "HEAD"
+    calls: list[tuple[str, dict[str, Any]]] = [
+        ("review_tool", {"base": base, "detail_level": "verbose"}),
+        ("review_tool", {"base": base, "detail_level": "verbose", "include_source": True}),
+        ("review_tool", {"base": base, "include_source": True}),
+        ("review_tool", {"base": base, "detail_level": "minimal", "include_source": True}),
+        ("review_tool", {"changed_files": ["pkg/core/ops.py"], "detail_level": "verbose"}),
+        ("review_tool", {"changed_files": ["docs/core.md"], "detail_level": "verbose"}),
+    ]
+    rust, python, stderr = _session_both(git_repo, calls)
+    assert stderr.count(REVIEW_TRACE) == len(calls)
+    assert rust == python
+    verbose = rust[0]["structuredContent"]["analysis_summary"]
+    assert any(
+        contract["supplemental_test_density_evaluated"]
+        for contract in verbose["stability_contracts"]
+    ), verbose["stability_contracts"]
+    (contract,) = verbose["stability_contracts"]
+    assert contract["observed_heuristic_test_density"] > 0, contract
+    assert contract["observed_transitive_test_density"] > 0, contract
+    docs = verbose["documentation_update_candidates"]
+    assert any(doc["evidence_level"] == "heuristic_reachable" for doc in docs), docs
+    sourced = rust[1]["structuredContent"]["changed_functions"]
+    assert any("source" in function for function in sourced), sourced
 
 
 @pytest.mark.parametrize("dirty", [False, True])

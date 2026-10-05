@@ -672,14 +672,20 @@ fn review_changes_scores_the_diff_against_base() {
     assert_eq!(none["summary"], "No changed files detected.");
     assert_eq!(none["risk_score"], 0.0);
 
-    for arguments in [
-        json!({"include_source": true}),
-        json!({"detail_level": "verbose"}),
-    ] {
-        assert!(
-            declines(&context, "review_tool", arguments.clone()),
-            "{arguments}"
-        );
+    let sourced = answer(&context, "review_tool", json!({"include_source": true}));
+    let functions = sourced["changed_functions"].as_array().unwrap();
+    assert!(!functions.is_empty());
+    for function in functions {
+        let source = function["source"].as_str().unwrap();
+        let first = format!("{}: ", function["line_start"]);
+        assert!(source.starts_with(&first), "{source}");
+    }
+    let verbose = answer(&context, "review_tool", json!({"detail_level": "verbose"}));
+    for contract in verbose["analysis_summary"]["stability_contracts"]
+        .as_array()
+        .unwrap()
+    {
+        assert_eq!(contract["supplemental_test_density_evaluated"], true);
     }
 
     // No HEAD~5 to diff against: the unresolved base is reported, without

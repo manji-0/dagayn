@@ -17,6 +17,7 @@ use crate::architecture::{
     Artifact, ScopeGraph, Snapshot, View, file_name, float_or, sap_metrics, sap_violations,
     scope_key_for_file, str_of, truthy,
 };
+use crate::changes::HEURISTIC_GAP_NODE_LIMIT;
 use crate::coverage::{ScanState, infer_tests_for_node, is_test_file_path};
 use crate::query::cross_artifact_role;
 use crate::suggestions::round_to;
@@ -181,11 +182,15 @@ fn doc_evidence_type(role: Option<&str>, tier: &str) -> &'static str {
     }
 }
 
-/// `_component_density_by_scope` without the supplemental pass.
+/// `_component_density_by_scope`; `supplemental` (`detail_level="verbose"`)
+/// also samples the first [`HEURISTIC_GAP_NODE_LIMIT`] production
+/// nodes of each scope, by qualified name, for heuristic and transitive tests.
 fn component_density(
     store: &GraphStore,
+    scan: &mut Option<ScanState>,
     snapshot_nodes: &[GraphNode],
     scopes: &HashSet<String>,
+    supplemental: bool,
 ) -> Option<HashMap<String, Value>> {
     let mut densities = HashMap::new();
     if scopes.is_empty() {
@@ -214,9 +219,16 @@ fn component_density(
         .flat_map(|(_, nodes)| nodes.iter().map(|n| n.qualified_name.clone()))
         .collect();
     let (outgoing, incoming) = store.get_edges_by_endpoints(&qns).ok()?;
-    for (scope, nodes) in scope_nodes {
+    for (scope, mut nodes) in scope_nodes {
+        nodes.sort_by(|left, right| left.qualified_name.cmp(&right.qualified_name));
+        let sampled = if supplemental {
+            nodes.len().min(HEURISTIC_GAP_NODE_LIMIT)
+        } else {
+            0
+        };
         let (mut tested, mut authored, mut extracted, mut heuristic) = (0, 0, 0, 0);
-        for node in &nodes {
+        let (mut heuristic_tested, mut transitive_tested) = (0, 0);
+        for (index, node) in nodes.iter().enumerate() {
             let out = outgoing
                 .get(&node.qualified_name)
                 .map(Vec::as_slice)
@@ -227,6 +239,23 @@ fn component_density(
                 .unwrap_or(&[]);
             if out.iter().any(|edge| edge.kind == "TESTED_BY") {
                 tested += 1;
+            }
+            if index < sampled {
+                if scan.is_none() {
+                    *scan = Some(ScanState::build(store)?);
+                }
+                let state = scan.as_mut()?;
+                let inferred = infer_tests_for_node(store, state, node, 1, "medium")?;
+                if inferred.iter().any(|row| {
+                    row.iter()
+                        .any(|(key, value)| *key == "coverage_source" && value == "heuristic")
+                }) {
+                    heuristic_tested += 1;
+                }
+                let transitive = store.get_transitive_tests(&node.qualified_name, 1).ok()?;
+                if transitive.iter().any(|test| truthy(&test["indirect"])) {
+                    transitive_tested += 1;
+                }
             }
             let mut types: HashSet<&str> = HashSet::new();
             for (edges, roles) in [(out, ARTIFACT_TO_DOC_ROLES), (inc, DOC_TO_ARTIFACT_ROLES)] {
@@ -246,31 +275,34 @@ fn component_density(
         }
         let prod = nodes.len() as i64;
         let documented = authored + extracted;
-        let ratio = |count: i64| {
-            if prod > 0 {
-                round_to(count as f64 / prod as f64, 4)
+        let ratio_of = |count: i64, denominator: i64| {
+            if denominator > 0 {
+                round_to(count as f64 / denominator as f64, 4)
             } else {
                 0.0
             }
         };
+        let ratio = |count: i64| ratio_of(count, prod);
+        let sampled = sampled as i64;
+        let supplemental_denominator = if supplemental { sampled } else { prod };
         densities.insert(
             scope.clone(),
             json!({
                 "production_node_count": prod,
                 "test_node_count": test_counts.get(&scope).copied().unwrap_or(0),
                 "tested_node_count": tested,
-                "heuristic_tested_node_count": 0,
-                "transitive_tested_node_count": 0,
-                "supplemental_test_density_evaluated": false,
-                "supplemental_test_density_sampled_node_count": 0,
-                "supplemental_test_density_truncated": false,
+                "heuristic_tested_node_count": heuristic_tested,
+                "transitive_tested_node_count": transitive_tested,
+                "supplemental_test_density_evaluated": supplemental,
+                "supplemental_test_density_sampled_node_count": sampled,
+                "supplemental_test_density_truncated": supplemental && sampled < prod,
                 "documented_node_count": documented,
                 "authored_documented_node_count": authored,
                 "extracted_documented_node_count": extracted,
                 "heuristic_documented_node_count": heuristic,
                 "direct_test_density": ratio(tested),
-                "heuristic_test_density": ratio(0),
-                "transitive_test_density": ratio(0),
+                "heuristic_test_density": ratio_of(heuristic_tested, supplemental_denominator),
+                "transitive_test_density": ratio_of(transitive_tested, supplemental_denominator),
                 "documentation_density": ratio(documented),
                 "authored_documentation_density": ratio(authored),
                 "extracted_documentation_density": ratio(extracted),
@@ -475,12 +507,15 @@ fn confidence_weight(confidence: f64, tier: &str) -> f64 {
     confidence.max(tier_weight)
 }
 
-/// `_documentation_update_candidates` without the heuristic markdown pass.
+/// `_documentation_update_candidates`; `heuristic` (`detail_level="verbose"`)
+/// adds the markdown nodes the blast radius reaches.
 fn documentation_candidates(
     store: &GraphStore,
+    impact: &ImpactRadius,
     changed: &[Value],
     changed_files: &[String],
     profiles: &HashMap<String, Value>,
+    heuristic: bool,
 ) -> Option<Vec<Value>> {
     if !changed_files.iter().any(|path| !is_markdown_path(path)) {
         return Some(Vec::new());
@@ -498,6 +533,7 @@ fn documentation_candidates(
     }
     let (outgoing, incoming) = store.get_edges_by_endpoints(&qns).ok()?;
     let mut candidates = Vec::new();
+    let mut doc_qns: HashSet<String> = HashSet::new();
     for qn in &qns {
         let record = by_qn
             .get(qn.as_str())
@@ -540,6 +576,7 @@ fn documentation_candidates(
                         "documentation edge to changed code",
                     )
                 };
+                doc_qns.insert(doc_qn.clone());
                 candidates.push(json!({
                     "file": edge.file_path,
                     "section": doc_qn.rsplit("::").next().unwrap_or(&doc_qn),
@@ -559,6 +596,35 @@ fn documentation_candidates(
                     "stable_contract": contract,
                 }));
             }
+        }
+    }
+    if heuristic {
+        let changed_set: HashSet<&str> = changed_files.iter().map(String::as_str).collect();
+        for node in &impact.impacted_nodes {
+            let file = node.file_path.as_str();
+            if !is_markdown_path(file)
+                || is_low_signal_doc_path(file)
+                || changed_set.contains(file)
+                || doc_qns.contains(&node.qualified_name)
+            {
+                continue;
+            }
+            candidates.push(json!({
+                "file": file,
+                "section": node.name,
+                "qualified_name": node.qualified_name,
+                "reason": "markdown node reached from changed code/doc graph",
+                "score": 0.25,
+                "evidence_level": "heuristic_reachable",
+                "evidence_type": "heuristic_reachable",
+                "missingness": [{
+                    "reason_code": "heuristic_documentation_reachability",
+                    "severity": "medium",
+                    "claim_effect": "candidate is reachable but not an authored contract edge",
+                }],
+                "documentation_action": "Read this section before deciding whether docs need updates.",
+                "directive_hint": directive_hint(None, false),
+            }));
         }
     }
     Some(rank_and_dedupe(candidates, 10))
@@ -642,6 +708,11 @@ fn stability_contracts(
             .collect();
         let supplemental =
             measured.is_some_and(|d| truthy(&d["supplemental_test_density_evaluated"]));
+        // The supplemental pass only runs at `detail_level="verbose"`.
+        let supplemental_density = |key: &str| match measured {
+            Some(d) if supplemental => json!(float_or(&d[key], 0.0)),
+            _ => Value::Null,
+        };
         let observed_tests = measured.map(|d| float_or(&d["direct_test_density"], 0.0));
         let observed_docs = measured.map(|d| float_or(&d["documentation_density"], 0.0));
         let expected_tests = float_or(&profile["expected_test_density"], 0.5);
@@ -675,8 +746,8 @@ fn stability_contracts(
             "should_be_stable": profile.get("should_be_stable").cloned().unwrap_or(Value::Null),
             "expected_test_density": expected_tests,
             "observed_direct_test_density": observed_tests,
-            "observed_heuristic_test_density": Value::Null,
-            "observed_transitive_test_density": Value::Null,
+            "observed_heuristic_test_density": supplemental_density("heuristic_test_density"),
+            "observed_transitive_test_density": supplemental_density("transitive_test_density"),
             "supplemental_test_density_evaluated": supplemental,
             "expected_doc_density": expected_docs,
             "observed_documentation_density": observed_docs,
@@ -1341,13 +1412,14 @@ fn signal_quality(
     })
 }
 
-/// `_change_analysis_summary(..., detail_level="standard")` for an analysis
-/// whose fields are `analysis`.
+/// `_change_analysis_summary` for an analysis whose fields are `analysis`;
+/// `verbose` is `detail_level="verbose"`.
 pub(crate) fn change_analysis_summary(
     store: &GraphStore,
     analysis: &crate::changes::Analysis,
     impact: &ImpactRadius,
     changed_files: &[String],
+    verbose: bool,
 ) -> Option<Value> {
     let risk_score = float_or(analysis.get("risk_score"), 0.0);
     let empty = Vec::new();
@@ -1366,10 +1438,10 @@ pub(crate) fn change_analysis_summary(
     let profiles = stability_profiles(&graph, &sap);
     let scopes: HashSet<String> = changed.iter().filter_map(scope_key_for_record).collect();
     let nodes = store.get_all_nodes_filtered(true).ok()?;
-    let density = component_density(store, &nodes, &scopes)?;
     let mut scan = None;
+    let density = component_density(store, &mut scan, &nodes, &scopes, verbose)?;
     let tests = recommend_tests(store, &mut scan, changed, flows, &profiles)?;
-    let docs = documentation_candidates(store, changed, changed_files, &profiles)?;
+    let docs = documentation_candidates(store, impact, changed, changed_files, &profiles, verbose)?;
     let hotspots = hotspot_proximity(store, impact)?;
     let proximity = cross_artifact_proximity(store, impact, changed)?;
     let delta = architecture_delta(&graph, &sap, changed_files)?;
