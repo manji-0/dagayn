@@ -7,9 +7,6 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from ..contracts.cross_artifact import (
-    is_low_confidence_unresolved_markdown_code_span,
-)
 from ..contracts.state_types import (
     MissingnessRecord,
     TraversalEntry,
@@ -17,16 +14,14 @@ from ..contracts.state_types import (
     seal_missingness_item,
     seal_reachability_info,
 )
-from ..graph import GraphNode, _sanitize_name, edge_to_dict, node_to_dict
+from ..graph import _sanitize_name
 from ..hints import generate_hints, get_session
-from ..incremental_files import get_changed_files, get_staged_and_unstaged
 from ..search import embedding_health_available, hybrid_search
 from ._common import (
     ToolStoreScope,
     _db_path_for_repo,
     _error_response,
     _get_store,
-    apply_output_budget,
     graph_answerability_summary,
     guidance_actions_to_hints,
     handle_tool_runtime_error,
@@ -40,10 +35,8 @@ from ._native import native_tool
 from .query_graph_support import exactness_action, result_evidence_type
 
 logger = logging.getLogger(__name__)
-_is_low_confidence_unresolved_markdown_code_span = is_low_confidence_unresolved_markdown_code_span
 
 # ---------------------------------------------------------------------------
-# Tool 2: get_impact_radius
 # ---------------------------------------------------------------------------
 
 
@@ -156,250 +149,6 @@ def _normalized_repo_path(value: str, root: Path) -> str:
         except ValueError:
             return path.as_posix()
     return path.as_posix()
-
-
-def _unmatched_changed_files(
-    changed_files: list[str], changed_nodes: list[GraphNode], root: Path
-) -> list[str]:
-    """Return the changed files the graph holds no nodes for.
-
-    Every indexed file has at least a ``File`` node, so "no changed node for
-    this path" means the graph has never seen it -- a path typo, a file added
-    since the last build, or an unsupported language. That is a very different
-    answer from "this file has no dependents", and the two are otherwise
-    reported identically.
-    """
-    matched = {
-        _normalized_repo_path(str(file_path), root)
-        for file_path in (getattr(node, "file_path", None) for node in changed_nodes)
-        if file_path
-    }
-    return [f for f in changed_files if _normalized_repo_path(f, root) not in matched]
-
-
-def get_impact_radius(
-    changed_files: list[str] | None = None,
-    max_depth: int = 2,
-    max_results: int = 50,
-    repo_root: str | None = None,
-    base: str = "HEAD~1",
-    detail_level: str = "standard",
-) -> dict[str, Any]:
-    """Analyze the blast radius of changed files.
-
-    Args:
-        changed_files: Explicit list of changed file paths (relative to repo root).
-                       If omitted, auto-detects from git diff.
-        max_depth: How many hops to traverse in the graph (default: 2).
-        max_results: Maximum impacted nodes to return (default: 50).
-        repo_root: Repository root path. Auto-detected if omitted.
-        base: Git ref for auto-detecting changes (default: HEAD~1).
-        detail_level: "standard" (full output) or "minimal" (summary only).
-
-    Returns:
-        Changed nodes, impacted nodes, impacted files, connecting edges,
-        plus ``truncated`` flag and ``total_impacted`` count.
-    """
-    with ToolStoreScope(logger=logger, context="get_impact_radius", repo_root=repo_root) as scope:
-        store, root = scope.track(_get_store(repo_root))
-        answerability = graph_answerability_summary(store)
-        missingness = missingness_from_answerability(answerability)
-        if changed_files is None:
-            changed_files = get_changed_files(root, base)
-            if not changed_files:
-                changed_files = get_staged_and_unstaged(root)
-
-        if not changed_files:
-            return {
-                "status": "ok",
-                "summary": "No changed files detected.",
-                "changed_nodes": [],
-                "impacted_nodes": [],
-                "impacted_files": [],
-                "truncated": False,
-                "total_impacted": 0,
-                "answerability": answerability,
-                "missingness": missingness,
-            }
-
-        # Convert to absolute paths for graph lookup
-        abs_files = [str(root / f) for f in changed_files]
-        result = store.get_impact_radius(abs_files, max_depth=max_depth, max_nodes=max_results)
-
-        changed_dicts = [node_to_dict(n) for n in result["changed_nodes"]]
-        impacted_dicts = [node_to_dict(n) for n in result["impacted_nodes"]]
-        edge_dicts = [
-            edge_to_dict(e)
-            for e in result["edges"]
-            if not _is_low_confidence_unresolved_markdown_code_span(e)
-        ]
-        bridge_transitions = list(result.get("bridge_transitions") or [])
-        low_confidence_bridges = list(result.get("low_confidence_bridges") or [])
-        truncated = result["truncated"]
-        total_impacted = result["total_impacted"]
-        unmatched_files = _unmatched_changed_files(changed_files, result["changed_nodes"], root)
-
-        summary_parts = [
-            f"Blast radius for {len(changed_files)} changed file(s):",
-            f"  - {len(changed_dicts)} nodes directly changed",
-            f"  - {len(impacted_dicts)} nodes impacted (within {max_depth} hops)",
-            f"  - {len(result['impacted_files'])} additional files affected",
-        ]
-        if unmatched_files:
-            summary_parts.append(
-                f"  - {len(unmatched_files)} of {len(changed_files)} changed file(s) are NOT in"
-                " the graph: their blast radius is unknown, not zero"
-            )
-        if bridge_transitions:
-            summary_parts.append(
-                f"  - {len(bridge_transitions)} reportable cross-artifact bridge hop(s)"
-            )
-        if low_confidence_bridges:
-            summary_parts.append(
-                f"  - {len(low_confidence_bridges)} low-confidence bridge caveat(s)"
-            )
-        if truncated:
-            summary_parts.append(
-                f"  - Results truncated: showing {len(impacted_dicts)}"
-                f" of {total_impacted} impacted nodes"
-            )
-
-        impact_missingness = [
-            *missingness,
-            *low_confidence_bridges,
-        ]
-        if unmatched_files:
-            # Without this, "0 nodes impacted" for a file the graph has never
-            # seen is indistinguishable from a genuinely dependency-free change,
-            # and the caller reports the change as safe.
-            impact_missingness.append(
-                seal_missingness_item(
-                    {
-                        "reason_code": "changed_files_not_in_graph",
-                        "severity": "high",
-                        "claim_effect": (
-                            "impact for these files is unknown, not zero -- run dagayn update"
-                            " (or check the paths) before treating the change as safe"
-                        ),
-                        "details": {"unmatched_changed_files": unmatched_files[:20]},
-                    }
-                )
-            )
-        if bridge_transitions:
-            impact_missingness.append(
-                {
-                    "reason_code": "cross_artifact_bridge_is_static_evidence",
-                    "severity": "low",
-                    "claim_effect": (
-                        "bridge hops are graph-derived explainable paths, not runtime traces"
-                    ),
-                }
-            )
-
-        guidance = []
-        if bridge_transitions:
-            guidance.append(
-                make_guidance_item(
-                    claim=(
-                        f"Impact crosses {len(bridge_transitions)} reportable "
-                        "cross-artifact bridge(s)."
-                    ),
-                    evidence={
-                        "type": "extracted",
-                        "bridge_transitions": bridge_transitions[:5],
-                    },
-                    confidence="high",
-                    missingness=[
-                        {
-                            "reason_code": "cross_artifact_bridge_is_static_evidence",
-                            "severity": "low",
-                            "claim_effect": (
-                                "follow docs_for / implementations_of / bridge edges to confirm"
-                            ),
-                        }
-                    ],
-                    action=(
-                        'query_graph_tool pattern="docs_for" -- follow contract docs; '
-                        "also try implementations_of / CROSS_ARTIFACT neighbors"
-                    ),
-                    reason_codes=["cross_artifact_bridge_impact"],
-                    counts={"bridge_transition_count": len(bridge_transitions)},
-                )
-            )
-        if low_confidence_bridges:
-            guidance.append(
-                make_guidance_item(
-                    claim="Low-confidence cross-artifact bridges are caveats, not hard impact.",
-                    evidence={
-                        "type": "extracted",
-                        "caveat_count": len(low_confidence_bridges),
-                        "examples": low_confidence_bridges[:3],
-                    },
-                    confidence="low",
-                    missingness=low_confidence_bridges[:5],
-                    action=(
-                        'query_graph_tool pattern="docs_for" -- verify before treating as impact'
-                    ),
-                    reason_codes=["low_confidence_cross_artifact_bridge"],
-                    counts={"low_confidence_bridge_count": len(low_confidence_bridges)},
-                )
-            )
-
-        if detail_level == "minimal":
-            impacted_count = len(impacted_dicts)
-            if impacted_count > 20:
-                risk = "high"
-            elif impacted_count > 5:
-                risk = "medium"
-            else:
-                risk = "low"
-            key_entities = [n["name"] for n in impacted_dicts[:5]]
-            return {
-                "status": "ok",
-                "summary": "\n".join(summary_parts),
-                "risk": risk,
-                "unmatched_changed_files": unmatched_files,
-                "impacted_file_count": len(result["impacted_files"]),
-                "key_entities": key_entities,
-                "bridge_transition_count": len(bridge_transitions),
-                "truncated": truncated,
-                "answerability": answerability,
-                "missingness": impact_missingness,
-                "guidance": guidance,
-            }
-
-        payload = {
-            "status": "ok",
-            "summary": "\n".join(summary_parts),
-            "changed_files": changed_files,
-            "unmatched_changed_files": unmatched_files,
-            "changed_nodes": changed_dicts,
-            "impacted_nodes": impacted_dicts,
-            "impacted_files": result["impacted_files"],
-            "edges": edge_dicts,
-            "bridge_transitions": bridge_transitions,
-            "low_confidence_bridges": low_confidence_bridges,
-            "truncated": truncated,
-            "total_impacted": total_impacted,
-            "answerability": answerability,
-            "missingness": impact_missingness,
-            "guidance": guidance,
-        }
-        apply_output_budget(
-            payload,
-            budget_tokens=8000,
-            list_priorities=[
-                "changed_files",
-                "impacted_files",
-                "changed_nodes",
-                "impacted_nodes",
-                "bridge_transitions",
-                "edges",
-                "low_confidence_bridges",
-            ],
-        )
-        return payload
-    return scope.error
 
 
 # ---------------------------------------------------------------------------

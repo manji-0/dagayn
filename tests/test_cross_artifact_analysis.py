@@ -15,7 +15,6 @@ from dagayn.contracts.cross_artifact import (
 from dagayn.flows import _hydrate_flow_rows, get_affected_flows, store_flows, trace_flows
 from dagayn.graph import GraphStore
 from dagayn.parser._base.types import EdgeInfo, NodeInfo
-from dagayn.tools import query as query_module
 from dagayn.tools.review_dispatcher import review_func
 from tests.store_sql import store_conn
 
@@ -192,31 +191,6 @@ class TestCrossArtifactImpact:
             ] == [(cli_qn, "MEDIUM")]
         finally:
             store.close()
-
-    def test_impact_tool_surfaces_explainable_bridge_path(self, bridge_store, monkeypatch):
-        store, paths = bridge_store
-        monkeypatch.setattr(
-            query_module,
-            "_get_store",
-            lambda repo_root: (store, paths["root"]),
-        )
-        store.close = lambda: None
-
-        result = query_module.get_impact_radius(
-            changed_files=[paths["wrapper"]],
-            repo_root=str(paths["root"]),
-            max_depth=2,
-        )
-        assert result["status"] == "ok"
-        assert result["bridge_transitions"]
-        assert any(
-            item.get("reason_codes") == ["cross_artifact_bridge_impact"]
-            for item in result.get("guidance", [])
-        )
-        assert any(
-            item.get("reason_code") == "low_confidence_cross_artifact_bridge"
-            for item in result.get("missingness", [])
-        )
 
 
 class TestCrossArtifactFlows:

@@ -551,53 +551,6 @@ class TestTools:
         assert result["result_count"] == 0
         assert result["results"] == []
 
-    def test_impact_radius_hides_unresolved_low_confidence_code_span_edges(self, monkeypatch):
-        from dagayn.tools import query as query_module
-
-        self.store.upsert_edge(
-            EdgeInfo(
-                kind="CROSS_ARTIFACT",
-                source="/repo/auth.py::AuthService.login",
-                target="<unresolved:login>",
-                file_path="/repo/docs/auth.md",
-                line=4,
-                extra={
-                    "relationship_role": "describes_symbol",
-                    "bridge_kind": "documentation",
-                    "evidence_kind": "markdown_code_span",
-                    "evidence_source": "code_span",
-                    "confidence_tier": "LOW",
-                },
-            )
-        )
-        self.store.commit()
-        node = self.store.get_node("/repo/auth.py::AuthService.login")
-        edge = self.store.get_edges_by_source("/repo/auth.py::AuthService.login")[-1]
-        assert node is not None
-
-        self.store.get_impact_radius = lambda *_args, **_kwargs: {
-            "changed_nodes": [node],
-            "impacted_nodes": [node],
-            "impacted_files": ["/repo/auth.py"],
-            "edges": [edge],
-            "truncated": False,
-            "total_impacted": 1,
-        }
-        monkeypatch.setattr(
-            query_module,
-            "_get_store",
-            lambda repo_root: (self.store, Path("/repo")),
-        )
-        self.store.close = lambda: None
-
-        result = query_module.get_impact_radius(
-            changed_files=["auth.py"],
-            repo_root="/repo",
-        )
-
-        assert result["status"] == "ok"
-        assert result["edges"] == []
-
     def test_query_graph_target_not_found_keeps_zero_result_contract(self):
 
         result = self._query_graph(
@@ -3043,51 +2996,6 @@ class TestEnsureGraph:
         assert result["phases"]["structure"] == "noop"
         assert result["phases"]["embedding"] in {"skipped_budget", "pending"}
         build.assert_not_called()
-
-
-class TestImpactRadiusBudgeting:
-    def test_get_impact_radius_trims_oversized_standard_output(self, monkeypatch):
-        from dagayn.tools import query as query_module
-
-        class _DummyStore:
-            def get_impact_radius(self, abs_files, max_depth, max_nodes):
-                return {
-                    "changed_nodes": [object()] * 20,
-                    "impacted_nodes": [object()] * 200,
-                    "edges": [object()] * 400,
-                    "impacted_files": [f"/repo/file_{i}.py" for i in range(50)],
-                    "truncated": False,
-                    "total_impacted": 200,
-                }
-
-            def close(self):
-                pass
-
-        monkeypatch.setattr(
-            query_module,
-            "_get_store",
-            lambda repo_root: (_DummyStore(), Path("/repo")),
-        )
-        monkeypatch.setattr(
-            query_module,
-            "node_to_dict",
-            lambda node: {"name": "node", "payload": "x" * 400},
-        )
-        monkeypatch.setattr(
-            query_module,
-            "edge_to_dict",
-            lambda edge: {"source": "a", "target": "b", "payload": "y" * 400},
-        )
-
-        result = query_module.get_impact_radius(
-            changed_files=["app.py"],
-            repo_root="/repo",
-            detail_level="standard",
-        )
-
-        assert result["status"] == "ok"
-        assert result["truncated"] is True
-        assert len(result["edges"]) < 400 or len(result["impacted_nodes"]) < 200
 
 
 class TestSearchLimitValidation:

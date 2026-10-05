@@ -11,7 +11,6 @@ import pytest
 from dagayn.graph import GraphStore
 from dagayn.incremental_build import full_build
 from dagayn.postprocessing import run_post_processing
-from dagayn.tools.query import get_impact_radius
 from tests.store_sql import store_conn
 
 KAHAN = """
@@ -120,8 +119,8 @@ def test_pyo3_import_and_call_reach_the_rust_function(pyo3_repo: Path) -> None:
             ("fastsum/__init__.py", "rust/src/lib.rs", "loads_native_module"),
             ("fastsum/__init__.py::total", "rust/src/lib.rs::fast_sum", "calls_native_function"),
         }
-        impact = get_impact_radius(
-            changed_files=["rust/src/lib.rs"], repo_root=str(pyo3_repo), max_depth=2
+        impact = store.get_impact_radius(
+            [str(pyo3_repo / "rust/src/lib.rs")], max_depth=2, max_nodes=50
         )
         assert "fastsum/report.py" in impact["impacted_files"]
     finally:
@@ -135,8 +134,8 @@ def test_ctypes_library_and_symbol_reach_the_rust_crate(ctypes_repo: Path) -> No
             ("app/native.py::load", "native/src/lib.rs", "loads_shared_library"),
             ("app/native.py::total", "native/src/lib.rs::fast_sum", "calls_native_function"),
         }
-        impact = get_impact_radius(
-            changed_files=["native/src/lib.rs"], repo_root=str(ctypes_repo), max_depth=2
+        impact = store.get_impact_radius(
+            [str(ctypes_repo / "native/src/lib.rs")], max_depth=2, max_nodes=50
         )
         assert "app/native.py" in impact["impacted_files"]
     finally:
@@ -182,8 +181,8 @@ def test_typescript_import_and_call_reach_the_wasm_bindgen_function(wasm_repo: P
             ("web/src/stats.ts", "wasm/src/lib.rs", "loads_native_module"),
             ("web/src/stats.ts::total", "wasm/src/lib.rs::fast_sum", "calls_native_function"),
         }
-        impact = get_impact_radius(
-            changed_files=["wasm/src/lib.rs"], repo_root=str(wasm_repo), max_depth=2
+        impact = store.get_impact_radius(
+            [str(wasm_repo / "wasm/src/lib.rs")], max_depth=2, max_nodes=50
         )
         assert "web/src/report.ts" in impact["impacted_files"]
     finally:
@@ -231,8 +230,8 @@ def test_typescript_fetch_and_export_call_reach_the_go_function(go_wasm_repo: Pa
             ("web/src/add.ts::addWith", "gowasm/main.go", "loads_native_module"),
             ("web/src/add.ts::addWith", "gowasm/main.go::add", "calls_native_function"),
         }
-        impact = get_impact_radius(
-            changed_files=["gowasm/main.go"], repo_root=str(go_wasm_repo), max_depth=2
+        impact = store.get_impact_radius(
+            [str(go_wasm_repo / "gowasm/main.go")], max_depth=2, max_nodes=50
         )
         assert "web/src/report.ts" in impact["impacted_files"]
     finally:
@@ -315,8 +314,8 @@ def test_ctypes_library_and_symbol_reach_the_c_source(
             ("app/native.py::load", "native/src/sum.c", "loads_shared_library"),
             ("app/native.py::total", "native/src/sum.c::fast_sum", "calls_native_function"),
         }
-        impact = get_impact_radius(
-            changed_files=["native/src/sum.c"], repo_root=str(tmp_path), max_depth=2
+        impact = store.get_impact_radius(
+            [str(tmp_path / "native/src/sum.c")], max_depth=2, max_nodes=50
         )
         assert "app/report.py" in impact["impacted_files"]
     finally:
@@ -372,10 +371,10 @@ def test_csharp_p_invoke_reaches_the_c_function(tmp_path: Path) -> None:
                 "calls_native_function",
             ),
         }
-        impact = get_impact_radius(
-            changed_files=["native/src/sum.c"], repo_root=str(tmp_path), max_depth=3
+        impact = store.get_impact_radius(
+            [str(tmp_path / "native/src/sum.c")], max_depth=3, max_nodes=500
         )
-        impacted = {node["qualified_name"] for node in impact["impacted_nodes"]}
+        impacted = {node.qualified_name for node in impact["impacted_nodes"]}
         assert "app/Native.cs::Native.Total" in impacted
     finally:
         store.close()
@@ -436,8 +435,8 @@ def test_java_and_kotlin_jni_reach_c_and_rust(tmp_path: Path) -> None:
                 "calls_native_function",
             ),
         }
-        impact = get_impact_radius(
-            changed_files=["native/jni.c"], repo_root=str(tmp_path), max_depth=3
+        impact = store.get_impact_radius(
+            [str(tmp_path / "native/jni.c")], max_depth=3, max_nodes=500
         )
         assert "java/com/example/Report.java" in impact["impacted_files"]
     finally:
@@ -485,8 +484,8 @@ def test_typescript_import_by_package_reaches_the_napi_function(tmp_path: Path) 
             ("web/src/stats.ts", "native/src/lib.rs", "loads_native_module"),
             ("web/src/stats.ts::total", "native/src/lib.rs::fast_sum", "calls_native_function"),
         }
-        impact = get_impact_radius(
-            changed_files=["native/src/lib.rs"], repo_root=str(tmp_path), max_depth=2
+        impact = store.get_impact_radius(
+            [str(tmp_path / "native/src/lib.rs")], max_depth=2, max_nodes=50
         )
         assert "web/src/report.ts" in impact["impacted_files"]
     finally:
@@ -656,10 +655,10 @@ def test_wasm_imports_reach_the_javascript_that_implements_them(tmp_path: Path) 
         ) in bridges
         # The imported declaration is not a Rust export JavaScript can call.
         assert not any(target == "wasm/src/lib.rs::format_date" for _, target, _ in bridges)
-        impact = get_impact_radius(
-            changed_files=["wasm/js/util.js"], repo_root=str(tmp_path), max_depth=3
+        impact = store.get_impact_radius(
+            [str(tmp_path / "wasm/js/util.js")], max_depth=3, max_nodes=500
         )
-        impacted = {node["qualified_name"] for node in impact["impacted_nodes"]}
+        impacted = {node.qualified_name for node in impact["impacted_nodes"]}
         assert "wasm/src/lib.rs::today" in impacted
     finally:
         store.close()
@@ -749,10 +748,10 @@ def test_rust_extern_c_declarations_reach_the_c_they_link(tmp_path: Path) -> Non
             ("app/src/lib.rs::unique_helper", "helpers/helper.c::unique_helper"),
             # app/src/lib.rs::fast_sum is ambiguous (two C definitions): unbound.
         }
-        impact = get_impact_radius(
-            changed_files=["sys/csrc/sum.c"], repo_root=str(tmp_path), max_depth=3
+        impact = store.get_impact_radius(
+            [str(tmp_path / "sys/csrc/sum.c")], max_depth=3, max_nodes=500
         )
-        impacted = {node["qualified_name"] for node in impact["impacted_nodes"]}
+        impacted = {node.qualified_name for node in impact["impacted_nodes"]}
         assert "sys/src/lib.rs::total" in impacted
     finally:
         store.close()
@@ -1258,10 +1257,10 @@ def test_ruby_ffi_attach_function_reaches_the_c_function(tmp_path: Path) -> None
         assert _native_bridges(store) == {
             ("lib/fast.rb::Fast.fast_sum", "native/src/sum.c::fast_sum", "calls_native_function"),
         }
-        impact = get_impact_radius(
-            changed_files=["native/src/sum.c"], repo_root=str(tmp_path), max_depth=3
+        impact = store.get_impact_radius(
+            [str(tmp_path / "native/src/sum.c")], max_depth=3, max_nodes=500
         )
-        impacted = {node["qualified_name"] for node in impact["impacted_nodes"]}
+        impacted = {node.qualified_name for node in impact["impacted_nodes"]}
         assert "lib/fast.rb::Fast.fast_sum" in impacted
         # The caller in another file is reached through `Fast.fast_sum`.
         assert "lib/report.rb::monthly" in impacted
