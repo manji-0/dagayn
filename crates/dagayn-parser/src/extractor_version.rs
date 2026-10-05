@@ -94,8 +94,9 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 8: member calls record what types their receiver (`receiver_type` for a
         // class of another file, `receiver_unknown`, and `receiver_from` for the
         // call it came from) and functions their declared `return_type`.
+        // 9: tree-sitter-vue ce8011a.
         extractor: "javascript",
-        version: 8,
+        version: 9,
         languages: &["javascript", "typescript", "tsx", "vue", "svelte"],
     },
     ExtractorVersion {
@@ -231,8 +232,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 6: member calls record what types their receiver (`receiver_type` for a
         // class of another file, `receiver_unknown`, and `receiver_from` for the
         // call it came from) and functions their declared `return_type`.
+        // 7: tree-sitter-c b780e47 and tree-sitter-cpp c009222, on the tree-sitter
+        // 0.27 runtime.
         extractor: "c_like",
-        version: 6,
+        version: 7,
         languages: &["c", "cpp", "objc"],
     },
     ExtractorVersion {
@@ -258,8 +261,9 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 4: member calls record what types their receiver (`receiver_type` for a
         // class of another file, `receiver_unknown`, and `receiver_from` for the
         // call it came from) and functions their declared `return_type`.
+        // 5: tree-sitter-kotlin 1852ea1.
         extractor: "kotlin",
-        version: 4,
+        version: 5,
         languages: &["kotlin"],
     },
     ExtractorVersion {
@@ -274,8 +278,9 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 5: member calls record what types their receiver (`receiver_type` for a
         // class of another file, `receiver_unknown`, and `receiver_from` for the
         // call it came from) and functions their declared `return_type`.
+        // 6: tree-sitter-c-sharp 8c0abe0 (C# 14).
         extractor: "csharp",
-        version: 5,
+        version: 6,
         languages: &["csharp"],
     },
     ExtractorVersion {
@@ -318,8 +323,9 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 4: member calls record what types their receiver (`receiver_type` for a
         // class of another file, `receiver_unknown`, and `receiver_from` for the
         // call it came from) and functions their declared `return_type`.
+        // 5: tree-sitter-dart be07cf7.
         extractor: "dart",
-        version: 4,
+        version: 5,
         languages: &["dart"],
     },
     ExtractorVersion {
@@ -330,8 +336,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 3: member calls record what types their receiver (`receiver_type` for a
         // class of another file, `receiver_unknown`, and `receiver_from` for the
         // call it came from) and functions their declared `return_type`.
+        // 4: tree-sitter-swift 0.7.4 (82bb3a5), from its with-generated-files
+        // branch.
         extractor: "swift",
-        version: 3,
+        version: 4,
         languages: &["swift"],
     },
     ExtractorVersion {
@@ -342,8 +350,9 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 3: member calls record what types their receiver (`receiver_type` for a
         // class of another file, `receiver_unknown`, and `receiver_from` for the
         // call it came from) and functions their declared `return_type`.
+        // 4: tree-sitter-perl 2.x (04477ee).
         extractor: "perl",
-        version: 3,
+        version: 4,
         languages: &["perl"],
     },
     ExtractorVersion {
@@ -351,8 +360,9 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // edge with an empty target.
         // 2: calls and imports into the standard library target the module
         // (`Enum`, `IO`, `:lists`, `Kernel`).
+        // 3: tree-sitter-elixir 4b0c711.
         extractor: "elixir",
-        version: 2,
+        version: 3,
         languages: &["elixir"],
     },
     ExtractorVersion {
@@ -362,16 +372,18 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 3: member calls record what types their receiver (`receiver_type` for a
         // class of another file, `receiver_unknown`, and `receiver_from` for the
         // call it came from) and functions their declared `return_type`.
+        // 4: tree-sitter-scala db390f3.
         extractor: "scala",
-        version: 3,
+        version: 4,
         languages: &["scala"],
     },
     ExtractorVersion {
         // 1: `f <- function` in a function body is `outer.f`, local to it,
         // and a call binds to a function nested in the caller first.
         // 2: calls and imports into base R packages target them (`base`, `stats`).
+        // 3: tree-sitter-r 58a2279.
         extractor: "r",
-        version: 2,
+        version: 3,
         languages: &["r"],
     },
     ExtractorVersion {
@@ -422,8 +434,9 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 2: member calls record what types their receiver (`receiver_type` for a
         // class of another file, `receiver_unknown`, and `receiver_from` for the
         // call it came from) and functions their declared `return_type`.
+        // 3: tree-sitter-gdscript 8ecb27e.
         extractor: "gdscript",
-        version: 2,
+        version: 3,
         languages: &["gdscript"],
     },
     ExtractorVersion {
@@ -431,8 +444,9 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 2: member calls record what types their receiver (`receiver_type` for a
         // class of another file, `receiver_unknown`, and `receiver_from` for the
         // call it came from) and functions their declared `return_type`.
+        // 3: tree-sitter-php 92b5271.
         extractor: "php",
-        version: 2,
+        version: 3,
         languages: &["php"],
     },
 ];
