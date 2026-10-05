@@ -65,17 +65,21 @@ pub(super) fn parse_rust_with_parser(
         rust_walk_children(root, &context, None, None, &mut nodes, &mut edges);
         rust_mark_std_calls(&mut edges, &context);
         let component_bindings = context.component_bindings;
-        rust_wasm_host_edges(
-            root,
-            source,
-            &file_path,
-            component_bindings,
-            None,
-            None,
-            &mut edges,
-        );
+        if rust_may_host_wasm(source, component_bindings) {
+            rust_wasm_host_edges(
+                root,
+                source,
+                &file_path,
+                component_bindings,
+                None,
+                None,
+                &mut edges,
+            );
+        }
         record_neon_exported_functions(root, source, &mut nodes);
-        record_rust_deref_targets(root, source, &mut nodes);
+        if contains_bytes(source, b"Deref") {
+            record_rust_deref_targets(root, source, &mut nodes);
+        }
         if let Some(namespace) = rust_uniffi_namespace(root, source) {
             nodes[0].extra["uniffi_namespace"] = json!(namespace);
         }
