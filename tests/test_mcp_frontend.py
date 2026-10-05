@@ -479,11 +479,36 @@ def test_ensure_graph_reports_an_auto_detected_root_as_python_does(git_repo: Pat
 
 
 @pytest.mark.parametrize(
+    ("name", "arguments"),
+    [
+        ("query_graph_tool", {"pattern": "callers_of", "target": "app.py::helper", "depth": 0}),
+        ("query_graph_tool", {"pattern": "callees_of", "target": "app.py::helper", "depth": 2}),
+        ("query_graph_tool", {"pattern": "no_such_pattern", "target": "app.py::helper"}),
+        ("semantic_search_nodes_tool", {"query": "helper", "limit": 0}),
+        ("semantic_search_nodes_tool", {"query": "", "limit": -1}),
+        ("get_docs_section_tool", {"section_name": "no-such-section"}),
+        ("get_docs_section_tool", {"section_name": "trust", "max_chars": 0}),
+        ("get_docs_section_tool", {"section_name": "trust", "max_chars": -10}),
+        ("refactor_tool", {"mode": "rename", "old_name": "", "new_name": "x"}),
+        ("refactor_tool", {"mode": "rename", "new_name": "x"}),
+        ("refactor_tool", {"mode": "rename", "old_name": "", "new_name": ""}),
+    ],
+)
+def test_argument_errors_are_answered_in_rust_as_python_does(
+    git_repo: Path, name: str, arguments: dict[str, Any]
+) -> None:
+    rust, python, stderr = _call_both(git_repo, name, arguments)
+    assert f"answered {name} in Rust" in stderr
+    assert BOOT_TRACE not in stderr
+    for result in (rust, python):
+        result["structuredContent"].get("_runtime", {}).pop("pid", None)
+    assert rust["structuredContent"] == python["structuredContent"]
+    assert rust["structuredContent"]["status"] in ("error", "not_found", "ok")
+
+
+@pytest.mark.parametrize(
     "arguments",
     [
-        {"pattern": "callers_of", "target": "app.py::helper", "depth": 0},
-        {"pattern": "callees_of", "target": "app.py::helper", "depth": 2},
-        {"pattern": "no_such_pattern", "target": "app.py::helper"},
         {"pattern": "callers_of", "target": "app.py::main", "detail_level": "minimal", "x": 1},
     ],
 )
@@ -520,7 +545,6 @@ def test_search_without_embeddings_answers_as_python_does(
     [
         {"query": "helper", "provider": "openai"},
         {"query": "helper", "model": "m"},
-        {"query": "helper", "limit": 0},
         {"query": "   "},
     ],
 )
@@ -721,11 +745,12 @@ def test_flow_tool_answers_in_rust_as_python_does(git_repo: Path, stale: bool) -
         (flow, {"mode": "get", "flow_id": 1, "include_source": True}),
         (flow, {"mode": "get", "flow_name": "MAI"}),
         (flow, {"mode": "get", "flow_id": 999}),
-        # Python's own validation error.
+        # The request validation error.
         (flow, {"mode": "get"}),
+        (flow, {"mode": "get", "flow_name": ""}),
     ]
     rust, python, stderr = _session_both(git_repo, calls)
-    assert stderr.count(FLOW_TRACE) == len(calls) - 1
+    assert stderr.count(FLOW_TRACE) == len(calls)
     assert rust == python
     if stale:
         assert rust[4]["structuredContent"]["status"] == "degraded"
@@ -767,11 +792,11 @@ def test_architecture_metrics_answer_in_rust_as_python_does(git_repo: Path) -> N
         (arch, {"mode": "communities", "min_size": 2, "top_n": 1}),
         (arch, {"mode": "community", "community_id": 1, "include_members": True}),
         (arch, {"mode": "community", "community_name": "NO-SUCH"}),
-        # Python's own validation error.
+        # The request validation error.
         (arch, {"mode": "community"}),
     ]
     rust, python, stderr = _session_both(git_repo, calls)
-    assert stderr.count(ARCHITECTURE_TRACE) == len(calls) - 1
+    assert stderr.count(ARCHITECTURE_TRACE) == len(calls)
     assert rust == python
     assert rust[0]["structuredContent"]["count"] == 1
 

@@ -6,6 +6,13 @@ All notable changes to `dagayn` are documented here.
 
 ### Changed
 
+- The Rust front end now answers argument errors itself instead of
+  starting Python's server for them: an unknown `query_graph_tool` pattern
+  or a depth it does not apply, a `semantic_search_nodes_tool` limit below
+  1, a `flow_tool` `get` or `architecture_analysis_tool` `community`
+  without a selector, a `refactor_tool` rename with a missing or empty
+  name, and any `get_docs_section_tool` `max_chars`, all with Python's
+  replies.
 - With `CRG_DATA_DIR` set, the Rust front end of `dagayn serve` now finds
   a checkout's graph in its `<CRG_DATA_DIR>/<name>-<digest>` subdirectory,
   as Python does, and answers from it instead of leaving every call to
@@ -122,6 +129,10 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- `get_docs_section_tool` answered an unknown section with a fixed list
+  of section names that had gone stale: it omitted `trust` and would have
+  kept naming removed sections. It now lists the sections the reference
+  file actually holds.
 - `refactor_tool(mode="dead_code")` (and the `remove` suggestions of
   `mode="suggest"`) no longer calls a symbol dead while the repository may
   still use it. A graph candidate (no callers, tests, importers, references,

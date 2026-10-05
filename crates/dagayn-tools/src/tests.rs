@@ -44,10 +44,6 @@ fn unexpected_arguments_go_to_python() {
             "get_docs_section_tool",
             json!({"section_name": "trust", "max_chars": "10"}),
         ),
-        (
-            "get_docs_section_tool",
-            json!({"section_name": "trust", "max_chars": 0}),
-        ),
         ("query_graph_tool", json!({})),
     ] {
         assert!(

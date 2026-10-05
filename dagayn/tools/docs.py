@@ -298,10 +298,14 @@ def get_docs_section(
         if pkg_root not in search_roots:
             search_roots.append(pkg_root)
 
+    available: list[str] = []
     for search_root in search_roots:
         candidate = search_root / "docs" / "LLM-OPTIMIZED-REFERENCE.md"
         if candidate.exists():
             content = candidate.read_text(encoding="utf-8", errors="replace")
+            for name in _re.findall(r'<section name="([^"]*)">', content, _re.IGNORECASE):
+                if name not in available:
+                    available.append(name)
             match = _re.search(
                 rf'<section name="{_re.escape(section_name)}">'
                 r"(.*?)</section>",
@@ -320,17 +324,8 @@ def get_docs_section(
                     "truncated": truncated,
                 }
 
-    available = [
-        "usage",
-        "review-delta",
-        "review-pr",
-        "commands",
-        "legal",
-        "watch",
-        "embeddings",
-        "languages",
-        "troubleshooting",
-    ]
+    # The sections the reference files actually hold: a fixed list here went
+    # stale and named sections that do not exist while omitting real ones.
     return {
         "status": "not_found",
         "error": (f"Section '{section_name}' not found. Available: {', '.join(available)}"),

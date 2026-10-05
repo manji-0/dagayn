@@ -78,12 +78,17 @@ pub(crate) fn flow(context: &Context, arguments: &Map<String, Value>) -> Option<
         Some(Value::Bool(flag)) => *flag,
         Some(_) => return None,
     };
-    // `require_selector`'s error is Python's.
+    let root = resolve_repo(context, args.optional_string("repo_root")?)?;
     if mode == "get" && flow_id.is_none() && flow_name.is_none_or(str::is_empty) {
-        return None;
+        // `FlowGetRequest.require_selector`.
+        return crate::dispatcher_error(
+            context,
+            &root,
+            &mode,
+            "Value error, mode=\"get\" requires flow_id or flow_name.",
+        );
     }
     let runtime = context.runtime.clone()?;
-    let root = resolve_repo(context, args.optional_string("repo_root")?)?;
     let graph = open_graph(&root)?;
     let stats = graph.store.get_stats().ok()?;
     let answerability = Answerability::recorded(&graph.store, &stats)?;

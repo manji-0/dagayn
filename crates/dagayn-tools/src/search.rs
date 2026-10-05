@@ -602,14 +602,23 @@ pub(crate) fn semantic_search(
         ],
     )?;
     let query = args.string("query")?;
+    let limit = args.integer("limit", 20)?;
+    // Checked first, before the store is opened: no `_repo`.
+    if limit < 1 {
+        let message = format!("limit must be an integer >= 1 (got {limit})");
+        return Some(
+            Ordered::default()
+                .put("status", "error")
+                .put("error", message.clone())
+                .put("summary", message)
+                .put("limit", limit)
+                .into_payload(),
+        );
+    }
     if query.trim().is_empty() {
         return None;
     }
     let kind = args.optional_string("kind")?;
-    let limit = args.integer("limit", 20)?;
-    if limit < 1 {
-        return None;
-    }
     let limit = limit.min(MAX_LIMIT);
     let minimal = match arguments.get("detail_level") {
         None => false,

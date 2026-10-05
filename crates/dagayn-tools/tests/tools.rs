@@ -165,12 +165,25 @@ fn docs_sections_come_from_the_repository_and_are_truncated_by_characters() {
     );
     assert_eq!(cut["content"], "Graph\n... (truncated)");
     assert_eq!(cut["truncated"], true);
-    // An unknown section's error listing is Python's.
-    assert!(declines(
+    // An unknown section lists the sections the reference file holds.
+    let missing = answer(
         &context,
         "get_docs_section_tool",
-        json!({"section_name": "nope"})
-    ));
+        json!({"section_name": "nope"}),
+    );
+    assert_eq!(missing["status"], "not_found");
+    assert!(
+        missing["error"]
+            .as_str()
+            .unwrap()
+            .starts_with("Section 'nope' not found. Available: ")
+    );
+    let negative = answer(
+        &context,
+        "get_docs_section_tool",
+        json!({"section_name": "trust", "max_chars": -100000}),
+    );
+    assert_eq!(negative["content"], "\n... (truncated)");
 }
 
 #[test]
@@ -342,16 +355,32 @@ fn query_graph_answers_callers_and_callees_of_exact_targets() {
     assert_eq!(tests["results"][0]["confidence"], "high");
     assert_eq!(tests["results"][0]["coverage_source"], "graph_edge");
 
-    for arguments in [
-        json!({"pattern": "callers_of", "target": "app.py::helper", "depth": 0}),
-        json!({"pattern": "callees_of", "target": "app.py::helper", "depth": 2}),
-        json!({"pattern": "nope", "target": "app.py::helper"}),
+    for (arguments, message) in [
+        (
+            json!({"pattern": "callers_of", "target": "app.py::helper", "depth": 0}),
+            "depth must be 1 or more, got 0.",
+        ),
+        (
+            json!({"pattern": "callees_of", "target": "app.py::helper", "depth": 2}),
+            "depth applies only to ['callers_of', 'importers_of']; 'callees_of' returns \
+             direct relationships only.",
+        ),
     ] {
-        assert!(
-            declines(&context, "query_graph_tool", arguments.clone()),
-            "{arguments}"
-        );
+        let reply = answer(&context, "query_graph_tool", arguments.clone());
+        assert_eq!(reply["status"], "error", "{arguments}");
+        assert_eq!(reply["error"], message, "{arguments}");
     }
+    let unknown = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "nope", "target": "app.py::helper"}),
+    );
+    assert!(
+        unknown["error"]
+            .as_str()
+            .unwrap()
+            .starts_with("Unknown pattern 'nope'. Available: ['callers_of', 'callees_of',")
+    );
 }
 
 #[test]
@@ -745,6 +774,17 @@ fn flow_tool_lists_and_reads_stored_flows() {
     for arguments in [
         json!({"mode": "get"}),
         json!({"mode": "get", "flow_name": ""}),
+    ] {
+        let reply = answer(&context, "flow_tool", arguments.clone());
+        assert_eq!(reply["status"], "error", "{arguments}");
+        assert_eq!(reply["called_subtool"], Value::Null, "{arguments}");
+        assert_eq!(
+            reply["error"],
+            "Value error, mode=\"get\" requires flow_id or flow_name."
+        );
+        assert!(reply["missingness"].is_array());
+    }
+    for arguments in [
         json!({"sort_by": "bogus"}),
         json!({"flow_id": true, "mode": "get"}),
     ] {
@@ -817,8 +857,13 @@ fn architecture_metrics_follow_the_requested_view() {
     assert!(community["community"]["member_details"].is_array());
     let missing = arch(json!({"mode": "community", "community_name": "zz-none"}));
     assert_eq!(missing["status"], "not_found");
+    let unselected = arch(json!({"mode": "community"}));
+    assert_eq!(unselected["status"], "error");
+    assert_eq!(
+        unselected["error"],
+        "Value error, mode=\"community\" requires community_id or community_name."
+    );
     for arguments in [
-        json!({"mode": "community"}),
         json!({"mode": "sdp_violations", "min_delta": 0.00001}),
         json!({"mode": "adp_violations", "dependency_profile": "bogus"}),
         json!({"mode": "sap_metrics", "unit_filter": "pkg"}),

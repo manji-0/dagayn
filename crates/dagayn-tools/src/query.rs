@@ -147,6 +147,41 @@ fn guidance(pattern: &str, target: &str, result_count: usize, exact_count: i64) 
 }
 
 /// `QUERY_PATTERNS`.
+/// `QUERY_PATTERNS`' keys, in Python's order.
+const PATTERNS: [&str; 12] = [
+    "callers_of",
+    "callees_of",
+    "imports_of",
+    "importers_of",
+    "docs_for",
+    "implementations_of",
+    "bridges_from",
+    "children_of",
+    "tests_for",
+    "inheritors_of",
+    "file_summary",
+    "source_of",
+];
+
+/// The error `query_graph` answers for an unknown pattern or a depth it
+/// does not apply, checked in Python's order.
+fn argument_error(pattern: &str, depth: i64) -> Option<String> {
+    if description(pattern).is_none() {
+        let listed: Vec<String> = PATTERNS.iter().map(|name| format!("'{name}'")).collect();
+        return Some(format!(
+            "Unknown pattern '{pattern}'. Available: [{}]",
+            listed.join(", ")
+        ));
+    }
+    if depth != 1 && !matches!(pattern, "callers_of" | "importers_of") {
+        return Some(format!(
+            "depth applies only to ['callers_of', 'importers_of']; '{pattern}' returns direct \
+             relationships only."
+        ));
+    }
+    (depth < 1).then(|| format!("depth must be 1 or more, got {depth}."))
+}
+
 fn description(pattern: &str) -> Option<&'static str> {
     Some(match pattern {
         "callers_of" => "Find all functions that call a given function",
@@ -1183,20 +1218,23 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
     // Python treats any other level as `standard`.
     let (full, minimal) = (detail_level == "full", detail_level == "minimal");
     let depth = args.integer("depth", 1)?;
-    // The pattern and depth errors are Python's.
-    if description(pattern).is_none() || depth < 1 {
-        return None;
-    }
-    let transitive = matches!(pattern, "callers_of" | "importers_of");
-    if depth != 1 && !transitive {
-        return None;
+    let root = resolve_repo(context, args.optional_string("repo_root")?)?;
+    // Python checks the pattern and depth once the store is open, whatever
+    // the checkout.
+    let graph = open_graph(&root)?;
+    if let Some(message) = argument_error(pattern, depth) {
+        return Some(
+            Ordered::default()
+                .put("status", "error")
+                .put("error", message)
+                .put("_repo", graph.repo_context())
+                .into_payload(),
+        );
     }
     let depth = depth.min(MAX_DEPTH);
-    let root = resolve_repo(context, args.optional_string("repo_root")?)?;
     if !matches!(detect_vcs(&root), Vcs::Git | Vcs::None) {
         return None;
     }
-    let graph = open_graph(&root)?;
     let store = &graph.store;
     let stats = store.get_stats().ok()?;
     let answerability = Answerability::recorded(store, &stats)?;

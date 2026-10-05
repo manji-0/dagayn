@@ -163,6 +163,42 @@ pub(crate) fn seal_dispatch(
     sealed.put("_repo", repo).into_payload()
 }
 
+/// `attach_answerability` on a request a dispatcher rejected: `head`, then
+/// `_runtime`, the graph's full answerability and its missingness, and
+/// `_repo`, as the sealed error responses carry them.
+pub(crate) fn request_error(context: &Context, root: &RepoRoot, head: Ordered) -> Option<Payload> {
+    let runtime = context.runtime.clone()?;
+    let graph = open_graph(root)?;
+    let stats = graph.store.get_stats().ok()?;
+    let answerability = answerability::Answerability::recorded(&graph.store, &stats)?;
+    Some(
+        head.put("_runtime", runtime)
+            .put("answerability", answerability.full())
+            .put("missingness", Value::Array(answerability.missingness()))
+            .put("_repo", graph.repo_context())
+            .into_payload(),
+    )
+}
+
+/// `_error` in the flow and architecture dispatchers.
+pub(crate) fn dispatcher_error(
+    context: &Context,
+    root: &RepoRoot,
+    mode: &str,
+    message: &str,
+) -> Option<Payload> {
+    request_error(
+        context,
+        root,
+        Ordered::default()
+            .put("status", "error")
+            .put("summary", message)
+            .put("error", message)
+            .put("mode", mode)
+            .put("called_subtool", Value::Null),
+    )
+}
+
 /// A JSON object that keeps its keys in insertion order, as Python's dicts
 /// do; `serde_json`'s map sorts them.
 #[derive(Default)]

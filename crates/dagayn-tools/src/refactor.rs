@@ -34,15 +34,25 @@ pub(crate) fn refactor(context: &Context, arguments: &Map<String, Value>) -> Opt
     let kind = args.optional_string("kind")?;
     let file_pattern = args.optional_string("file_pattern")?;
     let limit = args.integer("limit", 50)?;
-    // `RefactorRenameRequest`'s `min_length=1` errors are Python's, and so is
-    // a non-ASCII name, whose `\w` Python and Rust draw differently.
+    // A non-ASCII name is Python's: its `\w` and Rust's identifier check draw
+    // the line differently.
     let rename_names = if mode == "rename" {
-        let (Some(old), Some(new)) = (
-            old_name.filter(|n| !n.is_empty()),
-            new_name.filter(|n| !n.is_empty()),
-        ) else {
-            return None;
+        // `RefactorRenameRequest`: a missing name is not a string, an empty
+        // one is shorter than `min_length=1`.
+        let problems: Vec<&str> = [old_name, new_name]
+            .iter()
+            .filter_map(|name| match name {
+                None => Some("Input should be a valid string"),
+                Some("") => Some("String should have at least 1 character"),
+                Some(_) => None,
+            })
+            .collect();
+        let (Some(old), Some(new)) = (old_name, new_name) else {
+            return rename_error(context, &args, &problems.join("; "));
         };
+        if !problems.is_empty() {
+            return rename_error(context, &args, &problems.join("; "));
+        }
         if !old.is_ascii() || !new.is_ascii() {
             return None;
         }
@@ -145,6 +155,20 @@ fn dead_code(
             )
             .put("answerability", answerability.full())
             .put("missingness", json!(missingness)),
+    )
+}
+
+/// `seal_refactor_error(attach_answerability({...}))` for a rename request
+/// `RefactorRenameRequest` rejects.
+fn rename_error(context: &Context, args: &crate::Args, message: &str) -> Option<Payload> {
+    let root = resolve_repo(context, args.optional_string("repo_root")?)?;
+    crate::request_error(
+        context,
+        &root,
+        Ordered::default()
+            .put("status", "error")
+            .put("error", message)
+            .put("summary", message),
     )
 }
 

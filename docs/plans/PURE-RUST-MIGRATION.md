@@ -767,6 +767,18 @@ creates an empty one), a graph not yet at its `CRG_DATA_DIR` subdirectory
 side files), and a schema Python would migrate. These close the shared
 declines a read-only front end can take on.
 
+Argument errors (done): the error replies the front end used to leave to
+Python, in the classification of every tool's declines: `query_graph_tool`
+pattern and depth, `semantic_search_nodes_tool` limit, the `flow_tool` and
+`architecture_analysis_tool` selector checks (the dispatcher's sealed
+error with `_runtime`, answerability, and missingness), `refactor_tool`
+rename names, and `get_docs_section_tool` `max_chars` and unknown
+sections. Still Python's: an empty search or traverse query (a full
+`empty` search reply), non-ASCII names and community names, the
+`apply_refactor_tool` edit checks, `list_repos_tool` registry repair,
+`source_of` read errors, `apply_output_budget` trimming, and the embedding
+provider cases.
+
 Not ported, on inspection: `session prepare`. Both installed hooks pass
 `--local-embedding`, so its embedding phase always runs. That phase is
 `inline` (the sidecar embeds now) when vectors are missing or at least 5%

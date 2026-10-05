@@ -14,9 +14,7 @@ pub(crate) fn get_docs_section(
 ) -> Option<Payload> {
     let args = Args::new(arguments, &["section_name", "repo_root", "max_chars"])?;
     let section = args.string("section_name")?;
-    let max_chars = usize::try_from(args.integer("max_chars", 4000)?)
-        .ok()
-        .filter(|max| *max > 0)?;
+    let max_chars = args.integer("max_chars", 4000)?;
     let root = resolve_repo(context, args.optional_string("repo_root")?)?;
     // Python opens the store to learn the root (and to report `_repo`); one
     // it would create or refuse is left to it.
@@ -36,18 +34,36 @@ pub(crate) fn get_docs_section(
         regex::escape(section)
     ))
     .ok()?;
+    let names = regex::Regex::new(r#"(?i)<section name="([^"]*)">"#).ok()?;
+    let mut available: Vec<String> = Vec::new();
     for search_root in search_roots {
         let Ok(bytes) = std::fs::read(search_root.join(REFERENCE)) else {
             continue;
         };
         let text = String::from_utf8_lossy(&bytes);
+        for name in names
+            .captures_iter(&text)
+            .filter_map(|captures| captures.get(1))
+        {
+            if !available.iter().any(|known| known == name.as_str()) {
+                available.push(name.as_str().to_string());
+            }
+        }
         let Some(found) = pattern.captures(&text).and_then(|captures| captures.get(1)) else {
             continue;
         };
         let content = found.as_str().trim();
-        let truncated = content.chars().count() > max_chars;
+        let length = content.chars().count();
+        // `len(content) > max_chars`, then `content[:max_chars]`: a negative
+        // limit counts back from the end, as a Python slice does.
+        let truncated = i64::try_from(length).ok()? > max_chars;
         let content = if truncated {
-            let kept: String = content.chars().take(max_chars).collect();
+            let kept = if max_chars >= 0 {
+                usize::try_from(max_chars).ok()?
+            } else {
+                length.saturating_sub(usize::try_from(max_chars.unsigned_abs()).ok()?)
+            };
+            let kept: String = content.chars().take(kept).collect();
             format!("{kept}\n... (truncated)")
         } else {
             content.to_string()
@@ -62,8 +78,19 @@ pub(crate) fn get_docs_section(
                 .into_payload(),
         );
     }
-    // Not found: the error listing the sections is Python's.
-    None
+    Some(
+        Ordered::default()
+            .put("status", "not_found")
+            .put(
+                "error",
+                format!(
+                    "Section '{section}' not found. Available: {}",
+                    available.join(", ")
+                ),
+            )
+            .put("_repo", repo)
+            .into_payload(),
+    )
 }
 
 /// `Path.read_text(errors="replace")`: universal newlines; `None` for bytes

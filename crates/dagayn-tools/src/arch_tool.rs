@@ -165,15 +165,20 @@ impl<'a> Request<'a> {
 pub(crate) fn architecture(context: &Context, arguments: &Map<String, Value>) -> Option<Payload> {
     let args = Args::new(arguments, DECLARED)?;
     let request = Request::parse(&args, arguments)?;
-    // `require_selector`'s error is Python's.
+    let root = resolve_repo(context, args.optional_string("repo_root")?)?;
     if request.mode == "community"
         && request.community_id.is_none()
         && request.community_name.is_none_or(str::is_empty)
     {
-        return None;
+        // `ArchitectureCommunityRequest.require_selector`.
+        return crate::dispatcher_error(
+            context,
+            &root,
+            request.mode,
+            "Value error, mode=\"community\" requires community_id or community_name.",
+        );
     }
     let runtime = context.runtime.clone()?;
-    let root = resolve_repo(context, args.optional_string("repo_root")?)?;
     let graph = open_graph(&root)?;
     let artifact = Artifact::parse(request.artifact_scope)?;
     let profile = Profile::parse(request.dependency_profile)?;
