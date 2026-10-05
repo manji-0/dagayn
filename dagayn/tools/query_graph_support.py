@@ -137,16 +137,16 @@ def query_zero_result_fields(
     }
 
 
+is_low_confidence_markdown_code_span = is_low_confidence_unresolved_markdown_code_span
+looks_like_query_file_target = looks_like_file_target
+
+
 def cross_artifact_role(edge: Any) -> str | None:
     if edge.kind != "CROSS_ARTIFACT":
         return None
     extra = edge.extra if isinstance(edge.extra, dict) else {}
     role = extra.get("relationship_role")
     return role if isinstance(role, str) else None
-
-
-def is_low_confidence_markdown_code_span(edge: Any) -> bool:
-    return is_low_confidence_unresolved_markdown_code_span(edge)
 
 
 def documentation_result(edge: Any, *, endpoint: str, inverse_label: str | None = None) -> dict:
@@ -419,7 +419,3 @@ def is_external_package_target(store: Any, target: str) -> bool:
     if not target:
         return False
     return any(is_external_package_edge(edge) for edge in store.get_edges_by_target(target))
-
-
-def looks_like_query_file_target(target: str) -> bool:
-    return looks_like_file_target(target)

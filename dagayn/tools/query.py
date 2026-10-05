@@ -49,6 +49,7 @@ from .query_graph_dispatch import (
 from .query_graph_support import QUERY_PATTERNS, exactness_action, result_evidence_type
 
 logger = logging.getLogger(__name__)
+_is_low_confidence_unresolved_markdown_code_span = is_low_confidence_unresolved_markdown_code_span
 
 # ---------------------------------------------------------------------------
 # Tool 2: get_impact_radius
@@ -83,10 +84,6 @@ def _partial_coverage_missingness(
             },
         }
     )
-
-
-def _is_low_confidence_unresolved_markdown_code_span(edge: Any) -> bool:
-    return is_low_confidence_unresolved_markdown_code_span(edge)
 
 
 def _semantic_search_guidance(

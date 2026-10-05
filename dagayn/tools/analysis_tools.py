@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from collections.abc import Callable
+from typing import Any, Optional
 
 from .._scope import ArtifactScope
 from ..analysis import (
@@ -25,6 +26,67 @@ from ._common import (
 )
 
 
+def _ranked_lead_tool(
+    repo_root: Optional[str],
+    finder: Callable[..., list[Any]],
+    top_n: int,
+    artifact_scope: ArtifactScope,
+    include_tests: bool,
+    *,
+    result_key: str,
+    summary: str,
+    claim: str,
+    evidence: Callable[[list[Any]], dict[str, Any]],
+    missing_reason: str,
+    claim_effect: str,
+    action: str,
+    next_tool_suggestions: list[str],
+) -> ToolPayload:
+    """Shared body for the ranked hub/bridge/surprise lead tools."""
+    store, _root = _get_store(repo_root)
+    try:
+        answerability = graph_answerability_summary(store)
+        items = finder(
+            store,
+            top_n=top_n,
+            artifact_scope=artifact_scope,
+            include_tests=include_tests,
+        )
+        guidance = [
+            make_guidance_item(
+                claim=claim,
+                evidence=evidence(items),
+                confidence="medium" if items else "low",
+                missingness=[
+                    {
+                        "reason_code": missing_reason,
+                        "severity": "low",
+                        "claim_effect": claim_effect,
+                    }
+                ],
+                action=action,
+                reason_codes=[result_key],
+                counts={result_key: len(items)},
+            )
+        ]
+        payload = make_response(
+            "ok",
+            summary.format(count=len(items)),
+            **{result_key: items},
+            count=len(items),
+            artifact_scope=artifact_scope,
+            include_tests=include_tests,
+            answerability=answerability,
+            missingness=missingness_from_answerability(answerability),
+            guidance=guidance,
+            next_tool_suggestions=next_tool_suggestions,
+        )
+        payload["_hints"] = guidance_actions_to_hints(guidance)
+        return payload
+    finally:
+        store.close()
+
+
 def get_hub_nodes_func(
     repo_root: Optional[str] = None,
     top_n: int = 10,
@@ -41,52 +103,25 @@ def get_hub_nodes_func(
         repo_root: Repository root (auto-detected if empty).
         top_n: Number of top hubs to return (default 10).
     """
-    store, _root = _get_store(repo_root)
-    try:
-        answerability = graph_answerability_summary(store)
-        hubs = find_hub_nodes(
-            store,
-            top_n=top_n,
-            artifact_scope=artifact_scope,
-            include_tests=include_tests,
-        )
-        guidance = [
-            make_guidance_item(
-                claim="Hub nodes are review leads because many edges meet there.",
-                evidence={"type": "computed", "metric": "degree", "examples": hubs[:3]},
-                confidence="medium" if hubs else "low",
-                missingness=[
-                    {
-                        "reason_code": "hub_score_is_degree_rank",
-                        "severity": "low",
-                        "claim_effect": "high degree is a lead, not proof of bad design",
-                    }
-                ],
-                action='review_tool mode="impact" -- check blast radius of a hub',
-                reason_codes=["hub_nodes"],
-                counts={"hub_nodes": len(hubs)},
-            )
-        ]
-        payload = make_response(
-            "ok",
-            f"Found {len(hubs)} hub node(s) with highest connectivity.",
-            hub_nodes=hubs,
-            count=len(hubs),
-            artifact_scope=artifact_scope,
-            include_tests=include_tests,
-            answerability=answerability,
-            missingness=missingness_from_answerability(answerability),
-            guidance=guidance,
-            next_tool_suggestions=[
-                'review_tool mode="impact" -- check blast radius of a hub',
-                "query_graph_tool callers_of -- see what calls a hub",
-                'architecture_analysis_tool mode="bridges" -- find architectural chokepoints',
-            ],
-        )
-        payload["_hints"] = guidance_actions_to_hints(guidance)
-        return payload
-    finally:
-        store.close()
+    return _ranked_lead_tool(
+        repo_root,
+        find_hub_nodes,
+        top_n,
+        artifact_scope,
+        include_tests,
+        result_key="hub_nodes",
+        summary="Found {count} hub node(s) with highest connectivity.",
+        claim="Hub nodes are review leads because many edges meet there.",
+        evidence=lambda hubs: {"type": "computed", "metric": "degree", "examples": hubs[:3]},
+        missing_reason="hub_score_is_degree_rank",
+        claim_effect="high degree is a lead, not proof of bad design",
+        action='review_tool mode="impact" -- check blast radius of a hub',
+        next_tool_suggestions=[
+            'review_tool mode="impact" -- check blast radius of a hub',
+            "query_graph_tool callers_of -- see what calls a hub",
+            'architecture_analysis_tool mode="bridges" -- find architectural chokepoints',
+        ],
+    )
 
 
 def get_bridge_nodes_func(
@@ -105,56 +140,29 @@ def get_bridge_nodes_func(
         repo_root: Repository root (auto-detected if empty).
         top_n: Number of top bridges to return (default 10).
     """
-    store, _root = _get_store(repo_root)
-    try:
-        answerability = graph_answerability_summary(store)
-        bridges = find_bridge_nodes(
-            store,
-            top_n=top_n,
-            artifact_scope=artifact_scope,
-            include_tests=include_tests,
-        )
-        guidance = [
-            make_guidance_item(
-                claim="Bridge nodes are architectural chokepoints on many shortest paths.",
-                evidence={
-                    "type": "computed",
-                    "metric": "betweenness",
-                    "examples": bridges[:3],
-                },
-                confidence="medium" if bridges else "low",
-                missingness=[
-                    {
-                        "reason_code": "betweenness_is_heuristic_lead",
-                        "severity": "low",
-                        "claim_effect": "betweenness ranks review priority, not runtime failure",
-                    }
-                ],
-                action='architecture_analysis_tool mode="hubs" -- compare with high-degree nodes',
-                reason_codes=["bridge_nodes"],
-                counts={"bridge_nodes": len(bridges)},
-            )
-        ]
-        payload = make_response(
-            "ok",
-            f"Found {len(bridges)} bridge node(s) (high betweenness centrality).",
-            bridge_nodes=bridges,
-            count=len(bridges),
-            artifact_scope=artifact_scope,
-            include_tests=include_tests,
-            answerability=answerability,
-            missingness=missingness_from_answerability(answerability),
-            guidance=guidance,
-            next_tool_suggestions=[
-                'architecture_analysis_tool mode="hubs" -- find most connected nodes',
-                'review_tool mode="impact" -- check blast radius',
-                'review_tool mode="changes" -- see if bridges are affected',
-            ],
-        )
-        payload["_hints"] = guidance_actions_to_hints(guidance)
-        return payload
-    finally:
-        store.close()
+    return _ranked_lead_tool(
+        repo_root,
+        find_bridge_nodes,
+        top_n,
+        artifact_scope,
+        include_tests,
+        result_key="bridge_nodes",
+        summary="Found {count} bridge node(s) (high betweenness centrality).",
+        claim="Bridge nodes are architectural chokepoints on many shortest paths.",
+        evidence=lambda bridges: {
+            "type": "computed",
+            "metric": "betweenness",
+            "examples": bridges[:3],
+        },
+        missing_reason="betweenness_is_heuristic_lead",
+        claim_effect="betweenness ranks review priority, not runtime failure",
+        action='architecture_analysis_tool mode="hubs" -- compare with high-degree nodes',
+        next_tool_suggestions=[
+            'architecture_analysis_tool mode="hubs" -- find most connected nodes',
+            'review_tool mode="impact" -- check blast radius',
+            'review_tool mode="changes" -- see if bridges are affected',
+        ],
+    )
 
 
 def get_knowledge_gaps_func(
@@ -275,56 +283,29 @@ def get_surprising_connections_func(
         repo_root: Repository root (auto-detected if empty).
         top_n: Number of top surprises to return (default 15).
     """
-    store, _root = _get_store(repo_root)
-    try:
-        answerability = graph_answerability_summary(store)
-        surprises = find_surprising_connections(
-            store,
-            top_n=top_n,
-            artifact_scope=artifact_scope,
-            include_tests=include_tests,
-        )
-        guidance = [
-            make_guidance_item(
-                claim="Surprising connections are ranked coupling leads, not verdicts.",
-                evidence={
-                    "type": "computed",
-                    "examples": surprises[:3],
-                    "count": len(surprises),
-                },
-                confidence="medium" if surprises else "low",
-                missingness=[
-                    {
-                        "reason_code": "surprise_score_is_heuristic",
-                        "severity": "low",
-                        "claim_effect": "scores prioritize review, not proof of bad design",
-                    }
-                ],
-                action='architecture_analysis_tool mode="overview" -- inspect community structure',
-                reason_codes=["surprising_connections"],
-                counts={"surprising_connections": len(surprises)},
-            )
-        ]
-        payload = make_response(
-            "ok",
-            f"Found {len(surprises)} surprising connection(s).",
-            surprising_connections=surprises,
-            count=len(surprises),
-            artifact_scope=artifact_scope,
-            include_tests=include_tests,
-            answerability=answerability,
-            missingness=missingness_from_answerability(answerability),
-            guidance=guidance,
-            next_tool_suggestions=[
-                'architecture_analysis_tool mode="overview" -- community structure',
-                "query_graph_tool callers_of -- trace the coupling",
-                'architecture_analysis_tool mode="bridges" -- find chokepoints',
-            ],
-        )
-        payload["_hints"] = guidance_actions_to_hints(guidance)
-        return payload
-    finally:
-        store.close()
+    return _ranked_lead_tool(
+        repo_root,
+        find_surprising_connections,
+        top_n,
+        artifact_scope,
+        include_tests,
+        result_key="surprising_connections",
+        summary="Found {count} surprising connection(s).",
+        claim="Surprising connections are ranked coupling leads, not verdicts.",
+        evidence=lambda surprises: {
+            "type": "computed",
+            "examples": surprises[:3],
+            "count": len(surprises),
+        },
+        missing_reason="surprise_score_is_heuristic",
+        claim_effect="scores prioritize review, not proof of bad design",
+        action='architecture_analysis_tool mode="overview" -- inspect community structure',
+        next_tool_suggestions=[
+            'architecture_analysis_tool mode="overview" -- community structure',
+            "query_graph_tool callers_of -- trace the coupling",
+            'architecture_analysis_tool mode="bridges" -- find chokepoints',
+        ],
+    )
 
 
 def get_suggested_questions_func(

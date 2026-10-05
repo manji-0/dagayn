@@ -12,21 +12,21 @@ from ..contracts.bridge_types import BridgeTransitionRecord
 from ..contracts.cross_artifact import (
     bridge_transition_dict,
     is_low_confidence_bridge,
+    is_low_confidence_unresolved_markdown_code_span,
     is_reportable_bridge,
 )
 from ..contracts.cross_artifact import (
-    cross_artifact_role as _shared_cross_artifact_role,
-)
-from ..contracts.cross_artifact import (
-    is_low_confidence_unresolved_markdown_code_span as _shared_low_conf_code_span,
+    cross_artifact_role as _cross_artifact_role,
 )
 from ..contracts.state_types import ChangeAnalysisResult
 from ..coverage import infer_tests_for_node, is_test_file_path
 from ..graph.types import GraphNode, ImpactRadiusResult
-from ..stability_policy import component_stability_profiles, scope_key_for_file
+from ..stability_policy import component_stability_profiles as _component_stability_profiles
+from ..stability_policy import scope_key_for_file as _scope_key_for_file
 from ._common import make_guidance_item
 
 logger = logging.getLogger(__name__)
+_is_low_confidence_unresolved_markdown_code_span = is_low_confidence_unresolved_markdown_code_span
 
 type ReviewValue = Any
 type ReviewPayload = dict[str, ReviewValue]
@@ -88,10 +88,6 @@ def _is_low_signal_doc_path(path: str) -> bool:
     return Path(path.replace("\\", "/")).name in _LOW_SIGNAL_DOC_FILES
 
 
-def _scope_key_for_file(file_path: str | None) -> str | None:
-    return scope_key_for_file(file_path)
-
-
 def _scope_key_for_record(record: ReviewPayload) -> str | None:
     file_path = record.get("file_path") or record.get("file")
     return _scope_key_for_file(str(file_path)) if file_path else None
@@ -124,6 +120,21 @@ def _dedupe_dicts_by_key(items: list[ReviewPayload], key: str, limit: int) -> li
     return out
 
 
+def _rank_dedupe(items: list[ReviewPayload], limit: int) -> list[ReviewPayload]:
+    """Sort by descending score then name, and keep the first of each qualified name."""
+    items.sort(
+        key=lambda item: (
+            -float(item.get("score", 0.0) or 0.0),
+            str(item.get("qualified_name", "")),
+        )
+    )
+    return _dedupe_dicts_by_key(items, "qualified_name", limit)
+
+
+def _ratio(numerator: int, denominator: int) -> float:
+    return round(numerator / denominator, 4) if denominator else 0.0
+
+
 def _confidence_weight(confidence: Any, confidence_tier: Any) -> float:
     try:
         value = float(confidence)
@@ -151,14 +162,6 @@ def _doc_role_weight(role: str | None) -> float:
     if role in {"discussed_by", "discusses_artifact"}:
         return 0.45
     return 0.25
-
-
-def _cross_artifact_role(edge: Any) -> str | None:
-    return _shared_cross_artifact_role(edge)
-
-
-def _is_low_confidence_unresolved_markdown_code_span(edge: Any) -> bool:
-    return _shared_low_conf_code_span(edge)
 
 
 def _is_production_code_node(node: Any) -> bool:
@@ -199,13 +202,6 @@ def _rank_test_gaps(test_gaps: list[ReviewPayload], *, limit: int = 5) -> Review
             "to reduce review noise."
         ),
     }
-
-
-def _component_stability_profiles(
-    store: Any, *, snapshot: Any | None = None
-) -> dict[str, ReviewPayload]:
-    """Return package-level stability expectations from Clean Architecture metrics."""
-    return component_stability_profiles(store, snapshot=snapshot)
 
 
 def _component_density_by_scope(
@@ -304,27 +300,13 @@ def _component_density_by_scope(
             "authored_documented_node_count": authored_documented,
             "extracted_documented_node_count": extracted_documented,
             "heuristic_documented_node_count": heuristic_documented,
-            "direct_test_density": round(tested / prod_count, 4) if prod_count else 0.0,
-            "heuristic_test_density": (
-                round(heuristic_tested / supplemental_denominator, 4)
-                if supplemental_denominator
-                else 0.0
-            ),
-            "transitive_test_density": (
-                round(transitive_tested / supplemental_denominator, 4)
-                if supplemental_denominator
-                else 0.0
-            ),
-            "documentation_density": round(documented / prod_count, 4) if prod_count else 0.0,
-            "authored_documentation_density": (
-                round(authored_documented / prod_count, 4) if prod_count else 0.0
-            ),
-            "extracted_documentation_density": (
-                round(extracted_documented / prod_count, 4) if prod_count else 0.0
-            ),
-            "heuristic_documentation_density": (
-                round(heuristic_documented / prod_count, 4) if prod_count else 0.0
-            ),
+            "direct_test_density": _ratio(tested, prod_count),
+            "heuristic_test_density": _ratio(heuristic_tested, supplemental_denominator),
+            "transitive_test_density": _ratio(transitive_tested, supplemental_denominator),
+            "documentation_density": _ratio(documented, prod_count),
+            "authored_documentation_density": _ratio(authored_documented, prod_count),
+            "extracted_documentation_density": _ratio(extracted_documented, prod_count),
+            "heuristic_documentation_density": _ratio(heuristic_documented, prod_count),
         }
     return densities
 
@@ -484,13 +466,7 @@ def _recommend_tests(
             }
         )
 
-    recommendations.sort(
-        key=lambda item: (
-            -float(item.get("score", 0.0) or 0.0),
-            str(item.get("qualified_name", "")),
-        )
-    )
-    return _dedupe_dicts_by_key(recommendations, "qualified_name", limit)
+    return _rank_dedupe(recommendations, limit)
 
 
 def _doc_evidence_type(role: str | None, confidence_tier: Any) -> str:
@@ -576,92 +552,62 @@ def _documentation_update_candidates(
         scope_key = _scope_key_for_record(source_record)
         profile = stability_profiles.get(scope_key or "", {})
         stability_bonus = 0.08 if profile.get("stable") or profile.get("should_be_stable") else 0.0
-        for edge in outgoing_by_qn.get(qn, []):
-            if _is_low_confidence_unresolved_markdown_code_span(edge):
-                continue
-            role = _cross_artifact_role(edge)
-            if role not in _ARTIFACT_TO_DOC_ROLES:
-                continue
-            if _is_low_signal_doc_path(edge.file_path) and role not in _CONTRACT_DOC_ROLES:
-                continue
-            doc_qn = edge.target_qualified
-            doc_qns.add(doc_qn)
-            score = min(1.0, _doc_role_weight(role) + stability_bonus)
-            candidates.append(
-                {
-                    "file": edge.file_path,
-                    "section": doc_qn.rsplit("::", 1)[-1],
-                    "qualified_name": doc_qn,
-                    "reason": "documentation edge from changed code",
-                    "source": qn,
-                    "relationship_role": role,
-                    "confidence": edge.confidence,
-                    "confidence_tier": edge.confidence_tier,
-                    "score": round(score, 4),
-                    "evidence_level": "cross_artifact",
-                    "evidence_type": _doc_evidence_type(role, edge.confidence_tier),
-                    "missingness": _doc_missingness(role, edge.confidence_tier),
-                    "documentation_action": (
-                        "Read this section and update the contract directive if behavior changed."
-                    ),
-                    "directive_hint": _directive_hint_for_role(
-                        role,
-                        direction="artifact_to_doc",
-                    ),
-                    "scope_key": scope_key,
-                    "stable_contract": role in _CONTRACT_DOC_ROLES,
-                }
-            )
-        for edge in incoming_by_qn.get(qn, []):
-            if _is_low_confidence_unresolved_markdown_code_span(edge):
-                continue
-            role = _cross_artifact_role(edge)
-            if role not in _DOC_TO_ARTIFACT_ROLES:
-                continue
-            if _is_low_signal_doc_path(edge.file_path) and role not in _CONTRACT_DOC_ROLES:
-                continue
-            doc_qn = edge.source_qualified
-            doc_qns.add(doc_qn)
-            score = min(
-                1.0,
-                _doc_role_weight(role)
-                + 0.08 * _confidence_weight(edge.confidence, edge.confidence_tier)
-                + stability_bonus,
-            )
-            candidates.append(
-                {
-                    "file": edge.file_path,
-                    "section": doc_qn.rsplit("::", 1)[-1],
-                    "qualified_name": doc_qn,
-                    "reason": "documentation edge to changed code",
-                    "source": qn,
-                    "relationship_role": role,
-                    "confidence": edge.confidence,
-                    "confidence_tier": edge.confidence_tier,
-                    "score": round(score, 4),
-                    "evidence_level": "cross_artifact",
-                    "evidence_type": _doc_evidence_type(role, edge.confidence_tier),
-                    "missingness": _doc_missingness(role, edge.confidence_tier),
-                    "documentation_action": (
-                        "Read this section and update the contract directive if behavior changed."
-                    ),
-                    "directive_hint": _directive_hint_for_role(
-                        role,
-                        direction="doc_to_artifact",
-                    ),
-                    "scope_key": scope_key,
-                    "stable_contract": role in _CONTRACT_DOC_ROLES,
-                }
-            )
+        for edges_by_qn, roles, endpoint, reason, direction in (
+            (
+                outgoing_by_qn,
+                _ARTIFACT_TO_DOC_ROLES,
+                "target_qualified",
+                "documentation edge from changed code",
+                "artifact_to_doc",
+            ),
+            (
+                incoming_by_qn,
+                _DOC_TO_ARTIFACT_ROLES,
+                "source_qualified",
+                "documentation edge to changed code",
+                "doc_to_artifact",
+            ),
+        ):
+            for edge in edges_by_qn.get(qn, []):
+                if _is_low_confidence_unresolved_markdown_code_span(edge):
+                    continue
+                role = _cross_artifact_role(edge)
+                if role not in roles:
+                    continue
+                if _is_low_signal_doc_path(edge.file_path) and role not in _CONTRACT_DOC_ROLES:
+                    continue
+                doc_qn = getattr(edge, endpoint)
+                doc_qns.add(doc_qn)
+                weight = _doc_role_weight(role)
+                if direction == "doc_to_artifact":
+                    weight += 0.08 * _confidence_weight(edge.confidence, edge.confidence_tier)
+                score = min(1.0, weight + stability_bonus)
+                candidates.append(
+                    {
+                        "file": edge.file_path,
+                        "section": doc_qn.rsplit("::", 1)[-1],
+                        "qualified_name": doc_qn,
+                        "reason": reason,
+                        "source": qn,
+                        "relationship_role": role,
+                        "confidence": edge.confidence,
+                        "confidence_tier": edge.confidence_tier,
+                        "score": round(score, 4),
+                        "evidence_level": "cross_artifact",
+                        "evidence_type": _doc_evidence_type(role, edge.confidence_tier),
+                        "missingness": _doc_missingness(role, edge.confidence_tier),
+                        "documentation_action": (
+                            "Read this section and update the contract directive "
+                            "if behavior changed."
+                        ),
+                        "directive_hint": _directive_hint_for_role(role, direction=direction),
+                        "scope_key": scope_key,
+                        "stable_contract": role in _CONTRACT_DOC_ROLES,
+                    }
+                )
 
     if not include_heuristic_docs:
-        candidates.sort(
-            key=lambda item: (
-                -float(item.get("score", 0.0) or 0.0),
-                str(item.get("qualified_name", "")),
-            )
-        )
-        return _dedupe_dicts_by_key(candidates, "qualified_name", limit)
+        return _rank_dedupe(candidates, limit)
 
     for node in impact.get("impacted_nodes", []):
         file_path = getattr(node, "file_path", "")
@@ -697,13 +643,7 @@ def _documentation_update_candidates(
             }
         )
 
-    candidates.sort(
-        key=lambda item: (
-            -float(item.get("score", 0.0) or 0.0),
-            str(item.get("qualified_name", "")),
-        )
-    )
-    return _dedupe_dicts_by_key(candidates, "qualified_name", limit)
+    return _rank_dedupe(candidates, limit)
 
 
 def _stability_contracts(

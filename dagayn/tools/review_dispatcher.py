@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Literal, cast
+from collections.abc import Callable
+from typing import Any, Literal, cast
 
 from pydantic import ValidationError
 
@@ -86,58 +87,61 @@ def review_func(
     except ValidationError as exc:
         return _error(format_validation_error(exc), mode=mode, repo_root=repo_root)
 
-    if request.mode == "changes":
-        return _with_dispatch_metadata(
-            detect_changes_func(
-                base=request.base,
-                changed_files=request.changed_files,
-                include_source=(
-                    request.include_source if request.include_source is not None else False
-                ),
-                max_depth=request.max_depth,
-                repo_root=request.repo_root,
-                detail_level=request.detail_level,
-            ),
-            mode=request.mode,
-            called_subtool="detect_changes_func",
-            repo_root=request.repo_root,
-        )
-    if request.mode == "context":
-        return _with_dispatch_metadata(
-            get_review_context(
-                changed_files=request.changed_files,
-                max_depth=request.max_depth,
-                include_source=(True if request.include_source is None else request.include_source),
-                max_lines_per_file=request.max_lines_per_file,
-                repo_root=request.repo_root,
-                base=request.base,
-                detail_level=request.detail_level,
-            ),
-            mode=request.mode,
-            called_subtool="get_review_context",
-            repo_root=request.repo_root,
-        )
-    if request.mode == "affected_flows":
-        return _with_dispatch_metadata(
-            get_affected_flows_func(
-                changed_files=request.changed_files,
-                base=request.base,
-                repo_root=request.repo_root,
-            ),
-            mode=request.mode,
-            called_subtool="get_affected_flows_func",
-            repo_root=request.repo_root,
-        )
-    return _with_dispatch_metadata(
-        get_impact_radius(
-            changed_files=request.changed_files,
-            max_depth=request.max_depth,
-            max_results=request.max_nodes,
-            repo_root=request.repo_root,
-            base=request.base,
-            detail_level=request.detail_level,
+    include_source = request.include_source
+    subtools: dict[str, tuple[str, Callable[..., ToolPayload], dict[str, Any]]] = {
+        "changes": (
+            "detect_changes_func",
+            detect_changes_func,
+            {
+                "base": request.base,
+                "changed_files": request.changed_files,
+                "include_source": include_source if include_source is not None else False,
+                "max_depth": request.max_depth,
+                "repo_root": request.repo_root,
+                "detail_level": request.detail_level,
+            },
         ),
+        "context": (
+            "get_review_context",
+            get_review_context,
+            {
+                "changed_files": request.changed_files,
+                "max_depth": request.max_depth,
+                "include_source": True if include_source is None else include_source,
+                "max_lines_per_file": request.max_lines_per_file,
+                "repo_root": request.repo_root,
+                "base": request.base,
+                "detail_level": request.detail_level,
+            },
+        ),
+        "affected_flows": (
+            "get_affected_flows_func",
+            get_affected_flows_func,
+            {
+                "changed_files": request.changed_files,
+                "base": request.base,
+                "repo_root": request.repo_root,
+            },
+        ),
+    }
+    called_subtool, subtool, kwargs = subtools.get(
+        request.mode,
+        (
+            "get_impact_radius",
+            get_impact_radius,
+            {
+                "changed_files": request.changed_files,
+                "max_depth": request.max_depth,
+                "max_results": request.max_nodes,
+                "repo_root": request.repo_root,
+                "base": request.base,
+                "detail_level": request.detail_level,
+            },
+        ),
+    )
+    return _with_dispatch_metadata(
+        subtool(**kwargs),
         mode=request.mode,
-        called_subtool="get_impact_radius",
+        called_subtool=called_subtool,
         repo_root=request.repo_root,
     )
