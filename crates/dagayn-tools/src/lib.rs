@@ -332,26 +332,89 @@ fn is_placeholder(value: &str) -> bool {
         && !value[2..value.len() - 1].contains('}')
 }
 
-/// `dagayn.server.main._resolve_repo_root` followed by `_validate_repo_root`:
-/// the client's `repo_root`, else the pinned one, resolved. `None` when
-/// neither is given (Python auto-detects) or the root is not one Python would
-/// accept without a message.
-pub(crate) fn explicit_repo(context: &Context, requested: Option<&str>) -> Option<PathBuf> {
+/// The repository a tool call resolved to, and whether it was named (the
+/// client's `repo_root` or the server's `--repo`) or auto-detected, as
+/// `_repo.source` reports it.
+pub(crate) struct RepoRoot {
+    pub path: PathBuf,
+    pub explicit: bool,
+}
+
+impl RepoRoot {
+    /// The root as a tool that resolves it first and passes it on as a
+    /// string sees it (`session_prepare._resolve_repo`, then
+    /// `_get_store(str(root))`): validated like a named root, and reported
+    /// as explicit.
+    pub(crate) fn into_explicit(self) -> Option<RepoRoot> {
+        let is_project_root = self.path.join(".git").exists()
+            || self.path.join(".svn").exists()
+            || self.path.join(".dagayn").join("graph.db").is_file();
+        is_project_root.then_some(RepoRoot {
+            path: self.path,
+            explicit: true,
+        })
+    }
+}
+
+impl AsRef<Path> for RepoRoot {
+    fn as_ref(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl std::ops::Deref for RepoRoot {
+    type Target = Path;
+
+    fn deref(&self) -> &Path {
+        &self.path
+    }
+}
+
+/// `dagayn.server.main._resolve_repo_root` followed by `_get_store`'s root
+/// resolution: the client's `repo_root`, else the pinned one, validated as
+/// `_validate_repo_root` does; else `find_project_root()` from the working
+/// directory, refused (left to Python, which explains) when that lands on
+/// the home directory or the filesystem root. `None` also when the root is
+/// not one Python would accept without a message, or only Python resolves it.
+pub(crate) fn resolve_repo(context: &Context, requested: Option<&str>) -> Option<RepoRoot> {
     let requested = requested.filter(|value| !value.is_empty() && !is_placeholder(value));
-    let candidate = match requested {
-        Some(value) => PathBuf::from(value),
-        None => context.pinned_repo.clone()?,
+    let pinned = context
+        .pinned_repo
+        .as_ref()
+        .filter(|path| !path.to_str().is_some_and(is_placeholder));
+    let candidate = match (requested, pinned) {
+        (Some(value), _) => PathBuf::from(value),
+        (None, Some(path)) => path.clone(),
+        (None, None) => {
+            let cwd = std::env::current_dir().ok()?;
+            let dagayn_build::ProjectRoot::Found(root) = dagayn_build::find_project_root(&cwd)
+            else {
+                return None;
+            };
+            if dagayn_build::unsafe_root_reason(&root).is_some() {
+                return None;
+            }
+            let path = root.canonicalize().ok()?;
+            return Some(RepoRoot {
+                path,
+                explicit: false,
+            });
+        }
     };
     let resolved = candidate.canonicalize().ok().filter(|path| path.is_dir())?;
     let is_project_root = resolved.join(".git").exists()
         || resolved.join(".svn").exists()
         || resolved.join(".dagayn").join("graph.db").is_file();
-    is_project_root.then_some(resolved)
+    is_project_root.then_some(RepoRoot {
+        path: resolved,
+        explicit: true,
+    })
 }
 
 /// An open graph under the shared read lock, as `_get_store` leaves it.
 pub(crate) struct OpenGraph {
     pub root: PathBuf,
+    explicit: bool,
     pub db_path: PathBuf,
     pub store: GraphStore,
     _lock: GraphLock,
@@ -363,7 +426,7 @@ impl OpenGraph {
         json!({
             "repo_root": self.root.to_string_lossy(),
             "db_path": self.db_path.to_string_lossy(),
-            "source": "explicit",
+            "source": if self.explicit { "explicit" } else { "auto" },
         })
     }
 }
@@ -371,7 +434,7 @@ impl OpenGraph {
 /// `_get_store` for an explicit root, when it would open an existing graph in
 /// the default location that describes this repository; `None` whenever
 /// Python would create, migrate, relocate, or refuse it.
-pub(crate) fn open_graph(root: &Path) -> Option<OpenGraph> {
+pub(crate) fn open_graph(root: &RepoRoot) -> Option<OpenGraph> {
     if std::env::var_os("CRG_DATA_DIR").is_some_and(|value| !value.is_empty()) {
         return None;
     }
@@ -399,6 +462,7 @@ pub(crate) fn open_graph(root: &Path) -> Option<OpenGraph> {
     }
     Some(OpenGraph {
         root: root.to_path_buf(),
+        explicit: root.explicit,
         db_path,
         store,
         _lock: lock,
@@ -409,6 +473,7 @@ pub(crate) fn open_graph(root: &Path) -> Option<OpenGraph> {
 /// holds it.
 pub(crate) struct WritableGraph {
     pub root: PathBuf,
+    explicit: bool,
     pub db_path: PathBuf,
     pub store: GraphStore,
     _lock: GraphLock,
@@ -420,7 +485,7 @@ impl WritableGraph {
         json!({
             "repo_root": self.root.to_string_lossy(),
             "db_path": self.db_path.to_string_lossy(),
-            "source": "explicit",
+            "source": if self.explicit { "explicit" } else { "auto" },
         })
     }
 }
@@ -433,7 +498,7 @@ impl WritableGraph {
 /// the graph: closing a read-write connection can remove the WAL index under
 /// one (see `GraphStore::open_read_only`). The front end calls the tools in
 /// [`writes_graph`] only before it boots the Python server.
-pub(crate) fn open_graph_for_write(root: &Path) -> Option<WritableGraph> {
+pub(crate) fn open_graph_for_write(root: &RepoRoot) -> Option<WritableGraph> {
     if std::env::var_os("CRG_DATA_DIR").is_some_and(|value| !value.is_empty()) {
         return None;
     }
@@ -454,6 +519,7 @@ pub(crate) fn open_graph_for_write(root: &Path) -> Option<WritableGraph> {
     let store = GraphStore::open(&db_path).ok()?;
     Some(WritableGraph {
         root: root.to_path_buf(),
+        explicit: root.explicit,
         db_path,
         store,
         _lock: lock,

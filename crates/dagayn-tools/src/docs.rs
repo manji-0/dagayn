@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use serde_json::{Map, Value};
 
-use crate::{Args, Context, Ordered, Payload, explicit_repo, open_graph};
+use crate::{Args, Context, Ordered, Payload, open_graph, resolve_repo};
 
 const REFERENCE: &str = "docs/LLM-OPTIMIZED-REFERENCE.md";
 
@@ -17,14 +17,14 @@ pub(crate) fn get_docs_section(
     let max_chars = usize::try_from(args.integer("max_chars", 4000)?)
         .ok()
         .filter(|max| *max > 0)?;
-    let root = explicit_repo(context, args.optional_string("repo_root")?)?;
+    let root = resolve_repo(context, args.optional_string("repo_root")?)?;
     // Python opens the store to learn the root (and to report `_repo`); one
     // it would create or refuse is left to it.
     let graph = open_graph(&root)?;
     let repo = graph.repo_context();
     drop(graph);
 
-    let mut search_roots: Vec<PathBuf> = vec![root];
+    let mut search_roots: Vec<PathBuf> = vec![root.path.clone()];
     if let Some(package_root) = &context.package_root
         && package_root.join(REFERENCE).exists()
         && !search_roots.contains(package_root)
@@ -104,7 +104,7 @@ pub(crate) fn get_wiki_page(context: &Context, arguments: &Map<String, Value>) -
     if !name.is_ascii() || name.contains('\0') {
         return None;
     }
-    let root = explicit_repo(context, args.optional_string("repo_root")?)?;
+    let root = resolve_repo(context, args.optional_string("repo_root")?)?;
     let graph = open_graph(&root)?;
     let repo = graph.repo_context();
     drop(graph);

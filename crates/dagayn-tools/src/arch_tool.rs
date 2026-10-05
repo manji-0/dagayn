@@ -14,7 +14,7 @@ use crate::architecture::{
 use crate::review::guidance_actions_to_hints;
 use crate::review_summary::guidance_item;
 use crate::{
-    Args, Context, Ordered, Payload, explicit_repo, open_graph, seal_dispatch, suggestions,
+    Args, Context, Ordered, Payload, open_graph, resolve_repo, seal_dispatch, suggestions,
 };
 
 const DECLARED: &[&str] = &[
@@ -173,7 +173,7 @@ pub(crate) fn architecture(context: &Context, arguments: &Map<String, Value>) ->
         return None;
     }
     let runtime = context.runtime.clone()?;
-    let root = explicit_repo(context, args.optional_string("repo_root")?)?;
+    let root = resolve_repo(context, args.optional_string("repo_root")?)?;
     let graph = open_graph(&root)?;
     let artifact = Artifact::parse(request.artifact_scope)?;
     let profile = Profile::parse(request.dependency_profile)?;

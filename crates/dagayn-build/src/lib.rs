@@ -10,6 +10,7 @@ mod local_time;
 mod lock;
 pub mod parse_batch;
 mod postprocess;
+mod project_root;
 mod status;
 mod update;
 mod vcs;
@@ -20,6 +21,7 @@ pub use data_dir::{
 };
 pub use lock::{GraphLock, GraphWriteLock, LockError, LockMode};
 pub use postprocess::{PostprocessLevel, rerun_postprocess};
+pub use project_root::{ProjectRoot, find_project_root, unsafe_root_reason};
 pub use status::{
     CommitFreshness, SyncAssessment, assess_graph_sync, commit_tier_freshness,
     embedding_refresh_skips, openai_names_match, resolve_active_embedding_provider, status_lines,

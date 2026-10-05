@@ -737,6 +737,17 @@ already done); a semantic decline (non-ASCII rename, embedding fallbacks,
 `include_source`, verbose detail, unmappable bases) has to be completed in
 Rust first. Classify each tool's decline sites to get that list.
 
+Shared declines, first item (done): an omitted `repo_root`. The installed
+MCP entries start `dagayn serve` without `--repo` and clients rarely pass
+`repo_root`, so until now every call in a real session went to Python.
+`dagayn_build::find_project_root` ports `find_project_root` for git
+checkouts (environment override, working directory, editor workspace
+hints) and leaves jj, SVN, and ambiguous hints to Python; an auto-detected
+wide root is refused before anything is opened. The remaining shared
+declines are a missing `graph.db`, a busy read lock (no wait on the
+front end's reader), `CRG_DATA_DIR`, a legacy `.dagayn.db`, and a schema
+Python would migrate.
+
 Not ported, on inspection: `session prepare`. Both installed hooks pass
 `--local-embedding`, so its embedding phase always runs. That phase is
 `inline` (the sidecar embeds now) when vectors are missing or at least 5%

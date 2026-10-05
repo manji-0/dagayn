@@ -5,7 +5,7 @@ use std::path::Path;
 use serde_json::{Map, Value, json};
 
 use crate::query::node_dict;
-use crate::{Args, Context, Ordered, Payload, explicit_repo, open_graph};
+use crate::{Args, Context, Ordered, Payload, open_graph, resolve_repo};
 
 /// `Optional[str]` that only a JSON string or null satisfies.
 fn optional_text<'a>(arguments: &'a Map<String, Value>, key: &str) -> Option<Option<&'a str>> {
@@ -34,7 +34,7 @@ pub(crate) fn find_large_functions(
     let limit = args.integer("limit", 50)?;
     let kind = optional_text(arguments, "kind")?;
     let pattern = optional_text(arguments, "file_path_pattern")?;
-    let root = explicit_repo(context, args.optional_string("repo_root")?)?;
+    let root = resolve_repo(context, args.optional_string("repo_root")?)?;
     let graph = open_graph(&root)?;
     let nodes = graph
         .store

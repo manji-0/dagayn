@@ -13,7 +13,7 @@ use dagayn_graph::{GraphNode, GraphStore};
 use serde_json::{Map, Value, json};
 
 use crate::answerability::Answerability;
-use crate::{Args, Context, Ordered, Payload, explicit_repo, open_graph};
+use crate::{Args, Context, Ordered, Payload, open_graph, resolve_repo};
 
 /// `_MAX_SEARCH_LIMIT`.
 const MAX_LIMIT: i64 = 200;
@@ -618,7 +618,7 @@ pub(crate) fn semantic_search(
         Some(_) => return None,
     };
     let request = embedding_request(context, &args)?;
-    let root = explicit_repo(context, args.optional_string("repo_root")?)?;
+    let root = resolve_repo(context, args.optional_string("repo_root")?)?;
     if !matches!(detect_vcs(&root), Vcs::Git | Vcs::None) {
         return None;
     }

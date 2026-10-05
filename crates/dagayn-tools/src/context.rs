@@ -10,7 +10,7 @@ use dagayn_build::{Vcs, detect_vcs};
 use serde_json::{Map, Value, json};
 
 use crate::answerability::Answerability;
-use crate::{Args, Context, Ordered, Payload, explicit_repo, open_graph};
+use crate::{Args, Context, Ordered, Payload, open_graph, resolve_repo};
 
 const SEEDED_NEEDS_VERIFY_KEY: &str = "seeded_needs_content_verify";
 
@@ -220,7 +220,7 @@ pub(crate) fn get_minimal_context(
     if !folds_like_python(task) {
         return None;
     }
-    let root = explicit_repo(context, args.optional_string("repo_root")?)?;
+    let root = resolve_repo(context, args.optional_string("repo_root")?)?;
     let (git, vcs) = match detect_vcs(&root) {
         Vcs::Git => (true, "git"),
         Vcs::None => (false, "none"),

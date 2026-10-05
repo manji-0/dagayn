@@ -1,7 +1,8 @@
-//! `review_tool` (`dagayn.tools.review_dispatcher.review_func`) for
-//! `mode="affected_flows"` (`get_affected_flows_func`) and `mode="impact"`
-//! (`dagayn.tools.query.get_impact_radius`). `changes` and `context` stay
-//! Python's, as do jj, svn, and a ref Python rejects.
+//! `review_tool` (`dagayn.tools.review_dispatcher.review_func`) for every
+//! mode: `changes` (`detect_changes_func`), `context`
+//! (`get_review_context`), `affected_flows` (`get_affected_flows_func`), and
+//! `impact` (`dagayn.tools.query.get_impact_radius`). jj, svn, and a ref
+//! Python rejects stay Python's.
 
 use std::collections::HashSet;
 use std::path::{Component, Path, PathBuf};
@@ -18,7 +19,7 @@ use crate::coverage::splitlines;
 use crate::hints::{generate_hints, session};
 use crate::query::{edge_dict, node_dict};
 use crate::review_summary::change_analysis_summary;
-use crate::{Args, Context, OpenGraph, Ordered, Payload, explicit_repo, open_graph};
+use crate::{Args, Context, OpenGraph, Ordered, Payload, open_graph, resolve_repo};
 
 const DECLARED: &[&str] = &[
     "mode",
@@ -113,7 +114,7 @@ pub(crate) fn review(context: &Context, arguments: &Map<String, Value>) -> Optio
     };
     let request = Request::parse(&args, arguments)?;
     let runtime = context.runtime.clone()?;
-    let root = explicit_repo(context, args.optional_string("repo_root")?)?;
+    let root = resolve_repo(context, args.optional_string("repo_root")?)?;
     let graph = open_graph(&root)?;
     let stats = graph.store.get_stats().ok()?;
     let answerability = Answerability::recorded(&graph.store, &stats)?;

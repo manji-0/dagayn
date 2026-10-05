@@ -360,11 +360,6 @@ fn a_missing_or_foreign_graph_goes_to_python() {
     let context = repo.context();
     assert!(declines(&context, "list_graph_stats_tool", json!({})));
     assert!(declines(
-        &Context::default(),
-        "list_graph_stats_tool",
-        json!({})
-    ));
-    assert!(declines(
         &context,
         "list_graph_stats_tool",
         json!({"repo_root": "${workspaceFolder}"})

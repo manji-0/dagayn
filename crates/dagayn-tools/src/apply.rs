@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{Map, Value, json};
 
 use crate::difflib::{splitlines, unified_diff};
-use crate::{Args, Context, Ordered, Payload, explicit_repo, pending};
+use crate::{Args, Context, Ordered, Payload, pending, resolve_repo};
 
 struct Edit {
     file: String,
@@ -165,7 +165,7 @@ pub(crate) fn apply_refactor(context: &Context, arguments: &Map<String, Value>) 
         Some(Value::Bool(flag)) => *flag,
         Some(_) => return None,
     };
-    let root = explicit_repo(context, args.optional_string("repo_root")?)?;
+    let root = resolve_repo(context, args.optional_string("repo_root")?)?;
 
     pending::cleanup_expired();
     let Some(raw) = pending::get(refactor_id) else {

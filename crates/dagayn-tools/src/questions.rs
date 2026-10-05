@@ -8,7 +8,7 @@ use crate::analysis::py_prefix;
 use crate::answerability::Answerability;
 use crate::arch_tool::analysis_response;
 use crate::review_summary::guidance_item;
-use crate::{Args, Context, Payload, explicit_repo, open_graph};
+use crate::{Args, Context, Payload, open_graph, resolve_repo};
 
 const PRIORITIES: [&str; 3] = ["high", "medium", "low"];
 
@@ -18,7 +18,7 @@ pub(crate) fn suggested_questions(
 ) -> Option<Payload> {
     let args = Args::new(arguments, &["top_n", "repo_root"])?;
     let top_n = args.integer("top_n", 15)?;
-    let root = explicit_repo(context, args.optional_string("repo_root")?)?;
+    let root = resolve_repo(context, args.optional_string("repo_root")?)?;
     let graph = open_graph(&root)?;
     let stats = graph.store.get_stats().ok()?;
     let answerability = Answerability::recorded(&graph.store, &stats)?;

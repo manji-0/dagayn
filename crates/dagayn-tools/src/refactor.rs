@@ -6,7 +6,7 @@ use serde_json::{Map, Value, json};
 
 use crate::analysis::py_prefix;
 use crate::answerability::Answerability;
-use crate::{Args, Context, Ordered, Payload, explicit_repo, hints, open_graph};
+use crate::{Args, Context, Ordered, Payload, hints, open_graph, resolve_repo};
 
 const DECLARED: &[&str] = &[
     "mode",
@@ -50,7 +50,7 @@ pub(crate) fn refactor(context: &Context, arguments: &Map<String, Value>) -> Opt
     } else {
         None
     };
-    let root = explicit_repo(context, args.optional_string("repo_root")?)?;
+    let root = resolve_repo(context, args.optional_string("repo_root")?)?;
     let graph = open_graph(&root)?;
     let store = &graph.store;
     let stats = store.get_stats().ok()?;

@@ -14,7 +14,7 @@ use serde_json::{Map, Value, json};
 
 use crate::answerability::Answerability;
 use crate::source::{SourceCoverage, source_row};
-use crate::{Args, Context, OpenGraph, Ordered, Payload, explicit_repo, open_graph};
+use crate::{Args, Context, OpenGraph, Ordered, Payload, open_graph, resolve_repo};
 
 /// `_BUILTIN_CALL_NAMES`: bare names `callers_of` skips.
 const BUILTIN_CALL_NAMES: &[&str] = &[
@@ -1192,7 +1192,7 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
         return None;
     }
     let depth = depth.min(MAX_DEPTH);
-    let root = explicit_repo(context, args.optional_string("repo_root")?)?;
+    let root = resolve_repo(context, args.optional_string("repo_root")?)?;
     if !matches!(detect_vcs(&root), Vcs::Git | Vcs::None) {
         return None;
     }

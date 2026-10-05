@@ -2,7 +2,7 @@
 
 use serde_json::{Map, Value, json};
 
-use crate::{Args, Context, Ordered, Payload, explicit_repo, open_graph, suggestions};
+use crate::{Args, Context, Ordered, Payload, open_graph, resolve_repo, suggestions};
 
 const NEXT_TOOL_SUGGESTIONS: [&str; 3] = [
     "architecture_analysis_tool mode=\"communities\" -- inspect structure",
@@ -15,7 +15,7 @@ pub(crate) fn list_graph_stats(
     arguments: &Map<String, Value>,
 ) -> Option<Payload> {
     let args = Args::new(arguments, &["repo_root"])?;
-    let root = explicit_repo(context, args.optional_string("repo_root")?)?;
+    let root = resolve_repo(context, args.optional_string("repo_root")?)?;
     let graph = open_graph(&root)?;
     let stats = graph.store.get_stats().ok()?;
     // Every vector, whatever the provider; none without the table.

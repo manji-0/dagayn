@@ -48,8 +48,6 @@ fn unexpected_arguments_go_to_python() {
             "get_docs_section_tool",
             json!({"section_name": "trust", "max_chars": 0}),
         ),
-        // No repo given and none pinned: Python auto-detects.
-        ("get_docs_section_tool", json!({"section_name": "trust"})),
         ("query_graph_tool", json!({})),
     ] {
         assert!(

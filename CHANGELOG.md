@@ -6,6 +6,18 @@ All notable changes to `dagayn` are documented here.
 
 ### Changed
 
+- The Rust front end of `dagayn serve` now answers tool calls that omit
+  `repo_root` on a server started without `--repo`, which is how the
+  installed MCP entries run. It resolves the root the way Python's
+  `find_project_root` does (`CRG_REPO_ROOT`, the working directory's git
+  checkout, then `CLAUDE_PROJECT_DIR` / `CURSOR_PROJECT_DIR` /
+  `WORKSPACE_FOLDER_PATHS`) and reports `_repo.source: "auto"` as Python
+  does. Before, every such call fell back to Python, so the natively
+  answered tools never ran in Rust in a real session. A session of a
+  minimal context and two queries now takes 0.25 s and 66 MB instead of
+  0.77 s and 225 MB here. jj and SVN checkouts, ambiguous workspace hints,
+  and an auto-detected home directory or filesystem root are still left to
+  Python, which explains them.
 - `dagayn serve` over stdio (from the `dagayn` command) answers
   `initialize`, `ping`, and the tool, prompt, and resource listings from a
   Rust front end (and, from the replies recorded with that surface,

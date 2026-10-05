@@ -11,7 +11,7 @@ use crate::answerability::Answerability;
 use crate::coverage::splitlines;
 use crate::review::guidance_actions_to_hints;
 use crate::review_summary::guidance_item;
-use crate::{Args, Context, Ordered, Payload, explicit_repo, open_graph, seal_dispatch};
+use crate::{Args, Context, Ordered, Payload, open_graph, resolve_repo, seal_dispatch};
 
 const DECLARED: &[&str] = &[
     "mode",
@@ -83,7 +83,7 @@ pub(crate) fn flow(context: &Context, arguments: &Map<String, Value>) -> Option<
         return None;
     }
     let runtime = context.runtime.clone()?;
-    let root = explicit_repo(context, args.optional_string("repo_root")?)?;
+    let root = resolve_repo(context, args.optional_string("repo_root")?)?;
     let graph = open_graph(&root)?;
     let stats = graph.store.get_stats().ok()?;
     let answerability = Answerability::recorded(&graph.store, &stats)?;

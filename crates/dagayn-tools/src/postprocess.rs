@@ -3,7 +3,7 @@
 
 use serde_json::{Map, Value, json};
 
-use crate::{Context, Ordered, Payload, explicit_repo, open_graph_for_write};
+use crate::{Context, Ordered, Payload, open_graph_for_write, resolve_repo};
 
 /// A `bool` argument with a default; a JSON boolean only.
 fn flag(arguments: &Map<String, Value>, key: &str) -> Option<bool> {
@@ -22,7 +22,7 @@ pub(crate) fn run_postprocess(
     let flows = flag(arguments, "flows")?;
     let communities = flag(arguments, "communities")?;
     let fts = flag(arguments, "fts")?;
-    let root = explicit_repo(context, args.optional_string("repo_root")?)?;
+    let root = resolve_repo(context, args.optional_string("repo_root")?)?;
     let mut graph = open_graph_for_write(&root)?;
     // A failed step leaves the call to Python, which reruns every step.
     let counters =

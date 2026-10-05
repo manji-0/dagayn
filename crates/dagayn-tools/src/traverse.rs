@@ -11,7 +11,7 @@ use dagayn_graph::{GraphNode, GraphStore};
 use serde_json::{Map, Value, json};
 
 use crate::search::{embedding_request, top_qualified_name};
-use crate::{Args, Context, Ordered, Payload, explicit_repo, open_graph, suggestions};
+use crate::{Args, Context, Ordered, Payload, open_graph, resolve_repo, suggestions};
 
 const NOT_FOUND_SUGGESTIONS: [&str; 2] = [
     "semantic_search_nodes_tool -- search more broadly for the symbol",
@@ -243,7 +243,7 @@ pub(crate) fn traverse_graph(context: &Context, arguments: &Map<String, Value>) 
     let depth = args.integer("depth", 3)?;
     let budget = args.integer("token_budget", 2000)?;
     let request = embedding_request(context, &args)?;
-    let root = explicit_repo(context, args.optional_string("repo_root")?)?;
+    let root = resolve_repo(context, args.optional_string("repo_root")?)?;
     if !matches!(detect_vcs(&root), Vcs::Git | Vcs::None) {
         return None;
     }

@@ -13,7 +13,7 @@ use dagayn_build::{SyncAssessment, Vcs, detect_vcs, is_linked_worktree};
 use serde_json::{Map, Value, json};
 
 use crate::answerability::Answerability;
-use crate::{Args, Context, Ordered, Payload, explicit_repo, open_graph, suggestions};
+use crate::{Args, Context, Ordered, Payload, open_graph, resolve_repo, suggestions};
 
 /// The budget the MCP wrapper passes.
 const BUDGET_SECONDS: i64 = 300;
@@ -61,7 +61,9 @@ pub(crate) fn ensure_graph(context: &Context, arguments: &Map<String, Value>) ->
     if std::env::var(HOOK_UPDATE_ENV).is_ok_and(|value| !value.is_empty() && value != "0") {
         return None;
     }
-    let root = explicit_repo(context, args.optional_string("repo_root")?)?;
+    // `session_prepare._resolve_repo` resolves the root before opening the
+    // store, so even an auto-detected one is validated and reported explicit.
+    let root = resolve_repo(context, args.optional_string("repo_root")?)?.into_explicit()?;
     if detect_vcs(&root) != Vcs::Git || is_linked_worktree(&root) {
         return None;
     }

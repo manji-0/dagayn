@@ -45,13 +45,16 @@ def repo(tmp_path: Path) -> Path:
 
 
 class Session:
-    def __init__(self, repo: Path, **env: str) -> None:
+    def __init__(self, repo: Path | None, cwd: Path | None = None, /, **env: str) -> None:
+        """``dagayn serve --repo repo``, or without ``--repo`` from *cwd*."""
+        pin = ["--repo", str(repo)] if repo is not None else []
         self.proc = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
-            [DAGAYN, "serve", "--repo", repo, "--tools", "all"],
+            [DAGAYN, "serve", *pin, "--tools", "all"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             env=_env(**env),
+            cwd=cwd,
             text=True,
         )
 
@@ -223,12 +226,19 @@ def git_repo(tmp_path: Path) -> Path:
     return root
 
 
-def _call_both(repo: Path, name: str, arguments: dict[str, Any]) -> tuple[Any, Any, str]:
+def _call_both(
+    repo: Path | None,
+    name: str,
+    arguments: dict[str, Any],
+    *,
+    cwd: Path | None = None,
+    **extra_env: str,
+) -> tuple[Any, Any, str]:
     """The Rust front end's and fastmcp's results, and the front end's stderr."""
     results = []
     rust_stderr = ""
     for env in ({}, {"DAGAYN_PYTHON_CLI": "1"}):
-        session = Session(repo, **env)
+        session = Session(repo, cwd, **extra_env, **env)
         session.open()
         session.send(
             {"id": 1, "method": "tools/call", "params": {"name": name, "arguments": arguments}}
@@ -329,6 +339,65 @@ def test_query_graph_answers_in_rust_as_python_does(
     assert BOOT_TRACE not in stderr
     assert rust["structuredContent"] == python["structuredContent"]
     assert json.loads(rust["content"][0]["text"]) == rust["structuredContent"]
+
+
+def _second_repo(tmp_path: Path) -> Path:
+    other = tmp_path / "other"
+    (other / ".git").mkdir(parents=True)
+    return other
+
+
+@pytest.mark.parametrize(
+    ("where", "hints", "native"),
+    [
+        # The server's working directory is the checkout, or below it.
+        ("repo", {}, True),
+        ("repo/sub", {}, True),
+        # An editor that starts the server elsewhere names the project.
+        ("outside", {"CLAUDE_PROJECT_DIR": "repo"}, True),
+        ("outside", {"WORKSPACE_FOLDER_PATHS": "repo"}, True),
+        ("repo", {"CURSOR_PROJECT_DIR": "repo"}, True),
+        ("outside", {"CRG_REPO_ROOT": "repo"}, True),
+        # Two unrelated workspaces: Python explains the ambiguity.
+        ("outside", {"WORKSPACE_FOLDER_PATHS": "repo,other"}, False),
+        # No checkout and no hint: Python decides (and refuses $HOME).
+        ("outside", {}, False),
+    ],
+)
+def test_an_omitted_repo_root_is_auto_detected_as_python_does(
+    git_repo: Path, tmp_path: Path, where: str, hints: dict[str, str], native: bool
+) -> None:
+    places = {
+        "repo": git_repo,
+        "repo/sub": git_repo / "sub",
+        "outside": tmp_path / "outside",
+        "other": _second_repo(tmp_path),
+    }
+    for path in places.values():
+        path.mkdir(exist_ok=True)
+    env = {
+        var: ",".join(str(places[name]) for name in value.split(","))
+        for var, value in hints.items()
+    }
+    arguments = {"pattern": "callers_of", "target": "app.py::helper"}
+    rust, python, stderr = _call_both(None, "query_graph_tool", arguments, cwd=places[where], **env)
+    assert (NATIVE_TRACE in stderr) is native
+    assert rust["structuredContent"] == python["structuredContent"]
+    assert json.loads(rust["content"][0]["text"]) == rust["structuredContent"]
+    if native:
+        assert rust["structuredContent"]["_repo"]["source"] == "auto"
+        assert rust["structuredContent"]["_repo"]["repo_root"] == str(git_repo.resolve())
+
+
+def test_ensure_graph_reports_an_auto_detected_root_as_python_does(git_repo: Path) -> None:
+    """``session_prepare`` resolves the root before opening the store, so Python
+    reports even an auto-detected one as explicit."""
+    rust, python, stderr = _call_both(None, "ensure_graph_tool", {}, cwd=git_repo)
+    assert "answered ensure_graph_tool in Rust" in stderr
+    for result in (rust, python):
+        result["structuredContent"].pop("elapsed_seconds")
+    assert rust["structuredContent"] == python["structuredContent"]
+    assert rust["structuredContent"]["_repo"]["source"] == "explicit"
 
 
 @pytest.mark.parametrize(
