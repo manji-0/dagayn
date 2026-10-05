@@ -1090,10 +1090,10 @@ class TestChanges:
         with (
             patch("dagayn.tools.review._get_store") as mock_get_store,
             patch(
-                "dagayn.tools.review.get_changed_file_sources",
+                "dagayn.tools.review_helpers.get_changed_file_sources",
                 return_value={"files": [], "base_diff": [], "worktree": []},
             ),
-            patch("dagayn.tools.review.get_staged_and_unstaged", return_value=[]),
+            patch("dagayn.tools.review_helpers.get_staged_and_unstaged", return_value=[]),
         ):
             mock_get_store.return_value = (self.store, Path("/fake/repo"))
             # Prevent the store from being closed by the tool
@@ -1158,7 +1158,7 @@ class TestChanges:
         with (
             patch("dagayn.tools.review._get_store") as mock_get_store,
             patch(
-                "dagayn.tools.review.get_changed_file_sources",
+                "dagayn.tools.review_helpers.get_changed_file_sources",
                 return_value={
                     "files": ["app.py"],
                     "base_diff": [],
@@ -1265,7 +1265,7 @@ class TestChanges:
         with (
             patch("dagayn.tools.review._get_store") as mock_get_store,
             patch(
-                "dagayn.tools.review.get_changed_file_sources",
+                "dagayn.tools.review_helpers.get_changed_file_sources",
                 return_value={
                     "files": ["core/service.py"],
                     "base_diff": ["core/service.py"],
@@ -1356,7 +1356,7 @@ class TestChanges:
         with (
             patch("dagayn.tools.review._get_store") as mock_get_store,
             patch(
-                "dagayn.tools.review.get_changed_file_sources",
+                "dagayn.tools.review_helpers.get_changed_file_sources",
                 return_value={"files": ["app.py"], "base_diff": ["app.py"], "worktree": []},
             ),
             patch("dagayn.tools.review.parse_diff_result", return_value=DiffParseResult({}, "ok")),

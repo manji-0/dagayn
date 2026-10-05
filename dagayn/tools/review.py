@@ -14,7 +14,6 @@ from ..changes import (  # noqa: F401
 from ..contracts.state_types import seal_missingness_item
 from ..coverage import infer_tests_for_node
 from ..hints import generate_hints, get_session
-from ..incremental_files import get_changed_file_sources, get_staged_and_unstaged
 from ._common import (
     ToolPayload,
     _error_response,
@@ -26,7 +25,11 @@ from ._common import (
     missingness_from_answerability,
 )
 from .review_context import get_review_context
-from .review_helpers import SUPPLEMENTAL_TEST_DENSITY_NODE_LIMIT, _change_analysis_summary
+from .review_helpers import (
+    SUPPLEMENTAL_TEST_DENSITY_NODE_LIMIT,
+    _change_analysis_summary,
+    _resolve_changed_files,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,15 +70,7 @@ def detect_changes_func(
         store, root = _get_store(repo_root)
         answerability = graph_answerability_summary(store)
         missingness = missingness_from_answerability(answerability)
-        change_file_sources: dict[str, list[str]]
-        if changed_files is None:
-            change_file_sources = get_changed_file_sources(root, base)
-            changed_files = change_file_sources["files"]
-            if not changed_files:
-                changed_files = get_staged_and_unstaged(root)
-                change_file_sources = {"files": changed_files, "worktree": changed_files}
-        else:
-            change_file_sources = {"files": changed_files, "explicit": changed_files}
+        changed_files, change_file_sources = _resolve_changed_files(root, base, changed_files)
 
         if not changed_files:
             return {

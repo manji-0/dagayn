@@ -8,7 +8,6 @@ from typing import Any, cast
 
 from ..contracts.state_types import seal_missingness_item
 from ..graph import GraphNode, edge_to_dict, node_to_dict
-from ..incremental_files import get_changed_file_sources, get_staged_and_unstaged
 from ._common import (
     _get_store,
     apply_output_budget,
@@ -21,6 +20,7 @@ from .query import _unmatched_changed_files
 from .review_helpers import (
     _is_low_confidence_unresolved_markdown_code_span,
     _relative_qualified_name,
+    _resolve_changed_files,
 )
 
 logger = logging.getLogger(__name__)
@@ -65,15 +65,7 @@ def get_review_context(
         answerability = graph_answerability_summary(store)
         missingness = missingness_from_answerability(answerability)
         # Get impact radius first
-        change_file_sources: dict[str, list[str]]
-        if changed_files is None:
-            change_file_sources = get_changed_file_sources(root, base)
-            changed_files = change_file_sources["files"]
-            if not changed_files:
-                changed_files = get_staged_and_unstaged(root)
-                change_file_sources = {"files": changed_files, "worktree": changed_files}
-        else:
-            change_file_sources = {"files": changed_files, "explicit": changed_files}
+        changed_files, change_file_sources = _resolve_changed_files(root, base, changed_files)
 
         if not changed_files:
             return {

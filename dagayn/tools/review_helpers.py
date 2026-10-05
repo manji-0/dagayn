@@ -21,6 +21,7 @@ from ..contracts.cross_artifact import (
 from ..contracts.state_types import ChangeAnalysisResult
 from ..coverage import infer_tests_for_node, is_test_file_path
 from ..graph.types import GraphNode, ImpactRadiusResult
+from ..incremental_files import get_changed_file_sources, get_staged_and_unstaged
 from ..stability_policy import component_stability_profiles as _component_stability_profiles
 from ..stability_policy import scope_key_for_file as _scope_key_for_file
 from ._common import make_guidance_item
@@ -58,6 +59,24 @@ _LOW_SIGNAL_DOC_FILES = {
     "QODER.md",
 }
 SUPPLEMENTAL_TEST_DENSITY_NODE_LIMIT = 10
+
+
+def _resolve_changed_files(
+    root: Path, base: str, changed_files: list[str] | None
+) -> tuple[list[str], dict[str, list[str]]]:
+    """Return ``(changed_files, change_file_sources)`` for the review tools.
+
+    Explicit *changed_files* are used as given; otherwise the diff against
+    *base* is used, falling back to staged and unstaged worktree files.
+    """
+    if changed_files is not None:
+        return changed_files, {"files": changed_files, "explicit": changed_files}
+    change_file_sources = get_changed_file_sources(root, base)
+    files = change_file_sources["files"]
+    if not files:
+        files = get_staged_and_unstaged(root)
+        change_file_sources = {"files": files, "worktree": files}
+    return files, change_file_sources
 
 
 def _relative_qualified_name(qualified_name: str, root: Path) -> str:

@@ -7,7 +7,6 @@ from typing import cast
 
 from ..flows import get_affected_flows as _get_affected_flows
 from ..hints import generate_hints, get_session
-from ..incremental_files import get_changed_file_sources, get_staged_and_unstaged
 from ._common import (
     ToolPayload,
     _get_store,
@@ -15,6 +14,7 @@ from ._common import (
     handle_tool_runtime_error,
     missingness_from_answerability,
 )
+from .review_helpers import _resolve_changed_files
 
 logger = logging.getLogger(__name__)
 
@@ -44,15 +44,7 @@ def get_affected_flows_func(
         store, root = _get_store(repo_root)
         answerability = graph_answerability_summary(store)
         missingness = missingness_from_answerability(answerability)
-        change_file_sources: dict[str, list[str]]
-        if changed_files is None:
-            change_file_sources = get_changed_file_sources(root, base)
-            changed_files = change_file_sources["files"]
-            if not changed_files:
-                changed_files = get_staged_and_unstaged(root)
-                change_file_sources = {"files": changed_files, "worktree": changed_files}
-        else:
-            change_file_sources = {"files": changed_files, "explicit": changed_files}
+        changed_files, change_file_sources = _resolve_changed_files(root, base, changed_files)
 
         if not changed_files:
             return {
