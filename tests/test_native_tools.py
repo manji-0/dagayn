@@ -280,6 +280,68 @@ def test_refactor_rename_checks_identifiers_as_python_re_does(repo: Path, new_na
         assert (result["old_name"], result["new_name"]) == ("helper", new_name)
 
 
+@pytest.mark.parametrize(
+    "content",
+    [
+        None,
+        b"",
+        b"not json",
+        b'\xef\xbb\xbf{"repos": []}',
+        b'{"repos": []}',
+        b'{"other": 1}',
+        b'{"repos": [{"path": "/a", "alias": "x"}, 7, null]}',
+        b'{"repos": ["\xff"]}',
+        b'{"repos": "ab"}',
+        b'{"repos": 5}',
+        b'{"repos": 1.5}',
+        b'{"repos": null}',
+        b"[1]",
+        b'"x"',
+        b"null",
+        b"true",
+    ],
+)
+def test_list_repos_answers_through_rust_as_the_registry_does(
+    content: bytes | None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dagayn.registry import Registry
+    from dagayn.tools.registry_tools import list_repos_func
+
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    registry = home / ".dagayn" / "registry.json"
+    if content is not None:
+        registry.parent.mkdir()
+        registry.write_bytes(content)
+
+    result = list_repos_func()
+    assert registry.parent.is_dir()
+    try:
+        expected = Registry(registry).list_repos()
+    except Exception as exc:
+        assert result["status"] == "error", result
+        assert result["error"] == str(exc)
+        assert result["missingness"][0]["reason_code"] == "tool_runtime_error"
+    else:
+        assert result["status"] == "ok", result
+        assert result["repos"] == expected
+        assert result["summary"] == f"{len(expected)} registered repository(ies)."
+
+
+def test_list_repos_reports_a_registry_directory_it_cannot_create(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dagayn.registry import Registry
+    from dagayn.tools.registry_tools import list_repos_func
+
+    (tmp_path / ".dagayn").write_text("a file where the directory goes")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    with pytest.raises(OSError) as raised:
+        Registry(tmp_path / ".dagayn" / "registry.json")
+    assert list_repos_func()["error"] == str(raised.value)
+
+
 _HINTS = ("CRG_REPO_ROOT", "CURSOR_PROJECT_DIR", "CLAUDE_PROJECT_DIR", "WORKSPACE_FOLDER_PATHS")
 
 

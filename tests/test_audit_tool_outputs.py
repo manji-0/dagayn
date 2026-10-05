@@ -70,12 +70,12 @@ def test_get_review_context_minimal_uses_relative_key_entities(monkeypatch) -> N
     assert result["key_entities"] == ["dagayn/tools/_common.py"]
 
 
-def test_list_repos_has_hints(monkeypatch) -> None:
-    class _Registry:
-        def list_repos(self):
-            return [{"alias": "dagayn", "path": "/repo"}]
-
-    monkeypatch.setattr("dagayn.registry.Registry", _Registry)
+def test_list_repos_has_hints(monkeypatch, tmp_path: Path) -> None:
+    (tmp_path / ".dagayn").mkdir()
+    (tmp_path / ".dagayn" / "registry.json").write_text(
+        '{"repos": [{"alias": "dagayn", "path": "/repo"}]}'
+    )
+    monkeypatch.setenv("HOME", str(tmp_path))
 
     result = list_repos_func()
 
@@ -99,18 +99,15 @@ def test_flow_tool_runtime_error_has_missingness(monkeypatch) -> None:
     assert result["missingness"][0]["reason_code"] == "tool_runtime_error"
 
 
-def test_list_repos_runtime_error_has_missingness(monkeypatch) -> None:
-    from dagayn.tools import registry_tools
+def test_list_repos_runtime_error_has_missingness(monkeypatch, tmp_path: Path) -> None:
+    registry = tmp_path / ".dagayn" / "registry.json"
+    registry.mkdir(parents=True)  # unreadable as a file
+    monkeypatch.setenv("HOME", str(tmp_path))
 
-    def _fail_list_repos(self):
-        raise ValueError("registry unavailable")
-
-    monkeypatch.setattr("dagayn.registry.Registry.list_repos", _fail_list_repos)
-
-    result = registry_tools.list_repos_func()
+    result = list_repos_func()
 
     assert result["status"] == "error"
-    assert result["error"] == "registry unavailable"
+    assert result["error"] == f"[Errno 21] Is a directory: '{registry}'"
     assert result["missingness"][0]["reason_code"] == "tool_runtime_error"
 
 

@@ -11,6 +11,7 @@ from ..paths import db_path_for
 from ..search import SearchResult, hybrid_search
 from ..write_lock import graph_read_lock
 from ._common import ToolPayload, handle_tool_runtime_error, make_response
+from ._native import native_tool
 
 logger = logging.getLogger(__name__)
 
@@ -29,20 +30,10 @@ def list_repos_func() -> ToolPayload:
     Returns:
         List of registered repos with paths and aliases.
     """
-    from ..registry import Registry
-
     try:
-        registry = Registry()
-        repos = registry.list_repos()
-        return make_response(
-            "ok",
-            f"{len(repos)} registered repository(ies).",
-            repos=repos,
-            next_tool_suggestions=[
-                "cross_repo_search_tool -- search across registered repositories",
-                "dagayn register <path> -- add another repository to the registry",
-            ],
-        )
+        # The Rust tool creates `~/.dagayn` as `Registry()` does, and reports
+        # a registry it cannot list as this did.
+        return native_tool("list_repos_tool")
     except Exception as exc:
         return handle_tool_runtime_error(exc, logger=logger, context="list_repos")
 
