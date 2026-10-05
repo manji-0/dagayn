@@ -6,6 +6,11 @@ All notable changes to `dagayn` are documented here.
 
 ### Changed
 
+- A tool call that reaches the Rust front end while the graph is being
+  written (an edit's queued update holds the lock for one to two seconds)
+  now waits for the writer, up to `DAGAYN_READ_LOCK_TIMEOUT` capped at 3 s,
+  and is answered in Rust. Before, it started Python's server for the rest
+  of the session. A graph still busy after that goes to Python as before.
 - The Rust front end of `dagayn serve` now answers tool calls that omit
   `repo_root` on a server started without `--repo`, which is how the
   installed MCP entries run. It resolves the root the way Python's

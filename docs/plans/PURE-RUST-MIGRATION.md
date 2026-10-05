@@ -743,10 +743,14 @@ MCP entries start `dagayn serve` without `--repo` and clients rarely pass
 `dagayn_build::find_project_root` ports `find_project_root` for git
 checkouts (environment override, working directory, editor workspace
 hints) and leaves jj, SVN, and ambiguous hints to Python; an auto-detected
-wide root is refused before anything is opened. The remaining shared
-declines are a missing `graph.db`, a busy read lock (no wait on the
-front end's reader), `CRG_DATA_DIR`, a legacy `.dagayn.db`, and a schema
-Python would migrate.
+wide root is refused before anything is opened. Second item (done): a busy
+read lock. `open_graph` waits up to `DAGAYN_READ_LOCK_TIMEOUT` capped at
+3 s; an edit's queued update held the lock for 1.24 s and a manual hook
+update for 2.14 s here. The wait blocks the front end's reader, as a long
+native call already does; answering calls on worker threads is a separate
+change, worth it only if clients send calls in parallel. The remaining
+shared declines are a missing `graph.db`, `CRG_DATA_DIR`, a legacy
+`.dagayn.db`, and a schema Python would migrate.
 
 Not ported, on inspection: `session prepare`. Both installed hooks pass
 `--local-embedding`, so its embedding phase always runs. That phase is

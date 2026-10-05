@@ -411,6 +411,21 @@ pub(crate) fn resolve_repo(context: &Context, requested: Option<&str>) -> Option
     })
 }
 
+/// The longest [`open_graph`] waits for a writer to finish.
+const MAX_READ_LOCK_WAIT: Duration = Duration::from_secs(3);
+
+/// `DAGAYN_READ_LOCK_TIMEOUT` (Python's default 10 s), capped at
+/// [`MAX_READ_LOCK_WAIT`].
+fn read_lock_wait() -> Duration {
+    let seconds = std::env::var("DAGAYN_READ_LOCK_TIMEOUT")
+        .ok()
+        .and_then(|raw| raw.trim().parse::<f64>().ok())
+        .filter(|seconds| seconds.is_finite())
+        .unwrap_or(10.0)
+        .max(0.0);
+    Duration::from_secs_f64(seconds).min(MAX_READ_LOCK_WAIT)
+}
+
 /// An open graph under the shared read lock, as `_get_store` leaves it.
 pub(crate) struct OpenGraph {
     pub root: PathBuf,
@@ -450,10 +465,11 @@ pub(crate) fn open_graph(root: &RepoRoot) -> Option<OpenGraph> {
     // `get_db_path`: the same path, and the inner `.gitignore` written if
     // it went missing.
     let db_path = dagayn_build::db_path_for_build(root).ok()?;
-    // No wait: this runs on the front end's reader, and a graph being written
-    // is Python's to wait for (`DAGAYN_READ_LOCK_TIMEOUT`) while pings and
-    // listings stay answered.
-    let lock = GraphLock::acquire_mode(&db_path, LockMode::Shared, Some(Duration::ZERO)).ok()?;
+    // Wait out an ordinary write (an edit's queued update holds the lock for
+    // one to two seconds), but not Python's whole `DAGAYN_READ_LOCK_TIMEOUT`:
+    // this runs on the front end's reader, and a graph still busy after this
+    // goes to Python, which waits its own timeout and explains a failure.
+    let lock = GraphLock::acquire_mode(&db_path, LockMode::Shared, Some(read_lock_wait())).ok()?;
     // Read-only: see `GraphStore::open_read_only` for why this process must
     // not close a writable connection. A graph Python would migrate is its.
     let store = GraphStore::open_read_only(&db_path).ok()?;

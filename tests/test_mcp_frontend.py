@@ -389,6 +389,61 @@ def test_an_omitted_repo_root_is_auto_detected_as_python_does(
         assert rust["structuredContent"]["_repo"]["repo_root"] == str(git_repo.resolve())
 
 
+def _call_while_written(repo: Path, hold_seconds: float, **env: str) -> tuple[dict[str, Any], str]:
+    """A ``query_graph_tool`` call sent while another process writes the graph
+    for *hold_seconds*: its result and the front end's stderr."""
+    holder = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
+        [
+            sys.executable,
+            "-c",
+            "import sys, time; from dagayn.write_lock import graph_write_lock\n"
+            "with graph_write_lock(sys.argv[1]):\n"
+            "    print('held', flush=True); time.sleep(float(sys.argv[2]))",
+            str(repo / ".dagayn" / "graph.db"),
+            str(hold_seconds),
+        ],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert holder.stdout is not None
+        assert holder.stdout.readline().strip() == "held"
+        session = Session(repo, **env)
+        session.open()
+        arguments = {"pattern": "callers_of", "target": "app.py::helper"}
+        session.send(
+            {
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "query_graph_tool", "arguments": arguments},
+            }
+        )
+        result = session.read()["result"]
+        status, _, stderr = session.close()
+        assert status == 0
+    finally:
+        holder.wait(timeout=30)
+    return result, stderr
+
+
+def test_a_graph_written_briefly_is_waited_for_in_rust(git_repo: Path) -> None:
+    result, stderr = _call_while_written(git_repo, 1.0)
+    assert NATIVE_TRACE in stderr
+    assert BOOT_TRACE not in stderr
+    _, python, _ = _call_both(
+        git_repo, "query_graph_tool", {"pattern": "callers_of", "target": "app.py::helper"}
+    )
+    assert result["structuredContent"] == python["structuredContent"]
+
+
+def test_a_graph_written_past_the_wait_goes_to_python(git_repo: Path) -> None:
+    result, stderr = _call_while_written(git_repo, 3.0, DAGAYN_READ_LOCK_TIMEOUT="0.5")
+    assert NATIVE_TRACE not in stderr
+    assert BOOT_TRACE in stderr
+    assert result["structuredContent"]["status"] == "error"
+    assert "is being written" in result["structuredContent"]["error"]
+
+
 def test_ensure_graph_reports_an_auto_detected_root_as_python_does(git_repo: Path) -> None:
     """``session_prepare`` resolves the root before opening the store, so Python
     reports even an auto-detected one as explicit."""
