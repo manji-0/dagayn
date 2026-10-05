@@ -262,13 +262,13 @@ pub(super) fn cmake_libraries(repo_root: &Path, cmake_rel: &str) -> Vec<NativeLi
                 let Some(split) = args.iter().position(|arg| arg == "PROPERTIES") else {
                     continue;
                 };
-                for pair in args[split + 1..].chunks_exact(2) {
-                    if pair[0] != "OUTPUT_NAME" && pair[0] != "LIBRARY_OUTPUT_NAME" {
+                for [key, value] in args[split + 1..].as_chunks::<2>().0 {
+                    if key != "OUTPUT_NAME" && key != "LIBRARY_OUTPUT_NAME" {
                         continue;
                     }
                     for name in &args[..split] {
                         if let Some(at) = target_index(name, &targets) {
-                            targets[at].output_name = Some(pair[1].clone());
+                            targets[at].output_name = Some(value.clone());
                         }
                     }
                 }

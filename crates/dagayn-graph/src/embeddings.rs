@@ -270,8 +270,8 @@ fn append_normalized_blob(blob: &[u8], out: &mut Vec<f32>) -> Result<()> {
     out.reserve(row_dim);
 
     let mut norm_sq = 0.0;
-    for chunk in blob.chunks_exact(4) {
-        let value = f32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+    for chunk in blob.as_chunks::<4>().0 {
+        let value = f32::from_ne_bytes(*chunk);
         norm_sq += value * value;
         out.push(value);
     }

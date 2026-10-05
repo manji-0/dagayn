@@ -47,7 +47,7 @@ Tests run in parallel with pytest-xdist (`-n auto --dist loadfile`); pass
 
 ### Rust workspace
 
-Requires a Rust toolchain (1.95+) and a C compiler. `uv sync` is enough for
+Requires a Rust toolchain (1.98+) and a C compiler. `uv sync` is enough for
 the Python test path (maturin). For `cargo test --workspace` or
 `cargo clippy --workspace --all-targets -- -D warnings`, point PyO3 at uv's
 interpreter so `dagayn-py` can link `libpython`:
