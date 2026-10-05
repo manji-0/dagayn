@@ -825,12 +825,12 @@ def test_review_answers_in_rust_as_python_does(git_repo: Path, change: str) -> N
         (review, {"mode": "impact", "changed_files": ["test_app.py"], "detail_level": "verbose"}),
     ]
     rust, python, stderr = _session_both(git_repo, calls)
-    # A single-commit repository has no HEAD~1, so changes on the default base
-    # is Python's error -- except where no file changed, which it reports
-    # before diffing.
-    python_only = {"none": 2, "dirty": 3}.get(change, 0)
-    assert stderr.count(REVIEW_TRACE) == len(calls) - 1 - python_only
+    assert stderr.count(REVIEW_TRACE) == len(calls) - 1
     assert rust == python
+    if change == "dirty":
+        # A single-commit repository has no HEAD~1: changes on the default
+        # base reports the unresolved diff base.
+        assert rust[12]["structuredContent"]["diff_parse_status"] == "base_unresolved"
     if change == "wide":
         trimmed = rust[8]["structuredContent"]
         assert trimmed["truncated"] is True
@@ -859,17 +859,22 @@ def test_review_leaves_the_rest_to_python(git_repo: Path, arguments: dict[str, A
 def test_review_of_a_rejected_base_answers_in_rust_as_python_does(
     git_repo: Path, dirty: bool
 ) -> None:
-    """A ref Python rejects lists the working tree instead."""
+    """A ref Python rejects lists the working tree; changes then reports the
+    diff base it cannot resolve."""
     if dirty:
         (git_repo / "app.py").write_text("def main():\n    return 1\n")
     calls: list[tuple[str, dict[str, Any]]] = [
         ("review_tool", {"mode": "affected_flows", "base": "bad ref"}),
         ("review_tool", {"mode": "impact", "base": "a b"}),
         ("review_tool", {"mode": "context", "base": "$(x)", "detail_level": "minimal"}),
+        ("review_tool", {"mode": "changes", "base": "a b"}),
+        ("review_tool", {"mode": "changes", "base": "it's", "changed_files": ["app.py"]}),
+        ("review_tool", {"mode": "changes", "base": "HEAD~3", "detail_level": "minimal"}),
     ]
     rust, python, stderr = _session_both(git_repo, calls)
     assert stderr.count(REVIEW_TRACE) == len(calls)
     assert rust == python
+    assert rust[4]["structuredContent"]["diff_parse_status"] == "base_unresolved"
 
 
 FLOW_TRACE = "answered flow_tool in Rust"

@@ -1,8 +1,9 @@
 //! `review_tool` (`dagayn.tools.review_dispatcher.review_func`) for every
 //! mode: `changes` (`detect_changes_func`), `context`
 //! (`get_review_context`), `affected_flows` (`get_affected_flows_func`), and
-//! `impact` (`dagayn.tools.query.get_impact_radius`). jj, svn, and a ref
-//! Python rejects stay Python's.
+//! `impact` (`dagayn.tools.query.get_impact_radius`), in a git checkout, a
+//! jj workspace, or an SVN working copy. A jj working copy jj cannot read is
+//! Python's to report.
 
 use std::collections::HashSet;
 use std::path::{Component, Path, PathBuf};
@@ -14,10 +15,11 @@ use dagayn_graph::{
 use serde_json::{Map, Value, json};
 
 use crate::answerability::Answerability;
-use crate::changes::{analyze_changes, parse_diff};
+use crate::changes::{DiffParse, analyze_changes, parse_diff};
 use crate::coverage::splitlines;
 use crate::hints::{generate_hints, session};
 use crate::query::{edge_dict, node_dict};
+use crate::refactor::python_repr;
 use crate::review_summary::change_analysis_summary;
 use crate::{Args, Context, OpenGraph, Ordered, Payload, open_graph, resolve_repo};
 
@@ -124,7 +126,27 @@ pub(crate) fn review(context: &Context, arguments: &Map<String, Value>) -> Optio
         exposed: &exposed,
     };
     let (subtool, out) = match mode {
-        "changes" => ("detect_changes_func", review.changes(&request)?),
+        "changes" => match review.changes(&request)? {
+            Ok(out) => ("detect_changes_func", out),
+            Err(error) => {
+                // `with_dispatch_metadata` seals an error without hints.
+                return Some(
+                    Ordered::default()
+                        .put("status", "error")
+                        .put("summary", error.message.as_str())
+                        .put("error", error.message.as_str())
+                        .put("mode", mode)
+                        .put("called_subtool", "detect_changes_func")
+                        .put("base", request.base)
+                        .put("diff_parse_status", "base_unresolved")
+                        .put("answerability", answerability.full())
+                        .put("missingness", json!(error.missingness))
+                        .put("_runtime", runtime)
+                        .put("_repo", graph.repo_context())
+                        .into_payload(),
+                );
+            }
+        },
         "context" => ("get_review_context", review.context(&request, &args)?),
         "affected_flows" => ("get_affected_flows_func", review.affected_flows(&request)?),
         _ => ("get_impact_radius", review.impact(&request)?),
@@ -141,6 +163,13 @@ pub(crate) fn review(context: &Context, arguments: &Map<String, Value>) -> Optio
         },
         &exposed,
     ))
+}
+
+/// `detect_changes_func`'s `_error_response` for a diff base that does not
+/// resolve.
+struct BaseUnresolved {
+    message: String,
+    missingness: Vec<Value>,
 }
 
 struct Review<'a> {
@@ -183,28 +212,31 @@ impl Review<'_> {
     }
 
     /// `detect_changes_func` at `standard` and `minimal` detail, without
-    /// source snippets.
-    fn changes(&self, request: &Request) -> Option<Ordered> {
+    /// source snippets; `Err` for the error it reports when `base` does not
+    /// resolve.
+    fn changes(&self, request: &Request) -> Option<Result<Ordered, BaseUnresolved>> {
         if request.include_source == Some(true) || request.detail_level == "verbose" {
             return None;
         }
         let (changed_files, sources) = self.changed_files(request)?;
         if changed_files.is_empty() {
-            return Some(
-                Ordered::default()
-                    .put("status", "ok")
-                    .put("summary", "No changed files detected.")
-                    .put("risk_score", 0.0)
-                    .put("changed_functions", json!([]))
-                    .put("affected_flows", json!([]))
-                    .put("test_gaps", json!([]))
-                    .put("review_priorities", json!([]))
-                    .put("answerability", self.answerability.full())
-                    .put("missingness", json!(self.answerability.missingness())),
-            );
+            return Some(Ok(Ordered::default()
+                .put("status", "ok")
+                .put("summary", "No changed files detected.")
+                .put("risk_score", 0.0)
+                .put("changed_functions", json!([]))
+                .put("affected_flows", json!([]))
+                .put("test_gaps", json!([]))
+                .put("review_priorities", json!([]))
+                .put("answerability", self.answerability.full())
+                .put("missingness", json!(self.answerability.missingness()))));
         }
-        // A base `git diff` cannot resolve is Python's error to report.
-        let ranges = parse_diff(self.root(), request.base)?;
+        let ranges = match parse_diff(self.root(), request.base) {
+            DiffParse::Ranges(ranges) => ranges,
+            DiffParse::BaseUnresolved => {
+                return self.base_unresolved(request.base).map(Err);
+            }
+        };
         let analysis = analyze_changes(
             self.store(),
             self.root(),
@@ -340,7 +372,32 @@ impl Review<'_> {
         if hints["next_steps"].as_array().is_none_or(Vec::is_empty) {
             hints = self.hints("detect_changes", &value);
         }
-        Some(out.put("_hints", hints))
+        Some(Ok(out.put("_hints", hints)))
+    }
+
+    /// The error `detect_changes_func` reports for a `base` the diff cannot
+    /// resolve; `None` for a base `repr` would escape beyond ASCII.
+    fn base_unresolved(&self, base: &str) -> Option<BaseUnresolved> {
+        if !base.is_ascii() {
+            return None;
+        }
+        let message = format!(
+            "Could not resolve the diff base {} in {}. Pass a reachable ref (the default HEAD~1 \
+             does not exist in a single-commit repository, and a rebase or gc can make a \
+             recorded sha unreachable).",
+            python_repr(base),
+            self.root().display()
+        );
+        let mut missingness = self.answerability.missingness();
+        missingness.push(json!({
+            "reason_code": "diff_base_unreachable",
+            "severity": "high",
+            "claim_effect": "no diff could be computed, so nothing here describes what actually changed",
+        }));
+        Some(BaseUnresolved {
+            message,
+            missingness,
+        })
     }
 
     /// `get_review_context`.

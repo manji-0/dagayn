@@ -524,7 +524,7 @@ fn rename(
 }
 
 /// `repr(text)` for an ASCII string.
-fn python_repr(text: &str) -> String {
+pub(crate) fn python_repr(text: &str) -> String {
     let quote = if text.contains('\'') && !text.contains('"') {
         '"'
     } else {

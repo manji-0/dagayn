@@ -1,17 +1,18 @@
-//! `dagayn.changes.analyze_changes` for a git checkout, as
-//! `detect_changes_func` calls it: diff ranges against `base`, renames, node
-//! attribution, the base revision's entities, review-priority scores, test
-//! gaps, and affected flows, as `ChangeAnalysisResult.model_dump()` orders
-//! them.
+//! `dagayn.changes.analyze_changes`, as `detect_changes_func` calls it: diff
+//! ranges against `base`, renames, node attribution, the base revision's
+//! entities, review-priority scores, test gaps, and affected flows, as
+//! `ChangeAnalysisResult.model_dump()` orders them.
 //!
-//! `None` wherever Python would take another path (jj, svn, a base `git diff`
-//! cannot resolve) or this cannot reproduce it.
+//! A git checkout diffs `base` against the working tree; a jj workspace
+//! diffs it (rebased onto `@-` when `HEAD`-relative) against the snapshot
+//! commit `@` through the backing git directory; an SVN working copy reads
+//! `svn diff`. `None` wherever this cannot reproduce Python.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
-use dagayn_build::{Vcs, detect_vcs};
+use dagayn_build::{is_safe_git_ref, jj, svn};
 use dagayn_graph::{ChangeRiskInputs, GraphEdge, GraphNode, GraphStore};
 use serde_json::{Map, Value, json};
 
@@ -20,14 +21,6 @@ use crate::query::{edge_dict, node_dict, sanitize};
 
 /// `SUPPLEMENTAL_TEST_DENSITY_NODE_LIMIT`.
 pub(crate) const HEURISTIC_GAP_NODE_LIMIT: usize = 10;
-
-/// `_SAFE_GIT_REF`.
-fn is_safe_git_ref(base: &str) -> bool {
-    !base.is_empty()
-        && base
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "_.~^/@{}-".contains(c))
-}
 
 /// Changed line ranges per repo-relative path, in path order.
 pub(crate) type Ranges = BTreeMap<String, Vec<(i64, i64)>>;
@@ -40,20 +33,55 @@ fn git(root: &Path, args: &[&str]) -> Option<std::process::Output> {
         .ok()
 }
 
-/// `parse_diff_result` for a git checkout: the ranges, or `None` where Python
-/// would report `base_unresolved` or use another VCS.
-pub(crate) fn parse_diff(root: &Path, base: &str) -> Option<Ranges> {
-    if detect_vcs(root) != Vcs::Git || root.join(".jj").exists() || root.join(".svn").exists() {
-        return None;
+/// `parse_diff_result`'s answer: the ranges (`ok`), or `base_unresolved`.
+pub(crate) enum DiffParse {
+    Ranges(Ranges),
+    BaseUnresolved,
+}
+
+/// `_working_tree_diff_argv`: `git diff <args> <base> --`, or in a jj
+/// workspace the same diff from the resolved base to `@`; `None` when the jj
+/// side cannot be resolved.
+fn working_tree_diff(root: &Path, base: &str, args: &[&str]) -> Option<Command> {
+    if !jj::is_jj_workspace(root) {
+        let mut command = Command::new("git");
+        command
+            .arg("diff")
+            .args(args)
+            .args([base, "--"])
+            .current_dir(root);
+        return Some(command);
+    }
+    let wc = jj::working_copy(root)?;
+    let resolved = jj::resolve_commit(root, base, Some(&wc))?;
+    let mut command = jj::git_command(root)?;
+    command
+        .arg("diff")
+        .args(args)
+        .args([resolved.as_str(), wc.commit.as_str(), "--"]);
+    Some(command)
+}
+
+/// `parse_diff_result`: `svn diff` where `.svn` exists (its range when `base`
+/// is a revision range, else the local changes; always `ok`), otherwise the
+/// working-tree git diff.
+pub(crate) fn parse_diff(root: &Path, base: &str) -> DiffParse {
+    if root.join(".svn").exists() {
+        let rev_range = Some(base).filter(|rev| svn::is_safe_svn_rev(rev));
+        return DiffParse::Ranges(parse_unified_diff(&svn::diff_text(root, rev_range)));
     }
     if !is_safe_git_ref(base) {
-        return None;
+        return DiffParse::BaseUnresolved;
     }
-    let output = git(root, &["diff", "--unified=0", base, "--"])?;
-    if !output.status.success() {
-        return None;
+    let Some(mut command) = working_tree_diff(root, base, &["--unified=0"]) else {
+        return DiffParse::BaseUnresolved;
+    };
+    match command.output() {
+        Ok(output) if output.status.success() => {
+            DiffParse::Ranges(parse_unified_diff(&String::from_utf8_lossy(&output.stdout)))
+        }
+        _ => DiffParse::BaseUnresolved,
     }
-    Some(parse_unified_diff(&String::from_utf8_lossy(&output.stdout)))
 }
 
 /// `_parse_unified_diff`.
@@ -185,7 +213,9 @@ fn resolve_git_renames(root: &Path, base: &str) -> HashMap<String, String> {
     if !is_safe_git_ref(base) {
         return renames;
     }
-    let Some(output) = git(root, &["diff", "--name-status", "-M", base, "--"]) else {
+    let Some(output) = working_tree_diff(root, base, &["--name-status", "-M"])
+        .and_then(|mut command| command.output().ok())
+    else {
         return renames;
     };
     if !output.status.success() {
@@ -477,11 +507,25 @@ fn base_entity_sets(
             display_by_rel.push((rel, node.file_path.clone()));
         }
     }
+    // `_git_show_file`: in a jj workspace, `base` is resolved (each time in
+    // Python, to the same commit) and shown from the backing git directory.
+    let jj_base = (is_safe_git_ref(base) && jj::is_jj_workspace(root))
+        .then(|| jj::resolve_commit(root, base, None));
     for (rel, display) in display_by_rel {
         if !is_safe_git_ref(base) {
             continue;
         }
-        let Some(output) = git(root, &["show", &format!("{base}:{rel}")]) else {
+        let output = match &jj_base {
+            None => git(root, &["show", &format!("{base}:{rel}")]),
+            Some(None) => None,
+            Some(Some(resolved)) => jj::git_command(root).and_then(|mut command| {
+                command
+                    .args(["show", &format!("{resolved}:{rel}")])
+                    .output()
+                    .ok()
+            }),
+        };
+        let Some(output) = output else {
             continue;
         };
         if !output.status.success() {

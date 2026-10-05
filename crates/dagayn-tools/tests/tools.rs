@@ -521,13 +521,6 @@ fn review_leaves_other_modes_and_unknowns_to_python() {
             "{arguments}"
         );
     }
-    // A ref Python rejects lists the working tree instead.
-    let flows = answer(
-        &context,
-        "review_tool",
-        json!({"mode": "affected_flows", "base": "bad ref"}),
-    );
-    assert_eq!(flows["summary"], "No changed files detected.");
     // Without the host's `_runtime`, nothing.
     assert!(declines(
         &repo.context(),
@@ -682,14 +675,43 @@ fn review_changes_scores_the_diff_against_base() {
     for arguments in [
         json!({"include_source": true}),
         json!({"detail_level": "verbose"}),
-        // No HEAD~5 to diff against: Python reports the unresolved base.
-        json!({"base": "HEAD~5", "changed_files": ["app.py"]}),
     ] {
         assert!(
             declines(&context, "review_tool", arguments.clone()),
             "{arguments}"
         );
     }
+
+    // No HEAD~5 to diff against: the unresolved base is reported, without
+    // hints.
+    let unresolved = answer(
+        &context,
+        "review_tool",
+        json!({"base": "HEAD~5", "changed_files": ["app.py"]}),
+    );
+    assert_eq!(unresolved["status"], "error");
+    assert_eq!(unresolved["diff_parse_status"], "base_unresolved");
+    assert!(
+        unresolved["error"]
+            .as_str()
+            .is_some_and(|e| e.starts_with("Could not resolve the diff base 'HEAD~5' in "))
+    );
+    assert!(unresolved.get("_hints").is_none());
+    let codes: Vec<&str> = unresolved["missingness"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|item| item["reason_code"].as_str())
+        .collect();
+    assert!(codes.contains(&"diff_base_unreachable"), "{codes:?}");
+
+    // A ref Python rejects lists the working tree instead.
+    let flows = answer(
+        &context,
+        "review_tool",
+        json!({"mode": "affected_flows", "base": "bad ref"}),
+    );
+    assert_eq!(flows["summary"], "No changed files detected.");
 }
 
 #[test]
