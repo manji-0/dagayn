@@ -372,6 +372,20 @@ def _generate_community_page(
     return "\n".join(lines)
 
 
+def _write_if_changed(path: Path, content: str, force: bool, *, force_updates: bool) -> str:
+    """Write *content* to *path* unless unchanged; return the WikiPayload counter to bump.
+
+    An existing file rewritten under *force* counts as updated only when
+    *force_updates* is set.
+    """
+    if path.exists() and not force:
+        if path.read_text(encoding="utf-8", errors="replace") == content:
+            return "pages_unchanged"
+    existed = path.exists()
+    path.write_text(content, encoding="utf-8")
+    return "pages_updated" if existed and (force_updates or not force) else "pages_generated"
+
+
 def generate_wiki(
     store: GraphStore,
     wiki_dir: str | Path,
@@ -395,9 +409,7 @@ def generate_wiki(
 
     communities = get_communities(store)
 
-    pages_generated = 0
-    pages_updated = 0
-    pages_unchanged = 0
+    counts = {"pages_generated": 0, "pages_updated": 0, "pages_unchanged": 0}
 
     page_entries: list[tuple[str, str, int]] = []  # (slug, name, size)
     metrics_context = _build_architecture_metrics_context(store)
@@ -425,19 +437,7 @@ def generate_wiki(
 
         content = _generate_community_page(store, comm, metrics_context=metrics_context)
 
-        if filepath.exists() and not force:
-            existing = filepath.read_text(encoding="utf-8", errors="replace")
-            if existing == content:
-                pages_unchanged += 1
-                page_entries.append((slug, name, comm["size"]))
-                continue
-
-        already_existed = filepath.exists()
-        filepath.write_text(content, encoding="utf-8")
-        if already_existed:
-            pages_updated += 1
-        else:
-            pages_generated += 1
+        counts[_write_if_changed(filepath, content, force, force_updates=True)] += 1
         page_entries.append((slug, name, comm["size"]))
 
     # Generate index.md
@@ -461,16 +461,8 @@ def generate_wiki(
     index_content = "\n".join(index_lines)
     index_path = wiki_path / "index.md"
 
-    if index_path.exists() and not force:
-        existing_index = index_path.read_text(encoding="utf-8", errors="replace")
-        if existing_index == index_content:
-            pages_unchanged += 1
-        else:
-            index_path.write_text(index_content, encoding="utf-8")
-            pages_updated += 1
-    else:
-        index_path.write_text(index_content, encoding="utf-8")
-        pages_generated += 1
+    # Unlike a community page, an existing index rewritten under force counts as generated.
+    counts[_write_if_changed(index_path, index_content, force, force_updates=False)] += 1
 
     # Delete pages no longer backed by a community. Nothing removed them before,
     # so every re-detect left a fresh generation of orphans (community sub-names
@@ -491,9 +483,9 @@ def generate_wiki(
         logger.info("Removed %d orphaned wiki page(s)", len(pages_removed))
 
     return {
-        "pages_generated": pages_generated,
-        "pages_updated": pages_updated,
-        "pages_unchanged": pages_unchanged,
+        "pages_generated": counts["pages_generated"],
+        "pages_updated": counts["pages_updated"],
+        "pages_unchanged": counts["pages_unchanged"],
         "pages_removed": pages_removed,
     }
 
