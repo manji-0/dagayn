@@ -1,6 +1,6 @@
-//! `refactor_tool` (`dagayn.tools.refactor_tools.refactor_func`): the
-//! every mode. A `rename` preview goes to the shared pending store
-//! ([`crate::pending`]) that the Python `apply_refactor_tool` applies from.
+//! `refactor_tool` (`dagayn.tools.refactor_tools.refactor_func`), every
+//! mode. A `rename` preview goes to the shared pending store
+//! ([`crate::pending`]) that `apply_refactor_tool` applies from.
 
 use serde_json::{Map, Value, json};
 
@@ -34,8 +34,6 @@ pub(crate) fn refactor(context: &Context, arguments: &Map<String, Value>) -> Opt
     let kind = args.optional_string("kind")?;
     let file_pattern = args.optional_string("file_pattern")?;
     let limit = args.integer("limit", 50)?;
-    // A non-ASCII name is Python's: its `\w` and Rust's identifier check draw
-    // the line differently.
     let rename_names = if mode == "rename" {
         // `RefactorRenameRequest`: a missing name is not a string, an empty
         // one is shorter than `min_length=1`.
@@ -52,9 +50,6 @@ pub(crate) fn refactor(context: &Context, arguments: &Map<String, Value>) -> Opt
         };
         if !problems.is_empty() {
             return rename_error(context, &args, &problems.join("; "));
-        }
-        if !old.is_ascii() || !new.is_ascii() {
-            return None;
         }
         Some((old, new))
     } else {
@@ -277,15 +272,18 @@ fn suggest(
     )
 }
 
-/// `_is_valid_identifier` for an ASCII name (`re.match` lets `$` sit before a
-/// final newline).
+/// Whether `name` can be substituted into source as an identifier:
+/// `re.match(r"^[^\W\d]\w*$", name)`, a leading letter or underscore followed
+/// by word characters in Python's Unicode sense (`$` also matches before a
+/// final newline). The conservative shape the languages dagayn parses share:
+/// language-specific extras (`$` in JS, `!`/`?` in Ruby) are deliberately
+/// excluded, since a rejected valid name is a nuisance and an accepted invalid
+/// one writes code that does not parse.
 fn is_valid_identifier(name: &str) -> bool {
+    use crate::pyunicode::{is_digit, is_word};
     let name = name.strip_suffix('\n').unwrap_or(name);
     let mut chars = name.chars();
-    chars
-        .next()
-        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
-        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+    chars.next().is_some_and(|c| is_word(c) && !is_digit(c)) && chars.all(is_word)
 }
 
 /// `_import_statement_mentions_symbol`.
@@ -305,9 +303,6 @@ fn import_mentions(
     if let Ok(Some(root)) = store.get_metadata("repo_root") {
         paths.push(std::path::Path::new(&root).join(file));
     }
-    let Ok(pattern) = regex::Regex::new(&format!(r"\b{}\b", regex::escape(symbol))) else {
-        return false;
-    };
     for path in paths {
         let Ok(bytes) = std::fs::read(&path) else {
             continue;
@@ -316,7 +311,8 @@ fn import_mentions(
         let lines = crate::coverage::splitlines(&text);
         let idx = edge.line - 1;
         if idx >= 0 && (idx as usize) < lines.len() {
-            return pattern.is_match(lines[idx as usize]);
+            // `\b` with Python's `\w`, which the `regex` crate's differs from.
+            return crate::pyunicode::contains_bounded(lines[idx as usize], symbol);
         }
     }
     false
@@ -346,7 +342,10 @@ fn rename(
 ) -> Option<Ordered> {
     use crate::query::sanitize;
     if !is_valid_identifier(new) {
-        let message = format!("new_name is not a valid identifier: {}", python_repr(new));
+        let message = format!(
+            "new_name is not a valid identifier: {}",
+            crate::pyunicode::repr(new)
+        );
         return Some(
             Ordered::default()
                 .put("status", "error")
@@ -521,32 +520,4 @@ fn rename(
         );
     let hint = hints::generate_hints("refactor", &out.value(), &mut hints::session(), exposed);
     Some(out.put("_hints", hint))
-}
-
-/// `repr(text)` for an ASCII string.
-pub(crate) fn python_repr(text: &str) -> String {
-    let quote = if text.contains('\'') && !text.contains('"') {
-        '"'
-    } else {
-        '\''
-    };
-    let mut out = String::from(quote);
-    for c in text.chars() {
-        match c {
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if c == quote => {
-                out.push('\\');
-                out.push(c);
-            }
-            c if (c as u32) < 0x20 || c as u32 == 0x7f => {
-                out.push_str(&format!("\\x{:02x}", c as u32))
-            }
-            c => out.push(c),
-        }
-    }
-    out.push(quote);
-    out
 }

@@ -825,15 +825,6 @@ def parse_refactor_request(**payload: Any) -> RefactorRequest:
     return _REFACTOR_REQUEST_ADAPTER.validate_python(payload)
 
 
-class RefactorOkResponse(BaseModel):
-    """Shared success envelope for refactor tool responses."""
-
-    model_config = ConfigDict(extra="allow")
-
-    status: Literal["ok"]
-    summary: str
-
-
 class RefactorErrorResponse(BaseModel):
     """Shared error envelope for refactor tool responses."""
 
@@ -844,28 +835,9 @@ class RefactorErrorResponse(BaseModel):
     summary: str | None = None
 
 
-class RefactorNotFoundResponse(BaseModel):
-    """Graph-limited absence envelope for rename previews."""
-
-    model_config = ConfigDict(extra="allow")
-
-    status: Literal["not_found"]
-    summary: str
-
-
-def seal_refactor_ok(payload: Mapping[str, object]) -> JsonObject:
-    """Validate and normalize a refactor success response."""
-    return RefactorOkResponse.model_validate(payload).model_dump()
-
-
 def seal_refactor_error(payload: Mapping[str, object]) -> JsonObject:
     """Validate and normalize a refactor error response."""
     normalized = dict(payload)
     if "summary" not in normalized and "error" in normalized:
         normalized["summary"] = normalized["error"]
     return RefactorErrorResponse.model_validate(normalized).model_dump()
-
-
-def seal_refactor_not_found(payload: Mapping[str, object]) -> JsonObject:
-    """Validate and normalize a refactor not-found response."""
-    return RefactorNotFoundResponse.model_validate(payload).model_dump()

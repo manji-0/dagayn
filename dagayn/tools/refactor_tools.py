@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from pathlib import Path
 from typing import Any, Literal, overload
 
@@ -11,22 +10,17 @@ from pydantic import ValidationError
 
 from ..contracts.state_types import (
     RefactorMode,
+    RefactorRenameRequest,
     format_validation_error,
     parse_refactor_request,
     seal_refactor_error,
-    seal_refactor_not_found,
-    seal_refactor_ok,
 )
-from ..hints import generate_hints, get_session
 from ..incremental_files import find_project_root
 from ._common import (
     ToolStoreScope,
-    _error_response,
     _get_store,
     _validate_repo_root,
     attach_answerability,
-    graph_answerability_summary,
-    missingness_from_answerability,
 )
 from ._native import native_tool
 
@@ -34,18 +28,6 @@ logger = logging.getLogger(__name__)
 
 type RefactorValue = Any
 type RefactorPayload = dict[str, RefactorValue]
-
-#: Conservative identifier shape shared by the languages dagayn parses: a
-#: leading letter or underscore followed by word characters. Language-specific
-#: extras (``$`` in JS, ``!``/``?`` in Ruby) are deliberately excluded -- a
-#: rejected valid name is a nuisance, an accepted invalid one writes code that
-#: does not parse.
-_IDENTIFIER_RE = re.compile(r"^[^\W\d]\w*$", re.UNICODE)
-
-
-def _is_valid_identifier(name: str | None) -> bool:
-    """True when *name* can be substituted into source as an identifier."""
-    return bool(name) and bool(_IDENTIFIER_RE.match(name))
 
 
 # ---------------------------------------------------------------------------
@@ -143,84 +125,25 @@ def refactor_func(
             )
         )
 
-    if request.mode != "rename":
-        # `dead_code` and `suggest` are the Rust tool's; `rename` stays here,
-        # where `\w` decides a non-ASCII name's validity.
-        with ToolStoreScope(logger=logger, context="refactor_func") as scope:
-            # Resolves the repository and creates, migrates, or waits for the
-            # graph; the Rust tool reads it.
-            scope.track(_get_store(request.repo_root))
-            return native_tool(
-                "refactor_tool",
-                mode=request.mode,
-                kind=request.kind,
-                file_pattern=request.file_pattern,
-                limit=request.limit,
-                repo_root=request.repo_root,
-            )
-        return scope.error
-
-    with ToolStoreScope(logger=logger, context="refactor_func") as scope:
-        store, root = scope.track(_get_store(request.repo_root))
-        answerability = graph_answerability_summary(store)
-        missingness = missingness_from_answerability(answerability)
-        from ..refactor import rename_preview
-
-        # Without this the preview happily produced edits turning
-        # ``def beta():`` into ``def 1 bad name():`` and a non-dry-run
-        # apply committed that to disk.
-        if not _is_valid_identifier(request.new_name):
-            return _error_response(
-                f"new_name is not a valid identifier: {request.new_name!r}",
-                status="error",
-                old_name=request.old_name,
-                new_name=request.new_name,
-            )
-        preview = rename_preview(store, request.old_name, request.new_name)
-        if preview is None:
-            return seal_refactor_not_found(
-                {
-                    "status": "not_found",
-                    "summary": (
-                        f"No node found matching '{request.old_name}' in the current graph."
-                    ),
-                    "answerability": answerability,
-                    "missingness": [
-                        *missingness,
-                        {
-                            "reason_code": "rename_target_not_found_in_graph",
-                            "severity": "medium",
-                            "claim_effect": (
-                                "absence is graph-limited, not proof the symbol does not exist"
-                            ),
-                        },
-                    ],
-                }
-            )
-        result: RefactorPayload = {
-            "status": "ok",
-            "summary": (
-                f"Rename preview: {request.old_name} -> {request.new_name}, "
-                f"{len(preview['edits'])} edit(s). Apply with "
-                f"apply_refactor_tool in the same `dagayn serve` MCP session "
-                f"(refactor_id is session-scoped, expires after 10 min) using "
-                f"refactor_id='{preview['refactor_id']}'."
-            ),
-            **preview,
-            "answerability": answerability,
-            "missingness": [*missingness, *preview.get("missingness", [])],
-            "next_tool_suggestions": [
-                "apply_refactor_tool(refactor_id='"
-                f"{preview['refactor_id']}', dry_run=true)"
-                " in the same session -- preview unified diff before writing files",
-                "apply_refactor_tool(refactor_id='"
-                f"{preview['refactor_id']}')"
-                " in the same session -- apply the rename",
-            ],
+    if isinstance(request, RefactorRenameRequest):
+        # A preview lands in the pending store `apply_refactor_tool` reads.
+        arguments: dict[str, Any] = {
+            "old_name": request.old_name,
+            "new_name": request.new_name,
         }
-        result["_hints"] = generate_hints("refactor", result, get_session())
-        return seal_refactor_ok(result)
-
+    else:
+        arguments = {
+            "kind": request.kind,
+            "file_pattern": request.file_pattern,
+            "limit": request.limit,
+        }
+    with ToolStoreScope(logger=logger, context="refactor_func") as scope:
+        # Resolves the repository and creates, migrates, or waits for the
+        # graph; the Rust tool reads it.
+        scope.track(_get_store(request.repo_root))
+        return native_tool(
+            "refactor_tool", mode=request.mode, repo_root=request.repo_root, **arguments
+        )
     return scope.error
 
 

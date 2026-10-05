@@ -3227,28 +3227,3 @@ class TestSearchLimitValidation:
         from dagayn.tools.query import semantic_search_nodes
 
         assert semantic_search_nodes("anything", limit=True, repo_root=None)["status"] == "error"
-
-
-class TestRenameIdentifierValidation:
-    """A rename preview must not offer to write code that does not parse."""
-
-    def test_invalid_identifier_is_rejected(self):
-        from dagayn.tools.refactor_tools import refactor_func
-
-        result = refactor_func(mode="rename", old_name="beta", new_name="1 bad name")
-        assert result["status"] == "error"
-        assert "identifier" in result["error"]
-
-    def test_hyphen_is_rejected(self):
-        from dagayn.tools.refactor_tools import refactor_func
-
-        result = refactor_func(mode="rename", old_name="beta", new_name="has-dash")
-        assert result["status"] == "error"
-
-    def test_valid_identifier_is_not_rejected_by_validation(self):
-        from dagayn.tools.refactor_tools import refactor_func
-
-        result = refactor_func(mode="rename", old_name="beta", new_name="renamed_beta")
-        # May legitimately be not_found (no such symbol here); it must not be
-        # rejected as a malformed identifier.
-        assert result["status"] != "error" or "identifier" not in result.get("error", "")

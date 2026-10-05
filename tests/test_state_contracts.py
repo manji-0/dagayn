@@ -23,8 +23,6 @@ from dagayn.contracts.state_types import (
     seal_missingness_item,
     seal_reachability_info,
     seal_refactor_error,
-    seal_refactor_not_found,
-    seal_refactor_ok,
 )
 
 
@@ -248,27 +246,11 @@ def test_reachability_contract_enforces_state_shape() -> None:
         )
 
 
-def test_refactor_envelopes_allow_extra_metadata() -> None:
-    ok = seal_refactor_ok(
-        {
-            "status": "ok",
-            "summary": "done",
-            "answerability": {"status": "ok"},
-            "dead_code": [],
-        }
-    )
-    error = seal_refactor_error({"status": "error", "error": "bad input"})
-    not_found = seal_refactor_not_found(
-        {
-            "status": "not_found",
-            "summary": "missing symbol",
-            "missingness": [],
-        }
+def test_refactor_error_envelope_allows_extra_metadata() -> None:
+    error = seal_refactor_error(
+        {"status": "error", "error": "bad input", "answerability": {"status": "ok"}}
     )
 
-    assert ok["status"] == "ok"
     assert error["status"] == "error"
     assert error["summary"] == "bad input"
-    assert not_found["status"] == "not_found"
-    assert "answerability" in ok
-    assert "missingness" in not_found
+    assert "answerability" in error

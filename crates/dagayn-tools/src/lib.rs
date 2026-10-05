@@ -27,6 +27,7 @@ mod large;
 pub mod pending;
 mod postprocess;
 mod pyrandom;
+mod pyunicode;
 mod query;
 mod questions;
 mod refactor;

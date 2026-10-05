@@ -961,15 +961,28 @@ fn refactor_finds_dead_code_and_suggests() {
         json!({"mode": "rename", "old_name": "zz_none_qq", "new_name": "x"}),
     );
     assert_eq!(missing["status"], "not_found");
-    for arguments in [
-        json!({"mode": "rename", "old_name": "", "new_name": "b"}),
-        json!({"mode": "rename", "old_name": "a", "new_name": "\u{e9}"}),
-    ] {
-        assert!(
-            declines(&context, "refactor_tool", arguments.clone()),
-            "{arguments}"
-        );
-    }
+    // Python's `\w`: a letter is one, a combining mark is not; `repr` escapes
+    // what is not printable.
+    let accented = answer(
+        &context,
+        "refactor_tool",
+        json!({"mode": "rename", "old_name": "orphan", "new_name": "\u{e9}t\u{e9}"}),
+    );
+    assert_eq!(accented["status"], "ok", "{accented}");
+    let marked = answer(
+        &context,
+        "refactor_tool",
+        json!({"mode": "rename", "old_name": "orphan", "new_name": "e\u{301}\u{200b}"}),
+    );
+    assert_eq!(
+        marked["error"],
+        "new_name is not a valid identifier: 'e\u{301}\\u200b'"
+    );
+    assert!(declines(
+        &context,
+        "refactor_tool",
+        json!({"mode": "rename", "old_name": "", "new_name": "b"})
+    ));
 }
 
 #[test]

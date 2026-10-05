@@ -1,7 +1,7 @@
 """Comprehensive end-to-end integration test for the v2 pipeline.
 
 Exercises: flows, communities, FTS search, analyze_changes,
-find_dead_code, rename_preview, generate_hints, review_changes_prompt,
+find_dead_code, generate_hints, review_changes_prompt,
 generate_wiki, and the Registry API.
 """
 
@@ -25,7 +25,7 @@ from dagayn.graph import GraphStore
 from dagayn.hints import generate_hints, get_session, reset_session
 from dagayn.parser import EdgeInfo, NodeInfo
 from dagayn.prompts import review_changes_prompt
-from dagayn.refactor import find_dead_code, rename_preview
+from dagayn.refactor import find_dead_code
 from dagayn.registry import Registry
 from dagayn.search import hybrid_search, rebuild_fts_index
 from dagayn.wiki import generate_wiki
@@ -415,16 +415,7 @@ class TestV2Integration:
         # but these nodes have no source on disk, so nothing is claimed dead
         assert find_dead_code(self.store) == []
 
-        # ---- Step 7: rename_preview ----
-        preview = rename_preview(self.store, "verify_token", "validate_token")
-        assert preview is not None, "rename_preview should find verify_token"
-        assert "edits" in preview
-        assert len(preview["edits"]) > 0
-        # Should include definition + call sites
-        edit_files = {e["file"] for e in preview["edits"]}
-        assert "auth.py" in edit_files
-
-        # ---- Step 8: generate_hints ----
+        # ---- Step 7: generate_hints ----
         reset_session()
         session = get_session()
         hints = generate_hints(
@@ -436,14 +427,14 @@ class TestV2Integration:
         assert "warnings" in hints
         assert isinstance(hints["next_steps"], list)
 
-        # ---- Step 9: review_changes_prompt ----
+        # ---- Step 8: review_changes_prompt ----
         prompt_messages = review_changes_prompt(base="HEAD~1")
         assert isinstance(prompt_messages, list)
         assert len(prompt_messages) > 0
         assert prompt_messages[0]["role"] == "user"
         assert 'review_tool(mode="changes"' in prompt_messages[0]["content"]
 
-        # ---- Step 10: generate_wiki ----
+        # ---- Step 9: generate_wiki ----
         with tempfile.TemporaryDirectory() as wiki_dir:
             wiki_result = generate_wiki(self.store, wiki_dir, force=True)
             assert "pages_generated" in wiki_result
@@ -462,7 +453,7 @@ class TestV2Integration:
                 index_path = Path(wiki_dir) / "index.md"
                 assert index_path.exists(), "Wiki should generate index.md"
 
-        # ---- Step 11: Registry (basic API test) ----
+        # ---- Step 10: Registry (basic API test) ----
         with tempfile.TemporaryDirectory() as reg_dir:
             reg_path = Path(reg_dir) / "registry.json"
             registry = Registry(path=reg_path)

@@ -19,7 +19,6 @@ use crate::changes::{DiffParse, analyze_changes, parse_diff};
 use crate::coverage::splitlines;
 use crate::hints::{generate_hints, session};
 use crate::query::{edge_dict, node_dict};
-use crate::refactor::python_repr;
 use crate::review_summary::change_analysis_summary;
 use crate::{Args, Context, OpenGraph, Ordered, Payload, open_graph, resolve_repo};
 
@@ -376,16 +375,13 @@ impl Review<'_> {
     }
 
     /// The error `detect_changes_func` reports for a `base` the diff cannot
-    /// resolve; `None` for a base `repr` would escape beyond ASCII.
+    /// resolve.
     fn base_unresolved(&self, base: &str) -> Option<BaseUnresolved> {
-        if !base.is_ascii() {
-            return None;
-        }
         let message = format!(
             "Could not resolve the diff base {} in {}. Pass a reachable ref (the default HEAD~1 \
              does not exist in a single-commit repository, and a rebase or gc can make a \
              recorded sha unreachable).",
-            python_repr(base),
+            crate::pyunicode::repr(base),
             self.root().display()
         );
         let mut missingness = self.answerability.missingness();

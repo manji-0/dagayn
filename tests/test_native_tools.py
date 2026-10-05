@@ -3,6 +3,7 @@ once ``_get_store`` has resolved and opened the graph."""
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -193,7 +194,87 @@ def test_refactor_suggest_answers_through_rust(unused_repo: Path) -> None:
     assert result["_hints"]["next_steps"]
 
 
-def test_refactor_rename_stays_in_python_for_non_ascii_names(repo: Path) -> None:
-    result = refactor_func(mode="rename", old_name="helper", new_name="hélper", repo_root=str(repo))
+@pytest.fixture
+def rename_repo(repo: Path) -> Path:
+    """``repo`` with one module importing ``helper`` and one importing ``main``."""
+    (repo / "consumer.py").write_text(
+        "from app import helper\n\n\ndef use():\n    return helper()\n"
+    )
+    (repo / "other.py").write_text("from app import main\n\n\ndef go():\n    return main()\n")
+    subprocess.run([DAGAYN, "build", "--repo", repo], check=True, capture_output=True)
+    return repo
+
+
+def test_refactor_rename_previews_through_rust(rename_repo: Path) -> None:
+    from dagayn.refactor import _pending_refactors
+
+    result = refactor_func(
+        mode="rename", old_name="helper", new_name="assist", repo_root=str(rename_repo)
+    )
     assert result["status"] == "ok", result
-    assert result["edits"]
+    refactor_id = result["refactor_id"]
+    assert len(refactor_id) == 8
+    assert result["type"] == "rename"
+    assert (result["old_name"], result["new_name"]) == ("helper", "assist")
+    assert result["target"]["name"] == "helper"
+    assert result["target"]["kind"] == "Function"
+    assert (result["ambiguous"], result["candidate_count"]) == (False, 1)
+    sites = {(Path(e["file"]).name, e["line"], e["source"]) for e in result["edits"]}
+    assert ("app.py", 5, "definition") in sites
+    assert ("app.py", 2, "call") in sites
+    # The import line that names the symbol, not the one importing `main`.
+    assert ("consumer.py", 1, "import") in sites
+    assert not any(name == "other.py" for name, _, _ in sites)
+    assert result["stats"]["high"] >= 3
+    assert "rename_edits_graph_limited" in {m["reason_code"] for m in result["missingness"]}
+    assert result["next_tool_suggestions"][0].startswith(
+        f"apply_refactor_tool(refactor_id='{refactor_id}', dry_run=true)"
+    )
+    assert result["_repo"]["repo_root"] == str(rename_repo.resolve())
+    # The preview waits in the store apply_refactor_tool reads.
+    assert _pending_refactors[refactor_id]["edits"] == result["edits"]
+    del _pending_refactors[refactor_id]
+
+    missing = refactor_func(
+        mode="rename", old_name="no_such_symbol_zz", new_name="x", repo_root=str(rename_repo)
+    )
+    assert missing["status"] == "not_found"
+    assert missing["summary"] == "No node found matching 'no_such_symbol_zz' in the current graph."
+    assert "rename_target_not_found_in_graph" in {m["reason_code"] for m in missing["missingness"]}
+
+
+_IDENTIFIER = re.compile(r"^[^\W\d]\w*$")
+
+
+@pytest.mark.parametrize(
+    "new_name",
+    [
+        "renamed_beta",
+        "_x",
+        "hélper",
+        "π",
+        "名前",
+        "x٣",  # an Arabic-Indic digit after the first character
+        "Ⅰx",  # a letter number (Nl) is \w but not \d
+        "x²",  # a superscript digit (No) is \w
+        "abc\n",  # `$` matches before a final newline
+        "1 bad name",
+        "has-dash",
+        "٣x",  # \d first
+        "é",  # a combining mark is not \w
+        "x‿",  # an undertie (Pc) is not \w
+        "x​",  # repr escapes what is not printable
+        " x",
+        "x\U000e0001",
+        "it's",
+    ],
+)
+def test_refactor_rename_checks_identifiers_as_python_re_does(repo: Path, new_name: str) -> None:
+    result = refactor_func(mode="rename", old_name="helper", new_name=new_name, repo_root=str(repo))
+    if _IDENTIFIER.match(new_name):
+        assert result["status"] == "ok", result
+        assert result["edits"][0]["new"] == new_name
+    else:
+        assert result["status"] == "error"
+        assert result["error"] == f"new_name is not a valid identifier: {new_name!r}"
+        assert (result["old_name"], result["new_name"]) == ("helper", new_name)
