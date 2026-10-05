@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -255,7 +256,20 @@ def _call_both(
 
 @pytest.mark.parametrize(
     "task",
-    ["", "review PR #42", "fix the login bug", "レビューして", "explore the architecture", "x"],
+    [
+        "",
+        "review PR #42",
+        "fix the login bug",
+        "レビューして",
+        "explore the architecture",
+        "x",
+        # casefold, not lower: the ligature folds to "fi", the Kelvin sign
+        # to "k", "ß" to "ss", and final sigma like any other.
+        "ﬁx it",
+        "Straße dead code",
+        "KEEP ΣΑΣ",
+        "İmplement",
+    ],
 )
 @pytest.mark.parametrize("dirty", [False, True])
 def test_minimal_context_answers_at_head_as_python_does(
@@ -271,12 +285,10 @@ def test_minimal_context_answers_at_head_as_python_does(
     assert rust["structuredContent"]["sync"]["state"] == expected
 
 
-def test_minimal_context_leaves_repair_to_python(git_repo: Path) -> None:
-    """A graph behind HEAD queues a prepare, which is Python's."""
-    (git_repo / "app.py").write_text("def main():\n    return 3\n")
+def _commit(root: Path, message: str) -> None:
     subprocess.run(
-        ["git", "commit", "-qam", "next"],
-        cwd=git_repo,
+        ["git", "commit", "-qam", message],
+        cwd=root,
         env={
             **_env(),
             "GIT_AUTHOR_NAME": "t",
@@ -286,20 +298,194 @@ def test_minimal_context_leaves_repair_to_python(git_repo: Path) -> None:
         },
         check=True,
     )
-    session = Session(git_repo, DAGAYN_HOOK_UPDATE="0")
+
+
+@pytest.mark.parametrize(
+    ("arguments", "env"),
+    [
+        # One commit: HEAD~1 does not resolve.
+        ({"changed_files": ["app.py"]}, {}),
+        ({"changed_files": ["app.py"], "base": "HEAD"}, {}),
+        ({"changed_files": ["app.py", "test_app.py"], "base": "HEAD", "task": "review"}, {}),
+        ({"changed_files": ["missing.py", "app.py"], "base": "HEAD"}, {}),
+        ({"changed_files": [], "base": "HEAD"}, {}),
+        ({"changed_files": ["app.py"], "base": "no-such-ref"}, {}),
+        (
+            {"changed_files": ["app.py", "test_app.py"], "base": "HEAD"},
+            {"DAGAYN_MINIMAL_CONTEXT_MAX_RISK_FILES": "1"},
+        ),
+    ],
+)
+def test_minimal_context_scores_changed_files_as_python_does(
+    git_repo: Path, arguments: dict[str, Any], env: dict[str, Any]
+) -> None:
+    (git_repo / "app.py").write_text(
+        "def main():\n    return helper() + 1\n\n\ndef helper():\n    pass\n"
+    )
+    rust, python, stderr = _call_both(git_repo, "get_minimal_context_tool", arguments, **env)
+    assert "answered get_minimal_context_tool in Rust" in stderr
+    assert rust["structuredContent"] == python["structuredContent"]
+
+
+def test_minimal_context_scores_a_committed_change_as_python_does(git_repo: Path) -> None:
+    (git_repo / "app.py").write_text(
+        "def main():\n    return helper()\n\n\ndef helper():\n    return 1\n"
+    )
+    _commit(git_repo, "next")
+    subprocess.run([DAGAYN, "update", "--repo", git_repo], env=_env(), check=True)
+    arguments = {"changed_files": ["app.py"], "task": "review"}
+    rust, python, stderr = _call_both(git_repo, "get_minimal_context_tool", arguments)
+    assert "answered get_minimal_context_tool in Rust" in stderr
+    assert rust["structuredContent"] == python["structuredContent"]
+    assert rust["structuredContent"]["risk"] in {"low", "medium", "high"}
+
+
+def _hold_worker_lock(root: Path) -> Any:
+    """Take the queue worker's lock, so neither side starts a worker."""
+    import fcntl
+
+    handle = (root / ".dagayn" / "queue_worker.lock").open("a+", encoding="utf-8")
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    return handle
+
+
+def _queued(root: Path) -> list[tuple[Any, ...]]:
+    import sqlite3
+
+    conn = sqlite3.connect(root / ".dagayn" / "task_queue.db")
+    try:
+        rows = conn.execute(
+            "SELECT id, kind, priority, payload, state, attempts, created_at, updated_at"
+            " FROM tasks ORDER BY id"
+        ).fetchall()
+    finally:
+        conn.close()
+    # Local time with its UTC offset, as `isoformat(timespec="seconds")`.
+    stamp = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d")
+    assert all(stamp.fullmatch(row[6]) and stamp.fullmatch(row[7]) for row in rows)
+    return [row[:6] for row in rows]
+
+
+def _call_once(repo: Path, python: bool, arguments: dict[str, Any]) -> tuple[Any, str]:
+    session = Session(repo, **({"DAGAYN_PYTHON_CLI": "1"} if python else {}))
     session.open()
     session.send(
         {
             "id": 1,
             "method": "tools/call",
-            "params": {"name": "get_minimal_context_tool", "arguments": {}},
+            "params": {"name": "get_minimal_context_tool", "arguments": arguments},
         }
     )
-    reply = session.read()["result"]["structuredContent"]
+    result = session.read()["result"]
     status, _, stderr = session.close()
     assert status == 0
-    assert reply["sync"]["state"] == "commit_drift"
-    assert stderr.count(BOOT_TRACE) == 1
+    return result["structuredContent"], stderr
+
+
+@pytest.mark.parametrize("state", ["commit_drift", "unbuilt"])
+def test_minimal_context_queues_a_repair_as_python_does(tmp_path: Path, state: str) -> None:
+    """Two identical repositories: the front end queues on one, Python on the
+    other; the replies and the queued tasks agree."""
+    replies: list[list[Any]] = []
+    tasks = []
+    for python in (False, True):
+        root = tmp_path / ("python" if python else "rust")
+        root.mkdir()
+        if state == "commit_drift":
+            (root / "app.py").write_text("def main():\n    return 1\n")
+        else:
+            (root / "README.txt").write_text("nothing to parse\n")
+        for args in (["init", "-q", "-b", "main"], ["add", "-A"]):
+            subprocess.run(["git", *args], cwd=root, env=_env(), check=True)
+        _commit(root, "init")
+        subprocess.run([DAGAYN, "build", "--repo", root], env=_env(), check=True)
+        if state == "commit_drift":
+            (root / "app.py").write_text("def main():\n    return 2\n")
+            _commit(root, "next")
+        lock = _hold_worker_lock(root)
+        try:
+            calls = []
+            for _ in range(2):
+                reply, stderr = _call_once(root, python, {"task": "review"})
+                assert ("answered get_minimal_context_tool in Rust" in stderr) != python
+                assert reply.pop("_repo")["repo_root"] == str(root.resolve())
+                calls.append(reply)
+            replies.append(calls)
+            tasks.append(_queued(root))
+        finally:
+            lock.close()
+    assert replies[0] == replies[1]
+    assert replies[0][0]["sync"]["state"] == state
+    assert replies[0][0]["repair"] == {
+        "state": "queued",
+        "kind": "prepare",
+        "task_id": 1,
+        "action": "added",
+    }
+    assert replies[0][1]["repair"]["action"] == "coalesced"
+    assert tasks[0] == tasks[1]
+    assert tasks[0][0][1:4] == (
+        "prepare",
+        10,
+        '{"local_embedding": "none", "keep_local_embedding_server": true, "budget_seconds": 300}',
+    )
+
+
+@pytest.mark.parametrize(("name", "state"), [("app.py", "commit_synced"), ("notes.txt", "unbuilt")])
+def test_minimal_context_outside_a_repository_answers_as_python_does(
+    tmp_path: Path, name: str, state: str
+) -> None:
+    """A graph root that is no checkout (``vcs: none``) is never repaired, even
+    unbuilt."""
+    root = tmp_path / "plain"
+    (root / ".git").mkdir(parents=True)
+    (root / name).write_text("def main():\n    pass\n")
+    subprocess.run([DAGAYN, "build", "--repo", root], env=_env(), check=True)
+    (root / ".git").rmdir()
+    rust, python, stderr = _call_both(root, "get_minimal_context_tool", {"task": "debug"})
+    assert "answered get_minimal_context_tool in Rust" in stderr
+    assert rust["structuredContent"] == python["structuredContent"]
+    assert rust["structuredContent"]["sync"] == {
+        "state": state,
+        "status": "synced" if state == "commit_synced" else "empty",
+        "vcs": "none",
+    }
+    assert "repair" not in rust["structuredContent"]
+    assert not (root / ".dagayn" / "task_queue.db").exists()
+
+
+def test_minimal_context_verifies_a_seeded_graph_as_python_does(git_repo: Path) -> None:
+    import sqlite3
+
+    def seed() -> None:
+        conn = sqlite3.connect(git_repo / ".dagayn" / "graph.db")
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO metadata (key, value)"
+                " VALUES ('seeded_needs_content_verify', '1')"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def flag() -> str:
+        conn = sqlite3.connect(git_repo / ".dagayn" / "graph.db")
+        try:
+            row = conn.execute(
+                "SELECT value FROM metadata WHERE key = 'seeded_needs_content_verify'"
+            ).fetchone()
+        finally:
+            conn.close()
+        return row[0]
+
+    replies = []
+    for python in (False, True):
+        seed()
+        reply, stderr = _call_once(git_repo, python, {"task": "explore"})
+        assert ("answered get_minimal_context_tool in Rust" in stderr) != python
+        assert flag() == "0"
+        replies.append(reply)
+    assert replies[0] == replies[1]
 
 
 NATIVE_TRACE = "answered query_graph_tool in Rust"

@@ -1140,7 +1140,7 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
 /// the same session facts `serve_mcp` gives the front end.
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
-#[pyo3(signature = (name, arguments_json, allowed_tools=None, package_root=None, local_embedding=None, embedding_provider=None, embedding_model=None, runtime=None))]
+#[pyo3(signature = (name, arguments_json, allowed_tools=None, package_root=None, local_embedding=None, embedding_provider=None, embedding_model=None, runtime=None, auto_prepare=false, python_executable=None, prepare_budget_seconds=None))]
 fn call_tool(
     py: Python<'_>,
     name: &str,
@@ -1151,6 +1151,9 @@ fn call_tool(
     embedding_provider: Option<String>,
     embedding_model: Option<String>,
     runtime: Option<&str>,
+    auto_prepare: bool,
+    python_executable: Option<std::path::PathBuf>,
+    prepare_budget_seconds: Option<i64>,
 ) -> PyResult<Option<String>> {
     let invalid = |err: serde_json::Error| pyo3::exceptions::PyValueError::new_err(err.to_string());
     let arguments: serde_json::Value = serde_json::from_str(arguments_json).map_err(invalid)?;
@@ -1165,6 +1168,10 @@ fn call_tool(
             .map(serde_json::from_str)
             .transpose()
             .map_err(invalid)?,
+        auto_prepare: auto_prepare.then_some(dagayn_tools::AutoPrepare {
+            python_executable,
+            budget_seconds: prepare_budget_seconds,
+        }),
     };
     Ok(py.detach(|| dagayn_tools::call(&context, name, &arguments).map(|payload| payload.text)))
 }
@@ -1198,7 +1205,7 @@ fn docs_section_json(
 #[pyfunction]
 // Python keyword arguments, one per session fact.
 #[allow(clippy::too_many_arguments)]
-#[pyo3(signature = (surface_json, allowed_tools, version, boot, pinned_repo=None, package_root=None, local_embedding=None, embedding_provider=None, embedding_model=None, runtime=None))]
+#[pyo3(signature = (surface_json, allowed_tools, version, boot, pinned_repo=None, package_root=None, local_embedding=None, embedding_provider=None, embedding_model=None, runtime=None, python_executable=None))]
 fn serve_mcp(
     py: Python<'_>,
     surface_json: &str,
@@ -1211,6 +1218,7 @@ fn serve_mcp(
     embedding_provider: Option<String>,
     embedding_model: Option<String>,
     runtime: Option<&str>,
+    python_executable: Option<std::path::PathBuf>,
 ) -> PyResult<()> {
     struct RustTools(dagayn_tools::Context);
 
@@ -1262,6 +1270,12 @@ fn serve_mcp(
             .map(serde_json::from_str)
             .transpose()
             .map_err(|err| pyo3::exceptions::PyValueError::new_err(err.to_string()))?,
+        // The MCP tool always runs `get_minimal_context(auto_prepare=True,
+        // prepare_budget_seconds=300)`.
+        auto_prepare: Some(dagayn_tools::AutoPrepare {
+            python_executable,
+            budget_seconds: Some(300),
+        }),
     });
     let (input, output) = dagayn_mcp::claim_stdio()?;
     py.detach(|| dagayn_mcp::serve(config, input, output, PythonBackend(boot), &tools))?;

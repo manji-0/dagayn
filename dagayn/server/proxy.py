@@ -85,6 +85,8 @@ def serve_stdio(**config: Any) -> None:
                 embedding_model=config.get("embedding_model"),
                 # `_runtime`, as the Python tools attach it.
                 runtime=json.dumps(runtime_summary()),
+                # get_minimal_context's queue worker runs this interpreter.
+                python_executable=sys.executable,
             )
         except BaseException as exc:  # noqa: BLE001 - re-raised on the main thread
             failures.append(exc)

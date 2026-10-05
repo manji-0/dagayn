@@ -68,6 +68,20 @@ pub struct Context {
     /// `tool_runtime_summary()` of the hosting Python process, which tools
     /// that attach `_runtime` need.
     pub runtime: Option<Value>,
+    /// `get_minimal_context(auto_prepare=True)`, as the MCP tool runs it:
+    /// queue a repair for a graph that needs one. `None` never queues.
+    pub auto_prepare: Option<AutoPrepare>,
+}
+
+/// How `get_minimal_context_tool` queues a repair.
+#[derive(Clone, Debug, Default)]
+pub struct AutoPrepare {
+    /// `sys.executable` of the hosting Python, which runs the queue worker
+    /// (`python -P -m dagayn queue run`, with `package_root` on
+    /// `PYTHONPATH`); `None` leaves a call that would start one to Python.
+    pub python_executable: Option<PathBuf>,
+    /// `prepare_budget_seconds`, stored on a queued prepare.
+    pub budget_seconds: Option<i64>,
 }
 
 impl Context {

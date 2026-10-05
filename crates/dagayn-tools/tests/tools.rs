@@ -217,31 +217,225 @@ fn minimal_context_routes_the_task_and_reports_health() {
             .contains(&json!("uncommitted_changes_may_be_unindexed"))
     );
 
-    // Risk analysis, a local embedding refresh, and special case folding are
-    // Python's.
+    // `casefold`, not `lower`: the ligature folds to `fi`.
+    let folded = answer(
+        &context,
+        "get_minimal_context_tool",
+        json!({"task": "\u{fb01}x Straße"}),
+    );
+    assert_eq!(folded["workflow"], "debug");
+
+    // One commit: `HEAD~1` does not resolve, so no node changed, but the
+    // risk is scored (zero) all the same.
+    let risky = answer(
+        &context,
+        "get_minimal_context_tool",
+        json!({"changed_files": ["app.py"]}),
+    );
+    assert_eq!(risky["risk"], "low");
+    assert!(
+        risky["summary"]
+            .as_str()
+            .expect("summary")
+            .ends_with("Review priority: low (0.00).")
+    );
+    let against_head = answer(
+        &context,
+        "get_minimal_context_tool",
+        json!({"changed_files": ["app.py"], "base": "HEAD"}),
+    );
+    // Every node of a changed file, not only those its hunks touch.
+    assert_eq!(against_head["key_entities"], json!(["helper", "main"]));
     assert!(declines(
         &context,
         "get_minimal_context_tool",
-        json!({"changed_files": ["app.py"]})
+        json!({"changed_files": [1]})
     ));
-    assert!(declines(
-        &context,
-        "get_minimal_context_tool",
-        json!({"task": "Straße"})
-    ));
+
+    // Without auto_prepare nothing is queued, whatever the embedding index.
     let mut embedding = repo.context();
     embedding.local_embedding = Some("bge-m3".to_string());
-    assert!(declines(&embedding, "get_minimal_context_tool", json!({})));
+    let observed = answer(&embedding, "get_minimal_context_tool", json!({}));
+    assert!(observed.get("repair").is_none());
+    assert!(!repo.0.join(".dagayn/task_queue.db").exists());
+}
+
+/// A context that queues repairs with an interpreter that cannot start, so
+/// no worker ever runs.
+fn auto_preparing(repo: &Repo) -> Context {
+    Context {
+        package_root: Some(repo.0.clone()),
+        auto_prepare: Some(dagayn_tools::AutoPrepare {
+            python_executable: Some(PathBuf::from("/nonexistent/python")),
+            budget_seconds: Some(300),
+        }),
+        ..repo.context()
+    }
+}
+
+fn queued_tasks(repo: &Repo) -> Vec<(i64, String, i64, String)> {
+    let conn = rusqlite::Connection::open(repo.0.join(".dagayn/task_queue.db")).expect("queue");
+    let mut stmt = conn
+        .prepare("SELECT id, kind, priority, payload FROM tasks ORDER BY id")
+        .expect("select");
+    stmt.query_map([], |row| {
+        Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+    })
+    .expect("rows")
+    .collect::<Result<_, _>>()
+    .expect("tasks")
 }
 
 #[test]
-fn minimal_context_leaves_an_unbuilt_graph_to_python() {
+fn minimal_context_queues_a_prepare_for_an_unbuilt_graph() {
     let repo = Repo::new("unbuilt", true);
+    // Python creates a missing graph; this tool only reads one.
     assert!(declines(
         &repo.context(),
         "get_minimal_context_tool",
         json!({})
     ));
+    GraphStore::open(db_path_for_build(&repo.0).expect("db path")).expect("empty graph");
+
+    let observed = answer(&repo.context(), "get_minimal_context_tool", json!({}));
+    assert_eq!(observed["sync"]["state"], "unbuilt");
+    assert_eq!(observed["sync"]["status"], "empty");
+    assert_eq!(observed["graph_health"]["status"], "empty");
+    assert_eq!(
+        observed["next_tool_suggestions"],
+        json!([
+            "ensure_graph_tool",
+            "review_tool",
+            "semantic_search_nodes_tool",
+            "architecture_analysis_tool"
+        ])
+    );
+    assert!(observed.get("repair").is_none());
+
+    // Queuing needs an interpreter for the worker.
+    let mut no_python = auto_preparing(&repo);
+    if let Some(auto) = no_python.auto_prepare.as_mut() {
+        auto.python_executable = None;
+    }
+    assert!(declines(&no_python, "get_minimal_context_tool", json!({})));
+
+    let context = auto_preparing(&repo);
+    let first = answer(&context, "get_minimal_context_tool", json!({}));
+    assert_eq!(
+        first["repair"],
+        json!({"state": "queued", "kind": "prepare", "task_id": 1, "action": "added"})
+    );
+    assert_eq!(
+        first["prepare"],
+        json!({"status": "queued", "action": "queued", "reason": "enqueued_background_prepare", "phases": null})
+    );
+    let second = answer(&context, "get_minimal_context_tool", json!({}));
+    assert_eq!(
+        second["repair"],
+        json!({"state": "coalesced", "kind": "prepare", "task_id": 1, "action": "coalesced"})
+    );
+    assert_eq!(
+        queued_tasks(&repo),
+        vec![(
+            1,
+            "prepare".to_string(),
+            10,
+            r#"{"local_embedding": "none", "keep_local_embedding_server": true, "budget_seconds": 300}"#
+                .to_string()
+        )]
+    );
+}
+
+#[test]
+fn minimal_context_reports_and_repairs_commit_drift() {
+    let repo = Repo::new("drift", true);
+    repo.build();
+    repo.write("app.py", "def main():\n    return 2\n");
+    let out = Command::new("git")
+        .args(["commit", "-q", "--no-gpg-sign", "-am", "next"])
+        .current_dir(&repo.0)
+        .env("GIT_AUTHOR_NAME", "t")
+        .env("GIT_AUTHOR_EMAIL", "t@example.invalid")
+        .env("GIT_COMMITTER_NAME", "t")
+        .env("GIT_COMMITTER_EMAIL", "t@example.invalid")
+        .output()
+        .expect("git");
+    assert!(out.status.success(), "{out:?}");
+
+    let observed = answer(
+        &repo.context(),
+        "get_minimal_context_tool",
+        json!({"task": "fix"}),
+    );
+    assert_eq!(
+        observed["sync"],
+        json!({"state": "commit_drift", "status": "git_drift", "vcs": "git"})
+    );
+    assert_eq!(
+        observed["recommended_action"],
+        "Call ensure_graph_tool to sync the graph."
+    );
+    assert_eq!(observed["why"], "sync.state=commit_drift");
+    assert_eq!(
+        observed["next_tool_suggestions"][0],
+        json!("ensure_graph_tool")
+    );
+    assert!(
+        observed["graph_health"]["reason_codes"]
+            .as_array()
+            .expect("codes")
+            .contains(&json!("graph_describes_another_commit"))
+    );
+
+    let repaired = answer(
+        &auto_preparing(&repo),
+        "get_minimal_context_tool",
+        json!({"task": "fix"}),
+    );
+    assert_eq!(
+        repaired["recommended_action"],
+        "Graph repair is queued; call ensure_graph_tool only if you must wait for it."
+    );
+    assert_eq!(repaired["repair"]["kind"], "prepare");
+    assert_eq!(repaired["_repo"]["source"], "explicit");
+}
+
+#[test]
+fn minimal_context_queues_missing_local_embeddings() {
+    let repo = Repo::new("embed", true);
+    repo.build();
+    let mut context = auto_preparing(&repo);
+    // At HEAD: nothing to repair without a local embedding mode.
+    let observed = answer(&context, "get_minimal_context_tool", json!({}));
+    assert!(observed.get("repair").is_none());
+    // No vectors at all refresh inline: the prepare lane.
+    context.local_embedding = Some("bge-m3".to_string());
+    let queued = answer(&context, "get_minimal_context_tool", json!({}));
+    assert_eq!(queued["sync"]["state"], "commit_synced");
+    assert_eq!(queued["repair"]["kind"], "prepare");
+    assert_eq!(queued["recommended_action"], observed["recommended_action"]);
+    assert_eq!(
+        queued_tasks(&repo)[0].3,
+        r#"{"local_embedding": "bge-m3", "keep_local_embedding_server": true, "budget_seconds": 300}"#
+    );
+}
+
+#[test]
+fn minimal_context_never_queues_outside_a_repository() {
+    let repo = Repo::new("novcs", false);
+    std::fs::remove_dir_all(repo.0.join(".git")).expect("unmark");
+    GraphStore::open(db_path_for_build(&repo.0).expect("db path")).expect("empty graph");
+    let observed = answer(
+        &auto_preparing(&repo),
+        "get_minimal_context_tool",
+        json!({}),
+    );
+    assert_eq!(
+        observed["sync"],
+        json!({"state": "unbuilt", "status": "empty", "vcs": "none"})
+    );
+    assert!(observed.get("repair").is_none());
+    assert!(!repo.0.join(".dagayn/task_queue.db").exists());
 }
 
 #[test]

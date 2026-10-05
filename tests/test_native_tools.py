@@ -488,3 +488,85 @@ def test_review_context_answers_through_rust(reviewed_repo: Path) -> None:
     assert result["key_entities"]
     assert all(not entity.startswith("/") for entity in result["key_entities"])
     assert "core/service.py::stable_api" in result["key_entities"]
+
+
+def _queue_rows(root: Path) -> list[tuple[object, ...]]:
+    import sqlite3
+
+    conn = sqlite3.connect(root / ".dagayn" / "task_queue.db")
+    try:
+        return conn.execute("SELECT id, kind, priority, payload, state FROM tasks").fetchall()
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize(("embedded", "kind"), [(False, "prepare"), (True, "embed")])
+def test_minimal_context_queues_a_local_embedding_refresh_as_python_did(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, embedded: bool, kind: str
+) -> None:
+    """No vectors refresh inline (a prepare); a gap under the inline ratio is
+    a background embed. ``get_minimal_context`` on one repository, the Rust
+    tool through ``_core`` on its twin; neither starts a worker (the test
+    holds the worker lock)."""
+    import fcntl
+    import json
+    import sqlite3
+
+    from dagayn import _core
+    from dagayn.tools.context import get_minimal_context
+
+    monkeypatch.setenv("DAGAYN_EMBED_INLINE_MISSING_RATIO", "0.9")
+    replies = []
+    rows = []
+    for native in (False, True):
+        root = tmp_path / ("rust" if native else "python")
+        (root / ".git").mkdir(parents=True)
+        (root / "app.py").write_text(
+            "def main():\n    return helper()\n\n\ndef helper():\n    pass\n"
+        )
+        subprocess.run([DAGAYN, "build", "--repo", root], check=True, capture_output=True)
+        if embedded:
+            conn = sqlite3.connect(root / ".dagayn" / "graph.db")
+            try:
+                conn.execute(
+                    "INSERT INTO embeddings (qualified_name, vector, text_hash, provider)"
+                    " SELECT qualified_name, x'00', 'h', 'local:bge-m3' FROM nodes"
+                    " WHERE name = 'main'"
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        lock = (root / ".dagayn" / "queue_worker.lock").open("a+", encoding="utf-8")
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            if native:
+                text = _core.call_tool(
+                    "get_minimal_context_tool",
+                    json.dumps({"repo_root": str(root)}),
+                    package_root=str(Path(__file__).resolve().parent.parent),
+                    local_embedding="bge-m3",
+                    auto_prepare=True,
+                    python_executable=sys.executable,
+                    prepare_budget_seconds=300,
+                )
+                assert text is not None
+                reply = json.loads(text)
+            else:
+                reply = get_minimal_context(
+                    repo_root=str(root), auto_prepare=True, local_embedding="bge-m3"
+                )
+        finally:
+            lock.close()
+        assert reply.pop("_repo", {"repo_root": str(root)})["repo_root"] == str(root)
+        replies.append(reply)
+        rows.append(_queue_rows(root))
+    assert replies[0] == replies[1]
+    assert replies[0]["repair"] == {
+        "state": "queued",
+        "kind": kind,
+        "task_id": 1,
+        "action": "added",
+    }
+    assert ("prepare" in replies[0]) == (kind == "prepare")
+    assert rows[0] == rows[1]
+    assert rows[0][0][1] == kind

@@ -617,6 +617,21 @@ pub(crate) fn analyze_changes(
     changed_files: &[String],
     ranges: &Ranges,
 ) -> Option<Analysis> {
+    analyze_changes_with(store, root, base, changed_files, ranges, true)
+}
+
+/// [`analyze_changes`]; `skip_ranged_files: false` is the call that leaves
+/// `changed_ranges` to `analyze_changes` itself (`get_minimal_context`): its
+/// ranges are keyed by relative path, so no absolute changed file matches
+/// one and every changed file adds all of its nodes.
+pub(crate) fn analyze_changes_with(
+    store: &GraphStore,
+    root: &Path,
+    base: &str,
+    changed_files: &[String],
+    ranges: &Ranges,
+    skip_ranged_files: bool,
+) -> Option<Analysis> {
     let ctx = Context {
         store,
         root,
@@ -641,7 +656,7 @@ pub(crate) fn analyze_changes(
             .map(|n| n.qualified_name.clone())
             .collect();
         for file_path in &abs_files {
-            if ranged.contains(file_path) {
+            if skip_ranged_files && ranged.contains(file_path) {
                 continue;
             }
             for node in ctx.nodes_for_changed_file(file_path)? {

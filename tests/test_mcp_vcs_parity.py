@@ -119,8 +119,8 @@ def test_a_jj_workspace_is_answered_in_rust_as_python_does(jj_workspace: Path, c
         _jj(jj_workspace, "commit", "-m", "edit")
     if change == "updated":
         _dagayn("update", jj_workspace)
-    # A graph behind HEAD makes get_minimal_context queue a prepare, which is
-    # Python's (and would rebuild the graph under the calls that follow).
+    # A graph behind HEAD makes get_minimal_context queue a prepare, whose
+    # worker would rebuild the graph under the calls that follow.
     context = [] if change == "committed" else [("get_minimal_context_tool", {"task": "review"})]
     calls = [*context, *READS, *REVIEWS]
     rust, python, stderr = _session_both(jj_workspace, calls)

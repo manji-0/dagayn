@@ -126,6 +126,26 @@ def _python_side_reads() -> list:
     ]
 
 
+def test_the_task_queue_shares_its_file_with_the_native_enqueue(tmp_path: Path) -> None:
+    """``get_minimal_context_tool`` enqueues from ``dagayn._core`` while
+    Python's ``TaskQueue`` may hold the same file: closing the Python
+    connection must not checkpoint away the WAL the native one reads."""
+    from dagayn.task_queue import TaskQueue
+
+    db = tmp_path / ".dagayn" / "task_queue.db"
+    queue = TaskQueue(db)
+    try:
+        assert queue.enqueue("prepare") == ("added", 1)
+    finally:
+        queue.close()
+    assert db.with_name("task_queue.db-wal").exists()
+    again = TaskQueue(db)
+    try:
+        assert again.enqueue("prepare") == ("coalesced", 1)
+    finally:
+        again.close()
+
+
 @pytest.mark.parametrize("python_side", _python_side_reads())
 def test_a_python_side_connection_leaves_the_native_store_working(
     unembedded_repo: Path, python_side

@@ -46,6 +46,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .sqlite_tuning import keep_wal_on_close
+
 logger = logging.getLogger(__name__)
 
 #: Task kinds the worker knows how to execute.
@@ -164,6 +166,9 @@ class TaskQueue:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self.db_path), timeout=10)
+        # The Rust get_minimal_context_tool enqueues into this file from the
+        # same process (another SQLite copy, blind to these locks).
+        keep_wal_on_close(self._conn)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA busy_timeout=5000")

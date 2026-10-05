@@ -63,6 +63,7 @@ def serve_mcp(
     embedding_provider: str | None = None,
     embedding_model: str | None = None,
     runtime: str | None = None,
+    python_executable: str | None = None,
 ) -> None: ...
 def call_tool(
     name: str,
@@ -73,6 +74,9 @@ def call_tool(
     embedding_provider: str | None = None,
     embedding_model: str | None = None,
     runtime: str | None = None,
+    auto_prepare: bool = False,
+    python_executable: str | None = None,
+    prepare_budget_seconds: int | None = None,
 ) -> str | None: ...
 def docs_section_json(
     search_roots: list[str],
