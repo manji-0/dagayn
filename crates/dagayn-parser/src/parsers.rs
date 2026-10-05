@@ -325,18 +325,6 @@ pub(super) fn new_zig_parser() -> Option<tree_sitter::Parser> {
     }
 }
 
-pub(super) fn new_powershell_parser() -> Option<tree_sitter::Parser> {
-    let mut parser = tree_sitter::Parser::new();
-    if parser
-        .set_language(&dagayn_grammars::powershell_language())
-        .is_ok()
-    {
-        Some(parser)
-    } else {
-        None
-    }
-}
-
 pub(super) fn new_swift_parser() -> Option<tree_sitter::Parser> {
     let mut parser = tree_sitter::Parser::new();
     if parser

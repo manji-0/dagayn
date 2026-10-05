@@ -400,19 +400,6 @@ const ZIG: GrammarSpec = GrammarSpec {
     parser_subdirectory: None,
 };
 
-const POWERSHELL: GrammarSpec = GrammarSpec {
-    language: "powershell",
-    symbol: "powershell",
-    required_paths: &[
-        "src/parser.c",
-        "src/scanner.c",
-        "src/tree_sitter/alloc.h",
-        "src/tree_sitter/array.h",
-        "src/tree_sitter/parser.h",
-    ],
-    parser_subdirectory: None,
-};
-
 const SWIFT: GrammarSpec = GrammarSpec {
     language: "swift",
     symbol: "swift",
@@ -440,7 +427,7 @@ fn main() {
         repo_root.join("dagayn/vendor_grammars.py").display()
     );
 
-    let grammars: [&GrammarSpec; 30] = [
+    let grammars: [&GrammarSpec; 29] = [
         &MARKDOWN,
         &TERRAFORM,
         &RUST,
@@ -469,7 +456,6 @@ fn main() {
         &VUE,
         &SVELTE,
         &ZIG,
-        &POWERSHELL,
         &SWIFT,
     ];
     // Staging may run Python or download a source, and bash reads headers

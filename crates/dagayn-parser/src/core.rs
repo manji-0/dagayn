@@ -154,7 +154,6 @@ pub struct RustOwnedParser {
     vue_parser: Option<tree_sitter::Parser>,
     svelte_parser: Option<tree_sitter::Parser>,
     zig_parser: Option<tree_sitter::Parser>,
-    powershell_parser: Option<tree_sitter::Parser>,
     swift_parser: Option<tree_sitter::Parser>,
     javascript_export_cache: js_modules::JavaScriptExportCache,
     javascript_module_cache: js_modules::JavaScriptModuleCache,
@@ -193,7 +192,6 @@ impl RustOwnedParser {
             vue_parser: None,
             svelte_parser: None,
             zig_parser: None,
-            powershell_parser: None,
             swift_parser: None,
             javascript_export_cache: Default::default(),
             javascript_module_cache: Default::default(),
@@ -448,14 +446,7 @@ impl RustOwnedParser {
                 parser_slot(&mut self.zig_parser, new_zig_parser),
                 repo_root,
             ),
-            RustOwnedPathKind::PowerShell => {
-                ensure_parser(&mut self.powershell_parser, new_powershell_parser);
-                file_only::parse_powershell_with_parser(
-                    file_path,
-                    source,
-                    self.powershell_parser.as_mut(),
-                )
-            }
+            RustOwnedPathKind::PowerShell => file_only::parse_powershell(file_path, source),
             RustOwnedPathKind::Swift => {
                 ensure_parser(&mut self.swift_parser, new_swift_parser);
                 swift::parse_swift_with_parser(file_path, source, self.swift_parser.as_mut())
@@ -732,8 +723,7 @@ pub fn parse_zig(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<Parsed
 }
 
 pub fn parse_powershell(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    let mut parser = new_powershell_parser();
-    file_only::parse_powershell_with_parser(file_path, source, parser.as_mut())
+    file_only::parse_powershell(file_path, source)
 }
 
 pub fn parse_swift(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {

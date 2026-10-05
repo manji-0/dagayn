@@ -34,7 +34,6 @@ unsafe extern "C" {
     fn tree_sitter_vue() -> *const ();
     fn tree_sitter_svelte() -> *const ();
     fn tree_sitter_zig() -> *const ();
-    fn tree_sitter_powershell() -> *const ();
     fn tree_sitter_swift() -> *const ();
 }
 
@@ -66,7 +65,6 @@ pub const PERL_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_
 pub const VUE_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_vue) };
 pub const SVELTE_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_svelte) };
 pub const ZIG_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_zig) };
-pub const POWERSHELL_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_powershell) };
 pub const SWIFT_LANGUAGE: LanguageFn = unsafe { LanguageFn::from_raw(tree_sitter_swift) };
 
 pub fn markdown_language() -> tree_sitter::Language {
@@ -179,10 +177,6 @@ pub fn svelte_language() -> tree_sitter::Language {
 
 pub fn zig_language() -> tree_sitter::Language {
     ZIG_LANGUAGE.into()
-}
-
-pub fn powershell_language() -> tree_sitter::Language {
-    POWERSHELL_LANGUAGE.into()
 }
 
 pub fn swift_language() -> tree_sitter::Language {
@@ -544,18 +538,6 @@ mod tests {
                 None,
             )
             .expect("parse Zig");
-        assert!(!tree.root_node().has_error());
-    }
-
-    #[test]
-    fn loads_powershell_language() {
-        let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&powershell_language())
-            .expect("load pinned PowerShell grammar");
-        let tree = parser
-            .parse("function Invoke-Hello { Write-Host \"Hello\" }\n", None)
-            .expect("parse PowerShell");
         assert!(!tree.root_node().has_error());
     }
 

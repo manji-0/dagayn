@@ -38,7 +38,6 @@ The current provisioned grammars are:
 - Vue
 - Svelte
 - Zig
-- PowerShell
 - Swift
 
 ## Provisioning model
