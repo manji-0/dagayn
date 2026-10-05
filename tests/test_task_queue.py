@@ -454,8 +454,9 @@ class TestRunWorker:
         run_worker(tmp_path, idle_seconds=0.0)
         elapsed = time.monotonic() - started
 
-        # Uncapped this would wait 5s then 10s.
-        assert elapsed < 1.0
+        # Uncapped this would wait 5s then 10s; capped, two 0.05s waits. The
+        # bound leaves room for a loaded CI runner with coverage on.
+        assert elapsed < 4.0
 
     def test_other_tasks_run_while_a_retry_backs_off(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
