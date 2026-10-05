@@ -5,8 +5,15 @@ every code point: ``re``'s ``\\w`` and ``\\d``, and ``str.isprintable()``."""
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Callable
 from pathlib import Path
+
+import pytest
+
+#: The Unicode version the tables were taken from; other interpreters' classes
+#: differ in the code points added since.
+UNIDATA = "16.0.0"
 
 TABLES = Path(__file__).resolve().parent.parent / "crates/dagayn-tools/src/pyunicode.rs"
 
@@ -45,6 +52,10 @@ def _render(name: str, ranges: list[tuple[int, int]]) -> str:
     return "\n".join([*header, *lines, "];"])
 
 
+@pytest.mark.skipif(
+    unicodedata.unidata_version != UNIDATA,
+    reason=f"the tables are Unicode {UNIDATA}'s (CPython 3.14)",
+)
 def test_the_rust_tables_are_this_pythons_unicode_classes() -> None:
     source = TABLES.read_text(encoding="utf-8")
     expected = {
