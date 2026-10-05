@@ -640,10 +640,10 @@ class TestInstallGlobalSkills:
         )
         with (
             patch("pathlib.Path.home", return_value=home),
-            patch("dagayn.incremental.find_repo_root", return_value=repo),
+            patch("dagayn.incremental_files.find_repo_root", return_value=repo),
             patch("dagayn.skills.install_platform_configs", return_value=[]),
             patch(
-                "dagayn.incremental.ensure_repo_gitignore_excludes_crg",
+                "dagayn.incremental_files.ensure_repo_gitignore_excludes_crg",
                 return_value="already",
             ),
         ):
@@ -679,10 +679,10 @@ class TestInstallGlobalSkills:
         )
 
         with (
-            patch("dagayn.incremental.find_repo_root", return_value=tmp_path),
+            patch("dagayn.incremental_files.find_repo_root", return_value=tmp_path),
             patch("dagayn.skills.install_platform_configs", return_value=[]),
             patch(
-                "dagayn.incremental.ensure_repo_gitignore_excludes_crg",
+                "dagayn.incremental_files.ensure_repo_gitignore_excludes_crg",
                 return_value="already",
             ),
             patch("dagayn.skills.generate_skills", return_value=tmp_path / ".claude" / "skills"),

@@ -1399,7 +1399,7 @@ class TestJuliaParsing:
 class _TempRepoBuildMixin:
     def _full_build(self, tmp_path):
         from dagayn.graph import GraphStore
-        from dagayn.incremental import full_build
+        from dagayn.incremental_build import full_build
 
         (tmp_path / ".git").mkdir()
         store = GraphStore(tmp_path / "graph.db")

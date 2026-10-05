@@ -12,7 +12,8 @@ from pathlib import Path
 from typing import Any
 
 from ..contracts.state_types import BuildResult, build_result_payload
-from ..incremental import full_build, incremental_update
+from ..incremental_build import full_build
+from ..incremental_update_pipeline import incremental_update
 from ..paths import get_db_path
 from ..write_lock import WriteLockUnavailableError, graph_write_lock
 from ._common import _evict_store_cache, _get_store, _validate_repo_root
@@ -76,7 +77,7 @@ def _resolve_write_root(repo_root: str | None) -> Path:
     needs the root -- but taking the lock only makes sense *before* opening the
     store, so this cannot come from the store itself.
     """
-    from ..incremental import find_project_root
+    from ..incremental_files import find_project_root
     from ..paths import ALLOW_WIDE_ROOT_ENV, unsafe_root_reason
 
     if repo_root:
@@ -759,7 +760,7 @@ def build_or_update_graph(
             )
         else:
             from dagayn.communities import count_affected_communities
-            from dagayn.incremental import get_changed_file_sources
+            from dagayn.incremental_files import get_changed_file_sources
 
             pre_affected_communities = 0
             change_file_sources = get_changed_file_sources(root, base)

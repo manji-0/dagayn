@@ -29,7 +29,7 @@ from typing import Any, Literal, TypedDict, cast
 
 from ..contracts.state_types import GraphSyncStateName, seal_graph_sync_state
 from ..extractor_versions import outdated_extractors
-from ..incremental import (
+from ..incremental_files import (
     GIT_BACKED_VCS,
     _git_branch_info,
     detect_vcs,
@@ -181,7 +181,7 @@ def _classify_diff_tier(
         _classify_python_changed_files,
         _filter_incremental_candidates,
     )
-    from ..incremental_files import _load_ignore_patterns
+    from ..parser.ignore import _load_ignore_patterns
 
     dirty_state: GraphSyncStateName = "worktree_ahead" if dirty_files else "commit_synced"
     try:

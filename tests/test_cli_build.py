@@ -194,7 +194,7 @@ class _FakeMetaStore:
 
 
 def test_print_vcs_status_warns_on_git_commit_drift(tmp_path, monkeypatch, capsys):
-    import dagayn.incremental as incremental
+    import dagayn.incremental_files as incremental
 
     monkeypatch.setattr(incremental, "detect_vcs", lambda _root: "git")
     monkeypatch.setattr(
@@ -219,7 +219,7 @@ def test_print_vcs_status_warns_on_git_commit_drift(tmp_path, monkeypatch, capsy
 
 
 def test_print_vcs_status_warns_on_git_branch_change(tmp_path, monkeypatch, capsys):
-    import dagayn.incremental as incremental
+    import dagayn.incremental_files as incremental
 
     monkeypatch.setattr(incremental, "detect_vcs", lambda _root: "git")
     monkeypatch.setattr(
@@ -244,7 +244,7 @@ def test_print_vcs_status_warns_on_git_branch_change(tmp_path, monkeypatch, caps
 
 
 def test_print_vcs_status_warns_on_svn_revision_drift(tmp_path, monkeypatch, capsys):
-    import dagayn.incremental as incremental
+    import dagayn.incremental_files as incremental
 
     monkeypatch.setattr(incremental, "detect_vcs", lambda _root: "svn")
     monkeypatch.setattr(

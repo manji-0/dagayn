@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Literal
 
 from ..hook_guard import running_from_hook
-from ..incremental import detect_vcs
+from ..incremental_files import detect_vcs
 from ..paths import get_db_path
 from ..write_lock import WriteLockUnavailableError, graph_write_lock
 from . import sync_status as sync_status_mod
@@ -132,7 +132,7 @@ def _resolve_repo(repo_root: str | None, *, from_hook: bool = False) -> Path:
     # apply here too. Without them this resolved ``$HOME`` whenever the editor
     # launched the server with ``cwd=$HOME`` and then *built a graph there*,
     # indexing every checkout below it.
-    from ..incremental import find_project_root
+    from ..incremental_files import find_project_root
 
     return Path(find_project_root()).resolve()
 

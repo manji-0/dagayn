@@ -20,7 +20,8 @@ from ..contracts.state_types import (
 from ..embeddings_store import get_embedding_provider_counts
 from ..graph import GraphNode, _sanitize_name, edge_to_dict, node_to_dict
 from ..hints import generate_hints, get_session
-from ..incremental import get_changed_files, get_db_path, get_staged_and_unstaged
+from ..incremental_files import get_changed_files, get_staged_and_unstaged
+from ..paths import get_db_path
 from ..search import embedding_health_available, hybrid_search
 from ._common import (
     _BUILTIN_CALL_NAMES,

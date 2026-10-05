@@ -92,7 +92,9 @@ def _measure_size(
 ) -> list[BenchmarkPayload]:
     from dagayn.eval.benchmarks.mcp_latency import _time_call
     from dagayn.eval.benchmarks.query_performance import run as run_query
-    from dagayn.incremental import full_build, get_db_path, incremental_update
+    from dagayn.incremental_build import full_build
+    from dagayn.incremental_update_pipeline import incremental_update
+    from dagayn.paths import get_db_path
     from dagayn.tools._common import _selected_graph_store
     from dagayn.tools.build import _run_postprocess
 

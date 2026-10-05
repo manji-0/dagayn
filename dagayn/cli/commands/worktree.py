@@ -97,7 +97,7 @@ def _resolve_repo(args: argparse.Namespace) -> Path | None:
         if resolved is not None:
             return resolved
 
-    from ...incremental import find_repo_root
+    from ...incremental_files import find_repo_root
 
     return find_repo_root()
 

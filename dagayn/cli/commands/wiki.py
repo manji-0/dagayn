@@ -24,7 +24,8 @@ def handle(args: argparse.Namespace) -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
     from ...graph import GraphStore
-    from ...incremental import find_project_root, get_data_dir, get_db_path
+    from ...incremental_files import find_project_root
+    from ...paths import get_data_dir, get_db_path
 
     repo_root = Path(args.repo) if args.repo else find_project_root()
     db_path = get_db_path(repo_root)

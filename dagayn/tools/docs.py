@@ -12,7 +12,7 @@ from ..embeddings import (
     prepare_all_nodes,
 )
 from ..embeddings_store import EmbedWorkItem
-from ..incremental import get_db_path
+from ..paths import get_db_path
 from ._common import (
     ToolPayload,
     _error_response,
@@ -355,7 +355,7 @@ def generate_wiki_func(
     Returns:
         Status with pages_generated, pages_updated, pages_unchanged counts.
     """
-    from ..incremental import get_data_dir
+    from ..paths import get_data_dir
     from ..wiki import generate_wiki
 
     store = None
@@ -403,7 +403,7 @@ def get_wiki_page_func(
     Returns:
         Page content or not_found status.
     """
-    from ..incremental import get_data_dir
+    from ..paths import get_data_dir
     from ..wiki import get_wiki_page
 
     _, root = _get_store(repo_root)

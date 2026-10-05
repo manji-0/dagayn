@@ -19,7 +19,7 @@ from ..contracts.state_types import (
     seal_refactor_ok,
 )
 from ..hints import generate_hints, get_session
-from ..incremental import find_project_root
+from ..incremental_files import find_project_root
 from ._common import (
     _error_response,
     _get_store,

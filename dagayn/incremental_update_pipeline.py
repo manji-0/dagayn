@@ -44,15 +44,14 @@ from .incremental_build import (
 from .incremental_files import (
     _dedupe_preserve_order,
     _is_binary,
-    _load_ignore_patterns,
     _make_repo_relative,
     _relativize_parsed_entities,
-    _should_ignore,
     _store_vcs_metadata,
     get_changed_file_sources,
 )
 from .parser import CodeParser
 from .parser._base.types import EdgeInfo, NodeInfo
+from .parser.ignore import _load_ignore_patterns, _should_ignore
 from .worktree import is_gitignored
 
 logger = logging.getLogger(__name__)

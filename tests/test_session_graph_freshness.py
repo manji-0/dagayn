@@ -34,7 +34,7 @@ from dagayn.extractor_versions import (
     record_extractor_versions,
 )
 from dagayn.graph import GraphStore
-from dagayn.incremental import full_build
+from dagayn.incremental_build import full_build
 from dagayn.parser import NodeInfo
 from dagayn.skills import (
     generate_hooks_config,
@@ -266,7 +266,7 @@ class TestAssessGraphSyncContract:
         from dagayn.extractor_versions import (
             EXTRACTOR_VERSIONS_KEY,
         )
-        from dagayn.incremental import incremental_update
+        from dagayn.incremental_update_pipeline import incremental_update
 
         (main_repo / "app.ts").write_text("export function main() {}\n", encoding="utf-8")
         git(main_repo, "add", "app.ts")

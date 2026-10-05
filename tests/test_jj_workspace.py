@@ -19,19 +19,18 @@ from worktree_fixtures import git as _git
 from dagayn import jj_workspace
 from dagayn.changes import parse_git_diff
 from dagayn.graph import GraphStore
-from dagayn.incremental import (
+from dagayn.incremental_build import full_build
+from dagayn.incremental_files import (
     _git_branch_info,
     collect_all_files,
     detect_vcs,
     find_repo_root,
-    full_build,
     get_changed_file_sources,
-    get_db_path,
-    incremental_update,
-    is_project_root,
+    resolve_commit_sha,
 )
-from dagayn.incremental_files import resolve_commit_sha
+from dagayn.incremental_update_pipeline import incremental_update
 from dagayn.jj_workspace import JjWorkspaceError
+from dagayn.paths import get_db_path, is_project_root
 from dagayn.skills.hooks import _SHELL_JJ_WORKSPACE_NARROWING
 from dagayn.tools.sync_status import assess_graph_sync
 from dagayn.worktree import (

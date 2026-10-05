@@ -8,7 +8,7 @@ from pathlib import Path, PurePosixPath
 
 from dagayn.contracts.state_types import PostprocessResult
 from dagayn.graph import GraphStore
-from dagayn.incremental import full_build
+from dagayn.incremental_build import full_build
 from dagayn.parser._base.types import NodeInfo
 from dagayn.parser.manifest_bridges import (
     EXTRACTOR_ID,

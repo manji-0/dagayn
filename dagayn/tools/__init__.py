@@ -9,12 +9,8 @@ from typing import Any
 from ..changes import parse_diff_ranges as parse_diff_ranges
 from ..changes import parse_git_diff_ranges as parse_git_diff_ranges
 from ..changes import parse_svn_diff_ranges as parse_svn_diff_ranges
-from ..incremental import (
-    get_changed_files as get_changed_files,
-)
-from ..incremental import (
-    get_staged_and_unstaged as get_staged_and_unstaged,
-)
+from ..incremental_files import get_changed_files as get_changed_files
+from ..incremental_files import get_staged_and_unstaged as get_staged_and_unstaged
 
 # -- _common ----------------------------------------------------------------
 from ._common import (

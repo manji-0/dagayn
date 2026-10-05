@@ -1739,7 +1739,7 @@ class TestBuildPostprocess:
 
         monkeypatch.delenv("DAGAYN_BACKEND", raising=False)
         with patch(
-            "dagayn.incremental.get_all_tracked_files",
+            "dagayn.incremental_files.get_all_tracked_files",
             return_value=["sample.py"],
         ):
             result = build_or_update_graph(
@@ -1761,7 +1761,7 @@ class TestBuildPostprocess:
 
         monkeypatch.delenv("DAGAYN_BACKEND", raising=False)
         with patch(
-            "dagayn.incremental.get_all_tracked_files",
+            "dagayn.incremental_files.get_all_tracked_files",
             return_value=["sample.py"],
         ):
             result = build_or_update_graph(
@@ -1782,7 +1782,7 @@ class TestBuildPostprocess:
 
         monkeypatch.delenv("DAGAYN_BACKEND", raising=False)
         with patch(
-            "dagayn.incremental.get_all_tracked_files",
+            "dagayn.incremental_files.get_all_tracked_files",
             return_value=["sample.py"],
         ):
             result = build_or_update_graph(
@@ -1814,7 +1814,7 @@ class TestBuildPostprocess:
         }
         with (
             patch(
-                "dagayn.incremental.get_all_tracked_files",
+                "dagayn.incremental_files.get_all_tracked_files",
                 return_value=["sample.py"],
             ),
             patch("dagayn.tools.build._run_local_embedding", return_value=embed_result) as run,
@@ -1850,7 +1850,7 @@ class TestBuildPostprocess:
         monkeypatch.delenv("DAGAYN_BACKEND", raising=False)
         with (
             patch(
-                "dagayn.incremental.get_all_tracked_files",
+                "dagayn.incremental_files.get_all_tracked_files",
                 return_value=["sample.py"],
             ),
             patch("dagayn.tools.build._run_local_embedding") as run,
@@ -1928,7 +1928,7 @@ class TestBuildPostprocess:
         with (
             patch("dagayn.tools.build.incremental_update", return_value=update_result),
             patch(
-                "dagayn.incremental.get_changed_file_sources",
+                "dagayn.incremental_files.get_changed_file_sources",
                 return_value={"files": ["a.py"]},
             ),
             patch("dagayn.tools.build._run_postprocess", return_value=[]),
@@ -1999,7 +1999,7 @@ class TestBuildPostprocess:
 
         with (
             patch(
-                "dagayn.incremental.get_all_tracked_files",
+                "dagayn.incremental_files.get_all_tracked_files",
                 return_value=["sample.py"],
             ),
             patch("dagayn.tools.build._get_store", side_effect=tracking_get_store),

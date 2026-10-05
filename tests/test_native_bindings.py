@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from dagayn.graph import GraphStore
-from dagayn.incremental import full_build
+from dagayn.incremental_build import full_build
 from dagayn.postprocessing import run_post_processing
 from dagayn.tools.query import get_impact_radius
 from tests.store_sql import store_conn

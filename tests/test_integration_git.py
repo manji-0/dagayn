@@ -18,15 +18,15 @@ import pytest
 
 from dagayn.changes import analyze_changes, parse_git_diff_ranges
 from dagayn.graph import GraphStore
-from dagayn.incremental import (
+from dagayn.incremental_build import full_build
+from dagayn.incremental_files import (
     collect_all_files,
-    full_build,
     get_all_tracked_files,
     get_changed_file_sources,
     get_changed_files,
     get_vcs_indexable_files,
-    incremental_update,
 )
+from dagayn.incremental_update_pipeline import incremental_update
 from dagayn.wiki import get_wiki_page
 from tests.store_sql import store_conn
 

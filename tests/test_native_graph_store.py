@@ -362,7 +362,7 @@ def test_semantic_search_works_under_native_backend(tmp_path, monkeypatch):
     """`semantic_search_nodes` used to die on `store_conn(store)`. See: #153"""
     monkeypatch.setenv("DAGAYN_BACKEND", "rust")
 
-    from dagayn.incremental import full_build
+    from dagayn.incremental_build import full_build
     from dagayn.tools import semantic_search_nodes
     from dagayn.tools._common import _get_store
 

@@ -27,7 +27,7 @@ def _resolve_local_embedding_mode(
 
 
 def _resolve_serve_root(repo_root: str | None) -> Path:
-    from ...incremental import resolve_cli_repo_root
+    from ...incremental_files import resolve_cli_repo_root
 
     return resolve_cli_repo_root(repo_root)
 
@@ -58,8 +58,9 @@ def _infer_persisted_local_embedding(repo_root: str | None):
         read_active_embedding_provider_metadata,
         resolve_active_embedding_provider,
     )
-    from ...incremental import db_path_for, resolve_cli_repo_root
+    from ...incremental_files import resolve_cli_repo_root
     from ...local_embeddings import infer_local_embedding_provider
+    from ...paths import db_path_for
 
     root = resolve_cli_repo_root(repo_root)
     db_path = db_path_for(root)
@@ -146,7 +147,7 @@ def handle(args: argparse.Namespace, serve_parser: argparse.ArgumentParser) -> N
         serve_parser.error("--local-embedding and --remote-embedding are mutually exclusive")
 
     # Must run before embedding inference below, which reads the graph.
-    from ...incremental import is_unresolved_path_placeholder, resolve_cli_repo_root
+    from ...incremental_files import is_unresolved_path_placeholder, resolve_cli_repo_root
 
     # A user-level MCP entry has no --repo. Resolving the repo at serve start
     # froze the first window's (or the newest graph's) root into every later

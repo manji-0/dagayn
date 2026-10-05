@@ -123,7 +123,7 @@ def _scenario_affected_flows(store: Any, config: BenchmarkPayload) -> int:
 
 
 def _scenario_single_hop_dependents(store: Any, _config: BenchmarkPayload) -> int:
-    from dagayn.incremental import _single_hop_dependents
+    from dagayn.incremental_build import _single_hop_dependents
 
     nodes = store.get_all_nodes(exclude_files=False)
     file_path = next((n.file_path for n in nodes if n.file_path), None)

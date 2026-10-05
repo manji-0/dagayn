@@ -11,13 +11,10 @@ from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import Any
 
-from ...incremental import (
-    find_project_root,
-    find_repo_root,
-    get_db_path,
-    watch,
-)
+from ...incremental_files import find_project_root, find_repo_root
+from ...incremental_update_pipeline import watch
 from ...local_embeddings import DEFAULT_LOCAL_EMBEDDING_BIN
+from ...paths import get_db_path
 
 #: What to do about each graph sync state, for ``dagayn status`` readers.
 _SYNC_STATE_HINTS = {
@@ -94,7 +91,12 @@ def _print_embedding_status(db_path: Path) -> None:
 
 def _print_vcs_status(repo_root: Path, store: object) -> None:
     """Print stored VCS metadata and warn when the working copy has drifted."""
-    from ...incremental import GIT_BACKED_VCS, _git_branch_info, _svn_revision_info, detect_vcs
+    from ...incremental_files import (
+        GIT_BACKED_VCS,
+        _git_branch_info,
+        _svn_revision_info,
+        detect_vcs,
+    )
 
     get_metadata = getattr(store, "get_metadata")
     stored_branch = get_metadata("git_branch")
@@ -518,7 +520,7 @@ def handle_visualize_command(
     store: Any,
     _db_path: Path,
 ) -> None:
-    from ...incremental import get_data_dir
+    from ...paths import get_data_dir
 
     data_dir = get_data_dir(repo_root)
     fmt = args.format

@@ -22,10 +22,8 @@ from .incremental_files import (
     _MAX_DEPENDENT_HOPS,
     _dedupe_preserve_order,
     _is_binary,
-    _load_ignore_patterns,
     _relativize_parsed_entities,
     _rust_backend_enabled,
-    _should_ignore,
     _store_vcs_metadata,
     collect_all_files,
     get_vcs_indexable_files,
@@ -34,6 +32,7 @@ from .incremental_files import (
 from .parser import CodeParser
 from .parser._base.types import EdgeInfo, NodeInfo
 from .parser.dispatch import detect_language as _detect_parser_language
+from .parser.ignore import _load_ignore_patterns, _should_ignore
 
 _IGNORE_SCOPE_NAMES = frozenset({".gitignore", ".dagaynignore"})
 

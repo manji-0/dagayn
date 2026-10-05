@@ -174,7 +174,8 @@ def run_eval(
 
         # Build graph
         from dagayn.graph import GraphStore
-        from dagayn.incremental import full_build, get_db_path
+        from dagayn.incremental_build import full_build
+        from dagayn.paths import get_db_path
 
         db_path = get_db_path(repo_path)
         store = GraphStore(db_path)

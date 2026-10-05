@@ -8,30 +8,29 @@ import pytest
 
 from dagayn.contracts.state_types import BuildResult
 from dagayn.graph import GraphStore
-from dagayn.incremental import (
-    _is_binary,
-    _load_ignore_patterns,
+from dagayn.incremental_build import (
     _parse_single_file,
-    _relativize_parsed_entities,
-    _should_ignore,
     _single_hop_dependents,
-    ensure_repo_gitignore_excludes_crg,
     find_dependents,
     find_dependents_for_files,
+    full_build,
+)
+from dagayn.incremental_files import (
+    _is_binary,
+    _relativize_parsed_entities,
+    ensure_repo_gitignore_excludes_crg,
     find_project_root,
     find_repo_root,
-    full_build,
     get_all_tracked_files,
     get_changed_file_sources,
     get_changed_files,
-    get_db_path,
     get_staged_and_unstaged,
     get_vcs_indexable_files,
-    incremental_update,
-    is_project_root,
-    watch,
 )
+from dagayn.incremental_update_pipeline import incremental_update, watch
 from dagayn.parser import EdgeInfo, NodeInfo
+from dagayn.parser.ignore import _load_ignore_patterns, _should_ignore
+from dagayn.paths import get_db_path, is_project_root
 
 
 class TestFindRepoRoot:
@@ -213,7 +212,7 @@ class TestFindProjectRoot:
             find_project_root()
 
     def test_resolve_cli_repo_root_ignores_placeholder(self, tmp_path, monkeypatch):
-        from dagayn.incremental import resolve_cli_repo_root
+        from dagayn.incremental_files import resolve_cli_repo_root
 
         repo = tmp_path / "project"
         (repo / ".git").mkdir(parents=True)
@@ -405,7 +404,7 @@ class TestIgnorePatterns:
 
     def test_should_ignore_framework_defaults(self):
         """Default patterns should cover Laravel, Gradle, Flutter, and caches."""
-        from dagayn.incremental import DEFAULT_IGNORE_PATTERNS
+        from dagayn.parser.ignore import DEFAULT_IGNORE_PATTERNS
 
         patterns = DEFAULT_IGNORE_PATTERNS
         # Laravel/PHP
@@ -428,7 +427,7 @@ class TestIgnorePatterns:
         so only the directory-walk fallback can reach these -- which is the path
         that produced that graph.
         """
-        from dagayn.incremental import DEFAULT_IGNORE_PATTERNS
+        from dagayn.parser.ignore import DEFAULT_IGNORE_PATTERNS
 
         patterns = DEFAULT_IGNORE_PATTERNS
         assert _should_ignore(".worktrees/feature-x/packages/app/src/index.ts", patterns)
@@ -444,7 +443,7 @@ class TestDataDir:
     def test_default_uses_repo_subdir(self, tmp_path, monkeypatch):
         """Without CRG_DATA_DIR, graphs live at <repo>/.dagayn."""
         monkeypatch.delenv("CRG_DATA_DIR", raising=False)
-        from dagayn.incremental import get_data_dir
+        from dagayn.paths import get_data_dir
 
         result = get_data_dir(tmp_path)
         assert result == tmp_path / ".dagayn"
@@ -464,7 +463,7 @@ class TestDataDir:
         byte 0x97), producing a file that cannot be decoded as UTF-8.
         """
         monkeypatch.delenv("CRG_DATA_DIR", raising=False)
-        from dagayn.incremental import get_data_dir
+        from dagayn.paths import get_data_dir
 
         data_dir = get_data_dir(tmp_path)
         gi = data_dir / ".gitignore"
@@ -493,7 +492,7 @@ class TestDataDir:
         repo = tmp_path / "project"
         repo.mkdir()
         monkeypatch.setenv("CRG_DATA_DIR", str(external))
-        from dagayn.incremental import get_data_dir, repo_slug
+        from dagayn.paths import get_data_dir, repo_slug
 
         result = get_data_dir(repo)
         assert result == external.resolve() / repo_slug(repo)
@@ -513,7 +512,7 @@ class TestDataDir:
         first.mkdir()
         second.mkdir()
         monkeypatch.setenv("CRG_DATA_DIR", str(external))
-        from dagayn.incremental import get_db_path
+        from dagayn.paths import get_db_path
 
         assert get_db_path(first) != get_db_path(second)
         assert get_db_path(first).parent.parent == external.resolve()
@@ -524,7 +523,7 @@ class TestDataDir:
         repo = tmp_path / "project"
         repo.mkdir()
         monkeypatch.setenv("CRG_DATA_DIR", str(external))
-        from dagayn.incremental import get_db_path, repo_slug
+        from dagayn.paths import get_db_path, repo_slug
 
         db_path = get_db_path(repo)
         assert db_path == external.resolve() / repo_slug(repo) / "graph.db"
@@ -553,7 +552,7 @@ class TestDataDir:
         conn.close()
 
         monkeypatch.setenv("CRG_DATA_DIR", str(external))
-        from dagayn.incremental import get_db_path
+        from dagayn.paths import get_db_path
 
         db_path = get_db_path(repo)
         assert db_path.exists()
@@ -584,7 +583,7 @@ class TestDataDir:
         conn.close()
 
         monkeypatch.setenv("CRG_DATA_DIR", str(external))
-        from dagayn.incremental import get_db_path
+        from dagayn.paths import get_db_path
 
         db_path = get_db_path(repo)
         assert not db_path.exists()
@@ -597,7 +596,7 @@ class TestDataDir:
         external_repo = tmp_path / "elsewhere"
         external_repo.mkdir()
         monkeypatch.setenv("CRG_REPO_ROOT", str(external_repo))
-        from dagayn.incremental import find_project_root
+        from dagayn.incremental_files import find_project_root
 
         result = find_project_root(PathType.cwd())
         assert result == external_repo.resolve()
@@ -613,7 +612,7 @@ class TestDataDir:
             "CRG_REPO_ROOT",
             str(tmp_path / "does-not-exist-123"),
         )
-        from dagayn.incremental import find_project_root
+        from dagayn.incremental_files import find_project_root
 
         result = find_project_root(tmp_path)
         # Should NOT equal the bogus env value
@@ -811,7 +810,7 @@ class TestFullBuild:
         db_path = tmp_path / "test.db"
         store = GraphStore(db_path)
         try:
-            mock_target = "dagayn.incremental.get_all_tracked_files"
+            mock_target = "dagayn.incremental_files.get_all_tracked_files"
             with patch(mock_target, return_value=["sample.py"]):
                 result = full_build(tmp_path, store)
             assert result.files_parsed == 1
@@ -1310,7 +1309,7 @@ class TestParallelParsing:
             )
 
         tracked = [f"mod{i}.py" for i in range(10)]
-        mock_target = "dagayn.incremental.get_all_tracked_files"
+        mock_target = "dagayn.incremental_files.get_all_tracked_files"
 
         # Serial build
         db_serial = tmp_path / "serial.db"
@@ -1669,7 +1668,7 @@ class TestIgnorePatternParity:
         return _re.findall(r'"([^"]+)"', body)
 
     def test_lists_match(self):
-        from dagayn.incremental_files import DEFAULT_IGNORE_PATTERNS
+        from dagayn.parser.ignore import DEFAULT_IGNORE_PATTERNS
 
         rust = self._rust_patterns()
         assert rust, "could not extract the Rust ignore list"

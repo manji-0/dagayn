@@ -249,7 +249,7 @@ def _install_worktree_support(repo_root: Path, main_root: Path | None, cursor: b
 
 def handle(args: argparse.Namespace) -> None:
     """Set up MCP config for detected AI coding platforms."""
-    from ...incremental import ensure_repo_gitignore_excludes_crg, find_repo_root
+    from ...incremental_files import ensure_repo_gitignore_excludes_crg, find_repo_root
     from ...skills import (
         install_platform_configs,
         normalize_platform_target,

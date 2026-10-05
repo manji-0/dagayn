@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from dagayn.contracts.state_types import BuildResult, PostprocessResult
 from dagayn.graph import GraphStore
-from dagayn.incremental import full_build
+from dagayn.incremental_build import full_build
 from dagayn.parser import EdgeInfo, NodeInfo
 from dagayn.postprocessing import (
     _markdown_artifact_resolution,
@@ -279,7 +279,7 @@ class TestToolBuildUsesSharedPipeline:
         db_path = tmp_path / ".dagayn" / "graph.db"
         store = GraphStore(db_path)
         try:
-            mock_target = "dagayn.incremental.get_all_tracked_files"
+            mock_target = "dagayn.incremental_files.get_all_tracked_files"
             with patch(mock_target, return_value=["sample.py"]):
                 full_build(tmp_path, store)
 
@@ -297,7 +297,7 @@ class TestWatchCallbackIntegration:
     def test_watch_accepts_callback_parameter(self):
         import inspect
 
-        from dagayn.incremental import watch
+        from dagayn.incremental_update_pipeline import watch
 
         sig = inspect.signature(watch)
         assert "on_files_updated" in sig.parameters
@@ -305,7 +305,7 @@ class TestWatchCallbackIntegration:
     def test_watch_callback_not_called_without_updates(self, tmp_path):
         import threading
 
-        from dagayn.incremental import watch
+        from dagayn.incremental_update_pipeline import watch
 
         (tmp_path / ".git").mkdir()
         db_path = tmp_path / "test.db"
@@ -707,7 +707,7 @@ class TestTerraformArtifactResolver:
         import shutil
         from unittest.mock import patch
 
-        from dagayn.incremental import full_build
+        from dagayn.incremental_build import full_build
         from dagayn.postprocessing import run_post_processing
         from dagayn.tools.query import query_graph
 

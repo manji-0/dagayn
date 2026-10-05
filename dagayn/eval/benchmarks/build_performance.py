@@ -18,7 +18,7 @@ def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[Benchmark
     """Run build performance benchmark."""
     del store
     from dagayn.graph import GraphStore
-    from dagayn.incremental import full_build
+    from dagayn.incremental_build import full_build
 
     repeats = max(1, int(config.get("build_performance_repeat", 1)))
     rows: list[BenchmarkPayload] = []

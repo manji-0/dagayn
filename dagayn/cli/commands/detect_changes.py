@@ -23,7 +23,8 @@ def handle(args: argparse.Namespace) -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
     from ...graph import GraphStore
-    from ...incremental import find_repo_root, get_db_path
+    from ...incremental_files import find_repo_root
+    from ...paths import get_db_path
 
     repo_root = Path(args.repo) if args.repo else find_repo_root()
     if not repo_root:
@@ -39,7 +40,7 @@ def handle(args: argparse.Namespace) -> None:
 
         try:
             from ...changes import analyze_changes
-            from ...incremental import get_changed_file_sources, get_staged_and_unstaged
+            from ...incremental_files import get_changed_file_sources, get_staged_and_unstaged
 
             base = args.base
             change_file_sources = get_changed_file_sources(repo_root, base)

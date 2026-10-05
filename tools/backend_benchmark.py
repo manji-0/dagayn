@@ -122,11 +122,8 @@ import time
 from pathlib import Path
 
 from dagayn.graph import GraphStore
-from dagayn.incremental import (
-    _relativize_parsed_entities,
-    _serialize_store_batch,
-    collect_all_files,
-)
+from dagayn.incremental_build import _serialize_store_batch
+from dagayn.incremental_files import _relativize_parsed_entities, collect_all_files
 from dagayn.parser import CodeParser
 
 repo = Path({str(repo)!r}).resolve()

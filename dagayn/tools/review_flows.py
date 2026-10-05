@@ -7,7 +7,7 @@ from typing import cast
 
 from ..flows import get_affected_flows as _get_affected_flows
 from ..hints import generate_hints, get_session
-from ..incremental import get_changed_file_sources, get_staged_and_unstaged
+from ..incremental_files import get_changed_file_sources, get_staged_and_unstaged
 from ._common import (
     ToolPayload,
     _get_store,

@@ -352,7 +352,7 @@ class TestTestedBySync:
 
     def test_typescript_member_call_resolved_in_postprocessing(self, tmp_path):
         """`box.helper()` on an untyped local binds in post-processing only."""
-        from dagayn.incremental import full_build
+        from dagayn.incremental_build import full_build
         from dagayn.postprocessing import run_post_processing
 
         repo = tmp_path / "repo"
@@ -394,7 +394,7 @@ class TestTestedBySync:
 class TestExternalPackageSymbols:
     def test_external_render_is_not_bound_to_a_project_render(self, tmp_path):
         """`render` from @testing-library/react never becomes `ClassComp.render`."""
-        from dagayn.incremental import full_build
+        from dagayn.incremental_build import full_build
         from dagayn.postprocessing import run_post_processing
 
         repo = tmp_path / "repo"
@@ -460,7 +460,7 @@ class TestExternalPackageSymbols:
 def test_callers_of_a_standard_library_package_lists_its_callers(tmp_path):
     """`callers_of("subprocess")` names a package, not a symbol: it lists the
     callers of the package instead of searching for a node named like it."""
-    from dagayn.incremental import full_build
+    from dagayn.incremental_build import full_build
     from dagayn.postprocessing import run_post_processing
 
     repo = tmp_path / "repo"
@@ -485,7 +485,7 @@ def test_callers_of_a_standard_library_package_lists_its_callers(tmp_path):
 def test_callers_of_a_local_symbol_named_like_a_package_stays_local(tmp_path):
     """A repository function named `shlex` is what `callers_of("shlex")` means,
     even when the standard-library `shlex` package also has callers."""
-    from dagayn.incremental import full_build
+    from dagayn.incremental_build import full_build
     from dagayn.postprocessing import run_post_processing
 
     repo = tmp_path / "repo"
@@ -712,7 +712,7 @@ class TestRustModuleResolution:
     """Rust calls resolve across files through `use`, re-exports, and globs."""
 
     def _build(self, tmp_path, files):
-        from dagayn.incremental import full_build
+        from dagayn.incremental_build import full_build
         from dagayn.postprocessing import run_post_processing
 
         repo = tmp_path / "repo"

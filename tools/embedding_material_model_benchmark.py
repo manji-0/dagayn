@@ -15,7 +15,7 @@ import yaml
 from dagayn.embeddings import OpenAIEmbeddingProvider
 from dagayn.eval.benchmarks import embedding_materials
 from dagayn.graph import GraphStore
-from dagayn.incremental import get_db_path
+from dagayn.paths import get_db_path
 
 DEFAULT_STRATEGY = "doc=section|code=name|comment=sentence|join=combined"
 # OpenAI-compatible llama-server sidecars only (in-process sentence-transformers

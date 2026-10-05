@@ -26,11 +26,14 @@ from ..graph.sqlite_errors import (
     probe_graph_database,
     register_live_store,
 )
-from ..incremental import (
-    find_project_root,
+from ..incremental_files import find_project_root
+from ..paths import (
+    ALLOW_WIDE_ROOT_ENV,
     get_db_path,
+    recorded_repo_root,
+    same_repo_path,
+    unsafe_root_reason,
 )
-from ..paths import ALLOW_WIDE_ROOT_ENV, recorded_repo_root, same_repo_path, unsafe_root_reason
 from ..runtime_identity import RuntimeSummaryRecord, runtime_summary
 from ..write_lock import (
     DEFAULT_READ_LOCK_TIMEOUT,

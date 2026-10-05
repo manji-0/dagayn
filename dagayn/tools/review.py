@@ -14,7 +14,7 @@ from ..changes import (  # noqa: F401
 from ..contracts.state_types import seal_missingness_item
 from ..coverage import infer_tests_for_node
 from ..hints import generate_hints, get_session
-from ..incremental import get_changed_file_sources, get_staged_and_unstaged
+from ..incremental_files import get_changed_file_sources, get_staged_and_unstaged
 from ._common import (
     ToolPayload,
     _error_response,

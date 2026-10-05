@@ -1365,7 +1365,7 @@ class TestFindDeadCodeCrossArtifact:
         import shutil
         from unittest.mock import patch
 
-        from dagayn.incremental import full_build
+        from dagayn.incremental_build import full_build
         from dagayn.postprocessing import run_post_processing
 
         fixture = Path(__file__).parent / "fixtures" / "terraform_cross_artifact"
@@ -2665,7 +2665,8 @@ class TestRefactorToolWithNativeBackend:
         except ImportError as exc:
             pytest.skip(f"Rust extension is not available: {exc}")
 
-        from dagayn.incremental import full_build, get_db_path
+        from dagayn.incremental_build import full_build
+        from dagayn.paths import get_db_path
 
         repo.mkdir(parents=True)
         (repo / ".git").mkdir()
@@ -2875,7 +2876,7 @@ class TestDeadCodeAcrossLanguages:
     def test_only_truly_unused_symbols_are_reported(self, tmp_path):
         import shutil
 
-        from dagayn.incremental import full_build
+        from dagayn.incremental_build import full_build
         from dagayn.refactor import dead_code_report
 
         repo = tmp_path / "repo"

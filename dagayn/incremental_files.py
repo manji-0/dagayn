@@ -16,19 +16,7 @@ if TYPE_CHECKING:
 from . import jj_workspace
 from .parser import CodeParser
 from .parser._base.types import EdgeInfo, NodeInfo
-from .parser.ignore import DEFAULT_IGNORE_PATTERNS as DEFAULT_IGNORE_PATTERNS
-from .parser.ignore import _load_ignore_patterns as _load_ignore_patterns
-from .parser.ignore import _should_ignore as _should_ignore
-
-# Re-exported: these used to live here, and ``dagayn.incremental`` publishes
-# them from this module.
-from .paths import data_dir_for as data_dir_for
-from .paths import db_path_for as db_path_for
-from .paths import get_data_dir as get_data_dir
-from .paths import get_db_path as get_db_path
-from .paths import is_project_root as is_project_root
-from .paths import repo_slug as repo_slug
-from .paths import same_repo_path as same_repo_path
+from .parser.ignore import _load_ignore_patterns, _should_ignore
 
 logger = logging.getLogger(__name__)
 

@@ -372,7 +372,8 @@ def test_runner_with_mock_repo(monkeypatch: pytest.MonkeyPatch) -> None:
 
         # Build graph
         from dagayn.graph import GraphStore
-        from dagayn.incremental import full_build, get_db_path
+        from dagayn.incremental_build import full_build
+        from dagayn.paths import get_db_path
 
         db_path = get_db_path(repo_path)
         store = GraphStore(db_path)
@@ -703,7 +704,7 @@ def test_build_performance_times_full_build(monkeypatch, tmp_path):
         return BuildResult(files_parsed=2, errors=[])
 
     monkeypatch.setattr("dagayn.graph.GraphStore", FakeStore)
-    monkeypatch.setattr("dagayn.incremental.full_build", fake_full_build)
+    monkeypatch.setattr("dagayn.incremental_build.full_build", fake_full_build)
     rows = build_performance.run(tmp_path, None, {"name": "repo"})
     assert calls == [1]
     assert rows[0]["status"] == "ok"
@@ -925,11 +926,11 @@ def test_scale_performance_emits_four_axes(monkeypatch, tmp_path):
         lambda **_k: FakeStore,
     )
     monkeypatch.setattr(
-        "dagayn.incremental.full_build",
+        "dagayn.incremental_build.full_build",
         lambda *_a, **_k: BuildResult(files_parsed=2, total_nodes=12, total_edges=8, errors=[]),
     )
     monkeypatch.setattr(
-        "dagayn.incremental.incremental_update",
+        "dagayn.incremental_update_pipeline.incremental_update",
         lambda *_a, **_k: BuildResult(files_parsed=1, total_nodes=3, errors=[]),
     )
     monkeypatch.setattr("dagayn.tools.build._run_postprocess", lambda *_a, **_k: [])

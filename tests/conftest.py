@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from dagayn.graph import GraphStore
-from dagayn.incremental import full_build
+from dagayn.incremental_build import full_build
 
 PARITY_FIXTURE_DIR = Path(__file__).parent / "fixtures" / "parity"
 PARITY_FIXTURE_NAMES = [

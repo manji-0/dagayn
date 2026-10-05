@@ -2,8 +2,7 @@
 
 Kept apart from :mod:`dagayn.incremental_files` so that import-light callers —
 agent hooks, :mod:`dagayn.worktree` — can resolve a graph path without pulling
-in the parser. :mod:`dagayn.incremental_files` re-exports these names, so
-``from dagayn.incremental import get_db_path`` keeps working.
+in the parser.
 """
 
 from __future__ import annotations
