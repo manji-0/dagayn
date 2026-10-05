@@ -107,8 +107,9 @@ pub(crate) fn get_wiki_page(context: &Context, arguments: &Map<String, Value>) -
     let root = resolve_repo(context, args.optional_string("repo_root")?)?;
     let graph = open_graph(&root)?;
     let repo = graph.repo_context();
+    // `get_data_dir(root) / "wiki"`: next to the graph, wherever it lives.
+    let wiki = graph.db_path.parent()?.join("wiki");
     drop(graph);
-    let wiki = root.join(".dagayn").join("wiki");
 
     let slugged = wiki.join(format!("{}.md", slugify(name)));
     let content = if slugged.is_file() {

@@ -17,7 +17,8 @@ mod vcs;
 
 pub use build::{BuildError, BuildOptions, BuildReport, full_build};
 pub use data_dir::{
-    DataDirError, db_path_for_build, graph_repo_mismatch, graph_repo_mismatch_message,
+    DataDirError, db_path_for_build, existing_db_path, graph_repo_mismatch,
+    graph_repo_mismatch_message, repo_slug,
 };
 pub use lock::{GraphLock, GraphWriteLock, LockError, LockMode};
 pub use postprocess::{PostprocessLevel, rerun_postprocess};

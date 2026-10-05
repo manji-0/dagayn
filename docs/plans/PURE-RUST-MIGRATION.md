@@ -747,10 +747,25 @@ wide root is refused before anything is opened. Second item (done): a busy
 read lock. `open_graph` waits up to `DAGAYN_READ_LOCK_TIMEOUT` capped at
 3 s; an edit's queued update held the lock for 1.24 s and a manual hook
 update for 2.14 s here. The wait blocks the front end's reader, as a long
-native call already does; answering calls on worker threads is a separate
-change, worth it only if clients send calls in parallel. The remaining
-shared declines are a missing `graph.db`, `CRG_DATA_DIR`, a legacy
-`.dagayn.db`, and a schema Python would migrate.
+native call already does.
+
+Not pursued, on inspection: answering calls on worker threads. It only
+helps a client that sends `tools/call` requests in parallel. dagayn's
+tools declare no annotations, so a client that runs only read-only tools
+concurrently sends them one at a time, and Claude Code is not documented to
+act on `readOnlyHint` at all (its request to do so for permissions was
+closed as not planned). Revisit if a client is seen sending calls in
+parallel.
+
+Third item (done): `CRG_DATA_DIR`. `dagayn_build::existing_db_path` finds
+`<CRG_DATA_DIR>/<repo_slug>/graph.db` (the directory name made
+filesystem-safe, lower-cased on a case-folding filesystem, and a digest of
+the checkout's inode identity) and the tools read the wiki next to it.
+Left to Python, because answering would write: a missing `graph.db` (Python
+creates an empty one), a graph not yet at its `CRG_DATA_DIR` subdirectory
+(Python moves it), a legacy `.dagayn.db` (Python moves it or deletes its
+side files), and a schema Python would migrate. These close the shared
+declines a read-only front end can take on.
 
 Not ported, on inspection: `session prepare`. Both installed hooks pass
 `--local-embedding`, so its embedding phase always runs. That phase is

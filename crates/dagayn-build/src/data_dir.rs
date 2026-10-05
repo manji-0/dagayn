@@ -41,6 +41,110 @@ pub fn db_path_for_build(repo_root: &Path) -> Result<PathBuf, DataDirError> {
     Ok(data_dir.join("graph.db"))
 }
 
+/// `_shared_dir_from_env`: `CRG_DATA_DIR`, resolved, when it is set.
+/// `Err` for a `~` form, which Python expands and this does not.
+fn shared_dir_from_env() -> Result<Option<PathBuf>, ()> {
+    let raw = std::env::var("CRG_DATA_DIR").unwrap_or_default();
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Ok(None);
+    }
+    if raw.starts_with('~') {
+        return Err(());
+    }
+    let path = PathBuf::from(raw);
+    // `Path.resolve()` is not strict: a directory that does not exist yet
+    // still names the place. Only the existing case matters below.
+    Ok(Some(path.canonicalize().unwrap_or(path)))
+}
+
+/// `_filesystem_case_insensitive`: whether `path`'s filesystem folds case,
+/// judged by its swapped-case sibling, else by platform.
+fn filesystem_case_insensitive(path: &Path) -> bool {
+    let probe = if path.exists() {
+        path
+    } else {
+        path.parent().unwrap_or(path)
+    };
+    if let Some(name) = probe.file_name().and_then(|name| name.to_str()) {
+        let swapped: String = name
+            .chars()
+            .map(|c| {
+                if c.is_uppercase() {
+                    c.to_lowercase().collect::<String>()
+                } else {
+                    c.to_uppercase().collect::<String>()
+                }
+            })
+            .collect();
+        if swapped != name {
+            let sibling = probe.with_file_name(&swapped);
+            if let (Ok(left), Ok(right)) = (std::fs::metadata(probe), std::fs::metadata(&sibling)) {
+                use std::os::unix::fs::MetadataExt;
+                return left.dev() == right.dev() && left.ino() == right.ino();
+            }
+        }
+    }
+    cfg!(any(target_os = "macos", windows))
+}
+
+/// `repo_slug`: the checkout's directory name, made filesystem-safe, and a
+/// digest of its inode identity, as `CRG_DATA_DIR` subdirectories are named.
+/// `None` when the root does not exist (Python then hashes the path text).
+pub fn repo_slug(repo_root: &Path) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    use std::os::unix::fs::MetadataExt;
+
+    let resolved = repo_root.canonicalize().ok()?;
+    let metadata = std::fs::metadata(&resolved).ok()?;
+    let identity = format!("ino:{}:{}", metadata.dev(), metadata.ino());
+    let digest = Sha256::digest(identity.as_bytes());
+    let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+    let raw_name = resolved.file_name()?.to_str()?;
+    let mut name = String::new();
+    let mut in_run = false;
+    for c in raw_name.chars() {
+        if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+            name.push(c);
+            in_run = false;
+        } else if !in_run {
+            name.push('-');
+            in_run = true;
+        }
+    }
+    let mut name = name.trim_matches('-').to_string();
+    if name.is_empty() {
+        name = "repo".to_string();
+    }
+    if filesystem_case_insensitive(&resolved) {
+        name = name.to_lowercase();
+    }
+    Some(format!("{name}-{}", &hex[..12]))
+}
+
+/// The `graph.db` an existing graph for `repo_root` lives in, as
+/// `get_db_path` would find it without creating, moving, or migrating
+/// anything: `<repo_root>/.dagayn/graph.db`, or with `CRG_DATA_DIR` set,
+/// `<CRG_DATA_DIR>/<repo_slug>/graph.db`. `None` when there is no such
+/// file, which is Python's to create or migrate. The inner `.gitignore` is
+/// written if it went missing, as `get_data_dir` does.
+pub fn existing_db_path(repo_root: &Path) -> Option<PathBuf> {
+    let data_dir = match shared_dir_from_env().ok()? {
+        None => repo_root.join(".dagayn"),
+        Some(shared) => shared.join(repo_slug(repo_root)?),
+    };
+    let db_path = data_dir.join("graph.db");
+    if !db_path.is_file() {
+        return None;
+    }
+    let gitignore = data_dir.join(".gitignore");
+    if !gitignore.exists() {
+        // Best effort, as in Python: the graph is usable without it.
+        let _ = std::fs::write(&gitignore, INNER_GITIGNORE);
+    }
+    Some(db_path)
+}
+
 /// The other repository a graph says it describes, if any:
 /// `_assert_graph_matches_repo` in Python. A recorded root that no longer
 /// exists counts as this repository (a moved or renamed checkout); only an

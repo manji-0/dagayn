@@ -6,6 +6,12 @@ All notable changes to `dagayn` are documented here.
 
 ### Changed
 
+- With `CRG_DATA_DIR` set, the Rust front end of `dagayn serve` now finds
+  a checkout's graph in its `<CRG_DATA_DIR>/<name>-<digest>` subdirectory,
+  as Python does, and answers from it instead of leaving every call to
+  Python. A graph Python would still have to create or move there (a
+  shared `graph.db` from before the subdirectories, a legacy slug) is left
+  to Python as before.
 - A tool call that reaches the Rust front end while the graph is being
   written (an edit's queued update holds the lock for one to two seconds)
   now waits for the writer, up to `DAGAYN_READ_LOCK_TIMEOUT` capped at 3 s,

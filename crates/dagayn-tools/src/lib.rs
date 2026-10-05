@@ -411,6 +411,20 @@ pub(crate) fn resolve_repo(context: &Context, requested: Option<&str>) -> Option
     })
 }
 
+/// `get_db_path` for a graph that already exists where Python looks for it
+/// (`<root>/.dagayn`, or this checkout's `CRG_DATA_DIR` subdirectory);
+/// `None` when Python would create, migrate, or relocate it, a legacy
+/// `.dagayn.db` included (it moves or deletes those files).
+fn existing_graph(root: &Path) -> Option<PathBuf> {
+    let legacy = ["", "-wal", "-shm", "-journal"]
+        .iter()
+        .any(|suffix| root.join(format!(".dagayn.db{suffix}")).exists());
+    if legacy {
+        return None;
+    }
+    dagayn_build::existing_db_path(root)
+}
+
 /// The longest [`open_graph`] waits for a writer to finish.
 const MAX_READ_LOCK_WAIT: Duration = Duration::from_secs(3);
 
@@ -446,25 +460,11 @@ impl OpenGraph {
     }
 }
 
-/// `_get_store` for an explicit root, when it would open an existing graph in
-/// the default location that describes this repository; `None` whenever
-/// Python would create, migrate, relocate, or refuse it.
+/// `_get_store` for a resolved root, when it would open an existing graph
+/// (in `.dagayn` or under `CRG_DATA_DIR`) that describes this repository;
+/// `None` whenever Python would create, migrate, relocate, or refuse it.
 pub(crate) fn open_graph(root: &RepoRoot) -> Option<OpenGraph> {
-    if std::env::var_os("CRG_DATA_DIR").is_some_and(|value| !value.is_empty()) {
-        return None;
-    }
-    let legacy = ["", "-wal", "-shm", "-journal"]
-        .iter()
-        .any(|suffix| root.join(format!(".dagayn.db{suffix}")).exists());
-    if legacy {
-        return None;
-    }
-    if !root.join(".dagayn").join("graph.db").is_file() {
-        return None;
-    }
-    // `get_db_path`: the same path, and the inner `.gitignore` written if
-    // it went missing.
-    let db_path = dagayn_build::db_path_for_build(root).ok()?;
+    let db_path = existing_graph(root)?;
     // Wait out an ordinary write (an edit's queued update holds the lock for
     // one to two seconds), but not Python's whole `DAGAYN_READ_LOCK_TIMEOUT`:
     // this runs on the front end's reader, and a graph still busy after this
@@ -515,16 +515,7 @@ impl WritableGraph {
 /// one (see `GraphStore::open_read_only`). The front end calls the tools in
 /// [`writes_graph`] only before it boots the Python server.
 pub(crate) fn open_graph_for_write(root: &RepoRoot) -> Option<WritableGraph> {
-    if std::env::var_os("CRG_DATA_DIR").is_some_and(|value| !value.is_empty()) {
-        return None;
-    }
-    let legacy = ["", "-wal", "-shm", "-journal"]
-        .iter()
-        .any(|suffix| root.join(format!(".dagayn.db{suffix}")).exists());
-    if legacy || !root.join(".dagayn").join("graph.db").is_file() {
-        return None;
-    }
-    let db_path = dagayn_build::db_path_for_build(root).ok()?;
+    let db_path = existing_graph(root)?;
     let lock = GraphLock::acquire_mode(&db_path, LockMode::Exclusive, None).ok()?;
     {
         let probe = GraphStore::open_read_only(&db_path).ok()?;

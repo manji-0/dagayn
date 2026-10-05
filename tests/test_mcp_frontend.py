@@ -444,6 +444,29 @@ def test_a_graph_written_past_the_wait_goes_to_python(git_repo: Path) -> None:
     assert "is being written" in result["structuredContent"]["error"]
 
 
+def test_a_graph_under_crg_data_dir_is_answered_in_rust(tmp_path: Path) -> None:
+    """``CRG_DATA_DIR`` keeps each checkout's graph in ``<dir>/<name>-<digest>``;
+    the name is made filesystem-safe and, on a case-folding filesystem, lower."""
+    root = tmp_path / "My Repo!"
+    (root / ".git").mkdir(parents=True)
+    (root / "app.py").write_text("def main():\n    return helper()\n\n\ndef helper():\n    pass\n")
+    shared = tmp_path / "graphs"
+    env = {"CRG_DATA_DIR": str(shared)}
+    subprocess.run(
+        [DAGAYN, "build", "--repo", root],
+        env=_env(DAGAYN_PYTHON_CLI="1", **env),
+        check=True,
+        capture_output=True,
+    )
+    assert not (root / ".dagayn").exists()
+    (data_dir,) = shared.iterdir()
+    arguments = {"pattern": "callers_of", "target": "app.py::helper"}
+    rust, python, stderr = _call_both(root, "query_graph_tool", arguments, **env)
+    assert NATIVE_TRACE in stderr
+    assert rust["structuredContent"] == python["structuredContent"]
+    assert rust["structuredContent"]["_repo"]["db_path"] == str(data_dir / "graph.db")
+
+
 def test_ensure_graph_reports_an_auto_detected_root_as_python_does(git_repo: Path) -> None:
     """``session_prepare`` resolves the root before opening the store, so Python
     reports even an auto-detected one as explicit."""
