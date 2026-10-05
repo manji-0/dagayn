@@ -31,8 +31,16 @@ def _patch_store(monkeypatch: pytest.MonkeyPatch, graph_store: GraphStore, root:
     graph_store.close = lambda: None  # type: ignore[method-assign]
 
 
-def test_callees_of_reports_unresolved_targets(monkeypatch: pytest.MonkeyPatch, store: GraphStore):
-    root = Path("/repo")
+def _repo_store(tmp_path: Path) -> tuple[GraphStore, Path]:
+    """A repository's own graph, which the caller closes before querying."""
+    root = tmp_path / "repo"
+    (root / ".git").mkdir(parents=True)
+    (root / ".dagayn").mkdir()
+    return GraphStore(str(root / ".dagayn" / "graph.db")), root
+
+
+def test_callees_of_reports_unresolved_targets(tmp_path: Path):
+    store, root = _repo_store(tmp_path)
     store.upsert_node(
         NodeInfo(
             kind="Function",
@@ -53,7 +61,7 @@ def test_callees_of_reports_unresolved_targets(monkeypatch: pytest.MonkeyPatch, 
         )
     )
     store.commit()
-    _patch_store(monkeypatch, store, root)
+    store.close()
 
     result = query_module.query_graph(
         pattern="callees_of",
@@ -71,10 +79,8 @@ def test_callees_of_reports_unresolved_targets(monkeypatch: pytest.MonkeyPatch, 
     assert result["edges"][0]["target"] == "unique_helper"
 
 
-def test_imports_of_flags_unresolved_import_target(
-    monkeypatch: pytest.MonkeyPatch, store: GraphStore
-):
-    root = Path("/repo")
+def test_imports_of_flags_unresolved_import_target(tmp_path: Path):
+    store, root = _repo_store(tmp_path)
     store.upsert_node(
         NodeInfo(
             kind="File",
@@ -95,7 +101,7 @@ def test_imports_of_flags_unresolved_import_target(
         )
     )
     store.commit()
-    _patch_store(monkeypatch, store, root)
+    store.close()
 
     result = query_module.query_graph(
         pattern="imports_of",

@@ -7,10 +7,10 @@ from pathlib import Path
 
 from dagayn.graph import GraphStore
 from dagayn.parser import NodeInfo
-from dagayn.tools.node_source import SOURCE_OF_MAX_CHARS
 from dagayn.tools.query import query_graph, semantic_search_nodes
-from dagayn.tools.query_graph_dispatch import _PATTERN_HANDLERS
-from dagayn.tools.query_graph_support import QUERY_PATTERNS
+
+#: ``source_of``'s character cap.
+SOURCE_OF_MAX_CHARS = 4000
 
 
 def _repo(tmp_path: Path) -> Path:
@@ -62,9 +62,6 @@ def _seed_function(
 
 
 class TestQueryGraphSourceOf:
-    def test_handlers_cover_every_pattern(self) -> None:
-        assert set(QUERY_PATTERNS) == set(_PATTERN_HANDLERS)
-
     def test_returns_live_function_span(self, tmp_path: Path) -> None:
         root = _repo(tmp_path)
         app = root / "app.py"
@@ -334,22 +331,3 @@ class TestSemanticSearchMinimalLocators:
         assert "signature" not in item
         assert "source_of" in result["next_action"]["suggestion"]
         assert "source_of" in result["guidance"][0]["action"]
-
-
-def test_query_confidence_follows_the_weakest_edge():
-    from dagayn.tools.query_graph_support import query_zero_result_fields
-
-    results = [{"qualified_name": "a.py::f"}]
-    strong = [{"confidence_tier": "EXTRACTED"}, {"confidence_tier": "HIGH"}]
-    weak = [*strong, {"confidence_tier": "MEDIUM"}]
-    assert (
-        query_zero_result_fields(results=results, unresolved_targets=[], edges=strong)["confidence"]
-        == "high"
-    )
-    assert (
-        query_zero_result_fields(results=results, unresolved_targets=[], edges=weak)["confidence"]
-        == "medium"
-    )
-    assert query_zero_result_fields(results=results, unresolved_targets=[])["confidence"] == (
-        "medium"
-    )

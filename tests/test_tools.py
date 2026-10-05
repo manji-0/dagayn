@@ -1,6 +1,7 @@
 """Tests for MCP tool functions."""
 
 import os
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -27,6 +28,21 @@ class TestTools:
     def teardown_method(self):
         self.store.close()
         Path(self.tmp.name).unlink(missing_ok=True)
+
+    def _query_graph(self, **kwargs):
+        """``query_graph`` on a repository holding a copy of this store's graph,
+        taken with the store closed; the Rust tool reads the file itself."""
+        self.store.commit()
+        self.store.close()
+        root = Path(tempfile.mkdtemp())
+        try:
+            (root / ".git").mkdir()
+            (root / ".dagayn").mkdir()
+            shutil.copy(self.tmp.name, root / ".dagayn" / "graph.db")
+            return query_graph(repo_root=str(root), **kwargs)
+        finally:
+            self.store = GraphStore(self.tmp.name)
+            shutil.rmtree(root, ignore_errors=True)
 
     def _seed_data(self):
         """Seed the store with test data."""
@@ -256,9 +272,7 @@ class TestTools:
 
         assert self.store.count_edges_by_target_name_prefix("Service.") == 1
 
-    def test_query_graph_callers_uses_batched_node_lookup(self, monkeypatch):
-        from dagayn.tools import query as query_module
-
+    def test_query_graph_callers_lists_every_caller(self):
         extra_callers = [
             ("/repo/worker.py", "worker"),
             ("/repo/cli.py", "run"),
@@ -295,33 +309,15 @@ class TestTools:
             )
         self.store.commit()
 
-        original_get_node = self.store.get_node
-
-        def wrapped_get_node(qualified_name: str):
-            if qualified_name in {"/repo/worker.py::worker", "/repo/cli.py::run"}:
-                raise AssertionError("query_graph should batch-resolve caller nodes")
-            return original_get_node(qualified_name)
-
-        monkeypatch.setattr(
-            query_module,
-            "_get_store",
-            lambda repo_root: (self.store, Path("/repo")),
-        )
-        self.store.close = lambda: None
-        monkeypatch.setattr(self.store, "get_node", wrapped_get_node)
-
-        result = query_graph(
+        result = self._query_graph(
             pattern="callers_of",
             target="/repo/auth.py::AuthService.login",
-            repo_root="/repo",
         )
 
         assert result["status"] == "ok"
         assert len(result["results"]) == 3
 
-    def test_query_graph_tests_for_uses_heuristic_test_names(self, monkeypatch):
-        from dagayn.tools import query as query_module
-
+    def test_query_graph_tests_for_uses_heuristic_test_names(self):
         self.store.upsert_node(
             NodeInfo(
                 kind="Function",
@@ -344,17 +340,10 @@ class TestTools:
             )
         )
         self.store.commit()
-        monkeypatch.setattr(
-            query_module,
-            "_get_store",
-            lambda repo_root: (self.store, Path("/repo")),
-        )
-        self.store.close = lambda: None
 
-        result = query_module.query_graph(
+        result = self._query_graph(
             pattern="tests_for",
             target="/repo/dagayn/tools/context.py::get_minimal_context",
-            repo_root="/repo",
             detail_level="minimal",
         )
 
@@ -393,15 +382,12 @@ class TestTools:
     )
     def test_query_graph_tests_for_accepts_bare_tested_by_sources_across_languages(
         self,
-        monkeypatch,
         language: str,
         source_path: str,
         test_path: str,
         symbol: str,
         test_symbol: str,
     ):
-        from dagayn.tools import query as query_module
-
         self.store.upsert_node(
             NodeInfo(
                 kind="Function",
@@ -433,17 +419,10 @@ class TestTools:
             )
         )
         self.store.commit()
-        monkeypatch.setattr(
-            query_module,
-            "_get_store",
-            lambda repo_root: (self.store, Path("/repo")),
-        )
-        self.store.close = lambda: None
 
-        result = query_module.query_graph(
+        result = self._query_graph(
             pattern="tests_for",
             target=f"{source_path}::{symbol}",
-            repo_root="/repo",
             detail_level="minimal",
         )
 
@@ -453,9 +432,7 @@ class TestTools:
         assert result["results"][0]["confidence"] == "high"
         assert result["results"][0]["coverage_source"] == "graph_edge"
 
-    def test_query_graph_docs_for_uses_documentation_inverse_labels(self, monkeypatch):
-        from dagayn.tools import query as query_module
-
+    def test_query_graph_docs_for_uses_documentation_inverse_labels(self):
         self.store.upsert_node(
             NodeInfo(
                 kind="File",
@@ -516,17 +493,10 @@ class TestTools:
             )
         )
         self.store.commit()
-        monkeypatch.setattr(
-            query_module,
-            "_get_store",
-            lambda repo_root: (self.store, Path("/repo")),
-        )
-        self.store.close = lambda: None
 
-        result = query_module.query_graph(
+        result = self._query_graph(
             pattern="docs_for",
             target="/repo/auth.py::AuthService.login",
-            repo_root="/repo",
             detail_level="minimal",
         )
 
@@ -542,9 +512,7 @@ class TestTools:
         assert evidence_by_role["explained_by"] == "extracted"
         assert evidence_by_role["describes_symbol"] == "extracted"
 
-    def test_query_graph_doc_queries_hide_unresolved_low_confidence_code_spans(self, monkeypatch):
-        from dagayn.tools import query as query_module
-
+    def test_query_graph_doc_queries_hide_unresolved_low_confidence_code_spans(self):
         self.store.upsert_node(
             NodeInfo(
                 kind="DocSection",
@@ -572,17 +540,10 @@ class TestTools:
             )
         )
         self.store.commit()
-        monkeypatch.setattr(
-            query_module,
-            "_get_store",
-            lambda repo_root: (self.store, Path("/repo")),
-        )
-        self.store.close = lambda: None
 
-        result = query_module.query_graph(
+        result = self._query_graph(
             pattern="implementations_of",
             target="/repo/docs/auth.md::login",
-            repo_root="/repo",
             detail_level="minimal",
         )
 
@@ -637,20 +598,11 @@ class TestTools:
         assert result["status"] == "ok"
         assert result["edges"] == []
 
-    def test_query_graph_target_not_found_keeps_zero_result_contract(self, monkeypatch):
-        from dagayn.tools import query as query_module
+    def test_query_graph_target_not_found_keeps_zero_result_contract(self):
 
-        monkeypatch.setattr(
-            query_module,
-            "_get_store",
-            lambda repo_root: (self.store, Path("/repo")),
-        )
-        self.store.close = lambda: None
-
-        result = query_module.query_graph(
+        result = self._query_graph(
             pattern="callers_of",
             target="definitely_missing_symbol_for_docs_example",
-            repo_root="/repo",
             detail_level="minimal",
         )
 
@@ -664,9 +616,7 @@ class TestTools:
         )
         assert "answerability" in result
 
-    def test_query_graph_standard_results_are_budgeted(self, monkeypatch):
-        from dagayn.tools import query as query_module
-
+    def test_query_graph_standard_results_are_budgeted(self):
         target_qn = "/repo/auth.py::AuthService.login"
         for idx in range(180):
             name = f"caller_{idx}_{'x' * 80}"
@@ -691,17 +641,10 @@ class TestTools:
                 )
             )
         self.store.commit()
-        monkeypatch.setattr(
-            query_module,
-            "_get_store",
-            lambda repo_root: (self.store, Path("/repo")),
-        )
-        self.store.close = lambda: None
 
-        result = query_module.query_graph(
+        result = self._query_graph(
             pattern="callers_of",
             target=target_qn,
-            repo_root="/repo",
         )
 
         assert result["result_count"] >= 180
@@ -739,9 +682,7 @@ class TestTools:
         assert {item["reason_code"] for item in result["missingness"]} >= {"missing_embeddings"}
         assert result["exactness"]["next_action"]["tool"] == "semantic_search_nodes_tool"
 
-    def test_query_graph_implementations_of_reads_both_authored_directions(self, monkeypatch):
-        from dagayn.tools import query as query_module
-
+    def test_query_graph_implementations_of_reads_both_authored_directions(self):
         self.store.upsert_node(
             NodeInfo(
                 kind="File",
@@ -789,17 +730,10 @@ class TestTools:
             )
         )
         self.store.commit()
-        monkeypatch.setattr(
-            query_module,
-            "_get_store",
-            lambda repo_root: (self.store, Path("/repo")),
-        )
-        self.store.close = lambda: None
 
-        result = query_module.query_graph(
+        result = self._query_graph(
             pattern="implementations_of",
             target="/repo/docs/auth.md::login-contract",
-            repo_root="/repo",
         )
 
         assert result["status"] == "ok"

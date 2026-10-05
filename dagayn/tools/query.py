@@ -22,7 +22,6 @@ from ..hints import generate_hints, get_session
 from ..incremental_files import get_changed_files, get_staged_and_unstaged
 from ..search import embedding_health_available, hybrid_search
 from ._common import (
-    _BUILTIN_CALL_NAMES,
     ToolStoreScope,
     _db_path_for_repo,
     _error_response,
@@ -38,15 +37,7 @@ from ._common import (
     recover_corrupt_graph,
 )
 from ._native import native_tool
-from .query_graph_dispatch import (
-    MAX_QUERY_DEPTH,
-    TRANSITIVE_PATTERNS,
-    QueryGraphState,
-    build_query_graph_response,
-    execute_query_pattern,
-    resolve_query_target,
-)
-from .query_graph_support import QUERY_PATTERNS, exactness_action, result_evidence_type
+from .query_graph_support import exactness_action, result_evidence_type
 
 logger = logging.getLogger(__name__)
 _is_low_confidence_unresolved_markdown_code_span = is_low_confidence_unresolved_markdown_code_span
@@ -447,63 +438,16 @@ def query_graph(
     """
     store = None
     try:
-        store, root = _get_store(repo_root)
-        answerability = graph_answerability_summary(store)
-        missingness = missingness_from_answerability(answerability)
-        if pattern not in QUERY_PATTERNS:
-            return {
-                "status": "error",
-                "error": (f"Unknown pattern '{pattern}'. Available: {list(QUERY_PATTERNS.keys())}"),
-            }
-        if depth != 1 and pattern not in TRANSITIVE_PATTERNS:
-            return {
-                "status": "error",
-                "error": (
-                    f"depth applies only to {sorted(TRANSITIVE_PATTERNS)}; "
-                    f"'{pattern}' returns direct relationships only."
-                ),
-            }
-        if depth < 1:
-            return {"status": "error", "error": f"depth must be 1 or more, got {depth}."}
-
-        # For callers_of, skip common builtins early (bare names only)
-        # "Who calls .map()?" returns hundreds of useless hits.
-        # Qualified names (e.g. "utils.py::map") bypass this filter.
-        if pattern == "callers_of" and target in _BUILTIN_CALL_NAMES and "::" not in target:
-            return {
-                "status": "ok",
-                "pattern": pattern,
-                "target": target,
-                "description": QUERY_PATTERNS[pattern],
-                "summary": (f"'{target}' is a common builtin — callers_of skipped to avoid noise."),
-                "results": [],
-                "edges": [],
-                "answerability": answerability,
-                "missingness": missingness,
-            }
-
-        state = QueryGraphState(
-            store=store,
-            root=root,
+        # Resolves the repository and creates, migrates, or waits for the
+        # graph; the Rust tool reads it.
+        store, _root = _get_store(repo_root)
+        return native_tool(
+            "query_graph_tool",
             pattern=pattern,
-            original_target=target,
             target=target,
-            depth=min(depth, MAX_QUERY_DEPTH),
-        )
-        early_response = resolve_query_target(
-            state,
-            answerability=answerability,
-            missingness=missingness,
-        )
-        if early_response is not None:
-            return early_response
-
-        execute_query_pattern(state)
-        return build_query_graph_response(
-            state,
+            repo_root=repo_root,
             detail_level=detail_level,
-            answerability=answerability,
-            missingness=missingness,
+            depth=depth,
         )
     except Exception as exc:
         if is_sqlite_corrupt_error(exc) and not _corrupt_retried:

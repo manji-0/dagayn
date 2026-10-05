@@ -7,12 +7,17 @@ import pytest
 from dagayn.graph import GraphStore
 from dagayn.parser import EdgeInfo, NodeInfo
 from dagayn.tools import query as query_module
-from dagayn.tools.query_graph_dispatch import _transitive_next_action
 
 
 @pytest.fixture
-def store(tmp_path, monkeypatch):
-    graph = GraphStore(str(tmp_path / "graph.db"))
+def store(tmp_path):
+    """A repository whose graph names files under ``/repo``; the graph is
+    closed before the tools read it, and each write opens it again."""
+    root = tmp_path / "repo"
+    (root / ".git").mkdir(parents=True)
+    (root / ".dagayn").mkdir()
+    db = root / ".dagayn" / "graph.db"
+    graph = GraphStore(str(db))
     # Imports: b -> a, c -> b, d -> c, and d -> b closes a second path to b.
     for name in ("a", "b", "c", "d"):
         graph.upsert_node(
@@ -57,19 +62,20 @@ def store(tmp_path, monkeypatch):
             )
         )
     graph.commit()
-    monkeypatch.setattr(query_module, "_get_store", lambda repo_root: (graph, Path("/repo")))
-    close = graph.close
-    graph.close = lambda: None
-    yield graph
-    close()
+    graph.close()
+    return root
 
 
-def _query(**kwargs):
-    return query_module.query_graph(repo_root="/repo", **kwargs)
+def _query(root: Path, **kwargs):
+    return query_module.query_graph(repo_root=str(root), **kwargs)
+
+
+def _write(root: Path) -> GraphStore:
+    return GraphStore(str(root / ".dagayn" / "graph.db"))
 
 
 def test_depth_one_keeps_direct_rows_without_walk_fields(store):
-    result = _query(pattern="importers_of", target="/repo/a.py")
+    result = _query(store, pattern="importers_of", target="/repo/a.py")
 
     assert result["status"] == "ok"
     assert [row["file"] for row in result["results"]] == ["/repo/b.py"]
@@ -78,7 +84,7 @@ def test_depth_one_keeps_direct_rows_without_walk_fields(store):
 
 
 def test_importers_of_walks_to_the_fixed_point(store):
-    result = _query(pattern="importers_of", target="/repo/a.py", depth=6)
+    result = _query(store, pattern="importers_of", target="/repo/a.py", depth=6)
 
     rows = {row["file"]: row for row in result["results"]}
     assert set(rows) == {"/repo/b.py", "/repo/c.py", "/repo/d.py"}
@@ -94,7 +100,7 @@ def test_importers_of_walks_to_the_fixed_point(store):
 
 
 def test_node_reached_by_two_paths_appears_once_at_its_shortest_hop(store):
-    result = _query(pattern="importers_of", target="/repo/b.py", depth=3)
+    result = _query(store, pattern="importers_of", target="/repo/b.py", depth=3)
 
     files = [row["file"] for row in result["results"]]
     assert sorted(files) == ["/repo/c.py", "/repo/d.py"]
@@ -102,7 +108,7 @@ def test_node_reached_by_two_paths_appears_once_at_its_shortest_hop(store):
 
 
 def test_depth_limit_is_reported(store):
-    result = _query(pattern="callers_of", target="/repo/a.py::f_a", depth=2)
+    result = _query(store, pattern="callers_of", target="/repo/a.py::f_a", depth=2)
 
     assert {row["qualified_name"] for row in result["results"]} == {
         "/repo/b.py::f_b",
@@ -112,22 +118,8 @@ def test_depth_limit_is_reported(store):
     assert "raise depth" in result["next_action"]["suggestion"]
 
 
-@pytest.mark.parametrize(
-    ("reachability", "results_complete"),
-    [
-        ({"truncated": True, "depth_limit_reached": False}, True),
-        ({"truncated": False, "depth_limit_reached": False}, False),
-    ],
-)
-def test_cut_off_set_is_not_reported_closed(reachability, results_complete):
-    action = _transitive_next_action(reachability, results_complete=results_complete)
-
-    assert action["tool"] == "query_graph_tool"
-    assert "cut off" in action["suggestion"]
-
-
 def test_callers_of_walks_call_chains(store):
-    result = _query(pattern="callers_of", target="/repo/a.py::f_a", depth=3)
+    result = _query(store, pattern="callers_of", target="/repo/a.py::f_a", depth=3)
 
     rows = {row["qualified_name"]: row for row in result["results"]}
     assert set(rows) == {"/repo/b.py::f_b", "/repo/c.py::f_c", "/repo/d.py::f_d"}
@@ -136,7 +128,7 @@ def test_callers_of_walks_call_chains(store):
 
 
 def test_depth_is_capped(store):
-    result = _query(pattern="callers_of", target="/repo/a.py::f_a", depth=99)
+    result = _query(store, pattern="callers_of", target="/repo/a.py::f_a", depth=99)
 
     assert result["depth"] == 6
 
@@ -146,13 +138,14 @@ def test_depth_is_capped(store):
     [("callees_of", 2), ("children_of", 3), ("callers_of", 0)],
 )
 def test_invalid_depth_is_an_error(store, pattern, depth):
-    result = _query(pattern=pattern, target="/repo/a.py::f_a", depth=depth)
+    result = _query(store, pattern=pattern, target="/repo/a.py::f_a", depth=depth)
 
     assert result["status"] == "error"
     assert "depth" in result["error"]
 
 
-def _add_call(store, caller, callee, line):
+def _add_call(root, caller, callee, line):
+    store = _write(root)
     store.upsert_edge(
         EdgeInfo(
             kind="CALLS",
@@ -163,13 +156,14 @@ def _add_call(store, caller, callee, line):
         )
     )
     store.commit()
+    store.close()
 
 
 def test_standard_folds_edges_into_rows(store):
     _add_call(store, "b", "a", 7)
 
-    standard = _query(pattern="callers_of", target="/repo/a.py::f_a")
-    full = _query(pattern="callers_of", target="/repo/a.py::f_a", detail_level="full")
+    standard = _query(store, pattern="callers_of", target="/repo/a.py::f_a")
+    full = _query(store, pattern="callers_of", target="/repo/a.py::f_a", detail_level="full")
 
     assert "edges" not in standard
     assert "_hints" not in standard
@@ -192,9 +186,10 @@ def test_standard_folds_edges_into_rows(store):
 
 
 def test_minimal_returns_every_row_that_fits(store):
+    graph = _write(store)
     for index in range(8):
         name = f"/repo/extra_{index}.py"
-        store.upsert_node(
+        graph.upsert_node(
             NodeInfo(
                 kind="File",
                 name=name,
@@ -204,7 +199,7 @@ def test_minimal_returns_every_row_that_fits(store):
                 language="python",
             )
         )
-        store.upsert_edge(
+        graph.upsert_edge(
             EdgeInfo(
                 kind="IMPORTS_FROM",
                 source=name,
@@ -213,9 +208,10 @@ def test_minimal_returns_every_row_that_fits(store):
                 line=1,
             )
         )
-    store.commit()
+    graph.commit()
+    graph.close()
 
-    result = _query(pattern="importers_of", target="/repo/a.py", detail_level="minimal")
+    result = _query(store, pattern="importers_of", target="/repo/a.py", detail_level="minimal")
 
     assert result["result_count"] == 9
     assert len(result["results"]) == 9
