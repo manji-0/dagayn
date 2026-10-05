@@ -172,8 +172,10 @@ class TestRepoContext:
             _common.set_repo_context(repo, repo / ".dagayn" / "graph.db", explicit=True)
             return {"status": "ok"}
 
-        monkeypatch.setattr("dagayn.tools.list_graph_stats", fake_list_graph_stats, raising=False)
-        payload = main._tool("list_graph_stats")(repo_root=str(repo))
+        monkeypatch.setattr(
+            "dagayn.tools.query.list_graph_stats", fake_list_graph_stats, raising=False
+        )
+        payload = main._tool("query:list_graph_stats")(repo_root=str(repo))
         assert payload["_repo"]["repo_root"] == str(repo)
 
     def test_mcp_wrapper_does_not_leak_a_previous_repo(self, tmp_path, monkeypatch):
@@ -184,11 +186,11 @@ class TestRepoContext:
         _common.set_repo_context(repo, repo / ".dagayn" / "graph.db", explicit=True)
 
         monkeypatch.setattr(
-            "dagayn.tools.list_graph_stats",
+            "dagayn.tools.query.list_graph_stats",
             lambda **_kwargs: {"status": "ok"},
             raising=False,
         )
-        payload = main._tool("list_graph_stats")()
+        payload = main._tool("query:list_graph_stats")()
         assert "_repo" not in payload
 
 

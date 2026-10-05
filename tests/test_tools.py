@@ -10,16 +10,15 @@ from dagayn.contracts.state_types import BuildResult, ChangeAnalysisResult
 from dagayn.extractor_versions import record_extractor_versions
 from dagayn.graph import GraphStore, _sanitize_name, node_to_dict
 from dagayn.parser import EdgeInfo, NodeInfo
-from dagayn.tools import (
-    get_affected_flows_func,
+from dagayn.tools.community_tools import (
     get_architecture_overview_func,
     get_community_func,
-    get_docs_section,
-    get_flow,
     list_communities_func,
-    list_flows,
 )
+from dagayn.tools.docs import get_docs_section
+from dagayn.tools.flows_tools import get_flow, list_flows
 from dagayn.tools.query import query_graph
+from dagayn.tools.review_flows import get_affected_flows_func
 from tests.store_sql import store_conn
 
 

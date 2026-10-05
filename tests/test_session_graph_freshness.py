@@ -482,7 +482,7 @@ class TestMinimalContextAutoPrepare:
                 "dagayn.task_queue.enqueue_session_prepare",
                 return_value=("added", 1),
             ) as enqueue,
-            patch("dagayn.tools.session_prepare.session_prepare") as prepare,
+            patch("dagayn.tools.session_prepare") as prepare,
         ):
             result = get_minimal_context(
                 task="explore codebase",

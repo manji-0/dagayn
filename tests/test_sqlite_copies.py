@@ -102,7 +102,7 @@ def test_the_rust_build_creates_the_embeddings_schema(tmp_path: Path) -> None:
 def test_list_graph_stats_reads_the_graph_without_writing_it(unembedded_repo: Path) -> None:
     """It used to open an EmbeddingStore to count, creating the embeddings
     schema, which turned `dagayn status` from "not indexed" to "empty"."""
-    from dagayn.tools import list_graph_stats
+    from dagayn.tools.query import list_graph_stats
 
     assert list_graph_stats(repo_root=str(unembedded_repo))["embeddings_count"] == 0
     assert "embeddings" not in _tables(unembedded_repo / ".dagayn" / "graph.db")

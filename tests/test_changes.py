@@ -1082,7 +1082,7 @@ class TestChanges:
 
     def test_detect_changes_tool_no_changes(self):
         """detect_changes_func returns clean result when no changes detected."""
-        from dagayn.tools import detect_changes_func
+        from dagayn.tools.review import detect_changes_func
 
         # Patch _get_store to use our test store,
         # and get_changed_file_sources/get_staged_and_unstaged to return empty.
@@ -1138,7 +1138,7 @@ class TestChanges:
 
     def test_detect_changes_tool_with_changes(self):
         """detect_changes_func returns full analysis for changed files."""
-        from dagayn.tools import detect_changes_func
+        from dagayn.tools.review import detect_changes_func
 
         self._add_func("my_func", path="/fake/repo/app.py", line_start=1, line_end=10)
         self._add_func(
@@ -1205,7 +1205,7 @@ class TestChanges:
 
     def test_detect_changes_scores_stable_component_tests_and_docs(self):
         """Stable packages should surface stronger test and documentation signals."""
-        from dagayn.tools import detect_changes_func
+        from dagayn.tools.review import detect_changes_func
 
         root = Path("/fake/repo")
         service = root / "core" / "service.py"
@@ -1348,7 +1348,7 @@ class TestChanges:
 
     def test_detect_changes_tool_trims_changed_functions(self):
         """detect_changes_func should budget changed_functions for large PRs."""
-        from dagayn.tools import detect_changes_func
+        from dagayn.tools.review import detect_changes_func
 
         huge_functions = [{"name": f"func_{i}", "payload": "x" * 500} for i in range(200)]
 

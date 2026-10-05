@@ -68,7 +68,7 @@ def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[Benchmark
 
         # Graph-based: use get_review_context
         try:
-            from dagayn.tools import get_review_context
+            from dagayn.tools.review import get_review_context
 
             ctx = get_review_context(changed_files=changed, repo_root=str(repo_path))
             graph_tokens, token_counter = count_tokens(json.dumps(ctx))

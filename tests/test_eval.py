@@ -520,13 +520,13 @@ def test_token_efficiency_context_failure_is_status_error(tmp_path, monkeypatch)
         capture_output=True,
     )
 
-    import dagayn.tools
+    import dagayn.tools.review
     from dagayn.eval.benchmarks import token_efficiency
 
     def fail_context(**_kwargs):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(dagayn.tools, "get_review_context", fail_context)
+    monkeypatch.setattr(dagayn.tools.review, "get_review_context", fail_context)
     rows = token_efficiency.run(
         repo_path,
         None,

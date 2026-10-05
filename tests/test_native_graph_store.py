@@ -363,8 +363,8 @@ def test_semantic_search_works_under_native_backend(tmp_path, monkeypatch):
     monkeypatch.setenv("DAGAYN_BACKEND", "rust")
 
     from dagayn.incremental_build import full_build
-    from dagayn.tools import semantic_search_nodes
     from dagayn.tools._common import _get_store
+    from dagayn.tools.query import semantic_search_nodes
 
     repo = tmp_path / "proj"
     repo.mkdir()

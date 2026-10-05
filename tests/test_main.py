@@ -190,7 +190,7 @@ class TestResolveEmbeddingDefaults:
         calls: list[dict] = []
 
         def fake_tool(name):
-            assert name == "semantic_search_nodes"
+            assert name == "query:semantic_search_nodes"
 
             def fake_semantic_search_nodes(**kwargs):
                 calls.append(kwargs)
@@ -211,7 +211,7 @@ class TestResolveEmbeddingDefaults:
         calls: list[dict] = []
 
         def fake_tool(name):
-            assert name == "cross_repo_search_func"
+            assert name == "registry_tools:cross_repo_search_func"
 
             def fake_cross_repo_search_func(**kwargs):
                 calls.append(kwargs)
@@ -232,7 +232,7 @@ class TestResolveEmbeddingDefaults:
         calls: list[dict] = []
 
         def fake_tool(name):
-            assert name == "traverse_graph_func"
+            assert name == "query:traverse_graph_func"
 
             def fake_traverse_graph_func(**kwargs):
                 calls.append(kwargs)
@@ -253,7 +253,7 @@ class TestResolveEmbeddingDefaults:
         calls: list[dict] = []
 
         def fake_tool(name):
-            assert name == "build_or_update_graph"
+            assert name == "build:build_or_update_graph"
 
             def fake_build_or_update_graph(**kwargs):
                 calls.append(kwargs)
@@ -284,7 +284,7 @@ class TestResolveEmbeddingDefaults:
         calls: list[dict] = []
 
         def fake_tool(name):
-            assert name == "build_or_update_graph"
+            assert name == "build:build_or_update_graph"
 
             def fake_build_or_update_graph(**kwargs):
                 calls.append(kwargs)

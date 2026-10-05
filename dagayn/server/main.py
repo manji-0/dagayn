@@ -194,14 +194,16 @@ def _resolve_local_embedding(local_embedding: Optional[str]) -> Optional[str]:
     return local_embedding if local_embedding is not None else _default_local_embedding
 
 
-def _tool(name: str) -> Any:
-    """Resolve a tool implementation lazily to keep package imports acyclic.
+def _tool(spec: str) -> Any:
+    """Resolve a tool implementation ("module:function" under
+    dagayn.tools) lazily to keep package imports acyclic.
 
     Uncaught ``SQLITE_CORRUPT`` is recovered once by closing live graph
     handles and retrying. A poisoned connection in a long-lived ``serve``
     process otherwise fails every subsequent call even when the file is healthy.
     """
-    impl = getattr(import_module("dagayn.tools"), name)
+    module_name, _, name = spec.partition(":")
+    impl = getattr(import_module(f"dagayn.tools.{module_name}"), name)
 
     def wrapped(*args: Any, **kwargs: Any) -> Any:
         from ..tools._common import (
@@ -325,7 +327,7 @@ async def build_or_update_graph_tool(
         local_embedding_batch_size = _default_local_embedding_batch_size
 
     return await asyncio.to_thread(
-        _tool("build_or_update_graph"),
+        _tool("build:build_or_update_graph"),
         full_rebuild=full_rebuild,
         repo_root=_resolve_repo_root(repo_root),
         base=base,
@@ -357,7 +359,7 @@ async def ensure_graph_tool(
     """
     effective_local_embedding = _resolve_local_embedding(None) or "none"
     return await asyncio.to_thread(
-        _tool("ensure_graph"),
+        _tool("ensure:ensure_graph"),
         repo_root=_resolve_repo_root(repo_root),
         force=force,
         local_embedding=effective_local_embedding,
@@ -391,7 +393,7 @@ async def run_postprocess_tool(
         repo_root: Repository root path. Auto-detected if omitted.
     """
     return await asyncio.to_thread(
-        _tool("run_postprocess"),
+        _tool("build:run_postprocess"),
         flows=flows,
         communities=communities,
         fts=fts,
@@ -424,7 +426,7 @@ async def get_minimal_context_tool(
     """
     effective_local_embedding = _resolve_local_embedding(None) or "none"
     return await asyncio.to_thread(
-        _tool("get_minimal_context"),
+        _tool("context:get_minimal_context"),
         task=task,
         changed_files=changed_files,
         repo_root=_resolve_repo_root(repo_root),
@@ -469,7 +471,7 @@ def query_graph_tool(
     ``MEDIUM`` edges are inferred, and ``LOW`` edges, a file-level ``tests_for``
     of 0, and ``truncated`` / ``ambiguous`` results are hypotheses.
     """
-    return _tool("query_graph")(
+    return _tool("query:query_graph")(
         pattern=pattern,
         target=target,
         repo_root=_resolve_repo_root(repo_root),
@@ -506,7 +508,7 @@ def semantic_search_nodes_tool(
         provider: "openai", "google", or "minimax"; omit for the server default.
         detail_level: "standard" (default) or "minimal".
     """
-    return _tool("semantic_search_nodes")(
+    return _tool("query:semantic_search_nodes")(
         query=query,
         kind=kind,
         limit=limit,
@@ -548,7 +550,7 @@ async def embed_graph_tool(
                   endpoint (real OpenAI, Azure, new-api, LiteLLM, vLLM, etc.).
     """
     return await asyncio.to_thread(
-        _tool("embed_graph"),
+        _tool("docs:embed_graph"),
         repo_root=_resolve_repo_root(repo_root),
         model=model,
         provider=provider,
@@ -567,7 +569,7 @@ def list_graph_stats_tool(
     Args:
         repo_root: Repository root path. Auto-detected if omitted.
     """
-    return _tool("list_graph_stats")(repo_root=_resolve_repo_root(repo_root))
+    return _tool("query:list_graph_stats")(repo_root=_resolve_repo_root(repo_root))
 
 
 @mcp.tool()
@@ -587,7 +589,7 @@ def get_docs_section_tool(
         section_name: Section to return (e.g. "trust").
         max_chars: Maximum characters to return. Default: 4000.
     """
-    return _tool("get_docs_section")(
+    return _tool("docs:get_docs_section")(
         section_name=section_name,
         repo_root=_resolve_repo_root(repo_root),
         max_chars=max_chars,
@@ -614,7 +616,7 @@ def find_large_functions_tool(
         limit: Maximum results. Default: 50.
         repo_root: Repository root path. Auto-detected if omitted.
     """
-    return _tool("find_large_functions")(
+    return _tool("query:find_large_functions")(
         min_lines=min_lines,
         kind=kind,
         file_path_pattern=file_path_pattern,
@@ -687,7 +689,7 @@ def architecture_analysis_tool(
             "infra_dataflow" (+ infra references), "artifact_trace"
             (+ cross-artifact bridges).
     """
-    return _tool("architecture_analysis_func")(
+    return _tool("architecture_analysis:architecture_analysis_func")(
         mode=mode,
         detail_level=detail_level,
         top_n=top_n,
@@ -743,7 +745,7 @@ async def review_tool(
         max_lines_per_file: (context) Lines per file. Default: 200.
     """
     return await asyncio.to_thread(
-        _tool("review_func"),
+        _tool("review_dispatcher:review_func"),
         mode=mode,
         base=base,
         changed_files=changed_files,
@@ -780,7 +782,7 @@ def flow_tool(
         flow_name: (get) Partial name match.
         include_source: (get) Add member source snippets.
     """
-    return _tool("flow_func")(
+    return _tool("flow_dispatcher:flow_func")(
         mode=mode,
         sort_by=sort_by,
         limit=limit,
@@ -824,7 +826,7 @@ def refactor_tool(
         limit: (dead_code, suggest) Maximum results. Default: 50; ``total``
             shows the full count when truncated.
     """
-    return _tool("refactor_func")(
+    return _tool("refactor_tools:refactor_func")(
         mode=mode,
         old_name=old_name,
         new_name=new_name,
@@ -859,7 +861,7 @@ def apply_refactor_tool(
             dry_run. Use this for a human-in-the-loop review before
             committing changes to disk.
     """
-    return _tool("apply_refactor_func")(
+    return _tool("refactor_tools:apply_refactor_func")(
         refactor_id=refactor_id,
         repo_root=_resolve_repo_root(repo_root),
         dry_run=dry_run,
@@ -882,7 +884,7 @@ async def generate_wiki_tool(
         force: If True, regenerate all pages even if content unchanged. Default: False.
     """
     return await asyncio.to_thread(
-        _tool("generate_wiki_func"),
+        _tool("docs:generate_wiki_func"),
         repo_root=_resolve_repo_root(repo_root),
         force=force,
     )
@@ -902,7 +904,7 @@ def get_wiki_page_tool(
         community_name: Community name to look up.
         repo_root: Repository root path. Auto-detected if omitted.
     """
-    return _tool("get_wiki_page_func")(
+    return _tool("docs:get_wiki_page_func")(
         community_name=community_name,
         repo_root=_resolve_repo_root(repo_root),
     )
@@ -923,7 +925,7 @@ def get_suggested_questions_tool(
         top_n: Maximum questions to return, high-priority first. Default: 15.
         repo_root: Repository root path. Auto-detected if omitted.
     """
-    return _tool("get_suggested_questions_func")(
+    return _tool("analysis_tools:get_suggested_questions_func")(
         repo_root=_resolve_repo_root(repo_root),
         top_n=top_n,
     )
@@ -958,7 +960,7 @@ def traverse_graph_tool(
         provider: Embedding provider for the initial search. Defaults to the
             server's embedding provider when configured by ``dagayn serve``.
     """
-    return _tool("traverse_graph_func")(
+    return _tool("query:traverse_graph_func")(
         query=query,
         mode=mode,
         depth=depth,
@@ -976,7 +978,7 @@ def list_repos_tool() -> ToolPayload:
     Returns the list of repos registered at ~/.dagayn/registry.json.
     Use the CLI 'register' command to add repos.
     """
-    return _tool("list_repos_func")()
+    return _tool("registry_tools:list_repos_func")()
 
 
 @mcp.tool()
@@ -1003,7 +1005,7 @@ def cross_repo_search_tool(
         provider: Embedding provider for hybrid search. Defaults to the
             server's embedding provider when configured by ``dagayn serve``.
     """
-    return _tool("cross_repo_search_func")(
+    return _tool("registry_tools:cross_repo_search_func")(
         query=query,
         kind=kind,
         limit=limit,

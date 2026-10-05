@@ -244,7 +244,7 @@ class TestConnectionPool:
 class TestCrossRepoSearch:
     def test_cross_repo_search_no_repos(self):
         """cross_repo_search with empty registry returns empty results."""
-        from dagayn.tools import cross_repo_search_func
+        from dagayn.tools.registry_tools import cross_repo_search_func
 
         tmp_dir = tempfile.mkdtemp()
 
@@ -263,7 +263,7 @@ class TestCrossRepoSearch:
 
     def test_cross_repo_search_stale_entry_does_not_create_dirs(self, tmp_path):
         """A deleted registry path must stay gone. See: #90."""
-        from dagayn.tools import cross_repo_search_func
+        from dagayn.tools.registry_tools import cross_repo_search_func
 
         gone = tmp_path / "moved-away"
         with patch("dagayn.registry.Registry") as mock_registry_cls:
@@ -282,7 +282,7 @@ class TestCrossRepoSearch:
     def test_cross_repo_search_limit_applies_per_repo(self, tmp_path):
         """`limit` bounds each repository; one repository's higher score scale
         must not crowd every hit of another out of the merged results."""
-        from dagayn.tools import cross_repo_search_func
+        from dagayn.tools.registry_tools import cross_repo_search_func
 
         repos = []
         for name in ("loud", "quiet"):
