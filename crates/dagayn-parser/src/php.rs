@@ -7,8 +7,9 @@ use super::stdlib::php::{is_php_builtin_class, is_php_builtin_function};
 use super::stdlib::{StdlibEvidence, mark_stdlib_edge};
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{
-    collect_namespace_paths, is_test_file, line_count, node_text, set_declared_namespaces,
-    strip_matching_quotes,
+    collect_namespace_paths, direct_child, direct_child_text, direct_child_texts,
+    last_direct_child_text, line_count, line_of, node_text, set_declared_namespaces,
+    string_content_text,
 };
 use super::{qualify, resolve_rust_call_targets};
 
@@ -19,20 +20,7 @@ pub(super) fn parse_php_with_parser(
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let file_path = FilePath::new(file_path);
     let line_end = line_count(source);
-    let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File,
-        name: file_path.to_string(),
-        file_path: file_path.clone(),
-        line_start: 1,
-        line_end,
-        language: "php".to_string(),
-        parent_name: None,
-        params: None,
-        return_type: None,
-        modifiers: None,
-        is_test: is_test_file(&file_path),
-        extra: json!({}),
-    }];
+    let mut nodes = vec![ParsedNode::file(&file_path, line_end, "php")];
     let mut edges = Vec::new();
 
     if let Some(parser) = parser
@@ -91,7 +79,7 @@ fn php_walk_children(
             | "interface_declaration"
             | "trait_declaration"
             | "enum_declaration" => {
-                if let Some(name) = php_direct_child_text(child, source, &["name"]) {
+                if let Some(name) = direct_child_text(child, source, &["name"]) {
                     php_emit_type(
                         child,
                         source,
@@ -116,7 +104,7 @@ fn php_walk_children(
                 }
             }
             "function_definition" | "method_declaration" => {
-                if let Some(name) = php_direct_child_text(child, source, &["name"]) {
+                if let Some(name) = direct_child_text(child, source, &["name"]) {
                     php_emit_function(
                         child,
                         source,
@@ -145,7 +133,7 @@ fn php_walk_children(
                 }
             }
             "object_creation_expression" => {
-                if let Some(class_node) = php_direct_child(child, &["name", "qualified_name"]) {
+                if let Some(class_node) = direct_child(child, &["name", "qualified_name"]) {
                     let mut target = php_simple_name(&node_text(class_node, source));
                     let caller = match (enclosing_func, enclosing_class) {
                         (Some(func), _) => qualify(file_path, func, enclosing_class),
@@ -245,7 +233,7 @@ fn php_emit_import(
 /// (`use App\Util\{One, Two};`) expands to one target per clause, and an
 /// `as` alias is dropped.
 fn php_import_targets(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
-    let prefix = php_direct_child_text(node, source, &["namespace_name"]);
+    let prefix = direct_child_text(node, source, &["namespace_name"]);
     let mut targets = Vec::new();
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
@@ -277,7 +265,7 @@ fn php_use_clause_target(
     source: &[u8],
     prefix: Option<&str>,
 ) -> Option<String> {
-    let path = php_direct_child_text(node, source, &["qualified_name", "name"])?;
+    let path = direct_child_text(node, source, &["qualified_name", "name"])?;
     let path = path.trim().trim_start_matches('\\');
     if path.is_empty() {
         return None;
@@ -294,15 +282,6 @@ fn php_simple_name(text: &str) -> String {
         .next()
         .unwrap_or_default()
         .to_string()
-}
-
-fn php_direct_child<'a>(
-    node: tree_sitter::Node<'a>,
-    kinds: &[&str],
-) -> Option<tree_sitter::Node<'a>> {
-    let mut cursor = node.walk();
-    node.children(&mut cursor)
-        .find(|child| kinds.contains(&child.kind()))
 }
 
 /// Names listed directly under `clause` (`base_clause`, `class_interface_clause`
@@ -394,14 +373,13 @@ fn php_emit_type(
         extra,
     });
     let qualified = qualify(file_path, name, enclosing_class);
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: file_path.to_string(),
-        target: qualified.clone(),
-        file_path: file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        file_path.to_string(),
+        qualified.clone(),
+        file_path.clone(),
+        line_of(node),
+    ));
     let mut relations = Vec::new();
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
@@ -455,7 +433,7 @@ fn php_emit_function(
         line_end: node.end_position().row as i64 + 1,
         language: "php".to_string(),
         parent_name: enclosing_class.map(str::to_string),
-        params: php_direct_child_text(node, source, &["formal_parameters"]),
+        params: direct_child_text(node, source, &["formal_parameters"]),
         // As written (`?Store`, `Store`, `static`), for resolution across
         // files to type what a call of it returns.
         return_type: node
@@ -465,16 +443,15 @@ fn php_emit_function(
         is_test: false,
         extra: json!({}),
     });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: enclosing_class
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        enclosing_class
             .map(|class| qualify(file_path, class, None))
             .unwrap_or_else(|| file_path.to_string()),
-        target: qualified,
-        file_path: file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+        qualified,
+        file_path.clone(),
+        line_of(node),
+    ));
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -524,7 +501,7 @@ fn php_emit_call(
 /// matches `file::Class.method`, so the edge could never bind to a node.
 fn php_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     match node.kind() {
-        "scoped_call_expression" => php_direct_child_texts(node, source, &["name"]).pop(),
+        "scoped_call_expression" => direct_child_texts(node, source, &["name"]).pop(),
         _ => php_call_signature(node, source),
     }
 }
@@ -532,19 +509,17 @@ fn php_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
 /// The call as written, used to match cross-artifact bridges (`FFI::cdef`).
 fn php_call_signature(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     match node.kind() {
-        "function_call_expression" => {
-            php_direct_child_text(node, source, &["name", "qualified_name"])
-                .map(|name| name.trim_start_matches('\\').to_string())
-        }
+        "function_call_expression" => direct_child_text(node, source, &["name", "qualified_name"])
+            .map(|name| name.trim_start_matches('\\').to_string()),
         "member_call_expression" | "nullsafe_member_call_expression" => {
-            php_last_direct_child_text(node, source, "name")
+            last_direct_child_text(node, source, &["name"])
         }
         "scoped_call_expression" => {
-            let names = php_direct_child_texts(node, source, &["name"]);
+            let names = direct_child_texts(node, source, &["name"]);
             if names.len() >= 2 {
                 return Some(format!("{}::{}", names[0], names[1]));
             }
-            if let Some(scope) = php_direct_child_text(node, source, &["relative_scope"])
+            if let Some(scope) = direct_child_text(node, source, &["relative_scope"])
                 && matches!(scope.as_str(), "parent" | "self")
             {
                 return names.last().cloned();
@@ -616,7 +591,7 @@ fn php_first_string_arg(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<St
             child
         };
         if matches!(arg.kind(), "encapsed_string" | "string") {
-            return Some(php_string_text(arg, source));
+            return Some(string_content_text(arg, source));
         }
         return None;
     }
@@ -628,60 +603,6 @@ fn php_first_non_punctuation_child(node: tree_sitter::Node<'_>) -> Option<tree_s
 
     node.children(&mut cursor)
         .find(|child| !matches!(child.kind(), "," | "(" | ")"))
-}
-
-fn php_string_text(node: tree_sitter::Node<'_>, source: &[u8]) -> String {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == "string_content" {
-            return node_text(child, source);
-        }
-    }
-    strip_matching_quotes(node_text(node, source).trim()).to_string()
-}
-
-fn php_direct_child_text(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-) -> Option<String> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if kinds.contains(&child.kind()) {
-            return Some(node_text(child, source));
-        }
-    }
-    None
-}
-
-fn php_last_direct_child_text(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kind: &str,
-) -> Option<String> {
-    let mut found = None;
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == kind {
-            found = Some(node_text(child, source));
-        }
-    }
-    found
-}
-
-fn php_direct_child_texts(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if kinds.contains(&child.kind()) {
-            out.push(node_text(child, source));
-        }
-    }
-    out
 }
 
 /// `function` / `const` for `use function ...;` / `use const ...;`, `None`
@@ -733,7 +654,7 @@ impl PhpStdlibScope {
                 }
                 "namespace_use_declaration" => scope.collect_use(node, source),
                 "function_definition" => {
-                    if let Some(name) = php_direct_child_text(node, source, &["name"]) {
+                    if let Some(name) = direct_child_text(node, source, &["name"]) {
                         scope.defined_functions.insert(name.to_ascii_lowercase());
                     }
                 }
@@ -741,7 +662,7 @@ impl PhpStdlibScope {
                 | "interface_declaration"
                 | "trait_declaration"
                 | "enum_declaration" => {
-                    if let Some(name) = php_direct_child_text(node, source, &["name"]) {
+                    if let Some(name) = direct_child_text(node, source, &["name"]) {
                         scope.defined_classes.insert(name.to_ascii_lowercase());
                     }
                 }
@@ -766,7 +687,7 @@ impl PhpStdlibScope {
                 let class = node
                     .child_by_field_name("right")
                     .filter(|right| right.kind() == "object_creation_expression")
-                    .and_then(|right| php_direct_child(right, &["name", "qualified_name"]));
+                    .and_then(|right| direct_child(right, &["name", "qualified_name"]));
                 (left, class)
             } else {
                 let Some(name) = node.child_by_field_name("name") else {
@@ -775,7 +696,7 @@ impl PhpStdlibScope {
                 let class = node
                     .child_by_field_name("type")
                     .filter(|ty| ty.kind() == "named_type")
-                    .and_then(|ty| php_direct_child(ty, &["name", "qualified_name"]));
+                    .and_then(|ty| direct_child(ty, &["name", "qualified_name"]));
                 (name, class)
             };
             let class = class
@@ -795,7 +716,7 @@ impl PhpStdlibScope {
 
     fn collect_use(&mut self, node: tree_sitter::Node<'_>, source: &[u8]) {
         let kind = php_use_kind(node);
-        let prefix = php_direct_child_text(node, source, &["namespace_name"]);
+        let prefix = direct_child_text(node, source, &["namespace_name"]);
         let mut clauses = Vec::new();
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
@@ -912,7 +833,7 @@ impl PhpStdlibScope {
                 }
                 let (class, evidence) = match object.kind() {
                     "object_creation_expression" => self.builtin_class(&node_text(
-                        php_direct_child(object, &["name", "qualified_name"])?,
+                        direct_child(object, &["name", "qualified_name"])?,
                         source,
                     ))?,
                     "variable_name" => {
@@ -967,7 +888,7 @@ impl PhpReceivers {
                     | "interface_declaration"
                     | "trait_declaration"
                     | "enum_declaration"
-            ) && let Some(name) = php_direct_child_text(node, source, &["name"])
+            ) && let Some(name) = direct_child_text(node, source, &["name"])
             {
                 let typed = php_typed_properties(node, source);
                 if !typed.is_empty() {
@@ -1026,7 +947,7 @@ impl PhpReceivers {
             }
         }
         if right.kind() == "object_creation_expression"
-            && let Some(class) = php_direct_child(right, &["name", "qualified_name"])
+            && let Some(class) = direct_child(right, &["name", "qualified_name"])
         {
             let class = php_simple_name(&node_text(class, source));
             if !class.is_empty() {
@@ -1140,7 +1061,7 @@ impl PhpReceivers {
                 .unwrap_or(PhpReceiver::Unknown(None)),
             // `(new Repo())->save()`
             "object_creation_expression" => {
-                match php_direct_child(object, &["name", "qualified_name"]) {
+                match direct_child(object, &["name", "qualified_name"]) {
                     Some(name) => class(&php_simple_name(&node_text(name, source))),
                     None => PhpReceiver::Unknown(None),
                 }
@@ -1161,10 +1082,10 @@ impl PhpReceivers {
 fn php_class_type(ty: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     let named = match ty.kind() {
         "named_type" => ty,
-        "optional_type" => php_direct_child(ty, &["named_type"])?,
+        "optional_type" => direct_child(ty, &["named_type"])?,
         _ => return None,
     };
-    let name = php_direct_child(named, &["name", "qualified_name"])?;
+    let name = direct_child(named, &["name", "qualified_name"])?;
     let name = php_simple_name(&node_text(name, source));
     (!name.is_empty() && !matches!(name.as_str(), "self" | "static" | "parent")).then_some(name)
 }

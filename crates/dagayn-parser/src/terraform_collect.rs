@@ -251,7 +251,7 @@ fn parse_terraform_header(header: &str) -> Option<(String, Vec<String>)> {
     supported.then(|| (kind.clone(), labels.to_vec()))
 }
 
-fn find_matching_brace(text: &str, open: usize) -> Option<usize> {
+pub(super) fn find_matching_brace(text: &str, open: usize) -> Option<usize> {
     let mut depth = 0_i64;
     let mut in_string: Option<char> = None;
     let mut escaped = false;

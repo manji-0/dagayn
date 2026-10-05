@@ -14,7 +14,7 @@ use super::js_like::{
 };
 use super::js_modules::{
     JavaScriptParseContext, JavaScriptWrappedFunction, decode_javascript_string_literal,
-    javascript_child_text, javascript_function_name, javascript_wrapped_function,
+    javascript_function_name, javascript_wrapped_function,
 };
 use super::js_objects::{
     JAVASCRIPT_MAX_OBJECT_CONTAINER_DEPTH, javascript_declarator_owns,
@@ -25,7 +25,7 @@ use super::js_types::{
 };
 use super::qualify;
 use super::types::{ParsedEdge, ParsedNode};
-use super::util::node_text;
+use super::util::{direct_child_text, line_of, node_text};
 
 /// Emits a `Class` node for a class-like declaration or class expression,
 /// its CONTAINS and heritage edges, and walks its body with the class as the
@@ -81,14 +81,13 @@ pub(super) fn javascript_emit_class_node(
             extra,
         },
     );
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: javascript_container_qn(context, owner_path),
-        target: qualified.clone(),
-        file_path: context.file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        javascript_container_qn(context, owner_path),
+        qualified.clone(),
+        context.file_path.clone(),
+        line_of(node),
+    ));
     emit_javascript_inheritance_edges(node, context, &qualified, edges);
     let member_owner = javascript_member_owner(owner_path, name);
     // Class decorator arguments run as class-level code.
@@ -149,14 +148,13 @@ pub(super) fn javascript_emit_type_alias(
         },
     );
     let qualified = qualify(&context.file_path, name, owner_path);
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: javascript_container_qn(context, owner_path),
-        target: qualified.clone(),
-        file_path: context.file_path.clone(),
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        javascript_container_qn(context, owner_path),
+        qualified.clone(),
+        context.file_path.clone(),
         line,
-        extra: json!({}),
-    });
+    ));
     for (field, position) in [
         ("type_parameters", "type_parameter"),
         ("value", "type_alias"),
@@ -435,21 +433,20 @@ pub(super) fn javascript_emit_bound_function(
             line_end: declaration.end_position().row as i64 + 1,
             language: context.language.to_string(),
             parent_name: owner_path.map(str::to_string),
-            params: javascript_child_text(function_node, context.source, "formal_parameters"),
+            params: direct_child_text(function_node, context.source, &["formal_parameters"]),
             return_type: javascript_return_type(function_node, context.source),
             modifiers: javascript_modifiers(&[declaration, function_node]),
             is_test,
             extra,
         },
     );
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: javascript_container_qn(context, owner_path),
-        target: qualified,
-        file_path: context.file_path.clone(),
-        line: declaration.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        javascript_container_qn(context, owner_path),
+        qualified,
+        context.file_path.clone(),
+        line_of(declaration),
+    ));
     javascript_walk_function_body(function_node, context, owner_path, name, nodes, edges);
 }
 
@@ -491,7 +488,7 @@ pub(super) fn javascript_emit_function_node(
             params: if node.kind() == "arrow_function" {
                 None
             } else {
-                javascript_child_text(node, context.source, "formal_parameters")
+                direct_child_text(node, context.source, &["formal_parameters"])
             },
             return_type: javascript_return_type(node, context.source),
             modifiers: javascript_modifiers(&[node]),
@@ -502,14 +499,13 @@ pub(super) fn javascript_emit_function_node(
     let container = owner_path
         .map(|name| qualify(&context.file_path, name, None))
         .unwrap_or_else(|| context.file_path.to_string());
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: container,
-        target: qualified,
-        file_path: context.file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        container,
+        qualified,
+        context.file_path.clone(),
+        line_of(node),
+    ));
     javascript_emit_decorators(
         &decorators,
         &qualify(&context.file_path, &name, owner_path),
@@ -767,7 +763,7 @@ pub(super) fn javascript_emit_variable_functions(
                 line_end: node.end_position().row as i64 + 1,
                 language: context.language.to_string(),
                 parent_name: owner_path.map(str::to_string),
-                params: javascript_child_text(function_node, context.source, "formal_parameters"),
+                params: direct_child_text(function_node, context.source, &["formal_parameters"]),
                 return_type: javascript_return_type(function_node, context.source),
                 modifiers: javascript_modifiers(&[function_node]),
                 is_test,
@@ -777,14 +773,13 @@ pub(super) fn javascript_emit_variable_functions(
         let container = owner_path
             .map(|class_name| qualify(&context.file_path, class_name, None))
             .unwrap_or_else(|| context.file_path.to_string());
-        edges.push(ParsedEdge {
-            kind: crate::core::types::EdgeKind::Contains,
-            source: container,
-            target: qualified,
-            file_path: context.file_path.clone(),
-            line: node.start_position().row as i64 + 1,
-            extra: json!({}),
-        });
+        edges.push(ParsedEdge::new(
+            crate::core::types::EdgeKind::Contains,
+            container,
+            qualified,
+            context.file_path.clone(),
+            line_of(node),
+        ));
         annotate(&name, edges);
         if let Some(wrapped) = &wrapped {
             javascript_emit_wrapper_calls(wrapped, context, owner_path, &name, nodes, edges);
@@ -896,7 +891,7 @@ pub(super) fn javascript_emit_field_function(
             line_end: node.end_position().row as i64 + 1,
             language: context.language.to_string(),
             parent_name: owner_path.map(str::to_string),
-            params: javascript_child_text(function_node, context.source, "formal_parameters"),
+            params: direct_child_text(function_node, context.source, &["formal_parameters"]),
             return_type: javascript_return_type(function_node, context.source),
             modifiers: javascript_modifiers(&[node, function_node]),
             is_test,
@@ -906,14 +901,13 @@ pub(super) fn javascript_emit_field_function(
     let container = owner_path
         .map(|class_name| qualify(&context.file_path, class_name, None))
         .unwrap_or_else(|| context.file_path.to_string());
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: container,
-        target: qualified.clone(),
-        file_path: context.file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        container,
+        qualified.clone(),
+        context.file_path.clone(),
+        line_of(node),
+    ));
     javascript_emit_decorators(
         &decorators,
         &qualify(&context.file_path, &name, owner_path),

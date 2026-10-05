@@ -8,7 +8,8 @@ use super::stdlib::swift::{is_swift_stdlib_name, swift_framework_of, swift_syste
 use super::stdlib::{StdlibEvidence, mark_stdlib_edge};
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{
-    is_test_file, line_count, node_text, strip_matching_quotes, type_name_without_arguments,
+    direct_child, first_descendant, first_descendant_text, last_descendant_text, line_count,
+    line_of, node_text, strip_matching_quotes, type_name_without_arguments,
 };
 use super::{is_test_function, qualify, resolve_rust_call_targets};
 
@@ -19,20 +20,7 @@ pub(super) fn parse_swift_with_parser(
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let file_path = FilePath::new(file_path);
     let line_end = line_count(source);
-    let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File,
-        name: file_path.to_string(),
-        file_path: file_path.clone(),
-        line_start: 1,
-        line_end,
-        language: "swift".to_string(),
-        parent_name: None,
-        params: None,
-        return_type: None,
-        modifiers: None,
-        is_test: is_test_file(&file_path),
-        extra: json!({}),
-    }];
+    let mut nodes = vec![ParsedNode::file(&file_path, line_end, "swift")];
     let mut edges = Vec::new();
 
     if let Some(parser) = parser
@@ -103,14 +91,13 @@ fn swift_walk_children(
         match child.kind() {
             "import_declaration" if enclosing_class.is_none() && enclosing_func.is_none() => {
                 if let Some(target) = swift_import_target(child, context.source) {
-                    edges.push(ParsedEdge {
-                        kind: crate::core::types::EdgeKind::ImportsFrom,
-                        source: context.file_path.to_string(),
+                    edges.push(ParsedEdge::new(
+                        crate::core::types::EdgeKind::ImportsFrom,
+                        context.file_path.to_string(),
                         target,
-                        file_path: context.file_path.clone(),
-                        line: child.start_position().row as i64 + 1,
-                        extra: json!({}),
-                    });
+                        context.file_path.clone(),
+                        line_of(child),
+                    ));
                 }
                 continue;
             }
@@ -151,10 +138,10 @@ fn swift_walk_children(
             }
             "property_declaration"
                 if enclosing_func.is_none()
-                    && swift_direct_child(child, &["computed_property"]).is_some() =>
+                    && direct_child(child, &["computed_property"]).is_some() =>
             {
-                if let Some(name) = swift_direct_child(child, &["pattern"])
-                    .and_then(|pattern| swift_direct_child(pattern, &["simple_identifier"]))
+                if let Some(name) = direct_child(child, &["pattern"])
+                    .and_then(|pattern| direct_child(pattern, &["simple_identifier"]))
                     .map(|ident| node_text(ident, context.source))
                 {
                     swift_emit_function(child, context, &name, enclosing_class, nodes, edges);
@@ -239,16 +226,15 @@ fn swift_emit_class(
         is_test: false,
         extra,
     });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: parent
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        parent
             .map(|parent| qualify(&context.file_path, parent, None))
             .unwrap_or_else(|| context.file_path.to_string()),
-        target: qualified.clone(),
-        file_path: context.file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+        qualified.clone(),
+        context.file_path.clone(),
+        line_of(node),
+    ));
     for base in swift_inheritance_targets(node, context.source) {
         edges.push(ParsedEdge {
             kind: crate::core::types::EdgeKind::Inherits,
@@ -291,16 +277,15 @@ fn swift_emit_function(
         is_test,
         extra: json!({}),
     });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: enclosing_class
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        enclosing_class
             .map(|class| qualify(&context.file_path, class, None))
             .unwrap_or_else(|| context.file_path.to_string()),
-        target: qualify(&context.file_path, name, enclosing_class),
-        file_path: context.file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+        qualify(&context.file_path, name, enclosing_class),
+        context.file_path.clone(),
+        line_of(node),
+    ));
 }
 
 fn swift_emit_call(
@@ -325,7 +310,7 @@ fn swift_emit_call(
             && let Some(target) = callee.child_by_field_name("target")
         {
             // `open(p)?.save()`: optional chaining unwraps the receiver.
-            let optional = swift_direct_child(callee, &["?"]).is_some();
+            let optional = direct_child(callee, &["?"]).is_some();
             match swift_receiver(target, &call_name, optional, enclosing_class, context) {
                 SwiftReceiver::Typed(type_name) => {
                     extra[SWIFT_TYPED_RECEIVER_KEY] = json!(type_name);
@@ -440,7 +425,7 @@ fn swift_finish_typed_receivers(
 /// type of a computed property (`var total: Int { ... }`).
 fn swift_return_type(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     if node.kind() == "property_declaration" {
-        let annotation = swift_direct_child(node, &["type_annotation"])?;
+        let annotation = direct_child(node, &["type_annotation"])?;
         let ty = annotation.named_child(0)?;
         return Some(node_text(ty, source));
     }
@@ -473,7 +458,7 @@ fn swift_collect_types_and_fields(
                         let mut members = body.walk();
                         for member in body.children(&mut members) {
                             if member.kind() != "property_declaration"
-                                || swift_direct_child(member, &["computed_property"]).is_some()
+                                || direct_child(member, &["computed_property"]).is_some()
                             {
                                 continue;
                             }
@@ -490,7 +475,7 @@ fn swift_collect_types_and_fields(
                 }
             }
             "typealias_declaration" => {
-                if let Some(name) = swift_direct_child(child, &["type_identifier"]) {
+                if let Some(name) = direct_child(child, &["type_identifier"]) {
                     types.insert(node_text(name, source));
                 }
             }
@@ -508,10 +493,10 @@ fn swift_property_type(
     source: &[u8],
     types: &HashSet<String>,
 ) -> Option<(String, String)> {
-    let var = swift_direct_child(node, &["pattern"])
-        .and_then(|pattern| swift_direct_child(pattern, &["simple_identifier"]))
+    let var = direct_child(node, &["pattern"])
+        .and_then(|pattern| direct_child(pattern, &["simple_identifier"]))
         .map(|ident| node_text(ident, source))?;
-    let type_name = match swift_direct_child(node, &["type_annotation"]) {
+    let type_name = match direct_child(node, &["type_annotation"]) {
         Some(annotation) => swift_named_type(annotation.named_child(0)?, source)?,
         None => swift_initialized_type(node.child_by_field_name("value")?, source, types)?,
     };
@@ -635,8 +620,8 @@ fn swift_collect_bound_identifiers(
 fn swift_bind_declaration(node: tree_sitter::Node<'_>, context: &SwiftParseContext<'_>) {
     let source = context.source;
     let (var, value) = if node.kind() == "property_declaration" {
-        let Some(var) = swift_direct_child(node, &["pattern"])
-            .and_then(|pattern| swift_direct_child(pattern, &["simple_identifier"]))
+        let Some(var) = direct_child(node, &["pattern"])
+            .and_then(|pattern| direct_child(pattern, &["simple_identifier"]))
         else {
             return;
         };
@@ -685,7 +670,7 @@ fn swift_call_origin(
                     .filter(|callee| callee.kind() == "navigation_expression")
                 && let Some(receiver) = callee.child_by_field_name("target")
             {
-                let unwrap = swift_direct_child(callee, &["?"]).is_some();
+                let unwrap = direct_child(callee, &["?"]).is_some();
                 return swift_call_origin(receiver, method, unwrap, context);
             }
             Some(CallOrigin {
@@ -831,8 +816,8 @@ fn swift_call_path(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String>
             "simple_identifier" => Some(node_text(node, source)),
             "navigation_expression" => {
                 let target = node.named_child(0)?;
-                let suffix = swift_direct_child(node, &["navigation_suffix"])?;
-                let member = swift_direct_child(suffix, &["simple_identifier"])?;
+                let suffix = direct_child(node, &["navigation_suffix"])?;
+                let member = direct_child(suffix, &["simple_identifier"])?;
                 Some(format!(
                     "{}.{}",
                     path(target, source)?,
@@ -855,7 +840,7 @@ fn swift_collect_declared_names(
 ) {
     match node.kind() {
         "pattern" | "lambda_parameter" => {
-            if let Some(name) = swift_direct_child(node, &["simple_identifier"]) {
+            if let Some(name) = direct_child(node, &["simple_identifier"]) {
                 names.insert(node_text(name, source));
             }
         }
@@ -873,7 +858,7 @@ fn swift_collect_declared_names(
             }
         }
         "typealias_declaration" => {
-            if let Some(name) = swift_direct_child(node, &["type_identifier"]) {
+            if let Some(name) = direct_child(node, &["type_identifier"]) {
                 names.insert(node_text(name, source));
             }
         }
@@ -977,19 +962,19 @@ fn swift_type_kind(node: tree_sitter::Node<'_>, source: &[u8]) -> String {
 /// The whole statement used to be the target, so `import Foundation` could not
 /// be compared against any module or file name.
 fn swift_import_target(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let path = swift_direct_child(node, &["identifier"])?;
+    let path = direct_child(node, &["identifier"])?;
     let target: String = node_text(path, source).split_whitespace().collect();
     (!target.is_empty()).then_some(target)
 }
 
 fn swift_type_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    swift_direct_child(node, &["type_identifier"])
+    direct_child(node, &["type_identifier"])
         .map(|child| node_text(child, source))
-        .or_else(|| swift_first_descendant_text(node, source, &["type_identifier"]))
+        .or_else(|| first_descendant_text(node, source, &["type_identifier"]))
 }
 
 fn swift_function_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    swift_direct_child(node, &["simple_identifier"]).map(|child| node_text(child, source))
+    direct_child(node, &["simple_identifier"]).map(|child| node_text(child, source))
 }
 
 fn swift_inheritance_targets(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
@@ -1009,9 +994,7 @@ fn swift_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String>
     let callee = swift_call_callee(node)?;
     match callee.kind() {
         "simple_identifier" => Some(node_text(callee, source)),
-        "navigation_expression" => {
-            swift_last_descendant_text(callee, source, &["simple_identifier"])
-        }
+        "navigation_expression" => last_descendant_text(callee, source, &["simple_identifier"]),
         _ => None,
     }
 }
@@ -1079,7 +1062,7 @@ fn swift_bridge_edge(
 }
 
 fn swift_first_string_arg(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let args = swift_first_descendant(node, &["value_arguments"])?;
+    let args = first_descendant(node, &["value_arguments"])?;
     let mut cursor = args.walk();
     for child in args.children(&mut cursor) {
         if child.kind() != "value_argument" {
@@ -1103,40 +1086,6 @@ fn swift_string_text(node: tree_sitter::Node<'_>, source: &[u8]) -> String {
     strip_matching_quotes(text.trim()).to_string()
 }
 
-fn swift_direct_child<'a>(
-    node: tree_sitter::Node<'a>,
-    kinds: &[&str],
-) -> Option<tree_sitter::Node<'a>> {
-    let mut cursor = node.walk();
-
-    node.children(&mut cursor)
-        .find(|child| kinds.contains(&child.kind()))
-}
-
-fn swift_first_descendant<'a>(
-    node: tree_sitter::Node<'a>,
-    kinds: &[&str],
-) -> Option<tree_sitter::Node<'a>> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if kinds.contains(&child.kind()) {
-            return Some(child);
-        }
-        if let Some(found) = swift_first_descendant(child, kinds) {
-            return Some(found);
-        }
-    }
-    None
-}
-
-fn swift_first_descendant_text(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-) -> Option<String> {
-    swift_first_descendant(node, kinds).map(|child| node_text(child, source))
-}
-
 fn swift_descendant_texts(
     node: tree_sitter::Node<'_>,
     source: &[u8],
@@ -1145,16 +1094,6 @@ fn swift_descendant_texts(
     let mut out = Vec::new();
     swift_collect_descendant_texts(node, source, kinds, &mut out);
     out
-}
-
-fn swift_last_descendant_text(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-) -> Option<String> {
-    let mut out = Vec::new();
-    swift_collect_descendant_texts(node, source, kinds, &mut out);
-    out.pop()
 }
 
 fn swift_collect_descendant_texts(

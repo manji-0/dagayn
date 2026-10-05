@@ -769,13 +769,14 @@ fn add_tested_by_edges(nodes: &[ParsedNode], edges: &mut Vec<ParsedEdge>) {
                 && !is_test_api_call(&edge.extra)
                 && !is_external_call(&edge.extra)
         })
-        .map(|edge| ParsedEdge {
-            kind: crate::core::types::EdgeKind::TestedBy,
-            source: edge.target.clone(),
-            target: edge.source.clone(),
-            file_path: edge.file_path.clone(),
-            line: edge.line,
-            extra: json!({}),
+        .map(|edge| {
+            ParsedEdge::new(
+                crate::core::types::EdgeKind::TestedBy,
+                edge.target.clone(),
+                edge.source.clone(),
+                edge.file_path.clone(),
+                edge.line,
+            )
         })
         .collect::<Vec<_>>();
     edges.extend(tested_by);

@@ -11,7 +11,9 @@ use super::stdlib::ruby::{
 };
 use super::stdlib::{StdlibEvidence, mark_stdlib_edge};
 use super::types::{FilePath, ParsedEdge, ParsedNode};
-use super::util::{is_test_file, line_count, node_text, strip_matching_quotes};
+use super::util::{
+    direct_child, direct_child_text, line_count, line_of, node_text, string_content_text,
+};
 use super::{qualify, resolve_rust_call_targets};
 
 pub(super) fn parse_ruby_with_parser(
@@ -21,20 +23,7 @@ pub(super) fn parse_ruby_with_parser(
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let file_path = FilePath::new(file_path);
     let line_end = line_count(source);
-    let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File,
-        name: file_path.to_string(),
-        file_path: file_path.clone(),
-        line_start: 1,
-        line_end,
-        language: "ruby".to_string(),
-        parent_name: None,
-        params: None,
-        return_type: None,
-        modifiers: None,
-        is_test: is_test_file(&file_path),
-        extra: json!({}),
-    }];
+    let mut nodes = vec![ParsedNode::file(&file_path, line_end, "ruby")];
     let mut edges = Vec::new();
 
     if let Some(parser) = parser
@@ -176,17 +165,16 @@ fn ruby_emit_class(
         extra: json!({"type_role": node.kind()}),
     });
     let qualified = qualify(file_path, name, enclosing_class);
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: enclosing_class
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        enclosing_class
             .map(|parent| qualify(file_path, parent, None))
             .unwrap_or_else(|| file_path.to_string()),
-        target: qualified.clone(),
-        file_path: file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
-    if let Some(superclass) = ruby_direct_child(node, &["superclass"])
+        qualified.clone(),
+        file_path.clone(),
+        line_of(node),
+    ));
+    if let Some(superclass) = direct_child(node, &["superclass"])
         && let Some(target) = ruby_constant_name(superclass, source)
     {
         edges.push(ParsedEdge {
@@ -198,7 +186,7 @@ fn ruby_emit_class(
             extra: json!({"relationship_role": "extends", "syntax_source": "superclass"}),
         });
     }
-    let Some(body) = ruby_direct_child(node, &["body_statement"]) else {
+    let Some(body) = direct_child(node, &["body_statement"]) else {
         return;
     };
     let mut cursor = body.walk();
@@ -212,7 +200,7 @@ fn ruby_emit_class(
         if !matches!(keyword.as_str(), "include" | "extend" | "prepend") {
             continue;
         }
-        let Some(arguments) = ruby_direct_child(statement, &["argument_list"]) else {
+        let Some(arguments) = direct_child(statement, &["argument_list"]) else {
             continue;
         };
         let mut args = arguments.walk();
@@ -229,15 +217,6 @@ fn ruby_emit_class(
             }
         }
     }
-}
-
-fn ruby_direct_child<'a>(
-    node: tree_sitter::Node<'a>,
-    kinds: &[&str],
-) -> Option<tree_sitter::Node<'a>> {
-    let mut cursor = node.walk();
-    node.children(&mut cursor)
-        .find(|child| kinds.contains(&child.kind()))
 }
 
 /// The unqualified name of a `constant` or `A::B` scope resolution, looking
@@ -301,16 +280,15 @@ fn ruby_emit_function(
         is_test: false,
         extra: json!({}),
     });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: enclosing_class
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        enclosing_class
             .map(|class| qualify(file_path, class, None))
             .unwrap_or_else(|| file_path.to_string()),
-        target: qualified,
-        file_path: file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+        qualified,
+        file_path.clone(),
+        line_of(node),
+    ));
 }
 
 /// The ffi gem: `attach_function :name, [...], :ret` (or
@@ -357,7 +335,7 @@ fn ruby_leading_symbol_args(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<S
                     .trim_start_matches(':')
                     .to_string(),
             ),
-            "string" => names.push(ruby_string_text(argument, source)),
+            "string" => names.push(string_content_text(argument, source)),
             _ => break,
         }
     }
@@ -403,14 +381,13 @@ fn ruby_emit_call(
         if (call_name == "require" || call_name == "require_relative")
             && let Some(target) = ruby_first_string_arg(node, source)
         {
-            let mut edge = ParsedEdge {
-                kind: crate::core::types::EdgeKind::ImportsFrom,
-                source: file_path.to_string(),
+            let mut edge = ParsedEdge::new(
+                crate::core::types::EdgeKind::ImportsFrom,
+                file_path.to_string(),
                 target,
-                file_path: file_path.clone(),
-                line: node.start_position().row as i64 + 1,
-                extra: json!({}),
-            };
+                file_path.clone(),
+                line_of(node),
+            );
             // `require 'json'` loads a library shipped with Ruby;
             // `require_relative` always names a file of this repository.
             if call_name == "require" && is_ruby_stdlib_library(&edge.target) {
@@ -796,7 +773,7 @@ fn ruby_class_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String>
 }
 
 fn ruby_method_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    ruby_direct_child_text(node, source, &["identifier"])
+    direct_child_text(node, source, &["identifier"])
 }
 
 fn ruby_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
@@ -885,33 +862,9 @@ fn ruby_first_string_arg(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<S
             continue;
         }
         if child.kind() == "string" {
-            return Some(ruby_string_text(child, source));
+            return Some(string_content_text(child, source));
         }
         return None;
-    }
-    None
-}
-
-fn ruby_string_text(node: tree_sitter::Node<'_>, source: &[u8]) -> String {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == "string_content" {
-            return node_text(child, source);
-        }
-    }
-    strip_matching_quotes(node_text(node, source).trim()).to_string()
-}
-
-fn ruby_direct_child_text(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-) -> Option<String> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if kinds.contains(&child.kind()) {
-            return Some(node_text(child, source));
-        }
     }
     None
 }

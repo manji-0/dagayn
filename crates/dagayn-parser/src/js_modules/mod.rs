@@ -10,7 +10,7 @@ use super::js_resolve::resolve_javascript_module;
 use super::member_calls::MemberCallBindings;
 use super::parsers::{new_javascript_parser, new_tsx_parser, new_typescript_parser};
 use super::qualify;
-use super::util::{ends_with_ascii_ignore_case, node_text};
+use super::util::{direct_child_text, ends_with_ascii_ignore_case, node_text};
 
 mod exports;
 
@@ -403,7 +403,7 @@ fn javascript_class_like_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Opt
         let binding = parent.child_by_field_name("name")?;
         return (binding.kind() == "identifier").then(|| node_text(binding, source));
     }
-    javascript_named_child(node, source, &["identifier", "type_identifier"])
+    direct_child_text(node, source, &["identifier", "type_identifier"])
 }
 
 pub(super) fn resolve_javascript_call_target(
@@ -1180,39 +1180,11 @@ pub(super) fn javascript_function_name(
     node: tree_sitter::Node<'_>,
     source: &[u8],
 ) -> Option<String> {
-    javascript_named_child(
+    direct_child_text(
         node,
         source,
         &["identifier", "property_identifier", "type_identifier"],
     )
-}
-
-pub(super) fn javascript_named_child(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-) -> Option<String> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if kinds.contains(&child.kind()) {
-            return Some(node_text(child, source));
-        }
-    }
-    None
-}
-
-pub(super) fn javascript_child_text(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kind: &str,
-) -> Option<String> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == kind {
-            return Some(node_text(child, source));
-        }
-    }
-    None
 }
 
 pub(super) fn javascript_import_targets(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {

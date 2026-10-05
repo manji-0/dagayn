@@ -13,7 +13,7 @@ use super::terraform_collect::{
     terraform_provider_sources,
 };
 use super::types::{FilePath, ParsedEdge, ParsedNode};
-use super::util::{dedupe_edges, is_test_file, line_count};
+use super::util::{dedupe_edges, line_count};
 
 pub(super) fn parse_terraform_with_parser(
     file_path: &str,
@@ -34,20 +34,7 @@ fn parse_terraform_json(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec
         return (Vec::new(), Vec::new());
     };
     let line_end = line_count(source);
-    let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File,
-        name: file_path.to_string(),
-        file_path: file_path.clone(),
-        line_start: 1,
-        line_end,
-        language: "terraform".to_string(),
-        parent_name: None,
-        params: None,
-        return_type: None,
-        modifiers: None,
-        is_test: is_test_file(&file_path),
-        extra: json!({}),
-    }];
+    let mut nodes = vec![ParsedNode::file(&file_path, line_end, "terraform")];
     let mut edges = Vec::new();
 
     let Some(root) = value.as_object() else {
@@ -130,14 +117,13 @@ fn parse_terraform_json(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec
                         .and_then(|attrs| attrs.get("source"))
                         .and_then(Value::as_str)
                     {
-                        edges.push(ParsedEdge {
-                            kind: crate::core::types::EdgeKind::ImportsFrom,
-                            source: terraform_qualified(&file_path, &node_name),
-                            target: source.to_string(),
-                            file_path: file_path.clone(),
-                            line: 1,
-                            extra: json!({}),
-                        });
+                        edges.push(ParsedEdge::new(
+                            crate::core::types::EdgeKind::ImportsFrom,
+                            terraform_qualified(&file_path, &node_name),
+                            source.to_string(),
+                            file_path.clone(),
+                            1,
+                        ));
                     }
                 }
             }
@@ -216,20 +202,7 @@ fn parse_terraform_hcl(
         }
     }
 
-    let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File,
-        name: file_path.to_string(),
-        file_path: file_path.clone(),
-        line_start: 1,
-        line_end,
-        language: "terraform".to_string(),
-        parent_name: None,
-        params: None,
-        return_type: None,
-        modifiers: None,
-        is_test: is_test_file(&file_path),
-        extra: json!({}),
-    }];
+    let mut nodes = vec![ParsedNode::file(&file_path, line_end, "terraform")];
     let mut edges = Vec::new();
 
     for block in &blocks {
@@ -308,26 +281,24 @@ fn parse_terraform_hcl(
                 .iter()
                 .find(|attr| attr.name == "source")
         {
-            edges.push(ParsedEdge {
-                kind: crate::core::types::EdgeKind::ImportsFrom,
-                source: terraform_qualified(&file_path, &node_name),
-                target: strip_tf_string(&source_attr.value),
-                file_path: file_path.clone(),
-                line: source_attr.line_start,
-                extra: json!({}),
-            });
+            edges.push(ParsedEdge::new(
+                crate::core::types::EdgeKind::ImportsFrom,
+                terraform_qualified(&file_path, &node_name),
+                strip_tf_string(&source_attr.value),
+                file_path.clone(),
+                source_attr.line_start,
+            ));
         }
 
         if block.kind == "terraform" {
             for provider_source in terraform_provider_sources(block).iter() {
-                edges.push(ParsedEdge {
-                    kind: crate::core::types::EdgeKind::DependsOn,
-                    source: terraform_qualified(&file_path, &node_name),
-                    target: provider_source.clone(),
-                    file_path: file_path.clone(),
-                    line: block.line_start,
-                    extra: json!({}),
-                });
+                edges.push(ParsedEdge::new(
+                    crate::core::types::EdgeKind::DependsOn,
+                    terraform_qualified(&file_path, &node_name),
+                    provider_source.clone(),
+                    file_path.clone(),
+                    block.line_start,
+                ));
             }
         }
     }
@@ -414,14 +385,13 @@ fn push_terraform_node(
         is_test: spec.is_test,
         extra: json!({"terraform_kind": spec.terraform_kind}),
     });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: file_path.to_string(),
-        target: qualified,
-        file_path: file_path.clone(),
-        line: spec.line_start,
-        extra: json!({}),
-    });
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        file_path.to_string(),
+        qualified,
+        file_path.clone(),
+        spec.line_start,
+    ));
 }
 
 /// `import`, `moved` and `removed` blocks declare nothing; their addresses
@@ -521,14 +491,13 @@ fn push_terraform_calls(
         if !seen.insert(name.clone()) {
             continue;
         }
-        edges.push(ParsedEdge {
-            kind: crate::core::types::EdgeKind::Calls,
-            source: caller.to_string(),
-            target: name.clone(),
-            file_path: file_path.clone(),
+        edges.push(ParsedEdge::new(
+            crate::core::types::EdgeKind::Calls,
+            caller.to_string(),
+            name.clone(),
+            file_path.clone(),
             line,
-            extra: json!({}),
-        });
+        ));
     }
 }
 
@@ -566,14 +535,13 @@ fn push_terraform_references(
         if resolved == caller {
             continue;
         }
-        edges.push(ParsedEdge {
-            kind: crate::core::types::EdgeKind::References,
-            source: caller.to_string(),
-            target: resolved,
-            file_path: file_path.clone(),
+        edges.push(ParsedEdge::new(
+            crate::core::types::EdgeKind::References,
+            caller.to_string(),
+            resolved,
+            file_path.clone(),
             line,
-            extra: json!({}),
-        });
+        ));
     }
 }
 

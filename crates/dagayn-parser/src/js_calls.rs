@@ -19,7 +19,7 @@ use super::qualify;
 use super::stdlib::javascript::is_javascript_global;
 use super::stdlib::{StdlibEvidence, mark_stdlib_edge};
 use super::types::{ParsedEdge, ParsedNode};
-use super::util::node_text;
+use super::util::{line_of, node_text, should_skip_value_reference};
 
 pub(super) fn javascript_emit_call(
     node: tree_sitter::Node<'_>,
@@ -213,14 +213,13 @@ fn javascript_emit_test(
     let container = enclosing_func
         .map(|func| qualify(&context.file_path, func, owner_path))
         .unwrap_or_else(|| context.file_path.to_string());
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: container,
-        target: qualified,
-        file_path: context.file_path.clone(),
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        container,
+        qualified,
+        context.file_path.clone(),
         line,
-        extra: json!({}),
-    });
+    ));
     javascript_walk_children(
         node,
         context,
@@ -317,14 +316,13 @@ pub(super) fn javascript_emit_jsx_component_call(
     let caller = enclosing_func
         .map(|func| qualify(&context.file_path, func, owner_path))
         .unwrap_or_else(|| context.file_path.to_string());
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Calls,
-        source: caller,
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Calls,
+        caller,
         target,
-        file_path: context.file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+        context.file_path.clone(),
+        line_of(node),
+    ));
 }
 
 fn javascript_jsx_component_target(
@@ -386,20 +384,19 @@ fn javascript_emit_reference_if_known(
     name: &str,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    if javascript_should_skip_value_reference(name)
+    if should_skip_value_reference(name)
         || (!context.defined_names.contains(name) && !context.import_map.contains_key(name))
     {
         return;
     }
     let target = resolve_javascript_call_target(name, context);
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::References,
-        source: caller.to_string(),
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::References,
+        caller.to_string(),
         target,
-        file_path: context.file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+        context.file_path.clone(),
+        line_of(node),
+    ));
 }
 
 /// `ns.Name` where `ns` is a namespace (or default) import resolves to the
@@ -1255,22 +1252,4 @@ fn javascript_last_identifier_child(node: tree_sitter::Node<'_>, source: &[u8]) 
         .rev()
         .find(|child| child.kind() == "identifier")
         .map(|child| node_text(child, source))
-}
-
-fn javascript_should_skip_value_reference(name: &str) -> bool {
-    matches!(
-        name,
-        "true"
-            | "false"
-            | "null"
-            | "undefined"
-            | "None"
-            | "True"
-            | "False"
-            | "self"
-            | "this"
-            | "cls"
-            | "super"
-    ) || name.len() <= 1
-        || name.bytes().all(|byte| !byte.is_ascii_lowercase())
 }

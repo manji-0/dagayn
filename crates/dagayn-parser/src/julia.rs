@@ -10,8 +10,9 @@ use super::stdlib::{StdlibEvidence, mark_stdlib_edge};
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 
 use super::util::{
-    is_test_file, line_count, node_text, resolve_import_path, set_namespaces_from_type_names,
-    strip_matching_quotes,
+    direct_child, direct_child_text, direct_child_texts, first_descendant, first_descendant_text,
+    last_descendant_text, line_count, line_of, node_text, resolve_import_path,
+    set_namespaces_from_type_names, strip_matching_quotes,
 };
 use super::{add_tested_by_edges, is_test_function, qualify, resolve_rust_call_targets};
 
@@ -23,20 +24,7 @@ pub(super) fn parse_julia_with_parser(
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let file_path = FilePath::new(file_path);
     let line_end = line_count(source);
-    let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File,
-        name: file_path.to_string(),
-        file_path: file_path.clone(),
-        line_start: 1,
-        line_end,
-        language: "julia".to_string(),
-        parent_name: None,
-        params: None,
-        return_type: None,
-        modifiers: None,
-        is_test: is_test_file(&file_path),
-        extra: json!({}),
-    }];
+    let mut nodes = vec![ParsedNode::file(&file_path, line_end, "julia")];
     let mut edges = Vec::new();
     let mut context = JuliaParseContext {
         source,
@@ -129,7 +117,7 @@ fn julia_visit(
 ) {
     match child.kind() {
         "module_definition" => {
-            if let Some(name) = julia_direct_child_text(child, context.source, &["identifier"]) {
+            if let Some(name) = direct_child_text(child, context.source, &["identifier"]) {
                 julia_emit_class(
                     child,
                     context,
@@ -142,7 +130,7 @@ fn julia_visit(
                     nodes,
                     edges,
                 );
-                if let Some(block) = julia_direct_child(child, &["block"]) {
+                if let Some(block) = direct_child(child, &["block"]) {
                     julia_walk_children(block, context, Some(&name), None, nodes, edges);
                 }
                 return;
@@ -150,14 +138,13 @@ fn julia_visit(
         }
         "using_statement" | "import_statement" => {
             for target in julia_import_targets(child, context.source) {
-                let mut edge = ParsedEdge {
-                    kind: crate::core::types::EdgeKind::ImportsFrom,
-                    source: context.file_path.to_string(),
+                let mut edge = ParsedEdge::new(
+                    crate::core::types::EdgeKind::ImportsFrom,
+                    context.file_path.to_string(),
                     target,
-                    file_path: context.file_path.clone(),
-                    line: child.start_position().row as i64 + 1,
-                    extra: json!({}),
-                };
+                    context.file_path.clone(),
+                    line_of(child),
+                );
                 julia_record_import(child, context, &mut edge);
                 edges.push(edge);
             }
@@ -206,8 +193,8 @@ fn julia_visit(
         }
         "function_definition" | "macro_definition" => {
             if let Some(name) = julia_function_name(child, context.source) {
-                let functor = julia_direct_child(child, &["signature"])
-                    .and_then(|signature| julia_first_descendant(signature, &["call_expression"]))
+                let functor = direct_child(child, &["signature"])
+                    .and_then(|signature| first_descendant(signature, &["call_expression"]))
                     .and_then(|call| julia_functor_type(call, context.source))
                     .map(|ty| match enclosing_class {
                         Some(module) => format!("{module}.{ty}"),
@@ -218,7 +205,7 @@ fn julia_visit(
                     .or_else(|| julia_function_parent(enclosing_class, enclosing_func));
                 julia_emit_function(child, context, &name, parent.as_deref(), nodes, edges);
                 julia_emit_owner_reference(child, context, &name, parent.as_deref(), edges);
-                if let Some(block) = julia_direct_child(child, &["block"]) {
+                if let Some(block) = direct_child(child, &["block"]) {
                     let saved = julia_enter_function(child, context);
                     julia_walk_children(
                         block,
@@ -262,14 +249,13 @@ fn julia_visit(
                         false,
                     )
                     .unwrap_or(target);
-                    edges.push(ParsedEdge {
-                        kind: crate::core::types::EdgeKind::ImportsFrom,
-                        source: context.file_path.to_string(),
+                    edges.push(ParsedEdge::new(
+                        crate::core::types::EdgeKind::ImportsFrom,
+                        context.file_path.to_string(),
                         target,
-                        file_path: context.file_path.clone(),
-                        line: child.start_position().row as i64 + 1,
-                        extra: json!({}),
-                    });
+                        context.file_path.clone(),
+                        line_of(child),
+                    ));
                 }
                 julia_emit_call(
                     child,
@@ -411,20 +397,19 @@ fn julia_emit_class(
         is_test: false,
         extra: spec.extra,
     });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: if spec.contains_from_parent {
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        if spec.contains_from_parent {
             spec.parent_name
                 .map(|parent| qualify(&context.file_path, parent, None))
                 .unwrap_or_else(|| context.file_path.to_string())
         } else {
             context.file_path.to_string()
         },
-        target: qualified,
-        file_path: context.file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+        qualified,
+        context.file_path.clone(),
+        line_of(node),
+    ));
 }
 
 fn julia_emit_function(
@@ -455,16 +440,15 @@ fn julia_emit_function(
         is_test,
         extra: json!({}),
     });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: parent_name
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        parent_name
             .map(|parent| qualify(&context.file_path, parent, None))
             .unwrap_or_else(|| context.file_path.to_string()),
-        target: qualified,
-        file_path: context.file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+        qualified,
+        context.file_path.clone(),
+        line_of(node),
+    ));
 }
 
 fn julia_emit_call(
@@ -514,10 +498,10 @@ fn julia_enter_function(
     );
     let call = match node.kind() {
         "assignment" => julia_assignment_lhs_call(node),
-        _ => julia_direct_child(node, &["signature"])
-            .and_then(|signature| julia_first_descendant(signature, &["call_expression"])),
+        _ => direct_child(node, &["signature"])
+            .and_then(|signature| first_descendant(signature, &["call_expression"])),
     };
-    if let Some(arguments) = call.and_then(|call| julia_direct_child(call, &["argument_list"])) {
+    if let Some(arguments) = call.and_then(|call| direct_child(call, &["argument_list"])) {
         let mut cursor = arguments.walk();
         for argument in arguments.named_children(&mut cursor) {
             let (name, type_name) = match argument.kind() {
@@ -627,7 +611,7 @@ fn julia_mark_receiver(
 fn julia_return_type(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     let mut head = match node.kind() {
         "assignment" => julia_first_named_child(node)?,
-        _ => julia_first_named_child(julia_direct_child(node, &["signature"])?)?,
+        _ => julia_first_named_child(direct_child(node, &["signature"])?)?,
     };
     if head.kind() == "where_expression" {
         head = julia_first_named_child(head)?;
@@ -757,10 +741,10 @@ fn julia_emit_enum(
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let Some(args) = julia_direct_child(node, &["macro_argument_list"]) else {
+    let Some(args) = direct_child(node, &["macro_argument_list"]) else {
         return;
     };
-    let identifiers = julia_direct_child_texts(args, context.source, &["identifier"]);
+    let identifiers = direct_child_texts(args, context.source, &["identifier"]);
     let Some(type_name) = identifiers.first() else {
         return;
     };
@@ -779,16 +763,15 @@ fn julia_emit_enum(
         is_test: false,
         extra: json!({"julia_kind": "enum"}),
     });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: enclosing_class
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        enclosing_class
             .map(|class| qualify(&context.file_path, class, None))
             .unwrap_or_else(|| context.file_path.to_string()),
-        target: qualified_type.clone(),
-        file_path: context.file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+        qualified_type.clone(),
+        context.file_path.clone(),
+        line_of(node),
+    ));
     for variant in identifiers.iter().skip(1) {
         nodes.push(ParsedNode {
             kind: crate::core::types::NodeKind::Function,
@@ -804,14 +787,13 @@ fn julia_emit_enum(
             is_test: false,
             extra: json!({"julia_kind": "enum_variant"}),
         });
-        edges.push(ParsedEdge {
-            kind: crate::core::types::EdgeKind::Contains,
-            source: qualified_type.clone(),
-            target: qualify(&context.file_path, variant, Some(type_name)),
-            file_path: context.file_path.clone(),
-            line: node.start_position().row as i64 + 1,
-            extra: json!({}),
-        });
+        edges.push(ParsedEdge::new(
+            crate::core::types::EdgeKind::Contains,
+            qualified_type.clone(),
+            qualify(&context.file_path, variant, Some(type_name)),
+            context.file_path.clone(),
+            line_of(node),
+        ));
     }
 }
 
@@ -823,8 +805,8 @@ fn julia_emit_testset(
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let desc = julia_direct_child(node, &["macro_argument_list"])
-        .and_then(|args| julia_first_descendant_text(args, context.source, &["content"]));
+    let desc = direct_child(node, &["macro_argument_list"])
+        .and_then(|args| first_descendant_text(args, context.source, &["content"]));
     let line = node.start_position().row as i64 + 1;
     let name = desc
         .map(|desc| format!("testset:{desc}@L{line}"))
@@ -844,17 +826,16 @@ fn julia_emit_testset(
         is_test: true,
         extra: json!({}),
     });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: enclosing_func
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        enclosing_func
             .map(|func| qualify(&context.file_path, func, enclosing_class))
             .unwrap_or_else(|| context.file_path.to_string()),
-        target: qualified,
-        file_path: context.file_path.clone(),
+        qualified,
+        context.file_path.clone(),
         line,
-        extra: json!({}),
-    });
-    if let Some(args) = julia_direct_child(node, &["macro_argument_list"]) {
+    ));
+    if let Some(args) = direct_child(node, &["macro_argument_list"]) {
         julia_walk_children(args, context, enclosing_class, Some(&name), nodes, edges);
     }
 }
@@ -873,7 +854,7 @@ fn julia_emit_symbol_references(
     let source = enclosing_class
         .map(|class| qualify(&context.file_path, class, None))
         .unwrap_or_else(|| context.file_path.to_string());
-    for target in julia_direct_child_texts(node, context.source, &["identifier"]) {
+    for target in direct_child_texts(node, context.source, &["identifier"]) {
         edges.push(ParsedEdge {
             kind: crate::core::types::EdgeKind::References,
             source: source.clone(),
@@ -886,7 +867,7 @@ fn julia_emit_symbol_references(
 }
 
 fn julia_macro_wraps_definition(node: tree_sitter::Node<'_>) -> bool {
-    let Some(arguments) = julia_direct_child(node, &["macro_argument_list"]) else {
+    let Some(arguments) = direct_child(node, &["macro_argument_list"]) else {
         return false;
     };
     let mut cursor = arguments.walk();
@@ -910,10 +891,10 @@ fn julia_emit_inheritance(
     enclosing_class: Option<&str>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let Some(type_head) = julia_direct_child(node, &["type_head"]) else {
+    let Some(type_head) = direct_child(node, &["type_head"]) else {
         return;
     };
-    let Some(binary) = julia_direct_child(type_head, &["binary_expression"]) else {
+    let Some(binary) = direct_child(type_head, &["binary_expression"]) else {
         return;
     };
     // `Pt{T} <: AbstractVector{T}`: either side may be parameterized.
@@ -925,7 +906,7 @@ fn julia_emit_inheritance(
     let Some(supertype) = operands.get(1).and_then(|operand| match operand.kind() {
         "identifier" => Some(node_text(*operand, context.source)),
         "parametrized_type_expression" => {
-            julia_direct_child_text(*operand, context.source, &["identifier"])
+            direct_child_text(*operand, context.source, &["identifier"])
         }
         _ => None,
     }) else {
@@ -951,14 +932,13 @@ fn julia_emit_owner_reference(
     let Some(owner) = julia_qualified_function_owner(node, context.source) else {
         return;
     };
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::References,
-        source: qualify(&context.file_path, name, parent_name),
-        target: owner,
-        file_path: context.file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::References,
+        qualify(&context.file_path, name, parent_name),
+        owner,
+        context.file_path.clone(),
+        line_of(node),
+    ));
 }
 
 fn julia_bridge_edge(
@@ -1029,7 +1009,7 @@ fn julia_ccall_target(
         _ => None,
     };
     if signature == "ccall" {
-        let args = julia_direct_child(node, &["argument_list"])?;
+        let args = direct_child(node, &["argument_list"])?;
         let mut cursor = args.walk();
         let tuple = args.named_children(&mut cursor).next()?;
         if tuple.kind() != "tuple_expression" {
@@ -1050,8 +1030,8 @@ fn julia_ccall_target(
         return Some((library_text(*library)?, symbol));
     }
     // `@ccall lib.sym(args...)::T`: the call inside the macro arguments.
-    let args = julia_direct_child(node, &["macro_argument_list"])?;
-    let call = julia_first_descendant(args, &["call_expression"])?;
+    let args = direct_child(node, &["macro_argument_list"])?;
+    let call = first_descendant(args, &["call_expression"])?;
     let mut cursor = call.walk();
     let callee = call
         .named_children(&mut cursor)
@@ -1072,7 +1052,7 @@ fn julia_import_targets(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<Strin
         if child.kind() == "identifier" {
             targets.push(node_text(child, source));
         } else if child.kind() == "selected_import" {
-            let names = julia_direct_child_texts(child, source, &["identifier"]);
+            let names = direct_child_texts(child, source, &["identifier"]);
             if let Some(module) = names.first() {
                 targets.extend(names.iter().skip(1).map(|name| format!("{module}.{name}")));
             }
@@ -1082,13 +1062,13 @@ fn julia_import_targets(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<Strin
 }
 
 fn julia_type_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let type_head = julia_direct_child(node, &["type_head"])?;
-    julia_first_descendant_text(type_head, source, &["identifier"])
+    let type_head = direct_child(node, &["type_head"])?;
+    first_descendant_text(type_head, source, &["identifier"])
 }
 
 fn julia_function_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let signature = julia_direct_child(node, &["signature"])?;
-    let call = julia_first_descendant(signature, &["call_expression"])?;
+    let signature = direct_child(node, &["signature"])?;
+    let call = first_descendant(signature, &["call_expression"])?;
     julia_call_name(call, source)
         .or_else(|| julia_functor_type(call, source).map(|_| "operator()".to_string()))
 }
@@ -1099,12 +1079,12 @@ fn julia_functor_type(call: tree_sitter::Node<'_>, source: &[u8]) -> Option<Stri
     if first.kind() != "parenthesized_expression" {
         return None;
     }
-    let typed = julia_first_descendant(first, &["typed_expression"])?;
+    let typed = first_descendant(first, &["typed_expression"])?;
     let mut cursor = typed.walk();
     let ty = typed.named_children(&mut cursor).last()?;
     match ty.kind() {
         "identifier" => Some(node_text(ty, source)),
-        "parametrized_type_expression" => julia_direct_child_text(ty, source, &["identifier"]),
+        "parametrized_type_expression" => direct_child_text(ty, source, &["identifier"]),
         _ => None,
     }
 }
@@ -1113,7 +1093,7 @@ fn julia_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String>
     let first = julia_first_named_child(node)?;
     match first.kind() {
         "identifier" => Some(node_text(first, source)),
-        "field_expression" => julia_last_descendant_text(first, source, &["identifier"]),
+        "field_expression" => last_descendant_text(first, source, &["identifier"]),
         _ => None,
     }
 }
@@ -1128,12 +1108,12 @@ fn julia_call_signature(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<St
 }
 
 fn julia_macro_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let macro_identifier = julia_direct_child(node, &["macro_identifier"])?;
-    julia_direct_child_text(macro_identifier, source, &["identifier"])
+    let macro_identifier = direct_child(node, &["macro_identifier"])?;
+    direct_child_text(macro_identifier, source, &["identifier"])
 }
 
 fn julia_first_string_arg(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let args = julia_direct_child(node, &["argument_list"])?;
+    let args = direct_child(node, &["argument_list"])?;
     let mut cursor = args.walk();
     for child in args.children(&mut cursor) {
         if child.kind() == "string_literal" {
@@ -1147,7 +1127,7 @@ fn julia_first_string_arg(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<
 }
 
 fn julia_string_text(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    julia_first_descendant_text(node, source, &["content"])
+    first_descendant_text(node, source, &["content"])
         .or_else(|| Some(strip_matching_quotes(node_text(node, source).trim()).to_string()))
         .filter(|value| !value.is_empty())
 }
@@ -1156,11 +1136,11 @@ fn julia_qualified_function_owner(node: tree_sitter::Node<'_>, source: &[u8]) ->
     let signature = if node.kind() == "assignment" {
         julia_assignment_lhs_call(node)
     } else {
-        julia_direct_child(node, &["signature"])
-            .and_then(|signature| julia_first_descendant(signature, &["call_expression"]))
+        direct_child(node, &["signature"])
+            .and_then(|signature| first_descendant(signature, &["call_expression"]))
     }?;
-    let field = julia_first_descendant(signature, &["field_expression"])?;
-    let names = julia_direct_child_texts(field, source, &["identifier"]);
+    let field = first_descendant(signature, &["field_expression"])?;
+    let names = direct_child_texts(field, source, &["identifier"]);
     names.first().cloned()
 }
 
@@ -1169,7 +1149,7 @@ fn julia_assignment_lhs_call<'a>(node: tree_sitter::Node<'a>) -> Option<tree_sit
     if lhs.kind() == "call_expression" {
         Some(lhs)
     } else if lhs.kind() == "typed_expression" {
-        julia_first_descendant(lhs, &["call_expression"])
+        first_descendant(lhs, &["call_expression"])
     } else {
         None
     }
@@ -1207,90 +1187,8 @@ fn julia_function_parent(
     }
 }
 
-fn julia_direct_child<'a>(
-    node: tree_sitter::Node<'a>,
-    kinds: &[&str],
-) -> Option<tree_sitter::Node<'a>> {
-    let mut cursor = node.walk();
-
-    node.children(&mut cursor)
-        .find(|child| kinds.contains(&child.kind()))
-}
-
-fn julia_direct_child_text(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-) -> Option<String> {
-    julia_direct_child(node, kinds).map(|child| node_text(child, source))
-}
-
-fn julia_direct_child_texts(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if kinds.contains(&child.kind()) {
-            out.push(node_text(child, source));
-        }
-    }
-    out
-}
-
 fn julia_first_named_child<'a>(node: tree_sitter::Node<'a>) -> Option<tree_sitter::Node<'a>> {
     let mut cursor = node.walk();
 
     node.children(&mut cursor).find(|child| child.is_named())
-}
-
-fn julia_first_descendant<'a>(
-    node: tree_sitter::Node<'a>,
-    kinds: &[&str],
-) -> Option<tree_sitter::Node<'a>> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if kinds.contains(&child.kind()) {
-            return Some(child);
-        }
-        if let Some(found) = julia_first_descendant(child, kinds) {
-            return Some(found);
-        }
-    }
-    None
-}
-
-fn julia_first_descendant_text(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-) -> Option<String> {
-    julia_first_descendant(node, kinds).map(|child| node_text(child, source))
-}
-
-fn julia_last_descendant_text(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-) -> Option<String> {
-    let mut found = None;
-    julia_collect_descendant_texts(node, source, kinds, &mut found);
-    found
-}
-
-fn julia_collect_descendant_texts(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-    found: &mut Option<String>,
-) {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if kinds.contains(&child.kind()) {
-            *found = Some(node_text(child, source));
-        }
-        julia_collect_descendant_texts(child, source, kinds, found);
-    }
 }

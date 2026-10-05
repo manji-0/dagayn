@@ -308,3 +308,140 @@ pub(super) fn strip_matching_quotes(value: &str) -> &str {
         value
     }
 }
+
+/// The 1-based line on which `node` starts.
+pub(super) fn line_of(node: tree_sitter::Node<'_>) -> i64 {
+    node.start_position().row as i64 + 1
+}
+
+/// The first direct child whose kind is one of `kinds`.
+pub(super) fn direct_child<'a>(
+    node: tree_sitter::Node<'a>,
+    kinds: &[&str],
+) -> Option<tree_sitter::Node<'a>> {
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .find(|child| kinds.contains(&child.kind()))
+}
+
+/// The text of the first direct child whose kind is one of `kinds`.
+pub(super) fn direct_child_text(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    kinds: &[&str],
+) -> Option<String> {
+    direct_child(node, kinds).map(|child| node_text(child, source))
+}
+
+/// The text of the last direct child whose kind is one of `kinds`.
+pub(super) fn last_direct_child_text(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    kinds: &[&str],
+) -> Option<String> {
+    let mut found = None;
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if kinds.contains(&child.kind()) {
+            found = Some(node_text(child, source));
+        }
+    }
+    found
+}
+
+/// The texts of every direct child whose kind is one of `kinds`.
+pub(super) fn direct_child_texts(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    kinds: &[&str],
+) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if kinds.contains(&child.kind()) {
+            out.push(node_text(child, source));
+        }
+    }
+    out
+}
+
+/// The first descendant, in pre-order, whose kind is one of `kinds`.
+pub(super) fn first_descendant<'a>(
+    node: tree_sitter::Node<'a>,
+    kinds: &[&str],
+) -> Option<tree_sitter::Node<'a>> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if kinds.contains(&child.kind()) {
+            return Some(child);
+        }
+        if let Some(found) = first_descendant(child, kinds) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// The text of the first descendant, in pre-order, whose kind is one of `kinds`.
+pub(super) fn first_descendant_text(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    kinds: &[&str],
+) -> Option<String> {
+    first_descendant(node, kinds).map(|child| node_text(child, source))
+}
+
+/// The text of the last descendant, in pre-order, whose kind is one of `kinds`.
+pub(super) fn last_descendant_text(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    kinds: &[&str],
+) -> Option<String> {
+    fn collect(
+        node: tree_sitter::Node<'_>,
+        source: &[u8],
+        kinds: &[&str],
+        found: &mut Option<String>,
+    ) {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if kinds.contains(&child.kind()) {
+                *found = Some(node_text(child, source));
+            }
+            collect(child, source, kinds, found);
+        }
+    }
+    let mut found = None;
+    collect(node, source, kinds, &mut found);
+    found
+}
+
+/// The `string_content` child of a string literal, else its unquoted text.
+pub(super) fn string_content_text(node: tree_sitter::Node<'_>, source: &[u8]) -> String {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "string_content" {
+            return node_text(child, source);
+        }
+    }
+    strip_matching_quotes(node_text(node, source).trim()).to_string()
+}
+
+/// Whether a bare name is a literal, receiver keyword, or constant-like name.
+pub(super) fn should_skip_value_reference(name: &str) -> bool {
+    matches!(
+        name,
+        "true"
+            | "false"
+            | "null"
+            | "undefined"
+            | "None"
+            | "True"
+            | "False"
+            | "self"
+            | "this"
+            | "cls"
+            | "super"
+    ) || name.len() <= 1
+        || name.bytes().all(|byte| !byte.is_ascii_lowercase())
+}

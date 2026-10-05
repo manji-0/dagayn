@@ -16,7 +16,7 @@ use super::stdlib::csharp::{
 use super::stdlib::{StdlibEvidence, mark_stdlib_edge};
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{
-    collect_namespace_paths, is_test_file, line_count, node_text, set_declared_namespaces,
+    collect_namespace_paths, line_count, line_of, node_text, set_declared_namespaces,
     starts_with_ascii_ignore_case, strip_matching_quotes,
 };
 use super::{add_tested_by_edges, qualify, resolve_rust_call_targets};
@@ -47,20 +47,7 @@ pub(super) fn parse_csharp_with_parser(
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let file_path = FilePath::new(file_path);
     let line_end = line_count(source);
-    let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File,
-        name: file_path.to_string(),
-        file_path: file_path.clone(),
-        line_start: 1,
-        line_end,
-        language: "csharp".to_string(),
-        parent_name: None,
-        params: None,
-        return_type: None,
-        modifiers: None,
-        is_test: is_test_file(&file_path),
-        extra: json!({}),
-    }];
+    let mut nodes = vec![ParsedNode::file(&file_path, line_end, "csharp")];
     let mut edges = Vec::new();
 
     if let Some(parser) = parser
@@ -218,14 +205,13 @@ fn csharp_emit_import(
             is_test: false,
             extra: json!({"type_role": "alias"}),
         });
-        edges.push(ParsedEdge {
-            kind: crate::core::types::EdgeKind::Contains,
-            source: context.file_path.to_string(),
-            target: qualified,
-            file_path: context.file_path.clone(),
-            line: node.start_position().row as i64 + 1,
-            extra: json!({}),
-        });
+        edges.push(ParsedEdge::new(
+            crate::core::types::EdgeKind::Contains,
+            context.file_path.to_string(),
+            qualified,
+            context.file_path.clone(),
+            line_of(node),
+        ));
     }
     // A `using` of the base class library targets its namespace:
     // `System.IO`, or `System` for `using static System.Math`.
@@ -334,16 +320,15 @@ fn csharp_emit_type(
         is_test: false,
         extra,
     });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: enclosing_class
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        enclosing_class
             .map(|parent| qualify(&context.file_path, parent, None))
             .unwrap_or_else(|| context.file_path.to_string()),
-        target: qualified.clone(),
-        file_path: context.file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+        qualified.clone(),
+        context.file_path.clone(),
+        line_of(node),
+    ));
     for (base, role) in csharp_bases(node, context.source, context.interface_names) {
         edges.push(ParsedEdge {
             kind: if role == "implements" {
@@ -582,16 +567,15 @@ fn csharp_emit_function(
     if let Some(edge) = csharp_native_import_edge(node, context, name, &qualified) {
         edges.push(edge);
     }
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: enclosing_class
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        enclosing_class
             .map(|class| qualify(&context.file_path, class, None))
             .unwrap_or_else(|| context.file_path.to_string()),
-        target: qualified,
-        file_path: context.file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+        qualified,
+        context.file_path.clone(),
+        line_of(node),
+    ));
 }
 
 /// `const string Lib = "fastsum";`, the usual way to share a P/Invoke

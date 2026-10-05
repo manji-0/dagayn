@@ -8,7 +8,10 @@ use super::member_calls::{CallOrigin, MemberCallBindings};
 use super::stdlib::lua::{is_lua_base_function, lua_std_library};
 use super::stdlib::{StdlibEvidence, mark_stdlib_edge};
 use super::types::{FilePath, ParsedEdge, ParsedNode};
-use super::util::{is_test_file, line_count, node_text, node_text_is, strip_matching_quotes};
+use super::util::{
+    direct_child, direct_child_text, first_descendant_text, line_count, line_of, node_text,
+    node_text_is, strip_matching_quotes,
+};
 use super::{add_tested_by_edges, is_test_function, qualify};
 
 pub(super) fn parse_lua_with_parser(
@@ -27,20 +30,7 @@ fn parse_lua_like_with_parser(
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let file_path = FilePath::new(file_path);
     let line_end = line_count(source);
-    let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File,
-        name: file_path.to_string(),
-        file_path: file_path.clone(),
-        line_start: 1,
-        line_end,
-        language: language.to_string(),
-        parent_name: None,
-        params: None,
-        return_type: None,
-        modifiers: None,
-        is_test: is_test_file(&file_path),
-        extra: json!({}),
-    }];
+    let mut nodes = vec![ParsedNode::file(&file_path, line_end, language)];
     let mut edges = Vec::new();
     let mut context = LuaParseContext {
         source,
@@ -103,8 +93,8 @@ fn lua_collect_bound_names(node: tree_sitter::Node<'_>, context: &mut LuaParseCo
     let mut aliased = HashSet::new();
     if node.kind() == "assignment_statement"
         && let (Some(variables), Some(values)) = (
-            lua_direct_child(node, &["variable_list"]),
-            lua_direct_child(node, &["expression_list"]),
+            direct_child(node, &["variable_list"]),
+            direct_child(node, &["expression_list"]),
         )
     {
         let mut cursor = variables.walk();
@@ -217,9 +207,9 @@ fn lua_walk_children(
         // previous `s`.
         match child.kind() {
             "variable_declaration" => {
-                if let Some(assign) = lua_direct_child(child, &["assignment_statement"]) {
+                if let Some(assign) = direct_child(child, &["assignment_statement"]) {
                     lua_bind_assignment(assign, context);
-                } else if let Some(names) = lua_direct_child(child, &["variable_list"]) {
+                } else if let Some(names) = direct_child(child, &["variable_list"]) {
                     // `local s`: a value, assigned later.
                     lua_bind_values(names, context);
                 }
@@ -271,9 +261,9 @@ fn lua_visit(
                 lua_walk_function(child, context, Some(&parent), Some(&name), nodes, edges);
                 return;
             }
-            if let Some(name) = lua_direct_child_text(child, context.source, &["identifier"]) {
+            if let Some(name) = direct_child_text(child, context.source, &["identifier"]) {
                 // `local function f` in a function body is local to it.
-                let is_local = lua_direct_child(child, &["local"]).is_some();
+                let is_local = direct_child(child, &["local"]).is_some();
                 let local_parent = is_local
                     .then(|| lua_local_parent(enclosing_class, enclosing_func))
                     .flatten();
@@ -299,14 +289,13 @@ fn lua_visit(
             if enclosing_func.is_none()
                 && let Some(target) = lua_require_target(child, context.source)
             {
-                edges.push(ParsedEdge {
-                    kind: crate::core::types::EdgeKind::ImportsFrom,
-                    source: context.file_path.to_string(),
+                edges.push(ParsedEdge::new(
+                    crate::core::types::EdgeKind::ImportsFrom,
+                    context.file_path.to_string(),
                     target,
-                    file_path: context.file_path.clone(),
-                    line: child.start_position().row as i64 + 1,
-                    extra: json!({}),
-                });
+                    context.file_path.clone(),
+                    line_of(child),
+                ));
                 return;
             }
             lua_emit_call(child, context, enclosing_class, enclosing_func, edges);
@@ -331,13 +320,13 @@ fn lua_handle_variable_declaration(
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) -> bool {
-    let Some(assign) = lua_direct_child(node, &["assignment_statement"]) else {
+    let Some(assign) = direct_child(node, &["assignment_statement"]) else {
         return false;
     };
     let Some(var_name) = lua_assignment_variable_name(assign, context.source) else {
         return false;
     };
-    let Some(expr_list) = lua_direct_child(assign, &["expression_list"]) else {
+    let Some(expr_list) = direct_child(assign, &["expression_list"]) else {
         return false;
     };
 
@@ -346,14 +335,13 @@ fn lua_handle_variable_declaration(
         if expr.kind() == "function_call"
             && let Some(target) = lua_require_target(expr, context.source)
         {
-            edges.push(ParsedEdge {
-                kind: crate::core::types::EdgeKind::ImportsFrom,
-                source: context.file_path.to_string(),
+            edges.push(ParsedEdge::new(
+                crate::core::types::EdgeKind::ImportsFrom,
+                context.file_path.to_string(),
                 target,
-                file_path: context.file_path.clone(),
-                line: node.start_position().row as i64 + 1,
-                extra: json!({}),
-            });
+                context.file_path.clone(),
+                line_of(node),
+            ));
             return true;
         }
     }
@@ -394,8 +382,8 @@ fn lua_emit_assigned_functions(
     edges: &mut Vec<ParsedEdge>,
 ) -> bool {
     let (Some(variables), Some(values)) = (
-        lua_direct_child(assign, &["variable_list"]),
-        lua_direct_child(assign, &["expression_list"]),
+        direct_child(assign, &["variable_list"]),
+        direct_child(assign, &["expression_list"]),
     ) else {
         return false;
     };
@@ -505,22 +493,21 @@ fn lua_emit_function(
         line_end: node.end_position().row as i64 + 1,
         language: context.language.to_string(),
         parent_name: enclosing_class.map(str::to_string),
-        params: lua_first_descendant_text(node, context.source, &["parameters"]),
+        params: first_descendant_text(node, context.source, &["parameters"]),
         return_type: None,
         modifiers: None,
         is_test,
         extra: json!({}),
     });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: enclosing_class
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        enclosing_class
             .map(|class| qualify(&context.file_path, class, None))
             .unwrap_or_else(|| context.file_path.to_string()),
-        target: qualified,
-        file_path: context.file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+        qualified,
+        context.file_path.clone(),
+        line_of(node),
+    ));
 }
 
 fn lua_emit_call(
@@ -572,8 +559,8 @@ fn lua_collect_table(node: tree_sitter::Node<'_>, context: &mut LuaParseContext<
         }
         "assignment_statement" => {
             let (Some(variables), Some(values)) = (
-                lua_direct_child(node, &["variable_list"]),
-                lua_direct_child(node, &["expression_list"]),
+                direct_child(node, &["variable_list"]),
+                direct_child(node, &["expression_list"]),
             ) else {
                 return;
             };
@@ -619,7 +606,7 @@ fn lua_walk_function(
 /// as values of unknown type (`function(conn)`, `for _, row in ...`).
 fn lua_bind_values(node: tree_sitter::Node<'_>, context: &LuaParseContext<'_>) {
     let list = match node.kind() {
-        "for_generic_clause" => lua_direct_child(node, &["variable_list"]),
+        "for_generic_clause" => direct_child(node, &["variable_list"]),
         _ => Some(node),
     };
     let Some(list) = list else {
@@ -661,8 +648,8 @@ fn lua_constructed_table(call: tree_sitter::Node<'_>, source: &[u8]) -> Option<S
 fn lua_bind_assignment(assign: tree_sitter::Node<'_>, context: &LuaParseContext<'_>) {
     let source = context.source;
     let (Some(variables), Some(values)) = (
-        lua_direct_child(assign, &["variable_list"]),
-        lua_direct_child(assign, &["expression_list"]),
+        direct_child(assign, &["variable_list"]),
+        direct_child(assign, &["expression_list"]),
     ) else {
         return;
     };
@@ -946,7 +933,7 @@ fn lua_require_target(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<Stri
 }
 
 fn lua_first_string_arg(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let arguments = lua_direct_child(node, &["arguments"])?;
+    let arguments = direct_child(node, &["arguments"])?;
     let mut cursor = arguments.walk();
     for child in arguments.children(&mut cursor) {
         if matches!(child.kind(), "," | "(" | ")") {
@@ -961,7 +948,7 @@ fn lua_first_string_arg(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<St
 }
 
 fn lua_string_text(node: tree_sitter::Node<'_>, source: &[u8]) -> String {
-    if let Some(content) = lua_first_descendant_text(node, source, &["string_content"]) {
+    if let Some(content) = first_descendant_text(node, source, &["string_content"]) {
         return content;
     }
     strip_matching_quotes(node_text(node, source).trim()).to_string()
@@ -978,43 +965,8 @@ fn lua_table_function_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option
 }
 
 fn lua_assignment_variable_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let variable_list = lua_direct_child(node, &["variable_list"])?;
-    lua_first_descendant_text(variable_list, source, &["identifier"])
-}
-
-fn lua_direct_child<'a>(
-    node: tree_sitter::Node<'a>,
-    kinds: &[&str],
-) -> Option<tree_sitter::Node<'a>> {
-    let mut cursor = node.walk();
-
-    node.children(&mut cursor)
-        .find(|child| kinds.contains(&child.kind()))
-}
-
-fn lua_direct_child_text(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-) -> Option<String> {
-    lua_direct_child(node, kinds).map(|child| node_text(child, source))
-}
-
-fn lua_first_descendant_text(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-) -> Option<String> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if kinds.contains(&child.kind()) {
-            return Some(node_text(child, source));
-        }
-        if let Some(found) = lua_first_descendant_text(child, source, kinds) {
-            return Some(found);
-        }
-    }
-    None
+    let variable_list = direct_child(node, &["variable_list"])?;
+    first_descendant_text(variable_list, source, &["identifier"])
 }
 
 fn resolve_lua_call_targets(

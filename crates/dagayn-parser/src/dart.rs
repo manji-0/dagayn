@@ -9,8 +9,8 @@ use super::stdlib::dart::{dart_library, dart_library_exports, is_dart_core_name}
 use super::stdlib::{StdlibEvidence, mark_stdlib_edge};
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{
-    import_candidate_exists, is_test_file, line_count, node_text, resolve_import_path,
-    strip_matching_quotes,
+    direct_child, direct_child_text, first_descendant_text, import_candidate_exists, line_count,
+    line_of, node_text, resolve_import_path, strip_matching_quotes,
 };
 use super::{qualify, resolve_rust_call_targets};
 
@@ -22,20 +22,7 @@ pub(super) fn parse_dart_with_parser(
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let file_path = FilePath::new(file_path);
     let line_end = line_count(source);
-    let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File,
-        name: file_path.to_string(),
-        file_path: file_path.clone(),
-        line_start: 1,
-        line_end,
-        language: "dart".to_string(),
-        parent_name: None,
-        params: None,
-        return_type: None,
-        modifiers: None,
-        is_test: is_test_file(&file_path),
-        extra: json!({}),
-    }];
+    let mut nodes = vec![ParsedNode::file(&file_path, line_end, "dart")];
     let mut edges = Vec::new();
 
     if let Some(parser) = parser
@@ -178,7 +165,7 @@ fn dart_walk_children<'tree>(
             | "mixin_declaration"
             | "enum_declaration"
             | "extension_declaration" => {
-                if let Some(name) = dart_direct_child_text(child, source, &["identifier"]) {
+                if let Some(name) = direct_child_text(child, source, &["identifier"]) {
                     dart_emit_type(child, source, file_path, &name, owner(), nodes, edges);
                     let path = match owner() {
                         Some(parent) => format!("{parent}.{name}"),
@@ -246,7 +233,7 @@ fn dart_signature_name<'tree>(
     let signature = if node.kind() == "function_signature" {
         node
     } else {
-        dart_direct_child(
+        direct_child(
             node,
             &[
                 "function_signature",
@@ -273,7 +260,7 @@ fn dart_signature_name<'tree>(
     let name = signature
         .child_by_field_name("name")
         .map(|name| node_text(name, source).trim().to_string())
-        .or_else(|| dart_direct_child_text(signature, source, &["identifier"]))?;
+        .or_else(|| direct_child_text(signature, source, &["identifier"]))?;
     (!name.is_empty()).then_some((signature, name))
 }
 
@@ -283,21 +270,20 @@ fn dart_emit_import(
     file_path: &FilePath,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let Some(target) = dart_first_descendant_text(node, source, &["string_literal"]) else {
+    let Some(target) = first_descendant_text(node, source, &["string_literal"]) else {
         return;
     };
     let target = strip_matching_quotes(target.trim()).to_string();
     if target.is_empty() {
         return;
     }
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::ImportsFrom,
-        source: file_path.to_string(),
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::ImportsFrom,
+        file_path.to_string(),
         target,
-        file_path: file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+        file_path.clone(),
+        line_of(node),
+    ));
 }
 
 fn dart_emit_type(
@@ -341,16 +327,15 @@ fn dart_emit_type(
         is_test: false,
         extra,
     });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: enclosing_class
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        enclosing_class
             .map(|parent| qualify(file_path, parent, None))
             .unwrap_or_else(|| file_path.to_string()),
-        target: qualified.clone(),
-        file_path: file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+        qualified.clone(),
+        file_path.clone(),
+        line_of(node),
+    ));
     for (target, role) in dart_inheritance_targets(node, source) {
         edges.push(ParsedEdge {
             kind: if role == "implements" {
@@ -392,7 +377,7 @@ fn dart_emit_function(
         line_end: node.end_position().row as i64 + 1,
         language: "dart".to_string(),
         parent_name: enclosing_class.map(str::to_string),
-        params: dart_direct_child_text(node, source, &["formal_parameter_list"]),
+        params: direct_child_text(node, source, &["formal_parameter_list"]),
         return_type: dart_return_type(node, source, enclosing_class),
         modifiers: None,
         is_test: false,
@@ -401,16 +386,15 @@ fn dart_emit_function(
             None => json!({}),
         },
     });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: enclosing_class
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        enclosing_class
             .map(|class| qualify(file_path, class, None))
             .unwrap_or_else(|| file_path.to_string()),
-        target: qualified,
-        file_path: file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+        qualified,
+        file_path.clone(),
+        line_of(node),
+    ));
 }
 
 /// What the walk of one library carries: its types and their fields, its
@@ -492,7 +476,7 @@ fn dart_emit_calls_from_children(
         if matches!(&call.receiver, DartValue::Name(name) if name == "DynamicLibrary")
             && call.target == "open"
             && let Some(library) =
-                dart_first_descendant_text(call.arguments, source, &["string_literal"])
+                first_descendant_text(call.arguments, source, &["string_literal"])
         {
             edges.push(ParsedEdge {
                 kind: crate::core::types::EdgeKind::CrossArtifact,
@@ -598,7 +582,7 @@ fn dart_eval_chain<'tree>(
                     }
                     optional = true;
                 }
-                if let Some(arguments) = dart_direct_child(*child, &["argument_part"]) {
+                if let Some(arguments) = direct_child(*child, &["argument_part"]) {
                     let Some(target) = pending.take() else {
                         // `f()()`: what a call's result returns.
                         value = DartValue::Unknown;
@@ -921,7 +905,7 @@ fn dart_collect_types_and_fields(
         if matches!(
             child.kind(),
             "class_definition" | "mixin_declaration" | "enum_declaration" | "extension_declaration"
-        ) && let Some(name) = dart_direct_child_text(child, source, &["identifier"])
+        ) && let Some(name) = direct_child_text(child, source, &["identifier"])
         {
             types.insert(name.clone());
             if let Some(body) = child.child_by_field_name("body") {
@@ -931,14 +915,12 @@ fn dart_collect_types_and_fields(
                         continue;
                     }
                     let declared = dart_declared_type(member, source);
-                    let Some(list) = dart_direct_child(member, &["initialized_identifier_list"])
-                    else {
+                    let Some(list) = direct_child(member, &["initialized_identifier_list"]) else {
                         continue;
                     };
                     let mut items = list.walk();
                     for item in list.children(&mut items) {
-                        let Some(var) = dart_direct_child_text(item, source, &["identifier"])
-                        else {
+                        let Some(var) = direct_child_text(item, source, &["identifier"]) else {
                             continue;
                         };
                         let type_name = declared.clone().or_else(|| {
@@ -970,11 +952,9 @@ fn dart_import_prefixes(root: tree_sitter::Node<'_>, source: &[u8]) -> HashSet<S
     let mut prefixes = HashSet::new();
     let mut cursor = root.walk();
     for child in root.children(&mut cursor) {
-        if let Some(prefix) = dart_direct_child(child, &["library_import"])
-            .and_then(|import| dart_direct_child(import, &["import_specification"]))
-            .and_then(|specification| {
-                dart_direct_child_text(specification, source, &["identifier"])
-            })
+        if let Some(prefix) = direct_child(child, &["library_import"])
+            .and_then(|import| direct_child(import, &["import_specification"]))
+            .and_then(|specification| direct_child_text(specification, source, &["identifier"]))
         {
             prefixes.insert(prefix);
         }
@@ -1107,13 +1087,12 @@ fn dart_collect_stdlib_imports(root: tree_sitter::Node<'_>, source: &[u8]) -> Da
     let mut imports = DartStdlibImports::default();
     let mut cursor = root.walk();
     for child in root.children(&mut cursor) {
-        let Some(specification) = dart_direct_child(child, &["library_import"])
-            .and_then(|import| dart_direct_child(import, &["import_specification"]))
+        let Some(specification) = direct_child(child, &["library_import"])
+            .and_then(|import| direct_child(import, &["import_specification"]))
         else {
             continue;
         };
-        let Some(uri) = dart_first_descendant_text(specification, source, &["string_literal"])
-        else {
+        let Some(uri) = first_descendant_text(specification, source, &["string_literal"]) else {
             continue;
         };
         let uri = strip_matching_quotes(uri.trim()).to_string();
@@ -1292,12 +1271,10 @@ fn dart_native_symbol(
                 })
                 .filter(|argument| argument.kind() == "named_argument")
                 .find(|argument| {
-                    dart_first_descendant_text(*argument, source, &["label"])
+                    first_descendant_text(*argument, source, &["label"])
                         .is_some_and(|label| label.trim_end_matches(':').trim() == "symbol")
                 })
-                .and_then(|argument| {
-                    dart_first_descendant_text(argument, source, &["string_literal"])
-                })
+                .and_then(|argument| first_descendant_text(argument, source, &["string_literal"]))
                 .map(|literal| literal.trim_matches(['\'', '"']).to_string());
             return Some(symbol.unwrap_or_else(|| name.to_string()));
         }
@@ -1314,7 +1291,7 @@ fn dart_selector_method_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Opti
             child.kind(),
             "unconditional_assignable_selector" | "conditional_assignable_selector"
         ) {
-            return dart_first_descendant_text(child, source, &["identifier"]);
+            return first_descendant_text(child, source, &["identifier"]);
         }
     }
     None
@@ -1364,39 +1341,4 @@ fn dart_has_direct_child_kind(node: tree_sitter::Node<'_>, kind: &str) -> bool {
     let mut cursor = node.walk();
 
     node.children(&mut cursor).any(|child| child.kind() == kind)
-}
-
-fn dart_direct_child<'a>(
-    node: tree_sitter::Node<'a>,
-    kinds: &[&str],
-) -> Option<tree_sitter::Node<'a>> {
-    let mut cursor = node.walk();
-
-    node.children(&mut cursor)
-        .find(|child| kinds.contains(&child.kind()))
-}
-
-fn dart_direct_child_text(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-) -> Option<String> {
-    dart_direct_child(node, kinds).map(|child| node_text(child, source))
-}
-
-fn dart_first_descendant_text(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-) -> Option<String> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if kinds.contains(&child.kind()) {
-            return Some(node_text(child, source));
-        }
-        if let Some(found) = dart_first_descendant_text(child, source, kinds) {
-            return Some(found);
-        }
-    }
-    None
 }

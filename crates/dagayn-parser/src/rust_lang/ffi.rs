@@ -399,7 +399,7 @@ fn rust_cxx_import(
         return None;
     }
     let mut import = json!({"abi": "cxx", "name": name});
-    let params = rust_child_text(node, source, "parameters").unwrap_or_default();
+    let params = direct_child_text(node, source, &["parameters"]).unwrap_or_default();
     if let Some(receiver) = CXX_RECEIVER_RE.captures(&params) {
         import["class"] = json!(receiver[1].to_string());
     }

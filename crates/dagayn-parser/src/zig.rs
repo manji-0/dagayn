@@ -10,7 +10,8 @@ use super::stdlib::zig::zig_std_module;
 use super::stdlib::{StdlibEvidence, mark_stdlib_edge};
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{
-    is_test_file, line_count, node_text, resolve_import_path, strip_matching_quotes,
+    direct_child, direct_child_text, first_descendant, line_count, line_of, node_text,
+    resolve_import_path, strip_matching_quotes,
 };
 use super::{add_tested_by_edges, qualify};
 
@@ -22,20 +23,7 @@ pub(super) fn parse_zig_with_parser(
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let file_path = FilePath::new(file_path);
     let line_end = line_count(source);
-    let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File,
-        name: file_path.to_string(),
-        file_path: file_path.clone(),
-        line_start: 1,
-        line_end,
-        language: "zig".to_string(),
-        parent_name: None,
-        params: None,
-        return_type: None,
-        modifiers: None,
-        is_test: is_test_file(&file_path),
-        extra: json!({}),
-    }];
+    let mut nodes = vec![ParsedNode::file(&file_path, line_end, "zig")];
     let mut edges = Vec::new();
     let mut context = ZigParseContext {
         source,
@@ -153,8 +141,8 @@ fn zig_collect_const_bindings(
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if child.kind() == "VarDecl"
-            && let Some(name) = zig_direct_child_text(child, source, &["IDENTIFIER"])
-            && let Some(value) = zig_direct_child(child, &["ErrorUnionExpr"])
+            && let Some(name) = direct_child_text(child, source, &["IDENTIFIER"])
+            && let Some(value) = direct_child(child, &["ErrorUnionExpr"])
         {
             let value = node_text(value, source).replace(char::is_whitespace, "");
             out.push((name, value));
@@ -169,14 +157,14 @@ fn zig_c_import_namespaces(root: tree_sitter::Node<'_>, source: &[u8]) -> HashSe
     let mut cursor = root.walk();
     for decl in root.children(&mut cursor) {
         let Some(var) =
-            zig_direct_child(decl, &["VarDecl"]).or((decl.kind() == "VarDecl").then_some(decl))
+            direct_child(decl, &["VarDecl"]).or((decl.kind() == "VarDecl").then_some(decl))
         else {
             continue;
         };
-        let Some(name) = zig_direct_child_text(var, source, &["IDENTIFIER"]) else {
+        let Some(name) = direct_child_text(var, source, &["IDENTIFIER"]) else {
             continue;
         };
-        let value = zig_direct_child(var, &["ErrorUnionExpr"]).map(|expr| node_text(expr, source));
+        let value = direct_child(var, &["ErrorUnionExpr"]).map(|expr| node_text(expr, source));
         if value.is_some_and(|value| value.trim_start().starts_with("@cImport")) {
             names.insert(name);
         }
@@ -239,7 +227,7 @@ fn zig_visit(
 ) {
     match node.kind() {
         "Decl" => {
-            if let Some(proto) = zig_direct_child(node, &["FnProto"]) {
+            if let Some(proto) = direct_child(node, &["FnProto"]) {
                 zig_handle_function(node, proto, context, scope, nodes, edges);
                 return;
             }
@@ -286,7 +274,7 @@ fn zig_handle_function(
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let Some(name) = zig_direct_child_text(proto, context.source, &["IDENTIFIER"]) else {
+    let Some(name) = direct_child_text(proto, context.source, &["IDENTIFIER"]) else {
         return;
     };
     let modifiers = zig_decl_modifiers(decl, context.source);
@@ -296,14 +284,14 @@ fn zig_handle_function(
     } else {
         json!({})
     };
-    let has_body = zig_direct_child(decl, &["Block"]).is_some();
+    let has_body = direct_child(decl, &["Block"]).is_some();
     if modifiers.iter().any(|modifier| modifier == "export") && has_body {
         // `export fn f` is a C symbol other languages link against.
         extra["ffi_export"] = json!({"abi": "c", "kind": "function", "name": name});
     } else if modifiers.iter().any(|modifier| modifier == "extern") && !has_body {
         // `extern fn f(...) T;` / `extern "lib" fn f(...) T;`
         let mut import = json!({"abi": "c", "name": name});
-        if let Some(library) = zig_direct_child_text(decl, context.source, &["STRINGLITERALSINGLE"])
+        if let Some(library) = direct_child_text(decl, context.source, &["STRINGLITERALSINGLE"])
             .map(|literal| strip_matching_quotes(&literal).to_string())
             .filter(|library| library != "c")
         {
@@ -320,28 +308,27 @@ fn zig_handle_function(
         line_end: decl.end_position().row as i64 + 1,
         language: "zig".to_string(),
         parent_name: scope.container.clone(),
-        params: zig_direct_child_text(proto, context.source, &["ParamDeclList"]),
+        params: direct_child_text(proto, context.source, &["ParamDeclList"]),
         return_type,
         modifiers: (!modifiers.is_empty()).then(|| modifiers.join(" ")),
         is_test: false,
         extra,
     });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: scope.contains_source(&context.file_path),
-        target: qualified,
-        file_path: context.file_path.clone(),
-        line: decl.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
-    if let Some(block) = zig_direct_child(decl, &["Block"]) {
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        scope.contains_source(&context.file_path),
+        qualified,
+        context.file_path.clone(),
+        line_of(decl),
+    ));
+    if let Some(block) = direct_child(decl, &["Block"]) {
         let body_scope = Scope {
             container: scope.container.clone(),
             func: Some(name),
         };
         let values = context.values.borrow().clone();
         let bindings = context.bindings.borrow().snapshot();
-        if let Some(parameters) = zig_direct_child(proto, &["ParamDeclList"]) {
+        if let Some(parameters) = direct_child(proto, &["ParamDeclList"]) {
             zig_bind_parameters(parameters, context);
         }
         zig_walk_children(block, context, &body_scope, nodes, edges);
@@ -359,11 +346,11 @@ fn zig_handle_var_decl(
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) -> bool {
-    let Some(name) = zig_direct_child_text(node, context.source, &["IDENTIFIER"]) else {
+    let Some(name) = direct_child_text(node, context.source, &["IDENTIFIER"]) else {
         return false;
     };
-    let Some(value) = zig_direct_child(node, &["ErrorUnionExpr"])
-        .and_then(|expr| zig_direct_child(expr, &["SuffixExpr"]))
+    let Some(value) = direct_child(node, &["ErrorUnionExpr"])
+        .and_then(|expr| direct_child(expr, &["SuffixExpr"]))
     else {
         return false;
     };
@@ -382,12 +369,12 @@ fn zig_handle_var_decl(
         });
         return true;
     }
-    let (container, role) = if let Some(container) = zig_direct_child(value, &["ContainerDecl"]) {
-        let role = zig_direct_child(container, &["ContainerDeclType"])
+    let (container, role) = if let Some(container) = direct_child(value, &["ContainerDecl"]) {
+        let role = direct_child(container, &["ContainerDeclType"])
             .map(|decl_type| zig_container_role(&node_text(decl_type, context.source)))
             .unwrap_or("struct");
         (Some(container), role)
-    } else if zig_direct_child(value, &["ErrorSetDecl"]).is_some() {
+    } else if direct_child(value, &["ErrorSetDecl"]).is_some() {
         (None, "error_set")
     } else {
         return false;
@@ -419,14 +406,13 @@ fn zig_handle_var_decl(
         is_test: false,
         extra: json!({"type_role": role}),
     });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: scope.contains_source(&context.file_path),
-        target: qualify(&context.file_path, &path, None),
-        file_path: context.file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        scope.contains_source(&context.file_path),
+        qualify(&context.file_path, &path, None),
+        context.file_path.clone(),
+        line_of(node),
+    ));
     if let Some(container) = container {
         let inner = Scope {
             container: Some(path),
@@ -446,9 +432,9 @@ fn zig_handle_test(
 ) {
     // `test "name" {}`, a doctest `test helper {}` (named apart from `helper`
     // itself), or an anonymous `test {}`.
-    let name = if let Some(label) = zig_direct_child(node, &["STRINGLITERALSINGLE"]) {
+    let name = if let Some(label) = direct_child(node, &["STRINGLITERALSINGLE"]) {
         strip_matching_quotes(&node_text(label, context.source)).to_string()
-    } else if let Some(decl) = zig_direct_child_text(node, context.source, &["IDENTIFIER"]) {
+    } else if let Some(decl) = direct_child_text(node, context.source, &["IDENTIFIER"]) {
         format!("test {decl}")
     } else {
         format!("test@{}", node.start_position().row + 1)
@@ -467,15 +453,14 @@ fn zig_handle_test(
         is_test: true,
         extra: json!({}),
     });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: scope.contains_source(&context.file_path),
-        target: qualify(&context.file_path, &name, scope.container.as_deref()),
-        file_path: context.file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
-    if let Some(block) = zig_direct_child(node, &["Block"]) {
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        scope.contains_source(&context.file_path),
+        qualify(&context.file_path, &name, scope.container.as_deref()),
+        context.file_path.clone(),
+        line_of(node),
+    ));
+    if let Some(block) = direct_child(node, &["Block"]) {
         let body_scope = Scope {
             container: scope.container.clone(),
             func: Some(name),
@@ -547,8 +532,7 @@ fn zig_emit_suffix_calls(
                 rooted = false;
             }
             "FieldOrFnCall" => {
-                let Some(field) = zig_direct_child_text(*child, context.source, &["IDENTIFIER"])
-                else {
+                let Some(field) = direct_child_text(*child, context.source, &["IDENTIFIER"]) else {
                     path = None;
                     std_path = None;
                     rooted = false;
@@ -564,7 +548,7 @@ fn zig_emit_suffix_calls(
                     Some(prefix) => format!("{prefix}.{field}"),
                     None => field.clone(),
                 };
-                if zig_direct_child(*child, &["FnCallArguments"]).is_some() {
+                if direct_child(*child, &["FnCallArguments"]).is_some() {
                     let marked = if std_path.is_none() {
                         zig_receiver(
                             receiver.as_deref(),
@@ -770,10 +754,10 @@ fn zig_collect_containers(node: tree_sitter::Node<'_>, source: &[u8], names: &mu
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if child.kind() == "VarDecl"
-            && let Some(name) = zig_direct_child_text(child, source, &["IDENTIFIER"])
+            && let Some(name) = direct_child_text(child, source, &["IDENTIFIER"])
             && child
                 .named_children(&mut child.walk())
-                .any(|value| zig_first_descendant(value, "ContainerDecl").is_some())
+                .any(|value| first_descendant(value, &["ContainerDecl"]).is_some())
         {
             names.insert(name);
         }
@@ -815,11 +799,11 @@ fn zig_bind_type(var: String, type_name: String, context: &ZigParseContext<'_>) 
 fn zig_bind_parameters(parameters: tree_sitter::Node<'_>, context: &ZigParseContext<'_>) {
     let mut cursor = parameters.walk();
     for parameter in parameters.named_children(&mut cursor) {
-        let Some(name) = zig_direct_child_text(parameter, context.source, &["IDENTIFIER"]) else {
+        let Some(name) = direct_child_text(parameter, context.source, &["IDENTIFIER"]) else {
             continue;
         };
         context.values.borrow_mut().insert(name.clone());
-        let type_name = zig_direct_child(parameter, &["ParamType"]).and_then(|param_type| {
+        let type_name = direct_child(parameter, &["ParamType"]).and_then(|param_type| {
             let mut cursor = param_type.walk();
             let parts = param_type.named_children(&mut cursor).collect::<Vec<_>>();
             zig_type_name(&parts, context.source)
@@ -838,7 +822,7 @@ fn zig_bind_parameters(parameters: tree_sitter::Node<'_>, context: &ZigParseCont
 /// value.
 fn zig_bind_var_decl(node: tree_sitter::Node<'_>, context: &ZigParseContext<'_>) {
     let source = context.source;
-    let Some(name) = zig_direct_child_text(node, source, &["IDENTIFIER"]) else {
+    let Some(name) = direct_child_text(node, source, &["IDENTIFIER"]) else {
         return;
     };
     if context.std_aliases.contains_key(&name) || context.c_imports.contains(&name) {
@@ -899,7 +883,7 @@ fn zig_bind_var_decl(node: tree_sitter::Node<'_>, context: &ZigParseContext<'_>)
         }
         _ => (expression, false),
     };
-    let Some(suffix) = zig_direct_child(expression, &["SuffixExpr"]) else {
+    let Some(suffix) = direct_child(expression, &["SuffixExpr"]) else {
         return;
     };
     // `Store.init(..)` constructs a `Store`.
@@ -908,8 +892,8 @@ fn zig_bind_var_decl(node: tree_sitter::Node<'_>, context: &ZigParseContext<'_>)
     if let [head, call] = parts.as_slice()
         && head.kind() == "IDENTIFIER"
         && call.kind() == "FieldOrFnCall"
-        && zig_direct_child_text(*call, source, &["IDENTIFIER"]).as_deref() == Some("init")
-        && zig_direct_child(*call, &["FnCallArguments"]).is_some()
+        && direct_child_text(*call, source, &["IDENTIFIER"]).as_deref() == Some("init")
+        && direct_child(*call, &["FnCallArguments"]).is_some()
         && let Some(type_name) = zig_type_name(&[*head], source)
     {
         zig_bind_type(name, type_name, context);
@@ -924,8 +908,8 @@ fn zig_bind_var_decl(node: tree_sitter::Node<'_>, context: &ZigParseContext<'_>)
             .nth(1)
             .filter(|callee| callee.kind() == "IDENTIFIER")
             .map(|callee| (node_text(*callee, source), last)),
-        Some(("FieldOrFnCall", last)) if zig_direct_child(last, &["FnCallArguments"]).is_some() => {
-            zig_direct_child_text(last, source, &["IDENTIFIER"]).map(|name| (name, last))
+        Some(("FieldOrFnCall", last)) if direct_child(last, &["FnCallArguments"]).is_some() => {
+            direct_child_text(last, source, &["IDENTIFIER"]).map(|name| (name, last))
         }
         _ => None,
     };
@@ -947,12 +931,12 @@ fn zig_import_target(
     value: tree_sitter::Node<'_>,
     context: &ZigParseContext<'_>,
 ) -> Option<String> {
-    let builtin = zig_direct_child(value, &["BUILTINIDENTIFIER"])?;
+    let builtin = direct_child(value, &["BUILTINIDENTIFIER"])?;
     if node_text(builtin, context.source) != "@import" {
         return None;
     }
-    let arguments = zig_direct_child(value, &["FnCallArguments"])?;
-    let literal = zig_first_descendant(arguments, "STRINGLITERALSINGLE")?;
+    let arguments = direct_child(value, &["FnCallArguments"])?;
+    let literal = first_descendant(arguments, &["STRINGLITERALSINGLE"])?;
     let literal = strip_matching_quotes(&node_text(literal, context.source)).to_string();
     if !literal.ends_with(".zig") && !literal.ends_with(".zon") {
         // `std`, `builtin`, and build.zig module names.
@@ -999,39 +983,6 @@ fn zig_decl_modifiers(decl: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String>
         }
     }
     modifiers
-}
-
-fn zig_direct_child<'a>(
-    node: tree_sitter::Node<'a>,
-    kinds: &[&str],
-) -> Option<tree_sitter::Node<'a>> {
-    let mut cursor = node.walk();
-    node.children(&mut cursor)
-        .find(|child| kinds.contains(&child.kind()))
-}
-
-fn zig_direct_child_text(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-) -> Option<String> {
-    zig_direct_child(node, kinds).map(|child| node_text(child, source))
-}
-
-fn zig_first_descendant<'a>(
-    node: tree_sitter::Node<'a>,
-    kind: &str,
-) -> Option<tree_sitter::Node<'a>> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == kind {
-            return Some(child);
-        }
-        if let Some(found) = zig_first_descendant(child, kind) {
-            return Some(found);
-        }
-    }
-    None
 }
 
 /// Resolves call targets against same-file declarations: `self.m` binds to the

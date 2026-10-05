@@ -11,7 +11,7 @@ use super::js_modules::JavaScriptParseContext;
 use super::js_namespaces::{javascript_named_child_node, javascript_namespace_segments};
 use super::qualify;
 use super::types::{ParsedEdge, ParsedNode};
-use super::util::node_text;
+use super::util::{line_of, node_text};
 
 /// A function-valued or nested-container member of an object literal.
 enum JavaScriptObjectMember<'tree> {
@@ -437,14 +437,13 @@ pub(super) fn javascript_emit_object_container(
             extra,
         },
     );
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: javascript_container_qn(context, owner_path),
-        target: qualify(&context.file_path, name, owner_path),
-        file_path: context.file_path.clone(),
-        line: declaration.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        javascript_container_qn(context, owner_path),
+        qualify(&context.file_path, name, owner_path),
+        context.file_path.clone(),
+        line_of(declaration),
+    ));
     let owner = javascript_member_owner(owner_path, name);
     let mut handled = HashSet::new();
     for member in javascript_object_members_at(object, context.source, depth) {

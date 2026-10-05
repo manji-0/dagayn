@@ -8,7 +8,7 @@ use super::member_calls::{BindingsSnapshot, CallOrigin, MemberCallBindings};
 use super::stdlib::go::{go_default_import_name, is_go_builtin_function, is_go_std_import};
 use super::stdlib::{StdlibEvidence, mark_stdlib_edge};
 use super::types::{FilePath, ParsedEdge, ParsedNode};
-use super::util::{is_test_file, line_count, node_text, strip_matching_quotes};
+use super::util::{direct_child_text, line_count, line_of, node_text, strip_matching_quotes};
 use super::{qualify, resolve_rust_call_targets};
 
 pub(super) fn parse_go_with_parser(
@@ -19,20 +19,7 @@ pub(super) fn parse_go_with_parser(
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let file_path = FilePath::new(file_path);
     let line_end = line_count(source);
-    let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File,
-        name: file_path.to_string(),
-        file_path: file_path.clone(),
-        line_start: 1,
-        line_end,
-        language: "go".to_string(),
-        parent_name: None,
-        params: None,
-        return_type: None,
-        modifiers: None,
-        is_test: is_test_file(&file_path),
-        extra: json!({}),
-    }];
+    let mut nodes = vec![ParsedNode::file(&file_path, line_end, "go")];
     let mut edges = Vec::new();
 
     if let Some(parser) = parser
@@ -188,7 +175,7 @@ fn go_emit_types(
             continue;
         }
         let Some(name) =
-            go_direct_child_text(child, source, "type_identifier").filter(|name| name != "_")
+            direct_child_text(child, source, &["type_identifier"]).filter(|name| name != "_")
         else {
             continue;
         };
@@ -208,16 +195,15 @@ fn go_emit_types(
             is_test: false,
             extra,
         });
-        edges.push(ParsedEdge {
-            kind: crate::core::types::EdgeKind::Contains,
-            source: parent
+        edges.push(ParsedEdge::new(
+            crate::core::types::EdgeKind::Contains,
+            parent
                 .map(|parent| qualify(file_path, parent, None))
                 .unwrap_or_else(|| file_path.to_string()),
-            target: qualified,
-            file_path: file_path.clone(),
-            line: child.start_position().row as i64 + 1,
-            extra: json!({}),
-        });
+            qualified,
+            file_path.clone(),
+            line_of(child),
+        ));
     }
 }
 
@@ -280,14 +266,13 @@ fn go_emit_function(
     let container = receiver
         .map(|receiver| qualify(file_path, receiver, None))
         .unwrap_or_else(|| file_path.to_string());
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: container,
-        target: qualified,
-        file_path: file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        container,
+        qualified,
+        file_path.clone(),
+        line_of(node),
+    ));
 }
 
 /// Libraries the cgo preamble links: `-lNAME` in `#cgo ... LDFLAGS:` lines of
@@ -465,9 +450,9 @@ fn go_function_name_and_receiver(
     source: &[u8],
 ) -> Option<(String, Option<String>)> {
     if node.kind() == "function_declaration" {
-        return go_direct_child_text(node, source, "identifier").map(|name| (name, None));
+        return direct_child_text(node, source, &["identifier"]).map(|name| (name, None));
     }
-    let name = go_direct_child_text(node, source, "field_identifier")?;
+    let name = direct_child_text(node, source, &["field_identifier"])?;
     let receiver = go_receiver_name(node, source);
     Some((name, receiver))
 }
@@ -1380,16 +1365,6 @@ fn go_first_string_arg(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<Str
             return Some(strip_matching_quotes(node_text(child, source).trim()).to_string());
         }
         return None;
-    }
-    None
-}
-
-fn go_direct_child_text(node: tree_sitter::Node<'_>, source: &[u8], kind: &str) -> Option<String> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == kind {
-            return Some(node_text(child, source));
-        }
     }
     None
 }

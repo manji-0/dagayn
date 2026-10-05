@@ -12,8 +12,11 @@ use super::stdlib::rust::{
 };
 use super::stdlib::{StdlibEvidence, mark_external_edge, mark_stdlib_edge};
 use super::types::{FilePath, ParsedEdge, ParsedNode};
-use super::util::{is_test_file, line_count, node_text};
-use super::{add_tested_by_edges, is_test_function, qualify, resolve_rust_call_targets};
+use super::util::{direct_child_text, line_count, line_of, node_text, should_skip_value_reference};
+use super::{
+    add_tested_by_edges, is_test_function, qualify, resolve_rust_call_targets,
+    rust_node_with_leading_attributes,
+};
 
 mod ffi;
 pub(crate) mod modules;
@@ -28,20 +31,7 @@ pub(super) fn parse_rust_with_parser(
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let file_path = FilePath::new(file_path);
     let line_end = line_count(source);
-    let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File,
-        name: file_path.to_string(),
-        file_path: file_path.clone(),
-        line_start: 1,
-        line_end,
-        language: "rust".to_string(),
-        parent_name: None,
-        params: None,
-        return_type: None,
-        modifiers: None,
-        is_test: is_test_file(&file_path),
-        extra: json!({}),
-    }];
+    let mut nodes = vec![ParsedNode::file(&file_path, line_end, "rust")];
     let mut edges = Vec::new();
 
     if let Some(parser) = parser
@@ -150,14 +140,13 @@ fn rust_walk_children(
                         is_test: false,
                         extra: json!({"type_role": "module"}),
                     });
-                    edges.push(ParsedEdge {
-                        kind: crate::core::types::EdgeKind::Contains,
-                        source: rust_container(&context.file_path, owner()),
-                        target: qualify(&context.file_path, &name, owner()),
-                        file_path: context.file_path.clone(),
-                        line: child.start_position().row as i64 + 1,
-                        extra: json!({}),
-                    });
+                    edges.push(ParsedEdge::new(
+                        crate::core::types::EdgeKind::Contains,
+                        rust_container(&context.file_path, owner()),
+                        qualify(&context.file_path, &name, owner()),
+                        context.file_path.clone(),
+                        line_of(child),
+                    ));
                     rust_walk_children(child, context, Some(&path), None, nodes, edges);
                     continue;
                 }
@@ -184,14 +173,13 @@ fn rust_walk_children(
                         is_test: false,
                         extra: rust_type_extra(child, context.source),
                     });
-                    edges.push(ParsedEdge {
-                        kind: crate::core::types::EdgeKind::Contains,
-                        source: rust_container(&context.file_path, owner()),
-                        target: qualified,
-                        file_path: context.file_path.clone(),
-                        line: child.start_position().row as i64 + 1,
-                        extra: json!({}),
-                    });
+                    edges.push(ParsedEdge::new(
+                        crate::core::types::EdgeKind::Contains,
+                        rust_container(&context.file_path, owner()),
+                        qualified,
+                        context.file_path.clone(),
+                        line_of(child),
+                    ));
                     rust_emit_type_references(
                         child,
                         context,
@@ -248,7 +236,7 @@ fn rust_walk_children(
             "function_item" | "function_signature_item" => {
                 if let Some(name) = rust_identifier_child(child, context.source) {
                     let qualified = qualify(&context.file_path, &name, owner());
-                    let params = rust_child_text(child, context.source, "parameters");
+                    let params = direct_child_text(child, context.source, &["parameters"]);
                     let is_test =
                         is_test_function(&name, &context.file_path, child, context.source);
                     let mut extra = if child.kind() == "function_signature_item" {
@@ -297,14 +285,13 @@ fn rust_walk_children(
                         extra,
                     });
                     let container = rust_container(&context.file_path, owner());
-                    edges.push(ParsedEdge {
-                        kind: crate::core::types::EdgeKind::Contains,
-                        source: container,
-                        target: qualified,
-                        file_path: context.file_path.clone(),
-                        line: child.start_position().row as i64 + 1,
-                        extra: json!({}),
-                    });
+                    edges.push(ParsedEdge::new(
+                        crate::core::types::EdgeKind::Contains,
+                        container,
+                        qualified,
+                        context.file_path.clone(),
+                        line_of(child),
+                    ));
                     rust_emit_type_references(
                         child,
                         context,
@@ -358,14 +345,13 @@ fn rust_walk_children(
                     is_test: false,
                     extra: json!({"rust_kind": "closure"}),
                 });
-                edges.push(ParsedEdge {
-                    kind: crate::core::types::EdgeKind::Contains,
-                    source: rust_container(&context.file_path, owner()),
-                    target: qualified,
-                    file_path: context.file_path.clone(),
-                    line: child.start_position().row as i64 + 1,
-                    extra: json!({}),
-                });
+                edges.push(ParsedEdge::new(
+                    crate::core::types::EdgeKind::Contains,
+                    rust_container(&context.file_path, owner()),
+                    qualified,
+                    context.file_path.clone(),
+                    line_of(child),
+                ));
                 rust_walk_children(child, context, owner(), Some(&name), nodes, edges);
                 continue;
             }
@@ -602,16 +588,6 @@ fn rust_identifier_child(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<S
     None
 }
 
-fn rust_child_text(node: tree_sitter::Node<'_>, source: &[u8], kind: &str) -> Option<String> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == kind {
-            return Some(node_text(child, source));
-        }
-    }
-    None
-}
-
 fn rust_type_role(kind: &str) -> &'static str {
     match kind {
         "enum_item" => "enum",
@@ -749,23 +725,6 @@ fn rust_enclosing_impl(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<
         .filter(|parent| parent.kind() == "declaration_list")
         .and_then(|list| list.parent())
         .filter(|item| item.kind() == "impl_item")
-}
-
-fn rust_node_with_leading_attributes(
-    node: tree_sitter::Node<'_>,
-) -> impl Iterator<Item = tree_sitter::Node<'_>> {
-    let mut attrs = Vec::new();
-    let mut current = node.prev_sibling();
-    while let Some(sibling) = current {
-        if matches!(sibling.kind(), "attribute_item" | "inner_attribute_item") {
-            attrs.push(sibling);
-            current = sibling.prev_sibling();
-            continue;
-        }
-        break;
-    }
-    attrs.reverse();
-    attrs.into_iter().chain(std::iter::once(node))
 }
 
 fn rust_is_value_container(type_role: &str, node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
@@ -1252,14 +1211,13 @@ fn rust_emit_use(
                         .1
                         .push(path)
                 }
-                None => edges.push(ParsedEdge {
-                    kind: crate::core::types::EdgeKind::ImportsFrom,
-                    source: context.file_path.to_string(),
-                    target: path,
-                    file_path: context.file_path.clone(),
+                None => edges.push(ParsedEdge::new(
+                    crate::core::types::EdgeKind::ImportsFrom,
+                    context.file_path.to_string(),
+                    path,
+                    context.file_path.clone(),
                     line,
-                    extra: json!({}),
-                }),
+                )),
             },
         }
     }
@@ -1873,7 +1831,10 @@ fn rust_call_origin(
     }
 }
 
-fn rust_rightmost_identifier(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+pub(super) fn rust_rightmost_identifier(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> Option<String> {
     let mut cursor = node.walk();
     let children = node.children(&mut cursor).collect::<Vec<_>>();
     for child in children.into_iter().rev() {
@@ -1912,7 +1873,7 @@ fn rust_emit_argument_references(
             continue;
         }
         let name = node_text(child, context.source);
-        if rust_should_skip_value_reference(&name)
+        if should_skip_value_reference(&name)
             || context
                 .locals
                 .borrow()
@@ -1923,14 +1884,13 @@ fn rust_emit_argument_references(
         }
         let line = child.start_position().row as i64 + 1;
         if context.free_functions.contains(&name) {
-            edges.push(ParsedEdge {
-                kind: crate::core::types::EdgeKind::References,
-                source: caller.clone(),
-                target: qualify(file_path, &name, None),
-                file_path: file_path.clone(),
+            edges.push(ParsedEdge::new(
+                crate::core::types::EdgeKind::References,
+                caller.clone(),
+                qualify(file_path, &name, None),
+                file_path.clone(),
                 line,
-                extra: json!({}),
-            });
+            ));
             continue;
         }
         // Unbound and snake_case: a function a glob import (`use
@@ -2239,24 +2199,6 @@ fn rust_emit_type_reference(
             });
         }
     }
-}
-
-fn rust_should_skip_value_reference(name: &str) -> bool {
-    matches!(
-        name,
-        "true"
-            | "false"
-            | "null"
-            | "undefined"
-            | "None"
-            | "True"
-            | "False"
-            | "self"
-            | "this"
-            | "cls"
-            | "super"
-    ) || name.len() <= 1
-        || name.bytes().all(|byte| !byte.is_ascii_lowercase())
 }
 
 fn rust_bridge_edge(

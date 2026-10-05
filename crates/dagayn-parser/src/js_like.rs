@@ -19,7 +19,7 @@ use super::js_modules::{
     JavaScriptCaches, JavaScriptParseContext, collect_javascript_bound_names,
     collect_javascript_defined_names, collect_javascript_import_map, collect_javascript_type_names,
     javascript_dynamic_import_specifier, javascript_import_equals, javascript_import_targets,
-    javascript_named_child, javascript_require_specifier,
+    javascript_require_specifier,
 };
 use super::js_namespaces::{
     javascript_emit_namespace, javascript_emit_namespace_body, javascript_named_child_node,
@@ -38,7 +38,8 @@ use super::stdlib::javascript::node_builtin_package;
 use super::stdlib::{StdlibEvidence, mark_stdlib_edge};
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{
-    ends_with_ascii_ignore_case, line_count, node_text, starts_with_ascii_ignore_case,
+    direct_child_text, ends_with_ascii_ignore_case, line_count, node_text,
+    starts_with_ascii_ignore_case,
 };
 use super::{add_tested_by_edges, qualify, resolve_rust_call_targets};
 
@@ -565,7 +566,7 @@ fn javascript_walk_syntax_node(
         | "interface_declaration"
         | "enum_declaration" => {
             if let Some(name) =
-                javascript_named_child(child, context.source, &["identifier", "type_identifier"])
+                direct_child_text(child, context.source, &["identifier", "type_identifier"])
             {
                 javascript_emit_class_node(
                     child,

@@ -11,7 +11,8 @@ use super::stdlib::scala::{SCALA_STDLIB_ROOTS, is_scala_predef_name, is_scala_su
 use super::stdlib::{StdlibEvidence, mark_stdlib_edge};
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{
-    collect_namespace_paths, is_test_file, line_count, node_text, set_declared_namespaces,
+    collect_namespace_paths, direct_child, direct_child_text, first_descendant_text,
+    last_descendant_text, line_count, line_of, node_text, set_declared_namespaces,
     strip_matching_quotes,
 };
 use super::{qualify, resolve_rust_call_targets};
@@ -23,20 +24,7 @@ pub(super) fn parse_scala_with_parser(
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let file_path = FilePath::new(file_path);
     let line_end = line_count(source);
-    let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File,
-        name: file_path.to_string(),
-        file_path: file_path.clone(),
-        line_start: 1,
-        line_end,
-        language: "scala".to_string(),
-        parent_name: None,
-        params: None,
-        return_type: None,
-        modifiers: None,
-        is_test: is_test_file(&file_path),
-        extra: json!({}),
-    }];
+    let mut nodes = vec![ParsedNode::file(&file_path, line_end, "scala")];
     let mut edges = Vec::new();
 
     if let Some(parser) = parser
@@ -105,7 +93,7 @@ fn scala_walk_children(
             }
             "trait_definition" | "class_definition" | "object_definition" | "enum_definition"
             | "given_definition" => {
-                if let Some(name) = scala_direct_child_text(child, source, &["identifier"]) {
+                if let Some(name) = direct_child_text(child, source, &["identifier"]) {
                     scala_emit_type(child, source, file_path, &name, owner(), nodes, edges);
                     let path = match owner() {
                         Some(parent) => format!("{parent}.{name}"),
@@ -125,7 +113,7 @@ fn scala_walk_children(
                 }
             }
             "function_definition" | "function_declaration" => {
-                if let Some(name) = scala_direct_child_text(child, source, &["identifier"]) {
+                if let Some(name) = direct_child_text(child, source, &["identifier"]) {
                     scala_emit_function(child, source, file_path, &name, owner(), nodes, edges);
                     scala_walk_children(
                         child,
@@ -281,16 +269,15 @@ fn scala_emit_type(
         is_test: false,
         extra,
     });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: enclosing_class
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        enclosing_class
             .map(|parent| qualify(file_path, parent, None))
             .unwrap_or_else(|| file_path.to_string()),
-        target: qualified.clone(),
-        file_path: file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+        qualified.clone(),
+        file_path.clone(),
+        line_of(node),
+    ));
     // A trait's supertypes are all contracts; for classes and objects the
     // first `extends` target is the superclass and `with` targets are mixins.
     let first_is_superclass = matches!(node.kind(), "class_definition" | "object_definition");
@@ -348,7 +335,7 @@ fn scala_emit_function(
         line_end: node.end_position().row as i64 + 1,
         language: "scala".to_string(),
         parent_name: enclosing_class.map(str::to_string),
-        params: scala_direct_child_text(node, source, &["parameters"]),
+        params: direct_child_text(node, source, &["parameters"]),
         // As written (`Future[User]`): resolution across files types what a
         // call of this method returns by it.
         return_type: node
@@ -358,16 +345,15 @@ fn scala_emit_function(
         is_test: false,
         extra: json!({}),
     });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: enclosing_class
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        enclosing_class
             .map(|class| qualify(file_path, class, None))
             .unwrap_or_else(|| file_path.to_string()),
-        target: qualified,
-        file_path: file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+        qualified,
+        file_path.clone(),
+        line_of(node),
+    ));
 }
 
 fn scala_emit_call(
@@ -431,7 +417,7 @@ fn scala_emit_instance_call(
     enclosing_func: Option<&str>,
     edges: &mut Vec<ParsedEdge>,
 ) {
-    let Some(mut target) = scala_first_descendant_text(node, source, &["type_identifier"]) else {
+    let Some(mut target) = first_descendant_text(node, source, &["type_identifier"]) else {
         return;
     };
     let caller = scala_caller(file_path, enclosing_class, enclosing_func);
@@ -456,12 +442,12 @@ fn scala_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String>
         return Some(node_text(callee, source));
     }
     if callee.kind() == "generic_function"
-        && let Some(function) = scala_direct_child(callee, &["field_expression", "identifier"])
+        && let Some(function) = direct_child(callee, &["field_expression", "identifier"])
     {
-        return scala_last_descendant_text(function, source, &["identifier", "type_identifier"])
+        return last_descendant_text(function, source, &["identifier", "type_identifier"])
             .or_else(|| Some(node_text(function, source)));
     }
-    scala_last_descendant_text(callee, source, &["identifier", "type_identifier"])
+    last_descendant_text(callee, source, &["identifier", "type_identifier"])
 }
 
 fn scala_call_signature(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
@@ -524,7 +510,7 @@ fn scala_bridge_edge(
 }
 
 fn scala_first_string_arg(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let arguments = scala_direct_child(node, &["arguments"])?;
+    let arguments = direct_child(node, &["arguments"])?;
     let mut cursor = arguments.walk();
     for child in arguments.children(&mut cursor) {
         if matches!(child.kind(), "," | "(" | ")") {
@@ -542,7 +528,7 @@ fn scala_inheritance_targets(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<
     let extends = if node.kind() == "given_definition" {
         Some(node)
     } else {
-        scala_direct_child(node, &["extends_clause"])
+        direct_child(node, &["extends_clause"])
     };
     let Some(extends) = extends else {
         return Vec::new();
@@ -553,9 +539,7 @@ fn scala_inheritance_targets(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<
         match child.kind() {
             "type_identifier" => out.push(node_text(child, source)),
             "generic_type" => {
-                if let Some(target) =
-                    scala_first_descendant_text(child, source, &["type_identifier"])
-                {
+                if let Some(target) = first_descendant_text(child, source, &["type_identifier"]) {
                     out.push(target);
                 }
             }
@@ -563,59 +547,6 @@ fn scala_inheritance_targets(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<
         }
     }
     out
-}
-
-fn scala_direct_child<'a>(
-    node: tree_sitter::Node<'a>,
-    kinds: &[&str],
-) -> Option<tree_sitter::Node<'a>> {
-    let mut cursor = node.walk();
-
-    node.children(&mut cursor)
-        .find(|child| kinds.contains(&child.kind()))
-}
-
-fn scala_direct_child_text(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-) -> Option<String> {
-    scala_direct_child(node, kinds).map(|child| node_text(child, source))
-}
-
-fn scala_first_descendant_text(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-) -> Option<String> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if kinds.contains(&child.kind()) {
-            return Some(node_text(child, source));
-        }
-        if let Some(found) = scala_first_descendant_text(child, source, kinds) {
-            return Some(found);
-        }
-    }
-    None
-}
-
-fn scala_last_descendant_text(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-) -> Option<String> {
-    let mut found = None;
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if kinds.contains(&child.kind()) {
-            found = Some(node_text(child, source));
-        }
-        if let Some(value) = scala_last_descendant_text(child, source, kinds) {
-            found = Some(value);
-        }
-    }
-    found
 }
 
 /// The names of a file that decide whether a call reaches the standard
@@ -672,8 +603,7 @@ impl ScalaStdlibScope {
             | "function_definition"
             | "function_declaration"
             | "type_definition" => {
-                let name =
-                    scala_direct_child_text(node, source, &["identifier", "type_identifier"]);
+                let name = direct_child_text(node, source, &["identifier", "type_identifier"]);
                 if matches!(
                     node.kind(),
                     "trait_definition"
@@ -872,7 +802,7 @@ fn scala_stdlib_call(
 /// The class a `new C(...)` or `C(...)` expression constructs.
 fn scala_constructed_class(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     let class = match node.kind() {
-        "instance_expression" => scala_first_descendant_text(node, source, &["type_identifier"])?,
+        "instance_expression" => first_descendant_text(node, source, &["type_identifier"])?,
         _ => {
             let mut callee = scala_call_callee(node)?;
             if callee.kind() == "generic_function" {
@@ -944,7 +874,7 @@ fn scala_variable_declaration<'a>(
             .child_by_field_name("type")
             .and_then(|ty| match ty.kind() {
                 "type_identifier" => Some(node_text(ty, source)),
-                _ => scala_first_descendant_text(ty, source, &["type_identifier"]),
+                _ => first_descendant_text(ty, source, &["type_identifier"]),
             })
     };
     let mut current = node;

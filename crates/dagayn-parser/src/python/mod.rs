@@ -11,12 +11,13 @@ use super::documentation_directives::{
     push_documentation_directive_edge,
 };
 use super::member_calls::{CallOrigin, MemberCallBindings};
+use super::rust_lang::rust_rightmost_identifier;
 use super::stdlib::python::{
     is_python_builtin, python_constructs_stdlib_value, python_stdlib_package,
 };
 use super::stdlib::{StdlibEvidence, mark_external_edge, mark_stdlib_edge};
 use super::types::{FilePath, ParsedEdge, ParsedNode};
-use super::util::{is_test_file, line_count, node_text};
+use super::util::{direct_child_text, is_test_file, line_count, line_of, node_text};
 use super::{qualify, resolve_rust_call_targets};
 
 mod notebook;
@@ -58,20 +59,7 @@ fn parse_python_module_with_parser(
     repo_root: Option<&Path>,
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let line_end = line_count(source);
-    let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File,
-        name: file_path.to_string(),
-        file_path: file_path.clone(),
-        line_start: 1,
-        line_end,
-        language: "python".to_string(),
-        parent_name: None,
-        params: None,
-        return_type: None,
-        modifiers: None,
-        is_test: is_test_file(file_path.as_str()),
-        extra: json!({}),
-    }];
+    let mut nodes = vec![ParsedNode::file(file_path, line_end, "python")];
     let mut edges = Vec::new();
 
     if let Some(parser) = parser
@@ -256,16 +244,15 @@ fn python_walk_children(
                         is_test: false,
                         extra: python_class_extra(&bases, &decorators),
                     });
-                    edges.push(ParsedEdge {
-                        kind: crate::core::types::EdgeKind::Contains,
-                        source: enclosing_qualified
+                    edges.push(ParsedEdge::new(
+                        crate::core::types::EdgeKind::Contains,
+                        enclosing_qualified
                             .unwrap_or(&context.file_path)
                             .to_string(),
-                        target: qualified.clone(),
-                        file_path: context.file_path.clone(),
-                        line: child.start_position().row as i64 + 1,
-                        extra: json!({}),
-                    });
+                        qualified.clone(),
+                        context.file_path.clone(),
+                        line_of(child),
+                    ));
                     python_emit_bases(child, context, &qualified, &bases, edges);
                     python_walk_children(
                         child,
@@ -282,7 +269,7 @@ fn python_walk_children(
                 if let Some(name) = python_identifier_child(child, context.source) {
                     let scope = python_scope_path(&context.file_path, enclosing_qualified);
                     let qualified = qualify(&context.file_path, &name, scope);
-                    let params = python_child_text(child, context.source, "parameters");
+                    let params = direct_child_text(child, context.source, &["parameters"]);
                     let return_type = python_return_type(child, context.source);
                     let is_test =
                         python_is_test_function(&name, &context.file_path, child, context.source);
@@ -315,16 +302,15 @@ fn python_walk_children(
                         is_test,
                         extra,
                     });
-                    edges.push(ParsedEdge {
-                        kind: crate::core::types::EdgeKind::Contains,
-                        source: enclosing_qualified
+                    edges.push(ParsedEdge::new(
+                        crate::core::types::EdgeKind::Contains,
+                        enclosing_qualified
                             .unwrap_or(&context.file_path)
                             .to_string(),
-                        target: qualified.clone(),
-                        file_path: context.file_path.clone(),
-                        line: child.start_position().row as i64 + 1,
-                        extra: json!({}),
-                    });
+                        qualified.clone(),
+                        context.file_path.clone(),
+                        line_of(child),
+                    ));
                     let snapshot = context.bindings.borrow().snapshot();
                     if let Some(class_name) = enclosing_class {
                         context
@@ -371,16 +357,15 @@ fn python_walk_children(
                         is_test: false,
                         extra: json!({"type_role": "alias"}),
                     });
-                    edges.push(ParsedEdge {
-                        kind: crate::core::types::EdgeKind::Contains,
-                        source: enclosing_qualified
+                    edges.push(ParsedEdge::new(
+                        crate::core::types::EdgeKind::Contains,
+                        enclosing_qualified
                             .unwrap_or(&context.file_path)
                             .to_string(),
-                        target: qualified,
-                        file_path: context.file_path.clone(),
-                        line: child.start_position().row as i64 + 1,
-                        extra: json!({}),
-                    });
+                        qualified,
+                        context.file_path.clone(),
+                        line_of(child),
+                    ));
                     continue;
                 }
             }
@@ -554,22 +539,21 @@ fn python_emit_lambda_assignment(
         line_end: node.end_position().row as i64 + 1,
         language: "python".to_string(),
         parent_name: scope.map(str::to_string),
-        params: python_child_text(right, context.source, "parameters"),
+        params: direct_child_text(right, context.source, &["parameters"]),
         return_type: None,
         modifiers: None,
         is_test: false,
         extra: json!({"python_kind": "lambda"}),
     });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: enclosing_qualified
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        enclosing_qualified
             .unwrap_or(&context.file_path)
             .to_string(),
-        target: qualified.clone(),
-        file_path: context.file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+        qualified.clone(),
+        context.file_path.clone(),
+        line_of(node),
+    ));
     python_walk_children(
         right,
         context,
@@ -650,14 +634,13 @@ fn python_emit_reference_if_known(
     let Some(target) = python_resolve_reference_target(&name, context) else {
         return;
     };
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::References,
-        source: caller.to_string(),
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::References,
+        caller.to_string(),
         target,
-        file_path: context.file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+        context.file_path.clone(),
+        line_of(node),
+    ));
 }
 
 fn python_resolve_reference_target(name: &str, context: &PythonParseContext<'_>) -> Option<String> {
@@ -805,16 +788,6 @@ fn python_identifier_child(node: tree_sitter::Node<'_>, source: &[u8]) -> Option
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if child.kind() == "identifier" {
-            return Some(node_text(child, source));
-        }
-    }
-    None
-}
-
-fn python_child_text(node: tree_sitter::Node<'_>, source: &[u8], kind: &str) -> Option<String> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == kind {
             return Some(node_text(child, source));
         }
     }
@@ -1060,7 +1033,7 @@ fn python_import_targets(
             let (module, alias) = match child.kind() {
                 "dotted_name" => (node_text(child, source), None),
                 "aliased_import" => {
-                    let Some(module) = python_child_text(child, source, "dotted_name") else {
+                    let Some(module) = direct_child_text(child, source, &["dotted_name"]) else {
                         continue;
                     };
                     let alias = child
@@ -1781,23 +1754,6 @@ fn collect_python_class_names_into(
     }
 }
 
-fn rust_rightmost_identifier(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let mut cursor = node.walk();
-    let children = node.children(&mut cursor).collect::<Vec<_>>();
-    for child in children.into_iter().rev() {
-        if matches!(
-            child.kind(),
-            "identifier" | "field_identifier" | "type_identifier"
-        ) {
-            return Some(node_text(child, source));
-        }
-        if let Some(name) = rust_rightmost_identifier(child, source) {
-            return Some(name);
-        }
-    }
-    None
-}
-
 fn resolve_python_call_targets(
     nodes: &[ParsedNode],
     edges: Vec<ParsedEdge>,
@@ -1842,13 +1798,14 @@ fn add_python_tested_by_edges(
                 && test_qnames.contains(&edge.source)
                 && edge.extra["external"] != true
         })
-        .map(|edge| ParsedEdge {
-            kind: crate::core::types::EdgeKind::TestedBy,
-            source: edge.target.clone(),
-            target: edge.source.clone(),
-            file_path: edge.file_path.clone(),
-            line: edge.line,
-            extra: json!({}),
+        .map(|edge| {
+            ParsedEdge::new(
+                crate::core::types::EdgeKind::TestedBy,
+                edge.target.clone(),
+                edge.source.clone(),
+                edge.file_path.clone(),
+                edge.line,
+            )
         })
         .collect::<Vec<_>>();
     out.extend(tested_by_edges);

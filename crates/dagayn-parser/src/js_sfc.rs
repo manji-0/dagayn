@@ -1,14 +1,12 @@
 use std::path::Path;
 
-use serde_json::json;
-
 use super::js_like::parse_javascript_like_interned;
 use super::js_modules::JavaScriptCaches;
 use super::parsers::{
     new_javascript_parser, new_svelte_parser, new_typescript_parser, new_vue_parser,
 };
 use super::types::{FilePath, ParsedEdge, ParsedNode};
-use super::util::{is_test_file, line_count, node_text};
+use super::util::{direct_child, direct_child_text, first_descendant_text, line_count};
 
 pub fn parse_vue(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let mut vue_parser = new_vue_parser();
@@ -102,20 +100,7 @@ fn parse_sfc_with_parsers(
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let file_path = FilePath::new(file_path);
     let line_end = line_count(source);
-    let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File,
-        name: file_path.to_string(),
-        file_path: file_path.clone(),
-        line_start: 1,
-        line_end,
-        language: inputs.language.to_string(),
-        parent_name: None,
-        params: None,
-        return_type: None,
-        modifiers: None,
-        is_test: is_test_file(&file_path),
-        extra: json!({}),
-    }];
+    let mut nodes = vec![ParsedNode::file(&file_path, line_end, inputs.language)];
     let mut edges = Vec::new();
 
     if let Some(parser) = inputs.sfc_parser
@@ -127,7 +112,7 @@ fn parse_sfc_with_parsers(
             if child.kind() != "script_element" {
                 continue;
             }
-            let Some(raw_text_node) = sfc_direct_child(child, "raw_text") else {
+            let Some(raw_text_node) = direct_child(child, &["raw_text"]) else {
                 continue;
             };
             let script_language = sfc_script_language(child, source);
@@ -163,15 +148,8 @@ fn parse_sfc_with_parsers(
     (nodes, edges)
 }
 
-fn sfc_direct_child<'a>(node: tree_sitter::Node<'a>, kind: &str) -> Option<tree_sitter::Node<'a>> {
-    let mut cursor = node.walk();
-
-    node.children(&mut cursor)
-        .find(|child| child.kind() == kind)
-}
-
 fn sfc_script_language(node: tree_sitter::Node<'_>, source: &[u8]) -> &'static str {
-    let Some(start_tag) = sfc_direct_child(node, "start_tag") else {
+    let Some(start_tag) = direct_child(node, &["start_tag"]) else {
         return "javascript";
     };
     let mut cursor = start_tag.walk();
@@ -179,43 +157,18 @@ fn sfc_script_language(node: tree_sitter::Node<'_>, source: &[u8]) -> &'static s
         if attr.kind() != "attribute" {
             continue;
         }
-        let Some(name) = sfc_child_text(attr, source, "attribute_name") else {
+        let Some(name) = direct_child_text(attr, source, &["attribute_name"]) else {
             continue;
         };
         if name != "lang" {
             continue;
         }
         if matches!(
-            sfc_first_descendant_text(attr, source, &["attribute_value"]).as_deref(),
+            first_descendant_text(attr, source, &["attribute_value"]).as_deref(),
             Some("ts" | "typescript")
         ) {
             return "typescript";
         }
     }
     "javascript"
-}
-
-fn sfc_child_text(node: tree_sitter::Node<'_>, source: &[u8], kind: &str) -> Option<String> {
-    let mut cursor = node.walk();
-
-    node.children(&mut cursor)
-        .find(|child| child.kind() == kind)
-        .map(|child| node_text(child, source))
-}
-
-fn sfc_first_descendant_text(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-) -> Option<String> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if kinds.contains(&child.kind()) {
-            return Some(node_text(child, source));
-        }
-        if let Some(found) = sfc_first_descendant_text(child, source, kinds) {
-            return Some(found);
-        }
-    }
-    None
 }

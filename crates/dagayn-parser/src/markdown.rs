@@ -7,7 +7,7 @@ use serde_json::json;
 
 use super::documentation_directives::{parse_dagayn_directive, push_documentation_directive_edge};
 use super::types::{FilePath, ParsedEdge, ParsedNode};
-use super::util::{dedupe_edges, is_test_file, line_count, node_text, normalize_relative_path};
+use super::util::{dedupe_edges, line_count, node_text, normalize_relative_path};
 
 static MARKDOWN_INLINE_LINK_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\[[^\]]+\]\(([^)]+)\)").unwrap());
@@ -147,20 +147,7 @@ pub(crate) fn parse_markdown_with_parser(
     let line_end = line_count(source);
     let tree_facts = collect_markdown_tree_facts(source, &text, parser);
     let headings = tree_facts.headings;
-    let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File,
-        name: file_path.to_string(),
-        file_path: file_path.clone(),
-        line_start: 1,
-        line_end,
-        language: "markdown".to_string(),
-        parent_name: None,
-        params: None,
-        return_type: None,
-        modifiers: None,
-        is_test: is_test_file(&file_path),
-        extra: json!({}),
-    }];
+    let mut nodes = vec![ParsedNode::file(&file_path, line_end, "markdown")];
     let mut edges = Vec::new();
 
     let mut stack: Vec<(i64, String)> = Vec::new();
@@ -194,14 +181,13 @@ pub(crate) fn parse_markdown_with_parser(
                 "heading_level": heading.level,
             }),
         });
-        edges.push(ParsedEdge {
-            kind: crate::core::types::EdgeKind::Contains,
-            source: container,
-            target: section_qname.clone(),
-            file_path: file_path.clone(),
-            line: heading.line,
-            extra: json!({}),
-        });
+        edges.push(ParsedEdge::new(
+            crate::core::types::EdgeKind::Contains,
+            container,
+            section_qname.clone(),
+            file_path.clone(),
+            heading.line,
+        ));
         stack.push((heading.level, section_qname));
     }
 
@@ -344,14 +330,13 @@ fn flush_markdown_doc_body(
             "parent_section": parent_section,
         }),
     });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: context.source_for_line(start_line),
-        target: qualified_name,
-        file_path: file_path.clone(),
-        line: start_line,
-        extra: json!({}),
-    });
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        context.source_for_line(start_line),
+        qualified_name,
+        file_path.clone(),
+        start_line,
+    ));
     state.block_lines.clear();
 }
 

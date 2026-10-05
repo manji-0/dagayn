@@ -11,7 +11,8 @@ use super::stdlib::objc::{objc_framework, objc_prefix_framework, objc_umbrella_m
 use super::stdlib::{StdlibEvidence, mark_stdlib_edge};
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{
-    is_test_file, line_count, node_text, resolve_import_path, strip_matching_quotes,
+    direct_child, direct_child_text, first_descendant, last_descendant_text, line_count, line_of,
+    node_text, resolve_import_path, strip_matching_quotes,
 };
 use super::{add_tested_by_edges, is_test_function, qualify};
 
@@ -51,20 +52,7 @@ fn parse_c_like_with_parser(
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let file_path = FilePath::new(file_path);
     let line_end = line_count(source);
-    let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File,
-        name: file_path.to_string(),
-        file_path: file_path.clone(),
-        line_start: 1,
-        line_end,
-        language: language.to_string(),
-        parent_name: None,
-        params: None,
-        return_type: None,
-        modifiers: None,
-        is_test: is_test_file(&file_path),
-        extra: json!({}),
-    }];
+    let mut nodes = vec![ParsedNode::file(&file_path, line_end, language)];
     let mut edges = Vec::new();
     if let Some(parser) = parser
         && let Some(tree) = parser.parse(source, None)
@@ -243,7 +231,7 @@ fn c_walk_children(
             }
             "module_import" if enclosing_func.is_none() => {
                 // Objective-C `@import Foundation;`.
-                if let Some(path) = c_direct_child(child, &["identifier", "module_path"])
+                if let Some(path) = direct_child(child, &["identifier", "module_path"])
                     .or_else(|| child.child_by_field_name("path"))
                 {
                     let mut target = node_text(path, context.source).trim().to_string();
@@ -291,7 +279,7 @@ fn c_walk_children(
             | "protocol_declaration"
                 if context.language == "objc" && enclosing_func.is_none() =>
             {
-                if let Some(name) = c_direct_child_text(child, context.source, &["identifier"]) {
+                if let Some(name) = direct_child_text(child, context.source, &["identifier"]) {
                     c_emit_type(child, context, &name, None, nodes, edges);
                     if child.kind() == "class_implementation" {
                         c_walk_children(child, context, Some(&name), None, nodes, edges);
@@ -333,7 +321,7 @@ fn c_walk_children(
                 }
             }
             "method_definition" if context.language == "objc" => {
-                if let Some(name) = c_direct_child_text(child, context.source, &["identifier"]) {
+                if let Some(name) = direct_child_text(child, context.source, &["identifier"]) {
                     c_emit_function(child, context, &name, enclosing_class, false, nodes, edges);
                     c_walk_function(child, context, enclosing_class, &name, nodes, edges);
                     continue;
@@ -417,16 +405,15 @@ fn c_emit_type(
         is_test: false,
         extra: json!({"type_role": "class"}),
     });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: parent
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        parent
             .map(|parent| qualify(&context.file_path, parent, None))
             .unwrap_or_else(|| context.file_path.to_string()),
-        target: qualified,
-        file_path: context.file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+        qualified,
+        context.file_path.clone(),
+        line_of(node),
+    ));
 }
 
 /// googletest `TEST(Suite, Name)` family, named `Suite.Name` as
@@ -535,14 +522,13 @@ fn c_emit_test_block(
         is_test: true,
         extra: json!({}),
     });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: context.file_path.to_string(),
-        target: qualified,
-        file_path: context.file_path.clone(),
-        line: head.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        context.file_path.to_string(),
+        qualified,
+        context.file_path.clone(),
+        line_of(head),
+    ));
 }
 
 fn c_emit_function(
@@ -581,16 +567,15 @@ fn c_emit_function(
             None => json!({}),
         },
     });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: enclosing_class
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        enclosing_class
             .map(|class| qualify(&context.file_path, class, None))
             .unwrap_or_else(|| context.file_path.to_string()),
-        target: qualified,
-        file_path: context.file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+        qualified,
+        context.file_path.clone(),
+        line_of(node),
+    ));
 }
 
 /// The C symbol a function definition exports from a shared library.
@@ -779,7 +764,7 @@ fn c_python_module(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String>
     if !matches!(name.as_str(), "PYBIND11_MODULE" | "NB_MODULE") {
         return None;
     }
-    let parameters = c_first_descendant(node, &["parameter_list"])?;
+    let parameters = first_descendant(node, &["parameter_list"])?;
     let mut cursor = parameters.walk();
     let first = parameters.named_children(&mut cursor).next()?;
     let module = node_text(first, source).trim().to_string();
@@ -849,7 +834,7 @@ fn c_addon_registration_call(
             let name = if key.kind() == "string_literal" {
                 c_string_text(*key, source)
             } else {
-                c_first_descendant(*key, &["string_literal"])
+                first_descendant(*key, &["string_literal"])
                     .map(|literal| c_string_text(literal, source))?
             };
             let value = args.get(1)?;
@@ -952,7 +937,7 @@ fn c_emit_inheritance(
     if context.language != "cpp" {
         return;
     }
-    let Some(base_clause) = c_direct_child(node, &["base_class_clause"]) else {
+    let Some(base_clause) = direct_child(node, &["base_class_clause"]) else {
         return;
     };
     let mut cursor = base_clause.walk();
@@ -996,7 +981,7 @@ fn c_call_signature(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String
         "identifier" | "qualified_identifier" => {
             Some(node_text(callee, source).replace(" :: ", "::"))
         }
-        "field_expression" => c_last_descendant_text(callee, source, &["field_identifier"]),
+        "field_expression" => last_descendant_text(callee, source, &["field_identifier"]),
         "message_expression" => c_message_selector(callee, source),
         _ => None,
     }
@@ -1016,7 +1001,7 @@ fn c_call_callee<'a>(node: tree_sitter::Node<'a>) -> Option<tree_sitter::Node<'a
 /// written relative to the including file or to a compiler search path, so the
 /// literal text alone (`util.h`) matches no file in the graph.
 fn c_include_target(node: tree_sitter::Node<'_>, context: &CParseContext<'_>) -> Option<String> {
-    let target = c_direct_child(node, &["system_lib_string", "string_literal"])?;
+    let target = direct_child(node, &["system_lib_string", "string_literal"])?;
     let literal = strip_matching_quotes(
         node_text(target, context.source)
             .trim()
@@ -1043,7 +1028,7 @@ fn c_resolve_include(
 }
 
 fn c_type_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    c_direct_child_text(node, source, &["type_identifier"])
+    direct_child_text(node, source, &["type_identifier"])
 }
 
 /// Resolves a `function_definition` name plus the class it was declared under.
@@ -1085,7 +1070,7 @@ const C_KEYWORDS: &[&str] = &[
 fn c_function_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<(String, Option<String>)> {
     let declarator = node
         .child_by_field_name("declarator")
-        .or_else(|| c_first_descendant(node, &["function_declarator"]))?;
+        .or_else(|| first_descendant(node, &["function_declarator"]))?;
     c_declarator_name(declarator, source).filter(|(name, _)| !C_KEYWORDS.contains(&name.as_str()))
 }
 
@@ -1132,7 +1117,7 @@ fn c_declarator_name(
 /// `reference_declarator` carries no `declarator` field, so fall back to the
 /// first child that can hold a name.
 fn c_declarator_child<'a>(node: tree_sitter::Node<'a>) -> Option<tree_sitter::Node<'a>> {
-    c_direct_child(
+    direct_child(
         node,
         &[
             "identifier",
@@ -1163,7 +1148,7 @@ fn c_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
         "qualified_identifier" | "template_function" => {
             c_declarator_name(callee, source).map(|(name, _)| name)
         }
-        "field_expression" => c_last_descendant_text(callee, source, &["field_identifier"]),
+        "field_expression" => last_descendant_text(callee, source, &["field_identifier"]),
         "message_expression" => c_message_selector(callee, source),
         _ => None,
     }
@@ -1234,7 +1219,7 @@ fn c_bridge_edge(
 }
 
 fn c_first_string_arg(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let arguments = c_direct_child(node, &["argument_list"])?;
+    let arguments = direct_child(node, &["argument_list"])?;
     let mut cursor = arguments.walk();
     for child in arguments.children(&mut cursor) {
         if child.kind() == "string_literal" {
@@ -1249,65 +1234,6 @@ fn c_first_string_arg(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<Stri
 
 fn c_string_text(node: tree_sitter::Node<'_>, source: &[u8]) -> String {
     strip_matching_quotes(node_text(node, source).trim()).to_string()
-}
-
-fn c_direct_child<'a>(
-    node: tree_sitter::Node<'a>,
-    kinds: &[&str],
-) -> Option<tree_sitter::Node<'a>> {
-    let mut cursor = node.walk();
-
-    node.children(&mut cursor)
-        .find(|child| kinds.contains(&child.kind()))
-}
-
-fn c_direct_child_text(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-) -> Option<String> {
-    c_direct_child(node, kinds).map(|child| node_text(child, source))
-}
-
-fn c_first_descendant<'a>(
-    node: tree_sitter::Node<'a>,
-    kinds: &[&str],
-) -> Option<tree_sitter::Node<'a>> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if kinds.contains(&child.kind()) {
-            return Some(child);
-        }
-        if let Some(found) = c_first_descendant(child, kinds) {
-            return Some(found);
-        }
-    }
-    None
-}
-
-fn c_collect_descendant_texts(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-    found: &mut Option<String>,
-) {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if kinds.contains(&child.kind()) {
-            *found = Some(node_text(child, source));
-        }
-        c_collect_descendant_texts(child, source, kinds, found);
-    }
-}
-
-fn c_last_descendant_text(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-) -> Option<String> {
-    let mut found = None;
-    c_collect_descendant_texts(node, source, kinds, &mut found);
-    found
 }
 
 /// Binds each call to a function of this file by name.
@@ -1375,7 +1301,7 @@ fn c_system_header_package(header: &str) -> Option<&'static str> {
 /// The header an `#include <...>` / `#import <...>` names, without the
 /// brackets; `None` for a quoted (repository) include.
 fn c_system_include(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let path = c_direct_child(node, &["system_lib_string"])?;
+    let path = direct_child(node, &["system_lib_string"])?;
     let header = node_text(path, source)
         .trim()
         .trim_matches(['<', '>'].as_ref())
@@ -1470,7 +1396,7 @@ impl CStdlibScope {
                 }
             }
             "module_import" => {
-                if let Some(framework) = c_direct_child(node, &["identifier", "module_path"])
+                if let Some(framework) = direct_child(node, &["identifier", "module_path"])
                     .or_else(|| node.child_by_field_name("path"))
                     .and_then(|path| objc_framework(node_text(path, source).trim(), true))
                 {
@@ -1478,12 +1404,11 @@ impl CStdlibScope {
                 }
             }
             "using_declaration" => {
-                if c_direct_child(node, &["namespace"]).is_some() {
-                    if c_direct_child_text(node, source, &["identifier"]).as_deref() == Some("std")
-                    {
+                if direct_child(node, &["namespace"]).is_some() {
+                    if direct_child_text(node, source, &["identifier"]).as_deref() == Some("std") {
                         self.using_namespace_std = true;
                     }
-                } else if let Some(path) = c_direct_child(node, &["qualified_identifier"])
+                } else if let Some(path) = direct_child(node, &["qualified_identifier"])
                     .map(|path| c_scoped_path(&node_text(path, source)))
                     && path.len() == 2
                     && path[0] == "std"
@@ -1528,7 +1453,7 @@ impl CStdlibScope {
             | "class_implementation"
             | "category_interface"
             | "protocol_declaration" => {
-                if let Some(name) = c_direct_child_text(node, source, &["identifier"]) {
+                if let Some(name) = direct_child_text(node, source, &["identifier"]) {
                     self.defined.insert(name);
                 }
             }
@@ -1807,7 +1732,7 @@ fn c_stdlib_bare_call(
 /// destructors declare none.
 fn c_return_type(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     if node.kind() == "method_definition" {
-        return c_direct_child_text(node, source, &["method_type"])
+        return direct_child_text(node, source, &["method_type"])
             .map(|text| text.trim().to_string());
     }
     let ty = node.child_by_field_name("type")?;
@@ -1815,8 +1740,8 @@ fn c_return_type(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     // `auto f() -> Repo*`: the type follows the parameters.
     if ty.kind() == "placeholder_type_specifier"
         && let Some(trailing) = declarator
-            .and_then(|declarator| c_first_descendant(declarator, &["trailing_return_type"]))
-        && let Some(written) = c_direct_child(trailing, &["type_descriptor"])
+            .and_then(|declarator| first_descendant(declarator, &["trailing_return_type"]))
+        && let Some(written) = direct_child(trailing, &["type_descriptor"])
     {
         return Some(node_text(written, source).trim().to_string());
     }
@@ -1857,7 +1782,7 @@ fn c_collect_objc_classes(node: tree_sitter::Node<'_>, source: &[u8], names: &mu
     if matches!(
         node.kind(),
         "class_interface" | "class_implementation" | "category_interface"
-    ) && let Some(name) = c_direct_child_text(node, source, &["identifier"])
+    ) && let Some(name) = direct_child_text(node, source, &["identifier"])
     {
         names.insert(name.trim().to_string());
     }
@@ -1961,7 +1886,7 @@ fn c_decl_type(
     };
     let smart_pointee = |template: tree_sitter::Node<'_>| {
         let arguments = template.child_by_field_name("arguments")?;
-        let argument = c_direct_child(arguments, &["type_descriptor"])?;
+        let argument = direct_child(arguments, &["type_descriptor"])?;
         Some(c_decl_type(
             argument.child_by_field_name("type")?,
             source,
@@ -2056,7 +1981,7 @@ fn c_value_binding(value: tree_sitter::Node<'_>, context: &CParseContext<'_>) ->
                 })
             {
                 let arguments = callee.child_by_field_name("arguments")?;
-                let argument = c_direct_child(arguments, &["type_descriptor"])?;
+                let argument = direct_child(arguments, &["type_descriptor"])?;
                 return class(argument.child_by_field_name("type")?);
             }
             // `Repo(1)` constructs a class of this file.
@@ -2162,9 +2087,9 @@ fn c_bind_parameters(node: tree_sitter::Node<'_>, context: &CParseContext<'_>) {
                 continue;
             }
             let (Some(name), Some(ty)) = (
-                c_direct_child_text(parameter, source, &["identifier"]),
-                c_direct_child(parameter, &["method_type"])
-                    .and_then(|ty| c_direct_child(ty, &["type_name"]))
+                direct_child_text(parameter, source, &["identifier"]),
+                direct_child(parameter, &["method_type"])
+                    .and_then(|ty| direct_child(ty, &["type_name"]))
                     .and_then(|ty| ty.named_child(0)),
             ) else {
                 continue;
@@ -2183,7 +2108,7 @@ fn c_bind_parameters(node: tree_sitter::Node<'_>, context: &CParseContext<'_>) {
             if declarator.kind() == "function_declarator" {
                 Some(declarator)
             } else {
-                c_first_descendant(declarator, &["function_declarator"])
+                first_descendant(declarator, &["function_declarator"])
             }
         })
         .and_then(|declarator| declarator.child_by_field_name("parameters"))

@@ -1,7 +1,5 @@
-use serde_json::json;
-
 use super::types::{FilePath, ParsedEdge, ParsedNode};
-use super::util::{is_test_file, line_count};
+use super::util::line_count;
 
 pub(super) fn parse_powershell_with_parser(
     file_path: &str,
@@ -23,20 +21,7 @@ fn parse_tree_sitter_file_only_with_parser(
     }
     let line_end = line_count(source);
     (
-        vec![ParsedNode {
-            kind: crate::core::types::NodeKind::File,
-            name: file_path.to_string(),
-            file_path: file_path.clone(),
-            line_start: 1,
-            line_end,
-            language: language.to_string(),
-            parent_name: None,
-            params: None,
-            return_type: None,
-            modifiers: None,
-            is_test: is_test_file(&file_path),
-            extra: json!({}),
-        }],
+        vec![ParsedNode::file(&file_path, line_end, language)],
         Vec::new(),
     )
 }

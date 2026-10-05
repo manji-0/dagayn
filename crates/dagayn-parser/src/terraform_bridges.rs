@@ -11,7 +11,9 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde_json::json;
 
-use super::terraform_collect::{TerraformBlock, strip_tf_string, terraform_attrs};
+use super::terraform_collect::{
+    TerraformBlock, find_matching_brace, strip_tf_string, terraform_attrs,
+};
 use super::types::{EdgeKind, FilePath, ParsedEdge};
 use super::util::normalize_relative_path;
 
@@ -326,54 +328,4 @@ fn target_language_for_path(path: &str) -> &'static str {
     } else {
         "unknown"
     }
-}
-
-fn find_matching_brace(text: &str, open: usize) -> Option<usize> {
-    let mut depth = 0_i64;
-    let mut in_string: Option<char> = None;
-    let mut escaped = false;
-    let mut in_line_comment = false;
-    let mut chars = text.char_indices().peekable();
-    while let Some((idx, ch)) = chars.next() {
-        if idx < open {
-            continue;
-        }
-        if in_line_comment {
-            if ch == '\n' {
-                in_line_comment = false;
-            }
-            continue;
-        }
-        if let Some(quote) = in_string {
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == quote {
-                in_string = None;
-            }
-            continue;
-        }
-        if ch == '"' || ch == '\'' {
-            in_string = Some(ch);
-            continue;
-        }
-        if ch == '#' {
-            in_line_comment = true;
-            continue;
-        }
-        if ch == '/' && chars.peek().is_some_and(|(_, next)| *next == '/') {
-            in_line_comment = true;
-            continue;
-        }
-        if ch == '{' {
-            depth += 1;
-        } else if ch == '}' {
-            depth -= 1;
-            if depth == 0 {
-                return Some(idx);
-            }
-        }
-    }
-    None
 }

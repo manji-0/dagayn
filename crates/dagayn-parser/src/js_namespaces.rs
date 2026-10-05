@@ -125,14 +125,13 @@ pub(super) fn javascript_emit_namespace_body(
                     extra: json!({"type_role": role}),
                 },
             );
-            edges.push(ParsedEdge {
-                kind: crate::core::types::EdgeKind::Contains,
-                source: javascript_container_qn(context, owner.as_deref()),
-                target: qualify(&context.file_path, segment, owner.as_deref()),
-                file_path: context.file_path.clone(),
-                line: line_start,
-                extra: json!({}),
-            });
+            edges.push(ParsedEdge::new(
+                crate::core::types::EdgeKind::Contains,
+                javascript_container_qn(context, owner.as_deref()),
+                qualify(&context.file_path, segment, owner.as_deref()),
+                context.file_path.clone(),
+                line_start,
+            ));
         }
         owner = Some(javascript_member_owner(owner.as_deref(), segment));
     }

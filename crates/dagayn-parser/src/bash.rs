@@ -6,9 +6,7 @@ use serde_json::json;
 use super::stdlib::bash::is_bash_builtin;
 use super::stdlib::{StdlibEvidence, mark_stdlib_edge};
 use super::types::{FilePath, ParsedEdge, ParsedNode};
-use super::util::{
-    is_test_file, line_count, node_text, normalize_relative_path, strip_matching_quotes,
-};
+use super::util::{line_count, line_of, node_text, normalize_relative_path, strip_matching_quotes};
 use super::{qualify, resolve_rust_call_targets};
 
 pub(super) fn parse_bash_with_parser(
@@ -19,20 +17,7 @@ pub(super) fn parse_bash_with_parser(
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let file_path = FilePath::new(file_path);
     let line_end = line_count(source);
-    let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File,
-        name: file_path.to_string(),
-        file_path: file_path.clone(),
-        line_start: 1,
-        line_end,
-        language: "bash".to_string(),
-        parent_name: None,
-        params: None,
-        return_type: None,
-        modifiers: None,
-        is_test: is_test_file(&file_path),
-        extra: json!({}),
-    }];
+    let mut nodes = vec![ParsedNode::file(&file_path, line_end, "bash")];
     let mut edges = Vec::new();
 
     if let Some(parser) = parser
@@ -79,14 +64,13 @@ fn bash_walk_children(
                         is_test: false,
                         extra: json!({}),
                     });
-                    edges.push(ParsedEdge {
-                        kind: crate::core::types::EdgeKind::Contains,
-                        source: file_path.to_string(),
-                        target: qualified,
-                        file_path: file_path.clone(),
-                        line: child.start_position().row as i64 + 1,
-                        extra: json!({}),
-                    });
+                    edges.push(ParsedEdge::new(
+                        crate::core::types::EdgeKind::Contains,
+                        file_path.to_string(),
+                        qualified,
+                        file_path.clone(),
+                        line_of(child),
+                    ));
                     bash_walk_children(
                         child,
                         source,
@@ -163,14 +147,13 @@ fn bash_emit_command(
     };
     if matches!(command_name.as_str(), "source" | ".") {
         if let Some(target) = bash_first_command_arg(node, source) {
-            edges.push(ParsedEdge {
-                kind: crate::core::types::EdgeKind::ImportsFrom,
-                source: file_path.to_string(),
-                target: resolve_bash_source_target(&target, file_path, repo_root).unwrap_or(target),
-                file_path: file_path.clone(),
-                line: node.start_position().row as i64 + 1,
-                extra: json!({}),
-            });
+            edges.push(ParsedEdge::new(
+                crate::core::types::EdgeKind::ImportsFrom,
+                file_path.to_string(),
+                resolve_bash_source_target(&target, file_path, repo_root).unwrap_or(target),
+                file_path.clone(),
+                line_of(node),
+            ));
         }
         return;
     }
@@ -191,14 +174,13 @@ fn bash_emit_command(
     let caller = enclosing_func
         .map(|func| qualify(file_path, func, None))
         .unwrap_or_else(|| file_path.to_string());
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Calls,
-        source: caller,
-        target: command_name,
-        file_path: file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Calls,
+        caller,
+        command_name,
+        file_path.clone(),
+        line_of(node),
+    ));
 }
 
 fn bash_command_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {

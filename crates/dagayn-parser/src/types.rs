@@ -221,6 +221,26 @@ pub struct ParsedNode {
     pub extra: Value,
 }
 
+impl ParsedNode {
+    /// The `File` node for `file_path`, spanning lines 1 to `line_end`.
+    pub fn file(file_path: &FilePath, line_end: i64, language: &str) -> Self {
+        Self {
+            kind: NodeKind::File,
+            name: file_path.to_string(),
+            file_path: file_path.clone(),
+            line_start: 1,
+            line_end,
+            language: language.to_string(),
+            parent_name: None,
+            params: None,
+            return_type: None,
+            modifiers: None,
+            is_test: super::util::is_test_file(file_path),
+            extra: serde_json::json!({}),
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct ParsedEdge {
     pub kind: EdgeKind,
@@ -229,6 +249,26 @@ pub struct ParsedEdge {
     pub file_path: FilePath,
     pub line: i64,
     pub extra: Value,
+}
+
+impl ParsedEdge {
+    /// An edge with no `extra` attributes.
+    pub fn new(
+        kind: EdgeKind,
+        source: String,
+        target: String,
+        file_path: FilePath,
+        line: i64,
+    ) -> Self {
+        Self {
+            kind,
+            source,
+            target,
+            file_path,
+            line,
+            extra: serde_json::json!({}),
+        }
+    }
 }
 
 #[cfg(test)]

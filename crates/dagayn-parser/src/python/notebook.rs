@@ -330,14 +330,13 @@ fn push_sql_table_imports(file_path: &FilePath, sql: &str, edges: &mut Vec<Parse
         let Some(target) = captures.get(1).map(|capture| capture.as_str()) else {
             continue;
         };
-        edges.push(ParsedEdge {
-            kind: crate::core::types::EdgeKind::ImportsFrom,
-            source: file_path.to_string(),
-            target: target.replace('`', ""),
-            file_path: file_path.clone(),
-            line: 1,
-            extra: json!({}),
-        });
+        edges.push(ParsedEdge::new(
+            crate::core::types::EdgeKind::ImportsFrom,
+            file_path.to_string(),
+            target.replace('`', ""),
+            file_path.clone(),
+            1,
+        ));
     }
 }
 
@@ -706,14 +705,13 @@ fn parse_databricks_r_cells(
                 is_test: false,
                 extra: json!({}),
             });
-            edges.push(ParsedEdge {
-                kind: crate::core::types::EdgeKind::Contains,
-                source: file_path.to_string(),
-                target: qualified.clone(),
-                file_path: file_path.clone(),
-                line: line_no,
-                extra: json!({}),
-            });
+            edges.push(ParsedEdge::new(
+                crate::core::types::EdgeKind::Contains,
+                file_path.to_string(),
+                qualified.clone(),
+                file_path.clone(),
+                line_no,
+            ));
             current_function = Some(qualified);
             continue;
         }
@@ -727,14 +725,13 @@ fn parse_databricks_r_cells(
             if name == "function" {
                 continue;
             }
-            edges.push(ParsedEdge {
-                kind: crate::core::types::EdgeKind::Calls,
-                source: caller.clone(),
-                target: name.to_string(),
-                file_path: file_path.clone(),
-                line: line_no,
-                extra: json!({}),
-            });
+            edges.push(ParsedEdge::new(
+                crate::core::types::EdgeKind::Calls,
+                caller.clone(),
+                name.to_string(),
+                file_path.clone(),
+                line_no,
+            ));
         }
     }
     (nodes, edges, offsets, current_line)
@@ -773,14 +770,13 @@ fn extract_databricks_sql_imports(
         let Some(target) = captures.get(1).map(|capture| capture.as_str()) else {
             continue;
         };
-        edges.push(ParsedEdge {
-            kind: crate::core::types::EdgeKind::ImportsFrom,
-            source: file_path.to_string(),
-            target: target.replace('`', ""),
-            file_path: file_path.clone(),
-            line: 1,
-            extra: json!({}),
-        });
+        edges.push(ParsedEdge::new(
+            crate::core::types::EdgeKind::ImportsFrom,
+            file_path.to_string(),
+            target.replace('`', ""),
+            file_path.clone(),
+            1,
+        ));
     }
 }
 
@@ -903,13 +899,12 @@ fn synthesize_named_notebook_cells(
             is_test,
             extra,
         });
-        edges.push(ParsedEdge {
-            kind: crate::core::types::EdgeKind::Contains,
-            source: file_path.to_string(),
-            target: qualified,
-            file_path: file_path.clone(),
-            line: line_start,
-            extra: json!({}),
-        });
+        edges.push(ParsedEdge::new(
+            crate::core::types::EdgeKind::Contains,
+            file_path.to_string(),
+            qualified,
+            file_path.clone(),
+            line_start,
+        ));
     }
 }

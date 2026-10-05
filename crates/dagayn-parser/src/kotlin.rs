@@ -14,7 +14,8 @@ use super::stdlib::kotlin::{
 use super::stdlib::{StdlibEvidence, mark_stdlib_edge};
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{
-    collect_namespace_paths, is_test_file, line_count, node_text, set_declared_namespaces,
+    collect_namespace_paths, direct_child, direct_child_text, first_descendant,
+    last_descendant_text, line_count, line_of, node_text, set_declared_namespaces,
     strip_matching_quotes, type_name_without_arguments,
 };
 use super::{qualify, resolve_rust_call_targets};
@@ -26,20 +27,7 @@ pub(super) fn parse_kotlin_with_parser(
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let file_path = FilePath::new(file_path);
     let line_end = line_count(source);
-    let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File,
-        name: file_path.to_string(),
-        file_path: file_path.clone(),
-        line_start: 1,
-        line_end,
-        language: "kotlin".to_string(),
-        parent_name: None,
-        params: None,
-        return_type: None,
-        modifiers: None,
-        is_test: is_test_file(&file_path),
-        extra: json!({}),
-    }];
+    let mut nodes = vec![ParsedNode::file(&file_path, line_end, "kotlin")];
     let mut edges = Vec::new();
 
     if let Some(parser) = parser
@@ -108,7 +96,7 @@ fn kotlin_walk_children(
                 kotlin_emit_import(child, source, file_path, edges);
             }
             "class_declaration" | "object_declaration" => {
-                if let Some(name) = kotlin_direct_child_text(child, source, &["type_identifier"]) {
+                if let Some(name) = direct_child_text(child, source, &["type_identifier"]) {
                     kotlin_emit_type(child, source, file_path, &name, owner(), nodes, edges);
                     let path = match owner() {
                         Some(parent) => format!("{parent}.{name}"),
@@ -150,8 +138,7 @@ fn kotlin_walk_children(
                 continue;
             }
             "function_declaration" => {
-                if let Some(name) = kotlin_direct_child_text(child, source, &["simple_identifier"])
-                {
+                if let Some(name) = direct_child_text(child, source, &["simple_identifier"]) {
                     kotlin_emit_function(child, source, file_path, &name, owner(), nodes, edges);
                     kotlin_walk_children(
                         child,
@@ -232,7 +219,7 @@ fn kotlin_is_wildcard_import(node: tree_sitter::Node<'_>, source: &[u8]) -> bool
 /// The whole statement used to be the target, so `import java.util.UUID`
 /// could never match a package index entry.
 fn kotlin_import_target(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let target = kotlin_direct_child_text(node, source, &["identifier"])?;
+    let target = direct_child_text(node, source, &["identifier"])?;
     let target = target.trim();
     (!target.is_empty()).then(|| target.to_string())
 }
@@ -262,16 +249,15 @@ fn kotlin_emit_type(
         is_test: false,
         extra,
     });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: enclosing_class
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        enclosing_class
             .map(|parent| qualify(file_path, parent, None))
             .unwrap_or_else(|| file_path.to_string()),
-        target: qualified.clone(),
-        file_path: file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+        qualified.clone(),
+        file_path.clone(),
+        line_of(node),
+    ));
     let mut cursor = node.walk();
     for specifier in node.children(&mut cursor) {
         if specifier.kind() != "delegation_specifier" {
@@ -279,9 +265,9 @@ fn kotlin_emit_type(
         }
         // `Base(a)` invokes a superclass constructor; a bare type names an
         // interface (or a delegated one via `by`).
-        let invocation = kotlin_direct_child(specifier, &["constructor_invocation"]);
+        let invocation = direct_child(specifier, &["constructor_invocation"]);
         let is_class = invocation.is_some();
-        let Some(target) = kotlin_direct_child(invocation.unwrap_or(specifier), &["user_type"])
+        let Some(target) = direct_child(invocation.unwrap_or(specifier), &["user_type"])
             .and_then(|user_type| type_name_without_arguments(user_type, source))
         else {
             continue;
@@ -306,7 +292,7 @@ fn kotlin_emit_type(
 }
 
 fn kotlin_class_modifiers(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
-    let Some(modifiers) = kotlin_direct_child(node, &["modifiers"]) else {
+    let Some(modifiers) = direct_child(node, &["modifiers"]) else {
         return Vec::new();
     };
     let mut cursor = modifiers.walk();
@@ -379,16 +365,15 @@ fn kotlin_emit_function(
         is_test: false,
         extra,
     });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: enclosing_class
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        enclosing_class
             .map(|class| qualify(file_path, class, None))
             .unwrap_or_else(|| file_path.to_string()),
-        target: qualified,
-        file_path: file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+        qualified,
+        file_path.clone(),
+        line_of(node),
+    ));
 }
 
 /// The class path an `external fun` belongs to on the JVM: the enclosing
@@ -402,7 +387,7 @@ fn kotlin_jni_owner(
     if node.kind() != "function_declaration" {
         return None;
     }
-    let modifiers = kotlin_direct_child(node, &["modifiers"])?;
+    let modifiers = direct_child(node, &["modifiers"])?;
     let mut external = false;
     let mut jvm_static = false;
     let mut cursor = modifiers.walk();
@@ -429,7 +414,7 @@ fn kotlin_jni_owner(
         match current.kind() {
             "companion_object" => {
                 if !jvm_static {
-                    let name = kotlin_direct_child_text(current, source, &["type_identifier"]);
+                    let name = direct_child_text(current, source, &["type_identifier"]);
                     owner.push('.');
                     owner.push_str(name.as_deref().unwrap_or("Companion"));
                 }
@@ -451,8 +436,8 @@ fn kotlin_name_jni_symbols(
     file_path: &FilePath,
     nodes: &mut [ParsedNode],
 ) {
-    let package = kotlin_direct_child(root, &["package_header"])
-        .and_then(|header| kotlin_direct_child_text(header, source, &["identifier"]));
+    let package = direct_child(root, &["package_header"])
+        .and_then(|header| direct_child_text(header, source, &["identifier"]));
     let facade = kotlin_file_facade(root, source, file_path);
     for node in nodes.iter_mut() {
         let Some(import) = node.extra.get_mut("ffi_import") else {
@@ -553,7 +538,7 @@ fn kotlin_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String
     if callee.kind() == "simple_identifier" {
         return Some(node_text(callee, source));
     }
-    kotlin_last_descendant_text(callee, source, &["simple_identifier", "type_identifier"])
+    last_descendant_text(callee, source, &["simple_identifier", "type_identifier"])
 }
 
 fn kotlin_call_signature(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
@@ -616,8 +601,8 @@ fn kotlin_bridge_edge(
 }
 
 fn kotlin_first_string_arg(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let suffix = kotlin_direct_child(node, &["call_suffix"])?;
-    let arguments = kotlin_first_descendant(suffix, &["value_arguments"])?;
+    let suffix = direct_child(node, &["call_suffix"])?;
+    let arguments = first_descendant(suffix, &["value_arguments"])?;
     let mut cursor = arguments.walk();
     for child in arguments.children(&mut cursor) {
         if matches!(child.kind(), "," | "(" | ")") {
@@ -637,7 +622,7 @@ fn kotlin_first_string_arg(node: tree_sitter::Node<'_>, source: &[u8]) -> Option
 }
 
 fn kotlin_string_text(node: tree_sitter::Node<'_>, source: &[u8]) -> String {
-    if let Some(content) = kotlin_first_descendant(node, &["string_content"]) {
+    if let Some(content) = first_descendant(node, &["string_content"]) {
         return node_text(content, source);
     }
     strip_matching_quotes(node_text(node, source).trim()).to_string()
@@ -650,58 +635,6 @@ fn kotlin_first_non_punctuation_child<'a>(
 
     node.children(&mut cursor)
         .find(|child| !matches!(child.kind(), "," | "(" | ")"))
-}
-
-fn kotlin_direct_child<'a>(
-    node: tree_sitter::Node<'a>,
-    kinds: &[&str],
-) -> Option<tree_sitter::Node<'a>> {
-    let mut cursor = node.walk();
-
-    node.children(&mut cursor)
-        .find(|child| kinds.contains(&child.kind()))
-}
-
-fn kotlin_direct_child_text(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-) -> Option<String> {
-    kotlin_direct_child(node, kinds).map(|child| node_text(child, source))
-}
-
-fn kotlin_first_descendant<'a>(
-    node: tree_sitter::Node<'a>,
-    kinds: &[&str],
-) -> Option<tree_sitter::Node<'a>> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if kinds.contains(&child.kind()) {
-            return Some(child);
-        }
-        if let Some(found) = kotlin_first_descendant(child, kinds) {
-            return Some(found);
-        }
-    }
-    None
-}
-
-fn kotlin_last_descendant_text(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-) -> Option<String> {
-    let mut found = None;
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if kinds.contains(&child.kind()) {
-            found = Some(node_text(child, source));
-        }
-        if let Some(value) = kotlin_last_descendant_text(child, source, kinds) {
-            found = Some(value);
-        }
-    }
-    found
 }
 
 /// The names of a file that decide whether a call reaches the standard
@@ -729,7 +662,7 @@ struct KotlinStdlibScope {
 impl KotlinStdlibScope {
     fn collect(root: tree_sitter::Node<'_>, source: &[u8]) -> Self {
         let mut scope = Self::default();
-        if let Some(imports) = kotlin_direct_child(root, &["import_list"]) {
+        if let Some(imports) = direct_child(root, &["import_list"]) {
             let mut cursor = imports.walk();
             for header in imports.children(&mut cursor) {
                 scope.add_import(header, source);
@@ -760,13 +693,9 @@ impl KotlinStdlibScope {
             }
             return;
         }
-        let name = kotlin_direct_child(header, &["import_alias"])
+        let name = direct_child(header, &["import_alias"])
             .and_then(|alias| {
-                kotlin_last_descendant_text(
-                    alias,
-                    source,
-                    &["type_identifier", "simple_identifier"],
-                )
+                last_descendant_text(alias, source, &["type_identifier", "simple_identifier"])
             })
             .unwrap_or_else(|| path.rsplit('.').next().unwrap_or(&path).to_string());
         self.imported.insert(name, stdlib.then_some(path));
@@ -807,9 +736,9 @@ fn kotlin_collect_declared_names(
 ) {
     let name = match node.kind() {
         "class_declaration" | "object_declaration" | "type_alias" | "type_parameter" => {
-            kotlin_direct_child_text(node, source, &["type_identifier"])
+            direct_child_text(node, source, &["type_identifier"])
         }
-        "function_declaration" => kotlin_direct_child_text(node, source, &["simple_identifier"]),
+        "function_declaration" => direct_child_text(node, source, &["simple_identifier"]),
         _ => None,
     };
     names.extend(name);
@@ -914,12 +843,8 @@ fn kotlin_dotted_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<Vec<
         "simple_identifier" => Some(vec![node_text(node, source)]),
         "navigation_expression" => {
             let mut segments = kotlin_dotted_name(node.named_child(0)?, source)?;
-            let suffix = kotlin_direct_child(node, &["navigation_suffix"])?;
-            segments.push(kotlin_direct_child_text(
-                suffix,
-                source,
-                &["simple_identifier"],
-            )?);
+            let suffix = direct_child(node, &["navigation_suffix"])?;
+            segments.push(direct_child_text(suffix, source, &["simple_identifier"])?);
             Some(segments)
         }
         _ => None,
@@ -967,8 +892,8 @@ fn kotlin_constructed_class(value: tree_sitter::Node<'_>, source: &[u8]) -> Opti
 /// The class a type annotation names (`Repo` for `Repo?`, `List` for
 /// `List<Int>`).
 fn kotlin_annotated_class(declaration: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    kotlin_direct_child(declaration, &["user_type", "nullable_type"])
-        .and_then(|ty| kotlin_first_descendant(ty, &["type_identifier"]))
+    direct_child(declaration, &["user_type", "nullable_type"])
+        .and_then(|ty| first_descendant(ty, &["type_identifier"]))
         .map(|ty| node_text(ty, source))
 }
 
@@ -979,10 +904,8 @@ fn kotlin_property_named<'a>(
     name: &str,
     source: &[u8],
 ) -> Option<KotlinDeclared<'a>> {
-    let declaration = kotlin_direct_child(property, &["variable_declaration"])?;
-    if kotlin_direct_child_text(declaration, source, &["simple_identifier"]).as_deref()
-        != Some(name)
-    {
+    let declaration = direct_child(property, &["variable_declaration"])?;
+    if direct_child_text(declaration, source, &["simple_identifier"]).as_deref() != Some(name) {
         return None;
     }
     if let Some(class) = kotlin_annotated_class(declaration, source) {
@@ -1005,7 +928,7 @@ fn kotlin_variable_declaration<'a>(
     source: &[u8],
 ) -> Option<KotlinDeclared<'a>> {
     let names_it = |declaration: tree_sitter::Node<'_>| {
-        kotlin_direct_child_text(declaration, source, &["simple_identifier"])
+        direct_child_text(declaration, source, &["simple_identifier"])
             .is_some_and(|var| var == name)
     };
     let mut current = node;
@@ -1074,7 +997,7 @@ fn kotlin_collect_class_names(
     names: &mut HashSet<String>,
 ) {
     if matches!(node.kind(), "class_declaration" | "object_declaration") {
-        names.extend(kotlin_direct_child_text(node, source, &["type_identifier"]));
+        names.extend(direct_child_text(node, source, &["type_identifier"]));
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
@@ -1158,16 +1081,14 @@ fn kotlin_expression_receiver(
         "navigation_expression" => {
             let Some(segments) = kotlin_dotted_name(expression, source) else {
                 return match expression.named_child(0).map(|inner| inner.kind()) {
-                    Some("this_expression") => {
-                        kotlin_direct_child(expression, &["navigation_suffix"])
-                            .and_then(|suffix| {
-                                kotlin_direct_child_text(suffix, source, &["simple_identifier"])
-                            })
-                            .and_then(|field| kotlin_property_declaration(at, &field, source))
-                            .map_or(JvmReceiver::Unknown(None), |declared| {
-                                kotlin_declared_receiver(declared, source, scope)
-                            })
-                    }
+                    Some("this_expression") => direct_child(expression, &["navigation_suffix"])
+                        .and_then(|suffix| {
+                            direct_child_text(suffix, source, &["simple_identifier"])
+                        })
+                        .and_then(|field| kotlin_property_declaration(at, &field, source))
+                        .map_or(JvmReceiver::Unknown(None), |declared| {
+                            kotlin_declared_receiver(declared, source, scope)
+                        }),
                     _ => JvmReceiver::Unknown(None),
                 };
             };
@@ -1187,8 +1108,8 @@ fn kotlin_expression_receiver(
             Some(class) => kotlin_class_receiver(&class, scope),
             None => JvmReceiver::Unknown(kotlin_call_origin(expression, source)),
         },
-        "as_expression" => kotlin_direct_child(expression, &["user_type", "nullable_type"])
-            .and_then(|ty| kotlin_first_descendant(ty, &["type_identifier"]))
+        "as_expression" => direct_child(expression, &["user_type", "nullable_type"])
+            .and_then(|ty| first_descendant(ty, &["type_identifier"]))
             .map_or(JvmReceiver::Known, |ty| {
                 kotlin_class_receiver(&node_text(ty, source), scope)
             }),

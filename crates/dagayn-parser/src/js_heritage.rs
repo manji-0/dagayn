@@ -41,14 +41,13 @@ pub(super) fn emit_javascript_inheritance_edges(
     }
     javascript_emit_heritage_type_references(node, qualified, context, edges);
     for (callee, line) in mixin_calls {
-        edges.push(ParsedEdge {
-            kind: crate::core::types::EdgeKind::Calls,
-            source: qualified.to_string(),
-            target: resolve_javascript_call_target(&callee, context),
-            file_path: context.file_path.clone(),
+        edges.push(ParsedEdge::new(
+            crate::core::types::EdgeKind::Calls,
+            qualified.to_string(),
+            resolve_javascript_call_target(&callee, context),
+            context.file_path.clone(),
             line,
-            extra: json!({}),
-        });
+        ));
     }
 }
 

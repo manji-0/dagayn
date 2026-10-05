@@ -11,8 +11,9 @@ use super::stdlib::java::{
 use super::stdlib::{StdlibEvidence, mark_stdlib_edge};
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{
-    collect_namespace_paths, is_test_file, line_count, node_text, normalize_relative_path,
-    set_declared_namespaces, strip_matching_quotes, type_name_without_arguments,
+    collect_namespace_paths, direct_child_text, line_count, line_of, node_text,
+    normalize_relative_path, set_declared_namespaces, strip_matching_quotes,
+    type_name_without_arguments,
 };
 use super::{qualify, resolve_rust_call_targets};
 
@@ -38,20 +39,7 @@ pub(super) fn parse_java_with_parser(
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let file_path = FilePath::new(file_path);
     let line_end = line_count(source);
-    let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File,
-        name: file_path.to_string(),
-        file_path: file_path.clone(),
-        line_start: 1,
-        line_end,
-        language: "java".to_string(),
-        parent_name: None,
-        params: None,
-        return_type: None,
-        modifiers: None,
-        is_test: is_test_file(&file_path),
-        extra: json!({}),
-    }];
+    let mut nodes = vec![ParsedNode::file(&file_path, line_end, "java")];
     let mut edges = Vec::new();
 
     if let Some(parser) = parser
@@ -353,16 +341,15 @@ fn java_emit_type(
         is_test: false,
         extra,
     });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: enclosing_class
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        enclosing_class
             .map(|parent| qualify(file_path, parent, None))
             .unwrap_or_else(|| file_path.to_string()),
-        target: qualified.clone(),
-        file_path: file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+        qualified.clone(),
+        file_path.clone(),
+        line_of(node),
+    ));
     for (base, role) in java_bases(node, source) {
         edges.push(ParsedEdge {
             kind: if role == "implements" {
@@ -383,7 +370,7 @@ fn java_emit_type(
 }
 
 fn java_type_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    java_direct_child_text(node, source, &["identifier", "type_identifier"])
+    direct_child_text(node, source, &["identifier", "type_identifier"])
 }
 
 fn java_type_role(node: tree_sitter::Node<'_>, source: &[u8]) -> (&'static str, bool, bool) {
@@ -396,7 +383,7 @@ fn java_type_role(node: tree_sitter::Node<'_>, source: &[u8]) -> (&'static str, 
     if node.kind() == "record_declaration" {
         return ("record", false, false);
     }
-    let is_abstract = java_direct_child_text(node, source, &["modifiers"])
+    let is_abstract = direct_child_text(node, source, &["modifiers"])
         .is_some_and(|mods| mods.split_whitespace().any(|part| part == "abstract"));
     if is_abstract {
         ("abstract_class", true, false)
@@ -474,7 +461,7 @@ fn java_emit_function(
         line_end: node.end_position().row as i64 + 1,
         language: "java".to_string(),
         parent_name: enclosing_class.map(str::to_string),
-        params: java_direct_child_text(node, source, &["formal_parameters"]),
+        params: direct_child_text(node, source, &["formal_parameters"]),
         // As written (`List<User>`, `Optional<Repo>`): resolution across
         // files types what a call of this method returns by it.
         return_type: (node.kind() == "method_declaration")
@@ -484,16 +471,15 @@ fn java_emit_function(
         is_test: false,
         extra,
     });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: enclosing_class
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        enclosing_class
             .map(|class| qualify(file_path, class, None))
             .unwrap_or_else(|| file_path.to_string()),
-        target: qualified,
-        file_path: file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+        qualified,
+        file_path.clone(),
+        line_of(node),
+    ));
 }
 
 fn java_is_native(node: tree_sitter::Node<'_>) -> bool {
@@ -513,7 +499,7 @@ fn java_package(root: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     let declaration = root
         .children(&mut cursor)
         .find(|child| child.kind() == "package_declaration")?;
-    java_direct_child_text(declaration, source, &["scoped_identifier", "identifier"])
+    direct_child_text(declaration, source, &["scoped_identifier", "identifier"])
 }
 
 fn java_scope_join(enclosing: Option<&str>, name: &str) -> String {
@@ -562,29 +548,27 @@ fn java_emit_anonymous_class(
         is_test: false,
         extra: json!({"type_role": "class", "is_anonymous": true}),
     });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: owner
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        owner
             .map(|owner| qualify(file_path, owner, None))
             .unwrap_or_else(|| file_path.to_string()),
-        target: qualified.clone(),
-        file_path: file_path.clone(),
+        qualified.clone(),
+        file_path.clone(),
         line,
-        extra: json!({}),
-    });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Inherits,
-        source: qualified,
-        target: base.to_string(),
-        file_path: file_path.clone(),
+    ));
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Inherits,
+        qualified,
+        base.to_string(),
+        file_path.clone(),
         line,
-        extra: json!({}),
-    });
+    ));
 }
 
 fn java_function_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     java_field_text(node, source, "name")
-        .or_else(|| java_direct_child_text(node, source, &["identifier"]))
+        .or_else(|| direct_child_text(node, source, &["identifier"]))
 }
 
 fn java_field_text(node: tree_sitter::Node<'_>, source: &[u8], field: &str) -> Option<String> {
@@ -728,20 +712,6 @@ fn java_string_text(node: tree_sitter::Node<'_>, source: &[u8]) -> String {
     strip_matching_quotes(node_text(node, source).trim()).to_string()
 }
 
-fn java_direct_child_text(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-) -> Option<String> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if kinds.contains(&child.kind()) {
-            return Some(node_text(child, source));
-        }
-    }
-    None
-}
-
 /// The names of a file that decide whether a call reaches the Java class
 /// library: what it declares, and what its imports bind.
 #[derive(Default)]
@@ -856,7 +826,7 @@ fn java_collect_declared_names(
         names.insert(name);
     }
     if node.kind() == "type_parameter"
-        && let Some(name) = java_direct_child_text(node, source, &["type_identifier", "identifier"])
+        && let Some(name) = direct_child_text(node, source, &["type_identifier", "identifier"])
     {
         names.insert(name);
     }

@@ -8,7 +8,9 @@ use super::member_calls::{CallOrigin, MemberCallBindings};
 use super::stdlib::gdscript::{is_godot_class, is_godot_global_function};
 use super::stdlib::{StdlibEvidence, mark_stdlib_edge};
 use super::types::{FilePath, ParsedEdge, ParsedNode};
-use super::util::{is_test_file, line_count, node_text};
+use super::util::{
+    direct_child, direct_child_text, first_descendant_text, line_count, line_of, node_text,
+};
 use super::{add_tested_by_edges, is_test_function, qualify};
 
 pub(super) fn parse_gdscript_with_parser(
@@ -18,20 +20,7 @@ pub(super) fn parse_gdscript_with_parser(
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let file_path = FilePath::new(file_path);
     let line_end = line_count(source);
-    let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File,
-        name: file_path.to_string(),
-        file_path: file_path.clone(),
-        line_start: 1,
-        line_end,
-        language: "gdscript".to_string(),
-        parent_name: None,
-        params: None,
-        return_type: None,
-        modifiers: None,
-        is_test: is_test_file(&file_path),
-        extra: json!({}),
-    }];
+    let mut nodes = vec![ParsedNode::file(&file_path, line_end, "gdscript")];
     let mut edges = Vec::new();
     let mut context = GdscriptParseContext {
         source,
@@ -94,43 +83,41 @@ fn gdscript_walk_children(
         match child.kind() {
             "extends_statement" if enclosing_func.is_none() => {
                 if let Some(target) = gdscript_extends_target(child, context.source) {
-                    edges.push(ParsedEdge {
-                        kind: crate::core::types::EdgeKind::ImportsFrom,
-                        source: context.file_path.to_string(),
+                    edges.push(ParsedEdge::new(
+                        crate::core::types::EdgeKind::ImportsFrom,
+                        context.file_path.to_string(),
                         target,
-                        file_path: context.file_path.clone(),
-                        line: child.start_position().row as i64 + 1,
-                        extra: json!({}),
-                    });
+                        context.file_path.clone(),
+                        line_of(child),
+                    ));
                 }
                 continue;
             }
             "class_name_statement" => {
-                if let Some(name) = gdscript_direct_child_text(child, context.source, &["name"]) {
+                if let Some(name) = direct_child_text(child, context.source, &["name"]) {
                     gdscript_emit_class(child, context, &name, None, nodes, edges);
                 }
                 continue;
             }
             "class_definition" => {
-                if let Some(name) = gdscript_direct_child_text(child, context.source, &["name"]) {
+                if let Some(name) = direct_child_text(child, context.source, &["name"]) {
                     gdscript_emit_class(child, context, &name, enclosing_class, nodes, edges);
                     let scope = match enclosing_class {
                         Some(parent) => format!("{parent}.{name}"),
                         None => name,
                     };
-                    if let Some(target) = gdscript_direct_child(child, &["extends_statement"])
+                    if let Some(target) = direct_child(child, &["extends_statement"])
                         .and_then(|extends| gdscript_extends_target(extends, context.source))
                     {
-                        edges.push(ParsedEdge {
-                            kind: crate::core::types::EdgeKind::Inherits,
-                            source: qualify(&context.file_path, &scope, None),
+                        edges.push(ParsedEdge::new(
+                            crate::core::types::EdgeKind::Inherits,
+                            qualify(&context.file_path, &scope, None),
                             target,
-                            file_path: context.file_path.clone(),
-                            line: child.start_position().row as i64 + 1,
-                            extra: json!({}),
-                        });
+                            context.file_path.clone(),
+                            line_of(child),
+                        ));
                     }
-                    if let Some(body) = gdscript_direct_child(child, &["class_body"]) {
+                    if let Some(body) = direct_child(child, &["class_body"]) {
                         let saved = context.bindings.borrow().snapshot();
                         gdscript_walk_children(body, context, Some(&scope), None, nodes, edges);
                         context.bindings.borrow_mut().restore(saved);
@@ -139,9 +126,9 @@ fn gdscript_walk_children(
                 }
             }
             "function_definition" => {
-                if let Some(name) = gdscript_direct_child_text(child, context.source, &["name"]) {
+                if let Some(name) = direct_child_text(child, context.source, &["name"]) {
                     gdscript_emit_function(child, context, &name, enclosing_class, nodes, edges);
-                    if let Some(body) = gdscript_direct_child(child, &["body"]) {
+                    if let Some(body) = direct_child(child, &["body"]) {
                         let saved = context.bindings.borrow().snapshot();
                         if let Some(parameters) = child.child_by_field_name("parameters") {
                             gdscript_bind_parameters(parameters, context);
@@ -162,14 +149,13 @@ fn gdscript_walk_children(
             "call" | "attribute_call" => {
                 gdscript_emit_call(child, context, enclosing_class, enclosing_func, edges);
                 if let Some(path) = gdscript_preload_path(child, context.source) {
-                    edges.push(ParsedEdge {
-                        kind: crate::core::types::EdgeKind::ImportsFrom,
-                        source: context.file_path.to_string(),
-                        target: path,
-                        file_path: context.file_path.clone(),
-                        line: child.start_position().row as i64 + 1,
-                        extra: json!({}),
-                    });
+                    edges.push(ParsedEdge::new(
+                        crate::core::types::EdgeKind::ImportsFrom,
+                        context.file_path.to_string(),
+                        path,
+                        context.file_path.clone(),
+                        line_of(child),
+                    ));
                 }
             }
             _ => {}
@@ -213,16 +199,15 @@ fn gdscript_emit_class(
         is_test: false,
         extra: json!({"type_role": "class"}),
     });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: enclosing_class
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        enclosing_class
             .map(|class| qualify(&context.file_path, class, None))
             .unwrap_or_else(|| context.file_path.to_string()),
-        target: qualified,
-        file_path: context.file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+        qualified,
+        context.file_path.clone(),
+        line_of(node),
+    ));
 }
 
 fn gdscript_emit_function(
@@ -247,7 +232,7 @@ fn gdscript_emit_function(
         line_end: node.end_position().row as i64 + 1,
         language: "gdscript".to_string(),
         parent_name: enclosing_class.map(str::to_string),
-        params: gdscript_direct_child_text(node, context.source, &["parameters"]),
+        params: direct_child_text(node, context.source, &["parameters"]),
         // `func make() -> Store:`: `Store`.
         return_type: node
             .child_by_field_name("return_type")
@@ -256,16 +241,15 @@ fn gdscript_emit_function(
         is_test,
         extra: json!({}),
     });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: enclosing_class
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        enclosing_class
             .map(|class| qualify(&context.file_path, class, None))
             .unwrap_or_else(|| context.file_path.to_string()),
-        target: qualified,
-        file_path: context.file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+        qualified,
+        context.file_path.clone(),
+        line_of(node),
+    ));
 }
 
 fn gdscript_emit_call(
@@ -329,7 +313,7 @@ fn gdscript_collect_declared_names(
 ) {
     match node.kind() {
         "const_statement" | "variable_statement" | "signal_statement" | "enum_definition" => {
-            if let Some(name) = gdscript_direct_child(node, &["name"]) {
+            if let Some(name) = direct_child(node, &["name"]) {
                 names.insert(node_text(name, source));
             }
         }
@@ -339,7 +323,7 @@ fn gdscript_collect_declared_names(
                 let name = if parameter.kind() == "identifier" {
                     Some(parameter)
                 } else {
-                    gdscript_direct_child(parameter, &["identifier"])
+                    direct_child(parameter, &["identifier"])
                 };
                 if let Some(name) = name {
                     names.insert(node_text(name, source));
@@ -347,7 +331,7 @@ fn gdscript_collect_declared_names(
             }
         }
         "for_statement" => {
-            if let Some(name) = gdscript_direct_child(node, &["identifier"]) {
+            if let Some(name) = direct_child(node, &["identifier"]) {
                 names.insert(node_text(name, source));
             }
         }
@@ -425,12 +409,12 @@ fn gdscript_collect_scope_names(
     let source = context.source;
     match node.kind() {
         "class_name_statement" | "class_definition" => {
-            if let Some(name) = gdscript_direct_child_text(node, source, &["name"]) {
+            if let Some(name) = direct_child_text(node, source, &["name"]) {
                 context.class_names.insert(name);
             }
         }
         "const_statement" => {
-            if let Some(name) = gdscript_direct_child_text(node, source, &["name"]) {
+            if let Some(name) = direct_child_text(node, source, &["name"]) {
                 context.consts.insert(name);
             }
         }
@@ -454,10 +438,9 @@ fn gdscript_bind_type(
     type_node: tree_sitter::Node<'_>,
     context: &GdscriptParseContext<'_>,
 ) {
-    let Some(type_name) =
-        gdscript_first_descendant_text(type_node, context.source, &["identifier"])
-            .or_else(|| Some(node_text(type_node, context.source)))
-            .filter(|name| !name.is_empty())
+    let Some(type_name) = first_descendant_text(type_node, context.source, &["identifier"])
+        .or_else(|| Some(node_text(type_node, context.source)))
+        .filter(|name| !name.is_empty())
     else {
         return;
     };
@@ -474,8 +457,7 @@ fn gdscript_bind_type(
 fn gdscript_bind_parameters(parameters: tree_sitter::Node<'_>, context: &GdscriptParseContext<'_>) {
     let mut cursor = parameters.walk();
     for parameter in parameters.named_children(&mut cursor) {
-        let Some(name) = gdscript_direct_child_text(parameter, context.source, &["identifier"])
-        else {
+        let Some(name) = direct_child_text(parameter, context.source, &["identifier"]) else {
             continue;
         };
         match parameter
@@ -506,7 +488,7 @@ fn gdscript_constructed_class(value: tree_sitter::Node<'_>, source: &[u8]) -> Op
 /// the class its value constructs (`var s := Store.new()`), or the call its
 /// value is the result of (`var c = make()`, `var c = db.open()`).
 fn gdscript_bind_variable(node: tree_sitter::Node<'_>, context: &GdscriptParseContext<'_>) {
-    let Some(name) = gdscript_direct_child_text(node, context.source, &["name"]) else {
+    let Some(name) = direct_child_text(node, context.source, &["name"]) else {
         return;
     };
     if let Some(type_node) = node
@@ -663,11 +645,11 @@ fn gdscript_mark_receiver(
 }
 
 fn gdscript_extends_target(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    if let Some(path) = gdscript_direct_child(node, &["string"]) {
+    if let Some(path) = direct_child(node, &["string"]) {
         return gdscript_string_value(path, source);
     }
-    let type_node = gdscript_direct_child(node, &["type"])?;
-    gdscript_first_descendant_text(type_node, source, &["identifier"])
+    let type_node = direct_child(node, &["type"])?;
+    first_descendant_text(type_node, source, &["identifier"])
         .or_else(|| Some(node_text(type_node, source).trim().to_string()))
         .filter(|target| !target.is_empty())
 }
@@ -685,48 +667,13 @@ fn gdscript_preload_path(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<S
     if !matches!(name.as_str(), "preload" | "load") {
         return None;
     }
-    let arguments = gdscript_direct_child(node, &["arguments"])?;
-    let path = gdscript_direct_child(arguments, &["string"])?;
+    let arguments = direct_child(node, &["arguments"])?;
+    let path = direct_child(arguments, &["string"])?;
     gdscript_string_value(path, source)
 }
 
 fn gdscript_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    gdscript_direct_child_text(node, source, &["identifier"])
-}
-
-fn gdscript_direct_child<'a>(
-    node: tree_sitter::Node<'a>,
-    kinds: &[&str],
-) -> Option<tree_sitter::Node<'a>> {
-    let mut cursor = node.walk();
-
-    node.children(&mut cursor)
-        .find(|child| kinds.contains(&child.kind()))
-}
-
-fn gdscript_direct_child_text(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-) -> Option<String> {
-    gdscript_direct_child(node, kinds).map(|child| node_text(child, source))
-}
-
-fn gdscript_first_descendant_text(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-) -> Option<String> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if kinds.contains(&child.kind()) {
-            return Some(node_text(child, source));
-        }
-        if let Some(found) = gdscript_first_descendant_text(child, source, kinds) {
-            return Some(found);
-        }
-    }
-    None
+    direct_child_text(node, source, &["identifier"])
 }
 
 fn resolve_gdscript_call_targets(

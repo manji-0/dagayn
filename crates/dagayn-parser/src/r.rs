@@ -6,7 +6,10 @@ use super::stdlib::r::{is_r_base_package, r_default_package};
 use super::stdlib::{StdlibEvidence, mark_stdlib_edge};
 
 use super::types::{FilePath, ParsedEdge, ParsedNode};
-use super::util::{is_test_file, line_count, node_text, strip_matching_quotes};
+use super::util::{
+    direct_child, direct_child_text, first_descendant_text, line_count, line_of, node_text,
+    strip_matching_quotes,
+};
 use super::{add_tested_by_edges, is_test_function, qualify, resolve_rust_call_targets};
 
 pub(super) fn parse_r_with_parser(
@@ -16,20 +19,7 @@ pub(super) fn parse_r_with_parser(
 ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
     let file_path = FilePath::new(file_path);
     let line_end = line_count(source);
-    let mut nodes = vec![ParsedNode {
-        kind: crate::core::types::NodeKind::File,
-        name: file_path.to_string(),
-        file_path: file_path.clone(),
-        line_start: 1,
-        line_end,
-        language: "r".to_string(),
-        parent_name: None,
-        params: None,
-        return_type: None,
-        modifiers: None,
-        is_test: is_test_file(&file_path),
-        extra: json!({}),
-    }];
+    let mut nodes = vec![ParsedNode::file(&file_path, line_end, "r")];
     let mut edges = Vec::new();
     let context = RParseContext {
         source,
@@ -176,14 +166,13 @@ fn r_handle_call(
 
     if matches!(call_name.as_str(), "library" | "require" | "source") {
         if let Some(target) = r_import_target(node, context.source) {
-            let mut edge = ParsedEdge {
-                kind: crate::core::types::EdgeKind::ImportsFrom,
-                source: context.file_path.to_string(),
+            let mut edge = ParsedEdge::new(
+                crate::core::types::EdgeKind::ImportsFrom,
+                context.file_path.to_string(),
                 target,
-                file_path: context.file_path.clone(),
-                line: node.start_position().row as i64 + 1,
-                extra: json!({}),
-            };
+                context.file_path.clone(),
+                line_of(node),
+            );
             // `library(stats)` attaches a package shipped with R;
             // `source()` always reads a script.
             if call_name != "source" && is_r_base_package(&edge.target) {
@@ -280,22 +269,21 @@ fn r_emit_function(
         line_end: node.end_position().row as i64 + 1,
         language: "r".to_string(),
         parent_name: enclosing_class.map(str::to_string),
-        params: r_direct_child_text(node, context.source, &["parameters"]),
+        params: direct_child_text(node, context.source, &["parameters"]),
         return_type: None,
         modifiers: None,
         is_test,
         extra: json!({}),
     });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: enclosing_class
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        enclosing_class
             .map(|class| qualify(&context.file_path, class, None))
             .unwrap_or_else(|| context.file_path.to_string()),
-        target: qualified,
-        file_path: context.file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+        qualified,
+        context.file_path.clone(),
+        line_of(node),
+    ));
 }
 
 fn r_emit_class_call(
@@ -328,14 +316,13 @@ fn r_emit_class_call(
         is_test: false,
         extra: json!({}),
     });
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Contains,
-        source: context.file_path.to_string(),
-        target: qualified.clone(),
-        file_path: context.file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        context.file_path.to_string(),
+        qualified.clone(),
+        context.file_path.clone(),
+        line_of(node),
+    ));
     // S4/RC use `contains`; R6 uses `inherit`.
     for key in ["contains", "inherit"] {
         let Some(value) = r_find_named_arg(node, context.source, key) else {
@@ -364,7 +351,7 @@ fn r_emit_class_call(
 fn r_class_references(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
     match node.kind() {
         "identifier" => vec![node_text(node, source)],
-        "string" => r_first_descendant_text(node, source, &["string_content"])
+        "string" => first_descendant_text(node, source, &["string_content"])
             .into_iter()
             .collect(),
         "call" => {
@@ -372,11 +359,7 @@ fn r_class_references(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String>
             let mut stack = vec![node];
             while let Some(current) = stack.pop() {
                 if current.kind() == "string" {
-                    out.extend(r_first_descendant_text(
-                        current,
-                        source,
-                        &["string_content"],
-                    ));
+                    out.extend(first_descendant_text(current, source, &["string_content"]));
                     continue;
                 }
                 let mut cursor = current.walk();
@@ -426,14 +409,13 @@ fn r_emit_call(
     let caller = enclosing_func
         .map(|func| qualify(&context.file_path, func, enclosing_class))
         .unwrap_or_else(|| context.file_path.to_string());
-    edges.push(ParsedEdge {
-        kind: crate::core::types::EdgeKind::Calls,
-        source: caller.clone(),
-        target: call_name.to_string(),
-        file_path: context.file_path.clone(),
-        line: node.start_position().row as i64 + 1,
-        extra: json!({}),
-    });
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Calls,
+        caller.clone(),
+        call_name.to_string(),
+        context.file_path.clone(),
+        line_of(node),
+    ));
     if let Some(edge) = r_bridge_edge(node, context, &caller, call_name) {
         edges.push(edge);
     }
@@ -538,7 +520,7 @@ fn r_iter_args<'a>(
     call_node: tree_sitter::Node<'a>,
     source: &[u8],
 ) -> Vec<(Option<String>, tree_sitter::Node<'a>)> {
-    let Some(arguments) = r_direct_child(call_node, &["arguments"]) else {
+    let Some(arguments) = direct_child(call_node, &["arguments"]) else {
         return Vec::new();
     };
     let mut out = Vec::new();
@@ -580,48 +562,13 @@ fn r_iter_args<'a>(
 }
 
 fn r_string_text(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    r_first_descendant_text(node, source, &["string_content"])
+    first_descendant_text(node, source, &["string_content"])
         .or_else(|| Some(strip_matching_quotes(node_text(node, source).trim()).to_string()))
         .filter(|value| !value.is_empty())
-}
-
-fn r_direct_child<'a>(
-    node: tree_sitter::Node<'a>,
-    kinds: &[&str],
-) -> Option<tree_sitter::Node<'a>> {
-    let mut cursor = node.walk();
-
-    node.children(&mut cursor)
-        .find(|child| kinds.contains(&child.kind()))
-}
-
-fn r_direct_child_text(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-) -> Option<String> {
-    r_direct_child(node, kinds).map(|child| node_text(child, source))
 }
 
 fn r_first_named_child<'a>(node: tree_sitter::Node<'a>) -> Option<tree_sitter::Node<'a>> {
     let mut cursor = node.walk();
 
     node.children(&mut cursor).find(|child| child.is_named())
-}
-
-fn r_first_descendant_text(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    kinds: &[&str],
-) -> Option<String> {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if kinds.contains(&child.kind()) {
-            return Some(node_text(child, source));
-        }
-        if let Some(found) = r_first_descendant_text(child, source, kinds) {
-            return Some(found);
-        }
-    }
-    None
 }
