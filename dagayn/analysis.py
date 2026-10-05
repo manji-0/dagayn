@@ -355,60 +355,40 @@ def persist_centrality_scores(
     return {key: int(value) for key, value in scores.items()}
 
 
+#: DDL for one ranking variant; ``{s}`` is the table suffix ("" or "_code").
+_CENTRALITY_SCORE_DDL = """
+        CREATE TABLE IF NOT EXISTS hub_scores{s} (
+            qualified_name TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            in_degree INTEGER NOT NULL,
+            out_degree INTEGER NOT NULL,
+            total_degree INTEGER NOT NULL,
+            community_id INTEGER,
+            computed_at REAL NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS bridge_scores{s} (
+            qualified_name TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            betweenness REAL NOT NULL,
+            community_id INTEGER,
+            computed_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_hub_scores{s}_total_degree
+            ON hub_scores{s}(total_degree DESC);
+        CREATE INDEX IF NOT EXISTS idx_bridge_scores{s}_betweenness
+            ON bridge_scores{s}(betweenness DESC);"""
+_CENTRALITY_SCORE_SCRIPT = (
+    _CENTRALITY_SCORE_DDL.format(s="") + _CENTRALITY_SCORE_DDL.format(s="_code") + "\n        "
+)
+
+
 def _ensure_centrality_score_tables(store: GraphStore) -> None:
     with borrowed_sqlite_connection(store) as conn:
-        conn.executescript(
-            """
-        CREATE TABLE IF NOT EXISTS hub_scores (
-            qualified_name TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            kind TEXT NOT NULL,
-            file_path TEXT NOT NULL,
-            in_degree INTEGER NOT NULL,
-            out_degree INTEGER NOT NULL,
-            total_degree INTEGER NOT NULL,
-            community_id INTEGER,
-            computed_at REAL NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS bridge_scores (
-            qualified_name TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            kind TEXT NOT NULL,
-            file_path TEXT NOT NULL,
-            betweenness REAL NOT NULL,
-            community_id INTEGER,
-            computed_at REAL NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_hub_scores_total_degree
-            ON hub_scores(total_degree DESC);
-        CREATE INDEX IF NOT EXISTS idx_bridge_scores_betweenness
-            ON bridge_scores(betweenness DESC);
-        CREATE TABLE IF NOT EXISTS hub_scores_code (
-            qualified_name TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            kind TEXT NOT NULL,
-            file_path TEXT NOT NULL,
-            in_degree INTEGER NOT NULL,
-            out_degree INTEGER NOT NULL,
-            total_degree INTEGER NOT NULL,
-            community_id INTEGER,
-            computed_at REAL NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS bridge_scores_code (
-            qualified_name TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            kind TEXT NOT NULL,
-            file_path TEXT NOT NULL,
-            betweenness REAL NOT NULL,
-            community_id INTEGER,
-            computed_at REAL NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_hub_scores_code_total_degree
-            ON hub_scores_code(total_degree DESC);
-        CREATE INDEX IF NOT EXISTS idx_bridge_scores_code_betweenness
-            ON bridge_scores_code(betweenness DESC);
-        """
-        )
+        conn.executescript(_CENTRALITY_SCORE_SCRIPT)
 
 
 def _load_persisted_hub_scores(

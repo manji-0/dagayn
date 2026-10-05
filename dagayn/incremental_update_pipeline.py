@@ -346,6 +346,18 @@ def plan_incremental_reparses(state: IncrementalUpdateState) -> None:
         state.to_parse.append((rel_path, cur_mtime_ns))
 
 
+def _state_result(state: IncrementalUpdateState) -> BuildResult:
+    return BuildResult(
+        files_updated=len(state.all_files),
+        total_nodes=state.total_nodes,
+        total_edges=state.total_edges,
+        changed_files=list(state.changed_files),
+        change_file_sources=state.change_file_sources,
+        dependent_files=list(state.dependent_files),
+        errors=state.errors,
+    )
+
+
 def apply_incremental_graph_mutations(state: IncrementalUpdateState) -> BuildResult | None:
     """Apply deletions and mtime-only updates; return early if nothing left to parse."""
     state.store.remove_files_data(state.removed_files)
@@ -368,15 +380,7 @@ def apply_incremental_graph_mutations(state: IncrementalUpdateState) -> BuildRes
             diff_covers_graph=state.diff_covers_graph,
             store_failures=state.store_failures,
         )
-        return BuildResult(
-            files_updated=len(state.all_files),
-            total_nodes=state.total_nodes,
-            total_edges=state.total_edges,
-            changed_files=list(state.changed_files),
-            change_file_sources=state.change_file_sources,
-            dependent_files=list(state.dependent_files),
-            errors=state.errors,
-        )
+        return _state_result(state)
     return None
 
 
@@ -498,51 +502,11 @@ def finalize_incremental_update(state: IncrementalUpdateState) -> BuildResult:
         )
     state.store.commit()
 
-    result = BuildResult(
-        files_updated=len(state.all_files),
-        total_nodes=state.total_nodes,
-        total_edges=state.total_edges,
-        changed_files=list(state.changed_files),
-        change_file_sources=state.change_file_sources,
-        dependent_files=list(state.dependent_files),
-        errors=state.errors,
-    )
+    result = _state_result(state)
     if state.store_failures:
         result.store_failed_files = state.store_failures
         result.status = "partial"
     return result
-
-
-def execute_incremental_update(
-    repo_root: Path,
-    store: GraphStore,
-    *,
-    base: str = "HEAD~1",
-    changed_files: list[str] | None = None,
-    extra_files: list[str] | None = None,
-    change_file_sources: dict[str, list[str]] | None = None,
-) -> BuildResult:
-    """Run the incremental update pipeline."""
-    prepared = prepare_incremental_update(
-        repo_root,
-        store,
-        base=base,
-        changed_files=changed_files,
-        extra_files=extra_files,
-        change_file_sources=change_file_sources,
-    )
-    if isinstance(prepared, BuildResult):
-        return prepared
-
-    state = prepared
-    classify_incremental_changes(state)
-    plan_incremental_reparses(state)
-    early = apply_incremental_graph_mutations(state)
-    if early is not None:
-        return early
-
-    run_incremental_parsing(state)
-    return finalize_incremental_update(state)
 
 
 def incremental_update(
@@ -566,7 +530,7 @@ def incremental_update(
     discarded) is otherwise unreachable from here: the state that prescribes an
     update is one the update itself can never clear.
     """
-    return execute_incremental_update(
+    prepared = prepare_incremental_update(
         repo_root,
         store,
         base=base,
@@ -574,6 +538,18 @@ def incremental_update(
         extra_files=extra_files,
         change_file_sources=change_file_sources,
     )
+    if isinstance(prepared, BuildResult):
+        return prepared
+
+    state = prepared
+    classify_incremental_changes(state)
+    plan_incremental_reparses(state)
+    early = apply_incremental_graph_mutations(state)
+    if early is not None:
+        return early
+
+    run_incremental_parsing(state)
+    return finalize_incremental_update(state)
 
 
 # ---------------------------------------------------------------------------
@@ -650,11 +626,7 @@ def watch(
             if self._should_handle(event.src_path):
                 self._schedule(event.src_path)
 
-        def on_created(self, event):
-            if event.is_directory:
-                return
-            if self._should_handle(event.src_path):
-                self._schedule(event.src_path)
+        on_created = on_modified
 
         def on_deleted(self, event):
             if event.is_directory:

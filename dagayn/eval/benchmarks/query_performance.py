@@ -8,32 +8,16 @@ search is intentionally omitted — use ``embedding_materials``.
 from __future__ import annotations
 
 import logging
-import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+from dagayn.eval.benchmarks.mcp_latency import _first_query, _time_call
 
 logger = logging.getLogger(__name__)
 
 type BenchmarkValue = Any
 type BenchmarkPayload = dict[str, BenchmarkValue]
-
-
-def _p95(samples: list[float]) -> float:
-    if not samples:
-        return 0.0
-    ordered = sorted(samples)
-    return ordered[min(len(ordered) - 1, int(len(ordered) * 0.95))]
-
-
-def _time_repeat(fn: Callable[[], Any], repeat: int) -> tuple[float, float, float]:
-    samples: list[float] = []
-    for _ in range(max(1, repeat)):
-        started = time.perf_counter()
-        fn()
-        samples.append((time.perf_counter() - started) * 1000.0)
-    samples.sort()
-    return samples[0], samples[len(samples) // 2], _p95(samples)
 
 
 def _first_file(store: Any) -> str:
@@ -42,13 +26,6 @@ def _first_file(store: Any) -> str:
         if node.file_path:
             return str(node.file_path)
     return ""
-
-
-def _first_query(config: BenchmarkPayload) -> str:
-    queries = config.get("search_queries") or []
-    if queries:
-        return str(queries[0].get("query") or "graph")
-    return "graph"
 
 
 def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[BenchmarkPayload]:
@@ -64,7 +41,7 @@ def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[Benchmark
 
     def record(scenario: str, fn: Callable[[], Any], **extra: BenchmarkValue) -> None:
         try:
-            best_ms, median_ms, p95_ms = _time_repeat(fn, repeat)
+            best_ms, median_ms, p95_ms = _time_call(fn, repeat)
         except Exception as exc:  # noqa: BLE001
             logger.warning("query_performance %s failed: %s", scenario, exc)
             results.append(

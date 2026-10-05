@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from dagayn.embeddings import EmbeddingProvider, EmbeddingStore, embed_all_nodes
+from dagayn.eval.benchmarks._ranking import _matches_expected
 
 type BenchmarkValue = Any
 type BenchmarkPayload = dict[str, BenchmarkValue]
@@ -60,14 +61,6 @@ class _TokenHashEmbeddingProvider(EmbeddingProvider):
         for idx, value in counts.items():
             vec[idx] = value / norm
         return vec
-
-
-def _matches_expected(qualified_name: str, expected: str) -> bool:
-    qn_lower = qualified_name.lower()
-    exp_lower = expected.lower()
-    exp_name = expected.rsplit("::", 1)[-1] if "::" in expected else expected
-    qn_name = qualified_name.rsplit("::", 1)[-1] if "::" in qualified_name else qualified_name
-    return exp_lower in qn_lower or qn_lower in exp_lower or exp_name.lower() == qn_name.lower()
 
 
 def run(repo_path: Path, store, config: BenchmarkPayload) -> list[BenchmarkPayload]:

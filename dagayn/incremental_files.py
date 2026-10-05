@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -376,29 +377,19 @@ def _relativize_parsed_entities(
     nodes: list[NodeInfo], edges: list[EdgeInfo], repo_root: Path
 ) -> tuple[list[NodeInfo], list[EdgeInfo]]:
     rel_nodes = [
-        NodeInfo(
-            kind=node.kind,
-            name=node.name,
+        replace(
+            node,
             file_path=_make_repo_relative(node.file_path, repo_root),
-            line_start=node.line_start,
-            line_end=node.line_end,
-            language=node.language,
-            parent_name=node.parent_name,
-            params=node.params,
-            return_type=node.return_type,
-            modifiers=node.modifiers,
-            is_test=node.is_test,
             extra=_relativize_extra(node.extra, repo_root),
         )
         for node in nodes
     ]
     rel_edges = [
-        EdgeInfo(
-            kind=edge.kind,
+        replace(
+            edge,
             source=_make_repo_relative_qualified(edge.source, repo_root),
             target=_make_repo_relative_qualified(edge.target, repo_root),
             file_path=_make_repo_relative(edge.file_path, repo_root),
-            line=edge.line,
             extra=_relativize_extra(edge.extra, repo_root),
         )
         for edge in edges
@@ -763,14 +754,7 @@ def _get_git_worktree_change_sources(repo_root: Path) -> dict[str, list[str]]:
 
 def _dedupe_preserve_order(paths: list[str]) -> list[str]:
     """Return unique paths while preserving first-seen order."""
-    seen: set[str] = set()
-    result: list[str] = []
-    for path in paths:
-        if path in seen:
-            continue
-        seen.add(path)
-        result.append(path)
-    return result
+    return list(dict.fromkeys(paths))
 
 
 def _get_svn_changed_files(repo_root: Path, rev_range: str | None = None) -> list[str]:

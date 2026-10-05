@@ -267,37 +267,32 @@ def _worktree_mtime_fingerprint(root: Path, paths: list[str]) -> str:
     return hashlib.sha256("\n".join(parts).encode()).hexdigest()[:16]
 
 
+def _stdout_or_empty(
+    args: list[str], root: Path, encoding: str | None = None, errors: str | None = None
+) -> str:
+    """Stdout of a successful VCS command in *root*, or ``""`` on any failure."""
+    try:
+        result = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            encoding=encoding,
+            errors=errors,
+            cwd=str(root),
+            timeout=_GIT_TIMEOUT,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return result.stdout if result.returncode == 0 else ""
+
+
 def _git_diff_cache_stamp(root: Path) -> str:
     if jj_workspace.is_jj_workspace(root):
         # The snapshot commit id changes with any content change on disk.
         wc = jj_workspace.working_copy(root)
         return wc.commit if wc else "0"
-    head = ""
-    porcelain = ""
-    try:
-        head_result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            capture_output=True,
-            text=True,
-            cwd=str(root),
-            timeout=_GIT_TIMEOUT,
-        )
-        if head_result.returncode == 0:
-            head = head_result.stdout.strip()
-    except (OSError, subprocess.SubprocessError):
-        pass
-    try:
-        status_result = subprocess.run(
-            ["git", "status", "--porcelain", "--untracked-files=all"],
-            capture_output=True,
-            text=True,
-            cwd=str(root),
-            timeout=_GIT_TIMEOUT,
-        )
-        if status_result.returncode == 0:
-            porcelain = status_result.stdout
-    except (OSError, subprocess.SubprocessError):
-        pass
+    head = _stdout_or_empty(["git", "rev-parse", "HEAD"], root).strip()
+    porcelain = _stdout_or_empty(["git", "status", "--porcelain", "--untracked-files=all"], root)
     if not head and not porcelain:
         return "0"
     status_hash = hashlib.sha256(porcelain.encode()).hexdigest()[:16]
@@ -308,36 +303,10 @@ def _git_diff_cache_stamp(root: Path) -> str:
 
 
 def _svn_diff_cache_stamp(root: Path) -> str:
-    revision = ""
-    status = ""
-    try:
-        rev_result = subprocess.run(
-            ["svn", "info", "--show-item", "revision", "--non-interactive"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            cwd=str(root),
-            timeout=_GIT_TIMEOUT,
-        )
-        if rev_result.returncode == 0:
-            revision = rev_result.stdout.strip()
-    except (OSError, subprocess.SubprocessError):
-        pass
-    try:
-        status_result = subprocess.run(
-            ["svn", "status", "--non-interactive"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            cwd=str(root),
-            timeout=_GIT_TIMEOUT,
-        )
-        if status_result.returncode == 0:
-            status = status_result.stdout
-    except (OSError, subprocess.SubprocessError):
-        pass
+    revision = _stdout_or_empty(
+        ["svn", "info", "--show-item", "revision", "--non-interactive"], root, "utf-8", "replace"
+    ).strip()
+    status = _stdout_or_empty(["svn", "status", "--non-interactive"], root, "utf-8", "replace")
     status_hash = hashlib.sha256(status.encode()).hexdigest()[:16]
     mtime_fp = _worktree_mtime_fingerprint(root, _paths_from_svn_status(status))
     if mtime_fp:

@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Callable, cast
 
 from dagayn.embeddings import EmbeddingProvider
+from dagayn.eval.benchmarks._ranking import _cosine
 from dagayn.graph import GraphNode
 
 type BenchmarkValue = Any
@@ -94,17 +95,6 @@ def _semantic_tokens(text: str) -> list[str]:
             if canonical:
                 tokens.append(canonical)
     return tokens
-
-
-def _cosine(left: list[float], right: list[float]) -> float:
-    if not left or not right:
-        return 0.0
-    dot = sum(a * b for a, b in zip(left, right))
-    left_norm = math.sqrt(sum(a * a for a in left))
-    right_norm = math.sqrt(sum(b * b for b in right))
-    if left_norm == 0.0 or right_norm == 0.0:
-        return 0.0
-    return dot / (left_norm * right_norm)
 
 
 def _read_line_span(repo_path: Path, node: Any, max_chars: int = 4096) -> str:

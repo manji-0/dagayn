@@ -300,10 +300,8 @@ def _pid_is_alive(pid: int) -> bool:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
-    except PermissionError:
-        # Owned by another user, therefore still alive.
-        return True
     except OSError:
+        # PermissionError included: owned by another user, therefore still alive.
         return True
     return True
 

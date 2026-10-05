@@ -6,19 +6,13 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from dagayn.eval.git_utils import ensure_parent_available, run_git
+from dagayn.eval.git_utils import ensure_parent_available, get_commit_changed_files
 from dagayn.eval.scorer import IdentifierMatcher
 
 logger = logging.getLogger(__name__)
 
 type BenchmarkValue = Any
 type BenchmarkPayload = dict[str, BenchmarkValue]
-
-
-def _get_changed_files(repo_path: Path, sha: str) -> list[str]:
-    """Get list of changed files for a commit."""
-    result = run_git(["diff", "--name-only", f"{sha}~1", sha], cwd=repo_path)
-    return [f.strip() for f in result.stdout.strip().splitlines() if f.strip()]
 
 
 def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[BenchmarkPayload]:
@@ -35,7 +29,7 @@ def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[Benchmark
         }
         try:
             ensure_parent_available(repo_path, sha)
-            changed = _get_changed_files(repo_path, sha)
+            changed = get_commit_changed_files(repo_path, sha)
         except Exception as exc:
             results.append({**base, "status": "error", "error": str(exc)})
             continue

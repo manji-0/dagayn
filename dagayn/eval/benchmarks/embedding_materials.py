@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from dagayn.embeddings import EmbeddingProvider
+from dagayn.eval.benchmarks._ranking import _cosine, _matches_expected
 from dagayn.graph import GraphNode
 
 type BenchmarkValue = Any
@@ -94,17 +95,6 @@ class _Material:
     ref: str
     text: str
     kind: str
-
-
-def _cosine(left: list[float], right: list[float]) -> float:
-    if not left or not right:
-        return 0.0
-    dot = sum(a * b for a, b in zip(left, right))
-    left_norm = math.sqrt(sum(a * a for a in left))
-    right_norm = math.sqrt(sum(b * b for b in right))
-    if left_norm == 0.0 or right_norm == 0.0:
-        return 0.0
-    return dot / (left_norm * right_norm)
 
 
 def _read_lines(repo_path: Path, node: Any) -> list[str]:
@@ -416,14 +406,6 @@ def _parse_strategy_name(name: str) -> _Strategy:
         comment_granularity=parts.get("comment", "whole"),
         symbol_comment=parts.get("join", "combined"),
     )
-
-
-def _matches_expected(qualified_name: str, expected: str) -> bool:
-    qn_lower = qualified_name.lower()
-    exp_lower = expected.lower()
-    exp_name = expected.rsplit("::", 1)[-1] if "::" in expected else expected
-    qn_name = qualified_name.rsplit("::", 1)[-1] if "::" in qualified_name else qualified_name
-    return exp_lower in qn_lower or qn_lower in exp_lower or exp_name.lower() == qn_name.lower()
 
 
 def _relevance_targets(search_query: BenchmarkPayload) -> dict[str, int]:

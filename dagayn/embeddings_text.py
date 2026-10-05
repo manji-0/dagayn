@@ -366,32 +366,11 @@ def _assigned_names_from_source(source_excerpt: str) -> list[str]:
     return names
 
 
-def _return_terms_from_source(source_excerpt: str) -> list[str]:
+def _regex_terms(pattern: re.Pattern[str], source_excerpt: str) -> list[str]:
+    """Unique identifier terms from every capture group of each ``pattern`` match."""
     terms: list[str] = []
     seen: set[str] = set()
-    for match in _RETURN_RE.finditer(source_excerpt):
-        for term in _identifier_terms(match.group(1)):
-            if term not in seen:
-                seen.add(term)
-                terms.append(term)
-    return terms
-
-
-def _branch_terms_from_source(source_excerpt: str) -> list[str]:
-    terms: list[str] = []
-    seen: set[str] = set()
-    for match in _BRANCH_RE.finditer(source_excerpt):
-        for term in _identifier_terms(match.group(1)):
-            if term not in seen:
-                seen.add(term)
-                terms.append(term)
-    return terms
-
-
-def _loop_terms_from_source(source_excerpt: str) -> list[str]:
-    terms: list[str] = []
-    seen: set[str] = set()
-    for match in _LOOP_RE.finditer(source_excerpt):
+    for match in pattern.finditer(source_excerpt):
         for term in _identifier_terms(" ".join(match.groups())):
             if term not in seen:
                 seen.add(term)
@@ -417,43 +396,28 @@ def _io_phrases_from_source(source_excerpt: str) -> list[str]:
     return phrases
 
 
+_GRAPH_FACT_VERBS = (
+    ("CALLS", "calls"),
+    ("IMPORTS_FROM", "imports from"),
+    ("REFERENCES", "references"),
+    ("DEPENDS_ON", "depends on"),
+    ("INHERITS", "inherits from"),
+    ("IMPLEMENTS", "implements"),
+    ("TESTED_BY", "is tested by"),
+    ("called_by", "is called by"),
+)
+
+
 def _graph_fact_sentences(graph_facts: dict[str, list[str]] | None) -> list[str]:
     if not graph_facts:
         return []
 
     sentences: list[str] = []
-    called = graph_facts.get("CALLS", [])
-    if called:
-        call_names = [f"`{_display_qualified_name(name)}`" for name in called]
-        sentences.append(f"The graph says it calls {_limited_join(call_names)}.")
-    imports = graph_facts.get("IMPORTS_FROM", [])
-    if imports:
-        import_names = [f"`{_display_qualified_name(name)}`" for name in imports]
-        sentences.append(f"The graph says it imports from {_limited_join(import_names)}.")
-    refs = graph_facts.get("REFERENCES", [])
-    if refs:
-        ref_names = [f"`{_display_qualified_name(name)}`" for name in refs]
-        sentences.append(f"The graph says it references {_limited_join(ref_names)}.")
-    deps = graph_facts.get("DEPENDS_ON", [])
-    if deps:
-        dep_names = [f"`{_display_qualified_name(name)}`" for name in deps]
-        sentences.append(f"The graph says it depends on {_limited_join(dep_names)}.")
-    inherited = graph_facts.get("INHERITS", [])
-    if inherited:
-        inherited_names = [f"`{_display_qualified_name(name)}`" for name in inherited]
-        sentences.append(f"The graph says it inherits from {_limited_join(inherited_names)}.")
-    implemented = graph_facts.get("IMPLEMENTS", [])
-    if implemented:
-        implemented_names = [f"`{_display_qualified_name(name)}`" for name in implemented]
-        sentences.append(f"The graph says it implements {_limited_join(implemented_names)}.")
-    tested_by = graph_facts.get("TESTED_BY", [])
-    if tested_by:
-        test_names = [f"`{_display_qualified_name(name)}`" for name in tested_by]
-        sentences.append(f"The graph says it is tested by {_limited_join(test_names)}.")
-    callers = graph_facts.get("called_by", [])
-    if callers:
-        caller_names = [f"`{_display_qualified_name(name)}`" for name in callers]
-        sentences.append(f"The graph says it is called by {_limited_join(caller_names)}.")
+    for key, verb in _GRAPH_FACT_VERBS:
+        names = graph_facts.get(key, [])
+        if names:
+            quoted = [f"`{_display_qualified_name(name)}`" for name in names]
+            sentences.append(f"The graph says it {verb} {_limited_join(quoted)}.")
     return sentences
 
 
@@ -514,13 +478,13 @@ def _node_to_narrative_text(
         if assigned:
             assigned_names = [f"`{name}`" for name in assigned]
             sentences.append(f"It defines or updates {_limited_join(assigned_names)}.")
-        return_terms = _return_terms_from_source(source_excerpt)
+        return_terms = _regex_terms(_RETURN_RE, source_excerpt)
         if return_terms:
             sentences.append(f"It returns values related to {_limited_join(return_terms)}.")
-        branch_terms = _branch_terms_from_source(source_excerpt)
+        branch_terms = _regex_terms(_BRANCH_RE, source_excerpt)
         if branch_terms:
             sentences.append(f"It branches on {_limited_join(branch_terms)}.")
-        loop_terms = _loop_terms_from_source(source_excerpt)
+        loop_terms = _regex_terms(_LOOP_RE, source_excerpt)
         if loop_terms:
             sentences.append(f"It iterates over {_limited_join(loop_terms)}.")
         io_phrases = _io_phrases_from_source(source_excerpt)

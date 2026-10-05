@@ -26,6 +26,10 @@ _SYNC_STATE_HINTS = {
 }
 
 
+def _print_json(**payload: Any) -> None:
+    print(json.dumps(payload, indent=2))
+
+
 def _remove_existing_graph_database(db_path: Path) -> list[Path]:
     """Remove the graph database and SQLite sidecar files before a forced build."""
     removed: list[Path] = []
@@ -514,6 +518,15 @@ def handle_watch_command(
     watch(repo_root, store, on_files_updated=run_post_processing)
 
 
+_VISUALIZE_EXPORTS = {
+    "graphml": ("graph.graphml", "export_graphml", "GraphML"),
+    "mermaid-c4": ("graph.mmd", "export_mermaid_c4", "Mermaid C4"),
+    "cypher": ("graph.cypher", "export_neo4j_cypher", "Neo4j Cypher"),
+    "obsidian": ("obsidian", "export_obsidian_vault", "Obsidian vault"),
+    "svg": ("graph.svg", "export_svg", "SVG"),
+}
+
+
 def handle_visualize_command(
     args: argparse.Namespace,
     repo_root: Path,
@@ -523,38 +536,15 @@ def handle_visualize_command(
     from ...paths import get_data_dir
 
     data_dir = get_data_dir(repo_root)
-    fmt = args.format
+    target = _VISUALIZE_EXPORTS.get(args.format)
+    if target is None:
+        return
+    from ... import exports
 
-    if fmt == "graphml":
-        from ...exports import export_graphml
-
-        out = data_dir / "graph.graphml"
-        export_graphml(store, out)
-        print(f"GraphML exported: {out}")
-    elif fmt == "mermaid-c4":
-        from ...exports import export_mermaid_c4
-
-        out = data_dir / "graph.mmd"
-        export_mermaid_c4(store, out)
-        print(f"Mermaid C4 exported: {out}")
-    elif fmt == "cypher":
-        from ...exports import export_neo4j_cypher
-
-        out = data_dir / "graph.cypher"
-        export_neo4j_cypher(store, out)
-        print(f"Neo4j Cypher exported: {out}")
-    elif fmt == "obsidian":
-        from ...exports import export_obsidian_vault
-
-        out = data_dir / "obsidian"
-        export_obsidian_vault(store, out)
-        print(f"Obsidian vault exported: {out}")
-    elif fmt == "svg":
-        from ...exports import export_svg
-
-        out = data_dir / "graph.svg"
-        export_svg(store, out)
-        print(f"SVG exported: {out}")
+    filename, fn_name, label = target
+    out = data_dir / filename
+    getattr(exports, fn_name)(store, out)
+    print(f"{label} exported: {out}")
 
 
 def handle_detect_adp_command(
@@ -583,15 +573,8 @@ def handle_detect_adp_command(
                 nodes = " -> ".join(violation["nodes"]) + f" -> {violation['nodes'][0]}"
                 print(f"  [{violation['length']}-cycle, severity={violation['severity']}] {nodes}")
     else:
-        print(
-            json.dumps(
-                {
-                    "violations": violations,
-                    "count": len(violations),
-                    "artifact_scope": args.artifact_scope,
-                },
-                indent=2,
-            )
+        _print_json(
+            violations=violations, count=len(violations), artifact_scope=args.artifact_scope
         )
 
 
@@ -623,16 +606,7 @@ def handle_sdp_metrics_command(
                     f"Ca={metric['ca']} Ce={metric['ce']}"
                 )
     else:
-        print(
-            json.dumps(
-                {
-                    "metrics": top,
-                    "total": len(metrics),
-                    "artifact_scope": args.artifact_scope,
-                },
-                indent=2,
-            )
-        )
+        _print_json(metrics=top, total=len(metrics), artifact_scope=args.artifact_scope)
 
 
 def handle_detect_sdp_command(
@@ -662,15 +636,8 @@ def handle_detect_sdp_command(
                     f", I_tgt={violation['target_instability']:.4f})"
                 )
     else:
-        print(
-            json.dumps(
-                {
-                    "violations": violations,
-                    "count": len(violations),
-                    "artifact_scope": args.artifact_scope,
-                },
-                indent=2,
-            )
+        _print_json(
+            violations=violations, count=len(violations), artifact_scope=args.artifact_scope
         )
 
 
@@ -708,16 +675,7 @@ def handle_sap_metrics_command(
                     f"  D={metric['distance']:.4f}"
                 )
     else:
-        print(
-            json.dumps(
-                {
-                    "metrics": top,
-                    "total": len(metrics),
-                    "artifact_scope": args.artifact_scope,
-                },
-                indent=2,
-            )
-        )
+        _print_json(metrics=top, total=len(metrics), artifact_scope=args.artifact_scope)
 
 
 def handle_detect_sap_command(
@@ -747,15 +705,8 @@ def handle_detect_sap_command(
                     f", I={violation['instability']:.4f})"
                 )
     else:
-        print(
-            json.dumps(
-                {
-                    "violations": violations,
-                    "count": len(violations),
-                    "artifact_scope": args.artifact_scope,
-                },
-                indent=2,
-            )
+        _print_json(
+            violations=violations, count=len(violations), artifact_scope=args.artifact_scope
         )
 
 

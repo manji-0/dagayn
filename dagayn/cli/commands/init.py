@@ -401,46 +401,24 @@ def handle(args: argparse.Namespace) -> None:
                 )
                 print(f"Generated skills in {skills_dir}")
         configured_platforms = set(configured)
-        if target == "codex" or (target == "all" and "Codex" in configured_platforms):
+        platform_skill_installers = (
+            ("codex", "Codex", install_codex_skills),
+            ("opencode", "OpenCode", install_opencode_skills),
+            ("pi", "Pi", install_pi_skills),
+            ("hermes", "Hermes Agent", install_hermes_skills),
+        )
+        for key, label, installer in platform_skill_installers:
+            if target != key and not (target == "all" and label in configured_platforms):
+                continue
             try:
-                codex_skills_dir = install_codex_skills(
+                platform_skills_dir = installer(
                     embedding_mode=mode,
                     embedding_preset=preset,
                     embedding_provider=provider,
                 )
-                print(f"Installed Codex skills to {codex_skills_dir}")
+                print(f"Installed {label} skills to {platform_skills_dir}")
             except OSError as e:
-                print(f"Skipped Codex skills install ({e})", file=sys.stderr)
-        if target == "opencode" or (target == "all" and "OpenCode" in configured_platforms):
-            try:
-                opencode_skills_dir = install_opencode_skills(
-                    embedding_mode=mode,
-                    embedding_preset=preset,
-                    embedding_provider=provider,
-                )
-                print(f"Installed OpenCode skills to {opencode_skills_dir}")
-            except OSError as e:
-                print(f"Skipped OpenCode skills install ({e})", file=sys.stderr)
-        if target == "pi" or (target == "all" and "Pi" in configured_platforms):
-            try:
-                pi_skills_dir = install_pi_skills(
-                    embedding_mode=mode,
-                    embedding_preset=preset,
-                    embedding_provider=provider,
-                )
-                print(f"Installed Pi skills to {pi_skills_dir}")
-            except OSError as e:
-                print(f"Skipped Pi skills install ({e})", file=sys.stderr)
-        if target == "hermes" or (target == "all" and "Hermes Agent" in configured_platforms):
-            try:
-                hermes_skills_dir = install_hermes_skills(
-                    embedding_mode=mode,
-                    embedding_preset=preset,
-                    embedding_provider=provider,
-                )
-                print(f"Installed Hermes Agent skills to {hermes_skills_dir}")
-            except OSError as e:
-                print(f"Skipped Hermes Agent skills install ({e})", file=sys.stderr)
+                print(f"Skipped {label} skills install ({e})", file=sys.stderr)
 
     # Confirm before writing instruction files (#173). --yes skips the
     # prompt; --no-instructions skips the whole block.

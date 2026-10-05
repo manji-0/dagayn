@@ -29,6 +29,12 @@ def run_git(args: list[str], cwd: Path | str | None = None) -> subprocess.Comple
         raise RuntimeError(f"{' '.join(cmd)} failed{location}: {detail}") from exc
 
 
+def get_commit_changed_files(repo_path: Path, sha: str) -> list[str]:
+    """Get list of changed files for a commit."""
+    result = run_git(["diff", "--name-only", f"{sha}~1", sha], cwd=repo_path)
+    return [f.strip() for f in result.stdout.strip().splitlines() if f.strip()]
+
+
 def resolve_ref(repo_path: Path, ref: str) -> str:
     """Resolve *ref* to an immutable commit SHA."""
     return run_git(["rev-parse", "--verify", f"{ref}^{{commit}}"], cwd=repo_path).stdout.strip()

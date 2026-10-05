@@ -472,6 +472,13 @@ def _is_pid_alive(pid: int) -> bool:
         return True  # exists but owned by another user
 
 
+def _dagayn_cmd(subcommand: str, repo_path: str) -> list[str]:
+    """Command line for ``dagayn <subcommand> --repo <repo_path>``."""
+    crg_bin = shutil.which("dagayn")
+    prefix = [crg_bin] if crg_bin else [sys.executable, "-m", "dagayn"]
+    return [*prefix, subcommand, "--repo", repo_path]
+
+
 # ---------------------------------------------------------------------------
 # ConfigWatcher — monitors config file for live changes
 # ---------------------------------------------------------------------------
@@ -987,18 +994,7 @@ class WatchDaemon:
         self._config.log_dir.mkdir(parents=True, exist_ok=True)
         log_path = self._config.log_dir / f"{repo.alias}.log"
 
-        crg_bin = shutil.which("dagayn")
-        if crg_bin:
-            cmd: list[str] = [crg_bin, "watch", "--repo", repo.path]
-        else:
-            cmd = [
-                sys.executable,
-                "-m",
-                "dagayn",
-                "watch",
-                "--repo",
-                repo.path,
-            ]
+        cmd = _dagayn_cmd("watch", repo.path)
 
         log_fd = open(log_path, "ab")  # noqa: SIM115
         try:
@@ -1045,18 +1041,7 @@ class WatchDaemon:
         """Run a one-off graph build for a repo that has no database yet."""
         logger.info("Building initial graph for %s...", repo.alias)
 
-        crg_bin = shutil.which("dagayn")
-        if crg_bin:
-            cmd: list[str] = [crg_bin, "build", "--repo", repo.path]
-        else:
-            cmd = [
-                sys.executable,
-                "-m",
-                "dagayn",
-                "build",
-                "--repo",
-                repo.path,
-            ]
+        cmd = _dagayn_cmd("build", repo.path)
 
         result = subprocess.run(
             cmd,
