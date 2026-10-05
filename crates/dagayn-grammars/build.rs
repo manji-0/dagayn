@@ -427,7 +427,7 @@ fn main() {
         repo_root.join("dagayn/vendor_grammars.py").display()
     );
 
-    let grammars: [&GrammarSpec; 29] = [
+    let all_grammars: [&GrammarSpec; 29] = [
         &MARKDOWN,
         &TERRAFORM,
         &RUST,
@@ -458,13 +458,23 @@ fn main() {
         &ZIG,
         &SWIFT,
     ];
+    // Each grammar compiles only when its `lang-<language>` feature is on;
+    // the default `all-languages` feature enables every one.
+    let grammars = all_grammars
+        .into_iter()
+        .filter(|spec| feature_enabled(spec));
     // Staging may run Python or download a source, and bash reads headers
     // staged with the JavaScript grammar, so sources are prepared in order.
     // Compiling the C sources is independent per grammar and dominates the
     // build, so it runs in parallel.
     let staged: Vec<(&GrammarSpec, PathBuf)> = grammars
-        .into_iter()
-        .map(|spec| (spec, stage_grammar(&repo_root, spec)))
+        .map(|spec| {
+            if spec.language == "bash" && !feature_enabled(&JAVASCRIPT) {
+                // Stage (not compile) JavaScript for the headers bash includes.
+                stage_grammar(&repo_root, &JAVASCRIPT);
+            }
+            (spec, stage_grammar(&repo_root, spec))
+        })
         .collect();
     std::thread::scope(|scope| {
         for (spec, source_dir) in &staged {
@@ -472,6 +482,15 @@ fn main() {
             scope.spawn(move || compile_grammar(repo_root, spec, source_dir));
         }
     });
+}
+
+/// Whether the grammar's `lang-<language>` Cargo feature is enabled.
+fn feature_enabled(spec: &GrammarSpec) -> bool {
+    env::var_os(format!(
+        "CARGO_FEATURE_LANG_{}",
+        spec.language.to_ascii_uppercase()
+    ))
+    .is_some()
 }
 
 /// Makes the grammar's pinned source available and returns its directory.

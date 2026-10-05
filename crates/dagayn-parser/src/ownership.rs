@@ -39,6 +39,85 @@ pub(super) enum RustOwnedPathKind {
     Unsupported,
 }
 
+impl RustOwnedPathKind {
+    /// Whether this build compiled the grammar the kind's extractor parses
+    /// with: its `lang-*` Cargo feature (all on by default). When it is off,
+    /// the file stays Rust-owned and gets only a File node, labelled with
+    /// [`Self::file_language`].
+    pub(super) fn grammar_enabled(self) -> bool {
+        match self {
+            Self::Markdown => cfg!(feature = "lang-markdown"),
+            Self::Terraform => cfg!(feature = "lang-terraform"),
+            Self::Rust => cfg!(feature = "lang-rust"),
+            Self::Python | Self::Notebook => cfg!(feature = "lang-python"),
+            Self::JavaScript => cfg!(feature = "lang-javascript"),
+            Self::TypeScript => cfg!(feature = "lang-typescript"),
+            Self::Tsx => cfg!(feature = "lang-tsx"),
+            Self::Bash => cfg!(feature = "lang-bash"),
+            Self::Go => cfg!(feature = "lang-go"),
+            Self::Java => cfg!(feature = "lang-java"),
+            Self::Ruby => cfg!(feature = "lang-ruby"),
+            Self::CSharp => cfg!(feature = "lang-csharp"),
+            Self::Php => cfg!(feature = "lang-php"),
+            Self::Kotlin => cfg!(feature = "lang-kotlin"),
+            Self::Scala => cfg!(feature = "lang-scala"),
+            Self::Dart => cfg!(feature = "lang-dart"),
+            Self::Lua => cfg!(feature = "lang-lua"),
+            Self::C => cfg!(feature = "lang-c"),
+            Self::Cpp => cfg!(feature = "lang-cpp"),
+            Self::ObjC => cfg!(feature = "lang-objc"),
+            Self::Elixir => cfg!(feature = "lang-elixir"),
+            Self::Gdscript => cfg!(feature = "lang-gdscript"),
+            Self::R => cfg!(feature = "lang-r"),
+            Self::Julia => cfg!(feature = "lang-julia"),
+            Self::Perl => cfg!(feature = "lang-perl"),
+            Self::Vue => cfg!(feature = "lang-vue"),
+            Self::Svelte => cfg!(feature = "lang-svelte"),
+            Self::Zig => cfg!(feature = "lang-zig"),
+            Self::Swift => cfg!(feature = "lang-swift"),
+            Self::PowerShell | Self::Unsupported => true,
+        }
+    }
+
+    /// The `language` of the File node the kind's extractor emits.
+    pub(super) fn file_language(self) -> &'static str {
+        match self {
+            Self::Markdown => "markdown",
+            Self::Terraform => "terraform",
+            Self::Rust => "rust",
+            Self::Python => "python",
+            Self::Notebook => "notebook",
+            Self::JavaScript => "javascript",
+            Self::TypeScript => "typescript",
+            Self::Tsx => "tsx",
+            Self::Bash => "bash",
+            Self::Go => "go",
+            Self::Java => "java",
+            Self::Ruby => "ruby",
+            Self::CSharp => "csharp",
+            Self::Php => "php",
+            Self::Kotlin => "kotlin",
+            Self::Scala => "scala",
+            Self::Dart => "dart",
+            Self::Lua => "lua",
+            Self::C => "c",
+            Self::Cpp => "cpp",
+            Self::ObjC => "objc",
+            Self::Elixir => "elixir",
+            Self::Gdscript => "gdscript",
+            Self::R => "r",
+            Self::Julia => "julia",
+            Self::Perl => "perl",
+            Self::Vue => "vue",
+            Self::Svelte => "svelte",
+            Self::Zig => "zig",
+            Self::PowerShell => "powershell",
+            Self::Swift => "swift",
+            Self::Unsupported => "",
+        }
+    }
+}
+
 pub(super) fn rust_owned_path_kind(file_path: &str) -> RustOwnedPathKind {
     if ends_with_ascii_ignore_case(file_path, ".md")
         || ends_with_ascii_ignore_case(file_path, ".markdown")

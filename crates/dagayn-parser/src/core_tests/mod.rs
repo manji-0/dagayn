@@ -1,39 +1,120 @@
 use super::*;
 
+#[cfg(feature = "lang-bash")]
 mod bash;
+#[cfg(all(feature = "lang-c", feature = "lang-cpp", feature = "lang-objc"))]
 mod c_like;
+#[cfg(feature = "lang-csharp")]
 mod csharp;
+#[cfg(feature = "lang-dart")]
 mod dart;
 mod discovery;
+#[cfg(feature = "lang-elixir")]
 mod elixir;
+#[cfg(feature = "lang-gdscript")]
 mod gdscript;
+#[cfg(feature = "lang-go")]
 mod go;
+mod grammar_features;
+#[cfg(any(
+    feature = "lang-kotlin",
+    feature = "lang-swift",
+    feature = "lang-dart",
+    feature = "lang-java"
+))]
 mod heritage;
+#[cfg(feature = "lang-java")]
 mod java;
+#[cfg(all(
+    feature = "lang-javascript",
+    feature = "lang-typescript",
+    feature = "lang-tsx"
+))]
 mod javascript_calls;
+#[cfg(all(
+    feature = "lang-javascript",
+    feature = "lang-typescript",
+    feature = "lang-tsx"
+))]
 mod javascript_modules;
+#[cfg(all(feature = "lang-vue", feature = "lang-svelte"))]
 mod javascript_sfc;
+#[cfg(all(
+    feature = "lang-javascript",
+    feature = "lang-typescript",
+    feature = "lang-tsx"
+))]
 mod javascript_test_detection;
+#[cfg(feature = "lang-julia")]
 mod julia;
+#[cfg(feature = "lang-kotlin")]
 mod kotlin;
+#[cfg(any(
+    feature = "lang-python",
+    feature = "lang-rust",
+    feature = "lang-lua",
+    feature = "lang-kotlin",
+    feature = "lang-swift",
+    feature = "lang-dart",
+    all(feature = "lang-java", feature = "lang-go", feature = "lang-zig"),
+    feature = "lang-scala",
+    feature = "lang-julia",
+    feature = "lang-r",
+    feature = "lang-csharp"
+))]
 mod local_scopes;
+#[cfg(feature = "lang-lua")]
 mod lua;
+#[cfg(feature = "lang-markdown")]
 mod markdown;
+#[cfg(all(
+    feature = "lang-csharp",
+    feature = "lang-java",
+    feature = "lang-kotlin",
+    feature = "lang-scala",
+    feature = "lang-php"
+))]
 mod namespaces;
+#[cfg(feature = "lang-perl")]
 mod perl;
+#[cfg(feature = "lang-php")]
 mod php;
+#[cfg(feature = "lang-python")]
 mod python;
+#[cfg(feature = "lang-r")]
 mod r;
+#[cfg(feature = "lang-ruby")]
 mod ruby;
+#[cfg(feature = "lang-rust")]
 mod rust_edges;
+#[cfg(feature = "lang-rust")]
 mod rust_lang;
+#[cfg(feature = "lang-scala")]
 mod scala;
+#[cfg(feature = "lang-swift")]
 mod swift;
+#[cfg(feature = "lang-terraform")]
 mod terraform;
+#[cfg(all(
+    feature = "lang-javascript",
+    feature = "lang-typescript",
+    feature = "lang-tsx"
+))]
 mod typescript_declarations;
+#[cfg(all(
+    feature = "lang-javascript",
+    feature = "lang-typescript",
+    feature = "lang-tsx"
+))]
 mod typescript_types;
+#[cfg(feature = "lang-zig")]
 mod zig;
 
+#[cfg(all(
+    feature = "lang-javascript",
+    feature = "lang-typescript",
+    feature = "lang-tsx"
+))]
 fn type_references<'a>(edges: &'a [ParsedEdge], source: &str) -> Vec<&'a ParsedEdge> {
     edges
         .iter()
@@ -48,6 +129,11 @@ fn type_references<'a>(edges: &'a [ParsedEdge], source: &str) -> Vec<&'a ParsedE
         .collect()
 }
 
+#[cfg(all(
+    feature = "lang-javascript",
+    feature = "lang-typescript",
+    feature = "lang-tsx"
+))]
 fn type_reference_positions(edges: &[ParsedEdge], source: &str, target: &str) -> Vec<String> {
     let found = type_references(edges, source)
         .into_iter()
@@ -62,6 +148,11 @@ fn type_reference_positions(edges: &[ParsedEdge], source: &str, target: &str) ->
         .collect()
 }
 
+#[cfg(all(
+    feature = "lang-javascript",
+    feature = "lang-typescript",
+    feature = "lang-tsx"
+))]
 fn write_type_reference_repo(name: &str) -> std::path::PathBuf {
     let mut repo_root = std::env::temp_dir();
     repo_root.push(format!(

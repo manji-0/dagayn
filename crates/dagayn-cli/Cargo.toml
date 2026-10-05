@@ -12,10 +12,48 @@ path = "src/lib.rs"
 name = "dagayn"
 path = "src/main.rs"
 
+# Grammar features, forwarded to dagayn-parser (see
+# docs/GRAMMAR-PROVISIONING.md); all on by default.
+[features]
+default = ["all-languages"]
+all-languages = [
+    "dagayn-build/all-languages",
+    "dagayn-graph/all-languages",
+]
+lang-markdown = ["dagayn-build/lang-markdown"]
+lang-terraform = ["dagayn-build/lang-terraform"]
+lang-rust = ["dagayn-build/lang-rust"]
+lang-python = ["dagayn-build/lang-python"]
+lang-javascript = ["dagayn-build/lang-javascript"]
+lang-typescript = ["dagayn-build/lang-typescript"]
+lang-tsx = ["dagayn-build/lang-tsx"]
+lang-bash = ["dagayn-build/lang-bash"]
+lang-go = ["dagayn-build/lang-go"]
+lang-java = ["dagayn-build/lang-java"]
+lang-ruby = ["dagayn-build/lang-ruby"]
+lang-csharp = ["dagayn-build/lang-csharp"]
+lang-php = ["dagayn-build/lang-php"]
+lang-kotlin = ["dagayn-build/lang-kotlin"]
+lang-scala = ["dagayn-build/lang-scala"]
+lang-dart = ["dagayn-build/lang-dart"]
+lang-lua = ["dagayn-build/lang-lua"]
+lang-c = ["dagayn-build/lang-c"]
+lang-cpp = ["dagayn-build/lang-cpp"]
+lang-objc = ["dagayn-build/lang-objc"]
+lang-elixir = ["dagayn-build/lang-elixir"]
+lang-gdscript = ["dagayn-build/lang-gdscript"]
+lang-r = ["dagayn-build/lang-r"]
+lang-julia = ["dagayn-build/lang-julia"]
+lang-perl = ["dagayn-build/lang-perl"]
+lang-vue = ["dagayn-build/lang-vue"]
+lang-svelte = ["dagayn-build/lang-svelte"]
+lang-zig = ["dagayn-build/lang-zig"]
+lang-swift = ["dagayn-build/lang-swift"]
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-dagayn-build = { path = "../dagayn-build" }
-dagayn-graph = { path = "../dagayn-graph" }
+dagayn-build = { path = "../dagayn-build", default-features = false }
+dagayn-graph = { path = "../dagayn-graph", default-features = false }
 serde_json.workspace = true
 
 [dev-dependencies]

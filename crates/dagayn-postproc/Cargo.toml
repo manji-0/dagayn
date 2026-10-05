@@ -5,9 +5,19 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+# All grammars by default; a subset is chosen on the crate that
+# forwards dagayn-parser's `lang-*` features (dagayn-py, dagayn-cli,
+# dagayn-build).
+[features]
+default = ["all-languages"]
+all-languages = [
+    "dagayn-graph/all-languages",
+    "dagayn-parser/all-languages",
+]
+
 [dependencies]
-dagayn-graph = { path = "../dagayn-graph" }
-dagayn-parser = { path = "../dagayn-parser" }
+dagayn-graph = { path = "../dagayn-graph", default-features = false }
+dagayn-parser = { path = "../dagayn-parser", default-features = false }
 leiden-rs = { version = "0.8.1", default-features = false, features = ["petgraph"] }
 petgraph = "0.8.3"
 regex.workspace = true

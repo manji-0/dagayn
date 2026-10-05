@@ -27,6 +27,8 @@ fn parse(file_path: &str, source: &str) -> (Vec<String>, Vec<(String, String)>) 
     (names, calls)
 }
 
+// Unused in a build whose only languages here are Java, Go, Zig, Scala, C#.
+#[allow(dead_code)]
 fn assert_local_helpers(file_path: &str, source: &str) {
     let (names, calls) = parse(file_path, source);
     for expected in ["a", "a.helper", "b", "b.helper"] {
@@ -44,6 +46,7 @@ fn assert_local_helpers(file_path: &str, source: &str) {
     }
 }
 
+#[cfg(feature = "lang-python")]
 #[test]
 fn python_nested_functions() {
     assert_local_helpers(
@@ -52,6 +55,7 @@ fn python_nested_functions() {
     );
 }
 
+#[cfg(feature = "lang-rust")]
 #[test]
 fn rust_items_in_function_bodies() {
     assert_local_helpers(
@@ -60,6 +64,7 @@ fn rust_items_in_function_bodies() {
     );
 }
 
+#[cfg(feature = "lang-lua")]
 #[test]
 fn lua_local_functions() {
     assert_local_helpers(
@@ -68,6 +73,7 @@ fn lua_local_functions() {
     );
 }
 
+#[cfg(feature = "lang-kotlin")]
 #[test]
 fn kotlin_local_functions() {
     assert_local_helpers(
@@ -76,6 +82,7 @@ fn kotlin_local_functions() {
     );
 }
 
+#[cfg(feature = "lang-swift")]
 #[test]
 fn swift_nested_functions() {
     assert_local_helpers(
@@ -84,6 +91,7 @@ fn swift_nested_functions() {
     );
 }
 
+#[cfg(feature = "lang-dart")]
 #[test]
 fn dart_local_functions() {
     assert_local_helpers(
@@ -92,6 +100,7 @@ fn dart_local_functions() {
     );
 }
 
+#[cfg(all(feature = "lang-java", feature = "lang-go", feature = "lang-zig"))]
 #[test]
 fn local_types_in_java_go_and_zig() {
     let (java, _) = parse(
@@ -111,6 +120,7 @@ fn local_types_in_java_go_and_zig() {
     assert!(zig.contains(&"a.S".to_string()) && zig.contains(&"b.S".to_string()));
 }
 
+#[cfg(feature = "lang-scala")]
 #[test]
 fn scala_nested_defs() {
     let (names, calls) = parse(
@@ -124,6 +134,7 @@ fn scala_nested_defs() {
     );
 }
 
+#[cfg(feature = "lang-julia")]
 #[test]
 fn julia_nested_functions() {
     assert_local_helpers(
@@ -132,6 +143,7 @@ fn julia_nested_functions() {
     );
 }
 
+#[cfg(feature = "lang-r")]
 #[test]
 fn r_local_functions() {
     assert_local_helpers(
@@ -140,6 +152,7 @@ fn r_local_functions() {
     );
 }
 
+#[cfg(feature = "lang-csharp")]
 #[test]
 fn csharp_local_functions() {
     let (names, calls) = parse(

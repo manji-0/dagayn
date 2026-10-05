@@ -27,6 +27,7 @@ fn edges(expected: &[(&str, &str, &str)]) -> Vec<(String, String, String)> {
     expected
 }
 
+#[cfg(feature = "lang-kotlin")]
 #[test]
 fn kotlin_bases_skip_type_arguments() {
     assert_eq!(
@@ -39,6 +40,7 @@ fn kotlin_bases_skip_type_arguments() {
     );
 }
 
+#[cfg(feature = "lang-swift")]
 #[test]
 fn swift_bases_skip_type_arguments() {
     assert_eq!(
@@ -51,6 +53,7 @@ fn swift_bases_skip_type_arguments() {
     );
 }
 
+#[cfg(feature = "lang-dart")]
 #[test]
 fn dart_bases_mixins_and_interfaces() {
     assert_eq!(
@@ -67,6 +70,7 @@ fn dart_bases_mixins_and_interfaces() {
     );
 }
 
+#[cfg(feature = "lang-java")]
 #[test]
 fn java_bases_drop_generic_arguments_across_lines() {
     assert_eq!(

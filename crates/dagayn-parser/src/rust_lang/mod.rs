@@ -2378,7 +2378,7 @@ fn rust_note_qualified_types(root: tree_sitter::Node<'_>, context: &RustParseCon
     visit(root, context);
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "lang-rust"))]
 mod tests {
     use super::super::new_rust_parser;
     use super::parse_rust_with_parser;

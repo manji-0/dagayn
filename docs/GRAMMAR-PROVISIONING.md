@@ -66,6 +66,53 @@ Those generated staging files are ignored by git, but they are included in
 published artifacts so Python and Rust parser paths use the same pinned grammar
 sources after installation.
 
+## Building a subset of grammars
+
+<!-- derived-from #provisioning-model -->
+
+Each grammar is a Cargo feature, as in ast-grep's language crate:
+`dagayn-grammars` has one `lang-<language>` feature per grammar it compiles
+(`lang-markdown`, `lang-terraform`, `lang-rust`, `lang-python`,
+`lang-javascript`, `lang-typescript`, `lang-tsx`, `lang-bash`, `lang-go`,
+`lang-java`, `lang-ruby`, `lang-csharp`, `lang-php`, `lang-kotlin`,
+`lang-scala`, `lang-dart`, `lang-lua`, `lang-c`, `lang-cpp`, `lang-objc`,
+`lang-elixir`, `lang-gdscript`, `lang-r`, `lang-julia`, `lang-perl`,
+`lang-vue`, `lang-svelte`, `lang-zig`, `lang-swift`). `all-languages` turns
+on every one and is the default, so a plain `cargo build`, `uv sync`, and
+every published wheel keep all languages and produce the same graph as
+before. Markdown and Terraform are features too, but stay in the default.
+
+`dagayn-parser`, `dagayn-build`, `dagayn-cli`, and `dagayn-py` forward the
+same `lang-*` names; `dagayn-graph`, `dagayn-postproc`, and `dagayn-tools`
+forward only `all-languages`. In `dagayn-parser`, `lang-vue` and
+`lang-svelte` also enable `lang-javascript` and `lang-typescript`, which parse
+their script blocks. To build or test a subset, turn the default off:
+
+```bash
+cargo check -p dagayn-parser --no-default-features
+cargo test -p dagayn-parser --no-default-features --features lang-python,lang-rust
+cargo build -p dagayn-cli --no-default-features --features lang-go,lang-markdown
+```
+
+The build script compiles only the enabled grammars (it reads the
+`CARGO_FEATURE_LANG_*` variables). Bash's scanner includes headers staged
+with the JavaScript grammar, so `lang-bash` alone still stages, but does not
+compile, the JavaScript source. Tests for a disabled language are compiled
+out; the examples need `all-languages`.
+
+A file whose language is disabled is still Rust-owned: it gets its File node
+(as a PowerShell file always does) and no symbols, rather than a parse error,
+a missing file, or the Python fallback parser. A graph built that way keeps
+those File-only entries until a full build re-parses them
+(`dagayn build --force-full-build`), so use subsets for development and CI,
+not for a graph you keep.
+
+On an 18-core Apple Silicon machine, a clean `cargo build --release -p
+dagayn-parser` took 20 s wall / 74 s CPU with every grammar, and 16 s wall /
+31 s CPU with none (17 s / 34 s with `lang-python,lang-rust`). The 29
+compiled grammar archives total about 51 MB; Python and Rust account for
+1.6 MB of them.
+
 ## Cache behavior
 
 <!-- derived-from ./ARCHITECTURE.md#storage-model -->

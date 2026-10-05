@@ -51,6 +51,7 @@ fn walk_files_prunes_ignored_directories() {
     let _ = std::fs::remove_dir_all(&repo_root);
 }
 
+#[cfg(feature = "lang-bash")]
 #[test]
 fn parses_extensionless_shebang_script_as_rust_owned() {
     let source = br#"#!/usr/bin/env bash

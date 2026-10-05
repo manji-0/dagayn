@@ -5,6 +5,15 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+# All grammars by default; a subset is chosen on the crate that
+# forwards dagayn-parser's `lang-*` features (dagayn-py, dagayn-cli,
+# dagayn-build).
+[features]
+default = ["all-languages"]
+all-languages = [
+    "dagayn-parser/all-languages",
+]
+
 [dependencies]
 lindera = { version = "6", default-features = false, features = ["embed-ipadic"] }
 rayon = "1.10"
@@ -18,5 +27,5 @@ scip = "0.10"
 protobuf = "3.7"
 
 [dev-dependencies]
-dagayn-parser = { path = "../dagayn-parser" }
+dagayn-parser = { path = "../dagayn-parser", default-features = false }
 

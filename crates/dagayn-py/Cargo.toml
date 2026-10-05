@@ -11,17 +11,56 @@ name = "_core"
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = []
+# Grammar features, forwarded to dagayn-parser (see
+# docs/GRAMMAR-PROVISIONING.md); all on by default.
+default = ["all-languages"]
 extension-module = ["pyo3/extension-module"]
+all-languages = [
+    "dagayn-build/all-languages",
+    "dagayn-cli/all-languages",
+    "dagayn-graph/all-languages",
+    "dagayn-parser/all-languages",
+    "dagayn-postproc/all-languages",
+    "dagayn-tools/all-languages",
+]
+lang-markdown = ["dagayn-parser/lang-markdown"]
+lang-terraform = ["dagayn-parser/lang-terraform"]
+lang-rust = ["dagayn-parser/lang-rust"]
+lang-python = ["dagayn-parser/lang-python"]
+lang-javascript = ["dagayn-parser/lang-javascript"]
+lang-typescript = ["dagayn-parser/lang-typescript"]
+lang-tsx = ["dagayn-parser/lang-tsx"]
+lang-bash = ["dagayn-parser/lang-bash"]
+lang-go = ["dagayn-parser/lang-go"]
+lang-java = ["dagayn-parser/lang-java"]
+lang-ruby = ["dagayn-parser/lang-ruby"]
+lang-csharp = ["dagayn-parser/lang-csharp"]
+lang-php = ["dagayn-parser/lang-php"]
+lang-kotlin = ["dagayn-parser/lang-kotlin"]
+lang-scala = ["dagayn-parser/lang-scala"]
+lang-dart = ["dagayn-parser/lang-dart"]
+lang-lua = ["dagayn-parser/lang-lua"]
+lang-c = ["dagayn-parser/lang-c"]
+lang-cpp = ["dagayn-parser/lang-cpp"]
+lang-objc = ["dagayn-parser/lang-objc"]
+lang-elixir = ["dagayn-parser/lang-elixir"]
+lang-gdscript = ["dagayn-parser/lang-gdscript"]
+lang-r = ["dagayn-parser/lang-r"]
+lang-julia = ["dagayn-parser/lang-julia"]
+lang-perl = ["dagayn-parser/lang-perl"]
+lang-vue = ["dagayn-parser/lang-vue"]
+lang-svelte = ["dagayn-parser/lang-svelte"]
+lang-zig = ["dagayn-parser/lang-zig"]
+lang-swift = ["dagayn-parser/lang-swift"]
 
 [dependencies]
-dagayn-build = { path = "../dagayn-build" }
-dagayn-cli = { path = "../dagayn-cli" }
-dagayn-graph = { path = "../dagayn-graph" }
+dagayn-build = { path = "../dagayn-build", default-features = false }
+dagayn-cli = { path = "../dagayn-cli", default-features = false }
+dagayn-graph = { path = "../dagayn-graph", default-features = false }
 dagayn-mcp = { path = "../dagayn-mcp" }
-dagayn-parser = { path = "../dagayn-parser" }
-dagayn-postproc = { path = "../dagayn-postproc" }
-dagayn-tools = { path = "../dagayn-tools" }
+dagayn-parser = { path = "../dagayn-parser", default-features = false }
+dagayn-postproc = { path = "../dagayn-postproc", default-features = false }
+dagayn-tools = { path = "../dagayn-tools", default-features = false }
 pyo3.workspace = true
 serde_json.workspace = true
 

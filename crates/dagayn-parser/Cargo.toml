@@ -5,8 +5,75 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+# Mirrors dagayn-grammars: one feature per grammar, all on by default. A file
+# of a disabled language still gets its File node (see src/parsers.rs).
+[features]
+default = ["all-languages"]
+all-languages = [
+    "lang-markdown",
+    "lang-terraform",
+    "lang-rust",
+    "lang-python",
+    "lang-javascript",
+    "lang-typescript",
+    "lang-tsx",
+    "lang-bash",
+    "lang-go",
+    "lang-java",
+    "lang-ruby",
+    "lang-csharp",
+    "lang-php",
+    "lang-kotlin",
+    "lang-scala",
+    "lang-dart",
+    "lang-lua",
+    "lang-c",
+    "lang-cpp",
+    "lang-objc",
+    "lang-elixir",
+    "lang-gdscript",
+    "lang-r",
+    "lang-julia",
+    "lang-perl",
+    "lang-vue",
+    "lang-svelte",
+    "lang-zig",
+    "lang-swift",
+]
+lang-markdown = ["dagayn-grammars/lang-markdown"]
+lang-terraform = ["dagayn-grammars/lang-terraform"]
+lang-rust = ["dagayn-grammars/lang-rust"]
+lang-python = ["dagayn-grammars/lang-python"]
+lang-javascript = ["dagayn-grammars/lang-javascript"]
+lang-typescript = ["dagayn-grammars/lang-typescript"]
+lang-tsx = ["dagayn-grammars/lang-tsx"]
+lang-bash = ["dagayn-grammars/lang-bash"]
+lang-go = ["dagayn-grammars/lang-go"]
+lang-java = ["dagayn-grammars/lang-java"]
+lang-ruby = ["dagayn-grammars/lang-ruby"]
+lang-csharp = ["dagayn-grammars/lang-csharp"]
+lang-php = ["dagayn-grammars/lang-php"]
+lang-kotlin = ["dagayn-grammars/lang-kotlin"]
+lang-scala = ["dagayn-grammars/lang-scala"]
+lang-dart = ["dagayn-grammars/lang-dart"]
+lang-lua = ["dagayn-grammars/lang-lua"]
+lang-c = ["dagayn-grammars/lang-c"]
+lang-cpp = ["dagayn-grammars/lang-cpp"]
+lang-objc = ["dagayn-grammars/lang-objc"]
+lang-elixir = ["dagayn-grammars/lang-elixir"]
+lang-gdscript = ["dagayn-grammars/lang-gdscript"]
+lang-r = ["dagayn-grammars/lang-r"]
+lang-julia = ["dagayn-grammars/lang-julia"]
+lang-perl = ["dagayn-grammars/lang-perl"]
+# A Vue or Svelte file's script blocks parse with the JavaScript and
+# TypeScript grammars.
+lang-vue = ["dagayn-grammars/lang-vue", "lang-javascript", "lang-typescript"]
+lang-svelte = ["dagayn-grammars/lang-svelte", "lang-javascript", "lang-typescript"]
+lang-zig = ["dagayn-grammars/lang-zig"]
+lang-swift = ["dagayn-grammars/lang-swift"]
+
 [dependencies]
-dagayn-grammars = { path = "../dagayn-grammars" }
+dagayn-grammars = { path = "../dagayn-grammars", default-features = false }
 globset.workspace = true
 memchr.workspace = true
 regex.workspace = true
@@ -14,3 +81,12 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 tree-sitter.workspace = true
+
+# The examples load grammars directly from dagayn-grammars.
+[[example]]
+name = "parse_dump"
+required-features = ["all-languages"]
+
+[[example]]
+name = "quality_probe"
+required-features = ["all-languages"]

@@ -122,7 +122,12 @@ use util::{contains_ascii_ignore_case, node_text, sha256_hex, starts_with_ascii_
 
 #[cfg(test)]
 pub(crate) use discovery::{build_globset, should_ignore, walk_files};
-#[cfg(test)]
+#[cfg(all(
+    test,
+    feature = "lang-javascript",
+    feature = "lang-typescript",
+    feature = "lang-tsx"
+))]
 use js_like::parse_javascript_like;
 
 pub struct RustOwnedParser {
@@ -227,7 +232,14 @@ impl RustOwnedParser {
         file_path: &str,
         source: &[u8],
     ) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-        match rust_owned_path_kind_for_source(file_path, source) {
+        let kind = rust_owned_path_kind_for_source(file_path, source);
+        if !kind.grammar_enabled() {
+            // Built without this language's `lang-*` feature: keep the file
+            // (a File node) rather than drop it or run the extractor's
+            // no-grammar fallback. Never taken in the default build.
+            return file_only::parse_file_only(file_path, source, kind.file_language());
+        }
+        match kind {
             RustOwnedPathKind::Markdown => {
                 if python::looks_like_marimo_md(source) {
                     ensure_parser(&mut self.markdown_parser, new_markdown_parser);
@@ -446,7 +458,9 @@ impl RustOwnedParser {
                 parser_slot(&mut self.zig_parser, new_zig_parser),
                 repo_root,
             ),
-            RustOwnedPathKind::PowerShell => file_only::parse_powershell(file_path, source),
+            RustOwnedPathKind::PowerShell => {
+                file_only::parse_file_only(file_path, source, kind.file_language())
+            }
             RustOwnedPathKind::Swift => {
                 ensure_parser(&mut self.swift_parser, new_swift_parser);
                 swift::parse_swift_with_parser(file_path, source, self.swift_parser.as_mut())
@@ -723,7 +737,7 @@ pub fn parse_zig(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<Parsed
 }
 
 pub fn parse_powershell(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
-    file_only::parse_powershell(file_path, source)
+    file_only::parse_file_only(file_path, source, "powershell")
 }
 
 pub fn parse_swift(file_path: &str, source: &[u8]) -> (Vec<ParsedNode>, Vec<ParsedEdge>) {
@@ -1216,17 +1230,15 @@ pub fn rust_parser_owns_source(file_path: &str, source: &[u8]) -> bool {
 
 #[cfg(test)]
 mod parser_core_tests {
-    use super::{
-        FilePath, RustOwnedParser, has_rust_test_attribute, new_rust_parser,
-        rust_node_with_leading_attributes,
-    };
-    use std::path::Path;
+    #[cfg(feature = "lang-rust")]
+    use super::{has_rust_test_attribute, new_rust_parser, rust_node_with_leading_attributes};
 
+    #[cfg(feature = "lang-markdown")]
     #[test]
     fn test_parse_file_in_repo_dispatches_markdown_by_path() {
-        let mut parser = RustOwnedParser::new();
+        let mut parser = super::RustOwnedParser::new();
         let (nodes, edges) = parser.parse_file_in_repo(
-            Some(Path::new("/repo")),
+            Some(std::path::Path::new("/repo")),
             "docs/design.md",
             b"# Design\n\nBody\n",
         );
@@ -1239,6 +1251,7 @@ mod parser_core_tests {
         assert!(edges.iter().any(|edge| edge.kind == "CONTAINS"));
     }
 
+    #[cfg(feature = "lang-rust")]
     #[test]
     fn test_has_rust_test_attribute_reads_leading_attribute_sibling() {
         let source = b"#[test]\nfn test_example() {}\n";
@@ -1257,6 +1270,7 @@ mod parser_core_tests {
         assert!(has_rust_test_attribute(function, source));
     }
 
+    #[cfg(any(feature = "lang-python", feature = "lang-vue"))]
     fn assert_shared_file_path(nodes: &[super::ParsedNode], edges: &[super::ParsedEdge]) {
         let first = nodes
             .first()
@@ -1266,15 +1280,16 @@ mod parser_core_tests {
         assert!(
             nodes
                 .iter()
-                .all(|node| FilePath::ptr_eq(&node.file_path, &first))
+                .all(|node| super::FilePath::ptr_eq(&node.file_path, &first))
         );
         assert!(
             edges
                 .iter()
-                .all(|edge| FilePath::ptr_eq(&edge.file_path, &first))
+                .all(|edge| super::FilePath::ptr_eq(&edge.file_path, &first))
         );
     }
 
+    #[cfg(feature = "lang-python")]
     #[test]
     fn python_nodes_and_edges_share_one_file_path() {
         let (nodes, edges) = super::parse_python(
@@ -1287,6 +1302,7 @@ mod parser_core_tests {
         assert!(nodes[0].file_path == "pkg/app.py");
     }
 
+    #[cfg(feature = "lang-vue")]
     #[test]
     fn vue_script_nodes_share_the_sfc_file_path() {
         let (nodes, edges) = super::parse_vue(

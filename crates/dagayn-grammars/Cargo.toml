@@ -6,6 +6,72 @@ license.workspace = true
 repository.workspace = true
 build = "build.rs"
 
+# One feature per grammar, so a development or CI build can compile a subset
+# (see docs/GRAMMAR-PROVISIONING.md). The default build, and every shipped
+# wheel, enables all of them.
+[features]
+default = ["all-languages"]
+all-languages = [
+    "lang-markdown",
+    "lang-terraform",
+    "lang-rust",
+    "lang-python",
+    "lang-javascript",
+    "lang-typescript",
+    "lang-tsx",
+    "lang-bash",
+    "lang-go",
+    "lang-java",
+    "lang-ruby",
+    "lang-csharp",
+    "lang-php",
+    "lang-kotlin",
+    "lang-scala",
+    "lang-dart",
+    "lang-lua",
+    "lang-c",
+    "lang-cpp",
+    "lang-objc",
+    "lang-elixir",
+    "lang-gdscript",
+    "lang-r",
+    "lang-julia",
+    "lang-perl",
+    "lang-vue",
+    "lang-svelte",
+    "lang-zig",
+    "lang-swift",
+]
+lang-markdown = []
+lang-terraform = []
+lang-rust = []
+lang-python = []
+lang-javascript = []
+lang-typescript = []
+lang-tsx = []
+lang-bash = []
+lang-go = []
+lang-java = []
+lang-ruby = []
+lang-csharp = []
+lang-php = []
+lang-kotlin = []
+lang-scala = []
+lang-dart = []
+lang-lua = []
+lang-c = []
+lang-cpp = []
+lang-objc = []
+lang-elixir = []
+lang-gdscript = []
+lang-r = []
+lang-julia = []
+lang-perl = []
+lang-vue = []
+lang-svelte = []
+lang-zig = []
+lang-swift = []
+
 [dependencies]
 tree-sitter.workspace = true
 tree-sitter-language.workspace = true
