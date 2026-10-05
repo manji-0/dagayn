@@ -143,14 +143,14 @@ def test_refactor_suggest_truncates(monkeypatch) -> None:
 
 
 def test_flow_tool_runtime_error_has_missingness(monkeypatch) -> None:
-    from dagayn.tools import flows_tools
+    from dagayn.tools import flow_dispatcher
 
     def _boom(repo_root):
         raise ValueError("graph unavailable")
 
-    monkeypatch.setattr(flows_tools, "_get_store", _boom)
+    monkeypatch.setattr(flow_dispatcher, "_get_store", _boom)
 
-    result = flows_tools.list_flows(repo_root="/repo")
+    result = flow_dispatcher.flow_func(mode="list", repo_root="/repo")
 
     assert result["status"] == "error"
     assert result["error"] == "graph unavailable"

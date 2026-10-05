@@ -12,7 +12,7 @@ from dagayn.graph import GraphStore, _sanitize_name, node_to_dict
 from dagayn.parser import EdgeInfo, NodeInfo
 from dagayn.tools.architecture_analysis import architecture_analysis_func
 from dagayn.tools.docs import get_docs_section
-from dagayn.tools.flows_tools import get_flow, list_flows
+from dagayn.tools.flow_dispatcher import flow_func
 from dagayn.tools.query import query_graph
 from dagayn.tools.review_flows import get_affected_flows_func
 from tests.store_sql import store_conn
@@ -1120,27 +1120,27 @@ class TestFlowTools:
         store_flows(self.store, flows)
 
     def test_list_flows_returns_ok(self):
-        result = list_flows(repo_root=str(self.root))
+        result = flow_func(mode="list", repo_root=str(self.root))
         assert result["status"] == "ok"
         assert "flows" in result
         assert len(result["flows"]) >= 1
 
     def test_list_flows_summary(self):
-        result = list_flows(repo_root=str(self.root))
+        result = flow_func(mode="list", repo_root=str(self.root))
         assert "Found" in result["summary"]
         assert "reachable-set flow" in result["summary"]
 
     def test_list_flows_sort_by_depth(self):
-        result = list_flows(repo_root=str(self.root), sort_by="depth")
+        result = flow_func(mode="list", repo_root=str(self.root), sort_by="depth")
         assert result["status"] == "ok"
 
     def test_list_flows_limit(self):
-        result = list_flows(repo_root=str(self.root), limit=1)
+        result = flow_func(mode="list", repo_root=str(self.root), limit=1)
         assert result["status"] == "ok"
         assert len(result["flows"]) <= 1
 
     def test_list_flows_kind_filter(self):
-        result = list_flows(repo_root=str(self.root), kind="Function")
+        result = flow_func(mode="list", repo_root=str(self.root), kind="Function")
         assert result["status"] == "ok"
         # All returned flows should have Function entry points
         for f in result["flows"]:
@@ -1153,17 +1153,17 @@ class TestFlowTools:
             assert row["kind"] == "Function"
 
     def test_list_flows_kind_filter_no_match(self):
-        result = list_flows(repo_root=str(self.root), kind="Class")
+        result = flow_func(mode="list", repo_root=str(self.root), kind="Class")
         assert result["status"] == "ok"
         assert len(result["flows"]) == 0
 
     def test_get_flow_by_id(self):
         # First list to get a flow ID
-        flows_result = list_flows(repo_root=str(self.root))
+        flows_result = flow_func(mode="list", repo_root=str(self.root))
         assert len(flows_result["flows"]) >= 1
         fid = flows_result["flows"][0]["id"]
 
-        result = get_flow(flow_id=fid, repo_root=str(self.root))
+        result = flow_func(mode="get", flow_id=fid, repo_root=str(self.root))
         assert result["status"] == "ok"
         assert "flow" in result
         assert result["flow"]["id"] == fid
@@ -1222,16 +1222,16 @@ class TestFlowTools:
         }
 
     def test_get_flow_by_name(self):
-        result = get_flow(flow_name="handle_request", repo_root=str(self.root))
+        result = flow_func(mode="get", flow_name="handle_request", repo_root=str(self.root))
         assert result["status"] == "ok"
         assert "handle_request" in result["flow"]["name"]
 
     def test_get_flow_not_found(self):
-        result = get_flow(flow_id=99999, repo_root=str(self.root))
+        result = flow_func(mode="get", flow_id=99999, repo_root=str(self.root))
         assert result["status"] == "not_found"
 
     def test_get_flow_name_not_found(self):
-        result = get_flow(flow_name="nonexistent_xyz", repo_root=str(self.root))
+        result = flow_func(mode="get", flow_name="nonexistent_xyz", repo_root=str(self.root))
         assert result["status"] == "not_found"
 
     def test_get_flow_include_source(self):
@@ -1239,30 +1239,31 @@ class TestFlowTools:
         app_py = self.root / "app.py"
         app_py.write_text("# app\n" * 9 + "def handle_request():\n" + "    pass\n" * 15 + "\n")
 
-        flows_result = list_flows(repo_root=str(self.root))
+        flows_result = flow_func(mode="list", repo_root=str(self.root))
         fid = flows_result["flows"][0]["id"]
 
-        result = get_flow(flow_id=fid, include_source=True, repo_root=str(self.root))
+        result = flow_func(mode="get", flow_id=fid, include_source=True, repo_root=str(self.root))
         assert result["status"] == "ok"
         # At least one step should have source (the app.py one)
         steps_with_source = [s for s in result["flow"]["steps"] if "source" in s]
         assert len(steps_with_source) >= 1
 
     def test_get_flow_summary_format(self):
-        flows_result = list_flows(repo_root=str(self.root))
+        flows_result = flow_func(mode="list", repo_root=str(self.root))
         fid = flows_result["flows"][0]["id"]
-        result = get_flow(flow_id=fid, repo_root=str(self.root))
+        result = flow_func(mode="get", flow_id=fid, repo_root=str(self.root))
         assert "members" in result["summary"]
         assert "depth" in result["summary"]
         assert "criticality" in result["summary"]
         assert result["flow"]["kind"] == "reachable_set"
         assert result["flow"]["truncated"] is False
 
-    def test_get_flow_degrades_when_stored_steps_are_missing(self, monkeypatch):
-        from dagayn.flows import get_flow_by_id
-        from dagayn.tools import flows_tools
+    def test_get_flow_degrades_when_stored_steps_are_missing(self):
+        from dagayn.flows import get_flow_by_id, get_flows
 
-        flow_id = list_flows(repo_root=str(self.root))["flows"][0]["id"]
+        # Read the id from this test's store: the graph is edited below
+        # through it, before the tool opens the graph.
+        flow_id = get_flows(self.store)[0]["id"]
         flow = get_flow_by_id(self.store, flow_id)
         raw_path = (flow or {}).get("path") or []
         path_ids = [node_id for node_id in raw_path if isinstance(node_id, int)]
@@ -1278,10 +1279,7 @@ class TestFlowTools:
         self.store.remove_files_data(stale_files)
         self.store.commit()
 
-        monkeypatch.setattr(flows_tools, "_get_store", lambda repo_root: (self.store, self.root))
-        self.store.close = lambda: None
-
-        result = flows_tools.get_flow(flow_id=flow_id, repo_root=str(self.root))
+        result = flow_func(mode="get", flow_id=flow_id, repo_root=str(self.root))
 
         assert result["status"] == "degraded"
         assert result["flow"]["node_count"] == len(path_ids)
@@ -1294,16 +1292,13 @@ class TestFlowTools:
         assert any(item.get("reason_code") == "stale_flow" for item in result["missingness"])
         assert "missing" in result["summary"]
 
-    def test_get_flow_degrades_when_truncated(self, monkeypatch):
+    def test_get_flow_degrades_when_truncated(self):
         from dagayn.flows import get_flows, rebuild_stored_flows
-        from dagayn.tools import flows_tools
 
         rebuild_stored_flows(self.store, max_depth=1)
-        monkeypatch.setattr(flows_tools, "_get_store", lambda repo_root: (self.store, self.root))
-        self.store.close = lambda: None
 
         flow_id = get_flows(self.store, limit=1)[0]["id"]
-        result = flows_tools.get_flow(flow_id=flow_id, repo_root=str(self.root))
+        result = flow_func(mode="get", flow_id=flow_id, repo_root=str(self.root))
 
         assert result["status"] == "degraded"
         assert result["flow"]["kind"] == "reachable_set"
@@ -1314,15 +1309,12 @@ class TestFlowTools:
         assert any(item.get("reason_code") == "truncated_flow" for item in result["missingness"])
         assert "truncated:max_depth" in result["summary"]
 
-    def test_list_flows_discloses_truncated(self, monkeypatch):
+    def test_list_flows_discloses_truncated(self):
         from dagayn.flows import rebuild_stored_flows
-        from dagayn.tools import flows_tools
 
         rebuild_stored_flows(self.store, max_depth=1)
-        monkeypatch.setattr(flows_tools, "_get_store", lambda repo_root: (self.store, self.root))
-        self.store.close = lambda: None
 
-        result = flows_tools.list_flows(repo_root=str(self.root), detail_level="minimal")
+        result = flow_func(mode="list", repo_root=str(self.root), detail_level="minimal")
 
         assert result["status"] == "ok"
         assert "truncated" in result["summary"]

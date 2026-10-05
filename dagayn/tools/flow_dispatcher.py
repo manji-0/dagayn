@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 from functools import partial
-from typing import Literal, overload
+from typing import Literal, cast, overload
 
 from pydantic import ValidationError
 
@@ -12,10 +13,12 @@ from ..contracts.state_types import (
     format_validation_error,
     parse_flow_request,
 )
-from ._common import ToolPayload
+from ._common import ToolPayload, ToolStoreScope, _get_store
 from ._dispatch import dispatch_error as _error
 from ._dispatch import with_dispatch_metadata
-from .flows_tools import get_flow, list_flows
+from ._native import native_tool
+
+logger = logging.getLogger(__name__)
 
 _with_dispatch_metadata = partial(with_dispatch_metadata, summary_label="Flow", hints_tool="flow")
 
@@ -75,28 +78,34 @@ def flow_func(
     except ValidationError as exc:
         return _error(format_validation_error(exc), mode=mode, repo_root=repo_root)
 
+    # The validated (coerced) request goes to Rust, which declines arguments
+    # pydantic would have coerced or rejected.
     if request.mode == "list":
-        return _with_dispatch_metadata(
-            list_flows(
-                repo_root=request.repo_root,
-                sort_by=request.sort_by,
-                limit=request.limit,
-                kind=request.kind,
-                detail_level=request.detail_level,
-            ),
-            mode=request.mode,
-            called_subtool="list_flows",
-            repo_root=request.repo_root,
+        subtool = "list_flows"
+        arguments: dict[str, object] = {
+            "sort_by": request.sort_by,
+            "limit": request.limit,
+            "kind": request.kind,
+            "detail_level": request.detail_level,
+        }
+    else:
+        subtool = "get_flow"
+        arguments = {
+            "flow_id": request.flow_id,
+            "flow_name": request.flow_name,
+            "include_source": request.include_source,
+        }
+    with ToolStoreScope(logger=logger, context=subtool) as scope:
+        # Resolves the repository and creates, migrates, or waits for the
+        # graph; the Rust tool reads it.
+        scope.track(_get_store(request.repo_root))
+        return cast(
+            ToolPayload,
+            native_tool("flow_tool", mode=request.mode, repo_root=request.repo_root, **arguments),
         )
-
     return _with_dispatch_metadata(
-        get_flow(
-            flow_id=request.flow_id,
-            flow_name=request.flow_name,
-            include_source=request.include_source,
-            repo_root=request.repo_root,
-        ),
+        scope.error,
         mode=request.mode,
-        called_subtool="get_flow",
+        called_subtool=subtool,
         repo_root=request.repo_root,
     )

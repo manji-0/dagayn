@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import subprocess
+from pathlib import Path
 from typing import cast
 
 from dagayn.contracts.state_types import ReviewMode
@@ -130,18 +131,24 @@ def test_review_context_defaults_to_source_when_unspecified(monkeypatch) -> None
 
 def test_flow_routes_modes(monkeypatch) -> None:
     calls: list[tuple[str, dict]] = []
+    opened: list[str | None] = []
 
-    def fake(name):
-        def _inner(**kwargs):
-            calls.append((name, kwargs))
-            return {"status": "ok", "summary": name}
+    class _Store:
+        def close(self) -> None:
+            pass
 
-        return _inner
+    def fake_get_store(repo_root):
+        opened.append(repo_root)
+        return _Store(), Path("/repo")
 
-    monkeypatch.setattr(flow_dispatcher, "list_flows", fake("list_flows"))
-    monkeypatch.setattr(flow_dispatcher, "get_flow", fake("get_flow"))
+    def fake_native(name, **kwargs):
+        calls.append((name, kwargs))
+        return {"status": "ok", "summary": name}
 
-    list_result = flow_dispatcher.flow_func(
+    monkeypatch.setattr(flow_dispatcher, "_get_store", fake_get_store)
+    monkeypatch.setattr(flow_dispatcher, "native_tool", fake_native)
+
+    flow_dispatcher.flow_func(
         mode="list",
         sort_by="depth",
         limit=5,
@@ -149,20 +156,18 @@ def test_flow_routes_modes(monkeypatch) -> None:
         detail_level="minimal",
         repo_root="/repo",
     )
-    get_result = flow_dispatcher.flow_func(
+    flow_dispatcher.flow_func(
         mode="get",
         flow_id=7,
         include_source=True,
         repo_root="/repo",
     )
 
-    assert list_result["called_subtool"] == "list_flows"
-    assert get_result["called_subtool"] == "get_flow"
-    assert "answerability" in list_result
-    assert "answerability" in get_result
+    assert opened == ["/repo", "/repo"]
     assert calls[0] == (
-        "list_flows",
+        "flow_tool",
         {
+            "mode": "list",
             "repo_root": "/repo",
             "sort_by": "depth",
             "limit": 5,
@@ -171,12 +176,13 @@ def test_flow_routes_modes(monkeypatch) -> None:
         },
     )
     assert calls[1] == (
-        "get_flow",
+        "flow_tool",
         {
+            "mode": "get",
+            "repo_root": "/repo",
             "flow_id": 7,
             "flow_name": None,
             "include_source": True,
-            "repo_root": "/repo",
         },
     )
 
@@ -270,16 +276,16 @@ def test_review_dispatcher_routes_subtool_error_envelopes(monkeypatch) -> None:
     assert "answerability" in result
 
 
-def test_flow_dispatcher_routes_subtool_error_envelopes(monkeypatch) -> None:
-    monkeypatch.setattr(
-        flow_dispatcher,
-        "get_flow",
-        lambda **_kwargs: {"status": "error", "summary": "flow exploded", "error": "flow exploded"},
-    )
+def test_flow_dispatcher_routes_store_errors_into_its_envelope(monkeypatch) -> None:
+    def _boom(repo_root):
+        raise ValueError("graph unavailable")
+
+    monkeypatch.setattr(flow_dispatcher, "_get_store", _boom)
 
     result = flow_dispatcher.flow_func(mode="get", flow_name="nope", repo_root="/repo")
 
     assert result["status"] == "error"
     assert result["mode"] == "get"
     assert result["called_subtool"] == "get_flow"
-    assert result["error"] == "flow exploded"
+    assert result["error"] == "graph unavailable"
+    assert result["missingness"][0]["reason_code"] == "tool_runtime_error"

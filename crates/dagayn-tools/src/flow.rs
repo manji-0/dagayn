@@ -1,5 +1,5 @@
-//! `flow_tool` (`dagayn.tools.flow_dispatcher.flow_func`): `list_flows` and
-//! `get_flow` from `dagayn.tools.flows_tools`.
+//! `flow_tool` (`dagayn.tools.flow_dispatcher.flow_func`): its `list_flows`
+//! and `get_flow` subtools, which have no Python implementation.
 
 use std::collections::HashSet;
 use std::path::Path;

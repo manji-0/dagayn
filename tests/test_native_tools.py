@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from dagayn.tools.analysis_tools import get_suggested_questions_func
+from dagayn.tools.flow_dispatcher import flow_func
 from dagayn.tools.query import find_large_functions, list_graph_stats
 
 DAGAYN = Path(sys.executable).with_name("dagayn")
@@ -55,3 +56,26 @@ def test_suggested_questions_answer_through_rust(repo: Path) -> None:
     assert result["status"] == "ok"
     assert isinstance(result["questions"], list)
     assert result["guidance"][0]["reason_codes"] == ["suggested_questions"]
+
+
+def test_flow_tool_answers_through_rust(repo: Path) -> None:
+    listed = flow_func(mode="list", repo_root=str(repo))
+    assert listed["status"] == "ok"
+    assert listed["called_subtool"] == "list_flows"
+    assert listed["flows"], listed["summary"]
+    flow_id = listed["flows"][0]["id"]
+
+    got = flow_func(mode="get", flow_id=flow_id, include_source=True, repo_root=str(repo))
+    assert got["status"] == "ok"
+    assert got["called_subtool"] == "get_flow"
+    assert got["flow"]["id"] == flow_id
+    assert any("source" in step for step in got["flow"]["steps"])
+
+    missing = flow_func(mode="get", flow_name="no_such_flow", repo_root=str(repo))
+    assert missing["status"] == "not_found"
+
+
+def test_flow_tool_rejects_an_invalid_request_before_rust(repo: Path) -> None:
+    result = flow_func(mode="get", repo_root=str(repo))
+    assert result["status"] == "error"
+    assert "flow_id or flow_name" in result["summary"]
