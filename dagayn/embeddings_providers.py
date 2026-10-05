@@ -8,6 +8,7 @@ import re
 import sys
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from typing import Any, TypedDict
 from urllib.parse import urlparse
 
@@ -107,6 +108,27 @@ def embedding_provider_lookup_candidates(
 # ---------------------------------------------------------------------------
 
 
+def _call_with_retry(fn: Callable[[], Any], label: str, max_retries: int = 3) -> Any:
+    """Call fn with exponential backoff on rate-limit (429) or server (5xx) errors."""
+    for attempt in range(max_retries):
+        try:
+            return fn()
+        except Exception as e:
+            err_str = str(e)
+            is_retryable = "429" in err_str or "500" in err_str or "503" in err_str
+            if not is_retryable or attempt == max_retries - 1:
+                raise
+            wait = 2**attempt
+            logger.warning(
+                label + " API error (attempt %d/%d), retrying in %ds: %s",
+                attempt + 1,
+                max_retries,
+                wait,
+                e,
+            )
+            time.sleep(wait)
+
+
 class EmbeddingProvider(ABC):
     @abstractmethod
     def embed(self, texts: list[str]) -> list[list[float]]:
@@ -151,47 +173,27 @@ class GoogleEmbeddingProvider(EmbeddingProvider):
         results = []
         for i in range(0, len(texts), batch_size):
             batch = texts[i : i + batch_size]
-            response = self._call_with_retry(
+            response = _call_with_retry(
                 lambda b=batch: self._client.models.embed_content(
                     model=self.model,
                     contents=b,
                     config={"task_type": "RETRIEVAL_DOCUMENT"},
-                )
+                ),
+                "Gemini",
             )
             results.extend([e.values for e in response.embeddings])
         if self._dimension is None and results:
             self._dimension = len(results[0])
         return results
 
-    @staticmethod
-    def _call_with_retry(fn, max_retries: int = 3) -> Any:
-        """Call fn with exponential backoff on transient API errors."""
-        for attempt in range(max_retries):
-            try:
-                return fn()
-            except Exception as e:
-                # Retry on rate-limit (429) or server errors (5xx)
-                err_str = str(e)
-                is_retryable = "429" in err_str or "500" in err_str or "503" in err_str
-                if not is_retryable or attempt == max_retries - 1:
-                    raise
-                wait = 2**attempt
-                logger.warning(
-                    "Gemini API error (attempt %d/%d), retrying in %ds: %s",
-                    attempt + 1,
-                    max_retries,
-                    wait,
-                    e,
-                )
-                time.sleep(wait)
-
     def embed_query(self, text: str) -> list[float]:
-        response = self._call_with_retry(
+        response = _call_with_retry(
             lambda: self._client.models.embed_content(
                 model=self.model,
                 contents=[text],
                 config={"task_type": "RETRIEVAL_QUERY"},
-            )
+            ),
+            "Gemini",
         )
         vec = response.embeddings[0].values
         if self._dimension is None:
@@ -245,38 +247,20 @@ class MiniMaxEmbeddingProvider(EmbeddingProvider):
             },
         )
 
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                import ssl
+        def _attempt() -> list[list[float]]:
+            import ssl
 
-                _ssl_ctx = ssl.create_default_context()
-                with urllib.request.urlopen(req, timeout=60, context=_ssl_ctx) as resp:  # nosec B310
-                    body = _json.loads(resp.read().decode("utf-8"))
+            _ssl_ctx = ssl.create_default_context()
+            with urllib.request.urlopen(req, timeout=60, context=_ssl_ctx) as resp:  # nosec B310
+                body = _json.loads(resp.read().decode("utf-8"))
 
-                base_resp = body.get("base_resp", {})
-                if base_resp.get("status_code", 0) != 0:
-                    raise RuntimeError(
-                        f"MiniMax API error: {base_resp.get('status_msg', 'unknown')}"
-                    )
+            base_resp = body.get("base_resp", {})
+            if base_resp.get("status_code", 0) != 0:
+                raise RuntimeError(f"MiniMax API error: {base_resp.get('status_msg', 'unknown')}")
 
-                return body["vectors"]
-            except Exception as e:
-                err_str = str(e)
-                is_retryable = "429" in err_str or "500" in err_str or "503" in err_str
-                if not is_retryable or attempt == max_retries - 1:
-                    raise
-                wait = 2**attempt
-                logger.warning(
-                    "MiniMax API error (attempt %d/%d), retrying in %ds: %s",
-                    attempt + 1,
-                    max_retries,
-                    wait,
-                    e,
-                )
-                time.sleep(wait)
+            return body["vectors"]
 
-        return []  # unreachable, but keeps mypy happy
+        return _call_with_retry(_attempt, "MiniMax")
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         batch_size = 100
