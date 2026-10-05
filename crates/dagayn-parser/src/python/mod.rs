@@ -60,10 +60,6 @@ pub(super) fn parse_python(
     parse_python_module(&file_path, source, repo_root)
 }
 
-pub(super) fn syntax_error_count(source: &[u8]) -> usize {
-    PySource::new(source).parse().errors().len()
-}
-
 fn parse_python_module(
     file_path: &FilePath,
     source: &[u8],

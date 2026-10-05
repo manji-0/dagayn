@@ -93,7 +93,3 @@ required-features = ["all-languages"]
 [[example]]
 name = "quality_probe"
 required-features = ["all-languages"]
-
-[[example]]
-name = "python_parser_diff"
-required-features = ["lang-python"]

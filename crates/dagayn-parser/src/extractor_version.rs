@@ -122,8 +122,12 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // (`receiver_from`), for its declared return type to type the receiver.
         // 9: `super().m()` is typed by the enclosing class's first base
         // (`receiver_type`), or unknown without one, never the caller's own `m`.
+        // 10: parsed with Ruff's parser instead of tree-sitter
+        // (docs/plans/RUFF-PYTHON-PARSER.md): better recovery from syntax
+        // errors, decoded string literals, union annotations type receivers,
+        // and spans end at the last statement, not at trailing comments.
         extractor: "python",
-        version: 9,
+        version: 10,
         languages: &["python", "notebook"],
     },
     ExtractorVersion {

@@ -709,3 +709,189 @@ def test_budget():
     );
     assert_eq!(call.extra["receiver"], "query_module");
 }
+
+fn python_definitions(nodes: &[ParsedNode]) -> Vec<(&str, &str, Option<&str>, i64, i64)> {
+    nodes
+        .iter()
+        .filter(|node| node.kind != NodeKind::File)
+        .map(|node| {
+            (
+                node.kind.as_str(),
+                node.name.as_str(),
+                node.parent_name.as_deref(),
+                node.line_start,
+                node.line_end,
+            )
+        })
+        .collect()
+}
+
+fn python_calls(edges: &[ParsedEdge]) -> Vec<(&str, &str)> {
+    edges
+        .iter()
+        .filter(|edge| edge.kind == EdgeKind::Calls)
+        .map(|edge| (edge.source.as_str(), edge.target.as_str()))
+        .collect()
+}
+
+#[test]
+fn python_definitions_after_a_syntax_error_are_kept() {
+    let source = br#"import os
+
+def ok():
+    return os.path.join("a")
+
+def broken(x:
+    foo(
+
+class After:
+    def m(self):
+        bar()
+"#;
+    let (nodes, edges) = parse_python("app.py", source);
+    let definitions = python_definitions(&nodes)
+        .into_iter()
+        .map(|(kind, name, parent, _, _)| (kind, name, parent))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        definitions,
+        vec![
+            ("Function", "ok", None),
+            ("Function", "broken", None),
+            ("Class", "After", None),
+            ("Function", "m", Some("After")),
+        ]
+    );
+    let calls = python_calls(&edges);
+    assert!(calls.contains(&("app.py::broken", "foo")));
+    assert!(calls.contains(&("app.py::After.m", "bar")));
+}
+
+#[test]
+fn python_statements_after_an_unexpected_indent_keep_their_scope() {
+    // The stray indented line nests the rest of the file in `f` in Ruff's
+    // tree; the definitions after it are walked where their indentation
+    // puts them.
+    let source = br#"class A:
+    def f(self):
+        x = 1
+            y = 2
+    def g(self):
+        helper()
+
+def helper():
+    pass
+"#;
+    let (nodes, edges) = parse_python("app.py", source);
+    assert_eq!(
+        python_definitions(&nodes),
+        vec![
+            ("Class", "A", None, 1, 6),
+            ("Function", "f", Some("A"), 2, 4),
+            ("Function", "g", Some("A"), 5, 6),
+            ("Function", "helper", None, 8, 9),
+        ]
+    );
+    assert!(python_calls(&edges).contains(&("app.py::A.g", "app.py::helper")));
+}
+
+#[test]
+fn python_decorated_definitions_start_at_their_keyword() {
+    let source = br#"import functools
+
+@functools.cache
+# a comment between
+@register(
+    "name",
+)
+async def load():
+    return 1
+
+@dataclass
+class Item:
+    name: str
+"#;
+    let (nodes, edges) = parse_python("app.py", source);
+    assert_eq!(
+        python_definitions(&nodes),
+        vec![
+            ("Function", "load", None, 8, 9),
+            ("Class", "Item", None, 12, 13)
+        ]
+    );
+    let load = nodes.iter().find(|node| node.name == "load").unwrap();
+    assert_eq!(
+        load.extra["decorators"],
+        json!(["functools.cache", "register"])
+    );
+    // The decorator's call runs in the module, not in `load`.
+    assert!(python_calls(&edges).contains(&("app.py", "register")));
+}
+
+#[test]
+fn python_string_arguments_are_read_decoded() {
+    let source = br#"def run(root):
+    open("C:\\data\\in.csv")
+    open("out" ".csv")
+    open(f"{root}/x.txt")
+"#;
+    let (_, edges) = parse_python("app.py", source);
+    let targets = edges
+        .iter()
+        .filter(|edge| edge.kind == EdgeKind::CrossArtifact)
+        .map(|edge| edge.target.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        targets,
+        vec![
+            r"C:\data\in.csv",
+            "out.csv",
+            // An interpolated f-string names no fixed file.
+            "<dynamic:open@app.py:4>",
+        ]
+    );
+}
+
+#[test]
+fn marimo_sql_split_over_concatenated_literals_is_one_query() {
+    let source = br#"import marimo
+
+app = marimo.App()
+
+@app.cell
+def _(mo):
+    _df = mo.sql("SELECT * FROM sales" ".orders")
+    return (_df,)
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_, edges) = parser.parse_file("notebook.py", source);
+    let tables = edges
+        .iter()
+        .filter(|edge| edge.kind == EdgeKind::ImportsFrom && edge.line == 1)
+        .map(|edge| edge.target.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(tables, vec!["sales.orders"]);
+}
+
+#[test]
+fn python_union_annotations_type_receivers() {
+    let source = br#"def lookup(table: dict[str, int] | None, key):
+    return table.get(key)
+"#;
+    let (_, edges) = parse_python("app.py", source);
+    let call = edges
+        .iter()
+        .find(|edge| edge.kind == EdgeKind::Calls && edge.line == 2)
+        .expect("call");
+    assert_eq!(call.extra["external_symbol"], "dict.get");
+}
+
+#[test]
+fn python_future_imports_are_not_dependencies() {
+    let source = b"from __future__ import annotations\n\nx = {\"a\": annotations}\n";
+    let (_, edges) = parse_python("app.py", source);
+    assert!(
+        edges.iter().all(|edge| edge.kind == EdgeKind::Contains),
+        "{edges:?}"
+    );
+}

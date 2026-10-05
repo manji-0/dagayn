@@ -4,6 +4,25 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Changed
+
+- The Python extractor (`.py`, Jupyter notebooks, marimo apps, Databricks
+  exports) parses with Ruff's parser (`ruff_python_parser` 0.0.16) instead
+  of the tree-sitter Python grammar. Python extraction runs about 5.8 times
+  faster (site-packages, 6,609 files: 7.2 s to 1.2 s) and recovers more
+  definitions and calls from files with syntax errors. The graph output is
+  the same except for these improvements: a definition's `line_end` no
+  longer counts the comment lines after its last statement; receivers typed
+  through a union annotation (`x: dict[str, int] | None`) resolve their
+  member calls; calls inside `[*f()]` displays and through a parenthesized
+  callee are found; string arguments are read decoded, with implicit
+  concatenation joined (bridge targets, notebook SQL table imports); an
+  interpolated f-string is a dynamic bridge target; `type X[T] = ...` is
+  named `X`; a parenthesized return annotation loses its parentheses. The
+  Python extractor version is 10, so `dagayn update` re-parses Python
+  files. See `docs/plans/RUFF-PYTHON-PARSER.md`.
+- The Rust workspace targets 1.98.0 (Ruff's parser crates need 1.97).
+
 ### Removed
 
 - Compatibility layers, now that nothing in the package needs them:

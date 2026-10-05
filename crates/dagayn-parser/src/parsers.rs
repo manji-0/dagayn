@@ -36,7 +36,6 @@ macro_rules! grammar_parser {
 grammar_parser!(new_terraform_parser, "lang-terraform", terraform_language);
 grammar_parser!(new_markdown_parser, "lang-markdown", markdown_language);
 grammar_parser!(new_rust_parser, "lang-rust", rust_language);
-grammar_parser!(new_python_parser, "lang-python", python_language);
 grammar_parser!(
     new_javascript_parser,
     "lang-javascript",
