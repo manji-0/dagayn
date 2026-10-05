@@ -136,10 +136,9 @@ class TestAnalysisToolWrappers:
 
     def test_get_suggested_questions_func_closes_store(self, monkeypatch, analysis_store, tmp_path):
         close_mock = _patch_store(monkeypatch, analysis_store, tmp_path)
+        monkeypatch.setattr(analysis_tools, "native_tool", lambda name, **_: {"status": "ok"})
 
         result = analysis_tools.get_suggested_questions_func(repo_root=str(tmp_path), top_n=5)
 
-        assert result["status"] == "ok"
-        assert "questions" in result
-        assert result["guidance"][0]["reason_codes"] == ["suggested_questions"]
+        assert result == {"status": "ok"}
         close_mock.assert_called_once()

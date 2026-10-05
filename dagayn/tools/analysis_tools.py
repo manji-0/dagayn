@@ -7,12 +7,10 @@ from typing import Any, Optional
 
 from .._scope import ArtifactScope
 from ..analysis import (
-    SuggestedQuestionRecord,
     find_bridge_nodes,
     find_hub_nodes,
     find_knowledge_gaps,
     find_surprising_connections,
-    generate_suggested_questions,
 )
 from ._common import (
     ToolPayload,
@@ -24,6 +22,7 @@ from ._common import (
     make_response,
     missingness_from_answerability,
 )
+from ._native import native_tool
 
 
 def _ranked_lead_tool(
@@ -324,54 +323,6 @@ def get_suggested_questions_func(
     """
     store, _root = _get_store(repo_root)
     try:
-        answerability = graph_answerability_summary(store)
-        questions = generate_suggested_questions(store)
-        by_priority: dict[str, list[SuggestedQuestionRecord]] = {
-            "high": [],
-            "medium": [],
-            "low": [],
-        }
-        for q in questions:
-            prio = q.get("priority", "medium")
-            if prio in by_priority:
-                by_priority[prio].append(q)
-
-        ordered = by_priority["high"] + by_priority["medium"] + by_priority["low"]
-        total = len(ordered)
-        truncated = total > top_n
-        returned = ordered[:top_n]
-        guidance = [
-            make_guidance_item(
-                claim=f"Generated {total} review question(s) from graph signals.",
-                evidence={
-                    "type": "computed",
-                    "by_priority": {k: len(v) for k, v in by_priority.items()},
-                    "returned": len(returned),
-                },
-                confidence="medium" if returned else "low",
-                action='review_tool mode="changes" -- apply questions to current changes',
-                reason_codes=["suggested_questions"],
-                counts={"total_questions": total, "returned_questions": len(returned)},
-            )
-        ]
-        payload = make_response(
-            "ok",
-            f"Generated {total} review question(s)."
-            + (f" Showing top {top_n} (high priority first)." if truncated else ""),
-            questions=returned,
-            total=total,
-            truncated=truncated,
-            by_priority={k: len(v) for k, v in by_priority.items()},
-            answerability=answerability,
-            missingness=missingness_from_answerability(answerability),
-            guidance=guidance,
-            next_tool_suggestions=[
-                'architecture_analysis_tool mode="knowledge_gaps" -- structural weaknesses',
-                'review_tool mode="changes" -- risk-scored review',
-                'architecture_analysis_tool mode="overview" -- community map',
-            ],
-        )
-        payload["_hints"] = guidance_actions_to_hints(guidance)
-        return payload
+        return native_tool("get_suggested_questions_tool", repo_root=repo_root, top_n=top_n)
     finally:
         store.close()

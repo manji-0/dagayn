@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any, cast
 
 import pytest
@@ -1044,15 +1045,11 @@ class TestFindSurprisingConnections:
 
 class TestGenerateSuggestedQuestions:
     def test_returns_list(self, store):
-        from dagayn.analysis import generate_suggested_questions
-
-        result = generate_suggested_questions(store)
+        result = json.loads(store.generate_suggested_questions_json())
         assert isinstance(result, list)
 
     def test_question_fields(self, store):
-        from dagayn.analysis import generate_suggested_questions
-
-        result = generate_suggested_questions(store)
+        result = json.loads(store.generate_suggested_questions_json())
         for q in result:
             assert "category" in q
             assert "question" in q
@@ -1062,15 +1059,11 @@ class TestGenerateSuggestedQuestions:
             assert len(q["question"]) > 0
 
     def test_priority_values(self, store):
-        from dagayn.analysis import generate_suggested_questions
-
-        result = generate_suggested_questions(store)
+        result = json.loads(store.generate_suggested_questions_json())
         valid = {"high", "medium", "low"}
         for q in result:
             assert q["priority"] in valid
 
     def test_empty_store_returns_empty(self, empty_store):
-        from dagayn.analysis import generate_suggested_questions
-
-        result = generate_suggested_questions(empty_store)
+        result = json.loads(empty_store.generate_suggested_questions_json())
         assert isinstance(result, list)

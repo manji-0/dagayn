@@ -740,54 +740,15 @@ def find_large_functions(
     with ToolStoreScope(
         logger=logger, context="find_large_functions", repo_root=repo_root
     ) as scope:
-        store, root = scope.track(_get_store(repo_root))
-        nodes = store.get_nodes_by_size(
+        scope.track(_get_store(repo_root))
+        return native_tool(
+            "find_large_functions_tool",
             min_lines=min_lines,
             kind=kind,
             file_path_pattern=file_path_pattern,
             limit=limit,
+            repo_root=repo_root,
         )
-
-        results = []
-        for n in nodes:
-            d = node_to_dict(n)
-            d["line_count"] = (n.line_end - n.line_start + 1) if n.line_start and n.line_end else 0
-            # Make file_path relative for readability
-            try:
-                rel = (
-                    n.file_path
-                    if not Path(n.file_path).is_absolute()
-                    else str(Path(n.file_path).relative_to(root))
-                )
-            except ValueError:
-                rel = n.file_path
-            d["relative_path"] = rel
-            # For File nodes the name IS the absolute path — replace with relative
-            if n.kind == "File" and Path(d.get("name", "")).is_absolute():
-                d["name"] = rel
-            results.append(d)
-
-        summary_parts = [
-            f"Found {len(results)} node(s) with >= {min_lines} lines"
-            + (f" (kind={kind})" if kind else "")
-            + (f" matching '{file_path_pattern}'" if file_path_pattern else "")
-            + ":",
-        ]
-        for r in results[:10]:
-            summary_parts.append(
-                f"  {r['line_count']:>4} lines | {r['kind']:>8} | "
-                f"{r['name']} ({r['relative_path']}:{r['line_start']})"
-            )
-        if len(results) > 10:
-            summary_parts.append(f"  ... and {len(results) - 10} more")
-
-        return {
-            "status": "ok",
-            "summary": "\n".join(summary_parts),
-            "total_found": len(results),
-            "min_lines": min_lines,
-            "results": results,
-        }
     return scope.error
 
 

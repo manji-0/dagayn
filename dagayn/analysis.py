@@ -4,7 +4,6 @@ surprise scoring, suggested questions."""
 from __future__ import annotations
 
 import dataclasses
-import json
 import logging
 import math
 import re
@@ -12,7 +11,7 @@ import sqlite3
 from collections import Counter, defaultdict
 from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
-from typing import TypedDict, cast
+from typing import TypedDict
 
 from ._scope import ArtifactScope, node_matches_artifact_scope
 from .communities import CommunityMetricsPayload
@@ -1096,19 +1095,3 @@ def _degree_counters(edges: list[GraphEdge]) -> tuple[Counter[str], Counter[str]
         out_degree[e.source_qualified] += 1
         in_degree[e.target_qualified] += 1
     return in_degree, out_degree
-
-
-def generate_suggested_questions(
-    store: GraphStore,
-) -> list[SuggestedQuestionRecord]:
-    """Auto-generate review questions from graph analysis (native).
-
-    Categories:
-    - bridge_node: Why does X connect communities A and B?
-    - isolated_node: Is X dead code or dynamically invoked?
-    - low_cohesion: Should community X be split?
-    - hub_risk: Does hub node X have adequate test coverage?
-    - surprising: Why does A call B across community boundary?
-    """
-    decoded = json.loads(store.generate_suggested_questions_json())
-    return cast(list[SuggestedQuestionRecord], decoded)

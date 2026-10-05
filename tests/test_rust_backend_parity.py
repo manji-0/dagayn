@@ -317,7 +317,7 @@ def test_rust_graph_store_generates_suggested_questions(tmp_path):
     except ImportError as exc:
         pytest.skip(f"Rust extension is not available: {exc}")  # ty: ignore[too-many-positional-arguments]
 
-    from dagayn.analysis import generate_suggested_questions, persist_centrality_scores
+    from dagayn.analysis import persist_centrality_scores
 
     db_path = tmp_path / "graph.db"
     store = RustGraphStore(db_path)
@@ -335,7 +335,7 @@ def test_rust_graph_store_generates_suggested_questions(tmp_path):
         store.store_file_nodes_edges("a.py", nodes, edges)
         persist_centrality_scores(store)
 
-        questions = generate_suggested_questions(store)
+        questions = json.loads(store.generate_suggested_questions_json())
 
         assert questions
         assert questions[0]["category"] == "bridge_node"
