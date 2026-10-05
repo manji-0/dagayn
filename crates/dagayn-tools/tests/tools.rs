@@ -578,6 +578,63 @@ fn query_graph_answers_callers_and_callees_of_exact_targets() {
 }
 
 #[test]
+fn query_graph_answers_trimmed_unread_and_dotted_targets() {
+    let repo = Repo::new("query-gaps", false);
+    let many: String = (0..400)
+        .map(|i| format!("def function_with_a_long_name_{i:03}():\n    pass\n\n\n"))
+        .collect();
+    repo.write("many.py", &many);
+    repo.build();
+    let context = repo.context();
+
+    // `apply_output_budget` halves the rows until the answer fits.
+    let trimmed = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "children_of", "target": "many.py", "detail_level": "minimal"}),
+    );
+    assert_eq!(trimmed["truncated"], true);
+    assert_eq!(trimmed["_truncation"]["results"]["total"], 400);
+    let kept = trimmed["_truncation"]["results"]["kept"].as_u64().unwrap();
+    assert!(kept < 400);
+    assert_eq!(
+        trimmed["results"].as_array().map(Vec::len),
+        Some(kept as usize)
+    );
+    assert_eq!(trimmed["results_complete"], false);
+    assert_eq!(trimmed["result_count"], 400);
+
+    // A target Python resolves without the file existing.
+    for target in ["../outside.py", "/nowhere/missing.py", "sub/../missing.py"] {
+        let reply = answer(
+            &context,
+            "query_graph_tool",
+            json!({"pattern": "file_summary", "target": target}),
+        );
+        assert_eq!(reply["status"], "not_found", "{target}");
+    }
+    let dotted = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "file_summary", "target": "./sub/../app.py"}),
+    );
+    assert_eq!(dotted["status"], "ok");
+    assert_eq!(dotted["result_count"], 3);
+
+    // A file gone from the worktree: a `read_error` row, not a decline.
+    std::fs::remove_file(repo.0.join("app.py")).expect("remove");
+    let gone = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "source_of", "target": "app.py::helper"}),
+    );
+    assert_eq!(gone["status"], "degraded");
+    assert_eq!(gone["results"][0]["read_error"], "not_a_file");
+    assert_eq!(gone["results"][0]["source"], "");
+    assert_eq!(gone["source_coverage"]["read_error"], "not_a_file");
+}
+
+#[test]
 fn a_missing_or_foreign_graph_goes_to_python() {
     let repo = Repo::new("nograph", false);
     let context = repo.context();

@@ -2,8 +2,7 @@
 //! (`tests_for` through [`crate::coverage`]), at every detail level and
 //! depth, on a node named exactly or found by name.
 //!
-//! Python's: an invalid `depth`, and an answer large enough for
-//! `apply_output_budget` to trim.
+//! The Python tool opens the graph and leaves every answer to this.
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -12,6 +11,7 @@ use dagayn_graph::{GraphEdge, GraphNode, GraphStore};
 use serde_json::{Map, Value, json};
 
 use crate::answerability::Answerability;
+use crate::pypath::{pure_join, realpath};
 use crate::source::{SourceCoverage, source_row};
 use crate::{Args, Context, OpenGraph, Ordered, Payload, open_graph, resolve_repo};
 
@@ -598,19 +598,20 @@ fn is_external_package_target(store: &GraphStore, target: &str) -> Option<bool> 
     )
 }
 
-/// `file_path_candidates`; `None` when Python's non-strict `resolve()` of a
-/// path that does not exist could differ from a plain join.
+/// `str(root / target)`.
+fn joined(root: &Path, target: &str) -> Option<String> {
+    Some(pure_join(root.to_str()?, target))
+}
+
+/// `file_path_candidates`: the joined path, its non-strict `resolve()`, and
+/// an absolute target as given. `None` only where Python raises (a NUL).
 fn file_path_candidates(root: &Path, target: &str) -> Option<Vec<String>> {
-    let joined = root.join(target);
-    let resolved = match joined.canonicalize() {
-        Ok(path) => path,
-        Err(_) if !target.contains("..") && !target.starts_with('/') => joined.clone(),
-        Err(_) => return None,
-    };
+    let joined = joined(root, target)?;
+    let resolved = realpath(&joined)?;
     let mut out: Vec<String> = Vec::new();
     for candidate in [
-        Some(joined.to_string_lossy().into_owned()),
-        Some(resolved.to_string_lossy().into_owned()),
+        Some(joined),
+        Some(resolved),
         target.starts_with('/').then(|| target.to_string()),
     ]
     .into_iter()
@@ -637,22 +638,8 @@ fn is_unresolved_import(store: &GraphStore, root: &Path, target: &str) -> Option
     if target.starts_with("<unresolved:") {
         return Some(true);
     }
-    let path = if Path::new(target).is_absolute() {
-        std::path::PathBuf::from(target)
-    } else {
-        root.join(target)
-    };
-    let resolved = match path.canonicalize() {
-        Ok(resolved) => resolved,
-        Err(_) if !target.contains("..") => path,
-        Err(_) => return None,
-    };
-    Some(
-        store
-            .get_nodes_by_file(&resolved.to_string_lossy())
-            .ok()?
-            .is_empty(),
-    )
+    let resolved = realpath(&joined(root, target)?)?;
+    Some(store.get_nodes_by_file(&resolved).ok()?.is_empty())
 }
 
 /// What a pattern found, in Python's terms: `state.results`, `edges_out`,
@@ -1072,12 +1059,14 @@ fn run_pattern(
             }
         }
         "source_of" => {
-            let node = node?;
-            let (extra, coverage) = source_row(node, root)?;
-            let mut row = node_row(node);
-            row.extend(extra);
-            found.rows.push(row);
-            found.source = Some(coverage);
+            // `_pattern_source_of` returns nothing without a node.
+            if let Some(node) = node {
+                let (extra, coverage) = source_row(node, root)?;
+                let mut row = node_row(node);
+                row.extend(extra);
+                found.rows.push(row);
+                found.source = Some(coverage);
+            }
         }
         _ => return None,
     }
@@ -1187,9 +1176,9 @@ fn exactness_action(pattern: &str, exact_count: i64, result_count: usize) -> Val
     json!({"tool": "semantic_search_nodes_tool", "suggestion": "broaden the query or verify the graph is up to date"})
 }
 
-/// `_transitive_next_action` for a complete (untrimmed) answer.
-fn transitive_next_action(reachability: &Value) -> Value {
-    if reachability.get("truncated") == Some(&Value::Bool(true)) {
+/// `_transitive_next_action`.
+fn transitive_next_action(reachability: &Value, results_complete: bool) -> Value {
+    if reachability.get("truncated") == Some(&Value::Bool(true)) || !results_complete {
         return json!({"tool": "query_graph_tool", "suggestion": "the reachable set was cut off; lower depth or query the deepest listed nodes to see the rest"});
     }
     if reachability.get("depth_limit_reached") == Some(&Value::Bool(true)) {
@@ -1212,7 +1201,8 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
     let detail_level = match arguments.get("detail_level") {
         None => "standard",
         Some(Value::String(level)) => level.as_str(),
-        Some(_) => return None,
+        // Python treats a level it does not know as `standard`.
+        Some(_) => "standard",
     };
     // Python treats any other level as `standard`.
     let (full, minimal) = (detail_level == "full", detail_level == "minimal");
@@ -1257,7 +1247,7 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
     // `resolve_query_target`.
     let exact = match store.get_node(target).ok()? {
         Some(node) => Some(node),
-        None => store.get_node(&root.join(target).to_string_lossy()).ok()?,
+        None => store.get_node(&joined(&root, target)?).ok()?,
     };
     let (node, resolution) = match exact {
         Some(node) => (Some(node), Resolution::Exact),
@@ -1414,13 +1404,17 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
         }
         budget = if minimal { 4000 } else { 8000 };
     }
-    // `apply_output_budget`: an answer it would trim is Python's.
-    if python_dumps_len(&payload.value()) / 4 > budget {
-        return None;
-    }
-    payload = payload.put("results_complete", true);
+    payload = payload.apply_output_budget(budget, &["results", "edges"]);
+    let results_complete = !payload
+        .get("_truncation")
+        .and_then(Value::as_object)
+        .is_some_and(|truncation| truncation.contains_key("results"));
+    payload = payload.put("results_complete", results_complete);
     if let Some(reachability) = &found.reachability {
-        payload = payload.replace("next_action", transitive_next_action(reachability));
+        payload = payload.replace(
+            "next_action",
+            transitive_next_action(reachability, results_complete),
+        );
     }
     let mut missingness = answerability.missingness();
     // `_attach_source_of_coverage`.

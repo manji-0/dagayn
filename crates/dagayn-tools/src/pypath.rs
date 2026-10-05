@@ -83,6 +83,32 @@ pub(crate) fn realpath(path: &str) -> Option<String> {
     Some(resolved)
 }
 
+/// `str(PurePosixPath(base) / tail)`: `tail` alone when it is absolute,
+/// empty and `.` components dropped, and two leading slashes (not three or
+/// more) kept, as POSIX allows.
+pub(crate) fn pure_join(base: &str, tail: &str) -> String {
+    let combined = if tail.starts_with('/') || base.is_empty() {
+        tail.to_string()
+    } else {
+        format!("{base}/{tail}")
+    };
+    let prefix = if combined.starts_with("//") && !combined.starts_with("///") {
+        "//"
+    } else if combined.starts_with('/') {
+        "/"
+    } else {
+        ""
+    };
+    let parts: Vec<&str> = combined
+        .split('/')
+        .filter(|part| !part.is_empty() && *part != ".")
+        .collect();
+    if prefix.is_empty() && parts.is_empty() {
+        return ".".to_string();
+    }
+    format!("{prefix}{}", parts.join("/"))
+}
+
 /// `str.isspace()`: Rust's whitespace plus the four information separators.
 fn is_py_space(c: char) -> bool {
     c.is_whitespace() || ('\u{1c}'..='\u{1f}').contains(&c)
@@ -149,6 +175,17 @@ pub(crate) fn is_project_root(path: &Path) -> Option<bool> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn pure_join_normalises_as_pure_posix_path() {
+        use super::pure_join;
+        assert_eq!(pure_join("/r", "a//b/./c/"), "/r/a/b/c");
+        assert_eq!(pure_join("/r", ""), "/r");
+        assert_eq!(pure_join("/r", "/x/../y"), "/x/../y");
+        assert_eq!(pure_join("/r", "//x"), "//x");
+        assert_eq!(pure_join("/r", "///x"), "/x");
+        assert_eq!(pure_join("/r", "../a"), "/r/../a");
+    }
+
     use super::realpath;
 
     #[test]

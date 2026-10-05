@@ -1,12 +1,13 @@
 //! `source_of` rows (`dagayn.tools.node_source.read_live_node_source`).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use dagayn_graph::GraphNode;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::coverage::splitlines;
+use crate::pypath::realpath;
 
 /// `SOURCE_OF_MAX_CHARS`.
 const MAX_CHARS: usize = 4000;
@@ -96,22 +97,65 @@ fn line_span(node: &GraphNode, lines: &[&str]) -> (usize, usize) {
     (start, end)
 }
 
-/// The `source_of` row (before compaction) and its coverage; `None` when the
-/// file is not one Python would read the same way (missing, or outside the
-/// repository).
+/// The base row `_base_payload` builds when the file is not read, with its
+/// `read_error`.
+fn unread_row(
+    node: &GraphNode,
+    error: &'static str,
+) -> (Vec<(&'static str, Value)>, SourceCoverage) {
+    let coverage = SourceCoverage {
+        read_error: Some(error),
+        stale: false,
+        truncated: false,
+        omitted_chars: 0,
+        omitted_lines: 0,
+    };
+    let row = vec![
+        ("signature", json!(node.signature)),
+        ("params", json!(node.params)),
+        ("return_type", json!(node.return_type)),
+        ("source", json!("")),
+        ("truncated", json!(false)),
+        ("source_stale", json!(false)),
+        ("read_error", json!(error)),
+        ("omitted_chars", json!(0)),
+        ("omitted_lines", json!(0)),
+        ("max_chars", json!(MAX_CHARS)),
+        ("span_line_start", json!(node.line_start)),
+        ("span_line_end", json!(node.line_end)),
+    ];
+    (row, coverage)
+}
+
+/// The `source_of` row (before compaction) and its coverage, as
+/// `read_live_node_source` reads the file: through `resolve_contained_path`
+/// (Python's non-strict `resolve()`), with a `read_error` row for a missing
+/// path, one that escapes the repository, one that is not a file, or one
+/// that cannot be read. `None` only for a path holding a NUL, where Python
+/// raises.
 pub(crate) fn source_row(
     node: &GraphNode,
     root: &Path,
 ) -> Option<(Vec<(&'static str, Value)>, SourceCoverage)> {
     if node.file_path.is_empty() {
-        return None;
+        return Some(unread_row(node, "missing_path"));
     }
-    let candidate = root.join(&node.file_path);
-    let path = candidate.canonicalize().ok()?;
-    if !path.starts_with(root) || !path.is_file() {
-        return None;
+    let joined = if node.file_path.starts_with('/') {
+        node.file_path.clone()
+    } else {
+        format!("{}/{}", root.to_str()?, node.file_path)
+    };
+    let resolved = PathBuf::from(realpath(&joined)?);
+    let root = PathBuf::from(realpath(root.to_str()?)?);
+    if !resolved.starts_with(&root) {
+        return Some(unread_row(node, "path_escapes_repo"));
     }
-    let raw = std::fs::read(&path).ok()?;
+    if !resolved.is_file() {
+        return Some(unread_row(node, "not_a_file"));
+    }
+    let Ok(raw) = std::fs::read(&resolved) else {
+        return Some(unread_row(node, "unreadable"));
+    };
     let live_hash = format!("{:x}", Sha256::digest(&raw));
     let stored = node.file_hash.as_deref().unwrap_or("");
     let stale = !stored.is_empty() && stored != live_hash;
