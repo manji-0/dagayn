@@ -102,7 +102,11 @@ out; the examples need `all-languages`.
 
 A file whose language is disabled is still Rust-owned: it gets its File node
 (as a PowerShell file always does) and no symbols, rather than a parse error,
-a missing file, or the Python fallback parser. A graph built that way keeps
+a missing file, or the Python fallback parser. This goes by the file's kind,
+so a `.tf.json` file is File-only without `lang-terraform` although its JSON
+needs no grammar. A file whose own grammar is on but which embeds a disabled
+one keeps what its grammar finds: a marimo Markdown file without
+`lang-python` gets its sections but no Python symbols. A graph built that way keeps
 those File-only entries until a full build re-parses them
 (`dagayn build --force-full-build`), so use subsets for development and CI,
 not for a graph you keep.
