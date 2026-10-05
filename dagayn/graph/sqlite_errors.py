@@ -19,6 +19,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from ..sqlite_tuning import keep_wal_on_close
+
 logger = logging.getLogger(__name__)
 
 _CORRUPT_MESSAGE_MARKERS = (
@@ -49,6 +51,7 @@ def borrowed_sqlite_connection(store: Any) -> Iterator[sqlite3.Connection]:
     if db_path is None:
         raise AttributeError(f"{type(store).__name__} has no sqlite connection")
     ephemeral = sqlite3.connect(str(db_path), timeout=30)
+    keep_wal_on_close(ephemeral)
     ephemeral.row_factory = sqlite3.Row
     try:
         yield ephemeral
@@ -166,7 +169,7 @@ def probe_graph_database(db_path: str | Path) -> bool:
     if str(path) == ":memory:" or not path.is_file():
         return False
     try:
-        conn = sqlite3.connect(str(path), timeout=5)
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
     except sqlite3.Error:
         return False
     try:

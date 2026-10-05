@@ -8,7 +8,7 @@ import threading
 from collections import OrderedDict
 from pathlib import Path
 
-from .sqlite_tuning import apply_wal_size_limit
+from .sqlite_tuning import apply_wal_size_limit, keep_wal_on_close
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +54,7 @@ class ConnectionPool:
                 check_same_thread=False,
                 isolation_level=None,
             )
+            keep_wal_on_close(conn)
             conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA busy_timeout=5000")

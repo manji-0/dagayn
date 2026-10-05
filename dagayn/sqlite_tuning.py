@@ -39,3 +39,15 @@ def apply_wal_size_limit(conn: sqlite3.Connection) -> None:
         conn.execute(f"PRAGMA journal_size_limit={WAL_SIZE_LIMIT_BYTES}")
     except sqlite3.Error:
         logger.debug("Could not set journal_size_limit", exc_info=True)
+
+
+def keep_wal_on_close(conn: sqlite3.Connection) -> None:
+    """Stop *conn* from checkpointing and deleting ``-wal``/``-shm`` on close.
+
+    Python's ``sqlite3`` and the native store in ``dagayn._core`` are two SQLite
+    copies in one process, and neither sees the other's locks. A read-write
+    Python connection that believes itself the last one deletes the WAL files
+    when it closes, under the native store's open connections, which then fail
+    with "disk I/O error". The native store checkpoints on its own.
+    """
+    conn.setconfig(sqlite3.SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, True)

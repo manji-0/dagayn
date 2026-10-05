@@ -30,6 +30,14 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- A Python-side SQLite connection to the graph could delete the WAL files
+  under the native store in the same process, after which every native
+  connection failed with "disk I/O error". The cache check on every tool
+  call (`_data_version`), the answerability queries, and the corruption
+  probe now open the graph read-only, and the connections that write
+  (`borrowed_sqlite_connection`, `EmbeddingStore`, the registry pool) keep
+  the WAL on close (`SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE`); the native store
+  checkpoints on its own.
 - The ADP/SDP/SAP architecture tools (`detect_adp_violations_func`,
   `compute_sdp_metrics_func`, `detect_sdp_violations_func`,
   `compute_sap_metrics_func`, `detect_sap_violations_func`) and

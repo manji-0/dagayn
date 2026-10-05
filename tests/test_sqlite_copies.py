@@ -106,3 +106,44 @@ def test_list_graph_stats_reads_the_graph_without_writing_it(unembedded_repo: Pa
 
     assert list_graph_stats(repo_root=str(unembedded_repo))["embeddings_count"] == 0
     assert "embeddings" not in _tables(unembedded_repo / ".dagayn" / "graph.db")
+
+
+def _python_side_reads() -> list:
+    """Each way the package opens the graph with Python's ``sqlite3``."""
+    from types import SimpleNamespace
+
+    from dagayn.graph.sqlite_errors import borrowed_sqlite_connection, probe_graph_database
+    from dagayn.tools._common import _data_version
+
+    def borrowed(db: Path) -> None:
+        with borrowed_sqlite_connection(SimpleNamespace(db_path=db)) as conn:
+            conn.execute("SELECT count(*) FROM nodes").fetchone()
+
+    return [
+        pytest.param(lambda db: _data_version(SimpleNamespace(db_path=db)), id="data_version"),
+        pytest.param(borrowed, id="borrowed_sqlite_connection"),
+        pytest.param(probe_graph_database, id="probe_graph_database"),
+    ]
+
+
+@pytest.mark.parametrize("python_side", _python_side_reads())
+def test_a_python_side_connection_leaves_the_native_store_working(
+    unembedded_repo: Path, python_side
+) -> None:
+    from dagayn.graph import GraphStore
+
+    db = unembedded_repo / ".dagayn" / "graph.db"
+    store = GraphStore(db)
+    try:
+        python_side(db)
+        store.set_metadata("touched", "1")
+        store.commit()
+        fresh = GraphStore(db)
+        try:
+            assert fresh.get_metadata("touched") == "1"
+            fresh.set_metadata("touched", "2")
+            fresh.commit()
+        finally:
+            fresh.close()
+    finally:
+        store.close()

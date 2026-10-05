@@ -484,7 +484,10 @@ def _data_version(store: Any) -> int | None:
     if db_path is None:
         return None
     try:
-        conn = sqlite3.connect(str(db_path), timeout=5)
+        # Read-only: a read-write connection of Python's SQLite that believes
+        # itself last deletes -wal/-shm on close, under the native store's
+        # connections in this process, which then fail with "disk I/O error".
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=5)
     except sqlite3.Error:
         return None
     try:
@@ -641,7 +644,8 @@ def _answerability_sqlite_connection(store: Any) -> tuple[sqlite3.Connection | N
             db_path = ctx.get("db_path")
     if not db_path:
         return None, False
-    return sqlite3.connect(str(db_path), timeout=30), True
+    # Read-only, like ``_data_version``: these are queries only.
+    return sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=30), True
 
 
 def _hints_from_next_tool_suggestions(

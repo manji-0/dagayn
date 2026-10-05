@@ -1259,11 +1259,11 @@ class TestFlowTools:
         assert result["flow"]["truncated"] is False
 
     def test_get_flow_degrades_when_stored_steps_are_missing(self):
-        from dagayn.flows import get_flow_by_id, get_flows
+        from dagayn.flows import get_flow_by_id
 
-        # Read the id from this test's store: the graph is edited below
-        # through it, before the tool opens the graph.
-        flow_id = get_flows(self.store)[0]["id"]
+        # The tool reads the graph before this test's store edits it, and
+        # again after (each read through a fresh Python-side cache check).
+        flow_id = flow_func(mode="list", repo_root=str(self.root))["flows"][0]["id"]
         flow = get_flow_by_id(self.store, flow_id)
         raw_path = (flow or {}).get("path") or []
         path_ids = [node_id for node_id in raw_path if isinstance(node_id, int)]

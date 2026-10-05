@@ -31,7 +31,7 @@ from .embeddings_text import (
     _slow_embed_batch_seconds,
 )
 from .graph import GraphNode, GraphStore
-from .sqlite_tuning import apply_wal_size_limit
+from .sqlite_tuning import apply_wal_size_limit, keep_wal_on_close
 
 _EMBED_PROVIDER_ERRORS = (OSError, RuntimeError, ValueError, TypeError, sqlite3.Error)
 
@@ -705,6 +705,7 @@ class EmbeddingStore:
             check_same_thread=False,
             isolation_level=None,
         )
+        keep_wal_on_close(self._conn)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=NORMAL")
