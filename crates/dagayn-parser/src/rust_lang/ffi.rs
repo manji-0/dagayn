@@ -52,6 +52,25 @@ const RUST_WASM_EXPORT_LOOKUPS: &[&str] = &[
     "get_typed_function",
 ];
 
+/// Whether `source` holds the text `rust_wasm_host_edges` needs to emit an
+/// edge: a `.wasm` string (in any case), an export lookup, or, with
+/// component bindings, a `call_` method. Every edge of that pass comes from
+/// one of these, so a file without them is skipped without walking its tree.
+pub(super) fn rust_may_host_wasm(source: &[u8], component: bool) -> bool {
+    memchr::memchr_iter(b'.', source).any(|dot| {
+        source
+            .get(dot + 1..dot + 5)
+            .is_some_and(|ext| ext.eq_ignore_ascii_case(b"wasm"))
+    }) || RUST_WASM_EXPORT_LOOKUPS
+        .iter()
+        .any(|lookup| contains_bytes(source, lookup.as_bytes()))
+        || (component && contains_bytes(source, b"call_"))
+}
+
+pub(super) fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
+    memchr::memmem::find(haystack, needle).is_some()
+}
+
 /// A WebAssembly host embedding a module: any call or `include_bytes!` with
 /// a string argument naming a `.wasm` file (`Module::from_file(&engine,
 /// "guest.wasm")`) emits `loads_wasm_module`, and an export lookup by name
@@ -223,6 +242,9 @@ pub(super) fn record_neon_exported_functions(
     source: &[u8],
     nodes: &mut [ParsedNode],
 ) {
+    if !contains_bytes(source, b"export_function") {
+        return;
+    }
     let mut registrations = Vec::new();
     collect_neon_registrations(root, source, &mut registrations);
     for (js_name, function) in registrations {
