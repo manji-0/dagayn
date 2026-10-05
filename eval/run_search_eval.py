@@ -12,7 +12,7 @@ from typing import Any
 import yaml
 
 from dagayn.graph import GraphStore
-from dagayn.incremental import get_db_path
+from dagayn.paths import get_db_path
 from dagayn.search import hybrid_search
 
 
