@@ -26,7 +26,6 @@ from dagayn.incremental_files import (
     get_vcs_indexable_files,
 )
 from dagayn.incremental_update_pipeline import incremental_update
-from dagayn.wiki import get_wiki_page
 from tests.store_sql import store_conn
 
 
@@ -358,19 +357,6 @@ def test_full_build_with_recurse_submodules(
         assert len(sub_nodes) > 0
     finally:
         store.close()
-
-
-def test_wiki_page_path_traversal_blocked(tmp_path: Path) -> None:
-    """get_wiki_page must not serve files outside the wiki directory."""
-    wiki_dir = tmp_path / "wiki"
-    wiki_dir.mkdir()
-
-    # Create a legitimate page
-    (wiki_dir / "my-module.md").write_text("# My Module\n")
-
-    # Attempt a path traversal — should return None
-    result = get_wiki_page(str(wiki_dir), "../../etc/passwd")
-    assert result is None
 
 
 def _indexed_files(store: GraphStore) -> set[str]:

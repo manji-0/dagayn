@@ -10,7 +10,6 @@ from dagayn.wiki import (
     _generate_community_page,
     _slugify,
     generate_wiki,
-    get_wiki_page,
 )
 
 
@@ -169,27 +168,6 @@ class TestWiki:
         assert "# Code Wiki" in index_content
         assert "Communities" in index_content
         assert ".md" in index_content  # contains links to .md files
-
-    def test_get_wiki_page_returns_content(self):
-        """get_wiki_page returns content for an existing page."""
-        self._seed_communities()
-        generate_wiki(self.store, self.wiki_dir)
-
-        # Find any generated page
-        wiki_path = Path(self.wiki_dir)
-        pages = [f for f in wiki_path.glob("*.md") if f.name != "index.md"]
-        assert len(pages) > 0
-
-        # Get page by its stem (slug)
-        page_name = pages[0].stem
-        content = get_wiki_page(self.wiki_dir, page_name)
-        assert content is not None
-        assert len(content) > 0
-
-    def test_get_wiki_page_returns_none_for_missing(self):
-        """get_wiki_page returns None for non-existent page."""
-        content = get_wiki_page(self.wiki_dir, "nonexistent-page")
-        assert content is None
 
     def test_community_page_has_expected_sections(self):
         """Generated community pages contain expected sections."""

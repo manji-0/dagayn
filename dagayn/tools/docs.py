@@ -380,24 +380,10 @@ def get_wiki_page_func(
     Returns:
         Page content or not_found status.
     """
-    from ..paths import get_data_dir
-    from ..wiki import get_wiki_page
-
-    store, root = _get_store(repo_root)
-    store.close()
-    wiki_dir = get_data_dir(root) / "wiki"
-    content = get_wiki_page(wiki_dir, community_name)
-    if content is None:
-        return {
-            "status": "not_found",
-            "summary": (
-                f"No wiki page found for '{community_name}'. "
-                "Run generate_wiki_tool first to build the wiki."
-            ),
-            "next_tool_suggestions": ["generate_wiki_tool -- build wiki pages from communities"],
-        }
-    return {
-        "status": "ok",
-        "summary": (f"Wiki page for '{community_name}' ({len(content)} chars)"),
-        "content": content,
-    }
+    # Resolves the repository and creates, migrates, or waits for the graph;
+    # the Rust tool reads the page from the wiki next to it.
+    store, _root = _get_store(repo_root)
+    try:
+        return native_tool("get_wiki_page_tool", community_name=community_name, repo_root=repo_root)
+    finally:
+        store.close()

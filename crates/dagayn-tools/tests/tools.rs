@@ -1144,10 +1144,49 @@ fn wiki_pages_are_read_by_slug_or_exact_name() {
         json!({"community_name": "../graph.db"}),
     );
     assert_eq!(escape["status"], "not_found");
+
+    // `str.lower()` folds the Kelvin sign to `k`; other non-ASCII is a gap.
+    repo.write(".dagayn/wiki/k-v.md", "kelvin");
+    let kelvin = answer(
+        &context,
+        "get_wiki_page_tool",
+        json!({"community_name": "\u{212a}認証V"}),
+    );
+    assert_eq!(kelvin["content"], "kelvin");
+    let unnamed = answer(
+        &context,
+        "get_wiki_page_tool",
+        json!({"community_name": "認証"}),
+    );
+    assert_eq!(unnamed["status"], "not_found");
+
+    // Bytes that are not UTF-8 read as U+FFFD, one per maximal subpart.
+    std::fs::write(
+        repo.0.join(".dagayn/wiki/bytes.md"),
+        b"a\xe2\x82b\xed\xa0\x80\xf0\x9f\x98\x80\xff\r\n",
+    )
+    .expect("write");
+    let bytes = answer(
+        &context,
+        "get_wiki_page_tool",
+        json!({"community_name": "bytes"}),
+    );
+    assert_eq!(
+        bytes["content"],
+        "a\u{fffd}b\u{fffd}\u{fffd}\u{fffd}\u{1f600}\u{fffd}\n"
+    );
+
+    // A NUL reaches the slug lookup; past it, `Path.resolve()` raises.
+    let nul = answer(
+        &context,
+        "get_wiki_page_tool",
+        json!({"community_name": "bytes\u{0}"}),
+    );
+    assert_eq!(nul["status"], "ok");
     assert!(declines(
         &context,
         "get_wiki_page_tool",
-        json!({"community_name": "認証"})
+        json!({"community_name": "absent\u{0}"})
     ));
 }
 
@@ -1192,14 +1231,32 @@ fn a_rename_preview_is_applied_or_shown_as_a_diff() {
         format!("Refactor '{id}' not found or expired.")
     );
 
-    // Bytes Python would replace while rewriting the file are its call.
+    // Bytes that are not UTF-8 are replaced, and the file is written back
+    // that way with `\n` line ends, as `read_text`/`write_text` do.
     let id = rename("main", "start");
-    std::fs::write(repo.0.join("app.py"), b"def main():\n    return '\xff'\n").expect("write");
-    assert!(declines(
+    std::fs::write(
+        repo.0.join("app.py"),
+        b"def main():\r\n    return '\xff'\r\n",
+    )
+    .expect("write");
+    let dry = answer(
         &context,
         "apply_refactor_tool",
-        json!({"refactor_id": id, "dry_run": true})
-    ));
+        json!({"refactor_id": id, "dry_run": true}),
+    );
+    assert!(
+        dry["diffs"]["app.py"]
+            .as_str()
+            .expect("diff")
+            .contains("+def start():\n     return '\u{fffd}'\n"),
+        "{dry}"
+    );
+    let applied = answer(&context, "apply_refactor_tool", json!({"refactor_id": id}));
+    assert_eq!(applied["status"], "ok", "{applied}");
+    assert_eq!(
+        std::fs::read_to_string(repo.0.join("app.py")).expect("app.py"),
+        "def start():\n    return '\u{fffd}'\n"
+    );
 }
 
 /// A one-request-at-a-time OpenAI-compatible endpoint that embeds every

@@ -488,31 +488,3 @@ def generate_wiki(
         "pages_unchanged": counts["pages_unchanged"],
         "pages_removed": pages_removed,
     }
-
-
-def get_wiki_page(wiki_dir: str | Path, page_name: str) -> str | None:
-    """Retrieve a specific wiki page by community name.
-
-    Args:
-        wiki_dir: Directory containing wiki pages.
-        page_name: Community name (will be slugified for filename lookup).
-
-    Returns:
-        Page content as a string, or None if the page does not exist.
-    """
-    wiki_path = Path(wiki_dir)
-    slug = _slugify(page_name)
-    filepath = wiki_path / f"{slug}.md"
-
-    if filepath.is_file():
-        return filepath.read_text(encoding="utf-8", errors="replace")
-
-    # Fallback: try exact filename match — with path traversal protection
-    exact_path = (wiki_path / page_name).resolve()
-    if exact_path.is_file() and exact_path.is_relative_to(wiki_path.resolve()):
-        return exact_path.read_text(encoding="utf-8", errors="replace")
-
-    # No substring fallback: ``slug in p.stem`` matched unrelated pages (a query
-    # for "auth" returning "auth-legacy-sub3"), which is worse than a miss --
-    # the caller cannot tell it got a different community's page.
-    return None

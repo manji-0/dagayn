@@ -101,18 +101,30 @@ pub(crate) fn docs_section(
     ))
 }
 
-/// `Path.read_text(errors="replace")`: universal newlines; `None` for bytes
-/// that are not UTF-8, whose replacement is Python's.
+/// `Path.read_text(encoding="utf-8", errors="replace")`: each maximal invalid
+/// UTF-8 subpart reads as one U+FFFD (the rule Python's decoder and
+/// `from_utf8_lossy` share), then universal newlines. `None` when the file
+/// cannot be read, where Python raises.
 pub(crate) fn read_text(path: &std::path::Path) -> Option<String> {
-    let text = String::from_utf8(std::fs::read(path).ok()?).ok()?;
-    Some(text.replace("\r\n", "\n").replace('\r', "\n"))
+    let bytes = std::fs::read(path).ok()?;
+    Some(decode_text(&bytes))
 }
 
-/// `dagayn.wiki._slugify` for an ASCII name.
+/// [`read_text`]'s decoding of `bytes`.
+pub(crate) fn decode_text(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes)
+        .replace("\r\n", "\n")
+        .replace('\r', "\n")
+}
+
+/// `dagayn.wiki._slugify`: `re.sub(r"[^a-z0-9]+", "-", name.lower())` with
+/// the dashes stripped. Full lowercasing matters only where it yields ASCII
+/// (the Kelvin sign, a dotted capital I); every other non-ASCII character is
+/// a gap.
 fn slugify(name: &str) -> String {
     let mut slug = String::new();
     let mut gap = false;
-    for c in name.to_ascii_lowercase().chars() {
+    for c in name.to_lowercase().chars() {
         if c.is_ascii_lowercase() || c.is_ascii_digit() {
             if gap && !slug.is_empty() {
                 slug.push('-');
@@ -135,10 +147,6 @@ fn slugify(name: &str) -> String {
 pub(crate) fn get_wiki_page(context: &Context, arguments: &Map<String, Value>) -> Option<Payload> {
     let args = Args::new(arguments, &["community_name", "repo_root"])?;
     let name = args.string("community_name")?;
-    // Python's `lower()` and `\w`-free regex agree with ASCII folding only.
-    if !name.is_ascii() || name.contains('\0') {
-        return None;
-    }
     let root = resolve_repo(context, args.optional_string("repo_root")?)?;
     let graph = open_graph(&root)?;
     let repo = graph.repo_context();
@@ -149,6 +157,9 @@ pub(crate) fn get_wiki_page(context: &Context, arguments: &Map<String, Value>) -
     let slugged = wiki.join(format!("{}.md", slugify(name)));
     let content = if slugged.is_file() {
         Some(read_text(&slugged)?)
+    } else if name.contains('\0') {
+        // `Path.resolve()` raises on an embedded NUL: the call fails.
+        return None;
     } else {
         // The exact file name, inside the wiki directory only.
         match (wiki.join(name).canonicalize(), wiki.canonicalize()) {
