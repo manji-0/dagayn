@@ -1270,6 +1270,88 @@ fn a_rename_preview_is_applied_or_shown_as_a_diff() {
         std::fs::read_to_string(repo.0.join("app.py")).expect("app.py"),
         "def start():\n    return '\u{fffd}'\n"
     );
+
+    // A preview Python would have stored: a path that does not exist yet
+    // is skipped, an empty name matches nothing, and a float line counts.
+    let stored = |id: &str, edits: Value| {
+        dagayn_tools::pending::set(
+            id,
+            json!({"created_at": dagayn_tools::pending::now(), "edits": edits}).to_string(),
+        );
+    };
+    stored(
+        "odd",
+        json!([
+            {"file": "gone/new.py", "line": 1, "old": "a", "new": "b"},
+            {"file": "app.py", "line": 1, "old": "", "new": "b"},
+            {"file": "app.py", "line": 1.0, "old": "start", "new": "begin"},
+            {"file": "app.py", "line": null, "old": "start", "new": "begin"},
+            {"file": "app.py", "line": 9, "old": "start", "new": "begin"},
+        ]),
+    );
+    let odd = answer(
+        &context,
+        "apply_refactor_tool",
+        json!({"refactor_id": "odd", "dry_run": true}),
+    );
+    assert_eq!(odd["status"], "partial");
+    assert_eq!(odd["edits_applied"], 1);
+    let reasons: Vec<&str> = odd["skipped"]
+        .as_array()
+        .expect("skipped")
+        .iter()
+        .filter_map(|skip| skip["reason"].as_str())
+        .collect();
+    assert_eq!(
+        reasons,
+        [
+            "file_not_found",
+            "line_no_longer_matches",
+            "no_line_recorded",
+            "line_out_of_range"
+        ]
+    );
+    stored(
+        "escape",
+        json!([{"file": "../outside.py", "line": 1, "old": "a", "new": "b"}]),
+    );
+    let escape = answer(
+        &context,
+        "apply_refactor_tool",
+        json!({"refactor_id": "escape"}),
+    );
+    assert_eq!(
+        escape["error"],
+        "Edit path '../outside.py' is outside repo root."
+    );
+
+    // A named root is checked as `_validate_repo_root` does.
+    let missing = repo.0.join("no-such-dir");
+    let named = answer(
+        &context,
+        "apply_refactor_tool",
+        json!({"refactor_id": "odd", "repo_root": missing}),
+    );
+    assert_eq!(
+        named["error"],
+        format!(
+            "repo_root is not an existing directory: {}",
+            missing.display()
+        )
+    );
+    let plain = repo.0.join("docs");
+    let named = answer(
+        &context,
+        "apply_refactor_tool",
+        json!({"refactor_id": "odd", "repo_root": plain}),
+    );
+    assert_eq!(
+        named["error"],
+        format!(
+            "repo_root does not look like a project root (no .git or .dagayn/graph.db found): {}",
+            plain.display()
+        )
+    );
 }
 
 /// A one-request-at-a-time OpenAI-compatible endpoint that embeds every

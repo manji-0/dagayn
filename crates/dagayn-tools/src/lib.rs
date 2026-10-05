@@ -26,6 +26,7 @@ pub mod hints;
 mod large;
 pub mod pending;
 mod postprocess;
+mod pypath;
 mod pyrandom;
 mod pyunicode;
 mod query;
@@ -369,7 +370,7 @@ impl<'a> Args<'a> {
 }
 
 /// `dagayn.incremental_files.is_unresolved_path_placeholder`.
-fn is_placeholder(value: &str) -> bool {
+pub(crate) fn is_placeholder(value: &str) -> bool {
     let value = value.trim();
     value.len() > 3
         && value.starts_with("${")

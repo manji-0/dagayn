@@ -1,11 +1,10 @@
-//! `apply_refactor_tool` (`dagayn.tools.refactor_tools.apply_refactor_func`
-//! over `dagayn.refactor.apply.apply_refactor`): a preview from the shared
-//! pending store, applied at the line it recorded and to whole identifiers
-//! only, or shown as Python's unified diff with `dry_run`.
+//! `apply_refactor_tool`: a preview from the shared pending store
+//! ([`crate::pending`]), applied at the line it recorded and to whole
+//! identifiers only, or shown as a unified diff with `dry_run`.
 //!
-//! Every edited file is read before anything is written; a file that is not
-//! UTF-8 (which Python would rewrite with replacement characters) or an edit
-//! path that does not exist yet leaves the whole call to Python.
+//! Every edited file is read before anything is written. A file that is not
+//! UTF-8 is read with replacement characters and universal newlines, and is
+//! written back that way.
 
 use std::path::{Path, PathBuf};
 
@@ -13,7 +12,8 @@ use serde_json::{Map, Value, json};
 
 use crate::difflib::{splitlines, unified_diff};
 use crate::docs::read_text;
-use crate::{Args, Context, Ordered, Payload, pending, resolve_repo};
+use crate::pypath::realpath;
+use crate::{Args, Context, Ordered, Payload, is_placeholder, pending};
 
 struct Edit {
     file: String,
@@ -27,19 +27,26 @@ impl Edit {
     fn parse(value: &Value) -> Option<Self> {
         let raw = value.as_object()?.clone();
         let text = |key: &str| raw.get(key)?.as_str().map(str::to_string);
+        // `int(edit["line"])`, which truncates a float and counts a bool.
         let line = match raw.get("line") {
             None | Some(Value::Null) => None,
-            Some(value) => Some(value.as_i64()?),
+            Some(Value::Bool(flag)) => Some(i64::from(*flag)),
+            Some(Value::Number(number)) => match number.as_i64() {
+                Some(line) => Some(line),
+                None => {
+                    let line = number.as_f64()?.trunc();
+                    if line.abs() >= 9.0e15 {
+                        return None;
+                    }
+                    Some(line as i64)
+                }
+            },
+            Some(_) => return None,
         };
-        let old = text("old")?;
-        // An empty name never advances Python's scan.
-        if old.is_empty() {
-            return None;
-        }
         Some(Self {
             file: text("file")?,
             line,
-            old,
+            old: text("old")?,
             new: text("new")?,
             raw,
         })
@@ -57,16 +64,52 @@ impl Edit {
     }
 }
 
-/// `Path(path).resolve()` under `root` for a path that exists; `None` for one
-/// that does not, whose non-strict resolution is Python's.
-fn resolve(file: &str, root: &Path) -> Option<PathBuf> {
-    let path = Path::new(file);
-    let joined = if path.is_absolute() {
-        path.to_path_buf()
+/// `_resolve_repo_path`: `(repo_root / path).resolve()`, an absolute path as
+/// it is, resolved whether or not it exists.
+fn resolve(file: &str, root: &str) -> Option<PathBuf> {
+    let joined = if file.starts_with('/') {
+        file.to_string()
     } else {
-        root.join(path)
+        format!("{root}/{file}")
     };
-    joined.canonicalize().ok()
+    realpath(&joined).map(PathBuf::from)
+}
+
+/// The root `apply_refactor_func` applies under, after `dagayn serve`'s
+/// `_resolve_repo_root` (a `${...}` placeholder is no root; the pinned
+/// `--repo` stands in for none): a named root checked as
+/// `_validate_repo_root` does, with its message when it fails, or
+/// `find_project_root()` from the working directory, which, unlike the
+/// graph tools, may be the home directory. `None` for a root only Python
+/// resolves (a jj or SVN walk, ambiguous workspace hints).
+fn apply_root(context: &Context, requested: Option<&str>) -> Option<Result<String, String>> {
+    let named = requested
+        .filter(|value| !value.is_empty() && !is_placeholder(value))
+        .map(str::to_string)
+        .or_else(|| {
+            let pinned = context.pinned_repo.as_ref()?.to_str()?;
+            (!is_placeholder(pinned)).then(|| pinned.to_string())
+        });
+    let Some(named) = named else {
+        let cwd = std::env::current_dir().ok()?;
+        let dagayn_build::ProjectRoot::Found(root) = dagayn_build::find_project_root(&cwd) else {
+            return None;
+        };
+        return realpath(root.to_str()?).map(Ok);
+    };
+    let resolved = realpath(&named)?;
+    let path = Path::new(&resolved);
+    if !path.is_dir() {
+        return Some(Err(format!(
+            "repo_root is not an existing directory: {resolved}"
+        )));
+    }
+    if !crate::pypath::is_project_root(path)? {
+        return Some(Err(format!(
+            "repo_root does not look like a project root (no .git or .dagayn/graph.db found): {resolved}"
+        )));
+    }
+    Some(Ok(resolved))
 }
 
 fn is_ident(c: char) -> bool {
@@ -123,6 +166,11 @@ fn apply_edit(content: &str, edit: &Edit) -> Result<String, &'static str> {
         return Err("line_out_of_range");
     }
     let index = index as usize;
+    // Python's scan never advances past a place an empty name fits, and
+    // finds no span on a line it does not fit; both are reported as no match.
+    if edit.old.is_empty() {
+        return Err("line_no_longer_matches");
+    }
     let mut line: Vec<char> = lines[index].chars().collect();
     let name: Vec<char> = edit.old.chars().collect();
     let spans = identifier_spans(&line, &name);
@@ -160,7 +208,10 @@ pub(crate) fn apply_refactor(context: &Context, arguments: &Map<String, Value>) 
         Some(Value::Bool(flag)) => *flag,
         Some(_) => return None,
     };
-    let root = resolve_repo(context, args.optional_string("repo_root")?)?;
+    let root = match apply_root(context, args.optional_string("repo_root")?)? {
+        Ok(root) => root,
+        Err(message) => return Some(error(message)),
+    };
 
     pending::cleanup_expired();
     let Some(raw) = pending::get(refactor_id) else {
@@ -200,7 +251,7 @@ pub(crate) fn apply_refactor(context: &Context, arguments: &Map<String, Value>) 
     let mut resolved = Vec::with_capacity(edits.len());
     for edit in &edits {
         let path = resolve(&edit.file, &root)?;
-        if !path.starts_with(&root) {
+        if !path.starts_with(Path::new(&root)) {
             return Some(error(format!(
                 "Edit path '{}' is outside repo root.",
                 edit.file
@@ -224,7 +275,10 @@ pub(crate) fn apply_refactor(context: &Context, arguments: &Map<String, Value>) 
             skipped.extend(group.iter().map(|edit| edit.skipped("file_not_found")));
             continue;
         }
-        let original = read_text(&path)?;
+        let Some(original) = read_text(&path) else {
+            skipped.extend(group.iter().map(|edit| edit.skipped("file_unreadable")));
+            continue;
+        };
         let mut content = original.clone();
         let mut count = 0;
         for edit in group {

@@ -14,7 +14,7 @@ from dagayn.tools import docs
 from dagayn.tools.analysis_tools import get_suggested_questions_func
 from dagayn.tools.flow_dispatcher import flow_func
 from dagayn.tools.query import find_large_functions, list_graph_stats
-from dagayn.tools.refactor_tools import refactor_func
+from dagayn.tools.refactor_tools import apply_refactor_func, refactor_func
 
 DAGAYN = Path(sys.executable).with_name("dagayn")
 
@@ -278,3 +278,67 @@ def test_refactor_rename_checks_identifiers_as_python_re_does(repo: Path, new_na
         assert result["status"] == "error"
         assert result["error"] == f"new_name is not a valid identifier: {new_name!r}"
         assert (result["old_name"], result["new_name"]) == ("helper", new_name)
+
+
+_HINTS = ("CRG_REPO_ROOT", "CURSOR_PROJECT_DIR", "CLAUDE_PROJECT_DIR", "WORKSPACE_FOLDER_PATHS")
+
+
+def test_apply_refactor_resolves_its_root_as_python_did(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in _HINTS:
+        monkeypatch.delenv(name, raising=False)
+    preview = refactor_func(
+        mode="rename", old_name="helper", new_name="assist", repo_root=str(repo)
+    )
+    refactor_id = preview["refactor_id"]
+
+    # No root: the checkout the working directory is in.
+    monkeypatch.chdir(repo)
+    dry = apply_refactor_func(refactor_id, dry_run=True)
+    assert dry["status"] == "ok", dry
+    assert dry["would_modify"] == ["app.py"]
+    assert "+def assist():\n" in dry["diffs"]["app.py"]
+
+    # A named root is checked as `_validate_repo_root` does.
+    missing = tmp_path / "missing"
+    assert apply_refactor_func(refactor_id, repo_root=str(missing)) == {
+        "status": "error",
+        "error": f"repo_root is not an existing directory: {missing.resolve()}",
+    }
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    assert apply_refactor_func(refactor_id, repo_root=str(plain))["error"] == (
+        "repo_root does not look like a project root (no .git or .dagayn/graph.db "
+        f"found): {plain.resolve()}"
+    )
+    # A git-backed jj workspace is a project root.
+    jj = tmp_path / "jj"
+    (jj / ".jj" / "repo" / "store").mkdir(parents=True)
+    (jj / ".jj" / "repo" / "store" / "git_target").write_text(str(repo / ".git"))
+    assert apply_refactor_func("00000000", repo_root=str(jj)) == {
+        "status": "error",
+        "error": "Refactor '00000000' not found or expired.",
+    }
+
+    # Workspace hints naming two repositories, from outside both.
+    other = tmp_path / "other"
+    (other / ".git").mkdir(parents=True)
+    monkeypatch.setenv("WORKSPACE_FOLDER_PATHS", f"{repo},{other}")
+    monkeypatch.chdir(plain)
+    ambiguous = apply_refactor_func(refactor_id)
+    assert ambiguous["status"] == "error"
+    assert ambiguous["error"].startswith("workspace hints name more than one repository")
+
+    # The write: CRLF line ends come back as `\n`, as `read_text` and
+    # `write_text` left them.
+    monkeypatch.delenv("WORKSPACE_FOLDER_PATHS")
+    (repo / "app.py").write_bytes(
+        b"def main():\r\n    return helper()\r\n\r\n\r\ndef helper():\r\n"
+    )
+    applied = apply_refactor_func(refactor_id, repo_root=str(repo))
+    assert applied["status"] == "ok", applied
+    assert applied["files_modified"] == [str((repo / "app.py").resolve())]
+    assert (
+        repo / "app.py"
+    ).read_bytes() == b"def main():\n    return assist()\n\n\ndef assist():\n"

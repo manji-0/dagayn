@@ -14,11 +14,16 @@ from dagayn.refactor import (
     REFACTOR_EXPIRY_SECONDS,
     _pending_refactors,
     _refactor_lock,
-    apply_refactor,
     suggest_refactorings,
 )
 from dagayn.refactor.dead_code import _source_line
+from dagayn.tools.refactor_tools import apply_refactor_func
 from tests.dead_code_candidates import graph_dead_code_candidates
+
+
+def apply_refactor(refactor_id: str, root: Path, dry_run: bool = False) -> dict:
+    """``apply_refactor_tool`` under the named *root*, answered by Rust."""
+    return apply_refactor_func(refactor_id, repo_root=str(root), dry_run=dry_run)
 
 
 class TestFindDeadCode:

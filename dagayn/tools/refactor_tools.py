@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import Any, Literal, overload
 
 from pydantic import ValidationError
@@ -16,10 +15,10 @@ from ..contracts.state_types import (
     seal_refactor_error,
 )
 from ..incremental_files import find_project_root
+from ..paths import is_project_root
 from ._common import (
     ToolStoreScope,
     _get_store,
-    _validate_repo_root,
     attach_answerability,
 )
 from ._native import native_tool
@@ -177,12 +176,17 @@ def apply_refactor_func(
         (list of file paths) and ``diffs`` (map of file -> unified-diff
         string).
     """
-    try:
-        root = _validate_repo_root(Path(repo_root)) if repo_root else find_project_root()
-    except (RuntimeError, ValueError) as exc:
-        return {"status": "error", "error": str(exc)}
-
-    from ..refactor import apply_refactor
-
-    result = apply_refactor(refactor_id, root, dry_run=dry_run)
-    return result
+    if not repo_root:
+        try:
+            root = find_project_root()
+        except (RuntimeError, ValueError) as exc:
+            return {"status": "error", "error": str(exc)}
+        # A checkout or graph root is named, so the Rust tool need not walk to
+        # it (it leaves jj and SVN walks to Python); any other root it finds
+        # from the working directory as this did.
+        if is_project_root(root):
+            repo_root = str(root)
+    # The Rust tool checks a named root as `_validate_repo_root` does.
+    return native_tool(
+        "apply_refactor_tool", refactor_id=refactor_id, repo_root=repo_root, dry_run=bool(dry_run)
+    )

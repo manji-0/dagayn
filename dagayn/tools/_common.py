@@ -383,7 +383,7 @@ def resolve_contained_path(rel_path: str, repo_root: Path) -> Path | None:
 
     Caller-supplied file lists (``changed_files`` on the review tools) reach
     the filesystem, so they need the same containment guarantee the edit path
-    in :func:`dagayn.refactor.apply.apply_refactor` has. ``root / rel_path``
+    in ``apply_refactor_tool`` has. ``root / rel_path``
     alone provides none: ``Path.__truediv__`` discards ``root`` when the right
     operand is absolute, and ``..`` segments are not normalised until
     ``resolve()``.
