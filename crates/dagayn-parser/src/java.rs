@@ -24,11 +24,7 @@ struct JavaParseContext<'a> {
     /// The `package` declaration, which prefixes JNI symbol names.
     package: Option<String>,
     /// The names that decide whether a call reaches the Java class library.
-    stdlib: JavaStdlibScope,
-    /// Classes, interfaces, enums, and records this file declares: a
-    /// receiver typed by one keeps the same-file binding, one typed by any
-    /// other class is left to resolution across files.
-    type_names: HashSet<String>,
+    stdlib: JvmImportScope,
 }
 
 pub(super) fn parse_java_with_parser(
@@ -50,8 +46,7 @@ pub(super) fn parse_java_with_parser(
             file_path: file_path.clone(),
             repo_root,
             package: java_package(tree.root_node(), source),
-            stdlib: JavaStdlibScope::collect(tree.root_node(), source, &file_path, repo_root),
-            type_names: java_collect_type_names_declared(tree.root_node(), source),
+            stdlib: java_import_scope(tree.root_node(), source, &file_path, repo_root),
         };
         java_walk_children(
             tree.root_node(),
@@ -712,71 +707,91 @@ fn java_string_text(node: tree_sitter::Node<'_>, source: &[u8]) -> String {
     strip_matching_quotes(node_text(node, source).trim()).to_string()
 }
 
-/// The names of a file that decide whether a call reaches the Java class
-/// library: what it declares, and what its imports bind.
+/// The names of a JVM file (Java, Kotlin, Scala) that decide whether a call
+/// reaches the standard library: what it declares, and what its imports
+/// bind. Each language collects its own imports.
 #[derive(Default)]
-struct JavaStdlibScope {
-    /// Types, methods, and type parameters this file declares: a `Math`
-    /// or `max` of its own is never the class library's.
-    declared: HashSet<String>,
-    /// The simple name each single import binds to its path when that is
-    /// in the class library (`List` -> `java.util.List`, `max` ->
-    /// `java.lang.Math.max`), or to `None` when it comes from elsewhere.
-    imported: HashMap<String, Option<String>>,
-    /// Packages of the class library imported whole (`java.util.*`).
-    stdlib_wildcards: Vec<String>,
+pub(super) struct JvmImportScope {
+    /// Types, functions, and type parameters the file declares: a `Math`
+    /// or `println` of its own is never the standard library's.
+    pub(super) declared: HashSet<String>,
+    /// The name each single import binds (its alias or rename, or its last
+    /// segment) to its path when that is in the standard library (`List` ->
+    /// `java.util.List`, `max` -> `java.lang.Math.max`), or to `None` when
+    /// it comes from elsewhere.
+    pub(super) imported: HashMap<String, Option<String>>,
+    /// Packages of the standard library imported whole (`java.util.*`).
+    pub(super) stdlib_wildcards: Vec<String>,
     /// A wildcard import from elsewhere (`com.acme.*`) may bring in a class
     /// named like one of `java.lang` or a whole-imported package.
-    foreign_wildcard: bool,
+    pub(super) foreign_wildcard: bool,
+    /// Classes (objects, interfaces, enums, records) the file declares: a
+    /// receiver typed by one keeps the same-file binding, one typed by any
+    /// other class is left to resolution across files.
+    pub(super) classes: HashSet<String>,
+    /// Whether a type is one the language brings into every file, and its
+    /// package: `Predef`'s names (`scala`), Kotlin's default imports
+    /// (`kotlin`); none for Java.
+    pub(super) implicit: Option<(IsImplicitType, &'static str)>,
 }
 
-impl JavaStdlibScope {
-    fn collect(
-        root: tree_sitter::Node<'_>,
-        source: &[u8],
-        file_path: &FilePath,
-        repo_root: Option<&Path>,
-    ) -> Self {
-        let mut scope = Self::default();
-        let mut cursor = root.walk();
-        for child in root.children(&mut cursor) {
-            if child.kind() != "import_declaration" {
-                continue;
+/// Whether a type is in scope in every file of a language.
+type IsImplicitType = fn(&str) -> bool;
+
+fn java_import_scope(
+    root: tree_sitter::Node<'_>,
+    source: &[u8],
+    file_path: &FilePath,
+    repo_root: Option<&Path>,
+) -> JvmImportScope {
+    let mut scope = JvmImportScope::default();
+    let mut cursor = root.walk();
+    for child in root.children(&mut cursor) {
+        if child.kind() != "import_declaration" {
+            continue;
+        }
+        let Some(path) = java_import_target(child, source) else {
+            continue;
+        };
+        let stdlib = jvm_path_has_root(&path, JAVA_STDLIB_ROOTS)
+            && resolve_java_import_target(&path, file_path, repo_root).is_none();
+        let is_static = node_text(child, source).contains("static ");
+        match path.strip_suffix(".*") {
+            // `import static java.lang.Math.*` binds members this table
+            // does not list.
+            Some(package) if stdlib && !is_static => {
+                scope.stdlib_wildcards.push(package.to_string());
             }
-            let Some(path) = java_import_target(child, source) else {
-                continue;
-            };
-            let stdlib = jvm_path_has_root(&path, JAVA_STDLIB_ROOTS)
-                && resolve_java_import_target(&path, file_path, repo_root).is_none();
-            let is_static = node_text(child, source).contains("static ");
-            match path.strip_suffix(".*") {
-                // `import static java.lang.Math.*` binds members this table
-                // does not list.
-                Some(package) if stdlib && !is_static => {
-                    scope.stdlib_wildcards.push(package.to_string());
-                }
-                Some(_) => scope.foreign_wildcard |= !stdlib,
-                None => {
-                    let name = path.rsplit('.').next().unwrap_or(&path).to_string();
-                    scope.imported.insert(name, stdlib.then_some(path));
-                }
+            Some(_) => scope.foreign_wildcard |= !stdlib,
+            None => {
+                let name = path.rsplit('.').next().unwrap_or(&path).to_string();
+                scope.imported.insert(name, stdlib.then_some(path));
             }
         }
-        java_collect_declared_names(root, source, &mut scope.declared);
-        scope
     }
+    java_collect_declared_names(root, source, &mut scope.declared);
+    scope.classes = java_collect_type_names_declared(root, source);
+    scope
+}
 
-    /// The package of a type named without a package (`List`, `Math`), and
-    /// how sure that is: an import of it, or a class of `java.lang` or of a
-    /// whole-imported package, unless a wildcard import from elsewhere may
-    /// bring in its own.
-    fn resolve_type(&self, name: &str) -> Option<(String, StdlibEvidence)> {
+impl JvmImportScope {
+    /// The package of a type named bare (`List`, `Math`, `File`), and how
+    /// sure that is: an import of it; only likely, a type the language
+    /// brings into every file; or a class of `java.lang` (in scope in every
+    /// JVM file) or of a whole-imported package, unless a wildcard import
+    /// from elsewhere may bring in its own.
+    pub(super) fn resolve_type(&self, name: &str) -> Option<(String, StdlibEvidence)> {
         if self.declared.contains(name) {
             return None;
         }
         if let Some(imported) = self.imported.get(name) {
             let package = jvm_package_of(imported.as_deref()?, false)?;
             return Some((package, StdlibEvidence::Certain));
+        }
+        if let Some((is_implicit, package)) = self.implicit
+            && is_implicit(name)
+        {
+            return Some((package.to_string(), StdlibEvidence::Likely));
         }
         let package = jvm_class_package(name)?;
         if !is_java_lang_class(name) && !self.stdlib_wildcards.iter().any(|p| p == package) {
@@ -1111,6 +1126,23 @@ pub(super) enum JvmReceiver {
     Unknown(Option<CallOrigin>),
 }
 
+/// A receiver of class `class` in Kotlin or Scala: nothing for the
+/// standard library; the class of this file or of another; a type
+/// parameter says nothing.
+pub(super) fn jvm_class_receiver(class: &str, scope: &JvmImportScope) -> JvmReceiver {
+    if scope.resolve_type(class).is_some() {
+        JvmReceiver::Known
+    } else if scope.classes.contains(class) {
+        JvmReceiver::Local(class.to_string())
+    } else if scope.declared.contains(class) {
+        JvmReceiver::Unknown(None)
+    } else if class.starts_with(|c: char| c.is_ascii_uppercase()) {
+        JvmReceiver::Foreign(class.to_string())
+    } else {
+        JvmReceiver::Known
+    }
+}
+
 /// The mark [`jvm_mark_receiver`] leaves for [`jvm_bind_local_receivers`].
 const JVM_LOCAL_RECEIVER: &str = "local_receiver";
 
@@ -1307,7 +1339,7 @@ fn java_type_receiver(
     let Some(class) = path.last() else {
         return JvmReceiver::Known;
     };
-    if context.type_names.contains(class) {
+    if context.stdlib.classes.contains(class) {
         return JvmReceiver::Local(class.clone());
     }
     if context.stdlib.declared.contains(class) {

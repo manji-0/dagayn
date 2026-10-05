@@ -1,13 +1,13 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use serde_json::json;
 
-use super::java::{JvmReceiver, jvm_bind_local_receivers, jvm_mark_receiver};
+use super::java::{
+    JvmImportScope, JvmReceiver, jvm_bind_local_receivers, jvm_class_receiver, jvm_mark_receiver,
+};
 use super::jni::jni_symbol;
 use super::member_calls::CallOrigin;
-use super::stdlib::java::{
-    is_java_lang_class, jvm_class_package, jvm_package_of, jvm_path_has_root,
-};
+use super::stdlib::java::{jvm_package_of, jvm_path_has_root};
 use super::stdlib::kotlin::{
     KOTLIN_STDLIB_ROOTS, is_kotlin_builtin_function, is_kotlin_builtin_type,
 };
@@ -33,7 +33,7 @@ pub(super) fn parse_kotlin_with_parser(
     if let Some(parser) = parser
         && let Some(tree) = parser.parse(source, None)
     {
-        let scope = KotlinStdlibScope::collect(tree.root_node(), source);
+        let scope = kotlin_import_scope(tree.root_node(), source);
         kotlin_walk_children(
             tree.root_node(),
             source,
@@ -68,7 +68,7 @@ fn kotlin_walk_children(
     node: tree_sitter::Node<'_>,
     source: &[u8],
     file_path: &FilePath,
-    scope: &KotlinStdlibScope,
+    scope: &JvmImportScope,
     enclosing_class: Option<&str>,
     enclosing_func: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
@@ -494,7 +494,7 @@ fn kotlin_emit_call(
     node: tree_sitter::Node<'_>,
     source: &[u8],
     file_path: &FilePath,
-    scope: &KotlinStdlibScope,
+    scope: &JvmImportScope,
     enclosing_class: Option<&str>,
     enclosing_func: Option<&str>,
     edges: &mut Vec<ParsedEdge>,
@@ -638,95 +638,50 @@ fn kotlin_first_non_punctuation_child<'a>(
 }
 
 /// The names of a file that decide whether a call reaches the standard
-/// library: what it declares, and what its imports bind.
-#[derive(Default)]
-struct KotlinStdlibScope {
-    /// Classes, objects, functions, and type aliases this file declares: a
-    /// `println` of its own is never the standard library's.
-    declared: HashSet<String>,
-    /// The name each import binds (its alias, or its last segment) to its
-    /// path when that is in the standard library (`File` ->
-    /// `java.io.File`), or to `None` when it comes from elsewhere.
-    imported: HashMap<String, Option<String>>,
-    /// Packages of the standard library imported whole (`java.io.*`).
-    stdlib_wildcards: Vec<String>,
-    /// A wildcard import from elsewhere may bring in a class named like
-    /// one of `java.lang` or a whole-imported package.
-    foreign_wildcard: bool,
-    /// Classes and objects this file declares: a receiver typed by one
-    /// keeps the same-file binding, one typed by any other class is left to
-    /// resolution across files.
-    classes: HashSet<String>,
+/// library; the types Kotlin imports into every file (`List`, `String`)
+/// only likely do.
+fn kotlin_import_scope(root: tree_sitter::Node<'_>, source: &[u8]) -> JvmImportScope {
+    let mut scope = JvmImportScope {
+        implicit: Some((is_kotlin_builtin_type, "kotlin")),
+        ..JvmImportScope::default()
+    };
+    if let Some(imports) = direct_child(root, &["import_list"]) {
+        let mut cursor = imports.walk();
+        for header in imports.children(&mut cursor) {
+            kotlin_add_import(&mut scope, header, source);
+        }
+    }
+    let mut cursor = root.walk();
+    for header in root.children(&mut cursor) {
+        kotlin_add_import(&mut scope, header, source);
+    }
+    kotlin_collect_declared_names(root, source, &mut scope.declared);
+    kotlin_collect_class_names(root, source, &mut scope.classes);
+    scope
 }
 
-impl KotlinStdlibScope {
-    fn collect(root: tree_sitter::Node<'_>, source: &[u8]) -> Self {
-        let mut scope = Self::default();
-        if let Some(imports) = direct_child(root, &["import_list"]) {
-            let mut cursor = imports.walk();
-            for header in imports.children(&mut cursor) {
-                scope.add_import(header, source);
-            }
-        }
-        let mut cursor = root.walk();
-        for header in root.children(&mut cursor) {
-            scope.add_import(header, source);
-        }
-        kotlin_collect_declared_names(root, source, &mut scope.declared);
-        kotlin_collect_class_names(root, source, &mut scope.classes);
-        scope
+fn kotlin_add_import(scope: &mut JvmImportScope, header: tree_sitter::Node<'_>, source: &[u8]) {
+    if header.kind() != "import_header" {
+        return;
     }
-
-    fn add_import(&mut self, header: tree_sitter::Node<'_>, source: &[u8]) {
-        if header.kind() != "import_header" {
-            return;
-        }
-        let Some(path) = kotlin_import_target(header, source) else {
-            return;
-        };
-        let stdlib = jvm_path_has_root(&path, KOTLIN_STDLIB_ROOTS);
-        if kotlin_is_wildcard_import(header, source) {
-            if stdlib {
-                self.stdlib_wildcards.push(path);
-            } else {
-                self.foreign_wildcard = true;
-            }
-            return;
-        }
-        let name = direct_child(header, &["import_alias"])
-            .and_then(|alias| {
-                last_descendant_text(alias, source, &["type_identifier", "simple_identifier"])
-            })
-            .unwrap_or_else(|| path.rsplit('.').next().unwrap_or(&path).to_string());
-        self.imported.insert(name, stdlib.then_some(path));
-    }
-
-    /// The package of a class named bare (`File`, `System`), and how sure
-    /// that is: an import of it or of its package, a class of `java.lang`
-    /// (in scope in every Kotlin/JVM file), or — only likely — one of the
-    /// types Kotlin imports into every file (`List`, `String`).
-    fn resolve_type(&self, name: &str) -> Option<(String, StdlibEvidence)> {
-        if self.declared.contains(name) {
-            return None;
-        }
-        if let Some(imported) = self.imported.get(name) {
-            let package = jvm_package_of(imported.as_deref()?, false)?;
-            return Some((package, StdlibEvidence::Certain));
-        }
-        if is_kotlin_builtin_type(name) {
-            return Some(("kotlin".to_string(), StdlibEvidence::Likely));
-        }
-        let package = jvm_class_package(name)?;
-        if !is_java_lang_class(name) && !self.stdlib_wildcards.iter().any(|p| p == package) {
-            return None;
-        }
-        let evidence = if self.foreign_wildcard {
-            StdlibEvidence::Likely
+    let Some(path) = kotlin_import_target(header, source) else {
+        return;
+    };
+    let stdlib = jvm_path_has_root(&path, KOTLIN_STDLIB_ROOTS);
+    if kotlin_is_wildcard_import(header, source) {
+        if stdlib {
+            scope.stdlib_wildcards.push(path);
         } else {
-            StdlibEvidence::Certain
-        };
-        Some((package.to_string(), evidence))
+            scope.foreign_wildcard = true;
+        }
+        return;
     }
+    let name = direct_child(header, &["import_alias"])
+        .and_then(|alias| {
+            last_descendant_text(alias, source, &["type_identifier", "simple_identifier"])
+        })
+        .unwrap_or_else(|| path.rsplit('.').next().unwrap_or(&path).to_string());
+    scope.imported.insert(name, stdlib.then_some(path));
 }
 
 fn kotlin_collect_declared_names(
@@ -763,7 +718,7 @@ fn kotlin_collect_declared_names(
 fn kotlin_stdlib_call(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    scope: &KotlinStdlibScope,
+    scope: &JvmImportScope,
     name: &str,
 ) -> Option<(String, StdlibEvidence, String)> {
     let callee = kotlin_call_callee(node)?;
@@ -1030,7 +985,7 @@ fn kotlin_return_type(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<Stri
 fn kotlin_call_receiver(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    scope: &KotlinStdlibScope,
+    scope: &JvmImportScope,
     method: &str,
 ) -> JvmReceiver {
     let mut receiver = kotlin_navigation_receiver(node);
@@ -1060,7 +1015,7 @@ fn kotlin_expression_receiver(
     expression: tree_sitter::Node<'_>,
     at: tree_sitter::Node<'_>,
     source: &[u8],
-    scope: &KotlinStdlibScope,
+    scope: &JvmImportScope,
 ) -> JvmReceiver {
     match expression.kind() {
         "simple_identifier" => {
@@ -1105,13 +1060,13 @@ fn kotlin_expression_receiver(
             }
         }
         "call_expression" => match kotlin_constructed_class(expression, source) {
-            Some(class) => kotlin_class_receiver(&class, scope),
+            Some(class) => jvm_class_receiver(&class, scope),
             None => JvmReceiver::Unknown(kotlin_call_origin(expression, source)),
         },
         "as_expression" => direct_child(expression, &["user_type", "nullable_type"])
             .and_then(|ty| first_descendant(ty, &["type_identifier"]))
             .map_or(JvmReceiver::Known, |ty| {
-                kotlin_class_receiver(&node_text(ty, source), scope)
+                jvm_class_receiver(&node_text(ty, source), scope)
             }),
         "postfix_expression" | "parenthesized_expression" => expression
             .named_child(0)
@@ -1128,34 +1083,18 @@ fn kotlin_expression_receiver(
 fn kotlin_declared_receiver(
     declared: KotlinDeclared<'_>,
     source: &[u8],
-    scope: &KotlinStdlibScope,
+    scope: &JvmImportScope,
 ) -> JvmReceiver {
     match declared {
-        KotlinDeclared::Type(class) => kotlin_class_receiver(&class, scope),
+        KotlinDeclared::Type(class) => jvm_class_receiver(&class, scope),
         KotlinDeclared::Value(Some(value)) if value.kind() == "call_expression" => {
             match kotlin_constructed_class(value, source) {
-                Some(class) => kotlin_class_receiver(&class, scope),
+                Some(class) => jvm_class_receiver(&class, scope),
                 // `val conn = store.connect()`: what `connect` returns.
                 None => JvmReceiver::Unknown(kotlin_call_origin(value, source)),
             }
         }
         KotlinDeclared::Value(_) => JvmReceiver::Unknown(None),
-    }
-}
-
-/// A receiver of class `class`: nothing for the standard library; the
-/// class of this file or of another; a type parameter says nothing.
-fn kotlin_class_receiver(class: &str, scope: &KotlinStdlibScope) -> JvmReceiver {
-    if scope.resolve_type(class).is_some() {
-        JvmReceiver::Known
-    } else if scope.classes.contains(class) {
-        JvmReceiver::Local(class.to_string())
-    } else if scope.declared.contains(class) {
-        JvmReceiver::Unknown(None)
-    } else if class.starts_with(|c: char| c.is_ascii_uppercase()) {
-        JvmReceiver::Foreign(class.to_string())
-    } else {
-        JvmReceiver::Known
     }
 }
 

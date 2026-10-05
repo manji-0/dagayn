@@ -1,12 +1,10 @@
-use std::collections::{HashMap, HashSet};
-
 use serde_json::json;
 
-use super::java::{JvmReceiver, jvm_bind_local_receivers, jvm_mark_receiver};
-use super::member_calls::CallOrigin;
-use super::stdlib::java::{
-    is_java_lang_class, jvm_class_package, jvm_package_of, jvm_path_has_root,
+use super::java::{
+    JvmImportScope, JvmReceiver, jvm_bind_local_receivers, jvm_class_receiver, jvm_mark_receiver,
 };
+use super::member_calls::CallOrigin;
+use super::stdlib::java::{jvm_package_of, jvm_path_has_root};
 use super::stdlib::scala::{SCALA_STDLIB_ROOTS, is_scala_predef_name, is_scala_subpackage};
 use super::stdlib::{StdlibEvidence, mark_stdlib_edge};
 use super::types::{FilePath, ParsedEdge, ParsedNode};
@@ -30,7 +28,7 @@ pub(super) fn parse_scala_with_parser(
     if let Some(parser) = parser
         && let Some(tree) = parser.parse(source, None)
     {
-        let scope = ScalaStdlibScope::collect(tree.root_node(), source);
+        let scope = scala_import_scope(tree.root_node(), source);
         scala_walk_children(
             tree.root_node(),
             source,
@@ -64,7 +62,7 @@ fn scala_walk_children(
     node: tree_sitter::Node<'_>,
     source: &[u8],
     file_path: &FilePath,
-    scope: &ScalaStdlibScope,
+    scope: &JvmImportScope,
     enclosing_class: Option<&str>,
     enclosing_func: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
@@ -360,7 +358,7 @@ fn scala_emit_call(
     node: tree_sitter::Node<'_>,
     source: &[u8],
     file_path: &FilePath,
-    scope: &ScalaStdlibScope,
+    scope: &JvmImportScope,
     enclosing_class: Option<&str>,
     enclosing_func: Option<&str>,
     edges: &mut Vec<ParsedEdge>,
@@ -412,7 +410,7 @@ fn scala_emit_instance_call(
     node: tree_sitter::Node<'_>,
     source: &[u8],
     file_path: &FilePath,
-    scope: &ScalaStdlibScope,
+    scope: &JvmImportScope,
     enclosing_class: Option<&str>,
     enclosing_func: Option<&str>,
     edges: &mut Vec<ParsedEdge>,
@@ -550,112 +548,62 @@ fn scala_inheritance_targets(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<
 }
 
 /// The names of a file that decide whether a call reaches the standard
-/// library: what it declares, and what its imports bind.
-#[derive(Default)]
-struct ScalaStdlibScope {
-    /// Types, objects, and functions this file declares: a `println` of its
-    /// own is never `Predef`'s.
-    declared: HashSet<String>,
-    /// The name each import binds (its rename, or its last segment) to its
-    /// path when that is in the standard library (`ListBuffer` ->
-    /// `scala.collection.mutable.ListBuffer`, `mutable` ->
-    /// `scala.collection.mutable`), or to `None` when it comes from
-    /// elsewhere.
-    imported: HashMap<String, Option<String>>,
-    /// Packages of the standard library imported whole (`java.io._`).
-    stdlib_wildcards: Vec<String>,
-    /// A wildcard import from elsewhere may bring in a class named like
-    /// one of `java.lang` or a whole-imported package.
-    foreign_wildcard: bool,
-    /// Classes, traits, objects, and enums this file declares: a receiver
-    /// typed by one keeps the same-file binding, one typed by any other
-    /// class is left to resolution across files.
-    classes: HashSet<String>,
+/// library; the names `scala._` and `Predef` bring in (`List`, `Some`)
+/// only likely do.
+fn scala_import_scope(root: tree_sitter::Node<'_>, source: &[u8]) -> JvmImportScope {
+    let mut scope = JvmImportScope {
+        implicit: Some((is_scala_predef_name, "scala")),
+        ..JvmImportScope::default()
+    };
+    scala_collect_scope(&mut scope, root, source);
+    scope
 }
 
-impl ScalaStdlibScope {
-    fn collect(root: tree_sitter::Node<'_>, source: &[u8]) -> Self {
-        let mut scope = Self::default();
-        scope.collect_into(root, source);
-        scope
-    }
-
-    fn collect_into(&mut self, node: tree_sitter::Node<'_>, source: &[u8]) {
-        match node.kind() {
-            "import_declaration" => {
-                for (name, path) in scala_import_bindings(node, source) {
-                    let stdlib = jvm_path_has_root(&path, SCALA_STDLIB_ROOTS);
-                    match name {
-                        Some(name) => {
-                            self.imported.insert(name, stdlib.then_some(path));
-                        }
-                        None if stdlib => self.stdlib_wildcards.push(path),
-                        None => self.foreign_wildcard = true,
+fn scala_collect_scope(scope: &mut JvmImportScope, node: tree_sitter::Node<'_>, source: &[u8]) {
+    match node.kind() {
+        "import_declaration" => {
+            for (name, path) in scala_import_bindings(node, source) {
+                let stdlib = jvm_path_has_root(&path, SCALA_STDLIB_ROOTS);
+                match name {
+                    Some(name) => {
+                        scope.imported.insert(name, stdlib.then_some(path));
                     }
+                    None if stdlib => scope.stdlib_wildcards.push(path),
+                    None => scope.foreign_wildcard = true,
                 }
-                return;
             }
-            "trait_definition"
-            | "class_definition"
-            | "object_definition"
-            | "enum_definition"
-            | "given_definition"
-            | "function_definition"
-            | "function_declaration"
-            | "type_definition" => {
-                let name = direct_child_text(node, source, &["identifier", "type_identifier"]);
-                if matches!(
-                    node.kind(),
-                    "trait_definition"
-                        | "class_definition"
-                        | "object_definition"
-                        | "enum_definition"
-                ) {
-                    self.classes.extend(name.clone());
-                }
-                self.declared.extend(name);
-            }
-            // `T` of `def f[T](x: T)`: no class of the library.
-            "type_parameters" => {
-                let mut cursor = node.walk();
-                self.declared.extend(
-                    node.children_by_field_name("name", &mut cursor)
-                        .map(|name| node_text(name, source)),
-                );
-            }
-            _ => {}
+            return;
         }
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            self.collect_into(child, source);
+        "trait_definition"
+        | "class_definition"
+        | "object_definition"
+        | "enum_definition"
+        | "given_definition"
+        | "function_definition"
+        | "function_declaration"
+        | "type_definition" => {
+            let name = direct_child_text(node, source, &["identifier", "type_identifier"]);
+            if matches!(
+                node.kind(),
+                "trait_definition" | "class_definition" | "object_definition" | "enum_definition"
+            ) {
+                scope.classes.extend(name.clone());
+            }
+            scope.declared.extend(name);
         }
+        // `T` of `def f[T](x: T)`: no class of the library.
+        "type_parameters" => {
+            let mut cursor = node.walk();
+            scope.declared.extend(
+                node.children_by_field_name("name", &mut cursor)
+                    .map(|name| node_text(name, source)),
+            );
+        }
+        _ => {}
     }
-
-    /// The package of a class named bare (`ListBuffer`, `System`, `List`),
-    /// and how sure that is: an import of it or of its package, or a class
-    /// of `java.lang` (in scope in every Scala file); only likely for the
-    /// names `scala._` and `Predef` bring in (`List`, `Some`).
-    fn resolve_type(&self, name: &str) -> Option<(String, StdlibEvidence)> {
-        if self.declared.contains(name) {
-            return None;
-        }
-        if let Some(imported) = self.imported.get(name) {
-            let package = jvm_package_of(imported.as_deref()?, false)?;
-            return Some((package, StdlibEvidence::Certain));
-        }
-        if is_scala_predef_name(name) {
-            return Some(("scala".to_string(), StdlibEvidence::Likely));
-        }
-        let package = jvm_class_package(name)?;
-        if !is_java_lang_class(name) && !self.stdlib_wildcards.iter().any(|p| p == package) {
-            return None;
-        }
-        let evidence = if self.foreign_wildcard {
-            StdlibEvidence::Likely
-        } else {
-            StdlibEvidence::Certain
-        };
-        Some((package.to_string(), evidence))
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        scala_collect_scope(scope, child, source);
     }
 }
 
@@ -714,7 +662,7 @@ fn scala_import_bindings(
 fn scala_stdlib_call(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    scope: &ScalaStdlibScope,
+    scope: &JvmImportScope,
     name: &str,
 ) -> Option<(String, StdlibEvidence, String)> {
     let mut callee = scala_call_callee(node)?;
@@ -949,7 +897,7 @@ fn scala_member_declaration<'a>(
 fn scala_call_receiver(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    scope: &ScalaStdlibScope,
+    scope: &JvmImportScope,
     method: &str,
 ) -> JvmReceiver {
     let mut receiver = scala_member_receiver(node);
@@ -983,7 +931,7 @@ fn scala_expression_receiver(
     expression: tree_sitter::Node<'_>,
     at: tree_sitter::Node<'_>,
     source: &[u8],
-    scope: &ScalaStdlibScope,
+    scope: &JvmImportScope,
 ) -> JvmReceiver {
     match expression.kind() {
         "identifier" => {
@@ -1028,7 +976,7 @@ fn scala_expression_receiver(
         }
         "call_expression" | "instance_expression" => {
             match scala_constructed_class(expression, source) {
-                Some(class) => scala_class_receiver(&class, scope),
+                Some(class) => jvm_class_receiver(&class, scope),
                 None if expression.kind() == "call_expression" => {
                     JvmReceiver::Unknown(scala_call_origin(expression, source))
                 }
@@ -1048,36 +996,20 @@ fn scala_expression_receiver(
 fn scala_declared_receiver(
     declared: ScalaDeclared<'_>,
     source: &[u8],
-    scope: &ScalaStdlibScope,
+    scope: &JvmImportScope,
 ) -> JvmReceiver {
     match declared {
-        ScalaDeclared::Type(class) => scala_class_receiver(&class, scope),
+        ScalaDeclared::Type(class) => jvm_class_receiver(&class, scope),
         ScalaDeclared::Value(Some(value))
             if matches!(value.kind(), "call_expression" | "instance_expression") =>
         {
             match scala_constructed_class(value, source) {
-                Some(class) => scala_class_receiver(&class, scope),
+                Some(class) => jvm_class_receiver(&class, scope),
                 // `val conn = store.connect()`: what `connect` returns.
                 None => JvmReceiver::Unknown(scala_call_origin(value, source)),
             }
         }
         ScalaDeclared::Value(_) => JvmReceiver::Unknown(None),
-    }
-}
-
-/// A receiver of class `class`: nothing for the standard library; the
-/// class of this file or of another; a type parameter says nothing.
-fn scala_class_receiver(class: &str, scope: &ScalaStdlibScope) -> JvmReceiver {
-    if scope.resolve_type(class).is_some() {
-        JvmReceiver::Known
-    } else if scope.classes.contains(class) {
-        JvmReceiver::Local(class.to_string())
-    } else if scope.declared.contains(class) {
-        JvmReceiver::Unknown(None)
-    } else if class.starts_with(|c: char| c.is_ascii_uppercase()) {
-        JvmReceiver::Foreign(class.to_string())
-    } else {
-        JvmReceiver::Known
     }
 }
 
