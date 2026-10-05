@@ -6,7 +6,7 @@ from typing import cast
 
 from dagayn.contracts.state_types import ReviewMode
 from dagayn.server import main as crg_main
-from dagayn.tools import _dispatch, architecture_analysis, flow_dispatcher, review_dispatcher
+from dagayn.tools import _dispatch, flow_dispatcher, review_dispatcher
 
 
 def test_review_wrapper_exposes_typed_dispatch_args() -> None:
@@ -201,38 +201,16 @@ def test_dispatcher_error_paths_use_requested_repo_root(monkeypatch) -> None:
 
         return _inner
 
-    # All three dispatchers build their error envelope through _dispatch, so
+    # Both dispatchers build their error envelope through _dispatch, so
     # swap the recorder before each call to attribute the lookup.
     monkeypatch.setattr(_dispatch, "attach_answerability", fake_attach("review"))
     review = review_dispatcher.review_func(mode=cast(ReviewMode, "unknown"), repo_root="/repo")
     monkeypatch.setattr(_dispatch, "attach_answerability", fake_attach("flow"))
     flow = flow_dispatcher.flow_func(mode="get", repo_root="/repo")
-    monkeypatch.setattr(_dispatch, "attach_answerability", fake_attach("architecture"))
-    architecture = architecture_analysis.architecture_analysis_func(
-        mode="community",
-        repo_root="/repo",
-    )
 
     assert review["answerability"]["repo_root"] == "/repo"
     assert flow["answerability"]["repo_root"] == "/repo"
-    assert architecture["answerability"]["repo_root"] == "/repo"
-    assert calls == [("review", "/repo"), ("flow", "/repo"), ("architecture", "/repo")]
-
-
-def test_architecture_dispatcher_preserves_guidance_hints(monkeypatch) -> None:
-    expected_hints = {
-        "next_steps": [{"tool": "architecture_analysis_tool", "suggestion": "from guidance"}]
-    }
-    monkeypatch.setattr(
-        architecture_analysis,
-        "get_architecture_overview_func",
-        lambda **_kwargs: {"status": "ok", "summary": "overview", "_hints": expected_hints},
-    )
-
-    result = architecture_analysis.architecture_analysis_func(mode="overview", repo_root="/repo")
-
-    assert result["_hints"] == expected_hints
-    assert "answerability" in result
+    assert calls == [("review", "/repo"), ("flow", "/repo")]
 
 
 def _init_single_commit_repo(tmp_path) -> str:
@@ -305,22 +283,3 @@ def test_flow_dispatcher_routes_subtool_error_envelopes(monkeypatch) -> None:
     assert result["mode"] == "get"
     assert result["called_subtool"] == "get_flow"
     assert result["error"] == "flow exploded"
-
-
-def test_architecture_dispatcher_routes_subtool_error_envelopes(monkeypatch) -> None:
-    monkeypatch.setattr(
-        architecture_analysis,
-        "get_architecture_overview_func",
-        lambda **_kwargs: {
-            "status": "error",
-            "summary": "overview exploded",
-            "error": "overview exploded",
-        },
-    )
-
-    result = architecture_analysis.architecture_analysis_func(mode="overview", repo_root="/repo")
-
-    assert result["status"] == "error"
-    assert result["mode"] == "overview"
-    assert result["called_subtool"] == "get_architecture_overview_func"
-    assert result["error"] == "overview exploded"

@@ -74,66 +74,6 @@ def _patch_store(monkeypatch, store: GraphStore, root: Path) -> MagicMock:
 
 
 class TestAnalysisToolWrappers:
-    def test_get_hub_nodes_func_returns_guidance_and_closes_store(
-        self, monkeypatch, analysis_store, tmp_path
-    ):
-        close_mock = _patch_store(monkeypatch, analysis_store, tmp_path)
-
-        result = analysis_tools.get_hub_nodes_func(repo_root=str(tmp_path), top_n=3)
-
-        assert result["status"] == "ok"
-        assert result["count"] >= 1
-        assert "hub_nodes" in result
-        assert "guidance" in result
-        assert result["guidance"][0]["claim"]
-        assert result["guidance"][0]["confidence"] in {"low", "medium", "high"}
-        assert "answerability" in result
-        assert "_hints" in result
-        close_mock.assert_called_once()
-
-    def test_get_bridge_nodes_func_returns_guidance_and_closes_store(
-        self, monkeypatch, analysis_store, tmp_path
-    ):
-        close_mock = _patch_store(monkeypatch, analysis_store, tmp_path)
-
-        result = analysis_tools.get_bridge_nodes_func(repo_root=str(tmp_path), top_n=3)
-
-        assert result["status"] == "ok"
-        assert "bridge_nodes" in result
-        assert result["guidance"][0]["reason_codes"] == ["bridge_nodes"]
-        close_mock.assert_called_once()
-
-    def test_get_knowledge_gaps_func_returns_categories_and_closes_store(
-        self, monkeypatch, analysis_store, tmp_path
-    ):
-        close_mock = _patch_store(monkeypatch, analysis_store, tmp_path)
-
-        result = analysis_tools.get_knowledge_gaps_func(repo_root=str(tmp_path), top_n=5)
-
-        assert result["status"] == "ok"
-        assert "gaps" in result
-        for key in (
-            "untested_hotspots",
-            "single_file_communities",
-            "isolated_nodes",
-            "thin_communities",
-        ):
-            assert key in result["gaps"]
-        assert result["guidance"][0]["reason_codes"] == ["knowledge_gaps"]
-        close_mock.assert_called_once()
-
-    def test_get_surprising_connections_func_closes_store(
-        self, monkeypatch, analysis_store, tmp_path
-    ):
-        close_mock = _patch_store(monkeypatch, analysis_store, tmp_path)
-
-        result = analysis_tools.get_surprising_connections_func(repo_root=str(tmp_path), top_n=5)
-
-        assert result["status"] == "ok"
-        assert "surprising_connections" in result
-        assert result["guidance"][0]["reason_codes"] == ["surprising_connections"]
-        close_mock.assert_called_once()
-
     def test_get_suggested_questions_func_closes_store(self, monkeypatch, analysis_store, tmp_path):
         close_mock = _patch_store(monkeypatch, analysis_store, tmp_path)
         monkeypatch.setattr(analysis_tools, "native_tool", lambda name, **_: {"status": "ok"})

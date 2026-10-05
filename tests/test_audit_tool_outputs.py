@@ -4,10 +4,6 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from dagayn.tools.architecture_tools import (
-    detect_adp_violations_func,
-    detect_sdp_violations_func,
-)
 from dagayn.tools.query import traverse_graph_func
 from dagayn.tools.refactor_tools import refactor_func
 from dagayn.tools.registry_tools import list_repos_func
@@ -17,51 +13,6 @@ from dagayn.tools.review import get_review_context
 class _Closable:
     def close(self) -> None:
         pass
-
-
-def test_detect_sdp_violations_truncates(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "dagayn.tools.architecture_tools._get_store",
-        lambda repo_root: (_Closable(), None),
-    )
-    monkeypatch.setattr(
-        "dagayn.tools.architecture_tools.find_sdp_violations",
-        lambda store, granularity, artifact_scope, dependency_profile, min_delta: [
-            {"source": "a", "target": "b", "instability_gap": 0.9},
-            {"source": "c", "target": "d", "instability_gap": 0.8},
-        ],
-    )
-
-    result = detect_sdp_violations_func(top_n=1)
-
-    assert result["status"] == "ok"
-    assert result["count"] == 2
-    assert result["total"] == 2
-    assert result["truncated"] is True
-    assert len(result["violations"]) == 1
-    assert result["_hints"]["next_steps"][0]["tool"] == "architecture_analysis_tool"
-
-
-def test_detect_adp_violations_truncated_suggests_listing_every_cycle(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "dagayn.tools.architecture_tools._get_store",
-        lambda repo_root: (_Closable(), None),
-    )
-    monkeypatch.setattr(
-        "dagayn.tools.architecture_tools.find_adp_violations",
-        lambda store, **kwargs: [
-            {"nodes": ["a", "b"], "length": 2},
-            {"nodes": ["c", "d"], "length": 2},
-            {"nodes": ["e", "f"], "length": 2},
-        ],
-    )
-
-    result = detect_adp_violations_func(top_n=2)
-
-    assert result["truncated"] is True
-    assert result["next_tool_suggestions"][0] == (
-        'architecture_analysis_tool mode="adp_violations" top_n=3 -- list every cycle'
-    )
 
 
 def test_traverse_graph_not_found_has_standard_envelope(monkeypatch) -> None:

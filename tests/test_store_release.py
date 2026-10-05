@@ -5,17 +5,13 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from functools import partial
 from pathlib import Path
 
 import pytest
 
-from dagayn.tools.architecture_tools import (
-    compute_sdp_metrics_func,
-    detect_adp_violations_func,
-    detect_sdp_violations_func,
-)
+from dagayn.tools.architecture_analysis import architecture_analysis_func
 from dagayn.tools.docs import get_wiki_page_func
-from dagayn.tools.sap_tools import compute_sap_metrics_func, detect_sap_violations_func
 from dagayn.write_lock import graph_lock_is_held
 
 DAGAYN = Path(sys.executable).with_name("dagayn")
@@ -35,11 +31,17 @@ def repo(tmp_path: Path) -> Path:
 @pytest.mark.parametrize(
     "tool",
     [
-        detect_adp_violations_func,
-        compute_sdp_metrics_func,
-        detect_sdp_violations_func,
-        compute_sap_metrics_func,
-        detect_sap_violations_func,
+        *(
+            partial(architecture_analysis_func, mode=mode)
+            for mode in (
+                "overview",
+                "adp_violations",
+                "sdp_metrics",
+                "sdp_violations",
+                "sap_metrics",
+                "sap_violations",
+            )
+        ),
         lambda repo_root: get_wiki_page_func("pkg", repo_root=repo_root),
     ],
 )

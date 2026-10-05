@@ -1,5 +1,5 @@
 //! `architecture_analysis_tool`'s `communities`, `community`, and `overview`
-//! modes (`dagayn.tools.community_tools`, `dagayn.communities`).
+//! modes (`dagayn.communities` builds the communities they read).
 
 use std::collections::HashMap;
 
@@ -380,7 +380,7 @@ fn drill(mode: &str, artifact: Option<&str>) -> Value {
     }
 }
 
-/// `_architecture_health_summary`; `None` where an ADP enumeration would
+/// The overview's `architecture_health`; `None` where an ADP enumeration would
 /// pass Python's cap.
 fn architecture_health(
     store: &GraphStore,

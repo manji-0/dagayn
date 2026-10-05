@@ -10,11 +10,7 @@ from dagayn.contracts.state_types import BuildResult, ChangeAnalysisResult
 from dagayn.extractor_versions import record_extractor_versions
 from dagayn.graph import GraphStore, _sanitize_name, node_to_dict
 from dagayn.parser import EdgeInfo, NodeInfo
-from dagayn.tools.community_tools import (
-    get_architecture_overview_func,
-    get_community_func,
-    list_communities_func,
-)
+from dagayn.tools.architecture_analysis import architecture_analysis_func
 from dagayn.tools.docs import get_docs_section
 from dagayn.tools.flows_tools import get_flow, list_flows
 from dagayn.tools.query import query_graph
@@ -1360,6 +1356,31 @@ class TestFlowTools:
         assert "changed_files" in result
 
 
+def list_communities_func(
+    repo_root: str, detail_level: str = "standard", limit: int = 50, **kwargs
+) -> dict:
+    return architecture_analysis_func(
+        mode="communities",
+        repo_root=repo_root,
+        detail_level=detail_level,  # type: ignore[arg-type]
+        top_n=limit,
+        **kwargs,
+    )
+
+
+def get_community_func(repo_root: str, **kwargs) -> dict:
+    return architecture_analysis_func(mode="community", repo_root=repo_root, **kwargs)
+
+
+def get_architecture_overview_func(repo_root: str, detail_level: str = "standard") -> dict:
+    return architecture_analysis_func(
+        mode="overview",
+        repo_root=repo_root,
+        detail_level=detail_level,  # type: ignore[arg-type]
+        top_n=20,
+    )
+
+
 class TestCommunityTools:
     """Tests for community-related MCP tool functions."""
 
@@ -1572,27 +1593,8 @@ class TestCommunityTools:
         assert "total" in result
         assert "truncated" in result
 
-    def test_list_communities_minimal_skips_full_member_expansion(self, monkeypatch):
-        from dagayn.tools import community_tools
-
-        monkeypatch.setattr(
-            community_tools,
-            "_get_store",
-            lambda repo_root: (self.store, self.root),
-        )
-        self.store.close = lambda: None
-        monkeypatch.setattr(
-            community_tools,
-            "get_communities",
-            lambda *args, **kwargs: (_ for _ in ()).throw(
-                AssertionError("minimal list_communities should not build full community payloads")
-            ),
-        )
-
-        result = community_tools.list_communities_func(
-            repo_root=str(self.root),
-            detail_level="minimal",
-        )
+    def test_list_communities_minimal_lists_name_size_and_cohesion(self):
+        result = list_communities_func(repo_root=str(self.root), detail_level="minimal")
 
         assert result["status"] == "ok"
         assert all(
@@ -1686,28 +1688,6 @@ class TestCommunityTools:
         result = get_architecture_overview_func(repo_root=str(self.root), detail_level="verbose")
         assert "cross_community_edges" in result
         assert isinstance(result["cross_community_edges"], list)
-
-    def test_get_architecture_overview_trims_large_payloads(self, monkeypatch):
-        from dagayn.tools import community_tools
-
-        huge_overview = {
-            "communities": [{"name": f"c{i}", "blob": "x" * 400} for i in range(80)],
-            "cross_community_coupling": [{"pair": f"p{i}", "blob": "y" * 400} for i in range(80)],
-            "cross_community_edges": [{"edge": f"e{i}", "blob": "z" * 400} for i in range(80)],
-            "warnings": ["w" * 200 for _ in range(20)],
-        }
-
-        monkeypatch.setattr(
-            community_tools,
-            "get_architecture_overview",
-            lambda store, detail_level, top_n: huge_overview,
-        )
-
-        result = community_tools.get_architecture_overview_func(repo_root=str(self.root))
-
-        assert result["status"] == "ok"
-        assert result["truncated"] is True
-        assert len(result["communities"]) < 80 or len(result["cross_community_coupling"]) < 80
 
 
 class TestBuildPostprocess:

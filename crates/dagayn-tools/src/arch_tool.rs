@@ -1,6 +1,6 @@
 //! `architecture_analysis_tool`
-//! (`dagayn.tools.architecture_analysis.architecture_analysis_func`): the
-//! ADP, SDP, and SAP modes. The other modes stay Python's.
+//! (`dagayn.tools.architecture_analysis.architecture_analysis_func`), in
+//! every mode; the Python function opens the graph and returns this answer.
 
 use serde_json::{Map, Value, json};
 
@@ -80,8 +80,8 @@ fn py_float(value: f64) -> String {
     }
 }
 
-/// The arguments once fastmcp and `parse_architecture_analysis_request`
-/// accept them.
+/// The arguments once fastmcp has validated them against the Python
+/// signature.
 struct Request<'a> {
     mode: &'a str,
     sort_by: &'a str,
@@ -183,7 +183,7 @@ pub(crate) fn architecture(context: &Context, arguments: &Map<String, Value>) ->
         && request.community_id.is_none()
         && request.community_name.is_none_or(str::is_empty)
     {
-        // `ArchitectureCommunityRequest.require_selector`.
+        // fastmcp accepts a community request with neither selector.
         return crate::dispatcher_error(
             context,
             &root,

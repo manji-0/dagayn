@@ -5,7 +5,6 @@ from pydantic import ValidationError
 
 from dagayn.contracts.state_types import (
     AnswerabilitySummary,
-    ArchitectureCommunityRequest,
     ChangeAnalysisResult,
     EmbeddingCoverageStatus,
     FlowGetRequest,
@@ -13,7 +12,6 @@ from dagayn.contracts.state_types import (
     MissingnessItem,
     RefactorRenameRequest,
     format_validation_error,
-    parse_architecture_analysis_request,
     parse_flow_request,
     parse_refactor_request,
     parse_review_request,
@@ -155,58 +153,6 @@ def test_change_analysis_records_keep_typed_fields_and_extensions() -> None:
     assert result.changed_edges[0]["change_status"] == "added"
     assert result.affected_flows[0]["steps"][0]["node_id"] == 1
     assert result.test_gaps[0]["coverage_confidence"] == "none"
-
-
-def test_architecture_community_request_requires_selector() -> None:
-    with pytest.raises(ValidationError) as exc_info:
-        parse_architecture_analysis_request(mode="community")
-
-    assert 'mode="community" requires community_id or community_name.' in format_validation_error(
-        exc_info.value
-    )
-
-
-def test_architecture_community_request_parses_selector() -> None:
-    request = parse_architecture_analysis_request(
-        mode="community",
-        community_name="auth",
-        include_members=True,
-    )
-
-    assert isinstance(request, ArchitectureCommunityRequest)
-    assert request.community_name == "auth"
-    assert request.include_members is True
-
-
-def test_architecture_request_accepts_all_modes() -> None:
-    modes = (
-        "overview",
-        "communities",
-        "community",
-        "hubs",
-        "bridges",
-        "knowledge_gaps",
-        "surprising_connections",
-        "adp_violations",
-        "sdp_metrics",
-        "sdp_violations",
-        "sap_metrics",
-        "sap_violations",
-    )
-    for mode in modes:
-        payload: dict[str, object] = {"mode": mode, "repo_root": "/repo"}
-        if mode == "community":
-            payload["community_id"] = 1
-        request = parse_architecture_analysis_request(**payload)
-        assert request.mode == mode
-        assert request.repo_root == "/repo"
-
-
-def test_architecture_request_rejects_unknown_dependency_profile() -> None:
-    with pytest.raises(ValidationError) as exc_info:
-        parse_architecture_analysis_request(mode="sdp_metrics", dependency_profile="typo")
-
-    assert "Unknown dependency_profile" in format_validation_error(exc_info.value)
 
 
 def test_guidance_item_normalizes_boundary_fields() -> None:

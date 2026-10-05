@@ -17,7 +17,6 @@ from pydantic import (
 
 from . import _python314_compat  # noqa: F401
 from .bridge_types import FlowStepRecord
-from .dependency_profiles import DependencyProfile, validate_dependency_profile
 
 ConfidenceTier: TypeAlias = Literal["EXACT", "EXTRACTED", "HIGH", "MEDIUM", "LOW", "UNKNOWN"]
 
@@ -200,10 +199,6 @@ ArchitectureAnalysisMode: TypeAlias = Literal[
     "sap_metrics",
     "sap_violations",
 ]
-ArchitectureDetailLevel: TypeAlias = Literal["minimal", "standard", "verbose"]
-ArchitectureSortBy: TypeAlias = Literal["size", "cohesion", "name"]
-ArchitectureGranularity: TypeAlias = Literal["file", "package"]
-ArchitectureScopeKind: TypeAlias = Literal["file", "package", "directory"]
 ArtifactScope: TypeAlias = Literal["code", "docs", "all"]
 GuidanceConfidence: TypeAlias = Literal["high", "medium", "low", "unknown"]
 GuidanceEvidenceType: TypeAlias = Literal["extracted", "authored", "computed", "evaluated"]
@@ -874,121 +869,3 @@ def seal_refactor_error(payload: Mapping[str, object]) -> JsonObject:
 def seal_refactor_not_found(payload: Mapping[str, object]) -> JsonObject:
     """Validate and normalize a refactor not-found response."""
     return RefactorNotFoundResponse.model_validate(payload).model_dump()
-
-
-class _ArchitectureRequestBase(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    repo_root: str | None = None
-    top_n: int = 10
-    artifact_scope: ArtifactScope = "code"
-
-
-class ArchitectureOverviewRequest(_ArchitectureRequestBase):
-    mode: Literal["overview"] = "overview"
-    detail_level: ArchitectureDetailLevel = "minimal"
-
-
-class ArchitectureCommunitiesRequest(_ArchitectureRequestBase):
-    mode: Literal["communities"] = "communities"
-    detail_level: ArchitectureDetailLevel = "minimal"
-    sort_by: ArchitectureSortBy = "size"
-    min_size: int = 0
-
-
-class ArchitectureCommunityRequest(_ArchitectureRequestBase):
-    mode: Literal["community"] = "community"
-    community_name: str | None = None
-    community_id: int | None = None
-    include_members: bool = False
-
-    @model_validator(mode="after")
-    def require_selector(self) -> ArchitectureCommunityRequest:
-        if self.community_id is None and not self.community_name:
-            raise ValueError('mode="community" requires community_id or community_name.')
-        return self
-
-
-class ArchitectureHubsRequest(_ArchitectureRequestBase):
-    mode: Literal["hubs"] = "hubs"
-
-
-class ArchitectureBridgesRequest(_ArchitectureRequestBase):
-    mode: Literal["bridges"] = "bridges"
-
-
-class ArchitectureKnowledgeGapsRequest(_ArchitectureRequestBase):
-    mode: Literal["knowledge_gaps"] = "knowledge_gaps"
-
-
-class ArchitectureSurprisingConnectionsRequest(_ArchitectureRequestBase):
-    mode: Literal["surprising_connections"] = "surprising_connections"
-
-
-class _ArchitectureGranularityRequest(_ArchitectureRequestBase):
-    granularity: ArchitectureGranularity = "package"
-    dependency_profile: str = "strict_static"
-
-    @field_validator("dependency_profile")
-    @classmethod
-    def validate_dependency_profile_name(cls, value: str) -> DependencyProfile:
-        return validate_dependency_profile(value)
-
-
-class ArchitectureAdpViolationsRequest(_ArchitectureGranularityRequest):
-    mode: Literal["adp_violations"] = "adp_violations"
-    min_cycle_size: int = 2
-    max_cycle_length: int = 10
-
-
-class ArchitectureSdpMetricsRequest(_ArchitectureGranularityRequest):
-    mode: Literal["sdp_metrics"] = "sdp_metrics"
-
-
-class ArchitectureSdpViolationsRequest(_ArchitectureGranularityRequest):
-    mode: Literal["sdp_violations"] = "sdp_violations"
-    min_delta: float = 0.1
-
-
-class _ArchitectureSapRequest(_ArchitectureRequestBase):
-    scope_kind: ArchitectureScopeKind = "package"
-    unit_filter: list[str] | None = None
-    dependency_profile: str = "strict_static"
-
-    @field_validator("dependency_profile")
-    @classmethod
-    def validate_dependency_profile_name(cls, value: str) -> DependencyProfile:
-        return validate_dependency_profile(value)
-
-
-class ArchitectureSapMetricsRequest(_ArchitectureSapRequest):
-    mode: Literal["sap_metrics"] = "sap_metrics"
-    detail_level: ArchitectureDetailLevel = "minimal"
-
-
-class ArchitectureSapViolationsRequest(_ArchitectureSapRequest):
-    mode: Literal["sap_violations"] = "sap_violations"
-    min_distance: float = 0.5
-
-
-ArchitectureAnalysisRequest = Annotated[
-    ArchitectureOverviewRequest
-    | ArchitectureCommunitiesRequest
-    | ArchitectureCommunityRequest
-    | ArchitectureHubsRequest
-    | ArchitectureBridgesRequest
-    | ArchitectureKnowledgeGapsRequest
-    | ArchitectureSurprisingConnectionsRequest
-    | ArchitectureAdpViolationsRequest
-    | ArchitectureSdpMetricsRequest
-    | ArchitectureSdpViolationsRequest
-    | ArchitectureSapMetricsRequest
-    | ArchitectureSapViolationsRequest,
-    Field(discriminator="mode"),
-]
-_ARCHITECTURE_REQUEST_ADAPTER = TypeAdapter(ArchitectureAnalysisRequest)
-
-
-def parse_architecture_analysis_request(**payload: Any) -> ArchitectureAnalysisRequest:
-    """Validate architecture analysis dispatcher input."""
-    return _ARCHITECTURE_REQUEST_ADAPTER.validate_python(payload)

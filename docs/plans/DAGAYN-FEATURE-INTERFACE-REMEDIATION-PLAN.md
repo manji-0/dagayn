@@ -227,7 +227,7 @@ Done criteria:
 ## Step 7: Architecture And Flow Calibration
 
 <!-- derived-from ../audits/dagayn-fundamental-principles-recommendations.md#what-dagayn-is-not -->
-<!-- dagayn: discusses-artifact ../../dagayn/tools/community_tools.py::_architecture_health_summary -->
+<!-- dagayn: discusses-artifact ../../crates/dagayn-tools/src/community.rs::architecture_health -->
 
 architecture と flow は verdict ではなく lead として返す。
 

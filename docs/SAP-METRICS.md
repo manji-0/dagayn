@@ -6,7 +6,7 @@
 > **Status:** Implemented. SAP is exposed through
 > `architecture_analysis_tool(mode="sap_metrics")` and
 > `architecture_analysis_tool(mode="sap_violations")`. See `dagayn/sap.py`,
-> `dagayn/tools/sap_tools.py`, and `tests/test_sap.py`.
+> `crates/dagayn-tools/src/arch_tool.rs`, and `tests/test_sap.py`.
 
 ## Purpose
 
