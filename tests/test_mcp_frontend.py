@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -821,6 +822,12 @@ def test_review_answers_in_rust_as_python_does(git_repo: Path, change: str) -> N
         (review, {"mode": "context", "changed_files": ["app.py"], "include_source": False}),
         (review, {"mode": "changes", "changed_files": ["app.py"], "include_source": True}),
         (review, {"mode": "changes", "detail_level": "verbose", "include_source": True}),
+        # Paths with no scope: minimal detail meets the KeyError Python raised.
+        (review, {"mode": "changes", "base": "HEAD", "changed_files": [""]}),
+        (
+            review,
+            {"mode": "changes", "base": "HEAD", "changed_files": ["/"], "detail_level": "minimal"},
+        ),
         (review, {"mode": "affected_flows", "changed_files": ["test_app.py"]}),
         (review, {"mode": "impact", "changed_files": ["test_app.py"], "detail_level": "verbose"}),
     ]
@@ -831,6 +838,9 @@ def test_review_answers_in_rust_as_python_does(git_repo: Path, change: str) -> N
         # A single-commit repository has no HEAD~1: changes on the default
         # base reports the unresolved diff base.
         assert rust[12]["structuredContent"]["diff_parse_status"] == "base_unresolved"
+    unscoped = rust[25]["structuredContent"]
+    assert unscoped["status"] == "error"
+    assert unscoped["error"] == "'baseline_comparison'"
     if change == "wide":
         trimmed = rust[8]["structuredContent"]
         assert trimmed["truncated"] is True
@@ -967,6 +977,81 @@ def test_review_of_a_rejected_base_answers_in_rust_as_python_does(
     assert stderr.count(REVIEW_TRACE) == len(calls)
     assert rust == python
     assert rust[4]["structuredContent"]["diff_parse_status"] == "base_unresolved"
+
+
+#: A ``git`` that answers one listing with bytes that are not UTF-8 and
+#: hands every other call to the real git.
+GIT_SHIM = """\
+import os, sys
+args = sys.argv[1:]
+mode = os.environ["FAKE_GIT_MODE"]
+status = args[:2] == ["status", "--porcelain"]
+if mode == "status_z" and status and "-z" in args:
+    sys.stdout.buffer.write(b"?? caf\\xe9.py\\0 M app.py\\0")
+    sys.exit(0)
+if mode == "diff_z" and args[:2] == ["diff", "--name-status"]:
+    sys.stdout.buffer.write(b"M\\0app.py\\0M\\0b\\xe2\\x82")
+    sys.exit(0)
+if mode == "stderr" and status and "-z" in args:
+    sys.stderr.buffer.write(b"warning: \\xc3(\\n")
+    sys.exit(0)
+if mode == "status" and status and "-z" not in args:
+    sys.stdout.buffer.write(b"?? caf\\xe9.py\\n")
+    sys.exit(0)
+os.execv(os.environ["REAL_GIT"], ["git", *args])
+"""
+
+
+@pytest.mark.parametrize("mode", ["status_z", "diff_z", "stderr", "status"])
+def test_review_of_git_output_that_is_not_utf8_answers_in_rust_as_python_does(
+    git_repo: Path, tmp_path: Path, mode: str
+) -> None:
+    """Python decodes git's listings strictly: bytes that are not UTF-8 raise,
+    and the review reports the decoding error."""
+    real_git = shutil.which("git")
+    assert real_git is not None
+    bin_dir = tmp_path / "git-bin"
+    bin_dir.mkdir()
+    shim = bin_dir / "git"
+    shim.write_text(f"#!{sys.executable}\n{GIT_SHIM}", encoding="utf-8")
+    shim.chmod(0o755)
+    env = {
+        "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}",
+        "FAKE_GIT_MODE": mode,
+        "REAL_GIT": real_git,
+    }
+    calls: list[tuple[str, dict[str, Any]]] = [
+        ("review_tool", {}),
+        ("review_tool", {"mode": "impact", "base": "HEAD"}),
+        ("review_tool", {"mode": "context", "detail_level": "minimal"}),
+        ("review_tool", {"mode": "affected_flows"}),
+        ("review_tool", {"base": "HEAD", "changed_files": ["app.py"]}),
+    ]
+    rust, python, stderr = _session_both(git_repo, calls, **env)
+    assert stderr.count(REVIEW_TRACE) == len(calls)
+    assert rust == python
+    errors = [result["structuredContent"].get("error", "") for result in rust]
+    assert any("'utf-8' codec can't decode" in error for error in errors), errors
+
+
+def test_review_outside_any_vcs_answers_in_rust_as_python_does(tmp_path: Path) -> None:
+    """With no VCS, git runs anyway and finds nothing, as in Python. (The
+    graph was built while the directory had a ``.git``.)"""
+    root = tmp_path / "plain"
+    (root / ".git").mkdir(parents=True)
+    (root / "app.py").write_text("def main():\n    return helper()\n\n\ndef helper():\n    pass\n")
+    subprocess.run([DAGAYN, "build", "--repo", root], env=_env(), check=True, capture_output=True)
+    (root / ".git").rmdir()
+    calls: list[tuple[str, dict[str, Any]]] = [
+        ("review_tool", {}),
+        ("review_tool", {"changed_files": ["app.py"]}),
+        ("review_tool", {"mode": "impact"}),
+        ("review_tool", {"mode": "context", "changed_files": ["app.py"]}),
+        ("review_tool", {"mode": "affected_flows"}),
+    ]
+    rust, python, stderr = _session_both(root, calls)
+    assert stderr.count(REVIEW_TRACE) == len(calls)
+    assert rust == python
 
 
 FLOW_TRACE = "answered flow_tool in Rust"

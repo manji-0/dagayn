@@ -185,16 +185,26 @@ def _make_stale(workspace: Path) -> None:
 
 
 @real_jj
-def test_a_stale_jj_workspace_leaves_its_review_to_python(jj_workspace: Path) -> None:
-    """jj cannot read a stale working copy: reads carry no freshness, the
-    change listing's error is Python's to explain, and explicit files meet
-    the diff base jj cannot resolve."""
+def test_a_stale_jj_workspace_is_answered_in_rust_as_python_does(jj_workspace: Path) -> None:
+    """jj cannot read a stale working copy: reads carry no freshness, listing
+    the changes reports jj's complaint, and explicit files meet the diff base
+    jj cannot resolve."""
     _make_stale(jj_workspace)
-    calls = [*READS, ("review_tool", {}), ("review_tool", {"changed_files": ["app.py"]})]
+    calls = [
+        *READS,
+        ("review_tool", {}),
+        ("review_tool", {"changed_files": ["app.py"]}),
+        ("review_tool", {"mode": "impact", "detail_level": "minimal"}),
+        ("review_tool", {"mode": "context"}),
+        ("review_tool", {"mode": "affected_flows", "base": "HEAD"}),
+    ]
     rust, python, stderr = _session_both(jj_workspace, calls)
     assert _structured(rust) == _structured(python)
-    assert stderr.count(" in Rust") == len(READS) + 1
-    assert "review_tool in Rust\n" in stderr.split("answered traverse_graph_tool in Rust")[1]
+    assert stderr.count(" in Rust") == len(calls)
+    listing = rust[len(READS)]["structuredContent"]
+    assert listing["error"].startswith(f"jj could not read the working copy of {jj_workspace}")
+    assert "jj workspace update-stale" in listing["error"]
+    assert listing["missingness"][0]["reason_code"] == "unexpected_tool_failure"
     for result in rust[:3]:
         codes = result["structuredContent"]["answerability"]["reason_codes"]
         assert "graph_describes_another_commit" not in codes, codes

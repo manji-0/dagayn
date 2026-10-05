@@ -68,21 +68,63 @@ pub struct WorkingCopy {
 /// `working_copy`: snapshot the workspace (`jj log` does) and read `@` and
 /// `@-`; `None` when jj cannot (a stale workspace, jj missing).
 pub fn working_copy(root: &Path) -> Option<WorkingCopy> {
+    require_working_copy(root).ok()
+}
+
+/// `require_working_copy`: [`working_copy`], or the message of the
+/// `JjWorkspaceError` Python raises when jj cannot read it.
+pub fn require_working_copy(root: &Path) -> Result<WorkingCopy, String> {
     let output = Command::new("jj")
         .args(["--no-pager", "--color=never", "-R"])
         .arg(root)
         .args(["log", "--no-graph", "-r", "@", "-T", WC_TEMPLATE])
         .current_dir(root)
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
+        .output();
+    // `_run_capture`: stdout only on success; stderr, or the `OSError`.
+    let (out, stderr) = match output {
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+            let out = output
+                .status
+                .success()
+                .then(|| String::from_utf8_lossy(&output.stdout).into_owned());
+            (out, stderr)
+        }
+        Err(err) => (None, crate::pyerr::os_error(&err, "jj")),
+    };
+    if let Some(wc) = out
+        .filter(|out| !out.is_empty())
+        .and_then(|out| parse_working_copy(&out))
+    {
+        return Ok(wc);
     }
-    let out = String::from_utf8_lossy(&output.stdout);
-    if out.is_empty() {
-        return None;
-    }
-    parse_working_copy(&out)
+    Err(working_copy_error(root, &stderr))
+}
+
+/// `JjWorkspaceError`'s message: jj's first line of complaint, and how to
+/// recover a stale workspace.
+fn working_copy_error(root: &Path, stderr: &str) -> String {
+    let python_whitespace = |c: char| c.is_whitespace() || ('\x1c'..='\x1f').contains(&c);
+    let reason = crate::svn::splitlines(stderr)
+        .into_iter()
+        .map(|line| line.trim_matches(python_whitespace))
+        .find(|line| !line.is_empty())
+        .map(|line| {
+            line.strip_prefix("Error: ")
+                .unwrap_or(line)
+                .trim_end_matches('.')
+                .to_string()
+        })
+        .unwrap_or_else(|| "jj printed no working copy".to_string());
+    let hint = if stderr.to_lowercase().contains("stale") {
+        " Run `jj workspace update-stale` in the workspace, then retry."
+    } else {
+        ""
+    };
+    format!(
+        "jj could not read the working copy of {}: {reason}.{hint}",
+        root.display()
+    )
 }
 
 /// `_parse_working_copy`.
@@ -208,6 +250,23 @@ mod tests {
         assert!(parse_working_copy("abc  \n").is_none());
         assert!(parse_working_copy(" def\n").is_none());
         assert!(parse_working_copy("abc\n").is_none());
+    }
+
+    #[test]
+    fn working_copy_errors_read_as_python_words_them() {
+        let root = Path::new("/w");
+        assert_eq!(
+            working_copy_error(
+                root,
+                "\n  Error: The working copy is stale (not updated since operation abc).\nHint: x\n"
+            ),
+            "jj could not read the working copy of /w: The working copy is stale (not updated \
+             since operation abc). Run `jj workspace update-stale` in the workspace, then retry."
+        );
+        assert_eq!(
+            working_copy_error(root, ""),
+            "jj could not read the working copy of /w: jj printed no working copy."
+        );
     }
 
     #[test]

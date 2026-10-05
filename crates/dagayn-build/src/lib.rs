@@ -12,6 +12,7 @@ mod lock;
 pub mod parse_batch;
 mod postprocess;
 mod project_root;
+mod pyerr;
 mod status;
 pub mod svn;
 mod update;
@@ -31,6 +32,6 @@ pub use status::{
 };
 pub use update::{UpdateOptions, UpdateReport, incremental_update};
 pub use vcs::{
-    ChangeSources, Vcs, change_file_sources, detect_vcs, is_linked_worktree, is_safe_git_ref,
-    main_checkout, staged_and_unstaged,
+    ChangeError, ChangeSources, Vcs, change_file_sources, detect_vcs, diff_stamp_error,
+    is_linked_worktree, is_safe_git_ref, main_checkout, staged_and_unstaged,
 };

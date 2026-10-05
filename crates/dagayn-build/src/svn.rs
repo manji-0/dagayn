@@ -10,6 +10,8 @@ use std::io::ErrorKind;
 use std::path::Path;
 use std::process::{Command, Output};
 
+use crate::vcs::ChangeError;
+
 /// `_SAFE_SVN_REV`: `^r?\d+(:r?\d+|:HEAD|:BASE|:COMMITTED)?$`, ignoring case.
 /// Like Python's `$`, a single trailing newline is accepted.
 pub fn is_safe_svn_rev(rev: &str) -> bool {
@@ -36,7 +38,7 @@ pub fn is_safe_svn_rev(rev: &str) -> bool {
 }
 
 /// Python's `str.splitlines()`.
-fn splitlines(text: &str) -> Vec<&str> {
+pub(crate) fn splitlines(text: &str) -> Vec<&str> {
     let mut lines = Vec::new();
     let mut start = 0;
     let mut chars = text.char_indices().peekable();
@@ -146,35 +148,39 @@ pub fn parse_info(stdout: &str) -> (String, String) {
 /// Run `svn` in `root`. `Err(())` where Python's `subprocess.run` would
 /// raise past its `FileNotFoundError` handler; `Ok(None)` for a missing
 /// binary, which Python reports as no changes.
-fn run(root: &Path, args: &[&str]) -> Result<Option<Output>, ()> {
+/// `svn args`; `None` when svn is not installed (which Python catches), or
+/// the `OSError` Python lets escape.
+fn run(root: &Path, args: &[&str]) -> Result<Option<Output>, ChangeError> {
     match Command::new("svn").args(args).current_dir(root).output() {
         Ok(output) => Ok(Some(output)),
         Err(err) if err.kind() == ErrorKind::NotFound => Ok(None),
-        Err(_) => Err(()),
+        Err(err) => Err(ChangeError {
+            message: crate::pyerr::os_error(&err, "svn"),
+            runtime_error: true,
+        }),
     }
 }
 
-/// `_get_svn_changed_files(root, rev_range)`; `None` where Python raises.
-pub fn changed_files(root: &Path, rev_range: Option<&str>) -> Option<Vec<String>> {
+/// `_get_svn_changed_files(root, rev_range)`, or what it raises.
+pub fn changed_files(root: &Path, rev_range: Option<&str>) -> Result<Vec<String>, ChangeError> {
     let Some(rev_range) = rev_range.filter(|rev| !rev.is_empty()) else {
-        let Some(output) = run(root, &["status", "--non-interactive"]).ok()? else {
-            return Some(Vec::new());
+        let Some(output) = run(root, &["status", "--non-interactive"])? else {
+            return Ok(Vec::new());
         };
         // Python reads whatever `svn status` printed, whatever its status.
-        return Some(parse_status(&String::from_utf8_lossy(&output.stdout)));
+        return Ok(parse_status(&String::from_utf8_lossy(&output.stdout)));
     };
     let Some(output) = run(
         root,
         &["diff", "--summarize", "--non-interactive", "-r", rev_range],
-    )
-    .ok()?
+    )?
     else {
-        return Some(Vec::new());
+        return Ok(Vec::new());
     };
     if !output.status.success() {
-        return Some(Vec::new());
+        return Ok(Vec::new());
     }
-    Some(parse_summarize(&String::from_utf8_lossy(&output.stdout)))
+    Ok(parse_summarize(&String::from_utf8_lossy(&output.stdout)))
 }
 
 /// What `parse_svn_diff_ranges` hands `_parse_unified_diff`: the stdout of

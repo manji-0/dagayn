@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use crate::{jj, svn};
+use crate::{jj, pyerr, svn};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Vcs {
@@ -124,20 +124,35 @@ pub struct ChangeSources {
     pub untracked: Vec<String>,
 }
 
-/// `get_changed_file_sources(repo_root, base)` in a git checkout, a jj
-/// workspace, or an SVN working copy; `None` outside them, and where Python
-/// raises (git output that is not UTF-8, a jj working copy jj cannot read,
-/// an `svn` it cannot start).
+/// An exception Python lets escape while listing changes: its `str()`, and
+/// whether `handle_tool_runtime_error` counts its type a tool runtime error
+/// (`OSError`, `UnicodeDecodeError`) rather than an unexpected failure
+/// (`JjWorkspaceError`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChangeError {
+    pub message: String,
+    pub runtime_error: bool,
+}
+
+impl ChangeError {
+    fn runtime(message: String) -> Self {
+        Self {
+            message,
+            runtime_error: true,
+        }
+    }
+}
+
+/// `get_changed_file_sources(repo_root, base)`, or what it raises: git
+/// output that is not UTF-8, a jj working copy jj cannot read, a `git` or
+/// `svn` that cannot be started. Outside a VCS git runs anyway, as in Python.
 ///
 /// A ref Python rejects reports no files, as Python does after its warning.
-pub fn change_file_sources(repo_root: &Path, base: &str) -> Option<ChangeSources> {
+pub fn change_file_sources(repo_root: &Path, base: &str) -> Result<ChangeSources, ChangeError> {
     let vcs = detect_vcs(repo_root);
-    if vcs == Vcs::None {
-        return None;
-    }
     if vcs == Vcs::Svn {
         let files = svn::changed_files(repo_root, Some(base).filter(|b| svn::is_safe_svn_rev(b)))?;
-        return Some(ChangeSources {
+        return Ok(ChangeSources {
             files: files.clone(),
             worktree: files.clone(),
             unstaged: files,
@@ -145,20 +160,20 @@ pub fn change_file_sources(repo_root: &Path, base: &str) -> Option<ChangeSources
         });
     }
     if !is_safe_git_ref(base) {
-        return Some(ChangeSources::default());
+        return Ok(ChangeSources::default());
     }
     if vcs == Vcs::Jj {
         return jj_change_sources(repo_root, base);
     }
-    let base_diff = match git_raw_bytes(
+    let base_diff = match git_text(
         repo_root,
         &["diff", "--name-status", "-M", "-z", base, "HEAD", "--"],
-    ) {
-        Some(payload) => parse_name_status(&String::from_utf8(payload).ok()?),
-        None => Vec::new(),
+    )? {
+        Some((true, payload)) => parse_name_status(&payload),
+        _ => Vec::new(),
     };
     let worktree = worktree_sources(repo_root)?;
-    Some(ChangeSources {
+    Ok(ChangeSources {
         files: dedupe(base_diff.iter().cloned().chain(worktree.worktree())),
         base_diff,
         worktree: worktree.worktree(),
@@ -168,14 +183,63 @@ pub fn change_file_sources(repo_root: &Path, base: &str) -> Option<ChangeSources
     })
 }
 
-/// `get_staged_and_unstaged`; `None` as for [`change_file_sources`].
-pub fn staged_and_unstaged(repo_root: &Path) -> Option<Vec<String>> {
+/// `get_staged_and_unstaged`, or what it raises, as for
+/// [`change_file_sources`].
+pub fn staged_and_unstaged(repo_root: &Path) -> Result<Vec<String>, ChangeError> {
     match detect_vcs(repo_root) {
-        Vcs::None => None,
         Vcs::Svn => svn::changed_files(repo_root, None),
         Vcs::Jj => jj_change_sources(repo_root, "HEAD").map(|sources| sources.worktree),
-        Vcs::Git => Some(worktree_sources(repo_root)?.worktree()),
+        Vcs::Git | Vcs::None => Ok(worktree_sources(repo_root)?.worktree()),
     }
+}
+
+/// What `_git_diff_cache_stamp` raises before the diff is parsed: the
+/// `git rev-parse HEAD` and `git status --porcelain` text it decodes as
+/// UTF-8 (paths stay quoted unless `core.quotePath` is off). `None` in an
+/// SVN working copy or a jj workspace, which read neither.
+pub fn diff_stamp_error(repo_root: &Path) -> Option<ChangeError> {
+    if repo_root.join(".svn").exists() || jj::is_jj_workspace(repo_root) {
+        return None;
+    }
+    for args in [
+        &["rev-parse", "HEAD"][..],
+        &["status", "--porcelain", "--untracked-files=all"][..],
+    ] {
+        // `_stdout_or_empty` swallows an `OSError`, not a decoding error.
+        if let Ok(output) = Command::new("git")
+            .args(args)
+            .current_dir(repo_root)
+            .output()
+            && let Some(message) =
+                pyerr::utf8_error(&output.stdout).or_else(|| pyerr::utf8_error(&output.stderr))
+        {
+            return Some(ChangeError::runtime(message));
+        }
+    }
+    None
+}
+
+/// `subprocess.run(["git", *args], capture_output=True, text=True)`:
+/// `(succeeded, stdout)`, `None` when git is not installed (which Python's
+/// callers catch), or what Python raises: another `OSError`, or stdout or
+/// stderr that does not decode.
+fn git_text(repo_root: &Path, args: &[&str]) -> Result<Option<(bool, String)>, ChangeError> {
+    let output = match Command::new("git")
+        .args(args)
+        .current_dir(repo_root)
+        .output()
+    {
+        Ok(output) => output,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => return Err(ChangeError::runtime(pyerr::os_error(&err, "git"))),
+    };
+    if let Some(message) =
+        pyerr::utf8_error(&output.stdout).or_else(|| pyerr::utf8_error(&output.stderr))
+    {
+        return Err(ChangeError::runtime(message));
+    }
+    let stdout = String::from_utf8(output.stdout).unwrap_or_default();
+    Ok(Some((output.status.success(), stdout)))
 }
 
 /// `_jj_diff_files`: both sides of every rename between two commits.
@@ -190,16 +254,19 @@ fn jj_diff_files(repo_root: &Path, old: &str, new: &str) -> Vec<String> {
 }
 
 /// `_get_jj_changed_file_sources`: `base..@-` plus `@-..@`, the working-copy
-/// change reported as unstaged. `None` when jj cannot read the working copy,
-/// where Python raises `JjWorkspaceError`.
-fn jj_change_sources(repo_root: &Path, base: &str) -> Option<ChangeSources> {
-    let wc = jj::working_copy(repo_root)?;
+/// change reported as unstaged, or the `JjWorkspaceError` Python raises when
+/// jj cannot read the working copy.
+fn jj_change_sources(repo_root: &Path, base: &str) -> Result<ChangeSources, ChangeError> {
+    let wc = jj::require_working_copy(repo_root).map_err(|message| ChangeError {
+        message,
+        runtime_error: false,
+    })?;
     let base_diff = match jj::resolve_commit(repo_root, base, Some(&wc)) {
         Some(resolved) => jj_diff_files(repo_root, &resolved, &wc.parent),
         None => Vec::new(),
     };
     let worktree = jj_diff_files(repo_root, &wc.parent, &wc.commit);
-    Some(ChangeSources {
+    Ok(ChangeSources {
         files: dedupe(base_diff.iter().chain(&worktree).cloned()),
         base_diff,
         worktree: worktree.clone(),
@@ -226,25 +293,16 @@ pub(crate) fn dirty_files(repo_root: &Path) -> Vec<String> {
 
 /// `git status --porcelain -z`; Python reads whatever it printed, even on
 /// failure.
-fn worktree_sources(repo_root: &Path) -> Option<Worktree> {
-    let output = Command::new("git")
-        .args(["status", "--porcelain", "-z", "--untracked-files=all"])
-        .current_dir(repo_root)
-        .output()
-        .ok();
-    match output {
-        Some(output) => Some(parse_porcelain(&String::from_utf8(output.stdout).ok()?)),
-        None => Some(Worktree::default()),
-    }
-}
-
-fn git_raw_bytes(repo_root: &Path, args: &[&str]) -> Option<Vec<u8>> {
-    let output = Command::new("git")
-        .args(args)
-        .current_dir(repo_root)
-        .output()
-        .ok()?;
-    output.status.success().then_some(output.stdout)
+fn worktree_sources(repo_root: &Path) -> Result<Worktree, ChangeError> {
+    Ok(
+        match git_text(
+            repo_root,
+            &["status", "--porcelain", "-z", "--untracked-files=all"],
+        )? {
+            Some((_, payload)) => parse_porcelain(&payload),
+            None => Worktree::default(),
+        },
+    )
 }
 
 fn git_raw(repo_root: &Path, args: &[&str]) -> Option<String> {

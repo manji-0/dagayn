@@ -2,13 +2,15 @@
 //! mode: `changes` (`detect_changes_func`), `context`
 //! (`get_review_context`), `affected_flows` (`get_affected_flows_func`), and
 //! `impact` (`dagayn.tools.query.get_impact_radius`), in a git checkout, a
-//! jj workspace, or an SVN working copy. A jj working copy jj cannot read is
-//! Python's to report.
+//! jj workspace, an SVN working copy, or none, with the error envelopes of
+//! the exceptions those bodies raised.
 
 use std::collections::HashSet;
 use std::path::{Component, Path, PathBuf};
 
-use dagayn_build::{ChangeSources, change_file_sources, staged_and_unstaged};
+use dagayn_build::{
+    ChangeError, ChangeSources, change_file_sources, diff_stamp_error, staged_and_unstaged,
+};
 use dagayn_graph::{
     GraphNode, GraphStore, ImpactRadius, is_low_confidence_unresolved_markdown_code_span,
 };
@@ -124,31 +126,65 @@ pub(crate) fn review(context: &Context, arguments: &Map<String, Value>) -> Optio
         answerability: &answerability,
         exposed: &exposed,
     };
-    let (subtool, out) = match mode {
-        "changes" => match review.changes(&request)? {
-            Ok(out) => ("detect_changes_func", out),
-            Err(error) => {
-                // `with_dispatch_metadata` seals an error without hints.
-                return Some(
-                    Ordered::default()
-                        .put("status", "error")
-                        .put("summary", error.message.as_str())
-                        .put("error", error.message.as_str())
-                        .put("mode", mode)
-                        .put("called_subtool", "detect_changes_func")
-                        .put("base", request.base)
-                        .put("diff_parse_status", "base_unresolved")
-                        .put("answerability", answerability.full())
-                        .put("missingness", json!(error.missingness))
-                        .put("_runtime", runtime)
-                        .put("_repo", graph.repo_context())
-                        .into_payload(),
-                );
-            }
-        },
+    let (subtool, answer) = match mode {
+        "changes" => ("detect_changes_func", review.changes(&request)?),
         "context" => ("get_review_context", review.context(&request, &args)?),
         "affected_flows" => ("get_affected_flows_func", review.affected_flows(&request)?),
         _ => ("get_impact_radius", review.impact(&request)?),
+    };
+    let out = match answer {
+        Ok(out) => out,
+        // `with_dispatch_metadata` seals an error without hints.
+        Err(Failure::BaseUnresolved {
+            message,
+            missingness,
+        }) => {
+            return Some(
+                Ordered::default()
+                    .put("status", "error")
+                    .put("summary", message.as_str())
+                    .put("error", message.as_str())
+                    .put("mode", mode)
+                    .put("called_subtool", subtool)
+                    .put("base", request.base)
+                    .put("diff_parse_status", "base_unresolved")
+                    .put("answerability", answerability.full())
+                    .put("missingness", json!(missingness))
+                    .put("_runtime", runtime)
+                    .put("_repo", graph.repo_context())
+                    .into_payload(),
+            );
+        }
+        // `handle_tool_runtime_error`'s envelope has no summary, so the
+        // dispatcher's stands; the graph's answerability is attached, but
+        // its missingness is the failure's alone.
+        Err(Failure::Raised(error)) => {
+            let reason_code = if error.runtime_error {
+                "tool_runtime_error"
+            } else {
+                "unexpected_tool_failure"
+            };
+            return Some(
+                Ordered::default()
+                    .put("status", "error")
+                    .put("summary", format!("Review mode '{mode}' completed."))
+                    .put("error", error.message)
+                    .put("mode", mode)
+                    .put("called_subtool", subtool)
+                    .put(
+                        "missingness",
+                        json!([{
+                            "reason_code": reason_code,
+                            "severity": "high",
+                            "claim_effect": "tool output is unavailable until the underlying failure is resolved",
+                        }]),
+                    )
+                    .put("answerability", answerability.full())
+                    .put("_runtime", runtime)
+                    .put("_repo", graph.repo_context())
+                    .into_payload(),
+            );
+        }
     };
     Some(crate::seal_dispatch(
         out,
@@ -164,11 +200,37 @@ pub(crate) fn review(context: &Context, arguments: &Map<String, Value>) -> Optio
     ))
 }
 
-/// `detect_changes_func`'s `_error_response` for a diff base that does not
-/// resolve.
-struct BaseUnresolved {
-    message: String,
-    missingness: Vec<Value>,
+/// A review body's error reply instead of its answer.
+enum Failure {
+    /// `detect_changes_func`'s `_error_response` for a diff base that does
+    /// not resolve.
+    BaseUnresolved {
+        message: String,
+        missingness: Vec<Value>,
+    },
+    /// An exception the body raised, which its `ToolStoreScope` reports.
+    Raised(ChangeError),
+}
+
+impl From<ChangeError> for Failure {
+    fn from(error: ChangeError) -> Self {
+        Self::Raised(error)
+    }
+}
+
+/// A body's answer, or its error reply; `None` leaves the call to Python.
+type Answer = Option<Result<Ordered, Failure>>;
+
+/// `?` for a body's [`Answer`]: the value, or an early return of the
+/// declined call or the error reply.
+macro_rules! attempt {
+    ($value:expr) => {
+        match $value {
+            Some(Ok(value)) => value,
+            Some(Err(failure)) => return Some(Err(failure.into())),
+            None => return None,
+        }
+    };
 }
 
 struct Review<'a> {
@@ -192,10 +254,10 @@ impl Review<'_> {
         &self.graph.root
     }
 
-    /// The changed files and their sources, as `detect_changes_func` and
-    /// `get_affected_flows_func` detect them.
-    fn changed_files(&self, request: &Request) -> Option<(Vec<String>, Value)> {
-        Some(match &request.changed_files {
+    /// The changed files and their sources, as `_resolve_changed_files`
+    /// detects them, or what it raises.
+    fn changed_files(&self, request: &Request) -> Result<(Vec<String>, Value), ChangeError> {
+        Ok(match &request.changed_files {
             Some(files) => (files.clone(), json!({"files": files, "explicit": files})),
             None => {
                 let sources = change_file_sources(self.root(), request.base)?;
@@ -210,10 +272,9 @@ impl Review<'_> {
         })
     }
 
-    /// `detect_changes_func`; `Err` for the error it reports when `base` does
-    /// not resolve.
-    fn changes(&self, request: &Request) -> Option<Result<Ordered, BaseUnresolved>> {
-        let (changed_files, sources) = self.changed_files(request)?;
+    /// `detect_changes_func`.
+    fn changes(&self, request: &Request) -> Answer {
+        let (changed_files, sources) = attempt!(Some(self.changed_files(request)));
         if changed_files.is_empty() {
             return Some(Ok(Ordered::default()
                 .put("status", "ok")
@@ -226,10 +287,14 @@ impl Review<'_> {
                 .put("answerability", self.answerability.full())
                 .put("missingness", json!(self.answerability.missingness()))));
         }
+        // `parse_diff_result` reads the cache stamp before the diff.
+        if let Some(error) = diff_stamp_error(self.root()) {
+            return Some(Err(error.into()));
+        }
         let ranges = match parse_diff(self.root(), request.base) {
             DiffParse::Ranges(ranges) => ranges,
             DiffParse::BaseUnresolved => {
-                return self.base_unresolved(request.base).map(Err);
+                return Some(Err(self.base_unresolved(request.base)));
             }
         };
         let mut analysis = analyze_changes(
@@ -278,7 +343,14 @@ impl Review<'_> {
                 )
             };
             let delta = &summary["architecture_delta"];
-            let baseline = delta.get("baseline_comparison")?.clone();
+            // With no changed scope the delta has no baseline comparison,
+            // and the minimal reply raised `KeyError('baseline_comparison')`.
+            let Some(baseline) = delta.get("baseline_comparison").cloned() else {
+                return Some(Err(Failure::Raised(ChangeError {
+                    message: "'baseline_comparison'".to_string(),
+                    runtime_error: true,
+                })));
+            };
             let priorities: Vec<Value> = analysis
                 .get("review_priorities")
                 .as_array()
@@ -427,7 +499,7 @@ impl Review<'_> {
 
     /// The error `detect_changes_func` reports for a `base` the diff cannot
     /// resolve.
-    fn base_unresolved(&self, base: &str) -> Option<BaseUnresolved> {
+    fn base_unresolved(&self, base: &str) -> Failure {
         let message = format!(
             "Could not resolve the diff base {} in {}. Pass a reachable ref (the default HEAD~1 \
              does not exist in a single-commit repository, and a rebase or gc can make a \
@@ -441,19 +513,30 @@ impl Review<'_> {
             "severity": "high",
             "claim_effect": "no diff could be computed, so nothing here describes what actually changed",
         }));
-        Some(BaseUnresolved {
+        Failure::BaseUnresolved {
             message,
             missingness,
-        })
+        }
     }
 
     /// `get_review_context`.
-    fn context(&self, request: &Request, args: &Args) -> Option<Ordered> {
+    fn context(&self, request: &Request, args: &Args) -> Answer {
+        let (changed_files, sources) = attempt!(Some(self.changed_files(request)));
+        self.context_of(request, args, changed_files, sources)
+            .map(Ok)
+    }
+
+    fn context_of(
+        &self,
+        request: &Request,
+        args: &Args,
+        changed_files: Vec<String>,
+        sources: Value,
+    ) -> Option<Ordered> {
         let include_source = request.include_source.unwrap_or(true);
         let max_lines = args
             .integer("max_lines_per_file", 200)?
             .clamp(1, MAX_LINES_PER_FILE_CEILING) as usize;
-        let (changed_files, sources) = self.changed_files(request)?;
         if changed_files.is_empty() {
             return Some(
                 Ordered::default()
@@ -669,8 +752,12 @@ impl Review<'_> {
     }
 
     /// `get_affected_flows_func`.
-    fn affected_flows(&self, request: &Request) -> Option<Ordered> {
-        let (changed_files, sources) = self.changed_files(request)?;
+    fn affected_flows(&self, request: &Request) -> Answer {
+        let (changed_files, sources) = attempt!(Some(self.changed_files(request)));
+        self.affected_flows_of(changed_files, sources).map(Ok)
+    }
+
+    fn affected_flows_of(&self, changed_files: Vec<String>, sources: Value) -> Option<Ordered> {
         if changed_files.is_empty() {
             return Some(
                 Ordered::default()
@@ -708,19 +795,23 @@ impl Review<'_> {
     }
 
     /// `get_impact_radius` (the tool, `dagayn.tools.query`).
-    fn impact(&self, request: &Request) -> Option<Ordered> {
+    fn impact(&self, request: &Request) -> Answer {
         let changed_files = match &request.changed_files {
             Some(files) => files.clone(),
             None => {
                 // `get_changed_files`, then the worktree when it is empty.
-                let files = change_file_sources(self.root(), request.base)?.files;
+                let files = attempt!(Some(change_file_sources(self.root(), request.base))).files;
                 if files.is_empty() {
-                    staged_and_unstaged(self.root())?
+                    attempt!(Some(staged_and_unstaged(self.root())))
                 } else {
                     files
                 }
             }
         };
+        self.impact_of(request, changed_files).map(Ok)
+    }
+
+    fn impact_of(&self, request: &Request, changed_files: Vec<String>) -> Option<Ordered> {
         let missingness = self.answerability.missingness();
         if changed_files.is_empty() {
             return Some(
