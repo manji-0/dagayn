@@ -2,7 +2,7 @@
 
 All notable changes to `dagayn` are documented here.
 
-## Unreleased
+## 7.2.0 — 2026-10-05
 
 ### Changed
 
@@ -108,6 +108,12 @@ All notable changes to `dagayn` are documented here.
   `TESTED_BY` starting from the test nodes. An update after one edit here
   takes 1.09 s instead of 1.20 s; the stored graph is unchanged, edge ids
   included.
+- Manifest bridge extraction (maturin, setuptools-rust, Cargo, wasm, OpenAPI
+  clients, CMake, meson, node-gyp, Zig, Makefiles) runs in Rust. Two visible
+  differences: generated-client consumer edges come in sorted order instead
+  of hash-seed order, and `.dagaynignore` is matched by the same globset
+  rules that already choose which files to parse (`{a,b}` alternation works,
+  `**/x` also matches `x` at the root).
 
 ### Added
 
@@ -238,15 +244,6 @@ All notable changes to `dagayn` are documented here.
 - `get_minimal_context` assesses graph sync once per call and derives the
   freshness reason codes from it, instead of running the same `git` commands
   up to three times (MCP path: 148 ms to 80 ms on this repository).
-
-### Changed
-
-- Manifest bridge extraction (maturin, setuptools-rust, Cargo, wasm, OpenAPI
-  clients, CMake, meson, node-gyp, Zig, Makefiles) runs in Rust. Two visible
-  differences: generated-client consumer edges come in sorted order instead
-  of hash-seed order, and `.dagaynignore` is matched by the same globset
-  rules that already choose which files to parse (`{a,b}` alternation works,
-  `**/x` also matches `x` at the root).
 
 ### Removed
 
