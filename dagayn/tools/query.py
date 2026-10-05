@@ -17,11 +17,9 @@ from ..contracts.state_types import (
     seal_missingness_item,
     seal_reachability_info,
 )
-from ..embeddings_store import get_embedding_provider_counts
 from ..graph import GraphNode, _sanitize_name, edge_to_dict, node_to_dict
 from ..hints import generate_hints, get_session
 from ..incremental_files import get_changed_files, get_staged_and_unstaged
-from ..paths import get_db_path
 from ..search import embedding_health_available, hybrid_search
 from ._common import (
     _BUILTIN_CALL_NAMES,
@@ -39,6 +37,7 @@ from ._common import (
     missingness_from_answerability,
     recover_corrupt_graph,
 )
+from ._native import native_tool
 from .query_graph_dispatch import (
     MAX_QUERY_DEPTH,
     TRANSITIVE_PATTERNS,
@@ -704,35 +703,10 @@ def list_graph_stats(repo_root: str | None = None) -> dict[str, Any]:
         Total nodes, edges, breakdown by kind, languages, and last update time.
     """
     with ToolStoreScope(logger=logger, context="list_graph_stats", repo_root=repo_root) as scope:
-        store, root = scope.track(_get_store(repo_root))
-        stats = store.get_stats()
-
-        # Read-only: constructing an EmbeddingStore here created the
-        # embeddings table, so a later `dagayn status` reported "empty"
-        # instead of "not indexed" for a graph nobody had embedded.
-        emb_count = sum(get_embedding_provider_counts(get_db_path(root)).values())
-
-        return make_response(
-            "ok",
-            (
-                f"Graph stats for {root.name}: {stats.total_nodes} nodes, "
-                f"{stats.total_edges} edges, {stats.files_count} files, "
-                f"{len(stats.languages)} language(s), {emb_count} embedding(s)."
-            ),
-            total_nodes=stats.total_nodes,
-            total_edges=stats.total_edges,
-            nodes_by_kind=stats.nodes_by_kind,
-            edges_by_kind=stats.edges_by_kind,
-            languages=stats.languages,
-            files_count=stats.files_count,
-            last_updated=stats.last_updated,
-            embeddings_count=emb_count,
-            next_tool_suggestions=[
-                'architecture_analysis_tool mode="communities" -- inspect structure',
-                'flow_tool mode="list" -- inspect critical reachable-set flows',
-                "semantic_search_nodes_tool -- search for specific entities",
-            ],
-        )
+        # Resolves the repository and creates, migrates, or waits for the
+        # graph; the Rust tool reads it.
+        scope.track(_get_store(repo_root))
+        return native_tool("list_graph_stats_tool", repo_root=repo_root)
     return scope.error
 
 

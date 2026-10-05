@@ -64,6 +64,16 @@ def serve_mcp(
     embedding_model: str | None = None,
     runtime: str | None = None,
 ) -> None: ...
+def call_tool(
+    name: str,
+    arguments_json: str,
+    allowed_tools: list[str] | None = None,
+    package_root: str | None = None,
+    local_embedding: str | None = None,
+    embedding_provider: str | None = None,
+    embedding_model: str | None = None,
+    runtime: str | None = None,
+) -> str | None: ...
 def embedding_search(
     db_path: str | PathLike[str],
     provider: str,

@@ -1137,7 +1137,43 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(resolve_manifest_path, module)?)?;
     module.add_function(wrap_pyfunction!(run_cli, module)?)?;
     module.add_function(wrap_pyfunction!(serve_mcp, module)?)?;
+    module.add_function(wrap_pyfunction!(call_tool, module)?)?;
     Ok(())
+}
+
+/// The JSON text `name(arguments)` answers with in `dagayn_tools`, or `None`
+/// where the Rust tool leaves the call to Python. The Python tool bodies call
+/// it once `_get_store` has resolved, created, or migrated the graph, with
+/// the same session facts `serve_mcp` gives the front end.
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+#[pyo3(signature = (name, arguments_json, allowed_tools=None, package_root=None, local_embedding=None, embedding_provider=None, embedding_model=None, runtime=None))]
+fn call_tool(
+    py: Python<'_>,
+    name: &str,
+    arguments_json: &str,
+    allowed_tools: Option<Vec<String>>,
+    package_root: Option<std::path::PathBuf>,
+    local_embedding: Option<String>,
+    embedding_provider: Option<String>,
+    embedding_model: Option<String>,
+    runtime: Option<&str>,
+) -> PyResult<Option<String>> {
+    let invalid = |err: serde_json::Error| pyo3::exceptions::PyValueError::new_err(err.to_string());
+    let arguments: serde_json::Value = serde_json::from_str(arguments_json).map_err(invalid)?;
+    let context = dagayn_tools::Context {
+        pinned_repo: None,
+        allowed_tools: allowed_tools.map(|names| names.into_iter().collect()),
+        package_root,
+        local_embedding,
+        embedding_provider,
+        embedding_model,
+        runtime: runtime
+            .map(serde_json::from_str)
+            .transpose()
+            .map_err(invalid)?,
+    };
+    Ok(py.detach(|| dagayn_tools::call(&context, name, &arguments).map(|payload| payload.text)))
 }
 
 /// Serve an MCP session on stdin and stdout until EOF with the front end of

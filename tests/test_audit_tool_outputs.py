@@ -8,7 +8,7 @@ from dagayn.tools.architecture_tools import (
     detect_adp_violations_func,
     detect_sdp_violations_func,
 )
-from dagayn.tools.query import list_graph_stats, traverse_graph_func
+from dagayn.tools.query import traverse_graph_func
 from dagayn.tools.refactor_tools import refactor_func
 from dagayn.tools.registry_tools import list_repos_func
 from dagayn.tools.review import get_review_context
@@ -119,37 +119,6 @@ def test_get_review_context_minimal_uses_relative_key_entities(monkeypatch) -> N
 
     assert result["status"] == "ok"
     assert result["key_entities"] == ["dagayn/tools/_common.py"]
-
-
-def test_list_graph_stats_has_hints(monkeypatch, tmp_path) -> None:
-    stats = SimpleNamespace(
-        total_nodes=10,
-        total_edges=20,
-        nodes_by_kind={"Function": 8, "File": 2},
-        edges_by_kind={"CALLS": 5},
-        languages=["python"],
-        files_count=2,
-        last_updated="now",
-    )
-
-    class _Store(_Closable):
-        def get_stats(self):
-            return stats
-
-    monkeypatch.setattr(
-        "dagayn.tools.query._get_store",
-        lambda repo_root: (_Store(), tmp_path),
-    )
-    monkeypatch.setattr(
-        "dagayn.tools.query.get_embedding_provider_counts",
-        lambda _db_path: {"openai:a": 2, "google:b": 1},
-    )
-
-    result = list_graph_stats(repo_root=str(tmp_path))
-
-    assert result["status"] == "ok"
-    assert result["embeddings_count"] == 3
-    assert result["_hints"]["next_steps"][0]["tool"] == "architecture_analysis_tool"
 
 
 def test_list_repos_has_hints(monkeypatch) -> None:
