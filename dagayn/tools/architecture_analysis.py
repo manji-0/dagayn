@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from functools import partial
 from typing import Any, Literal, cast
 
 from pydantic import ValidationError
@@ -12,11 +13,10 @@ from ..contracts.state_types import (
     ArchitectureAnalysisMode,
     format_validation_error,
     parse_architecture_analysis_request,
-    seal_dispatcher_error,
-    seal_dispatcher_ok,
 )
-from ..hints import generate_hints, get_session
-from ._common import ToolPayload, attach_answerability
+from ._common import ToolPayload
+from ._dispatch import dispatch_error as _error
+from ._dispatch import with_dispatch_metadata
 from .analysis_tools import (
     get_bridge_nodes_func,
     get_hub_nodes_func,
@@ -35,47 +35,11 @@ from .community_tools import (
 )
 from .sap_tools import compute_sap_metrics_func, detect_sap_violations_func
 
-
-def _with_dispatch_metadata(
-    result: ToolPayload,
-    *,
-    mode: str,
-    called_subtool: str,
-    repo_root: str | None,
-) -> ToolPayload:
-    """Add dispatcher metadata without mutating the subtool response."""
-    payload = dict(result)
-    payload.setdefault("status", "ok")
-    payload.setdefault("summary", f"Architecture analysis mode {mode!r} completed.")
-    payload["mode"] = mode
-    payload["called_subtool"] = called_subtool
-    attach_answerability(payload, repo_root)
-    if payload.get("status") == "error":
-        payload.setdefault("error", payload["summary"])
-        return cast(ToolPayload, seal_dispatcher_error(payload))
-    payload.setdefault(
-        "_hints",
-        generate_hints("architecture_analysis", payload, get_session()),
-    )
-    return cast(ToolPayload, seal_dispatcher_ok(payload))
-
-
-def _error(message: str, *, mode: str, repo_root: str | None) -> ToolPayload:
-    return cast(
-        ToolPayload,
-        seal_dispatcher_error(
-            attach_answerability(
-                {
-                    "status": "error",
-                    "summary": message,
-                    "error": message,
-                    "mode": mode,
-                    "called_subtool": None,
-                },
-                repo_root,
-            )
-        ),
-    )
+_with_dispatch_metadata = partial(
+    with_dispatch_metadata,
+    summary_label="Architecture analysis",
+    hints_tool="architecture_analysis",
+)
 
 
 def architecture_analysis_func(

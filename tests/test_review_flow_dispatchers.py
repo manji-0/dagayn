@@ -6,7 +6,7 @@ from typing import cast
 
 from dagayn.contracts.state_types import ReviewMode
 from dagayn.server import main as crg_main
-from dagayn.tools import architecture_analysis, flow_dispatcher, review_dispatcher
+from dagayn.tools import _dispatch, architecture_analysis, flow_dispatcher, review_dispatcher
 
 
 def test_review_wrapper_exposes_typed_dispatch_args() -> None:
@@ -201,16 +201,13 @@ def test_dispatcher_error_paths_use_requested_repo_root(monkeypatch) -> None:
 
         return _inner
 
-    monkeypatch.setattr(review_dispatcher, "attach_answerability", fake_attach("review"))
-    monkeypatch.setattr(flow_dispatcher, "attach_answerability", fake_attach("flow"))
-    monkeypatch.setattr(
-        architecture_analysis,
-        "attach_answerability",
-        fake_attach("architecture"),
-    )
-
+    # All three dispatchers build their error envelope through _dispatch, so
+    # swap the recorder before each call to attribute the lookup.
+    monkeypatch.setattr(_dispatch, "attach_answerability", fake_attach("review"))
     review = review_dispatcher.review_func(mode=cast(ReviewMode, "unknown"), repo_root="/repo")
+    monkeypatch.setattr(_dispatch, "attach_answerability", fake_attach("flow"))
     flow = flow_dispatcher.flow_func(mode="get", repo_root="/repo")
+    monkeypatch.setattr(_dispatch, "attach_answerability", fake_attach("architecture"))
     architecture = architecture_analysis.architecture_analysis_func(
         mode="community",
         repo_root="/repo",

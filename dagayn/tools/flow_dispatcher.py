@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Literal, cast, overload
+from functools import partial
+from typing import Literal, overload
 
 from pydantic import ValidationError
 
@@ -10,51 +11,13 @@ from ..contracts.state_types import (
     FlowMode,
     format_validation_error,
     parse_flow_request,
-    seal_dispatcher_error,
-    seal_dispatcher_ok,
 )
-from ..hints import generate_hints, get_session
-from ._common import ToolPayload, attach_answerability
+from ._common import ToolPayload
+from ._dispatch import dispatch_error as _error
+from ._dispatch import with_dispatch_metadata
 from .flows_tools import get_flow, list_flows
 
-
-def _with_dispatch_metadata(
-    result: ToolPayload,
-    *,
-    mode: str,
-    called_subtool: str,
-    repo_root: str | None,
-) -> ToolPayload:
-    """Add dispatcher metadata without mutating the subtool response."""
-    payload = dict(result)
-    payload.setdefault("status", "ok")
-    payload.setdefault("summary", f"Flow mode {mode!r} completed.")
-    payload["mode"] = mode
-    payload["called_subtool"] = called_subtool
-    attach_answerability(payload, repo_root)
-    if payload.get("status") == "error":
-        payload.setdefault("error", payload["summary"])
-        return cast(ToolPayload, seal_dispatcher_error(payload))
-    payload.setdefault("_hints", generate_hints("flow", payload, get_session()))
-    return cast(ToolPayload, seal_dispatcher_ok(payload))
-
-
-def _error(message: str, *, mode: str, repo_root: str | None) -> ToolPayload:
-    return cast(
-        ToolPayload,
-        seal_dispatcher_error(
-            attach_answerability(
-                {
-                    "status": "error",
-                    "summary": message,
-                    "error": message,
-                    "mode": mode,
-                    "called_subtool": None,
-                },
-                repo_root,
-            )
-        ),
-    )
+_with_dispatch_metadata = partial(with_dispatch_metadata, summary_label="Flow", hints_tool="flow")
 
 
 @overload

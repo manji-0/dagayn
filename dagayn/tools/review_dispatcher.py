@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, Literal, cast
+from functools import partial
+from typing import Any, Literal
 
 from pydantic import ValidationError
 
@@ -11,53 +12,17 @@ from ..contracts.state_types import (
     ReviewMode,
     format_validation_error,
     parse_review_request,
-    seal_dispatcher_error,
-    seal_dispatcher_ok,
 )
-from ..hints import generate_hints, get_session
-from ._common import ToolPayload, attach_answerability
+from ._common import ToolPayload
+from ._dispatch import dispatch_error as _error
+from ._dispatch import with_dispatch_metadata
 from .query import get_impact_radius
 from .review import detect_changes_func, get_review_context
 from .review_flows import get_affected_flows_func
 
-
-def _with_dispatch_metadata(
-    result: ToolPayload,
-    *,
-    mode: str,
-    called_subtool: str,
-    repo_root: str | None,
-) -> ToolPayload:
-    """Add dispatcher metadata without mutating the subtool response."""
-    payload = dict(result)
-    payload.setdefault("status", "ok")
-    payload.setdefault("summary", f"Review mode {mode!r} completed.")
-    payload["mode"] = mode
-    payload["called_subtool"] = called_subtool
-    attach_answerability(payload, repo_root)
-    if payload.get("status") == "error":
-        payload.setdefault("error", payload["summary"])
-        return cast(ToolPayload, seal_dispatcher_error(payload))
-    payload.setdefault("_hints", generate_hints("review", payload, get_session()))
-    return cast(ToolPayload, seal_dispatcher_ok(payload))
-
-
-def _error(message: str, *, mode: str, repo_root: str | None) -> ToolPayload:
-    return cast(
-        ToolPayload,
-        seal_dispatcher_error(
-            attach_answerability(
-                {
-                    "status": "error",
-                    "summary": message,
-                    "error": message,
-                    "mode": mode,
-                    "called_subtool": None,
-                },
-                repo_root,
-            )
-        ),
-    )
+_with_dispatch_metadata = partial(
+    with_dispatch_metadata, summary_label="Review", hints_tool="review"
+)
 
 
 def review_func(
