@@ -1,15 +1,14 @@
 //! `dagayn.coverage`: the heuristic test inference behind `query_graph_tool`
 //! `tests_for` and the review tools' test gaps.
 //!
-//! Python's `str.casefold` differs from `to_lowercase` for a few characters;
-//! [`casefold`] maps the common ones and gives up (`None`, leaving the call
-//! to Python) on the rest.
+//! Folding is Python's `str.casefold`, from [`crate::pyunicode`]'s table.
 
 use std::collections::{HashMap, HashSet};
 
 use dagayn_graph::{GraphEdge, GraphNode, GraphStore};
 use serde_json::json;
 
+use crate::pyunicode::casefold;
 use crate::query::{Row, node_row};
 
 const TEST_FILE_PARTS: &[&str] = &["/tests/", "/test/", "/__tests__/"];
@@ -36,50 +35,6 @@ const NON_TEST_HELPER_NAMES: &[&str] = &[
     "teardown_module",
 ];
 const MODULE_MARKER_SKIP: &[&str] = &["src", "lib", "pkg", "internal", "tests", "test"];
-
-/// `str.casefold`, or `None` for a character whose full case folding this
-/// does not reproduce.
-pub(crate) fn casefold(text: &str) -> Option<String> {
-    if text.is_ascii() {
-        return Some(text.to_ascii_lowercase());
-    }
-    let mut out = String::with_capacity(text.len());
-    for c in text.chars() {
-        match c {
-            'ß' | 'ẞ' => out.push_str("ss"),
-            'ς' => out.push('σ'),
-            'µ' => out.push('μ'),
-            'ſ' => out.push('s'),
-            'ϐ' => out.push('β'),
-            'ϑ' => out.push('θ'),
-            'ϕ' => out.push('φ'),
-            'ϖ' => out.push('π'),
-            'ϰ' => out.push('κ'),
-            'ϱ' => out.push('ρ'),
-            'ϵ' => out.push('ε'),
-            'ẛ' => out.push('ṡ'),
-            '\u{345}' => out.push('ι'),
-            'ﬀ' => out.push_str("ff"),
-            'ﬁ' => out.push_str("fi"),
-            'ﬂ' => out.push_str("fl"),
-            'ﬃ' => out.push_str("ffi"),
-            'ﬄ' => out.push_str("ffl"),
-            'ﬅ' | 'ﬆ' => out.push_str("st"),
-            // Folds this does not spell out: multi-character Greek,
-            // Armenian, and Latin folds, Cherokee (folds to upper case), and
-            // the old Cyrillic variants.
-            'ŉ' | 'ǰ' | 'ΐ' | 'ΰ' | 'և' => return None,
-            '\u{1E96}'..='\u{1E9A}'
-            | '\u{1F50}'..='\u{1FFF}'
-            | '\u{FB13}'..='\u{FB17}'
-            | '\u{13A0}'..='\u{13FD}'
-            | '\u{AB70}'..='\u{ABBF}'
-            | '\u{1C80}'..='\u{1C88}' => return None,
-            c => out.extend(c.to_lowercase()),
-        }
-    }
-    Some(out)
-}
 
 /// `is_test_file_path`.
 pub(crate) fn is_test_file_path(file_path: &str) -> bool {
@@ -152,7 +107,7 @@ fn identifier_tokens(value: &str) -> Option<Vec<String>> {
             index = end;
         }
     }
-    let folded = casefold(&split.into_iter().collect::<String>())?;
+    let folded = casefold(&split.into_iter().collect::<String>());
     Some(
         folded
             .split(|c: char| !(c.is_ascii_lowercase() || c.is_ascii_digit()))
@@ -167,7 +122,7 @@ fn contains_word(haystack_cf: &str, needle: &str) -> Option<bool> {
     if needle.is_empty() {
         return Some(false);
     }
-    let needle = casefold(needle)?;
+    let needle = casefold(needle);
     let bytes = haystack_cf.as_bytes();
     let word = |byte: u8| byte.is_ascii_lowercase() || byte.is_ascii_digit();
     let mut from = 0;
@@ -247,11 +202,11 @@ impl ScanState {
             if !is_test_like(&node)? {
                 continue;
             }
-            let path_cf = casefold(&node.file_path.replace('\\', "/"))?;
+            let path_cf = casefold(&node.file_path.replace('\\', "/"));
             let identity_cf = casefold(&format!(
                 "{} {} {}",
                 node.qualified_name, node.name, node.file_path
-            ))?;
+            ));
             keys.insert(node.file_path.clone());
             keys.insert(node.qualified_name.clone());
             candidates.push(Candidate {
@@ -316,7 +271,7 @@ impl ScanState {
         if start >= end {
             return Some(String::new());
         }
-        casefold(&lines[start..end].join("\n"))
+        Some(casefold(&lines[start..end].join("\n")))
     }
 
     /// `_name_matches_target_symbol`.
@@ -326,8 +281,8 @@ impl ScanState {
         candidate_text: &str,
         allowed_suffix: Option<&HashSet<String>>,
     ) -> Option<bool> {
-        let target_cf = casefold(target_name)?;
-        let candidate_cf = casefold(candidate_text)?;
+        let target_cf = casefold(target_name);
+        let candidate_cf = casefold(candidate_text);
         if target_cf == candidate_cf {
             return Some(true);
         }
@@ -360,8 +315,8 @@ impl ScanState {
 
 /// `_is_test_like_node`.
 fn is_test_like(node: &GraphNode) -> Option<bool> {
-    let name = casefold(&node.name)?;
-    let qualified = casefold(&node.qualified_name)?;
+    let name = casefold(&node.name);
+    let qualified = casefold(&node.qualified_name);
     if node.kind == "Function" && !node.is_test && NON_TEST_HELPER_NAMES.contains(&name.as_str()) {
         return Some(false);
     }
@@ -395,7 +350,7 @@ impl<'a> Target<'a> {
     fn new(node: &'a GraphNode) -> Option<Self> {
         let path = node.file_path.replace('\\', "/");
         let (name, parent) = path_names(&path);
-        let stem = casefold(stem(name))?;
+        let stem = casefold(stem(name));
         let mut markers = HashSet::new();
         if !stem.is_empty() {
             markers.insert(stem.clone());
@@ -405,7 +360,7 @@ impl<'a> Target<'a> {
                 markers.insert(rest.to_string());
             }
         }
-        let parent = casefold(parent)?;
+        let parent = casefold(parent);
         if !parent.is_empty() && !MODULE_MARKER_SKIP.contains(&parent.as_str()) {
             markers.insert(parent);
         }
@@ -413,7 +368,7 @@ impl<'a> Target<'a> {
             node,
             markers,
             stem,
-            path_cf: casefold(&path)?,
+            path_cf: casefold(&path),
         })
     }
 }
@@ -452,7 +407,7 @@ fn module_link(
     }
     for key in keys {
         for edge in state.imports.get(key).into_iter().flatten() {
-            let import_target = casefold(&edge.target_qualified.replace('\\', "/"))?;
+            let import_target = casefold(&edge.target_qualified.replace('\\', "/"));
             if import_target == target.path_cf
                 || import_target.starts_with(&format!("{}::", target.path_cf))
             {
@@ -679,10 +634,10 @@ mod tests {
     }
 
     #[test]
-    fn casefold_gives_up_where_it_cannot_match_python() {
-        assert_eq!(casefold("Straße").as_deref(), Some("strasse"));
-        assert_eq!(casefold("ΣΑΣ").as_deref(), Some("σασ"));
-        assert_eq!(casefold("\u{1F88}"), None);
+    fn casefold_and_test_paths_follow_python() {
+        assert_eq!(casefold("Straße"), "strasse");
+        assert_eq!(casefold("ΣΑΣ"), "σασ");
+        assert_eq!(casefold("\u{1F88}"), "\u{1F00}\u{3B9}");
         assert!(is_test_file_path("src\\tests\\a.py"));
         assert!(is_test_file_path("pkg/foo.spec.ts"));
         assert!(!is_test_file_path("pkg/contest.py"));
