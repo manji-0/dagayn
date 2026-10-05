@@ -511,7 +511,6 @@ fn review_leaves_other_modes_and_unknowns_to_python() {
     };
     for arguments in [
         json!({"mode": "context", "max_lines_per_file": 1.5}),
-        json!({"mode": "affected_flows", "base": "bad ref"}),
         json!({"mode": "affected_flows", "detail_level": "full"}),
         json!({"mode": "affected_flows", "include_source": "yes"}),
         json!({"mode": "affected_flows", "changed_files": [1]}),
@@ -522,6 +521,13 @@ fn review_leaves_other_modes_and_unknowns_to_python() {
             "{arguments}"
         );
     }
+    // A ref Python rejects lists the working tree instead.
+    let flows = answer(
+        &context,
+        "review_tool",
+        json!({"mode": "affected_flows", "base": "bad ref"}),
+    );
+    assert_eq!(flows["summary"], "No changed files detected.");
     // Without the host's `_runtime`, nothing.
     assert!(declines(
         &repo.context(),

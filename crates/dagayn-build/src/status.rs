@@ -12,8 +12,13 @@ use dagayn_graph::{GraphError, GraphStore};
 use crate::parse_batch::{file_mtime_ns, sha256_hex};
 use crate::update::outdated_extractors;
 use crate::vcs::{
-    Vcs, detect_vcs, git_branch_info, is_linked_worktree, main_checkout, worktree_changes,
+    Vcs, detect_vcs, dirty_files, git_branch_info, is_linked_worktree, main_checkout,
 };
+
+/// `GIT_BACKED_VCS`: revisions are git commits, so `git_head_sha` applies.
+fn is_git_backed(vcs: Vcs) -> bool {
+    matches!(vcs, Vcs::Git | Vcs::Jj)
+}
 
 /// Hash at most this many files to verify the diff tier; above it the
 /// assessment falls back to git's answer (a just-seeded worktree whose stored
@@ -164,13 +169,14 @@ pub struct CommitFreshness {
     pub extractor_drift: Vec<String>,
 }
 
-/// `None` where Python's state is `None`: not a git checkout, or no HEAD.
-/// (jj is git-backed in Python; callers handle it themselves.)
+/// `None` where Python's state is `None`: not a git checkout or jj
+/// workspace (`GIT_BACKED_VCS`), or no HEAD (in jj, a working copy jj cannot
+/// read).
 pub fn commit_tier_freshness(
     store: &GraphStore,
     repo_root: &Path,
 ) -> Result<Option<CommitFreshness>, GraphError> {
-    if detect_vcs(repo_root) != Vcs::Git {
+    if !is_git_backed(detect_vcs(repo_root)) {
         return Ok(None);
     }
     let stored = store
@@ -180,7 +186,7 @@ pub fn commit_tier_freshness(
     if current.is_empty() {
         return Ok(None);
     }
-    let dirty = !worktree_changes(repo_root).is_empty();
+    let dirty = !dirty_files(repo_root).is_empty();
     let languages = store.get_stats()?.languages;
     let drift: Vec<String> = outdated_extractors(store, &languages)?
         .iter()
@@ -420,18 +426,22 @@ pub fn assess_graph_sync(
         .clone()
         .or(store.get_metadata("last_updated")?)
         .filter(|v| !v.is_empty());
-    let git = detect_vcs(repo_root) == Vcs::Git;
+    let vcs = detect_vcs(repo_root);
+    let git = is_git_backed(vcs);
     let (current_branch, current_sha, dirty_files) = if git {
         let (branch, sha) = git_branch_info(repo_root);
-        (branch, sha, worktree_changes(repo_root))
+        (branch, sha, dirty_files(repo_root))
     } else {
         (String::new(), String::new(), Vec::new())
     };
     let current_branch = (!current_branch.is_empty()).then_some(current_branch);
     let head = (!current_sha.is_empty()).then(|| current_sha.clone());
     let graph_empty = stats.total_nodes == 0 || stats.files_count == 0;
+    // A jj working copy jj cannot read (a stale workspace) is no evidence
+    // the graph matches it.
     let commit_drift =
-        git && !current_sha.is_empty() && stored_sha.as_deref() != Some(&*current_sha);
+        (git && !current_sha.is_empty() && stored_sha.as_deref() != Some(&*current_sha))
+            || (vcs == Vcs::Jj && current_sha.is_empty());
     let undated = last_updated.is_none() && !graph_empty;
     let extractor_drift: Vec<String> = if graph_empty {
         Vec::new()

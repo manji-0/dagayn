@@ -221,10 +221,12 @@ pub(crate) fn get_minimal_context(
         return None;
     }
     let root = resolve_repo(context, args.optional_string("repo_root")?)?;
+    // `git`: `GIT_BACKED_VCS`, whose commit tier `commit_tier_from_sync` reads.
     let (git, vcs) = match detect_vcs(&root) {
         Vcs::Git => (true, "git"),
+        Vcs::Jj => (true, "jj"),
+        Vcs::Svn => (false, "svn"),
         Vcs::None => (false, "none"),
-        Vcs::Jj | Vcs::Svn => return None,
     };
     let graph = open_graph(&root)?;
     // A seeded worktree is verified (and its flag cleared) by Python.

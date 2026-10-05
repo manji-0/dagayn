@@ -8,7 +8,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use dagayn_build::{Vcs, detect_vcs};
 use dagayn_graph::{GraphEdge, GraphNode, GraphStore};
 use serde_json::{Map, Value, json};
 
@@ -1232,9 +1231,6 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
         );
     }
     let depth = depth.min(MAX_DEPTH);
-    if !matches!(detect_vcs(&root), Vcs::Git | Vcs::None) {
-        return None;
-    }
     let store = &graph.store;
     let answerability = graph.answerability()?;
 

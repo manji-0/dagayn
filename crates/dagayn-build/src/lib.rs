@@ -6,12 +6,14 @@
 
 mod build;
 mod data_dir;
+pub mod jj;
 mod local_time;
 mod lock;
 pub mod parse_batch;
 mod postprocess;
 mod project_root;
 mod status;
+pub mod svn;
 mod update;
 mod vcs;
 
@@ -29,6 +31,6 @@ pub use status::{
 };
 pub use update::{UpdateOptions, UpdateReport, incremental_update};
 pub use vcs::{
-    ChangeSources, Vcs, change_file_sources, detect_vcs, is_linked_worktree, main_checkout,
-    staged_and_unstaged,
+    ChangeSources, Vcs, change_file_sources, detect_vcs, is_linked_worktree, is_safe_git_ref,
+    main_checkout, staged_and_unstaged,
 };

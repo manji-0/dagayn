@@ -6,7 +6,6 @@
 
 use std::collections::{HashMap, HashSet};
 
-use dagayn_build::{Vcs, detect_vcs};
 use dagayn_graph::{GraphNode, GraphStore};
 use serde_json::{Map, Value, json};
 
@@ -237,9 +236,6 @@ pub(crate) fn traverse_graph(context: &Context, arguments: &Map<String, Value>) 
     let budget = args.integer("token_budget", 2000)?;
     let request = embedding_request(context, &args)?;
     let root = resolve_repo(context, args.optional_string("repo_root")?)?;
-    if !matches!(detect_vcs(&root), Vcs::Git | Vcs::None) {
-        return None;
-    }
     let graph = open_graph(&root)?;
     let store = &graph.store;
     let depth = depth.clamp(1, 6);

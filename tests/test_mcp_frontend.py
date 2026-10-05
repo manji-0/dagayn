@@ -841,19 +841,34 @@ def test_review_answers_in_rust_as_python_does(git_repo: Path, change: str) -> N
     "arguments",
     [
         {"mode": "changes", "changed_files": ["app.py"], "detail_level": "verbose"},
-        {"mode": "affected_flows", "base": "bad ref"},
         {"mode": "affected_flows", "detail_level": "full"},
         {"mode": "affected_flows", "changed_files": "app.py"},
         {"mode": "affected_flows", "max_nodes": "5"},
         {"mode": "affected_flows", "x": 1},
         {"mode": "context", "max_lines_per_file": "5"},
         {"mode": "impact", "max_depth": 1.5},
-        {"mode": "impact", "base": "a b"},
     ],
 )
 def test_review_leaves_the_rest_to_python(git_repo: Path, arguments: dict[str, Any]) -> None:
     rust, python, stderr = _session_both(git_repo, [("review_tool", arguments)])
     assert REVIEW_TRACE not in stderr
+    assert rust == python
+
+
+@pytest.mark.parametrize("dirty", [False, True])
+def test_review_of_a_rejected_base_answers_in_rust_as_python_does(
+    git_repo: Path, dirty: bool
+) -> None:
+    """A ref Python rejects lists the working tree instead."""
+    if dirty:
+        (git_repo / "app.py").write_text("def main():\n    return 1\n")
+    calls: list[tuple[str, dict[str, Any]]] = [
+        ("review_tool", {"mode": "affected_flows", "base": "bad ref"}),
+        ("review_tool", {"mode": "impact", "base": "a b"}),
+        ("review_tool", {"mode": "context", "base": "$(x)", "detail_level": "minimal"}),
+    ]
+    rust, python, stderr = _session_both(git_repo, calls)
+    assert stderr.count(REVIEW_TRACE) == len(calls)
     assert rust == python
 
 

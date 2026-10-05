@@ -3,6 +3,8 @@
 use std::path::Path;
 use std::process::Command;
 
+use crate::{jj, svn};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Vcs {
     Git,
@@ -12,11 +14,12 @@ pub enum Vcs {
     None,
 }
 
-/// Same markers, same precedence as `dagayn.incremental_files.detect_vcs`.
+/// Same markers, same precedence as `dagayn.incremental_files.detect_vcs`:
+/// a `.jj` directory counts only as a git-backed workspace.
 pub fn detect_vcs(root: &Path) -> Vcs {
     if root.join(".git").exists() {
         Vcs::Git
-    } else if root.join(".jj").is_dir() {
+    } else if jj::is_jj_workspace(root) {
         Vcs::Jj
     } else if root.join(".svn").exists() {
         Vcs::Svn
@@ -25,8 +28,14 @@ pub fn detect_vcs(root: &Path) -> Vcs {
     }
 }
 
-/// `(branch, head_sha)`; each is empty when git cannot say.
+/// `(branch, head_sha)`; each is empty when git cannot say. In a jj
+/// workspace the branch is the nearest bookmark and the head is `@-`.
 pub(crate) fn git_branch_info(repo_root: &Path) -> (String, String) {
+    if jj::is_jj_workspace(repo_root) {
+        return jj::working_copy(repo_root)
+            .map(|wc| (wc.bookmark, wc.parent))
+            .unwrap_or_default();
+    }
     let branch = git_stdout(repo_root, &["rev-parse", "--abbrev-ref", "HEAD"]);
     let sha = git_stdout(repo_root, &["rev-parse", "HEAD"]);
     (branch, sha)
@@ -46,7 +55,9 @@ fn git_stdout(repo_root: &Path, args: &[&str]) -> String {
 }
 
 /// `_SAFE_GIT_REF`: a ref is passed to git only if it matches this shape.
-pub(crate) fn is_safe_git_ref(reference: &str) -> bool {
+/// Like Python's `$`, a single trailing newline is accepted.
+pub fn is_safe_git_ref(reference: &str) -> bool {
+    let reference = reference.strip_suffix('\n').unwrap_or(reference);
     !reference.is_empty()
         && reference
             .chars()
@@ -113,15 +124,31 @@ pub struct ChangeSources {
     pub untracked: Vec<String>,
 }
 
-/// `get_changed_file_sources(repo_root, base)` in a git checkout, or `None`
-/// where Python would take another path (jj, svn, a ref it rejects) or fail
-/// (git output that is not UTF-8).
+/// `get_changed_file_sources(repo_root, base)` in a git checkout, a jj
+/// workspace, or an SVN working copy; `None` outside them, and where Python
+/// raises (git output that is not UTF-8, a jj working copy jj cannot read,
+/// an `svn` it cannot start).
+///
+/// A ref Python rejects reports no files, as Python does after its warning.
 pub fn change_file_sources(repo_root: &Path, base: &str) -> Option<ChangeSources> {
-    if detect_vcs(repo_root) != Vcs::Git || repo_root.join(".jj").exists() {
+    let vcs = detect_vcs(repo_root);
+    if vcs == Vcs::None {
         return None;
     }
+    if vcs == Vcs::Svn {
+        let files = svn::changed_files(repo_root, Some(base).filter(|b| svn::is_safe_svn_rev(b)))?;
+        return Some(ChangeSources {
+            files: files.clone(),
+            worktree: files.clone(),
+            unstaged: files,
+            ..ChangeSources::default()
+        });
+    }
     if !is_safe_git_ref(base) {
-        return None;
+        return Some(ChangeSources::default());
+    }
+    if vcs == Vcs::Jj {
+        return jj_change_sources(repo_root, base);
     }
     let base_diff = match git_raw_bytes(
         repo_root,
@@ -141,10 +168,60 @@ pub fn change_file_sources(repo_root: &Path, base: &str) -> Option<ChangeSources
     })
 }
 
-/// `get_staged_and_unstaged` in a git checkout; `None` as for
-/// [`change_file_sources`].
+/// `get_staged_and_unstaged`; `None` as for [`change_file_sources`].
 pub fn staged_and_unstaged(repo_root: &Path) -> Option<Vec<String>> {
-    Some(worktree_sources(repo_root)?.worktree())
+    match detect_vcs(repo_root) {
+        Vcs::None => None,
+        Vcs::Svn => svn::changed_files(repo_root, None),
+        Vcs::Jj => jj_change_sources(repo_root, "HEAD").map(|sources| sources.worktree),
+        Vcs::Git => Some(worktree_sources(repo_root)?.worktree()),
+    }
+}
+
+/// `_jj_diff_files`: both sides of every rename between two commits.
+fn jj_diff_files(repo_root: &Path, old: &str, new: &str) -> Vec<String> {
+    jj::run_git(
+        repo_root,
+        &["diff", "--name-status", "-M", "-z", old, new, "--"],
+    )
+    .filter(|out| !out.is_empty())
+    .map(|out| parse_name_status(&out))
+    .unwrap_or_default()
+}
+
+/// `_get_jj_changed_file_sources`: `base..@-` plus `@-..@`, the working-copy
+/// change reported as unstaged. `None` when jj cannot read the working copy,
+/// where Python raises `JjWorkspaceError`.
+fn jj_change_sources(repo_root: &Path, base: &str) -> Option<ChangeSources> {
+    let wc = jj::working_copy(repo_root)?;
+    let base_diff = match jj::resolve_commit(repo_root, base, Some(&wc)) {
+        Some(resolved) => jj_diff_files(repo_root, &resolved, &wc.parent),
+        None => Vec::new(),
+    };
+    let worktree = jj_diff_files(repo_root, &wc.parent, &wc.commit);
+    Some(ChangeSources {
+        files: dedupe(base_diff.iter().chain(&worktree).cloned()),
+        base_diff,
+        worktree: worktree.clone(),
+        unstaged: worktree,
+        ..ChangeSources::default()
+    })
+}
+
+/// The `worktree` group of `get_changed_file_sources(repo_root, "HEAD")` in
+/// a git checkout or jj workspace, as the freshness assessment reads it: any
+/// failure is no dirtiness.
+pub(crate) fn dirty_files(repo_root: &Path) -> Vec<String> {
+    if jj::is_jj_workspace(repo_root) {
+        jj::working_copy(repo_root)
+            .map(|wc| jj_diff_files(repo_root, &wc.parent, &wc.commit))
+            .unwrap_or_default()
+    } else {
+        // Output that is not UTF-8 raises in Python, which counts as clean.
+        worktree_sources(repo_root)
+            .map(|worktree| worktree.worktree())
+            .unwrap_or_default()
+    }
 }
 
 /// `git status --porcelain -z`; Python reads whatever it printed, even on

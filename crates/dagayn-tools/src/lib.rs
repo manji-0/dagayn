@@ -397,10 +397,11 @@ impl RepoRoot {
     }
 }
 
-/// `_validate_repo_root`'s check for a project root.
+/// `_validate_repo_root`'s check for a project root (`is_project_root`).
 fn is_project_root(path: &Path) -> bool {
     path.join(".git").exists()
         || path.join(".svn").exists()
+        || dagayn_build::jj::is_jj_workspace(path)
         || path.join(".dagayn").join("graph.db").is_file()
 }
 
