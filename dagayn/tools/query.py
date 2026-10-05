@@ -640,8 +640,9 @@ def semantic_search_nodes(
             embedding_health=embedding_health if isinstance(embedding_health, dict) else {},
         )
 
-        if detail_level == "minimal":
-            minimal_results = [
+        minimal = detail_level == "minimal"
+        if minimal:
+            results = [
                 {
                     **{
                         k: r[k]
@@ -660,36 +661,6 @@ def semantic_search_nodes(
                 }
                 for r in results[:5]
             ]
-            hints = guidance_actions_to_hints(guidance)
-            return {
-                "status": "ok",
-                "query": query,
-                "search_mode": search_mode,
-                "embedding_health": embedding_health,
-                "answerability": answerability,
-                "missingness": missingness,
-                "result_count": result_count,
-                "truncated": truncated,
-                "total": total,
-                "confidence": confidence,
-                "zero_result_reason": zero_result_reason,
-                "next_action": next_action,
-                "exactness": {
-                    "exact_match_count": len(exact_matches),
-                    "ambiguity": ambiguity,
-                    "source_arm": search_mode,
-                    "next_action": next_action,
-                },
-                "summary": summary,
-                "results": minimal_results,
-                "guidance": guidance,
-                "_hints": hints
-                if hints["next_steps"]
-                else generate_hints(
-                    "semantic_search_nodes", {"status": "ok", "summary": summary}, get_session()
-                ),
-            }
-
         result: dict[str, object] = {
             "status": "ok",
             "query": query,
@@ -714,11 +685,11 @@ def semantic_search_nodes(
             "guidance": guidance,
         }
         hints = guidance_actions_to_hints(guidance)
-        result["_hints"] = (
-            hints
-            if hints["next_steps"]
-            else generate_hints("semantic_search_nodes", result, get_session())
-        )
+        if not hints["next_steps"]:
+            # Minimal mode feeds the hint engine only the status and summary.
+            hint_input = {"status": "ok", "summary": summary} if minimal else result
+            hints = generate_hints("semantic_search_nodes", hint_input, get_session())
+        result["_hints"] = hints
         return result
     except Exception as exc:
         return handle_tool_runtime_error(
@@ -1055,8 +1026,6 @@ def traverse_graph_func(
 
                 next_frontier: list[str] = []
                 for current_qn in frontier_unique:
-                    if current_qn in visited:
-                        continue
                     visited[current_qn] = cur_depth
                     node = nodes_by_qn.get(current_qn)
                     if not node:

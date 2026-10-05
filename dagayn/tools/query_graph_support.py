@@ -299,13 +299,7 @@ def file_path_candidates(root: Path, target: str) -> list[str]:
     candidates.append(str(resolved))
     if target.startswith("/"):
         candidates.append(target)
-    seen: set[str] = set()
-    ordered: list[str] = []
-    for path in candidates:
-        if path not in seen:
-            seen.add(path)
-            ordered.append(path)
-    return ordered
+    return list(dict.fromkeys(candidates))
 
 
 def file_is_indexed(store: Any, root: Path, target: str) -> bool:
@@ -326,41 +320,33 @@ def query_graph_guidance(
 ) -> list[dict[str, Any]]:
     if result_count:
         if pattern == "source_of":
-            return [
-                make_guidance_item(
-                    claim=f"Live source span for '{target}'.",
-                    evidence={
-                        "type": "computed",
-                        "pattern": pattern,
-                        "target": target,
-                        "result_count": result_count,
-                        "exact_match_count": exact_count,
-                    },
-                    confidence="medium",
-                    missingness=[
-                        {
-                            "reason_code": "live_source_span",
-                            "severity": "low",
-                            "claim_effect": (
-                                "text is a worktree slice of the graph span; "
-                                "surrounding helpers and imports are omitted"
-                            ),
-                        }
-                    ],
-                    action=(
-                        'query_graph_tool pattern="callers_of" -- inspect callers '
-                        "after reading the span"
-                    ),
-                    reason_codes=["live_source_fetch"],
-                    counts={"result_count": result_count},
-                )
-            ]
+            claim = f"Live source span for '{target}'."
+            missing = {
+                "reason_code": "live_source_span",
+                "severity": "low",
+                "claim_effect": (
+                    "text is a worktree slice of the graph span; "
+                    "surrounding helpers and imports are omitted"
+                ),
+            }
+            action = (
+                'query_graph_tool pattern="callers_of" -- inspect callers after reading the span'
+            )
+            reason_code = "live_source_fetch"
+        else:
+            claim = (
+                f"Graph query '{pattern}' returned {result_count} related node(s) for '{target}'."
+            )
+            missing = {
+                "reason_code": "relationship_query_not_runtime_proof",
+                "severity": "low",
+                "claim_effect": "graph edges are static extraction, not runtime traces",
+            }
+            action = f'query_graph_tool pattern="{pattern}" -- drill into a relationship'
+            reason_code = "graph_relationship_query"
         return [
             make_guidance_item(
-                claim=(
-                    f"Graph query '{pattern}' returned {result_count} related node(s) "
-                    f"for '{target}'."
-                ),
+                claim=claim,
                 evidence={
                     "type": "computed",
                     "pattern": pattern,
@@ -369,15 +355,9 @@ def query_graph_guidance(
                     "exact_match_count": exact_count,
                 },
                 confidence="medium",
-                missingness=[
-                    {
-                        "reason_code": "relationship_query_not_runtime_proof",
-                        "severity": "low",
-                        "claim_effect": ("graph edges are static extraction, not runtime traces"),
-                    }
-                ],
-                action=f'query_graph_tool pattern="{pattern}" -- drill into a relationship',
-                reason_codes=["graph_relationship_query"],
+                missingness=[missing],
+                action=action,
+                reason_codes=[reason_code],
                 counts={"result_count": result_count},
             )
         ]

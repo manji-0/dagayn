@@ -317,6 +317,61 @@ def _embed_in_slices(
     }
 
 
+def _warn(warnings: list[str], label: str, e: BaseException) -> None:
+    """Log and collect a non-fatal ``<label> failed`` post-processing warning."""
+    logger.warning(f"{label} failed: %s", e)
+    warnings.append(f"{label} failed: {type(e).__name__}: {e}")
+
+
+def _detect_flows(
+    store: Any,
+    post_result: Any,
+    warnings: list[str],
+    incremental: bool,
+    changed_files: list[str] | None,
+) -> None:
+    """Trace flows incrementally for *changed_files*, or rebuild them all."""
+    try:
+        if incremental:
+            from dagayn.flows import incremental_trace_flows
+
+            count = incremental_trace_flows(store, changed_files or [])
+        else:
+            from dagayn.flows import rebuild_stored_flows
+
+            count = rebuild_stored_flows(store)
+        post_result.flows_detected = count
+    except (sqlite3.OperationalError, RuntimeError, ImportError) as e:
+        _warn(warnings, "Flow detection", e)
+
+
+def _detect_communities(
+    store: Any,
+    post_result: Any,
+    warnings: list[str],
+    incremental: bool,
+    changed_files: list[str] | None,
+    pre_affected_communities: int,
+) -> None:
+    """Detect communities incrementally for *changed_files*, or from scratch."""
+    try:
+        if incremental:
+            from dagayn.communities import incremental_detect_communities
+
+            count = incremental_detect_communities(
+                store,
+                changed_files or [],
+                pre_affected_count=pre_affected_communities or None,
+            )
+        else:
+            from dagayn.communities import detect_communities, store_communities
+
+            count = store_communities(store, detect_communities(store))
+        post_result.communities_detected = count
+    except (sqlite3.OperationalError, RuntimeError, ImportError) as e:
+        _warn(warnings, "Community detection", e)
+
+
 def _prune_orphaned_structures(store: Any, build_result: BuildResult) -> list[str]:
     """Prune derived rows orphaned by a re-parse; return warning strings."""
     warnings: list[str] = []
@@ -326,8 +381,7 @@ def _prune_orphaned_structures(store: Any, build_result: BuildResult) -> list[st
         if pruned:
             build_result.orphans_pruned = pruned
     except (sqlite3.OperationalError, RuntimeError, TypeError) as e:
-        logger.warning("Orphaned structure pruning failed: %s", e)
-        warnings.append(f"Orphaned structure pruning failed: {type(e).__name__}: {e}")
+        _warn(warnings, "Orphaned structure pruning", e)
     return warnings
 
 
@@ -365,8 +419,7 @@ def _prune_orphaned_embeddings(repo_root: Path, build_result: BuildResult) -> li
         if removed:
             build_result.embedding_orphans_pruned = removed
     except (sqlite3.Error, OSError, RuntimeError, TypeError, AttributeError) as e:
-        logger.warning("Orphaned embedding pruning failed: %s", e)
-        warnings.append(f"Orphaned embedding pruning failed: {type(e).__name__}: {e}")
+        _warn(warnings, "Orphaned embedding pruning", e)
     return warnings
 
 
@@ -427,8 +480,7 @@ def _run_postprocess(
                 _compute_summaries(store)
                 build_result.summaries_computed = True
             except (sqlite3.OperationalError, RuntimeError, Exception) as e:
-                logger.warning("Summary computation failed: %s", e)
-                warnings.append(f"Summary computation failed: {type(e).__name__}: {e}")
+                _warn(warnings, "Summary computation", e)
         _record_postprocess_level(store, postprocess)
         return warnings
 
@@ -438,8 +490,7 @@ def _run_postprocess(
             store.compute_missing_signatures()
             build_result.signatures_updated = True
         except (sqlite3.OperationalError, RuntimeError, TypeError, KeyError) as e:
-            logger.warning("Signature computation failed: %s", e)
-            warnings.append(f"Signature computation failed: {type(e).__name__}: {e}")
+            _warn(warnings, "Signature computation", e)
 
         try:
             if changed_files and not full_rebuild:
@@ -451,66 +502,56 @@ def _run_postprocess(
             build_result.fts_indexed = fts_count
             build_result.fts_rebuilt = True
         except (sqlite3.OperationalError, ImportError, RuntimeError, TypeError) as e:
-            logger.warning("FTS index rebuild failed: %s", e)
-            warnings.append(f"FTS index rebuild failed: {type(e).__name__}: {e}")
+            _warn(warnings, "FTS index rebuild", e)
 
         try:
             from dagayn.postprocessing import _resolve_bare_name_edges
 
             _resolve_bare_name_edges(store, post_result, warnings)
         except (sqlite3.OperationalError, ImportError) as e:
-            logger.warning("Bare-name edge resolution failed: %s", e)
-            warnings.append(f"Bare-name edge resolution failed: {type(e).__name__}: {e}")
+            _warn(warnings, "Bare-name edge resolution", e)
 
         try:
             from dagayn.postprocessing import _resolve_terraform_module_references
 
             _resolve_terraform_module_references(store, post_result, warnings)
         except (sqlite3.OperationalError, ImportError) as e:
-            logger.warning("Terraform module reference resolution failed: %s", e)
-            warnings.append(
-                f"Terraform module reference resolution failed: {type(e).__name__}: {e}"
-            )
+            _warn(warnings, "Terraform module reference resolution", e)
 
         try:
             from dagayn.postprocessing import _demote_unresolved_endpoint_edges
 
             _demote_unresolved_endpoint_edges(store, post_result, warnings)
         except (sqlite3.OperationalError, ImportError) as e:
-            logger.warning("Unresolved endpoint demotion failed: %s", e)
-            warnings.append(f"Unresolved endpoint demotion failed: {type(e).__name__}: {e}")
+            _warn(warnings, "Unresolved endpoint demotion", e)
 
         try:
             from dagayn.postprocessing import _resolve_markdown_artifact_refs
 
             _resolve_markdown_artifact_refs(store, post_result, warnings)
         except (sqlite3.OperationalError, ImportError) as e:
-            logger.warning("Markdown artifact ref resolution failed: %s", e)
-            warnings.append(f"Markdown artifact ref resolution failed: {type(e).__name__}: {e}")
+            _warn(warnings, "Markdown artifact ref resolution", e)
 
         try:
             from dagayn.postprocessing import _resolve_terraform_artifact_refs
 
             _resolve_terraform_artifact_refs(store, post_result, warnings)
         except (sqlite3.OperationalError, ImportError) as e:
-            logger.warning("Terraform artifact ref resolution failed: %s", e)
-            warnings.append(f"Terraform artifact ref resolution failed: {type(e).__name__}: {e}")
+            _warn(warnings, "Terraform artifact ref resolution", e)
 
         try:
             from dagayn.postprocessing import _apply_manifest_bridges
 
             _apply_manifest_bridges(store, post_result, warnings, changed_files)
         except (sqlite3.OperationalError, ImportError) as e:
-            logger.warning("Manifest bridge extraction failed: %s", e)
-            warnings.append(f"Manifest bridge extraction failed: {type(e).__name__}: {e}")
+            _warn(warnings, "Manifest bridge extraction", e)
 
         try:
             from dagayn.postprocessing import _resolve_native_bindings
 
             _resolve_native_bindings(store, post_result, warnings)
         except (sqlite3.OperationalError, ImportError, RuntimeError) as e:
-            logger.warning("Native binding resolution failed: %s", e)
-            warnings.append(f"Native binding resolution failed: {type(e).__name__}: {e}")
+            _warn(warnings, "Native binding resolution", e)
 
     if postprocess != "none" and not skip_centrality_steps:
         # File re-parses invalidate hub_scores / bridge_scores wholesale (see
@@ -540,19 +581,7 @@ def _run_postprocess(
     use_incremental = not full_rebuild and bool(changed_files)
 
     if not skip_flow_steps:
-        try:
-            if use_incremental:
-                from dagayn.flows import incremental_trace_flows
-
-                count = incremental_trace_flows(store, changed_files or [])
-            else:
-                from dagayn.flows import rebuild_stored_flows
-
-                count = rebuild_stored_flows(store)
-            post_result.flows_detected = count
-        except (sqlite3.OperationalError, RuntimeError, ImportError) as e:
-            logger.warning("Flow detection failed: %s", e)
-            warnings.append(f"Flow detection failed: {type(e).__name__}: {e}")
+        _detect_flows(store, post_result, warnings, use_incremental, changed_files)
 
         if postprocess != "minimal":
             try:
@@ -566,35 +595,17 @@ def _run_postprocess(
                     else:
                         build_result.orphans_pruned = pruned
             except (sqlite3.OperationalError, RuntimeError, TypeError) as e:
-                logger.warning("Post-flow orphan pruning failed: %s", e)
-                warnings.append(f"Post-flow orphan pruning failed: {type(e).__name__}: {e}")
+                _warn(warnings, "Post-flow orphan pruning", e)
 
     if not skip_community_steps:
-        try:
-            if use_incremental:
-                from dagayn.communities import (
-                    incremental_detect_communities,
-                )
-
-                count = incremental_detect_communities(
-                    store,
-                    changed_files or [],
-                    pre_affected_count=pre_affected_communities or None,
-                )
-            else:
-                from dagayn.communities import (
-                    detect_communities as _detect_communities,
-                )
-                from dagayn.communities import (
-                    store_communities as _store_communities,
-                )
-
-                comms = _detect_communities(store)
-                count = _store_communities(store, comms)
-            post_result.communities_detected = count
-        except (sqlite3.OperationalError, RuntimeError, ImportError) as e:
-            logger.warning("Community detection failed: %s", e)
-            warnings.append(f"Community detection failed: {type(e).__name__}: {e}")
+        _detect_communities(
+            store,
+            post_result,
+            warnings,
+            use_incremental,
+            changed_files,
+            pre_affected_communities,
+        )
 
     if not skip_orphan_prune:
         warnings.extend(_prune_orphaned_structures(store, build_result))
@@ -605,8 +616,7 @@ def _run_postprocess(
             _compute_summaries(store)
             build_result.summaries_computed = True
         except (sqlite3.OperationalError, RuntimeError, Exception) as e:
-            logger.warning("Summary computation failed: %s", e)
-            warnings.append(f"Summary computation failed: {type(e).__name__}: {e}")
+            _warn(warnings, "Summary computation", e)
 
     _record_postprocess_level(store, postprocess)
 
@@ -831,53 +841,21 @@ def build_or_update_graph(
                     skip_centrality_steps=True,
                     skip_orphan_prune=True,
                 )
-                try:
-                    if full_rebuild:
-                        from dagayn.flows import rebuild_stored_flows
-
-                        build_result.postprocess.flows_detected = rebuild_stored_flows(store)
-                    else:
-                        from dagayn.flows import incremental_trace_flows
-
-                        build_result.postprocess.flows_detected = incremental_trace_flows(
-                            store, changed or []
-                        )
-                except (sqlite3.OperationalError, RuntimeError, ImportError) as e:
-                    logger.warning("Flow detection failed: %s", e)
-                    warnings.append(f"Flow detection failed: {type(e).__name__}: {e}")
-                try:
-                    if full_rebuild:
-                        from dagayn.communities import (
-                            detect_communities as _detect_communities,
-                        )
-                        from dagayn.communities import (
-                            store_communities as _store_communities,
-                        )
-
-                        comms = _detect_communities(store)
-                        build_result.postprocess.communities_detected = _store_communities(
-                            store, comms
-                        )
-                    else:
-                        from dagayn.communities import incremental_detect_communities
-
-                        build_result.postprocess.communities_detected = (
-                            incremental_detect_communities(
-                                store,
-                                changed or [],
-                                pre_affected_count=pre_affected_communities or None,
-                            )
-                        )
-                except (sqlite3.OperationalError, RuntimeError, ImportError) as e:
-                    logger.warning("Community detection failed: %s", e)
-                    warnings.append(f"Community detection failed: {type(e).__name__}: {e}")
+                _detect_flows(store, build_result.postprocess, warnings, not full_rebuild, changed)
+                _detect_communities(
+                    store,
+                    build_result.postprocess,
+                    warnings,
+                    not full_rebuild,
+                    changed,
+                    pre_affected_communities,
+                )
 
                 try:
                     _compute_summaries(store)
                     build_result.summaries_computed = True
                 except (sqlite3.OperationalError, RuntimeError, Exception) as e:
-                    logger.warning("Summary computation failed: %s", e)
-                    warnings.append(f"Summary computation failed: {type(e).__name__}: {e}")
+                    _warn(warnings, "Summary computation", e)
                 warnings.extend(
                     _run_postprocess(
                         store,
@@ -1053,8 +1031,7 @@ def run_postprocess(
             store.compute_missing_signatures()
             result.signatures_updated = True
         except (sqlite3.OperationalError, RuntimeError, TypeError, KeyError) as e:
-            logger.warning("Signature computation failed: %s", e)
-            warnings.append(f"Signature computation failed: {type(e).__name__}: {e}")
+            _warn(warnings, "Signature computation", e)
 
         if fts:
             try:
@@ -1064,8 +1041,7 @@ def run_postprocess(
                 result.fts_indexed = fts_count
             except (sqlite3.OperationalError, ImportError) as e:
                 store.rollback()
-                logger.warning("FTS index rebuild failed: %s", e)
-                warnings.append(f"FTS index rebuild failed: {type(e).__name__}: {e}")
+                _warn(warnings, "FTS index rebuild", e)
 
         if flows:
             try:
@@ -1075,25 +1051,17 @@ def run_postprocess(
                 result.postprocess.flows_detected = count
             except (sqlite3.OperationalError, ImportError) as e:
                 store.rollback()
-                logger.warning("Flow detection failed: %s", e)
-                warnings.append(f"Flow detection failed: {type(e).__name__}: {e}")
+                _warn(warnings, "Flow detection", e)
 
         if communities:
             try:
-                from dagayn.communities import (
-                    detect_communities as _detect_communities,
-                )
-                from dagayn.communities import (
-                    store_communities as _store_communities,
-                )
+                from dagayn.communities import detect_communities, store_communities
 
-                comms = _detect_communities(store)
-                count = _store_communities(store, comms)
+                count = store_communities(store, detect_communities(store))
                 result.postprocess.communities_detected = count
             except (sqlite3.OperationalError, ImportError) as e:
                 store.rollback()
-                logger.warning("Community detection failed: %s", e)
-                warnings.append(f"Community detection failed: {type(e).__name__}: {e}")
+                _warn(warnings, "Community detection", e)
 
         store.set_metadata(
             "last_postprocessed_at",

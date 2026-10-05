@@ -30,6 +30,34 @@ from ._common import (
 logger = logging.getLogger(__name__)
 
 
+def _architecture_drill_downs(artifact_scope: str) -> ToolPayload:
+    """Drill-down pointers shared by the architecture overview payloads."""
+    return {
+        "hubs": {"tool": "architecture_analysis_tool", "mode": "hubs"},
+        "bridges": {"tool": "architecture_analysis_tool", "mode": "bridges"},
+        "knowledge_gaps": {"tool": "architecture_analysis_tool", "mode": "knowledge_gaps"},
+        "surprising_connections": {
+            "tool": "architecture_analysis_tool",
+            "mode": "surprising_connections",
+        },
+        "adp": {
+            "tool": "architecture_analysis_tool",
+            "mode": "adp_violations",
+            "artifact_scope": artifact_scope,
+        },
+        "sdp": {
+            "tool": "architecture_analysis_tool",
+            "mode": "sdp_violations",
+            "artifact_scope": artifact_scope,
+        },
+        "sap": {
+            "tool": "architecture_analysis_tool",
+            "mode": "sap_violations",
+            "artifact_scope": artifact_scope,
+        },
+    }
+
+
 def _architecture_health_summary(
     store: Any,
     overview: ArchitectureOverviewResult,
@@ -111,33 +139,7 @@ def _architecture_health_summary(
         return {
             "status": "partial",
             "error": str(exc),
-            "drill_downs": {
-                "hubs": {"tool": "architecture_analysis_tool", "mode": "hubs"},
-                "bridges": {"tool": "architecture_analysis_tool", "mode": "bridges"},
-                "knowledge_gaps": {
-                    "tool": "architecture_analysis_tool",
-                    "mode": "knowledge_gaps",
-                },
-                "surprising_connections": {
-                    "tool": "architecture_analysis_tool",
-                    "mode": "surprising_connections",
-                },
-                "adp": {
-                    "tool": "architecture_analysis_tool",
-                    "mode": "adp_violations",
-                    "artifact_scope": artifact_scope,
-                },
-                "sdp": {
-                    "tool": "architecture_analysis_tool",
-                    "mode": "sdp_violations",
-                    "artifact_scope": artifact_scope,
-                },
-                "sap": {
-                    "tool": "architecture_analysis_tool",
-                    "mode": "sap_violations",
-                    "artifact_scope": artifact_scope,
-                },
-            },
+            "drill_downs": _architecture_drill_downs(artifact_scope),
         }
 
     gap_keys = (
@@ -146,39 +148,30 @@ def _architecture_health_summary(
         "isolated_nodes",
         "thin_communities",
     )
-    gap_lists: dict[str, list[KnowledgeGapRecord]] = {
-        "untested_hotspots": gaps["untested_hotspots"],
-        "single_file_communities": gaps["single_file_communities"],
-        "isolated_nodes": gaps["isolated_nodes"],
-        "thin_communities": gaps["thin_communities"],
-    }
+    gap_lists: dict[str, list[KnowledgeGapRecord]] = {key: gaps[key] for key in gap_keys}
     raw_gap_counts = gaps["_meta"]["raw_counts"]
     gap_counts = {key: int(raw_gap_counts.get(key, len(gap_lists[key]))) for key in gap_keys}
 
-    reason_codes: list[str] = []
     stale_communities = sum(
         1
         for comm in overview.get("communities", [])
         if comm.get("size") != comm.get("assigned_member_count", comm.get("size"))
     )
-    if stale_communities:
-        reason_codes.append("stale_community_membership")
-    if overview.get("warnings"):
-        reason_codes.append("high_cross_community_coupling")
-    if hubs:
-        reason_codes.append("hub_nodes")
-    if bridges:
-        reason_codes.append("bridge_nodes")
-    if sum(gap_counts.values()):
-        reason_codes.append("knowledge_gaps")
-    if surprises:
-        reason_codes.append("surprising_connections")
-    if adp:
-        reason_codes.append("adp_violations")
-    if sdp:
-        reason_codes.append("sdp_violations")
-    if sap:
-        reason_codes.append("sap_violations")
+    reason_codes: list[str] = [
+        code
+        for code, present in (
+            ("stale_community_membership", stale_communities),
+            ("high_cross_community_coupling", overview.get("warnings")),
+            ("hub_nodes", hubs),
+            ("bridge_nodes", bridges),
+            ("knowledge_gaps", sum(gap_counts.values())),
+            ("surprising_connections", surprises),
+            ("adp_violations", adp),
+            ("sdp_violations", sdp),
+            ("sap_violations", sap),
+        )
+        if present
+    ]
 
     guidance: list[ToolPayload] = []
     if hubs:
@@ -221,7 +214,6 @@ def _architecture_health_summary(
             )
         )
 
-    cross_artifact_count = 0
     stats = store.get_stats()
     edges_by_kind = getattr(stats, "edges_by_kind", None) or {}
     cross_artifact_count = int(edges_by_kind.get("CROSS_ARTIFACT", 0) or 0)
@@ -351,31 +343,7 @@ def _architecture_health_summary(
         "drill_downs": {
             "communities": {"tool": "architecture_analysis_tool", "mode": "communities"},
             "coupling": {"tool": "architecture_analysis_tool", "mode": "overview"},
-            "hubs": {"tool": "architecture_analysis_tool", "mode": "hubs"},
-            "bridges": {"tool": "architecture_analysis_tool", "mode": "bridges"},
-            "knowledge_gaps": {
-                "tool": "architecture_analysis_tool",
-                "mode": "knowledge_gaps",
-            },
-            "surprising_connections": {
-                "tool": "architecture_analysis_tool",
-                "mode": "surprising_connections",
-            },
-            "adp": {
-                "tool": "architecture_analysis_tool",
-                "mode": "adp_violations",
-                "artifact_scope": artifact_scope,
-            },
-            "sdp": {
-                "tool": "architecture_analysis_tool",
-                "mode": "sdp_violations",
-                "artifact_scope": artifact_scope,
-            },
-            "sap": {
-                "tool": "architecture_analysis_tool",
-                "mode": "sap_violations",
-                "artifact_scope": artifact_scope,
-            },
+            **_architecture_drill_downs(artifact_scope),
         },
     }
 
@@ -488,15 +456,10 @@ def get_community_func(
         all_communities = get_communities(store)
 
         if community_id is not None:
-            for c in all_communities:
-                if c.get("id") == community_id:
-                    community = c
-                    break
+            community = next((c for c in all_communities if c.get("id") == community_id), None)
         elif community_name is not None:
-            for c in all_communities:
-                if community_name.lower() in c["name"].lower():
-                    community = c
-                    break
+            needle = community_name.lower()
+            community = next((c for c in all_communities if needle in c["name"].lower()), None)
 
         if community is None:
             return {

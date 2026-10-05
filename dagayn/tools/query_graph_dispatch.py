@@ -72,6 +72,45 @@ def _has_node_named(store: Any, name: str) -> bool:
     )
 
 
+def _target_not_found(
+    state: QueryGraphState,
+    answerability: Mapping[str, Any],
+    missingness: Sequence[Mapping[str, Any]],
+    summary: str,
+    absent: str,
+    **leading: Any,
+) -> dict[str, Any]:
+    """Build the ``not_found`` payload; *leading* keys follow ``status``."""
+    guidance = query_graph_guidance(
+        pattern=state.pattern,
+        target=state.target,
+        result_count=0,
+        exact_count=0,
+    )
+    return {
+        "status": "not_found",
+        **leading,
+        "summary": summary,
+        "result_count": 0,
+        "results": [],
+        "zero_result_reason": "target_not_found_in_graph",
+        "next_action": exactness_action(state.target, 0, 0, pattern=state.pattern),
+        "answerability": answerability,
+        "missingness": [
+            *missingness,
+            {
+                "reason_code": "target_not_found_in_graph",
+                "severity": "medium",
+                "claim_effect": (
+                    f"absence is graph-limited, not proof the {absent} does not exist"
+                ),
+            },
+        ],
+        "guidance": guidance,
+        "_hints": guidance_actions_to_hints(guidance),
+    }
+
+
 def resolve_query_target(
     state: QueryGraphState,
     *,
@@ -100,38 +139,16 @@ def resolve_query_target(
         return None
     if not node and state.pattern == "file_summary" and looks_like_query_file_target(state.target):
         if not file_is_indexed(state.store, state.root, state.target):
-            guidance = query_graph_guidance(
+            return _target_not_found(
+                state,
+                answerability,
+                missingness,
+                f"No indexed file found matching '{state.target}' in the current graph.",
+                "file",
                 pattern=state.pattern,
                 target=state.target,
-                result_count=0,
-                exact_count=0,
+                description=QUERY_PATTERNS[state.pattern],
             )
-            return {
-                "status": "not_found",
-                "pattern": state.pattern,
-                "target": state.target,
-                "description": QUERY_PATTERNS[state.pattern],
-                "summary": (
-                    f"No indexed file found matching '{state.target}' in the current graph."
-                ),
-                "result_count": 0,
-                "results": [],
-                "zero_result_reason": "target_not_found_in_graph",
-                "next_action": exactness_action(state.target, 0, 0, pattern=state.pattern),
-                "answerability": answerability,
-                "missingness": [
-                    *missingness,
-                    {
-                        "reason_code": "target_not_found_in_graph",
-                        "severity": "medium",
-                        "claim_effect": (
-                            "absence is graph-limited, not proof the file does not exist"
-                        ),
-                    },
-                ],
-                "guidance": guidance,
-                "_hints": guidance_actions_to_hints(guidance),
-            }
     elif not node and not looks_like_query_file_target(state.target):
         # FTS ranking does not put exact name matches first, so a bare name
         # shared with many similarly named helpers would never reach the top 5.
@@ -172,33 +189,13 @@ def resolve_query_target(
             }
 
     if not node and state.pattern != "file_summary":
-        guidance = query_graph_guidance(
-            pattern=state.pattern,
-            target=state.target,
-            result_count=0,
-            exact_count=0,
+        return _target_not_found(
+            state,
+            answerability,
+            missingness,
+            f"No node found matching '{state.target}' in the current graph.",
+            "symbol",
         )
-        return {
-            "status": "not_found",
-            "summary": f"No node found matching '{state.target}' in the current graph.",
-            "result_count": 0,
-            "results": [],
-            "zero_result_reason": "target_not_found_in_graph",
-            "next_action": exactness_action(state.target, 0, 0, pattern=state.pattern),
-            "answerability": answerability,
-            "missingness": [
-                *missingness,
-                {
-                    "reason_code": "target_not_found_in_graph",
-                    "severity": "medium",
-                    "claim_effect": (
-                        "absence is graph-limited, not proof the symbol does not exist"
-                    ),
-                },
-            ],
-            "guidance": guidance,
-            "_hints": guidance_actions_to_hints(guidance),
-        }
 
     state.node = node
     return None
@@ -372,58 +369,49 @@ def _pattern_importers_of(state: QueryGraphState) -> None:
         )
 
 
+def _append_doc_edges(
+    state: QueryGraphState,
+    edges: Sequence[Any],
+    labels: Mapping[str, str | None],
+    endpoint_attr: str,
+) -> None:
+    """Append documentation rows for *edges* whose role is in *labels*."""
+    for edge in edges:
+        if is_low_confidence_markdown_code_span(edge):
+            continue
+        role = cross_artifact_role(edge)
+        if role in labels:
+            state.results.append(
+                documentation_result(
+                    edge,
+                    endpoint=getattr(edge, endpoint_attr),
+                    inverse_label=labels[role],
+                )
+            )
+            state.edges_out.append(edge_to_dict(edge))
+
+
 def _pattern_docs_for(state: QueryGraphState) -> None:
     qn = state.qualified_name
-    for edge in state.store.get_edges_by_source(qn):
-        if is_low_confidence_markdown_code_span(edge):
-            continue
-        role = cross_artifact_role(edge)
-        if role in _ARTIFACT_TO_DOC_ROLES:
-            state.results.append(
-                documentation_result(
-                    edge,
-                    endpoint=edge.target_qualified,
-                    inverse_label=_ARTIFACT_TO_DOC_ROLES[role],
-                )
-            )
-            state.edges_out.append(edge_to_dict(edge))
-    for edge in state.store.get_edges_by_target(qn):
-        if is_low_confidence_markdown_code_span(edge):
-            continue
-        role = cross_artifact_role(edge)
-        if role in _DOC_TO_ARTIFACT_ROLES:
-            state.results.append(
-                documentation_result(
-                    edge,
-                    endpoint=edge.source_qualified,
-                    inverse_label=_DOC_TO_ARTIFACT_ROLES[role],
-                )
-            )
-            state.edges_out.append(edge_to_dict(edge))
+    _append_doc_edges(
+        state, state.store.get_edges_by_source(qn), _ARTIFACT_TO_DOC_ROLES, "target_qualified"
+    )
+    _append_doc_edges(
+        state, state.store.get_edges_by_target(qn), _DOC_TO_ARTIFACT_ROLES, "source_qualified"
+    )
 
 
 def _pattern_implementations_of(state: QueryGraphState) -> None:
     qn = state.qualified_name
-    for edge in state.store.get_edges_by_source(qn):
-        if is_low_confidence_markdown_code_span(edge):
-            continue
-        role = cross_artifact_role(edge)
-        if role == "implemented_by":
-            state.results.append(documentation_result(edge, endpoint=edge.target_qualified))
-            state.edges_out.append(edge_to_dict(edge))
-    for edge in state.store.get_edges_by_target(qn):
-        if is_low_confidence_markdown_code_span(edge):
-            continue
-        role = cross_artifact_role(edge)
-        if role == "implements_contract":
-            state.results.append(
-                documentation_result(
-                    edge,
-                    endpoint=edge.source_qualified,
-                    inverse_label="implemented_by",
-                )
-            )
-            state.edges_out.append(edge_to_dict(edge))
+    _append_doc_edges(
+        state, state.store.get_edges_by_source(qn), {"implemented_by": None}, "target_qualified"
+    )
+    _append_doc_edges(
+        state,
+        state.store.get_edges_by_target(qn),
+        {"implements_contract": "implemented_by"},
+        "source_qualified",
+    )
 
 
 def _pattern_bridges_from(state: QueryGraphState) -> None:
