@@ -26,7 +26,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from dagayn.graph.helpers import _sanitize_name
-from dagayn.migrations import LATEST_VERSION
 
 
 def _canon_extra(value: object) -> object:
@@ -115,6 +114,10 @@ def export_db(db_path: Path, *, entity_lines: bool = False) -> str:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
+        version_row = conn.execute(
+            "SELECT value FROM metadata WHERE key = 'schema_version'"
+        ).fetchone()
+        schema_version = int(version_row[0]) if version_row else 0
         node_rows = conn.execute("SELECT * FROM nodes").fetchall()
         edge_rows = conn.execute("SELECT * FROM edges").fetchall()
         # Every table, index, and trigger with its DDL: a backend that skips
@@ -138,7 +141,7 @@ def export_db(db_path: Path, *, entity_lines: bool = False) -> str:
     )
 
     snapshot = {
-        "schema_version": LATEST_VERSION,
+        "schema_version": schema_version,
         "nodes": nodes,
         "edges": edges,
         "schema": schema,

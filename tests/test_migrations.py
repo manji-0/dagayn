@@ -1,12 +1,18 @@
 """Tests for the schema migration framework."""
 
+import re
 import sqlite3
 import tempfile
 from pathlib import Path
 
 from dagayn.graph import GraphStore
-from dagayn.migrations import LATEST_VERSION
 from tests.store_sql import store_conn
+
+#: The schema version the native store migrates to.
+_RUST_SCHEMA = (
+    Path(__file__).parent.parent / "crates" / "dagayn-graph" / "src" / "lib.rs"
+).read_text(encoding="utf-8")
+LATEST_VERSION = int(re.findall(r"const LATEST_VERSION: i64 = (\d+);", _RUST_SCHEMA)[0])
 
 
 def _schema_version(store) -> int:

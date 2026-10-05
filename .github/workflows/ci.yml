@@ -59,14 +59,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: Check Python/VSCode schema versions match
+      - name: Check graph store/VSCode schema versions match
         run: |
-          PY_VER=$(grep -oP 'LATEST_VERSION\s*=\s*\K\d+' dagayn/migrations.py)
+          PY_VER=$(grep -oP 'const LATEST_VERSION: i64 = \K\d+' crates/dagayn-graph/src/lib.rs)
           TS_VER=$(grep -oP 'SUPPORTED_SCHEMA_VERSION\s*=\s*\K\d+' dagayn-vscode/src/backend/sqlite.ts)
-          echo "Python LATEST_VERSION: $PY_VER"
+          echo "Graph store LATEST_VERSION: $PY_VER"
           echo "VSCode SUPPORTED_SCHEMA_VERSION: $TS_VER"
           if [ "$PY_VER" != "$TS_VER" ]; then
-            echo "::error::Schema version mismatch! Python=$PY_VER, VSCode=$TS_VER"
+            echo "::error::Schema version mismatch! graph store=$PY_VER, VSCode=$TS_VER"
             exit 1
           fi
           echo "Schema versions in sync."

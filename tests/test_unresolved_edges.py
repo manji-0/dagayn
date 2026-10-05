@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 
 from dagayn.graph import GraphStore
-from dagayn.graph._edge_records import edge_storage_metadata
 from dagayn.parser import EdgeInfo, NodeInfo
 from dagayn.postprocessing import run_post_processing
 from dagayn.tools import query as query_module
@@ -232,21 +231,6 @@ def test_traverse_dfs_reexpands_when_shorter_path_exists(
 
     depths = {entry["qualified_name"]: entry["depth"] for entry in result["traversal"]}
     assert depths["/repo/app.py::target"] == 1
-
-
-def test_edge_storage_metadata_demotes_unresolved_prefix_targets():
-    _, confidence, tier = edge_storage_metadata(
-        EdgeInfo(
-            kind="CALLS",
-            source="/repo/app.py::run",
-            target="<unresolved:helper>",
-            file_path="/repo/app.py",
-            line=1,
-            extra={"confidence": 1.0, "confidence_tier": "EXTRACTED"},
-        )
-    )
-    assert confidence == 0.2
-    assert tier == "LOW"
 
 
 def test_postprocess_demotes_edges_with_missing_endpoints(store: GraphStore):
