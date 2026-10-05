@@ -233,31 +233,48 @@ def session_prepare(
     action = "noop"
     reason = "graph_ready"
 
-    if detect_vcs(root) == "none":
-        # Refuse to bootstrap a non-repo tree. MCP auto-prepare can misresolve
-        # the root (e.g. to $HOME when the editor spawns the server outside the
-        # project), and a full build there would scan the entire non-repo
-        # directory. Explicit `dagayn build --repo` remains available.
+    def _early_response(
+        summary: str,
+        *,
+        action: str,
+        reason: str,
+        sync: ToolPayload | None,
+        next_tool_suggestions: list[str],
+        **extra: object,
+    ) -> ToolPayload:
+        """Respond before any graph work: empty counts plus the request echo."""
         return make_response(
             status="ok",
-            summary=(
-                f"session prepare ({action}); root {root} is not inside a git/svn "
-                "repository; nothing to build"
-            ),
+            summary=summary,
             action=action,
-            reason="not_vcs_repo",
+            reason=reason,
             total_nodes=0,
             total_edges=0,
             files_count=0,
             last_updated=None,
             graph_health=None,
-            sync={"state": None, "vcs": "none", "repo_root": str(root)},
+            sync=sync,
             phases=phases,
             budget_seconds=budget_seconds,
             elapsed_seconds=round(time.monotonic() - started, 3),
             local_embedding=local_embedding,
             embedding_policy=embedding_policy,
             repo_root=str(root),
+            **extra,
+            next_tool_suggestions=next_tool_suggestions,
+        )
+
+    if detect_vcs(root) == "none":
+        # Refuse to bootstrap a non-repo tree. MCP auto-prepare can misresolve
+        # the root (e.g. to $HOME when the editor spawns the server outside the
+        # project), and a full build there would scan the entire non-repo
+        # directory. Explicit `dagayn build --repo` remains available.
+        return _early_response(
+            f"session prepare ({action}); root {root} is not inside a git/svn "
+            "repository; nothing to build",
+            action=action,
+            reason="not_vcs_repo",
+            sync={"state": None, "vcs": "none", "repo_root": str(root)},
             next_tool_suggestions=[
                 "get_minimal_context_tool",
                 "review_tool",
@@ -274,28 +291,16 @@ def session_prepare(
             with graph_write_lock(db_path, blocking=False):
                 pass
         except WriteLockUnavailableError:
-            return make_response(
-                status="ok",
-                summary=(f"session prepare skipped; graph write lock busy ({root})"),
+            return _early_response(
+                f"session prepare skipped; graph write lock busy ({root})",
                 action="skipped",
                 reason="hook_lock_busy",
-                total_nodes=0,
-                total_edges=0,
-                files_count=0,
-                last_updated=None,
-                graph_health=None,
                 sync=None,
-                phases=phases,
-                budget_seconds=budget_seconds,
-                elapsed_seconds=round(time.monotonic() - started, 3),
-                local_embedding=local_embedding,
-                embedding_policy=embedding_policy,
-                repo_root=str(root),
-                skipped=True,
                 next_tool_suggestions=[
                     "get_minimal_context_tool",
                     "ensure_graph_tool",
                 ],
+                skipped=True,
             )
 
     if seed_worktree:

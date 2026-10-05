@@ -240,6 +240,23 @@ def _classify_diff_tier(
     return dirty_state, sorted(candidates), {}
 
 
+def _commit_tier_payload(
+    stored_sha: Any, current_sha: Any, dirty: bool, extractor_drift: Any
+) -> SyncPayload:
+    """Commit-tier verdict: HEAD match, unless the extractors have moved on."""
+    state: GraphSyncStateName = "commit_synced" if stored_sha == current_sha else "commit_drift"
+    payload: SyncPayload = {
+        "state": state,
+        "git_head_sha": stored_sha,
+        "current_head_sha": current_sha,
+        "worktree_dirty": dirty,
+    }
+    if extractor_drift:
+        payload["state"] = "commit_drift"
+        payload["extractor_drift"] = extractor_drift
+    return payload
+
+
 def commit_tier_freshness(store: Any, repo_root: str | Path) -> SyncPayload:
     """Return the cheap half of the freshness assessment.
 
@@ -260,18 +277,7 @@ def commit_tier_freshness(store: Any, repo_root: str | Path) -> SyncPayload:
         dirty = bool(get_changed_file_sources(root, "HEAD").get("worktree") or [])
     except Exception:  # noqa: BLE001 — a status failure is not dirtiness
         dirty = False
-    state: GraphSyncStateName = "commit_synced" if stored_sha == current_sha else "commit_drift"
-    payload: SyncPayload = {
-        "state": state,
-        "git_head_sha": stored_sha,
-        "current_head_sha": current_sha,
-        "worktree_dirty": dirty,
-    }
-    extractor_drift = outdated_extractors(store)
-    if extractor_drift:
-        payload["state"] = "commit_drift"
-        payload["extractor_drift"] = extractor_drift
-    return payload
+    return _commit_tier_payload(stored_sha, current_sha, dirty, outdated_extractors(store))
 
 
 def commit_tier_from_sync(sync: Mapping[str, Any]) -> SyncPayload:
@@ -283,19 +289,12 @@ def commit_tier_from_sync(sync: Mapping[str, Any]) -> SyncPayload:
     current_sha = sync.get("current_head_sha")
     if sync.get("vcs") not in GIT_BACKED_VCS or not current_sha:
         return {"state": None}
-    stored_sha = sync.get("git_head_sha")
-    state: GraphSyncStateName = "commit_synced" if stored_sha == current_sha else "commit_drift"
-    payload: SyncPayload = {
-        "state": state,
-        "git_head_sha": stored_sha,
-        "current_head_sha": current_sha,
-        "worktree_dirty": bool(sync.get("worktree_dirty")),
-    }
-    extractor_drift = sync.get("extractor_drift")
-    if extractor_drift:
-        payload["state"] = "commit_drift"
-        payload["extractor_drift"] = extractor_drift
-    return payload
+    return _commit_tier_payload(
+        sync.get("git_head_sha"),
+        current_sha,
+        bool(sync.get("worktree_dirty")),
+        sync.get("extractor_drift"),
+    )
 
 
 def _seed_needs_verification(store: Any) -> bool:

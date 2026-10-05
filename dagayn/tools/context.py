@@ -204,34 +204,27 @@ def _suggest_tools_for_task(task: str) -> list[str]:
     """Choose next MCP tool suggestions from a natural-language task."""
     from ..tool_surface import filter_tool_names
 
-    workflow = _workflow_for_task(task)
-    if workflow == "review":
-        names = list(_REVIEW_TOOL_SUGGESTIONS)
-    elif workflow == "debug":
-        names = list(_DEBUG_TOOL_SUGGESTIONS)
-    elif workflow == "refactor":
-        names = list(_REFACTOR_TOOL_SUGGESTIONS)
-    elif workflow == "explore":
-        names = list(_EXPLORE_TOOL_SUGGESTIONS)
-    elif workflow == "feature":
-        names = list(_FEATURE_TOOL_SUGGESTIONS)
-    else:
-        names = list(_DEFAULT_TOOL_SUGGESTIONS)
-    return filter_tool_names(names)
+    names = {
+        "review": _REVIEW_TOOL_SUGGESTIONS,
+        "debug": _DEBUG_TOOL_SUGGESTIONS,
+        "refactor": _REFACTOR_TOOL_SUGGESTIONS,
+        "explore": _EXPLORE_TOOL_SUGGESTIONS,
+        "feature": _FEATURE_TOOL_SUGGESTIONS,
+    }.get(_workflow_for_task(task), _DEFAULT_TOOL_SUGGESTIONS)
+    return filter_tool_names(list(names))
 
 
 def _workflow_for_task(task: str) -> str:
     """Classify a natural-language task into a coarse workflow."""
-    if _task_mentions(task, _REVIEW_TASK_KEYWORDS):
-        return "review"
-    if _task_mentions(task, _DEBUG_TASK_KEYWORDS):
-        return "debug"
-    if _task_mentions(task, _REFACTOR_TASK_KEYWORDS):
-        return "refactor"
-    if _task_mentions(task, _EXPLORE_TASK_KEYWORDS):
-        return "explore"
-    if _task_mentions(task, _FEATURE_TASK_KEYWORDS):
-        return "feature"
+    for workflow, keywords in (
+        ("review", _REVIEW_TASK_KEYWORDS),
+        ("debug", _DEBUG_TASK_KEYWORDS),
+        ("refactor", _REFACTOR_TASK_KEYWORDS),
+        ("explore", _EXPLORE_TASK_KEYWORDS),
+        ("feature", _FEATURE_TASK_KEYWORDS),
+    ):
+        if _task_mentions(task, keywords):
+            return workflow
     return "general"
 
 

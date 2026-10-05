@@ -36,17 +36,10 @@ def _resolve_tool_allow_list(tools: str | None = None) -> set[str] | None:
     """
     import os
 
-    if tools is not None:
-        parsed = _parse_tool_allow_list(tools)
-        if parsed & _ALL_TOOL_SENTINELS:
-            return None
-        return parsed or None
-
-    env_tools = os.environ.get("CRG_TOOLS")
-    if env_tools is not None:
-        parsed = _parse_tool_allow_list(env_tools)
-        if parsed & _ALL_TOOL_SENTINELS:
-            return None
-        return parsed or None
-
-    return set(_DEFAULT_MCP_TOOL_NAMES)
+    raw = tools if tools is not None else os.environ.get("CRG_TOOLS")
+    if raw is None:
+        return set(_DEFAULT_MCP_TOOL_NAMES)
+    parsed = _parse_tool_allow_list(raw)
+    if parsed & _ALL_TOOL_SENTINELS:
+        return None
+    return parsed or None

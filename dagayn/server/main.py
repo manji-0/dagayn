@@ -57,25 +57,21 @@ class _FallbackFastMCP:
     def local_provider(self) -> _FallbackProvider:
         return self._local_provider
 
-    def tool(self, *_args: Any, **_kwargs: Any) -> Any:
+    def _register(self, kind: str) -> Any:
         def decorator(fn: Any) -> Any:
-            self._local_provider._components[f"tool:{fn.__name__}"] = _FallbackComponent(
+            self._local_provider._components[f"{kind}:{fn.__name__}"] = _FallbackComponent(
                 fn.__name__,
                 fn,
             )
             return fn
 
         return decorator
+
+    def tool(self, *_args: Any, **_kwargs: Any) -> Any:
+        return self._register("tool")
 
     def prompt(self, *_args: Any, **_kwargs: Any) -> Any:
-        def decorator(fn: Any) -> Any:
-            self._local_provider._components[f"prompt:{fn.__name__}"] = _FallbackComponent(
-                fn.__name__,
-                fn,
-            )
-            return fn
-
-        return decorator
+        return self._register("prompt")
 
     async def list_tools(self) -> list[_FallbackComponent]:
         return [

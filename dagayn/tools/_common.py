@@ -435,6 +435,20 @@ def _cache_disabled() -> bool:
     return os.environ.get("DAGAYN_DISABLE_STORE_CACHE") == "1"
 
 
+def _release_cached_store(store: Any) -> None:
+    """Unpin *store*; close it now if no caller holds a lease.
+
+    With leases outstanding, the last ``close()`` calls ``_force_close``.
+    """
+    store._pinned = False
+    if store._leases == 0:
+        # No in-flight callers — safe to close immediately.
+        try:
+            store._force_close()
+        except Exception:  # noqa: BLE001 — defensive cleanup  # nosec B110
+            pass
+
+
 def _evict_store_cache(db_path: Path | None = None) -> None:
     """Evict cached stores, closing each one only when safe to do so.
 
@@ -455,14 +469,7 @@ def _evict_store_cache(db_path: Path | None = None) -> None:
             entry = _store_cache.pop(db_path, None)
             entries = [entry] if entry is not None else []
         for store, _ in entries:
-            store._pinned = False
-            if store._leases == 0:
-                # No in-flight callers — safe to close immediately.
-                try:
-                    store._force_close()
-                except Exception:  # noqa: BLE001 — defensive cleanup  # nosec B110
-                    pass
-            # else: last close() will call _force_close when _leases reaches 0.
+            _release_cached_store(store)
 
 
 def _data_version(store: Any) -> int | None:
@@ -559,14 +566,17 @@ def _open_store(
     cached: bool,
 ) -> tuple[GraphStore, Path]:
     store_cls = _selected_graph_store()
-    if store_cls is not GraphStore:
+
+    def _new_store() -> GraphStore:
         store = cast(GraphStore, ensure_store_close_unbinds(store_cls(db_path)))
         register_live_store(store, db_path)
-        return store, root
+        return store
+
+    if store_cls is not GraphStore:
+        return _new_store(), root
 
     if not cached or _cache_disabled():
-        store = cast(GraphStore, ensure_store_close_unbinds(store_cls(db_path)))
-        register_live_store(store, db_path)
+        store = _new_store()
         store._leases = 1  # caller holds the only lease; close() will close
         return store, root
 
@@ -576,8 +586,7 @@ def _open_store(
         # First-time use: nothing to cache yet, fall back to a fresh
         # transient store.  The next call will populate the cache once
         # the DB has been created.
-        store = cast(GraphStore, ensure_store_close_unbinds(store_cls(db_path)))
-        register_live_store(store, db_path)
+        store = _new_store()
         store._leases = 1
         return store, root
 
@@ -602,17 +611,10 @@ def _open_store(
                 cached_store._leases += 1
                 return cached_store, root
             # Stale or idle: drop and re-open.
-            cached_store._pinned = False
-            if cached_store._leases == 0:
-                try:
-                    cached_store._force_close()
-                except Exception:  # noqa: BLE001 — defensive cleanup  # nosec B110
-                    pass
-            # else: last close() will _force_close when _leases reaches 0.
+            _release_cached_store(cached_store)
             _store_cache.pop(db_path, None)
 
-        store = cast(GraphStore, ensure_store_close_unbinds(store_cls(db_path)))
-        register_live_store(store, db_path)
+        store = _new_store()
         store._pinned = True
         store._leases = 1  # set inside the lock before inserting into cache
         _store_cache[db_path] = (store, (mtime, _data_version(store)))
@@ -767,6 +769,12 @@ def _freshness_reason_codes(
     return codes, counts
 
 
+def _unknown_answerability(reason_code: str, parse: list[Any]) -> AnswerabilityRecord:
+    return seal_answerability_summary(
+        {"status": "unknown", "score": 0.0, "reason_codes": [reason_code], "parse": parse}
+    )
+
+
 def graph_answerability_summary(
     store: Any,
     stats: Any | None = None,
@@ -782,23 +790,12 @@ def graph_answerability_summary(
         try:
             stats = store.get_stats()
         except (AttributeError, sqlite3.Error):
-            return seal_answerability_summary(
-                {
-                    "status": "unknown",
-                    "score": 0.0,
-                    "reason_codes": ["missing_graph_stats"],
-                    "parse": [0, 0, False],
-                }
-            )
+            return _unknown_answerability("missing_graph_stats", [0, 0, False])
     conn, owns_conn = _answerability_sqlite_connection(store)
     if conn is None:
-        return seal_answerability_summary(
-            {
-                "status": "unknown",
-                "score": 0.0,
-                "reason_codes": ["no_sqlite_connection"],
-                "parse": [stats.files_count, len(stats.languages), bool(stats.last_updated)],
-            }
+        return _unknown_answerability(
+            "no_sqlite_connection",
+            [stats.files_count, len(stats.languages), bool(stats.last_updated)],
         )
 
     query_failures: list[str] = []
@@ -943,14 +940,7 @@ def attach_answerability(
     try:
         store, _root = _get_store(repo_root)
     except Exception:
-        answerability = seal_answerability_summary(
-            {
-                "status": "unknown",
-                "score": 0.0,
-                "reason_codes": ["answerability_unavailable"],
-                "parse": [0, 0, False],
-            }
-        )
+        answerability = _unknown_answerability("answerability_unavailable", [0, 0, False])
         if "answerability" not in payload:
             payload["answerability"] = answerability
         payload.setdefault(
@@ -1192,8 +1182,6 @@ def apply_output_budget(
         while len(items) > 1 and _est_tokens() > budget_tokens:
             items = items[: len(items) // 2]
             parent[key] = items
-        if len(items) == 0:
-            items = items[:1]
         if len(items) < total:
             parent[key] = items
             truncation[field] = {"kept": len(items), "total": total}
