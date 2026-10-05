@@ -603,12 +603,6 @@ pub fn suggest_refactorings_json(store: &GraphStore) -> Option<String> {
     suggestions::suggest_refactorings(store).map(|all| Value::Array(all).to_string())
 }
 
-/// The suggestions `refactor_tool(mode="suggest")` lists, stable-component
-/// policy applied, as JSON; `None` when the graph cannot be read.
-pub fn ranked_suggestions_json(store: &GraphStore) -> Option<String> {
-    suggestions::ranked_suggestions(store).map(|all| Value::Array(all).to_string())
-}
-
 /// The graph's dead-code candidates before the repository check, as JSON:
 /// for testing the graph heuristics only.
 pub fn graph_dead_code_candidates_json(

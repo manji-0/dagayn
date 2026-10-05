@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from pathlib import Path
@@ -27,10 +26,9 @@ from ._common import (
     _validate_repo_root,
     attach_answerability,
     graph_answerability_summary,
-    guidance_actions_to_hints,
-    make_guidance_item,
     missingness_from_answerability,
 )
+from ._native import native_tool
 
 logger = logging.getLogger(__name__)
 
@@ -48,66 +46,6 @@ _IDENTIFIER_RE = re.compile(r"^[^\W\d]\w*$", re.UNICODE)
 def _is_valid_identifier(name: str | None) -> bool:
     """True when *name* can be substituted into source as an identifier."""
     return bool(name) and bool(_IDENTIFIER_RE.match(name))
-
-
-def _refactor_guidance(
-    suggestions: list[RefactorPayload],
-    *,
-    limit: int = 3,
-) -> list[RefactorPayload]:
-    guidance: list[RefactorPayload] = []
-    for suggestion in suggestions[:limit]:
-        work_pack = suggestion.get("work_pack", {})
-        evidence = suggestion.get("evidence", {})
-        evidence_type = "computed" if evidence else "evaluated"
-        missingness = []
-        if suggestion.get("type") in {"remove", "move"}:
-            missingness.append(
-                {
-                    "reason_code": "dynamic_dispatch_not_proven_absent",
-                    "severity": "medium",
-                    "claim_effect": "verify runtime registration, generated code, and public APIs",
-                }
-            )
-        for condition in work_pack.get("defer_conditions", [])[:3]:
-            missingness.append(
-                {
-                    "reason_code": "defer_condition",
-                    "severity": "medium",
-                    "claim_effect": str(condition),
-                }
-            )
-        guidance.append(
-            make_guidance_item(
-                claim=str(suggestion.get("description", "Review refactor suggestion.")),
-                evidence={
-                    "type": evidence_type,
-                    "suggestion_type": suggestion.get("type"),
-                    "symbols": suggestion.get("symbols", []),
-                    "reason_codes": suggestion.get("reason_codes", []),
-                    "raw": evidence,
-                },
-                confidence=str(suggestion.get("confidence", "unknown")),
-                missingness=missingness,
-                action=(
-                    'refactor_tool mode="suggest" -- inspect work_pack, then run the '
-                    "verification commands before editing"
-                ),
-                reason_codes=list(suggestion.get("reason_codes", [])),
-                counts=work_pack.get("blast_radius", {}),
-                work_pack={
-                    key: work_pack.get(key)
-                    for key in (
-                        "safe_first_commit",
-                        "required_tests",
-                        "documentation_obligations",
-                        "rollback_path",
-                        "defer_conditions",
-                    )
-                },
-            )
-        )
-    return guidance
 
 
 # ---------------------------------------------------------------------------
@@ -205,167 +143,82 @@ def refactor_func(
             )
         )
 
+    if request.mode != "rename":
+        # `dead_code` and `suggest` are the Rust tool's; `rename` stays here,
+        # where `\w` decides a non-ASCII name's validity.
+        with ToolStoreScope(logger=logger, context="refactor_func") as scope:
+            # Resolves the repository and creates, migrates, or waits for the
+            # graph; the Rust tool reads it.
+            scope.track(_get_store(request.repo_root))
+            return native_tool(
+                "refactor_tool",
+                mode=request.mode,
+                kind=request.kind,
+                file_pattern=request.file_pattern,
+                limit=request.limit,
+                repo_root=request.repo_root,
+            )
+        return scope.error
+
     with ToolStoreScope(logger=logger, context="refactor_func") as scope:
         store, root = scope.track(_get_store(request.repo_root))
         answerability = graph_answerability_summary(store)
         missingness = missingness_from_answerability(answerability)
-        if request.mode == "rename":
-            from ..refactor import rename_preview
+        from ..refactor import rename_preview
 
-            # Without this the preview happily produced edits turning
-            # ``def beta():`` into ``def 1 bad name():`` and a non-dry-run
-            # apply committed that to disk.
-            if not _is_valid_identifier(request.new_name):
-                return _error_response(
-                    f"new_name is not a valid identifier: {request.new_name!r}",
-                    status="error",
-                    old_name=request.old_name,
-                    new_name=request.new_name,
-                )
-            preview = rename_preview(store, request.old_name, request.new_name)
-            if preview is None:
-                return seal_refactor_not_found(
-                    {
-                        "status": "not_found",
-                        "summary": (
-                            f"No node found matching '{request.old_name}' in the current graph."
-                        ),
-                        "answerability": answerability,
-                        "missingness": [
-                            *missingness,
-                            {
-                                "reason_code": "rename_target_not_found_in_graph",
-                                "severity": "medium",
-                                "claim_effect": (
-                                    "absence is graph-limited, not proof the symbol does not exist"
-                                ),
-                            },
-                        ],
-                    }
-                )
-            result: RefactorPayload = {
-                "status": "ok",
-                "summary": (
-                    f"Rename preview: {request.old_name} -> {request.new_name}, "
-                    f"{len(preview['edits'])} edit(s). Apply with "
-                    f"apply_refactor_tool in the same `dagayn serve` MCP session "
-                    f"(refactor_id is session-scoped, expires after 10 min) using "
-                    f"refactor_id='{preview['refactor_id']}'."
-                ),
-                **preview,
-                "answerability": answerability,
-                "missingness": [*missingness, *preview.get("missingness", [])],
-                "next_tool_suggestions": [
-                    "apply_refactor_tool(refactor_id='"
-                    f"{preview['refactor_id']}', dry_run=true)"
-                    " in the same session -- preview unified diff before writing files",
-                    "apply_refactor_tool(refactor_id='"
-                    f"{preview['refactor_id']}')"
-                    " in the same session -- apply the rename",
-                ],
-            }
-            result["_hints"] = generate_hints("refactor", result, get_session())
-            return seal_refactor_ok(result)
-
-        if request.mode == "dead_code":
-            from ..refactor import dead_code_report
-
-            report = dead_code_report(
-                store,
-                kind=request.kind,
-                file_pattern=request.file_pattern,
+        # Without this the preview happily produced edits turning
+        # ``def beta():`` into ``def 1 bad name():`` and a non-dry-run
+        # apply committed that to disk.
+        if not _is_valid_identifier(request.new_name):
+            return _error_response(
+                f"new_name is not a valid identifier: {request.new_name!r}",
+                status="error",
+                old_name=request.old_name,
+                new_name=request.new_name,
             )
-            dead = report["dead"]
-            suppressed: dict[str, int] = report["suppressed"]
-            verification = report["verification"]
-            total = len(dead)
-            truncated = total > request.limit
-            left_out = sum(suppressed.values())
-            if verification["status"] == "unavailable":
-                summary = (
-                    "Could not scan the repository's sources, so no symbol is reported as dead."
-                )
-            else:
-                summary = (
-                    f"Found {total} dead code symbol(s) that nothing in the repository refers to."
-                )
-            if left_out:
-                summary += (
-                    f" Left out {left_out} graph candidate(s) that may still be used"
-                    " (see suppressed)."
-                )
-            if truncated:
-                summary += f" Showing first {request.limit}."
-            scan_missingness = (
-                [
-                    {
-                        "reason_code": "source_scan_incomplete",
-                        "severity": "medium",
-                        "claim_effect": (
-                            "some repository files were not searched for the reported names"
-                        ),
-                    }
-                ]
-                if verification["status"] != "complete"
-                else []
+        preview = rename_preview(store, request.old_name, request.new_name)
+        if preview is None:
+            return seal_refactor_not_found(
+                {
+                    "status": "not_found",
+                    "summary": (
+                        f"No node found matching '{request.old_name}' in the current graph."
+                    ),
+                    "answerability": answerability,
+                    "missingness": [
+                        *missingness,
+                        {
+                            "reason_code": "rename_target_not_found_in_graph",
+                            "severity": "medium",
+                            "claim_effect": (
+                                "absence is graph-limited, not proof the symbol does not exist"
+                            ),
+                        },
+                    ],
+                }
             )
-            result: RefactorPayload = {
-                "status": "ok",
-                "summary": summary,
-                "dead_code": dead[: request.limit],
-                "total": total,
-                "truncated": truncated,
-                "suppressed": suppressed,
-                "verification": verification,
-                "caveats": [
-                    "Dead-code results are graph-backed candidates; verify dynamic dispatch, "
-                    "plugin registration, reflection, and generated entry points before deleting."
-                ],
-                "answerability": answerability,
-                "missingness": [
-                    *missingness,
-                    {
-                        "reason_code": "absence_evidence_requires_manual_verification",
-                        "severity": "medium",
-                        "claim_effect": "dead-code claims do not cover dynamic runtime references",
-                    },
-                    *scan_missingness,
-                ],
-            }
-            result["_hints"] = generate_hints("refactor", result, get_session())
-            return seal_refactor_ok(result)
-
-        # The native analysis, with the stable-component policy applied.
-        suggestions: list[RefactorPayload] = json.loads(store.ranked_suggestions_json())
-        total = len(suggestions)
-        truncated = total > request.limit
-        counts_by_type: dict[str, int] = {}
-        for suggestion in suggestions:
-            stype = str(suggestion.get("type", "unknown"))
-            counts_by_type[stype] = counts_by_type.get(stype, 0) + 1
         result: RefactorPayload = {
             "status": "ok",
-            "summary": f"Generated {total} refactoring suggestion(s)."
-            + (f" Showing first {request.limit}." if truncated else ""),
-            "suggestions": suggestions[: request.limit],
-            "work_packs": [
-                {
-                    "symbols": suggestion.get("symbols", []),
-                    "type": suggestion.get("type"),
-                    **suggestion.get("work_pack", {}),
-                }
-                for suggestion in suggestions[: min(request.limit, 5)]
-            ],
-            "guidance": _refactor_guidance(suggestions[: request.limit]),
-            "total": total,
-            "truncated": truncated,
-            "counts_by_type": counts_by_type,
+            "summary": (
+                f"Rename preview: {request.old_name} -> {request.new_name}, "
+                f"{len(preview['edits'])} edit(s). Apply with "
+                f"apply_refactor_tool in the same `dagayn serve` MCP session "
+                f"(refactor_id is session-scoped, expires after 10 min) using "
+                f"refactor_id='{preview['refactor_id']}'."
+            ),
+            **preview,
             "answerability": answerability,
-            "missingness": missingness,
+            "missingness": [*missingness, *preview.get("missingness", [])],
+            "next_tool_suggestions": [
+                "apply_refactor_tool(refactor_id='"
+                f"{preview['refactor_id']}', dry_run=true)"
+                " in the same session -- preview unified diff before writing files",
+                "apply_refactor_tool(refactor_id='"
+                f"{preview['refactor_id']}')"
+                " in the same session -- apply the rename",
+            ],
         }
-        result["_hints"] = guidance_actions_to_hints(result["guidance"])
-        if not result["_hints"]["next_steps"]:
-            result["_hints"] = generate_hints("refactor", result, get_session())
+        result["_hints"] = generate_hints("refactor", result, get_session())
         return seal_refactor_ok(result)
 
     return scope.error

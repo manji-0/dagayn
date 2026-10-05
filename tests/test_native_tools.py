@@ -13,6 +13,7 @@ from dagayn.tools import docs
 from dagayn.tools.analysis_tools import get_suggested_questions_func
 from dagayn.tools.flow_dispatcher import flow_func
 from dagayn.tools.query import find_large_functions, list_graph_stats
+from dagayn.tools.refactor_tools import refactor_func
 
 DAGAYN = Path(sys.executable).with_name("dagayn")
 
@@ -122,3 +123,53 @@ def test_docs_section_without_a_graph_reads_the_root_and_package(
     missing = docs.get_docs_section("no-such-section")
     assert missing["status"] == "not_found"
     assert "trust" in missing["error"]
+
+
+@pytest.fixture
+def unused_repo(tmp_path: Path) -> Path:
+    """Three functions nothing refers to, for dead code and remove suggestions."""
+    root = tmp_path / "unused"
+    (root / ".git").mkdir(parents=True)
+    (root / "lib.py").write_text(
+        "def orphan_one():\n    pass\n\n\ndef orphan_two():\n    pass\n\n\n"
+        "def orphan_three():\n    pass\n"
+    )
+    subprocess.run([DAGAYN, "build", "--repo", root], check=True, capture_output=True)
+    return root
+
+
+def test_refactor_dead_code_answers_through_rust(unused_repo: Path) -> None:
+    result = refactor_func(mode="dead_code", top_n=2, repo_root=str(unused_repo))
+    assert result["status"] == "ok"
+    assert result["total"] == 3
+    assert result["truncated"] is True
+    assert len(result["dead_code"]) == 2
+    assert result["summary"].endswith("Showing first 2.")
+    assert result["verification"]["status"] == "complete"
+    assert any(
+        item["reason_code"] == "absence_evidence_requires_manual_verification"
+        for item in result["missingness"]
+    )
+
+
+def test_refactor_suggest_answers_through_rust(unused_repo: Path) -> None:
+    result = refactor_func(mode="suggest", top_n=1, repo_root=str(unused_repo))
+    assert result["status"] == "ok"
+    assert result["total"] >= 1
+    assert len(result["suggestions"]) == 1
+    assert set(result["guidance"][0]) >= {
+        "claim",
+        "evidence",
+        "confidence",
+        "missingness",
+        "action",
+        "reason_codes",
+        "counts",
+    }
+    assert result["_hints"]["next_steps"]
+
+
+def test_refactor_rename_stays_in_python_for_non_ascii_names(repo: Path) -> None:
+    result = refactor_func(mode="rename", old_name="helper", new_name="hélper", repo_root=str(repo))
+    assert result["status"] == "ok", result
+    assert result["edits"]

@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from types import SimpleNamespace
 
 from dagayn.tools.query import traverse_graph_func
-from dagayn.tools.refactor_tools import refactor_func
 from dagayn.tools.registry_tools import list_repos_func
 from dagayn.tools.review import get_review_context
 
@@ -84,62 +82,6 @@ def test_list_repos_has_hints(monkeypatch) -> None:
     assert result["status"] == "ok"
     assert result["repos"] == [{"alias": "dagayn", "path": "/repo"}]
     assert result["_hints"]["next_steps"][0]["tool"] == "cross_repo_search_tool"
-
-
-def test_refactor_dead_code_truncates(monkeypatch) -> None:
-    dead = [{"qualified_name": f"/repo/a.py::fn_{idx}"} for idx in range(5)]
-
-    monkeypatch.setattr(
-        "dagayn.tools.refactor_tools._get_store",
-        lambda repo_root: (_Closable(), None),
-    )
-    monkeypatch.setattr(
-        "dagayn.refactor.dead_code_report",
-        lambda store, **kwargs: {
-            "dead": dead,
-            "suppressed": {"name_referenced_in_source": 3},
-            "verification": {"status": "complete", "files_scanned": 1, "files_skipped": 0},
-        },
-    )
-
-    result = refactor_func(mode="dead_code", top_n=2, repo_root="/repo")
-
-    assert result["status"] == "ok"
-    assert result["total"] == 5
-    assert result["truncated"] is True
-    assert len(result["dead_code"]) == 2
-    assert result["suppressed"] == {"name_referenced_in_source": 3}
-    assert "Left out 3 graph candidate(s)" in result["summary"]
-    assert result["missingness"]
-
-
-def test_refactor_suggest_truncates(monkeypatch) -> None:
-    suggestions = [
-        {
-            "type": "remove",
-            "symbols": [f"/repo/a.py::fn_{idx}"],
-            "work_pack": {"estimated_size": "small"},
-        }
-        for idx in range(4)
-    ]
-
-    class _SuggestingStore(_Closable):
-        def ranked_suggestions_json(self) -> str:
-            return json.dumps(suggestions)
-
-    monkeypatch.setattr(
-        "dagayn.tools.refactor_tools._get_store",
-        lambda repo_root: (_SuggestingStore(), None),
-    )
-
-    result = refactor_func(mode="suggest", top_n=2, repo_root="/repo")
-
-    assert result["status"] == "ok"
-    assert result["total"] == 4
-    assert result["truncated"] is True
-    assert len(result["suggestions"]) == 2
-    assert result["guidance"]
-    assert result["missingness"]
 
 
 def test_flow_tool_runtime_error_has_missingness(monkeypatch) -> None:

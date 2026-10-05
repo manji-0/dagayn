@@ -695,14 +695,6 @@ impl PyGraphStore {
         )
     }
 
-    /// The suggestions `refactor_tool(mode="suggest")` lists, policy applied.
-    fn ranked_suggestions_json(&self) -> PyResult<String> {
-        self.report_json(
-            dagayn_tools::ranked_suggestions_json,
-            "refactoring suggestions could not read the graph",
-        )
-    }
-
     /// The graph's candidates before the repository check (tests only).
     #[pyo3(signature = (kind = None, file_pattern = None))]
     fn graph_dead_code_candidates_json(
