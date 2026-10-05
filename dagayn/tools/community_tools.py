@@ -18,11 +18,11 @@ from ..hints import generate_hints, get_session
 from ..stability_policy import component_stability_profiles, stability_policy_summary
 from ._common import (
     ToolPayload,
+    ToolStoreScope,
     _get_store,
     apply_output_budget,
     graph_answerability_summary,
     guidance_actions_to_hints,
-    handle_tool_runtime_error,
     make_guidance_item,
     missingness_from_answerability,
 )
@@ -379,9 +379,8 @@ def list_communities_func(
     Returns:
         List of communities with size and cohesion scores.
     """
-    store = None
-    try:
-        store, root = _get_store(repo_root)
+    with ToolStoreScope(logger=logger, context="list_communities") as scope:
+        store, root = scope.track(_get_store(repo_root))
         if detail_level == "minimal":
             valid_sorts = {"size", "cohesion", "name"}
             sort = sort_by if sort_by in valid_sorts else "size"
@@ -416,11 +415,7 @@ def list_communities_func(
         apply_output_budget(result, budget_tokens=4000, list_priorities=["communities"])
         result["_hints"] = generate_hints("list_communities", result, get_session())
         return result
-    except Exception as exc:
-        return handle_tool_runtime_error(exc, logger=logger, context="list_communities")
-    finally:
-        if store is not None:
-            store.close()
+    return scope.error
 
 
 # ---------------------------------------------------------------------------
@@ -449,9 +444,8 @@ def get_community_func(
     Returns:
         Community details, or not_found status.
     """
-    store = None
-    try:
-        store, root = _get_store(repo_root)
+    with ToolStoreScope(logger=logger, context="get_community") as scope:
+        store, root = scope.track(_get_store(repo_root))
         community: CommunityRecord | None = None
         all_communities = get_communities(store)
 
@@ -496,11 +490,7 @@ def get_community_func(
         }
         result["_hints"] = cast(ToolPayload, generate_hints("get_community", result, get_session()))
         return result
-    except Exception as exc:
-        return handle_tool_runtime_error(exc, logger=logger, context="get_community")
-    finally:
-        if store is not None:
-            store.close()
+    return scope.error
 
 
 # ---------------------------------------------------------------------------
@@ -535,9 +525,8 @@ def get_architecture_overview_func(
     Returns:
         Architecture overview with communities, cross_community_coupling, and warnings.
     """
-    store = None
-    try:
-        store, root = _get_store(repo_root)
+    with ToolStoreScope(logger=logger, context="get_architecture_overview") as scope:
+        store, root = scope.track(_get_store(repo_root))
         answerability = graph_answerability_summary(store)
         overview = get_architecture_overview(store, detail_level=detail_level, top_n=top_n)
         n_communities = len(overview["communities"])
@@ -590,8 +579,4 @@ def get_architecture_overview_func(
         if not result["_hints"]["next_steps"]:
             result["_hints"] = generate_hints("get_architecture_overview", result, get_session())
         return result
-    except Exception as exc:
-        return handle_tool_runtime_error(exc, logger=logger, context="get_architecture_overview")
-    finally:
-        if store is not None:
-            store.close()
+    return scope.error

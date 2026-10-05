@@ -16,12 +16,12 @@ from ..coverage import infer_tests_for_node
 from ..hints import generate_hints, get_session
 from ._common import (
     ToolPayload,
+    ToolStoreScope,
     _error_response,
     _get_store,
     apply_output_budget,
     graph_answerability_summary,
     guidance_actions_to_hints,
-    handle_tool_runtime_error,
     missingness_from_answerability,
 )
 from .review_context import get_review_context
@@ -65,9 +65,8 @@ def detect_changes_func(
         Risk-scored analysis with changed functions, affected flows,
         test gaps, and review priorities.
     """
-    store = None
-    try:
-        store, root = _get_store(repo_root)
+    with ToolStoreScope(logger=logger, context="detect_changes") as scope:
+        store, root = scope.track(_get_store(repo_root))
         answerability = graph_answerability_summary(store)
         missingness = missingness_from_answerability(answerability)
         changed_files, change_file_sources = _resolve_changed_files(root, base, changed_files)
@@ -237,11 +236,7 @@ def detect_changes_func(
             hints = generate_hints("detect_changes", result, get_session())
         result["_hints"] = hints
         return result
-    except Exception as exc:
-        return handle_tool_runtime_error(exc, logger=logger, context="detect_changes")
-    finally:
-        if store is not None:
-            store.close()
+    return scope.error
 
 
 __all__ = [

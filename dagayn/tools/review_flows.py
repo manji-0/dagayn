@@ -9,9 +9,9 @@ from ..flows import get_affected_flows as _get_affected_flows
 from ..hints import generate_hints, get_session
 from ._common import (
     ToolPayload,
+    ToolStoreScope,
     _get_store,
     graph_answerability_summary,
-    handle_tool_runtime_error,
     missingness_from_answerability,
 )
 from .review_helpers import _resolve_changed_files
@@ -39,9 +39,8 @@ def get_affected_flows_func(
     Returns:
         Affected flows sorted by criticality, with step details.
     """
-    store = None
-    try:
-        store, root = _get_store(repo_root)
+    with ToolStoreScope(logger=logger, context="get_affected_flows") as scope:
+        store, root = scope.track(_get_store(repo_root))
         answerability = graph_answerability_summary(store)
         missingness = missingness_from_answerability(answerability)
         changed_files, change_file_sources = _resolve_changed_files(root, base, changed_files)
@@ -72,8 +71,4 @@ def get_affected_flows_func(
         }
         out["_hints"] = cast(ToolPayload, generate_hints("get_affected_flows", out, get_session()))
         return out
-    except Exception as exc:
-        return handle_tool_runtime_error(exc, logger=logger, context="get_affected_flows")
-    finally:
-        if store is not None:
-            store.close()
+    return scope.error

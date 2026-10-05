@@ -15,10 +15,10 @@ from ..embeddings_store import EmbedWorkItem
 from ..paths import get_db_path
 from ._common import (
     ToolPayload,
+    ToolStoreScope,
     _error_response,
     _get_store,
     _validate_repo_root,
-    handle_tool_runtime_error,
 )
 
 logger = logging.getLogger(__name__)
@@ -358,9 +358,8 @@ def generate_wiki_func(
     from ..paths import get_data_dir
     from ..wiki import generate_wiki
 
-    store = None
-    try:
-        store, root = _get_store(repo_root)
+    with ToolStoreScope(logger=logger, context="generate_wiki") as scope:
+        store, root = scope.track(_get_store(repo_root))
         wiki_dir = get_data_dir(root) / "wiki"
         result = generate_wiki(store, wiki_dir, force=force)
         total = result["pages_generated"] + result["pages_updated"] + result["pages_unchanged"]
@@ -375,11 +374,7 @@ def generate_wiki_func(
             "wiki_dir": str(wiki_dir),
             **result,
         }
-    except Exception as exc:
-        return handle_tool_runtime_error(exc, logger=logger, context="generate_wiki")
-    finally:
-        if store is not None:
-            store.close()
+    return scope.error
 
 
 # ---------------------------------------------------------------------------

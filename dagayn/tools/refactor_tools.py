@@ -21,13 +21,13 @@ from ..contracts.state_types import (
 from ..hints import generate_hints, get_session
 from ..incremental_files import find_project_root
 from ._common import (
+    ToolStoreScope,
     _error_response,
     _get_store,
     _validate_repo_root,
     attach_answerability,
     graph_answerability_summary,
     guidance_actions_to_hints,
-    handle_tool_runtime_error,
     make_guidance_item,
     missingness_from_answerability,
 )
@@ -205,9 +205,8 @@ def refactor_func(
             )
         )
 
-    store = None
-    try:
-        store, root = _get_store(request.repo_root)
+    with ToolStoreScope(logger=logger, context="refactor_func") as scope:
+        store, root = scope.track(_get_store(request.repo_root))
         answerability = graph_answerability_summary(store)
         missingness = missingness_from_answerability(answerability)
         if request.mode == "rename":
@@ -369,11 +368,7 @@ def refactor_func(
             result["_hints"] = generate_hints("refactor", result, get_session())
         return seal_refactor_ok(result)
 
-    except Exception as exc:
-        return handle_tool_runtime_error(exc, logger=logger, context="refactor_func")
-    finally:
-        if store is not None:
-            store.close()
+    return scope.error
 
 
 # ---------------------------------------------------------------------------

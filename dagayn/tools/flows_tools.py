@@ -9,11 +9,11 @@ from ..flows import FlowRecord, get_flow_by_id, get_flows
 from ..hints import generate_hints, get_session
 from ._common import (
     ToolPayload,
+    ToolStoreScope,
     _get_store,
     apply_output_budget,
     graph_answerability_summary,
     guidance_actions_to_hints,
-    handle_tool_runtime_error,
     make_guidance_item,
     missingness_from_answerability,
 )
@@ -52,9 +52,8 @@ def list_flows(
     Returns:
         List of flows with criticality scores.
     """
-    store = None
-    try:
-        store, root = _get_store(repo_root)
+    with ToolStoreScope(logger=logger, context="list_flows") as scope:
+        store, root = scope.track(_get_store(repo_root))
         answerability = graph_answerability_summary(store)
         fetch_limit = limit if not kind else limit * 10  # fetch more when filtering
         flows = get_flows(store, sort_by=sort_by, limit=fetch_limit)
@@ -161,11 +160,7 @@ def list_flows(
             hints if hints["next_steps"] else generate_hints("list_flows", result, get_session())
         )
         return result
-    except Exception as exc:
-        return handle_tool_runtime_error(exc, logger=logger, context="list_flows")
-    finally:
-        if store is not None:
-            store.close()
+    return scope.error
 
 
 # ---------------------------------------------------------------------------
@@ -196,9 +191,8 @@ def get_flow(
     Returns:
         Flow details with steps, or not_found status.
     """
-    store = None
-    try:
-        store, root = _get_store(repo_root)
+    with ToolStoreScope(logger=logger, context="get_flow") as scope:
+        store, root = scope.track(_get_store(repo_root))
         answerability = graph_answerability_summary(store)
         flow: FlowRecord | None = None
 
@@ -409,8 +403,4 @@ def get_flow(
             hints if hints["next_steps"] else generate_hints("get_flow", result, get_session())
         )
         return result
-    except Exception as exc:
-        return handle_tool_runtime_error(exc, logger=logger, context="get_flow")
-    finally:
-        if store is not None:
-            store.close()
+    return scope.error

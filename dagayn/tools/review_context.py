@@ -9,10 +9,10 @@ from typing import Any, cast
 from ..contracts.state_types import seal_missingness_item
 from ..graph import GraphNode, edge_to_dict, node_to_dict
 from ._common import (
+    ToolStoreScope,
     _get_store,
     apply_output_budget,
     graph_answerability_summary,
-    handle_tool_runtime_error,
     missingness_from_answerability,
     resolve_contained_path,
 )
@@ -58,10 +58,9 @@ def get_review_context(
         Structured review context with subgraph, source snippets, and
         review guidance.
     """
-    store = None
-    try:
+    with ToolStoreScope(logger=logger, context="get_review_context") as scope:
         max_lines_per_file = max(1, min(max_lines_per_file, MAX_LINES_PER_FILE_CEILING))
-        store, root = _get_store(repo_root)
+        store, root = scope.track(_get_store(repo_root))
         answerability = graph_answerability_summary(store)
         missingness = missingness_from_answerability(answerability)
         # Get impact radius first
@@ -253,11 +252,7 @@ def get_review_context(
                 **graph_truncation,
             }
         return payload
-    except Exception as exc:
-        return handle_tool_runtime_error(exc, logger=logger, context="get_review_context")
-    finally:
-        if store is not None:
-            store.close()
+    return scope.error
 
 
 #: Ceiling on the bytes of source returned per ``review_tool(mode="context")``

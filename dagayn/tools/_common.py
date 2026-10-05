@@ -1134,6 +1134,46 @@ def handle_tool_runtime_error(
     }
 
 
+class ToolStoreScope:
+    """``try / except Exception / finally store.close()`` for one tool body.
+
+    ``with ToolStoreScope(...) as scope:`` wraps the body, which opens its
+    store via ``scope.track(_get_store(...))`` and returns its payload. An
+    ``Exception`` escaping the body becomes ``scope.error`` (from
+    :func:`handle_tool_runtime_error` with this scope's arguments) and is
+    suppressed, so the caller ends with ``return scope.error``. The tracked
+    store is closed afterwards either way.
+    """
+
+    def __init__(
+        self, *, logger: logging.Logger, context: str, repo_root: str | Path | None = None
+    ) -> None:
+        self._logger = logger
+        self._context = context
+        self._repo_root = repo_root
+        self._store: GraphStore | None = None
+        self.error: ToolPayload = {}
+
+    def track(self, opened: tuple[GraphStore, Path]) -> tuple[GraphStore, Path]:
+        self._store = opened[0]
+        return opened
+
+    def __enter__(self) -> ToolStoreScope:
+        return self
+
+    def __exit__(self, exc_type: object, exc: BaseException | None, tb: object) -> bool:
+        try:
+            if not isinstance(exc, Exception):
+                return False
+            self.error = handle_tool_runtime_error(
+                exc, logger=self._logger, context=self._context, repo_root=self._repo_root
+            )
+            return True
+        finally:
+            if self._store is not None:
+                self._store.close()
+
+
 def _get_path(container: dict[str, object], path: str) -> tuple[dict[str, object] | None, str]:
     current: object = container
     parts = path.split(".")

@@ -25,6 +25,7 @@ from ..paths import get_db_path
 from ..search import embedding_health_available, hybrid_search
 from ._common import (
     _BUILTIN_CALL_NAMES,
+    ToolStoreScope,
     _db_path_for_repo,
     _error_response,
     _get_store,
@@ -209,9 +210,8 @@ def get_impact_radius(
         Changed nodes, impacted nodes, impacted files, connecting edges,
         plus ``truncated`` flag and ``total_impacted`` count.
     """
-    store = None
-    try:
-        store, root = _get_store(repo_root)
+    with ToolStoreScope(logger=logger, context="get_impact_radius", repo_root=repo_root) as scope:
+        store, root = scope.track(_get_store(repo_root))
         answerability = graph_answerability_summary(store)
         missingness = missingness_from_answerability(answerability)
         if changed_files is None:
@@ -409,13 +409,7 @@ def get_impact_radius(
             ],
         )
         return payload
-    except Exception as exc:
-        return handle_tool_runtime_error(
-            exc, logger=logger, context="get_impact_radius", repo_root=repo_root
-        )
-    finally:
-        if store is not None:
-            store.close()
+    return scope.error
 
 
 # ---------------------------------------------------------------------------
@@ -576,8 +570,9 @@ def semantic_search_nodes(
     Returns:
         Ranked list of matching nodes.
     """
-    store = None
-    try:
+    with ToolStoreScope(
+        logger=logger, context="semantic_search_nodes", repo_root=repo_root
+    ) as scope:
         # An out-of-range ``limit`` used to produce a *claim about the graph*:
         # limit=0 returned zero_result_reason "not_found_in_current_graph", i.e.
         # "this symbol is absent", caused purely by the caller's argument.
@@ -591,7 +586,7 @@ def semantic_search_nodes(
             )
         if limit > _MAX_SEARCH_LIMIT:
             limit = _MAX_SEARCH_LIMIT
-        store, root = _get_store(repo_root)
+        store, root = scope.track(_get_store(repo_root))
         answerability = graph_answerability_summary(store)
         missingness = missingness_from_answerability(answerability)
         hs = hybrid_search(
@@ -691,13 +686,7 @@ def semantic_search_nodes(
             hints = generate_hints("semantic_search_nodes", hint_input, get_session())
         result["_hints"] = hints
         return result
-    except Exception as exc:
-        return handle_tool_runtime_error(
-            exc, logger=logger, context="semantic_search_nodes", repo_root=repo_root
-        )
-    finally:
-        if store is not None:
-            store.close()
+    return scope.error
 
 
 # ---------------------------------------------------------------------------
@@ -714,9 +703,8 @@ def list_graph_stats(repo_root: str | None = None) -> dict[str, Any]:
     Returns:
         Total nodes, edges, breakdown by kind, languages, and last update time.
     """
-    store = None
-    try:
-        store, root = _get_store(repo_root)
+    with ToolStoreScope(logger=logger, context="list_graph_stats", repo_root=repo_root) as scope:
+        store, root = scope.track(_get_store(repo_root))
         stats = store.get_stats()
 
         # Read-only: constructing an EmbeddingStore here created the
@@ -745,13 +733,7 @@ def list_graph_stats(repo_root: str | None = None) -> dict[str, Any]:
                 "semantic_search_nodes_tool -- search for specific entities",
             ],
         )
-    except Exception as exc:
-        return handle_tool_runtime_error(
-            exc, logger=logger, context="list_graph_stats", repo_root=repo_root
-        )
-    finally:
-        if store is not None:
-            store.close()
+    return scope.error
 
 
 # ---------------------------------------------------------------------------
@@ -781,9 +763,10 @@ def find_large_functions(
     Returns:
         Oversized nodes with line counts, ordered largest first.
     """
-    store = None
-    try:
-        store, root = _get_store(repo_root)
+    with ToolStoreScope(
+        logger=logger, context="find_large_functions", repo_root=repo_root
+    ) as scope:
+        store, root = scope.track(_get_store(repo_root))
         nodes = store.get_nodes_by_size(
             min_lines=min_lines,
             kind=kind,
@@ -831,13 +814,7 @@ def find_large_functions(
             "min_lines": min_lines,
             "results": results,
         }
-    except Exception as exc:
-        return handle_tool_runtime_error(
-            exc, logger=logger, context="find_large_functions", repo_root=repo_root
-        )
-    finally:
-        if store is not None:
-            store.close()
+    return scope.error
 
 
 # -------------------------------------------------------------------
@@ -940,9 +917,8 @@ def traverse_graph_func(
         model: Embedding model for the initial hybrid search.
         provider: Embedding provider for the initial hybrid search.
     """
-    store = None
-    try:
-        store, root = _get_store(repo_root)
+    with ToolStoreScope(logger=logger, context="traverse_graph", repo_root=repo_root) as scope:
+        store, root = scope.track(_get_store(repo_root))
         results = hybrid_search(
             store,
             query,
@@ -1089,10 +1065,4 @@ def traverse_graph_func(
                 'review_tool mode="impact" -- blast radius analysis',
             ],
         )
-    except Exception as exc:
-        return handle_tool_runtime_error(
-            exc, logger=logger, context="traverse_graph", repo_root=repo_root
-        )
-    finally:
-        if store is not None:
-            store.close()
+    return scope.error
