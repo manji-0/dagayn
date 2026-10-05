@@ -211,16 +211,88 @@ pub fn commit_tier_freshness(
 /// missing. `not_indexed` and `empty` refresh inline, missing vectors refresh
 /// inline or in the background; both are the Python server's to start.
 pub fn embedding_refresh_skips(store: &GraphStore) -> Result<bool, GraphError> {
+    Ok(embedding_refresh_action(store)? == EmbeddingRefresh::Skip)
+}
+
+/// `embedding_refresh_action` for a requested local embedding mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EmbeddingRefresh {
+    /// No vectors yet, or the missing share is at least
+    /// `DAGAYN_EMBED_INLINE_MISSING_RATIO` (default 5%).
+    Inline,
+    /// Some vectors missing, fewer than that: a background `embed` task.
+    Queue,
+    /// The index is complete.
+    Skip,
+}
+
+/// `_inline_missing_ratio`: `float(DAGAYN_EMBED_INLINE_MISSING_RATIO)`, or
+/// 0.05 when it is unset, blank, or not a float.
+fn inline_missing_ratio() -> f64 {
+    const DEFAULT: f64 = 0.05;
+    let Ok(raw) = std::env::var("DAGAYN_EMBED_INLINE_MISSING_RATIO") else {
+        return DEFAULT;
+    };
+    let text = raw.trim();
+    if text.is_empty() {
+        return DEFAULT;
+    }
+    // `float()` takes `_` between digits only.
+    let bytes = text.as_bytes();
+    let underscores_ok = bytes.iter().enumerate().all(|(index, byte)| {
+        *byte != b'_'
+            || (index > 0
+                && bytes[index - 1].is_ascii_digit()
+                && bytes.get(index + 1).is_some_and(u8::is_ascii_digit))
+    });
+    if !underscores_ok {
+        return DEFAULT;
+    }
+    text.replace('_', "").parse::<f64>().unwrap_or(DEFAULT)
+}
+
+/// `embedding_refresh_action(db_path, local_embedding=<a requested mode>)`,
+/// from `get_embedding_status`'s counts.
+pub fn embedding_refresh_action(store: &GraphStore) -> Result<EmbeddingRefresh, GraphError> {
     let Some(counts) = store.embedding_provider_counts()? else {
-        return Ok(false);
+        return Ok(EmbeddingRefresh::Inline);
     };
     if counts.values().sum::<i64>() == 0 {
-        return Ok(false);
+        return Ok(EmbeddingRefresh::Inline);
     }
     let preferred = store.get_metadata(ACTIVE_EMBEDDING_PROVIDER_KEY)?;
     let provider = resolve_active_provider(&counts, preferred.as_deref());
     let coverage = store.embedding_coverage(provider.as_deref())?;
-    Ok(coverage.missing_embeddings <= 0 || coverage.embeddable_nodes <= 0)
+    if coverage.missing_embeddings <= 0 || coverage.embeddable_nodes <= 0 {
+        return Ok(EmbeddingRefresh::Skip);
+    }
+    let missing = coverage.missing_embeddings as f64 / coverage.embeddable_nodes as f64;
+    Ok(if missing >= inline_missing_ratio() {
+        EmbeddingRefresh::Inline
+    } else {
+        EmbeddingRefresh::Queue
+    })
+}
+
+/// `_clear_seed_verification_flag`: record that a seeded worktree graph's
+/// content has been verified, through a connection of its own (the caller's
+/// store may be read-only) that never checkpoints or deletes the WAL when it
+/// closes, so Python's SQLite copy in this process keeps its view.
+pub fn clear_seed_verification(db_path: &Path) -> Result<(), GraphError> {
+    let conn = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    conn.set_db_config(
+        rusqlite::config::DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE,
+        true,
+    )?;
+    conn.busy_timeout(std::time::Duration::from_millis(5000))?;
+    conn.execute(
+        "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
+        [SEEDED_NEEDS_VERIFY_KEY, "0"],
+    )?;
+    Ok(())
 }
 
 /// `resolve_active_embedding_provider` without a text mode.

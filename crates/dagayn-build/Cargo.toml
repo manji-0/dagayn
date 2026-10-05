@@ -11,9 +11,9 @@ dagayn-parser = { path = "../dagayn-parser" }
 dagayn-postproc = { path = "../dagayn-postproc" }
 libc = "0.2"
 rayon = "1.10"
+rusqlite.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 
-[dev-dependencies]
-rusqlite.workspace = true
