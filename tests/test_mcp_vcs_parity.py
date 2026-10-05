@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from test_mcp_frontend import DAGAYN, _env, _session_both
+from test_mcp_frontend import DAGAYN, _call_both, _env, _session_both
 
 pytestmark = pytest.mark.skipif(not DAGAYN.exists(), reason="dagayn console script not installed")
 
@@ -160,6 +160,19 @@ def test_a_jj_workspace_is_answered_in_rust_as_python_does(jj_workspace: Path, c
         names = {f["name"] for f in reviews[2]["changed_functions"]}
         assert ("auth_token" in names) is (change == "indexed"), names
         assert "helper" in names
+
+
+def test_a_jj_workspace_is_auto_detected_in_rust_as_python_does(jj_workspace: Path) -> None:
+    """From inside a workspace with no --repo or repo_root, the walk stops at
+    the workspace (not the main checkout above it), as find_repo_root does."""
+    inside = jj_workspace / "sub"
+    inside.mkdir()
+    arguments = {"pattern": "callers_of", "target": "app.py::helper"}
+    rust, python, stderr = _call_both(None, "query_graph_tool", arguments, cwd=inside)
+    assert "answered query_graph_tool in Rust" in stderr
+    assert rust["structuredContent"] == python["structuredContent"]
+    repo = rust["structuredContent"]["_repo"]
+    assert repo == {**repo, "repo_root": str(jj_workspace.resolve()), "source": "auto"}
 
 
 def _make_stale(workspace: Path) -> None:

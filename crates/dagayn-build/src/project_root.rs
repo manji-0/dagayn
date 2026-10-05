@@ -2,10 +2,10 @@
 //! tool call means when it names none, from `CRG_REPO_ROOT`, the working
 //! directory's checkout, and the editor's workspace hints.
 //!
-//! Only git checkouts are resolved. A walk that meets a jj workspace or an
-//! SVN working copy, a home-relative hint Python would expand differently, or
-//! hints that name several repositories (Python's
-//! `AmbiguousWorkspaceRootError`) is answered with
+//! Git checkouts, git-backed jj workspaces, and SVN working copies resolve as
+//! Python resolves them. A home-relative hint Python would expand
+//! differently, or hints that name several repositories (Python's
+//! `AmbiguousWorkspaceRootError`), is answered with
 //! [`ProjectRoot::Unsupported`], for the caller to leave to Python.
 
 use std::path::{Path, PathBuf};
@@ -19,22 +19,20 @@ pub enum ProjectRoot {
     Unsupported(String),
 }
 
-/// The nearest ancestor of `start` holding `.git` (`find_repo_root` for a
-/// git checkout); `Err` when the walk first meets a jj workspace or finds no
-/// checkout but an SVN working copy, which only Python resolves.
-fn find_git_root(start: &Path) -> Result<Option<PathBuf>, String> {
-    for dir in start.ancestors() {
-        if dir.join(".git").exists() {
-            return Ok(Some(dir.to_path_buf()));
-        }
-        if dir.join(".jj").is_dir() {
-            return Err(format!("a jj workspace at {}", dir.display()));
-        }
-    }
-    if start.ancestors().any(|dir| dir.join(".svn").exists()) {
-        return Err(format!("an SVN working copy above {}", start.display()));
-    }
-    Ok(None)
+/// `find_repo_root`: the nearest ancestor holding `.git` or a git-backed jj
+/// workspace (whose walk must stop there, not at the main checkout above),
+/// else the topmost SVN working copy root above `start` (`find_svn_root`).
+fn find_repo_root(start: &Path) -> Option<PathBuf> {
+    start
+        .ancestors()
+        .find(|dir| dir.join(".git").exists() || crate::jj::is_jj_workspace(dir))
+        .or_else(|| {
+            start
+                .ancestors()
+                .filter(|dir| dir.join(".svn").exists())
+                .last()
+        })
+        .map(Path::to_path_buf)
 }
 
 /// `Path(raw).expanduser().resolve()` for a path that exists; `None` when it
@@ -118,7 +116,7 @@ fn contains_path(root: &Path, path: &Path) -> bool {
 fn hinted_repo_roots(candidates: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
     let mut roots: Vec<PathBuf> = Vec::new();
     for workspace in candidates {
-        let root = match find_git_root(workspace)? {
+        let root = match find_repo_root(workspace) {
             Some(root) => root,
             None if workspace.join(".dagayn").is_dir() => workspace.clone(),
             None => continue,
@@ -161,7 +159,7 @@ fn find_project_root_inner(cwd: &Path) -> Result<PathBuf, String> {
         return Ok(root);
     }
 
-    let root = find_git_root(cwd)?;
+    let root = find_repo_root(cwd);
     let candidates = workspace_candidates()?;
     if !candidates.is_empty() {
         let covered = root.as_ref().is_some_and(|root| {
@@ -214,21 +212,43 @@ mod tests {
     }
 
     #[test]
-    fn git_walk_stops_at_jj_and_svn() {
+    fn repo_walk_matches_find_repo_root() {
         let base = tempdir("walk");
         std::fs::create_dir_all(base.join("repo/.git")).unwrap();
         std::fs::create_dir_all(base.join("repo/src/deep")).unwrap();
         assert_eq!(
-            find_git_root(&base.join("repo/src/deep")),
-            Ok(Some(base.join("repo")))
+            find_repo_root(&base.join("repo/src/deep")),
+            Some(base.join("repo"))
         );
-        std::fs::create_dir_all(base.join("repo/ws/.jj")).unwrap();
-        assert!(find_git_root(&base.join("repo/ws")).is_err());
+        // A `.jj` that no git directory backs is walked past.
+        std::fs::create_dir_all(base.join("repo/plainjj/.jj")).unwrap();
+        assert_eq!(
+            find_repo_root(&base.join("repo/plainjj")),
+            Some(base.join("repo"))
+        );
+        // A git-backed jj workspace stops the walk below the main checkout.
+        let store = base.join("repo/ws/.jj/repo/store");
+        std::fs::create_dir_all(&store).unwrap();
+        std::fs::write(
+            store.join("git_target"),
+            base.join("repo/.git").to_str().unwrap(),
+        )
+        .unwrap();
+        std::fs::create_dir_all(base.join("repo/ws/sub")).unwrap();
+        assert_eq!(
+            find_repo_root(&base.join("repo/ws/sub")),
+            Some(base.join("repo/ws"))
+        );
+        // No checkout: the topmost SVN working copy above.
         std::fs::create_dir_all(base.join("svn/.svn")).unwrap();
-        std::fs::create_dir_all(base.join("svn/a")).unwrap();
-        assert!(find_git_root(&base.join("svn/a")).is_err());
+        std::fs::create_dir_all(base.join("svn/a/.svn")).unwrap();
+        std::fs::create_dir_all(base.join("svn/a/b")).unwrap();
+        assert_eq!(
+            find_repo_root(&base.join("svn/a/b")),
+            Some(base.join("svn"))
+        );
         std::fs::create_dir_all(base.join("plain")).unwrap();
-        assert_eq!(find_git_root(&base.join("plain")), Ok(None));
+        assert_eq!(find_repo_root(&base.join("plain")), None);
         std::fs::remove_dir_all(&base).unwrap();
     }
 
