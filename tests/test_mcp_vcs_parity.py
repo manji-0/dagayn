@@ -162,6 +162,7 @@ def test_a_jj_workspace_is_answered_in_rust_as_python_does(jj_workspace: Path, c
         assert "helper" in names
 
 
+@real_jj
 def test_a_jj_workspace_is_auto_detected_in_rust_as_python_does(jj_workspace: Path) -> None:
     """From inside a workspace with no --repo or repo_root, the walk stops at
     the workspace (not the main checkout above it), as find_repo_root does."""
