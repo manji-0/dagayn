@@ -131,13 +131,6 @@ def _get_cached_emb_store(
 # ---------------------------------------------------------------------------
 
 
-_FTS_DDL = """
-    CREATE VIRTUAL TABLE nodes_fts USING fts5(
-        name, qualified_name, file_path, signature, identifier_tokens, doc_text,
-        tokenize='porter unicode61'
-    )
-"""
-
 _IDENT_BOUNDARY_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 
 

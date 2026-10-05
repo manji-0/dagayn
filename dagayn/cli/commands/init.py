@@ -111,11 +111,11 @@ def register_commands(sub: argparse._SubParsersAction) -> CommandRegistry:
 
     install_cmd = sub.add_parser("install", help="Register MCP server with AI coding platforms")
     _add_common(install_cmd)
-    _add_local_embedding_args(install_cmd, include_mode_alias=False)
+    _add_local_embedding_args(install_cmd, include_mode_alias=False, include_level=False)
 
     init_cmd = sub.add_parser("init", help="Alias for install")
     _add_common(init_cmd)
-    _add_local_embedding_args(init_cmd, include_mode_alias=False)
+    _add_local_embedding_args(init_cmd, include_mode_alias=False, include_level=False)
 
     return {"install": install_cmd, "init": init_cmd}
 

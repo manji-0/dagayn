@@ -16,7 +16,6 @@ from importlib import import_module
 from typing import Any, Literal, Optional
 
 from .. import __version__
-from ..contracts import _python314_compat
 from ..contracts.state_types import RefactorMode, TraversalMode
 from ..prompts import (
     PromptMessage,
@@ -30,13 +29,6 @@ from ..tools._common import ToolPayload
 from .tool_allowlist import _resolve_tool_allow_list
 
 type ComponentPayload = dict[str, object]
-
-_patch_typing_eval_type_for_python314_beta = (
-    _python314_compat.patch_typing_eval_type_for_python314_beta
-)
-_patch_collections_abc_bytestring_for_python314 = (
-    _python314_compat.patch_collections_abc_bytestring_for_python314
-)
 
 
 class _FallbackComponent:

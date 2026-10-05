@@ -33,8 +33,20 @@ def _add_local_embedding_args(
     cmd: argparse.ArgumentParser,
     *,
     include_mode_alias: bool = True,
+    include_level: bool = True,
 ) -> None:
-    """Add --local-embedding* flags to a subcommand parser."""
+    """Add --local-embedding* flags to a subcommand parser.
+
+    ``include_level=False`` leaves out ``--local-embedding`` itself (install
+    picks the sidecar with ``--mode``) but keeps the port, binary, and
+    timeout flags it writes into the MCP config.
+    """
+    if include_level:
+        _add_local_embedding_level(cmd)
+    _add_local_embedding_tuning(cmd, include_mode_alias=include_mode_alias)
+
+
+def _add_local_embedding_level(cmd: argparse.ArgumentParser) -> None:
     cmd.add_argument(
         "--local-embedding",
         nargs="?",
@@ -47,6 +59,9 @@ def _add_local_embedding_args(
             "managed Qwen3 sidecar (default: none)."
         ),
     )
+
+
+def _add_local_embedding_tuning(cmd: argparse.ArgumentParser, *, include_mode_alias: bool) -> None:
     if include_mode_alias:
         cmd.add_argument(
             "--mode",
@@ -198,13 +213,7 @@ def _resolve_install_mode(args: argparse.Namespace) -> tuple[str, str | None, st
     mode = getattr(args, "mode", None)
     preset = getattr(args, "preset", None)
     provider = getattr(args, "provider", None)
-    local_embedding = getattr(args, "local_embedding", "none") or "none"
     auto_yes = getattr(args, "yes", False)
-    if local_embedding not in ("none", ""):
-        raise SystemExit(
-            "--local-embedding does not choose the install mode; use --mode local-embedding "
-            "or --mode local-embedding-llama [--preset low]."
-        )
 
     if mode is not None:
         if mode == "local-embedding":

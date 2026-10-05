@@ -36,10 +36,6 @@ class TestResolveInstallMode:
     def test_explicit_fts_only(self):
         assert _resolve_install_mode(_ns(mode="fts-only")) == ("fts-only", None, None)
 
-    def test_local_embedding_value_points_at_mode(self):
-        with pytest.raises(SystemExit, match="use --mode local-embedding"):
-            _resolve_install_mode(_ns(mode="local-embedding", local_embedding="low"))
-
     def test_explicit_local_embedding_defaults_to_bge(self):
         assert _resolve_install_mode(_ns(mode="local-embedding")) == (
             "local-embedding",

@@ -22,10 +22,11 @@ All notable changes to `dagayn` are documented here.
   git/svn file listing and the per-file worker parse of the old Python
   build, and small helpers (`projection_for_detail_level`,
   `embedding_needs_refresh`, `active_tool_surface`, and others).
-- `dagayn install` no longer accepts the legacy `--mode` names `fts`,
-  `local`, `llama-qwen3`, and `remote`, the no-op `--skills`, `--hooks`,
-  and `--all` flags, or `--local-embedding <level>` to pick the mode; a
-  `--local-embedding` value now fails with a pointer to `--mode`.
+- `dagayn install` and `dagayn init` no longer accept the legacy `--mode`
+  names `fts`, `local`, `llama-qwen3`, and `remote`, the no-op `--skills`,
+  `--hooks`, and `--all` flags, or `--local-embedding` (pick the sidecar
+  with `--mode local-embedding` or `--mode local-embedding-llama`; the
+  `--local-embedding-port` / `-bin` / `-timeout` flags stay).
 
 ### Fixed
 

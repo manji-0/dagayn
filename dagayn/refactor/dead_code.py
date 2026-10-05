@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from pathlib import Path
 from typing import Any, Optional
 
@@ -20,11 +19,6 @@ logger = logging.getLogger(__name__)
 
 type DeadValue = Any
 type DeadPayload = dict[str, DeadValue]
-
-_TEST_FILE_RE = re.compile(
-    r"([\\/]__tests__[\\/]|\.(spec|test|cy)\.[cm]?[jt]sx?$|[\\/]test_[^/\\]*\.py$"
-    r"|[\\/]e2e[_-]?tests?[\\/]|[\\/]test[_-]utils?[\\/])",
-)
 
 
 def _load_source_lines(store: GraphStore, file_path: str) -> list[str]:

@@ -140,35 +140,6 @@ class ChangeTestGapEvidence(_OpenTypedDict, total=False):
     heuristic_truncated: bool
 
 
-CrossArtifactRole: TypeAlias = Literal[
-    "implemented_by",
-    "implements_contract",
-    "describes_symbol",
-    "discusses_artifact",
-    "raises_issue_for",
-    "explained_by",
-    "has_runbook",
-    "problem_described_by",
-    "discussed_by",
-    "builds_artifact",
-    "generates_code",
-    "binds_generated_client",
-    "builds_from_source",
-    "loads_native_module",
-    "loads_shared_library",
-    "loads_wasm_module",
-    "calls_native_function",
-    "maps_entrypoint",
-    "invokes_binary",
-]
-
-MarkdownArtifactResolutionState: TypeAlias = Literal[
-    "resolved",
-    "dropped",
-    "re_resolved",
-    "still_unresolved",
-]
-
 EmbeddingStatusCode: TypeAlias = Literal[
     "not_indexed",
     "unavailable",
@@ -208,7 +179,6 @@ GraphSyncLegacyStatus: TypeAlias = Literal[
 ]
 
 TraversalMode: TypeAlias = Literal["bfs", "dfs"]
-ReachabilityState: TypeAlias = Literal["not_found", "complete", "truncated"]
 RefactorMode: TypeAlias = Literal["rename", "dead_code", "suggest"]
 FlowMode: TypeAlias = Literal["list", "get"]
 ReviewMode: TypeAlias = Literal["changes", "context", "affected_flows", "impact"]

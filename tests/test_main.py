@@ -15,6 +15,7 @@ import typing
 
 import pytest
 
+from dagayn.contracts import _python314_compat
 from dagayn.server import main as crg_main
 
 SPLIT_ARCHITECTURE_TOOL_NAMES = {
@@ -124,7 +125,7 @@ class TestPython314Compatibility:
 
         monkeypatch.setattr(typing, "_eval_type", fake_eval_type, raising=False)
 
-        crg_main._patch_typing_eval_type_for_python314_beta()
+        _python314_compat.patch_typing_eval_type_for_python314_beta()
 
         eval_type = getattr(typing, "_eval_type")
         assert eval_type("T", {}, {}, prefer_fwd_module=True) == "resolved"
@@ -133,7 +134,7 @@ class TestPython314Compatibility:
     def test_bytestring_compat_restores_removed_collections_abc_name(self, monkeypatch):
         monkeypatch.delattr(collections.abc, "ByteString", raising=False)
 
-        crg_main._patch_collections_abc_bytestring_for_python314()
+        _python314_compat.patch_collections_abc_bytestring_for_python314()
 
         assert hasattr(collections.abc, "ByteString")
         assert isinstance(b"x", collections.abc.ByteString)
