@@ -1294,6 +1294,31 @@ mod parser_core_tests {
     }
 }
 
+/// Whether two Python snippets are the same code: their syntax trees are
+/// equal, so comments and layout (line breaks, redundant parentheses,
+/// trailing commas) do not count. `None` when either side does not parse on
+/// its own. Both sides are dedented first, so a method span compares too.
+pub fn python_same_code(before: &str, after: &str) -> Option<bool> {
+    use ruff_python_ast::comparable::ComparableModModule;
+    let before = ruff_python_parser::parse_module(&dedent(before)).ok()?;
+    let after = ruff_python_parser::parse_module(&dedent(after)).ok()?;
+    Some(ComparableModModule::from(before.syntax()) == ComparableModModule::from(after.syntax()))
+}
+
+/// `text` with the indentation its non-blank lines share removed.
+fn dedent(text: &str) -> String {
+    let indent = text
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| line.len() - line.trim_start().len())
+        .min()
+        .unwrap_or(0);
+    text.lines()
+        .map(|line| line.get(indent..).unwrap_or(line.trim_start()))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 #[cfg(test)]
 #[path = "core_tests/mod.rs"]
 mod tests;

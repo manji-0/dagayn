@@ -895,3 +895,15 @@ fn python_future_imports_are_not_dependencies() {
         "{edges:?}"
     );
 }
+
+#[test]
+fn python_same_code_ignores_comments_and_layout() {
+    let before =
+        "    def total(values, sep):\n        return sep.join(values) + str(len(values))\n";
+    let after = "    def total(\n        values,\n        sep,\n    ):\n        # joined\n        return (\n            sep.join(values)\n            + str(len(values))\n        )\n";
+    assert_eq!(python_same_code(before, after), Some(true));
+    let changed =
+        "    def total(values, sep):\n        return sep.join(values) + str(len(values) + 1)\n";
+    assert_eq!(python_same_code(before, changed), Some(false));
+    assert_eq!(python_same_code(before, "def broken(:\n"), None);
+}
