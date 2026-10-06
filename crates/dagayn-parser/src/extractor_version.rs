@@ -183,8 +183,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 19: the grammar carries local patches (vendor/grammar-patches/rust):
         // `~` in macro token trees, `where` on unit structs, and
         // `pub type` in extern blocks.
+        // 20: an `impl` for a type parameter or a type of another crate marks
+        // its `IMPLEMENTS` edge and members with `impl_target`.
         extractor: "rust",
-        version: 19,
+        version: 20,
         languages: &["rust"],
     },
     ExtractorVersion {

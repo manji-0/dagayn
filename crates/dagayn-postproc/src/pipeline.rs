@@ -21,6 +21,8 @@ pub struct PostprocessResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bare_inheritance_targets_resolved: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub foreign_impl_members_linked: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub terraform_module_references_resolved: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unresolved_endpoint_edges_demoted: Option<i64>,
@@ -115,6 +117,12 @@ pub fn run_post_processing_json(
         || store.resolve_bare_inheritance_targets(),
     ) {
         result.bare_inheritance_targets_resolved = Some(count);
+    }
+
+    if let Some(count) = record_step(&mut result.warnings, "Rust impl member linking", || {
+        store.link_foreign_impl_members()
+    }) {
+        result.foreign_impl_members_linked = Some(count);
     }
 
     if let Some(count) = record_step(

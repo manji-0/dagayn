@@ -465,6 +465,10 @@ impl PyGraphStore {
         self.with_store_mut(|store| store.resolve_bare_inheritance_targets())
     }
 
+    fn link_foreign_impl_members(&self) -> PyResult<i64> {
+        self.with_store_mut(|store| store.link_foreign_impl_members())
+    }
+
     fn resolve_terraform_module_references(&self) -> PyResult<i64> {
         self.with_store_mut(|store| store.resolve_terraform_module_references())
     }

@@ -227,6 +227,11 @@ fn minimal_steps(
         outcome.set("bare_call_targets_resolved", calls);
         outcome.set("bare_inheritance_targets_resolved", inheritance);
     }
+    if let Some(count) = outcome.step("Rust impl member linking", || {
+        store.link_foreign_impl_members()
+    }) {
+        outcome.set("foreign_impl_members_linked", count);
+    }
     if let Some(count) = outcome.step("Terraform module reference resolution", || {
         store.resolve_terraform_module_references()
     }) {

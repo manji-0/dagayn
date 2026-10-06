@@ -1,5 +1,5 @@
 {
-  "extractor_versions": "bash=1,c_like=7,csharp=7,dart=5,elixir=3,gdscript=3,go=8,java=4,javascript=9,julia=4,kotlin=5,lua=4,markdown=1,perl=4,php=3,python=10,r=3,ruby=5,rust=19,scala=4,shared=2,swift=4,terraform=1,zig=4",
+  "extractor_versions": "bash=1,c_like=7,csharp=7,dart=5,elixir=3,gdscript=3,go=8,java=4,javascript=9,julia=4,kotlin=5,lua=4,markdown=1,perl=4,php=3,python=10,r=3,ruby=5,rust=20,scala=4,shared=2,swift=4,terraform=1,zig=4",
   "fts_indexed_at": "<VOLATILE>",
   "fts_indexed_node_count": "25",
   "fts_segmenter": "lindera",

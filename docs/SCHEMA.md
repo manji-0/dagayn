@@ -55,6 +55,23 @@ confidence; one whose tested symbol is still not a node is dropped, and a
 call a later update resolves gets its `TESTED_BY` back (see
 [CALL-RESOLUTION.md](./CALL-RESOLUTION.md#tested_by)).
 
+A member is contained by its type when the type is declared in the same
+file, and otherwise by its File node: a parser sees one file. For Rust,
+post-processing then moves the `CONTAINS` edges of an `impl` block's members,
+and its `IMPLEMENTS` edges, from the File (and from the `file::Type` source
+that is no node) to the type's own node in another file. The type is found by
+name: in the same file (an `impl` inside another module), else the one
+candidate the file's imports make visible, else the one in the module the
+`impl` names (`impl Tr for onepass::DFA`), else the one under the same
+`src/`, `tests/`, `benches/`, or `examples/` directory of the package. A moved
+edge records its previous source in `extra.impl_owner_from` and gets it back
+when the type's node goes away. The parser marks an `impl` that no type of
+the repository can own with `impl_target` on its `IMPLEMENTS` edge and its
+members: `"generic"` for a type parameter (`impl<T> Parse for T`) and
+`"external"` for a standard-library or dependency type (`impl From<X> for
+String`, `impl Tr for serde_json::Value`); those stay where the parser put
+them.
+
 Bare-name resolution binds a `CALLS`, `INHERITS`, or `IMPLEMENTS` target only
 when exactly one candidate is visible to the source file, and grades the edge
 by that visibility:

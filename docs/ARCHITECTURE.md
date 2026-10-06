@@ -89,6 +89,8 @@ Optional post-processing layers add:
   variants, declared return types, PyO3 classes, standard-library and
   package methods, and `TESTED_BY` reconciliation, in the order
   [CALL-RESOLUTION.md](./CALL-RESOLUTION.md#post-processing-passes) gives
+- Rust `impl` members and `IMPLEMENTS` edges moved to the type's node when
+  the type is declared in another file ([SCHEMA.md](./SCHEMA.md#edges))
 
 - communities
 - execution flows (CALLS reachable sets from entry points; `path` / `steps` are BFS visit order, not a call sequence; truncation is disclosed)

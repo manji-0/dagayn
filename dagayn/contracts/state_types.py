@@ -437,6 +437,7 @@ class PostprocessResult(BaseModel):
     fts_indexed: int | None = None
     bare_call_targets_resolved: int | None = None
     bare_inheritance_targets_resolved: int | None = None
+    foreign_impl_members_linked: int | None = None
     terraform_module_references_resolved: int | None = None
     unresolved_endpoint_edges_demoted: int | None = None
     markdown_artifact_refs_resolved: int | None = None
