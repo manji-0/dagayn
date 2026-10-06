@@ -1,5 +1,7 @@
 """Tests for the incremental graph update module."""
 
+import os
+import sqlite3
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch  # noqa: F401 – patch used in tests
@@ -1220,43 +1222,618 @@ class TestIncrementalUpdate:
         assert calls == [[".gitignore"]]
 
 
-class TestParallelParsing:
-    def test_parallel_build_produces_same_results(self, tmp_path):
-        """Serial and parallel builds produce identical node/edge counts."""
-        (tmp_path / ".git").mkdir()
-        # Create several Python files
-        for i in range(10):
-            (tmp_path / f"mod{i}.py").write_text(
-                f"def func_{i}():\n    return {i}\n\nclass Cls{i}:\n    pass\n"
-            )
+class _WatchHarness:
+    """Runs :func:`watch` with a fake observer and timer, then hands back the
+    event handler so a test can feed it events and fire the debounce."""
 
-        # Serial build
-        db_serial = tmp_path / "serial.db"
-        store_serial = GraphStore(db_serial)
+    def __init__(self, monkeypatch):
+        self.timers: list = []
+        self.handler = None
+        harness = self
+
+        class FakeTimer:
+            def __init__(self, _seconds, function):
+                self.function = function
+                self.cancelled = False
+                harness.timers.append(self)
+
+            def start(self):
+                pass
+
+            def cancel(self):
+                self.cancelled = True
+
+        class FakeObserver:
+            def schedule(self, handler, _path, recursive=True):
+                harness.handler = handler
+
+            def start(self):
+                pass
+
+            def stop(self):
+                pass
+
+            def join(self):
+                pass
+
+        monkeypatch.setattr("threading.Timer", FakeTimer)
+        monkeypatch.setattr("watchdog.observers.Observer", FakeObserver)
+        monkeypatch.setattr(
+            "dagayn.incremental_update_pipeline._idle",
+            lambda: (_ for _ in ()).throw(KeyboardInterrupt),
+        )
+
+    def start(self, repo, store, on_files_updated=None):
+        watch(repo, store, on_files_updated=on_files_updated)
+        assert self.handler is not None
+        return self.handler
+
+    def flush(self):
+        live = [timer for timer in self.timers if not timer.cancelled]
+        assert len(live) == 1, f"expected one pending debounce, got {len(live)}"
+        self.timers.clear()
+        live[0].function()
+
+
+def _event(path: Path, *, is_directory: bool = False):
+    return MagicMock(is_directory=is_directory, src_path=str(path))
+
+
+class TestWatchHandler:
+    @pytest.fixture()
+    def built(self, tmp_path, monkeypatch):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        (repo / "a.py").write_text("def a():\n    return 1\n")
+        (repo / "kept.py").write_text("def kept():\n    return 1\n")
+        monkeypatch.setattr(
+            "dagayn.incremental_update_pipeline.is_gitignored",
+            lambda _root, rel: Path(rel).name == "kept.py",
+        )
+        store = GraphStore(tmp_path / "graph.db")
+        full_build(repo, store)
+        yield repo.resolve(), store
+        store.close()
+
+    def test_delete_removes_the_files_nodes_but_not_ignored_ones(self, built, monkeypatch):
+        repo, store = built
+        handler = _WatchHarness(monkeypatch).start(repo, store)
+        (repo / "a.py").unlink()
+        (repo / "kept.py").unlink()
+
+        handler.on_deleted(_event(repo, is_directory=True))
+        handler.on_deleted(_event(repo.parent / "elsewhere.py"))
+        handler.on_deleted(_event(repo / "kept.py"))
+        handler.on_deleted(_event(repo / "node_modules" / "dep.py"))
+        assert store.get_nodes_by_file("a.py")
+        assert store.get_nodes_by_file("kept.py")
+
+        handler.on_deleted(_event(repo / "a.py"))
+
+        assert store.get_nodes_by_file("a.py") == []
+        assert store.get_nodes_by_file("kept.py")
+
+    def test_delete_that_fails_to_store_is_logged_not_raised(self, built, monkeypatch, caplog):
+        repo, store = built
+        handler = _WatchHarness(monkeypatch).start(repo, store)
+
+        def remove_file_data(_rel):
+            raise RuntimeError("database is locked")
+
+        store.remove_file_data = remove_file_data
+        handler.on_deleted(_event(repo / "a.py"))
+
+        assert "Error removing a.py: database is locked" in caplog.text
+
+    def test_only_indexable_files_schedule_an_update(self, built, monkeypatch, tmp_path):
+        repo, store = built
+        harness = _WatchHarness(monkeypatch)
+        handler = harness.start(repo, store)
+        (repo / "notes.txt").write_text("not source\n")
+        (repo / "link.py").symlink_to(repo / "a.py")
+        (repo / "node_modules").mkdir()
+        (repo / "node_modules" / "dep.js").write_text("function dep() {}\n")
+        outside = tmp_path / "outside.py"
+        outside.write_text("def outside():\n    return 1\n")
+
+        for path in (
+            repo / "notes.txt",
+            repo / "link.py",
+            repo / "node_modules" / "dep.js",
+            repo / "kept.py",
+            outside,
+        ):
+            handler.on_modified(_event(path))
+        handler.on_modified(_event(repo, is_directory=True))
+        assert harness.timers == []
+
+        handler.on_created(_event(repo / "a.py"))
+        assert len(harness.timers) == 1
+
+    def test_flush_updates_the_graph_and_runs_the_callback(self, built, monkeypatch, caplog):
+        repo, store = built
+        harness = _WatchHarness(monkeypatch)
+        seen: list[GraphStore] = []
+
+        def callback(passed):
+            seen.append(passed)
+            raise RuntimeError("post-processing exploded")
+
+        handler = harness.start(repo, store, on_files_updated=callback)
+        (repo / "a.py").write_text("def renamed():\n    return 2\n")
+        (repo / "b.py").write_text("def b():\n    return 3\n")
+        handler.on_modified(_event(repo / "a.py"))
+        handler.on_created(_event(repo / "b.py"))
+        # A save that is gone again before the debounce fires is dropped.
+        (repo / "tmp.py").write_text("x = 1\n")
+        handler.on_created(_event(repo / "tmp.py"))
+        (repo / "tmp.py").unlink()
+
+        harness.flush()
+
+        assert {n.name for n in store.get_nodes_by_file("a.py")} >= {"renamed"}
+        assert "a" not in {n.name for n in store.get_nodes_by_file("a.py")}
+        assert store.get_nodes_by_file("b.py")
+        assert store.get_nodes_by_file("tmp.py") == []
+        assert seen == [store]
+        assert "Post-update callback failed: post-processing exploded" in caplog.text
+
+    def test_flush_with_only_vanished_files_does_nothing(self, built, monkeypatch):
+        repo, store = built
+        harness = _WatchHarness(monkeypatch)
+        seen: list[GraphStore] = []
+        handler = harness.start(repo, store, on_files_updated=seen.append)
+        (repo / "tmp.py").write_text("x = 1\n")
+        handler.on_created(_event(repo / "tmp.py"))
+        (repo / "tmp.py").unlink()
+
+        harness.flush()
+
+        assert seen == []
+
+    def test_failed_update_is_logged_and_skips_the_callback(self, built, monkeypatch, caplog):
+        repo, store = built
+        harness = _WatchHarness(monkeypatch)
+        seen: list[GraphStore] = []
+
+        def failing_update(*_args, **_kwargs):
+            raise sqlite3.OperationalError("database is locked")
+
+        monkeypatch.setattr("dagayn.incremental_update_pipeline.incremental_update", failing_update)
+        handler = harness.start(repo, store, on_files_updated=seen.append)
+        handler.on_modified(_event(repo / "a.py"))
+
+        harness.flush()
+
+        assert seen == []
+        assert "Error updating watched files ['a.py']: database is locked" in caplog.text
+
+
+def _objcxx(name: str, body: str = "return 1;") -> str:
+    """An Objective-C++ source: ``.mm`` is parsed by the Python parser, not Rust."""
+    return (
+        f'#import "{name}.h"\n@implementation {name.capitalize()}\n'
+        f"- (int){name}Value {{ {body} }}\n@end\n"
+    )
+
+
+def _graph_snapshot(store: GraphStore) -> dict[str, set[tuple[str, str]]]:
+    return {
+        rel: {(node.kind, node.name) for node in store.get_nodes_by_file(rel)}
+        for rel in sorted(store.get_all_files())
+    }
+
+
+class TestParallelParsing:
+    """Files the Rust parser does not own (``.mm``, ``.tf.json``) are parsed in
+    Python: serially below 8 files or with ``CRG_SERIAL_PARSE=1``, otherwise in a
+    process pool. Both paths must store the same graph."""
+
+    @staticmethod
+    def _repo(tmp_path: Path, count: int = 10) -> Path:
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        for i in range(count):
+            (repo / f"mod{i}.mm").write_text(_objcxx(f"mod{i}", f"return {i};"))
+        return repo
+
+    def test_parallel_build_produces_same_results(self, tmp_path, monkeypatch):
+        import dagayn.incremental_build as incremental_build
+
+        monkeypatch.setattr(incremental_build, "_MAX_PARSE_WORKERS", 2)
+        repo = self._repo(tmp_path)
+
+        store_serial = GraphStore(tmp_path / "serial.db")
         try:
             with patch.dict("os.environ", {"CRG_SERIAL_PARSE": "1"}):
-                result_serial = full_build(tmp_path, store_serial)
-            serial_nodes = result_serial.total_nodes
-            serial_edges = result_serial.total_edges
-            serial_files = result_serial.files_parsed
+                result_serial = full_build(repo, store_serial)
+            serial_graph = _graph_snapshot(store_serial)
         finally:
             store_serial.close()
 
-        # Parallel build
-        db_parallel = tmp_path / "parallel.db"
-        store_parallel = GraphStore(db_parallel)
+        store_parallel = GraphStore(tmp_path / "parallel.db")
         try:
             with patch.dict("os.environ", {"CRG_SERIAL_PARSE": ""}):
-                result_parallel = full_build(tmp_path, store_parallel)
-            parallel_nodes = result_parallel.total_nodes
-            parallel_edges = result_parallel.total_edges
-            parallel_files = result_parallel.files_parsed
+                result_parallel = full_build(repo, store_parallel)
+            parallel_graph = _graph_snapshot(store_parallel)
         finally:
             store_parallel.close()
 
-        assert serial_files == parallel_files
-        assert serial_nodes == parallel_nodes
-        assert serial_edges == parallel_edges
+        assert result_serial.errors == result_parallel.errors == []
+        assert result_serial.files_parsed == result_parallel.files_parsed == 10
+        assert result_serial.total_nodes == result_parallel.total_nodes
+        assert result_serial.total_edges == result_parallel.total_edges
+        assert serial_graph == parallel_graph
+        assert ("Function", "mod3Value") in parallel_graph["mod3.mm"]
+
+    def test_parallel_incremental_update_reparses_every_edit(self, tmp_path, monkeypatch):
+        import dagayn.incremental_update_pipeline as pipeline
+
+        monkeypatch.setattr(pipeline, "_MAX_PARSE_WORKERS", 2)
+        monkeypatch.delenv("CRG_SERIAL_PARSE", raising=False)
+        repo = self._repo(tmp_path)
+        store = GraphStore(tmp_path / "graph.db")
+        try:
+            with patch.dict("os.environ", {"CRG_SERIAL_PARSE": "1"}):
+                full_build(repo, store)
+            edited = [f"mod{i}.mm" for i in range(9)]
+            for i, rel in enumerate(edited):
+                (repo / rel).write_text(_objcxx(f"renamed{i}"))
+
+            result = incremental_update(repo, store, changed_files=edited)
+
+            assert result.errors == []
+            assert result.files_updated == 9
+            graph = _graph_snapshot(store)
+            for i, rel in enumerate(edited):
+                assert ("Function", f"renamed{i}Value") in graph[rel]
+                assert ("Function", f"mod{i}Value") not in graph[rel]
+            assert ("Function", "mod9Value") in graph["mod9.mm"]
+        finally:
+            store.close()
+
+
+class TestPythonOwnedFiles:
+    """Incremental updates of files the Python parser owns."""
+
+    @staticmethod
+    def _built(tmp_path: Path) -> tuple[Path, GraphStore]:
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        (repo / "shape.h").write_text("int area(void);\n")
+        (repo / "shape.mm").write_text(
+            '#import "shape.h"\n@implementation Shape\n- (int)size { return area(); }\n@end\n'
+        )
+        (repo / "main.tf.json").write_text('{"variable": {"region": {"default": "x"}}}\n')
+        store = GraphStore(tmp_path / "graph.db")
+        result = full_build(repo, store)
+        assert result.errors == []
+        return repo, store
+
+    def test_edit_replaces_the_files_nodes(self, tmp_path):
+        repo, store = self._built(tmp_path)
+        try:
+            (repo / "main.tf.json").write_text('{"variable": {"zone": {"default": "y"}}}\n')
+
+            result = incremental_update(repo, store, changed_files=["main.tf.json"])
+
+            assert result.files_updated == 1
+            names = {node.name for node in store.get_nodes_by_file("main.tf.json")}
+            assert "var.zone" in names
+            assert "var.region" not in names
+        finally:
+            store.close()
+
+    def test_rewrite_with_same_content_only_refreshes_the_mtime(self, tmp_path):
+        repo, store = self._built(tmp_path)
+        try:
+            path = repo / "shape.mm"
+            before = store.get_file_meta_for_files(["shape.mm"])["shape.mm"]
+            nodes_before = _graph_snapshot(store)["shape.mm"]
+            os.utime(path, ns=(before[1] + 5_000_000_000, before[1] + 5_000_000_000))
+
+            result = incremental_update(repo, store, changed_files=["shape.mm"])
+
+            assert result.files_updated == 0
+            after = store.get_file_meta_for_files(["shape.mm"])["shape.mm"]
+            assert after == (before[0], path.stat().st_mtime_ns)
+            assert _graph_snapshot(store)["shape.mm"] == nodes_before
+        finally:
+            store.close()
+
+    def test_dependent_is_reparsed_only_when_its_own_content_moved(self, tmp_path):
+        repo, store = self._built(tmp_path)
+        try:
+            (repo / "shape.h").write_text("int area(void);\nint perimeter(void);\n")
+            untouched = incremental_update(repo, store, changed_files=["shape.h"])
+            assert untouched.dependent_files == ["shape.mm"]
+            assert ("Function", "size") in _graph_snapshot(store)["shape.mm"]
+
+            # The dependent was also edited, but only the header is reported.
+            (repo / "shape.h").write_text("int area(void);\n")
+            (repo / "shape.mm").write_text(
+                '#import "shape.h"\n@implementation Shape\n- (int)extent { return 2; }\n@end\n'
+            )
+            os.utime(repo / "shape.mm", ns=(1, 1))
+            result = incremental_update(repo, store, changed_files=["shape.h"])
+
+            assert result.dependent_files == ["shape.mm"]
+            names = {name for _kind, name in _graph_snapshot(store)["shape.mm"]}
+            assert "extent" in names
+            assert "size" not in names
+        finally:
+            store.close()
+
+    def test_parse_failure_is_reported_and_other_files_still_land(self, tmp_path, monkeypatch):
+        repo, store = self._built(tmp_path)
+        try:
+            from dagayn.parser import CodeParser
+
+            real_parse = CodeParser.parse_bytes
+
+            def parse_bytes(self, path, source):
+                if Path(path).name == "shape.mm":
+                    raise ValueError("grammar exploded")
+                return real_parse(self, path, source)
+
+            monkeypatch.setattr(CodeParser, "parse_bytes", parse_bytes)
+            (repo / "shape.mm").write_text(_objcxx("shape", "return 3;"))
+            (repo / "main.tf.json").write_text('{"variable": {"zone": {"default": "y"}}}\n')
+
+            result = incremental_update(repo, store, changed_files=["shape.mm", "main.tf.json"])
+
+            assert result.errors == [{"file": "shape.mm", "error": "grammar exploded"}]
+            assert "var.zone" in {n.name for n in store.get_nodes_by_file("main.tf.json")}
+
+            rebuilt = full_build(repo, store)
+            assert rebuilt.errors == [{"file": "shape.mm", "error": "grammar exploded"}]
+            assert rebuilt.files_parsed == 3
+        finally:
+            store.close()
+
+    def test_outdated_extractor_reparses_unchanged_python_owned_files(self, tmp_path):
+        from dagayn.extractor_versions import (
+            EXTRACTOR_VERSIONS_KEY,
+            format_extractor_versions,
+            outdated_extractors,
+            parse_extractor_versions,
+        )
+
+        repo, store = self._built(tmp_path)
+        try:
+            # As if the old C-family extractor had produced nothing for shape.mm.
+            store.remove_files_data(["shape.mm"])
+            stamp = parse_extractor_versions(store.get_metadata(EXTRACTOR_VERSIONS_KEY))
+            stamp["c_like"] = 0
+            store.set_metadata(EXTRACTOR_VERSIONS_KEY, format_extractor_versions(stamp))
+            store.commit()
+            assert outdated_extractors(store) == ["c_like"]
+
+            result = incremental_update(repo, store, changed_files=[])
+
+            assert result.files_updated == 2  # shape.h (Rust) and shape.mm (Python)
+            assert ("Function", "size") in _graph_snapshot(store)["shape.mm"]
+            assert outdated_extractors(store) == []
+        finally:
+            store.close()
+
+    def test_store_batches_are_flushed_as_they_fill(self, tmp_path, monkeypatch):
+        import dagayn.incremental_build as incremental_build
+
+        monkeypatch.setattr(incremental_build, "_STORE_BATCH_SIZE", 2)
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        for i in range(5):
+            (repo / f"unit{i}.mm").write_text(_objcxx(f"unit{i}"))
+        store = GraphStore(tmp_path / "graph.db")
+        try:
+            batches: list[int] = []
+            real_store = store.store_file_batch_json
+
+            def recording(batch_json):
+                import json
+
+                batches.append(len(json.loads(batch_json)))
+                return real_store(batch_json)
+
+            store.store_file_batch_json = recording
+            full_build(repo, store)
+
+            assert batches == [2, 2, 1]
+            graph = _graph_snapshot(store)
+            assert all(("Function", f"unit{i}Value") in graph[f"unit{i}.mm"] for i in range(5))
+        finally:
+            store.close()
+
+
+class TestFullBuildScope:
+    def test_rebuild_purges_files_deleted_since_the_last_build(self, tmp_path):
+        (tmp_path / ".git").mkdir()
+        (tmp_path / "keep.py").write_text("def keep():\n    return 1\n")
+        (tmp_path / "gone.py").write_text("def gone():\n    return 2\n")
+        store = GraphStore(tmp_path / "graph.db")
+        try:
+            full_build(tmp_path, store)
+            assert set(store.get_all_files()) == {"keep.py", "gone.py"}
+
+            (tmp_path / "gone.py").unlink()
+            result = full_build(tmp_path, store)
+
+            assert result.files_parsed == 1
+            assert store.get_all_files() == ["keep.py"]
+            assert store.get_nodes_by_file("gone.py") == []
+        finally:
+            store.close()
+
+    def test_extensionless_script_is_parsed_by_its_shebang(self, tmp_path):
+        (tmp_path / ".git").mkdir()
+        (tmp_path / "bin").mkdir()
+        (tmp_path / "bin" / "deploy").write_text(
+            "#!/usr/bin/env python3\n\ndef deploy():\n    return 0\n"
+        )
+        (tmp_path / "bin" / "README").write_text("plain text, no shebang\n")
+        store = GraphStore(tmp_path / "graph.db")
+        try:
+            result = full_build(tmp_path, store)
+
+            assert result.files_parsed == 1
+            assert "deploy" in {n.name for n in store.get_nodes_by_file("bin/deploy")}
+        finally:
+            store.close()
+
+
+def _fail_rust_store(store: GraphStore) -> None:
+    def store_rust_owned_files(_repo_root, _chunk):
+        raise RuntimeError("database is locked")
+
+    store.store_rust_owned_files = store_rust_owned_files
+
+
+class TestStoreFailures:
+    """A file that failed to *store* leaves the graph short of HEAD, so the run
+    is ``partial`` and must not stamp ``git_head_sha``."""
+
+    def test_full_build_store_failure_is_partial_and_unstamped(self, main_repo):
+        store = GraphStore(main_repo / "graph.db")
+        try:
+            _fail_rust_store(store)
+
+            result = full_build(main_repo, store)
+
+            assert result.status == "partial"
+            assert result.store_failed_files == ["hello.py"]
+            assert result.errors == [
+                {"file": "hello.py", "error": "database is locked", "phase": "store"}
+            ]
+            assert not store.get_metadata("git_head_sha")
+        finally:
+            store.close()
+
+    def test_incremental_store_failure_keeps_the_old_stamps(self, main_repo):
+        from dagayn.extractor_versions import (
+            EXTRACTOR_VERSIONS_KEY,
+            format_extractor_versions,
+            outdated_extractors,
+            parse_extractor_versions,
+        )
+
+        store = GraphStore(main_repo / "graph.db")
+        try:
+            full_build(main_repo, store)
+            head = store.get_metadata("git_head_sha")
+            assert head
+            stamp = parse_extractor_versions(store.get_metadata(EXTRACTOR_VERSIONS_KEY))
+            stamp["python"] = 0
+            store.set_metadata(EXTRACTOR_VERSIONS_KEY, format_extractor_versions(stamp))
+            store.commit()
+            assert outdated_extractors(store) == ["python"]
+            # Move HEAD with a commit the graph has nothing to index, so an
+            # update that succeeded would stamp the new commit.
+            (main_repo / "notes.txt").write_text("no code here\n")
+            for args in (("add", "notes.txt"), ("commit", "-m", "notes")):
+                subprocess.run(
+                    ["git", "-c", "commit.gpgsign=false", *args],
+                    cwd=main_repo,
+                    check=True,
+                    capture_output=True,
+                )
+            _fail_rust_store(store)
+
+            result = incremental_update(main_repo, store, base=head)
+
+            assert result.status == "partial"
+            assert result.store_failed_files == ["hello.py"]
+            # Re-parsing is still owed, so the stale stamp must survive.
+            assert outdated_extractors(store) == ["python"]
+            assert store.get_metadata("git_head_sha") == head
+        finally:
+            store.close()
+
+
+class TestIncrementalScope:
+    def test_outdated_extractor_with_nothing_left_to_reparse_is_restamped(self, tmp_path):
+        from dagayn.extractor_versions import (
+            EXTRACTOR_VERSIONS_KEY,
+            format_extractor_versions,
+            outdated_extractors,
+            parse_extractor_versions,
+        )
+
+        (tmp_path / ".git").mkdir()
+        (tmp_path / "app.ts").write_text("export function main() {}\n")
+        (tmp_path / "tool.py").write_text("def run():\n    return 1\n")
+        store = GraphStore(tmp_path / "graph.db")
+        try:
+            full_build(tmp_path, store)
+            stamp = parse_extractor_versions(store.get_metadata(EXTRACTOR_VERSIONS_KEY))
+            stamp["javascript"] = 0
+            store.set_metadata(EXTRACTOR_VERSIONS_KEY, format_extractor_versions(stamp))
+            store.commit()
+            # The only TypeScript file is gone from disk but still in the graph.
+            (tmp_path / "app.ts").unlink()
+            assert outdated_extractors(store) == ["javascript"]
+
+            result = incremental_update(tmp_path, store, changed_files=[])
+
+            assert outdated_extractors(store) == []
+            assert store.get_all_files() == ["tool.py"]
+            assert result.files_updated == 1
+        finally:
+            store.close()
+
+    def test_large_update_suspends_and_restores_the_write_indexes(self, tmp_path):
+        from dagayn.incremental_update_pipeline import BULK_LOAD_FILE_THRESHOLD
+        from tests.store_sql import store_conn
+
+        (tmp_path / ".git").mkdir()
+        store = GraphStore(tmp_path / "graph.db")
+        try:
+            indexes_sql = "SELECT name FROM sqlite_master WHERE type = 'index' ORDER BY name"
+            indexes_before = [row[0] for row in store_conn(store).execute(indexes_sql)]
+            bulk_loads: list[str] = []
+            real_begin = store.begin_bulk_load
+            store.begin_bulk_load = lambda: (bulk_loads.append("begin"), real_begin())[1]
+            names = [f"m{i}.py" for i in range(BULK_LOAD_FILE_THRESHOLD)]
+            for i, rel in enumerate(names):
+                (tmp_path / rel).write_text(f"def f{i}():\n    return {i}\n")
+
+            result = incremental_update(tmp_path, store, changed_files=names)
+
+            assert bulk_loads == ["begin"]
+            assert result.files_updated == BULK_LOAD_FILE_THRESHOLD
+            assert len(store.get_all_files()) == BULK_LOAD_FILE_THRESHOLD
+            indexes_after = [row[0] for row in store_conn(store).execute(indexes_sql)]
+            assert indexes_after == indexes_before
+            assert "f63" in {n.name for n in store.get_nodes_by_file("m63.py")}
+        finally:
+            store.close()
+
+    def test_dependent_edited_on_disk_is_reparsed_with_the_change(self, tmp_path):
+        (tmp_path / ".git").mkdir()
+        (tmp_path / "core.py").write_text("def core():\n    return 1\n")
+        (tmp_path / "user.py").write_text(
+            "from core import core\n\n\ndef use():\n    return core()\n"
+        )
+        store = GraphStore(tmp_path / "graph.db")
+        try:
+            full_build(tmp_path, store)
+            (tmp_path / "core.py").write_text("def core():\n    return 2\n")
+            (tmp_path / "user.py").write_text(
+                "from core import core\n\n\ndef use_twice():\n    return core() + core()\n"
+            )
+
+            result = incremental_update(tmp_path, store, changed_files=["core.py"])
+
+            assert result.dependent_files == ["user.py"]
+            names = {n.name for n in store.get_nodes_by_file("user.py")}
+            assert "use_twice" in names
+            assert "use" not in names
+        finally:
+            store.close()
 
 
 class TestMultiHopDependents:

@@ -366,6 +366,54 @@ def test_full_build_with_recurse_submodules(
         store.close()
 
 
+def test_changed_submodule_is_expanded_into_its_files(
+    git_repo_with_submodule: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """git reports a moved submodule as its bare directory; the update has to
+    re-index the files inside it, not try to parse the directory."""
+    # CRG_RECURSE_SUBMODULES is read once, at import.
+    monkeypatch.setattr("dagayn.incremental_files._RECURSE_SUBMODULES", True)
+    parent = git_repo_with_submodule
+    sub = parent / "lib"
+    store = GraphStore(parent / "graph.db")
+    try:
+        full_build(parent, store)
+        assert {n.name for n in store.get_nodes_by_file("lib/util.py")} >= {"helper"}
+
+        _git(sub, "config", "user.email", "test@test.com")
+        _git(sub, "config", "user.name", "Test")
+        (sub / "util.py").write_text("def helper():\n    pass\n\n\ndef added():\n    pass\n")
+        assert _git(sub, "commit", "-am", "lib: add").returncode == 0
+
+        result = incremental_update(parent, store, changed_files=["lib"])
+
+        assert result.changed_files == ["lib/util.py"]
+        assert "added" in {n.name for n in store.get_nodes_by_file("lib/util.py")}
+    finally:
+        store.close()
+
+
+def test_submodule_that_cannot_be_listed_is_left_alone(
+    git_repo_with_submodule: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # CRG_RECURSE_SUBMODULES is read once, at import.
+    monkeypatch.setattr("dagayn.incremental_files._RECURSE_SUBMODULES", True)
+    parent = git_repo_with_submodule
+    store = GraphStore(parent / "graph.db")
+    try:
+        full_build(parent, store)
+        before = {n.name for n in store.get_nodes_by_file("lib/util.py")}
+        # A gitlink whose repository is gone: ``git ls-files`` fails inside it.
+        (parent / "lib" / ".git").write_text("gitdir: /nonexistent/modules/lib\n")
+
+        result = incremental_update(parent, store, changed_files=["lib"])
+
+        assert result.changed_files == ["lib"]
+        assert {n.name for n in store.get_nodes_by_file("lib/util.py")} == before
+    finally:
+        store.close()
+
+
 def _indexed_files(store: GraphStore) -> set[str]:
     return {
         row[0]
