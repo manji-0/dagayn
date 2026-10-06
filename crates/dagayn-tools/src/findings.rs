@@ -370,8 +370,19 @@ pub(crate) fn bridges(inputs: &Inputs) -> Option<Vec<Value>> {
         .iter()
         .map(|node| node.qualified_name.clone())
         .collect();
-    // File-level nodes carry manifest bridges (`pyproject.toml`).
-    seeds.extend(inputs.changed_files.iter().cloned());
+    // File-level nodes carry manifest bridges (`pyproject.toml`). A code
+    // file's own file-level bridge (an import of a native module) would fire
+    // on any edit to it, so code files seed from their changed functions only.
+    for file in inputs.changed_files {
+        let is_code = inputs
+            .store
+            .get_node(file)
+            .ok()?
+            .is_some_and(|node| CODE_LANGUAGES.contains(&node.language.as_str()));
+        if !is_code {
+            seeds.push(file.clone());
+        }
+    }
     seeds.sort();
     seeds.dedup();
     let (outgoing, _) = inputs.store.get_edges_by_endpoints(&seeds).ok()?;
@@ -379,7 +390,11 @@ pub(crate) fn bridges(inputs: &Inputs) -> Option<Vec<Value>> {
     // symbol in it is one place to check.
     let mut targets: BTreeMap<String, (Vec<String>, Vec<Value>)> = BTreeMap::new();
     for edge in outgoing.values().flatten() {
-        if edge.kind != "CROSS_ARTIFACT" || !is_reportable_bridge(edge) {
+        // Tests use a bridge; they do not define its contract.
+        if edge.kind != "CROSS_ARTIFACT"
+            || !is_reportable_bridge(edge)
+            || is_test_path(&edge.file_path)
+        {
             continue;
         }
         let role = cross_artifact_role(edge).unwrap_or("");

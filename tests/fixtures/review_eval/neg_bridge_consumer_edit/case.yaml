@@ -1,0 +1,44 @@
+description: Edits a test and a module that load the maturin-built native module (file-level
+  loads_native_module bridges) without touching the import or the bridge; consumers of a
+  bridge do not define it, so no bridge_touched.
+negative: true
+commit_change: false
+allowed_kinds: [tests_to_run, untested_change]
+base:
+  from: py_rust_bridge
+  files:
+    demo_native/api.py: |
+      from demo_native import _core
+
+
+      def total(a, b):
+          return _core.add(a, b)
+    tests/test_api.py: |
+      from demo_native import _core
+
+
+      def test_add():
+          assert _core.add(1, 2) == 3
+change:
+  files:
+    demo_native/api.py: |
+      from demo_native import _core
+
+
+      def total(a, b):
+          return _core.add(a, b)
+
+
+      def double(a):
+          return total(a, a)
+    tests/test_api.py: |
+      from demo_native import _core
+
+
+      def test_add():
+          assert _core.add(1, 2) == 3
+
+
+      def test_add_negative():
+          assert _core.add(-1, -2) == -3
+expected_findings: []
