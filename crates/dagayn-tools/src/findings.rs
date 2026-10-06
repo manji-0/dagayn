@@ -70,6 +70,8 @@ pub(crate) struct Inputs<'a> {
     /// Nodes whose code the change actually alters (not only comments or
     /// layout).
     pub changed_nodes: &'a [GraphNode],
+    /// The ref the change is diffed against.
+    pub base: &'a str,
 }
 
 impl Inputs<'_> {
@@ -132,6 +134,7 @@ pub(crate) fn change_findings(
         root,
         changed_files,
         changed_nodes: &nodes,
+        base,
     };
     let kinds = [
         dangling_references(&delta, &references),
@@ -482,6 +485,9 @@ pub(crate) fn bridges(inputs: &Inputs) -> Option<Vec<Value>> {
             continue;
         }
         let role = cross_artifact_role(edge).unwrap_or("");
+        if manifest_table_unchanged(inputs, edge) {
+            continue;
+        }
         if IMPLIED_BRIDGE_ROLES.contains(&role)
             || CONTRACT_ROLES_TO_DOC.contains(&role)
             || CONTRACT_ROLES_FROM_DOC.contains(&role)
@@ -539,6 +545,50 @@ pub(crate) fn bridges(inputs: &Inputs) -> Option<Vec<Value>> {
                 })
             })
             .collect(),
+    )
+}
+
+/// Whether a TOML manifest bridge's table (`[tool.maturin]` for
+/// `tool.maturin.manifest-path`) reads the same at `base` as now: the edit
+/// was elsewhere in the file (`[tool.coverage.report]`), so the bridge is
+/// untouched. Anything else (another format, a table not found on either
+/// side, a file new at `base`) counts as touched.
+fn manifest_table_unchanged(inputs: &Inputs, edge: &GraphEdge) -> bool {
+    let file = edge.source_qualified.as_str();
+    if file.contains("::") || !file.ends_with(".toml") {
+        return false;
+    }
+    let Some((table, _key)) = edge.extra["evidence_source"]
+        .as_str()
+        .and_then(|source| source.rsplit_once('.'))
+    else {
+        return false;
+    };
+    let Some(before) = base_symbols::base_source(inputs.root, inputs.base, file) else {
+        return false;
+    };
+    let Ok(now) = std::fs::read(inputs.root.join(file)) else {
+        return false;
+    };
+    let section = |bytes: &[u8]| toml_table_text(&String::from_utf8_lossy(bytes), table);
+    match (section(&before), section(&now)) {
+        (Some(before), Some(now)) => before == now,
+        _ => false,
+    }
+}
+
+/// The lines of `[table]` up to the next table header, without blank lines
+/// and surrounding whitespace.
+fn toml_table_text(text: &str, table: &str) -> Option<String> {
+    let header = format!("[{table}]");
+    let mut lines = text.lines().map(str::trim);
+    lines.find(|line| *line == header)?;
+    Some(
+        lines
+            .take_while(|line| !line.starts_with('['))
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n"),
     )
 }
 
@@ -1056,6 +1106,16 @@ mod tests {
         );
         assert_eq!(common_module_prefix(&filters(&["a::x", "b::y"])), "");
         assert_eq!(common_module_prefix(&filters(&["solo"])), "");
+    }
+
+    #[test]
+    fn toml_tables_end_at_the_next_header() {
+        let text = "[project]\nname = \"x\"\n\n[tool.maturin]\nmanifest-path = \"rust/Cargo.toml\"\n\n[tool.coverage.report]\nprecision = 2\n";
+        assert_eq!(
+            toml_table_text(text, "tool.maturin").as_deref(),
+            Some("manifest-path = \"rust/Cargo.toml\"")
+        );
+        assert_eq!(toml_table_text(text, "tool.missing"), None);
     }
 
     #[test]

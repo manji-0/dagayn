@@ -1,0 +1,26 @@
+description: Adds a [tool.coverage.report] table to pyproject.toml, whose [tool.maturin] table
+  defines an EXACT bridge to rust/Cargo.toml; the bridge's table is unchanged, so no
+  bridge_touched.
+negative: true
+commit_change: false
+base:
+  from: py_rust_bridge
+change:
+  files:
+    pyproject.toml: |
+      [build-system]
+      requires = ["maturin>=1.9,<2"]
+      build-backend = "maturin"
+
+      [project]
+      name = "demo-native"
+      version = "0.1.0"
+      requires-python = ">=3.12"
+
+      [tool.maturin]
+      manifest-path = "rust/Cargo.toml"
+      module-name = "demo_native._core"
+
+      [tool.coverage.report]
+      precision = 2
+expected_findings: []
