@@ -675,6 +675,7 @@ class FlowGetRequest(_FlowRequestBase):
     flow_id: int | None = None
     flow_name: str | None = None
     include_source: bool = False
+    detail_level: FlowDetailLevel = "standard"
 
     @model_validator(mode="after")
     def require_selector(self) -> FlowGetRequest:

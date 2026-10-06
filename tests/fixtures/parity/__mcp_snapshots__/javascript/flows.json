@@ -64,27 +64,11 @@
       "entry_point": "legacy.js::Legacy.run",
       "entry_point_id": 15,
       "file_count": 2,
-      "files": [
-        "legacy.js",
-        "helpers.js"
-      ],
       "id": 1,
       "kind": "reachable_set",
-      "members": [
-        15,
-        10,
-        13,
-        9
-      ],
       "missing_node_count": 0,
       "name": "run",
       "node_count": 4,
-      "path": [
-        15,
-        10,
-        13,
-        9
-      ],
       "resolved_node_count": 4,
       "truncated": false,
       "truncation_reason": null,
@@ -97,23 +81,11 @@
       "entry_point": "comp.jsx::JsxComp",
       "entry_point_id": 2,
       "file_count": 2,
-      "files": [
-        "comp.jsx",
-        "thing.jsx"
-      ],
       "id": 2,
       "kind": "reachable_set",
-      "members": [
-        2,
-        18
-      ],
       "missing_node_count": 0,
       "name": "JsxComp",
       "node_count": 2,
-      "path": [
-        2,
-        18
-      ],
       "resolved_node_count": 2,
       "truncated": false,
       "truncation_reason": null,
@@ -126,23 +98,11 @@
       "entry_point": "esm.mjs::esmFn",
       "entry_point_id": 6,
       "file_count": 2,
-      "files": [
-        "esm.mjs",
-        "helpers.js"
-      ],
       "id": 3,
       "kind": "reachable_set",
-      "members": [
-        6,
-        9
-      ],
       "missing_node_count": 0,
       "name": "esmFn",
       "node_count": 2,
-      "path": [
-        6,
-        9
-      ],
       "resolved_node_count": 2,
       "truncated": false,
       "truncation_reason": null,
@@ -155,23 +115,11 @@
       "entry_point": "legacy.js::Legacy.handle",
       "entry_point_id": 13,
       "file_count": 2,
-      "files": [
-        "legacy.js",
-        "helpers.js"
-      ],
       "id": 4,
       "kind": "reachable_set",
-      "members": [
-        13,
-        9
-      ],
       "missing_node_count": 0,
       "name": "handle",
       "node_count": 2,
-      "path": [
-        13,
-        9
-      ],
       "resolved_node_count": 2,
       "truncated": false,
       "truncation_reason": null,
@@ -184,22 +132,11 @@
       "entry_point": "legacy.js::Legacy.make",
       "entry_point_id": 14,
       "file_count": 1,
-      "files": [
-        "legacy.js"
-      ],
       "id": 5,
       "kind": "reachable_set",
-      "members": [
-        14,
-        12
-      ],
       "missing_node_count": 0,
       "name": "make",
       "node_count": 2,
-      "path": [
-        14,
-        12
-      ],
       "resolved_node_count": 2,
       "truncated": false,
       "truncation_reason": null,

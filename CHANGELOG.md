@@ -4,6 +4,17 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Changed
+
+- `flow_tool(mode="list")` no longer returns each flow's `path` and
+  `members` node-id arrays or its `files` list (`file_count` stays); on
+  this repository the default list went from about 293K to 21K
+  characters. `detail_level="minimal"` now names each flow's
+  `entry_point`, since many flows share a name such as `main` or `run`.
+- `flow_tool(mode="get")` honours `detail_level`: `minimal` drops the id
+  arrays and returns the first 50 steps as qualified name and line, with
+  `steps_omitted` counting the rest. It used to ignore the argument.
+
 ### Fixed
 
 - `dagayn tool refactor_tool` with no arguments runs `mode="suggest"`, as

@@ -94,6 +94,7 @@ def flow_func(
             "flow_id": request.flow_id,
             "flow_name": request.flow_name,
             "include_source": request.include_source,
+            "detail_level": request.detail_level,
         }
     with ToolStoreScope(logger=logger, context=subtool) as scope:
         # Resolves the repository and creates, migrates, or waits for the

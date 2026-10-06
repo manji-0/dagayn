@@ -1129,8 +1129,13 @@ fn flow_tool_lists_and_reads_stored_flows() {
     let flows = listed["flows"].as_array().expect("flows");
     assert!(!flows.is_empty());
     assert_eq!(flows[0]["missing_node_count"], 0);
+    for key in ["path", "members", "files"] {
+        assert!(flows[0].get(key).is_none(), "{key}");
+    }
     assert_eq!(listed["_hints"]["next_steps"][0]["tool"], "flow_tool");
     let id = flows[0]["id"].clone();
+    let minimal = answer(&context, "flow_tool", json!({"detail_level": "minimal"}));
+    assert_eq!(minimal["flows"][0]["entry_point"], flows[0]["entry_point"]);
 
     let got = answer(
         &context,
@@ -1146,6 +1151,20 @@ fn flow_tool_lists_and_reads_stored_flows() {
             .as_str()
             .is_some_and(|s| s.starts_with("1: def "))
     );
+    let trimmed = answer(
+        &context,
+        "flow_tool",
+        json!({"mode": "get", "flow_id": id, "detail_level": "minimal"}),
+    );
+    let flow = &trimmed["flow"];
+    assert!(flow.get("path").is_none() && flow.get("members").is_none());
+    assert_eq!(flow["steps_omitted"], 0);
+    assert_eq!(
+        flow["steps"][0]["qualified_name"],
+        steps[0]["qualified_name"]
+    );
+    assert_eq!(flow["steps"][0]["line_start"], steps[0]["line_start"]);
+    assert!(flow["steps"][0].get("step_kind").is_none());
 
     let missing = answer(
         &context,

@@ -152,6 +152,7 @@ def test_flow_routes_modes(monkeypatch) -> None:
             "flow_id": 7,
             "flow_name": None,
             "include_source": True,
+            "detail_level": "standard",
         },
     )
 

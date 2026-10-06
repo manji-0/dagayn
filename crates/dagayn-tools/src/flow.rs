@@ -88,6 +88,7 @@ pub(crate) fn flow(context: &Context, arguments: &Map<String, Value>) -> Option<
             flow_id,
             flow_name,
             include_source,
+            &detail_level,
         )?;
         ("get_flow", out)
     };
@@ -105,7 +106,8 @@ pub(crate) fn flow(context: &Context, arguments: &Map<String, Value>) -> Option<
     ))
 }
 
-/// `get_flows`: the stored rows with `_annotate_flow_rows_liveness`.
+/// `get_flows`: the stored rows with `_annotate_flow_rows_liveness`, less
+/// its per-flow `files` list.
 fn get_flows(store: &GraphStore, sort_by: &str, limit: i64) -> Option<Vec<Value>> {
     let mut flows: Vec<Value> =
         serde_json::from_str(&store.get_flows_json(sort_by, limit).ok()?).ok()?;
@@ -148,18 +150,6 @@ fn get_flows(store: &GraphStore, sort_by: &str, limit: i64) -> Option<Vec<Value>
         let resolved = path.iter().filter(|id| nodes.contains_key(id)).count();
         object.insert("resolved_node_count".into(), json!(resolved));
         object.insert("missing_node_count".into(), json!(path.len() - resolved));
-        if !object.contains_key("files") {
-            let mut files: Vec<String> = Vec::new();
-            for id in &path {
-                if let Some(node) = nodes.get(id)
-                    && !node.file_path.is_empty()
-                    && !files.contains(&node.file_path)
-                {
-                    files.push(node.file_path.clone());
-                }
-            }
-            object.insert("files".into(), json!(files));
-        }
     }
     Some(flows)
 }
@@ -193,6 +183,14 @@ fn list_flows(
             .collect();
         flows = py_prefix(&filtered, limit);
     }
+    // `path` and `members` list the reachable set, up to 512 node ids per
+    // flow; `get` returns it as steps.
+    for flow in &mut flows {
+        if let Some(object) = flow.as_object_mut() {
+            object.remove("path");
+            object.remove("members");
+        }
+    }
     if detail_level == "minimal" {
         flows = flows
             .into_iter()
@@ -203,6 +201,7 @@ fn list_flows(
                 };
                 json!({
                     "name": f["name"],
+                    "entry_point": f.get("entry_point").cloned().unwrap_or(Value::Null),
                     "criticality": f["criticality"],
                     "node_count": f["node_count"],
                     "kind": kind,
@@ -384,6 +383,42 @@ fn step_source(step: &Value, root: &Path) -> Option<String> {
     Some(source)
 }
 
+/// `get_flow`'s step cap at `detail_level="minimal"`.
+const MINIMAL_STEPS: usize = 50;
+
+/// Trims a flow for `detail_level="minimal"`: no id arrays, and the first
+/// [`MINIMAL_STEPS`] steps as qualified name and line, the rest counted.
+fn minimal_flow(flow: &mut Value) {
+    let Some(object) = flow.as_object_mut() else {
+        return;
+    };
+    object.remove("path");
+    object.remove("members");
+    let Some(steps) = object.get("steps").and_then(Value::as_array) else {
+        return;
+    };
+    let total = steps.len();
+    let kept: Vec<Value> = steps
+        .iter()
+        .take(MINIMAL_STEPS)
+        .map(|step| {
+            let mut out = json!({
+                "qualified_name": step.get("qualified_name").cloned().unwrap_or(Value::Null),
+                "line_start": step.get("line_start").cloned().unwrap_or(Value::Null),
+            });
+            if let Some(source) = step.get("source") {
+                out["source"] = source.clone();
+            }
+            out
+        })
+        .collect();
+    object.insert("steps".into(), Value::Array(kept));
+    object.insert(
+        "steps_omitted".into(),
+        json!(total.saturating_sub(MINIMAL_STEPS)),
+    );
+}
+
 /// `get_flow`.
 fn get_flow(
     store: &GraphStore,
@@ -392,6 +427,7 @@ fn get_flow(
     flow_id: Option<i64>,
     flow_name: Option<&str>,
     include_source: bool,
+    detail_level: &str,
 ) -> Option<Ordered> {
     let mut flow = match (flow_id, flow_name) {
         (Some(id), _) => get_flow_by_id(store, id)?,
@@ -568,6 +604,9 @@ fn get_flow(
         json!({}),
     )];
     let mut flow_value = flow.clone();
+    if detail_level == "minimal" {
+        minimal_flow(&mut flow_value);
+    }
     if include_source && let Some(object) = flow_value.as_object() {
         let entries = object
             .iter()

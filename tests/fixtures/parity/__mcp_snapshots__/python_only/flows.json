@@ -64,26 +64,11 @@
       "entry_point": "main.py::run",
       "entry_point_id": 2,
       "file_count": 3,
-      "files": [
-        "main.py",
-        "services.py",
-        "models.py"
-      ],
       "id": 1,
       "kind": "reachable_set",
-      "members": [
-        2,
-        9,
-        4
-      ],
       "missing_node_count": 0,
       "name": "run",
       "node_count": 3,
-      "path": [
-        2,
-        9,
-        4
-      ],
       "resolved_node_count": 3,
       "truncated": false,
       "truncation_reason": null,

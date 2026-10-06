@@ -63,45 +63,11 @@
       "entry_point": "src/calls.ts::Caller.run",
       "entry_point_id": 33,
       "file_count": 6,
-      "files": [
-        "src/calls.ts",
-        "src/functions.ts",
-        "src/classes.ts",
-        "src/namespaces.ts",
-        "src/user.service.ts",
-        "src/lib/base.ts"
-      ],
       "id": 1,
       "kind": "reachable_set",
-      "members": [
-        33,
-        142,
-        60,
-        46,
-        47,
-        151,
-        180,
-        215,
-        35,
-        174,
-        171
-      ],
       "missing_node_count": 0,
       "name": "run",
       "node_count": 11,
-      "path": [
-        33,
-        142,
-        60,
-        46,
-        47,
-        151,
-        180,
-        215,
-        35,
-        174,
-        171
-      ],
       "resolved_node_count": 11,
       "truncated": false,
       "truncation_reason": null,
@@ -114,45 +80,11 @@
       "entry_point": "src/imports.ts::useImports",
       "entry_point_id": 159,
       "file_count": 8,
-      "files": [
-        "src/imports.ts",
-        "src/default-arrow.ts",
-        "src/default-anon-class.ts",
-        "src/functions.ts",
-        "src/types.ts",
-        "src/lib/base.ts",
-        "src/namespaces.ts",
-        "src/esm-compat.ts"
-      ],
       "id": 2,
       "kind": "reachable_set",
-      "members": [
-        159,
-        94,
-        92,
-        91,
-        142,
-        144,
-        212,
-        174,
-        184,
-        97
-      ],
       "missing_node_count": 0,
       "name": "useImports",
       "node_count": 10,
-      "path": [
-        159,
-        94,
-        92,
-        91,
-        142,
-        144,
-        212,
-        174,
-        184,
-        97
-      ],
       "resolved_node_count": 10,
       "truncated": false,
       "truncation_reason": null,
@@ -165,30 +97,11 @@
       "entry_point": "src/barrel-user.ts::useBarrel",
       "entry_point_id": 22,
       "file_count": 3,
-      "files": [
-        "src/barrel-user.ts",
-        "src/barrel/a.ts",
-        "src/barrel/b.ts"
-      ],
       "id": 3,
       "kind": "reachable_set",
-      "members": [
-        22,
-        24,
-        27,
-        25,
-        28
-      ],
       "missing_node_count": 0,
       "name": "useBarrel",
       "node_count": 5,
-      "path": [
-        22,
-        24,
-        27,
-        25,
-        28
-      ],
       "resolved_node_count": 5,
       "truncated": false,
       "truncation_reason": null,
@@ -201,26 +114,11 @@
       "entry_point": "src/frameworks/next/app/api/users/route.ts::GET",
       "entry_point_id": 128,
       "file_count": 3,
-      "files": [
-        "src/frameworks/next/app/api/users/route.ts",
-        "src/functions.ts",
-        "src/lib/base.ts"
-      ],
       "id": 4,
       "kind": "reachable_set",
-      "members": [
-        128,
-        142,
-        174
-      ],
       "missing_node_count": 0,
       "name": "GET",
       "node_count": 3,
-      "path": [
-        128,
-        142,
-        174
-      ],
       "resolved_node_count": 3,
       "truncated": false,
       "truncation_reason": null,
@@ -233,27 +131,11 @@
       "entry_point": "src/functions.ts::withCallbacks",
       "entry_point_id": 157,
       "file_count": 2,
-      "files": [
-        "src/functions.ts",
-        "src/lib/base.ts"
-      ],
       "id": 5,
       "kind": "reachable_set",
-      "members": [
-        157,
-        144,
-        142,
-        174
-      ],
       "missing_node_count": 0,
       "name": "withCallbacks",
       "node_count": 4,
-      "path": [
-        157,
-        144,
-        142,
-        174
-      ],
       "resolved_node_count": 4,
       "truncated": false,
       "truncation_reason": null,
@@ -266,26 +148,11 @@
       "entry_point": "src/frameworks/express.ts::handler",
       "entry_point_id": 121,
       "file_count": 3,
-      "files": [
-        "src/frameworks/express.ts",
-        "src/functions.ts",
-        "src/lib/base.ts"
-      ],
       "id": 6,
       "kind": "reachable_set",
-      "members": [
-        121,
-        142,
-        174
-      ],
       "missing_node_count": 0,
       "name": "handler",
       "node_count": 3,
-      "path": [
-        121,
-        142,
-        174
-      ],
       "resolved_node_count": 3,
       "truncated": false,
       "truncation_reason": null,
@@ -298,26 +165,11 @@
       "entry_point": "src/frameworks/express.ts::lambdaHandler",
       "entry_point_id": 122,
       "file_count": 3,
-      "files": [
-        "src/frameworks/express.ts",
-        "src/functions.ts",
-        "src/lib/base.ts"
-      ],
       "id": 7,
       "kind": "reachable_set",
-      "members": [
-        122,
-        142,
-        174
-      ],
       "missing_node_count": 0,
       "name": "lambdaHandler",
       "node_count": 3,
-      "path": [
-        122,
-        142,
-        174
-      ],
       "resolved_node_count": 3,
       "truncated": false,
       "truncation_reason": null,
@@ -330,30 +182,11 @@
       "entry_point": "src/calls.ts::Caller.constructor",
       "entry_point_id": 32,
       "file_count": 3,
-      "files": [
-        "src/calls.ts",
-        "src/classes.ts",
-        "src/lib/base.ts"
-      ],
       "id": 8,
       "kind": "reachable_set",
-      "members": [
-        32,
-        51,
-        60,
-        173,
-        171
-      ],
       "missing_node_count": 0,
       "name": "constructor",
       "node_count": 5,
-      "path": [
-        32,
-        51,
-        60,
-        173,
-        171
-      ],
       "resolved_node_count": 5,
       "truncated": false,
       "truncation_reason": null,
@@ -366,23 +199,11 @@
       "entry_point": "src/calls.ts::Caller.later",
       "entry_point_id": 34,
       "file_count": 2,
-      "files": [
-        "src/calls.ts",
-        "src/types.ts"
-      ],
       "id": 9,
       "kind": "reachable_set",
-      "members": [
-        34,
-        212
-      ],
       "missing_node_count": 0,
       "name": "later",
       "node_count": 2,
-      "path": [
-        34,
-        212
-      ],
       "resolved_node_count": 2,
       "truncated": false,
       "truncation_reason": null,
@@ -395,23 +216,11 @@
       "entry_point": "src/classes.ts::Box.load",
       "entry_point_id": 55,
       "file_count": 2,
-      "files": [
-        "src/classes.ts",
-        "src/interfaces.ts"
-      ],
       "id": 10,
       "kind": "reachable_set",
-      "members": [
-        55,
-        162
-      ],
       "missing_node_count": 0,
       "name": "load",
       "node_count": 2,
-      "path": [
-        55,
-        162
-      ],
       "resolved_node_count": 2,
       "truncated": false,
       "truncation_reason": null,
@@ -424,25 +233,11 @@
       "entry_point": "src/classes.ts::Box.handler",
       "entry_point_id": 52,
       "file_count": 2,
-      "files": [
-        "src/classes.ts",
-        "src/lib/base.ts"
-      ],
       "id": 11,
       "kind": "reachable_set",
-      "members": [
-        52,
-        60,
-        171
-      ],
       "missing_node_count": 0,
       "name": "handler",
       "node_count": 3,
-      "path": [
-        52,
-        60,
-        171
-      ],
       "resolved_node_count": 3,
       "truncated": false,
       "truncation_reason": null,
@@ -455,25 +250,11 @@
       "entry_point": "src/functions.ts::default",
       "entry_point_id": 156,
       "file_count": 2,
-      "files": [
-        "src/functions.ts",
-        "src/lib/base.ts"
-      ],
       "id": 12,
       "kind": "reachable_set",
-      "members": [
-        156,
-        142,
-        174
-      ],
       "missing_node_count": 0,
       "name": "default",
       "node_count": 3,
-      "path": [
-        156,
-        142,
-        174
-      ],
       "resolved_node_count": 3,
       "truncated": false,
       "truncation_reason": null,
@@ -486,24 +267,11 @@
       "entry_point": "src/extra/heritage.ts::WithThis.c",
       "entry_point_id": 111,
       "file_count": 1,
-      "files": [
-        "src/extra/heritage.ts"
-      ],
       "id": 13,
       "kind": "reachable_set",
-      "members": [
-        111,
-        109,
-        110
-      ],
       "missing_node_count": 0,
       "name": "c",
       "node_count": 3,
-      "path": [
-        111,
-        109,
-        110
-      ],
       "resolved_node_count": 3,
       "truncated": false,
       "truncation_reason": null,
@@ -516,22 +284,11 @@
       "entry_point": "src/classes.ts::AbstractShape.describe",
       "entry_point_id": 44,
       "file_count": 1,
-      "files": [
-        "src/classes.ts"
-      ],
       "id": 14,
       "kind": "reachable_set",
-      "members": [
-        44,
-        42
-      ],
       "missing_node_count": 0,
       "name": "describe",
       "node_count": 2,
-      "path": [
-        44,
-        42
-      ],
       "resolved_node_count": 2,
       "truncated": false,
       "truncation_reason": null,
@@ -544,23 +301,11 @@
       "entry_point": "src/components/App.tsx::ClassComp.render",
       "entry_point_id": 80,
       "file_count": 2,
-      "files": [
-        "src/components/App.tsx",
-        "src/components/Button.tsx"
-      ],
       "id": 15,
       "kind": "reachable_set",
-      "members": [
-        80,
-        85
-      ],
       "missing_node_count": 0,
       "name": "render",
       "node_count": 2,
-      "path": [
-        80,
-        85
-      ],
       "resolved_node_count": 2,
       "truncated": false,
       "truncation_reason": null,
@@ -573,22 +318,11 @@
       "entry_point": "src/extra/heritage.ts::WithThis.s",
       "entry_point_id": 112,
       "file_count": 1,
-      "files": [
-        "src/extra/heritage.ts"
-      ],
       "id": 16,
       "kind": "reachable_set",
-      "members": [
-        112,
-        113
-      ],
       "missing_node_count": 0,
       "name": "s",
       "node_count": 2,
-      "path": [
-        112,
-        113
-      ],
       "resolved_node_count": 2,
       "truncated": false,
       "truncation_reason": null,
@@ -601,22 +335,11 @@
       "entry_point": "src/extra/heritage.ts::wrapped",
       "entry_point_id": 117,
       "file_count": 1,
-      "files": [
-        "src/extra/heritage.ts"
-      ],
       "id": 17,
       "kind": "reachable_set",
-      "members": [
-        117,
-        116
-      ],
       "missing_node_count": 0,
       "name": "wrapped",
       "node_count": 2,
-      "path": [
-        117,
-        116
-      ],
       "resolved_node_count": 2,
       "truncated": false,
       "truncation_reason": null,
@@ -629,22 +352,11 @@
       "entry_point": "src/frameworks/hero.component.ts::HeroComponent.ngOnInit",
       "entry_point_id": 125,
       "file_count": 1,
-      "files": [
-        "src/frameworks/hero.component.ts"
-      ],
       "id": 18,
       "kind": "reachable_set",
-      "members": [
-        125,
-        126
-      ],
       "missing_node_count": 0,
       "name": "ngOnInit",
       "node_count": 2,
-      "path": [
-        125,
-        126
-      ],
       "resolved_node_count": 2,
       "truncated": false,
       "truncation_reason": null,
@@ -657,22 +369,11 @@
       "entry_point": "src/frameworks/users.controller.ts::UsersController.findAll",
       "entry_point_id": 138,
       "file_count": 1,
-      "files": [
-        "src/frameworks/users.controller.ts"
-      ],
       "id": 19,
       "kind": "reachable_set",
-      "members": [
-        138,
-        135
-      ],
       "missing_node_count": 0,
       "name": "findAll",
       "node_count": 2,
-      "path": [
-        138,
-        135
-      ],
       "resolved_node_count": 2,
       "truncated": false,
       "truncation_reason": null,
@@ -685,30 +386,11 @@
       "entry_point": "src/namespaces.ts::useNs",
       "entry_point_id": 197,
       "file_count": 1,
-      "files": [
-        "src/namespaces.ts"
-      ],
       "id": 20,
       "kind": "reachable_set",
-      "members": [
-        197,
-        180,
-        182,
-        181,
-        188,
-        184
-      ],
       "missing_node_count": 0,
       "name": "useNs",
       "node_count": 6,
-      "path": [
-        197,
-        180,
-        182,
-        181,
-        188,
-        184
-      ],
       "resolved_node_count": 6,
       "truncated": false,
       "truncation_reason": null,
@@ -721,22 +403,11 @@
       "entry_point": "src/functions.ts::api.post",
       "entry_point_id": 152,
       "file_count": 1,
-      "files": [
-        "src/functions.ts"
-      ],
       "id": 21,
       "kind": "reachable_set",
-      "members": [
-        152,
-        144
-      ],
       "missing_node_count": 0,
       "name": "post",
       "node_count": 2,
-      "path": [
-        152,
-        144
-      ],
       "resolved_node_count": 2,
       "truncated": false,
       "truncation_reason": null,
