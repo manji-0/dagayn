@@ -2,6 +2,14 @@
 
 All notable changes to `dagayn` are documented here.
 
+## Unreleased
+
+### Fixed
+
+- `dagayn tool refactor_tool` with no arguments runs `mode="suggest"`, as
+  the MCP tool does, instead of failing with "Input should be a valid
+  string" from the rename default.
+
 ## 8.0.0 — 2026-10-07
 
 ### Changed

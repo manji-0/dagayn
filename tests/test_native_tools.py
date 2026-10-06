@@ -195,6 +195,12 @@ def test_refactor_suggest_answers_through_rust(unused_repo: Path) -> None:
     assert result["_hints"]["next_steps"]
 
 
+def test_refactor_defaults_to_suggest_like_the_mcp_tool(unused_repo: Path) -> None:
+    result = refactor_func(top_n=1, repo_root=str(unused_repo))
+    assert result["status"] == "ok"
+    assert len(result["suggestions"]) == 1
+
+
 @pytest.fixture
 def rename_repo(repo: Path) -> Path:
     """``repo`` with one module importing ``helper`` and one importing ``main``."""

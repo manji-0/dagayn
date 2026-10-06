@@ -36,7 +36,7 @@ type RefactorPayload = dict[str, RefactorValue]
 
 @overload
 def refactor_func(
-    mode: Literal["rename"] = "rename",
+    mode: Literal["rename"],
     old_name: str | None = None,
     new_name: str | None = None,
     kind: str | None = None,
@@ -50,7 +50,7 @@ def refactor_func(
 
 @overload
 def refactor_func(
-    mode: Literal["dead_code", "suggest"],
+    mode: Literal["dead_code", "suggest"] = "suggest",
     old_name: str | None = None,
     new_name: str | None = None,
     kind: str | None = None,
@@ -63,7 +63,7 @@ def refactor_func(
 
 
 def refactor_func(
-    mode: RefactorMode | str = "rename",
+    mode: RefactorMode | str = "suggest",
     old_name: str | None = None,
     new_name: str | None = None,
     kind: str | None = None,
