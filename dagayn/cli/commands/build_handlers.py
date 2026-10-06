@@ -547,167 +547,218 @@ def handle_visualize_command(
     print(f"{label} exported: {out}")
 
 
+#: Fields of an ``architecture_analysis_tool`` answer that guide an MCP agent
+#: and mean nothing to a CLI caller.
+_AGENT_ONLY_FIELDS = ("_hints", "next_tool_suggestions", "_runtime", "_repo")
+
+#: ``top_n`` for the ``detect-*`` commands, which list every violation unless
+#: ``--top-n`` says otherwise.
+_ALL = 2**31 - 1
+
+
+def _architecture_mode(
+    args: argparse.Namespace, repo_root: Path, mode: str, **arguments: Any
+) -> dict[str, Any]:
+    """``architecture_analysis_tool(mode=mode)``, the answer MCP clients get,
+    without the fields meant for an agent."""
+    from ...tools._native import native_tool
+
+    payload = native_tool(
+        "architecture_analysis_tool",
+        mode=mode,
+        repo_root=str(repo_root),
+        artifact_scope=args.artifact_scope,
+        **arguments,
+    )
+    deprecated = payload.get("deprecated")
+    if deprecated:
+        print(
+            f"warning: {args.command} is deprecated (removal: {deprecated['removal']}); "
+            f"its replacement is {deprecated['replacement']}: "
+            "dagayn tool architecture_analysis_tool --arg 'mode=\"overview\"'",
+            file=sys.stderr,
+        )
+    return {key: value for key, value in payload.items() if key not in _AGENT_ONLY_FIELDS}
+
+
+def _scope_label(payload: dict[str, Any], key: str) -> str:
+    level = payload.get(key, "")
+    return "declared-unit" if level == "package" else f"{level}-level"
+
+
 def handle_detect_adp_command(
     args: argparse.Namespace,
-    _repo_root: Path,
-    store: Any,
+    repo_root: Path,
+    _store: Any,
     _db_path: Path,
 ) -> None:
-    from ...architecture import find_adp_violations
-
-    violations = find_adp_violations(
-        store,
+    payload = _architecture_mode(
+        args,
+        repo_root,
+        "adp_violations",
         granularity=args.granularity,
-        artifact_scope=args.artifact_scope,
         min_cycle_size=args.min_cycle_size,
         max_cycle_length=args.max_cycle_length,
+        top_n=_ALL if args.top_n is None else args.top_n,
     )
-    if args.format == "text":
-        if not violations:
-            print("No ADP violations found.")
-        else:
-            print(
-                f"ADP violations ({len(violations)} cycles, artifact_scope={args.artifact_scope}):"
-            )
-            for violation in violations:
-                nodes = " -> ".join(violation["nodes"]) + f" -> {violation['nodes'][0]}"
-                print(f"  [{violation['length']}-cycle, severity={violation['severity']}] {nodes}")
-    else:
-        _print_json(
-            violations=violations, count=len(violations), artifact_scope=args.artifact_scope
-        )
+    if args.format != "text":
+        _print_json(**payload)
+        return
+    violations = payload["violations"]
+    if not violations:
+        print("No ADP violations found.")
+        return
+    print(
+        f"ADP violations ({payload['count']} cycles, {_scope_label(payload, 'granularity')}, "
+        f"artifact_scope={args.artifact_scope}):"
+    )
+    for violation in violations:
+        nodes = " -> ".join(violation["nodes"]) + f" -> {violation['nodes'][0]}"
+        print(f"  [{violation['length']}-cycle, severity={violation['severity']}] {nodes}")
+    _print_truncation(payload, len(violations), payload["count"])
 
 
 def handle_sdp_metrics_command(
     args: argparse.Namespace,
-    _repo_root: Path,
-    store: Any,
+    repo_root: Path,
+    _store: Any,
     _db_path: Path,
 ) -> None:
-    from ...architecture import compute_sdp_metrics
-
-    metrics = compute_sdp_metrics(
-        store,
-        granularity=args.granularity,
-        artifact_scope=args.artifact_scope,
+    payload = _architecture_mode(
+        args, repo_root, "sdp_metrics", granularity=args.granularity, top_n=args.top_n
     )
-    top = metrics[: args.top_n]
-    if args.format == "text":
-        if not top:
-            print("No dependency data found.")
-        else:
-            print(
-                f"SDP instability ({args.granularity}-level, "
-                f"artifact_scope={args.artifact_scope}, top {len(top)}):"
-            )
-            for metric in top:
-                print(
-                    f"  {metric['name']:<50} I={metric['instability']:.4f}  "
-                    f"Ca={metric['ca']} Ce={metric['ce']}"
-                )
-    else:
-        _print_json(metrics=top, total=len(metrics), artifact_scope=args.artifact_scope)
+    if args.format != "text":
+        _print_json(**payload)
+        return
+    top = payload["metrics"]
+    if not top:
+        print("No dependency data found.")
+        return
+    print(
+        f"SDP instability ({_scope_label(payload, 'granularity')}, "
+        f"artifact_scope={args.artifact_scope}, top {len(top)} of {payload['total']}):"
+    )
+    for metric in top:
+        print(
+            f"  {metric['name']:<50} I={metric['instability']:.4f}  "
+            f"Ca={metric['ca']} Ce={metric['ce']}"
+        )
 
 
 def handle_detect_sdp_command(
     args: argparse.Namespace,
-    _repo_root: Path,
-    store: Any,
+    repo_root: Path,
+    _store: Any,
     _db_path: Path,
 ) -> None:
-    from ...architecture import find_sdp_violations
-
-    violations = find_sdp_violations(
-        store,
+    payload = _architecture_mode(
+        args,
+        repo_root,
+        "sdp_violations",
         granularity=args.granularity,
-        artifact_scope=args.artifact_scope,
         min_delta=args.min_delta,
+        top_n=_ALL if args.top_n is None else args.top_n,
     )
-    if args.format == "text":
-        if not violations:
-            print("No SDP violations found.")
-        else:
-            print(f"SDP violations ({len(violations)}, artifact_scope={args.artifact_scope}):")
-            for violation in violations:
-                print(
-                    f"  {violation['source']:<40} -> {violation['target']:<40}"
-                    f"  delta={violation['delta']:.4f}"
-                    f"  (I_src={violation['source_instability']:.4f}"
-                    f", I_tgt={violation['target_instability']:.4f})"
-                )
-    else:
-        _print_json(
-            violations=violations, count=len(violations), artifact_scope=args.artifact_scope
+    if args.format != "text":
+        _print_json(**payload)
+        return
+    violations = payload["violations"]
+    if not violations:
+        print("No SDP violations found.")
+        return
+    print(
+        f"SDP violations ({payload['count']}, {_scope_label(payload, 'granularity')}, "
+        f"artifact_scope={args.artifact_scope}):"
+    )
+    for violation in violations:
+        print(
+            f"  {violation['source']:<40} -> {violation['target']:<40}"
+            f"  delta={violation['delta']:.4f}"
+            f"  (I_src={violation['source_instability']:.4f}"
+            f", I_tgt={violation['target_instability']:.4f})"
         )
+    _print_truncation(payload, len(violations), payload["count"])
 
 
 def handle_sap_metrics_command(
     args: argparse.Namespace,
-    _repo_root: Path,
-    store: Any,
+    repo_root: Path,
+    _store: Any,
     _db_path: Path,
 ) -> None:
-    from ...sap import compute_sap_metrics
-
     unit_filter = (
         [part.strip() for part in args.unit_filter.split(",")] if args.unit_filter else None
     )
-    metrics = compute_sap_metrics(
-        store,
+    payload = _architecture_mode(
+        args,
+        repo_root,
+        "sap_metrics",
         scope_kind=args.scope_kind,
         unit_filter=unit_filter,
-        artifact_scope=args.artifact_scope,
+        top_n=args.top_n,
     )
-    top = metrics[: args.top_n]
-    if args.format == "text":
-        if not top:
-            print("No scope data found.")
-        else:
-            print(
-                f"SAP metrics ({args.scope_kind}-level, "
-                f"artifact_scope={args.artifact_scope}, top {len(top)}):"
-            )
-            for metric in top:
-                print(
-                    f"  {metric['scope_key']:<50}"
-                    f"  A={metric['abstractness']:.4f}"
-                    f"  I={metric['instability']:.4f}"
-                    f"  D={metric['distance']:.4f}"
-                )
+    if args.format != "text":
+        _print_json(**payload)
+        return
+    top = payload["metrics"]
+    if not top:
+        print("No scope data found.")
     else:
-        _print_json(metrics=top, total=len(metrics), artifact_scope=args.artifact_scope)
+        print(
+            f"SAP metrics ({_scope_label(payload, 'scope_kind')}, "
+            f"artifact_scope={args.artifact_scope}, top {len(top)} of "
+            f"{payload['applicable_count']}):"
+        )
+        for metric in top:
+            print(
+                f"  {metric['scope_key']:<50}"
+                f"  A={metric['abstractness']:.4f}"
+                f"  I={metric['instability']:.4f}"
+                f"  D={metric['distance']:.4f}"
+            )
+    reasons = payload.get("inapplicable_by_reason") or {}
+    if reasons:
+        listed = ", ".join(f"{reason}={count}" for reason, count in sorted(reasons.items()))
+        print(f"  ({payload['inapplicable_count']} scope(s) without SAP metrics: {listed})")
 
 
 def handle_detect_sap_command(
     args: argparse.Namespace,
-    _repo_root: Path,
-    store: Any,
+    repo_root: Path,
+    _store: Any,
     _db_path: Path,
 ) -> None:
-    from ...sap import find_sap_violations
-
-    violations = find_sap_violations(
-        store,
+    payload = _architecture_mode(
+        args,
+        repo_root,
+        "sap_violations",
         scope_kind=args.scope_kind,
-        artifact_scope=args.artifact_scope,
         min_distance=args.min_distance,
+        top_n=_ALL if args.top_n is None else args.top_n,
     )
-    if args.format == "text":
-        if not violations:
-            print("No SAP violations found.")
-        else:
-            print(f"SAP violations ({len(violations)}, artifact_scope={args.artifact_scope}):")
-            for violation in violations:
-                print(
-                    f"  {violation['scope_key']:<50}"
-                    f"  D={violation['distance']:.4f}"
-                    f"  (A={violation['abstractness']:.4f}"
-                    f", I={violation['instability']:.4f})"
-                )
-    else:
-        _print_json(
-            violations=violations, count=len(violations), artifact_scope=args.artifact_scope
+    if args.format != "text":
+        _print_json(**payload)
+        return
+    violations = payload["violations"]
+    if not violations:
+        print("No SAP violations found.")
+        return
+    print(
+        f"SAP violations ({payload['count']}, {_scope_label(payload, 'scope_kind')}, "
+        f"artifact_scope={args.artifact_scope}):"
+    )
+    for violation in violations:
+        print(
+            f"  {violation['scope_key']:<50}"
+            f"  D={violation['distance']:.4f}"
+            f"  zone={violation.get('zone') or '-'}"
         )
+    _print_truncation(payload, len(violations), payload["count"])
+
+
+def _print_truncation(payload: dict[str, Any], shown: int, total: int) -> None:
+    if payload.get("truncated"):
+        print(f"  ... {total - shown} more (raise --top-n to list them)")
 
 
 _STORE_COMMAND_HANDLERS = {

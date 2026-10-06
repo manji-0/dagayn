@@ -109,7 +109,10 @@ def register_commands(sub: argparse._SubParsersAction) -> CommandRegistry:
         "--granularity",
         choices=["package", "file"],
         default="package",
-        help="Aggregation level: 'package' (directory) or 'file' (default: package)",
+        help=(
+            "Aggregation level: 'package' (declared unit: crate, package, module) "
+            "or 'file' (default: package)"
+        ),
     )
     adp_cmd.add_argument(
         "--artifact-scope",
@@ -129,6 +132,12 @@ def register_commands(sub: argparse._SubParsersAction) -> CommandRegistry:
         default="json",
         help="Output format (default: json)",
     )
+    adp_cmd.add_argument(
+        "--top-n",
+        type=int,
+        default=None,
+        help="Number of violations to list (default: all)",
+    )
     adp_cmd.add_argument("--repo", default=None, help="Repository root (auto-detected)")
 
     # sdp-metrics
@@ -139,7 +148,10 @@ def register_commands(sub: argparse._SubParsersAction) -> CommandRegistry:
         "--granularity",
         choices=["package", "file"],
         default="package",
-        help="Aggregation level: 'package' (directory) or 'file' (default: package)",
+        help=(
+            "Aggregation level: 'package' (declared unit: crate, package, module) "
+            "or 'file' (default: package)"
+        ),
     )
     sdp_metrics_cmd.add_argument(
         "--artifact-scope",
@@ -166,7 +178,10 @@ def register_commands(sub: argparse._SubParsersAction) -> CommandRegistry:
         "--granularity",
         choices=["package", "file"],
         default="package",
-        help="Aggregation level: 'package' (directory) or 'file' (default: package)",
+        help=(
+            "Aggregation level: 'package' (declared unit: crate, package, module) "
+            "or 'file' (default: package)"
+        ),
     )
     detect_sdp_cmd.add_argument(
         "--artifact-scope",
@@ -186,6 +201,12 @@ def register_commands(sub: argparse._SubParsersAction) -> CommandRegistry:
         default="json",
         help="Output format (default: json)",
     )
+    detect_sdp_cmd.add_argument(
+        "--top-n",
+        type=int,
+        default=None,
+        help="Number of violations to list (default: all)",
+    )
     detect_sdp_cmd.add_argument("--repo", default=None, help="Repository root (auto-detected)")
 
     # sap-metrics
@@ -196,7 +217,10 @@ def register_commands(sub: argparse._SubParsersAction) -> CommandRegistry:
         "--scope-kind",
         choices=["package", "file", "directory"],
         default="package",
-        help="Aggregation level: 'package' (directory) or 'file' (default: package)",
+        help=(
+            "Aggregation level: 'package' (declared unit), 'directory', "
+            "or 'file' (default: package)"
+        ),
     )
     sap_metrics_cmd.add_argument(
         "--unit-filter",
@@ -228,7 +252,10 @@ def register_commands(sub: argparse._SubParsersAction) -> CommandRegistry:
         "--scope-kind",
         choices=["package", "file", "directory"],
         default="package",
-        help="Aggregation level (default: package)",
+        help=(
+            "Aggregation level: 'package' (declared unit), 'directory', "
+            "or 'file' (default: package)"
+        ),
     )
     detect_sap_cmd.add_argument(
         "--artifact-scope",
@@ -247,6 +274,12 @@ def register_commands(sub: argparse._SubParsersAction) -> CommandRegistry:
         choices=["json", "text"],
         default="json",
         help="Output format (default: json)",
+    )
+    detect_sap_cmd.add_argument(
+        "--top-n",
+        type=int,
+        default=None,
+        help="Number of violations to list (default: all)",
     )
     detect_sap_cmd.add_argument("--repo", default=None, help="Repository root (auto-detected)")
 
