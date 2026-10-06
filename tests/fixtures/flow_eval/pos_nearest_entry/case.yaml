@@ -1,0 +1,22 @@
+description: main dispatches to a handle_ function; the nearest entry point is the handler, not main.
+target: srv/work.py::process
+files:
+  srv/__init__.py: ""
+  srv/main.py: |
+    from srv.handlers import handle_request
+
+
+    def main():
+        handle_request({})
+  srv/handlers.py: |
+    from srv.work import process
+
+
+    def handle_request(payload):
+        return process(payload)
+  srv/work.py: |
+    def process(payload):
+        return payload
+expected_entry_points:
+- entry_point: srv/handlers.py::handle_request
+  kind: named_entry

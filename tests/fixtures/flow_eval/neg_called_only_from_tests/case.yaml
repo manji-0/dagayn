@@ -1,0 +1,14 @@
+description: Only a test calls the helper, so no entry point reaches it.
+target: app/util.py::slugify
+negative: true
+files:
+  app/__init__.py: ""
+  app/util.py: |
+    def slugify(text):
+        return text.lower()
+  tests/test_util.py: |
+    from app.util import slugify
+
+
+    def test_slugify():
+        assert slugify("A") == "a"

@@ -15,6 +15,9 @@ All notable changes to `dagayn` are documented here.
   test code, and reads no stored flows, so it answers on a graph built
   without flows. `limit` defaults to 10 here. See
   `docs/plans/FLOW-TOOL-TARGET.md`.
+- `eval/run_flow_eval.py` scores the entry points on 12 fixture cases per
+  entry kind and checks every chain hop against the built graph; CI gates
+  it like the review and architecture evals.
 
 ### Changed
 

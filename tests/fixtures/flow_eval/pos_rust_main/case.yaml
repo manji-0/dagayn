@@ -1,0 +1,23 @@
+description: A Rust binary's main calls a helper in another module.
+target: src/util.rs::compute
+files:
+  Cargo.toml: |
+    [package]
+    name = "calc"
+    version = "0.1.0"
+    edition = "2021"
+  src/main.rs: |
+    mod util;
+
+    fn main() {
+        let total = util::compute(2);
+        println!("{total}");
+    }
+  src/util.rs: |
+    pub fn compute(value: i32) -> i32 {
+        value * 2
+    }
+expected_entry_points:
+- entry_point: src/main.rs::main
+  kind: main
+  chain: [src/main.rs::main, src/util.rs::compute]

@@ -1,0 +1,27 @@
+description: A trait method nothing calls statically reaches the target; a caller through the trait is outside the graph, so it is a dispatched_method entry, not dropped.
+target: src/lib.rs::emit
+files:
+  Cargo.toml: |
+    [package]
+    name = "visit"
+    version = "0.1.0"
+    edition = "2021"
+  src/lib.rs: |
+    pub trait Visitor {
+        fn visit(&self, value: i32);
+    }
+
+    pub struct Printer;
+
+    impl Visitor for Printer {
+        fn visit(&self, value: i32) {
+            emit(value);
+        }
+    }
+
+    fn emit(value: i32) {
+        let _ = value;
+    }
+expected_entry_points:
+- entry_point: src/lib.rs::Printer.visit
+  kind: dispatched_method

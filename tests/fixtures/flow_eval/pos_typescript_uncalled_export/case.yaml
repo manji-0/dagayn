@@ -1,0 +1,18 @@
+description: An exported TypeScript function nothing in the repository calls reaches the target.
+target: src/config.ts::loadConfig
+files:
+  package.json: |
+    {"name": "app", "version": "1.0.0"}
+  src/config.ts: |
+    export function loadConfig(): Record<string, string> {
+      return {};
+    }
+  src/bootstrap.ts: |
+    import { loadConfig } from "./config";
+
+    export function bootstrap(): void {
+      loadConfig();
+    }
+expected_entry_points:
+- entry_point: src/bootstrap.ts::bootstrap
+  kind: uncalled

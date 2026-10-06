@@ -1,0 +1,24 @@
+description: A CLI main and an uncalled public function both reach the target by different paths.
+target: lib/core.py::normalize
+files:
+  lib/__init__.py: ""
+  lib/cli.py: |
+    from lib.core import normalize
+
+
+    def main():
+        normalize("x")
+  lib/api.py: |
+    from lib.core import normalize
+
+
+    def clean_all(values):
+        return [normalize(value) for value in values]
+  lib/core.py: |
+    def normalize(value):
+        return value.strip()
+expected_entry_points:
+- entry_point: lib/cli.py::main
+  kind: main
+- entry_point: lib/api.py::clean_all
+  kind: uncalled

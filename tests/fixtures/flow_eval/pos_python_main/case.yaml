@@ -1,0 +1,27 @@
+description: A script's main calls through a service into the target.
+target: app/store.py::save
+files:
+  app/__init__.py: ""
+  app/cli.py: |
+    from app.service import run
+
+
+    def main():
+        run()
+
+
+    if __name__ == "__main__":
+        main()
+  app/service.py: |
+    from app.store import save
+
+
+    def run():
+        save({"id": 1})
+  app/store.py: |
+    def save(record):
+        return dict(record)
+expected_entry_points:
+- entry_point: app/cli.py::main
+  kind: main
+  chain: [app/cli.py::main, app/service.py::run, app/store.py::save]

@@ -1,0 +1,25 @@
+description: A click command is a framework handler; the target is two calls below it.
+target: tool/io.py::write_rows
+files:
+  tool/__init__.py: ""
+  tool/commands.py: |
+    import click
+
+    from tool.export import export_all
+
+
+    @click.command()
+    def export():
+        export_all()
+  tool/export.py: |
+    from tool.io import write_rows
+
+
+    def export_all():
+        write_rows([])
+  tool/io.py: |
+    def write_rows(rows):
+        return len(rows)
+expected_entry_points:
+- entry_point: tool/commands.py::export
+  kind: framework_handler

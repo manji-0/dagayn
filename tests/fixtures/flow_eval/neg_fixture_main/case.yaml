@@ -1,0 +1,14 @@
+description: A main under tests/fixtures calls the helper; fixtures are test inputs, not entry points.
+target: app/parse.py::parse
+negative: true
+files:
+  app/__init__.py: ""
+  app/parse.py: |
+    def parse(text):
+        return text.split()
+  tests/fixtures/sample.py: |
+    from app.parse import parse
+
+
+    def main():
+        parse("a b")

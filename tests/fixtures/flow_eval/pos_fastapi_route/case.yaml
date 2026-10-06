@@ -1,0 +1,22 @@
+description: A FastAPI route handler reaches a repository query.
+target: api/repo.py::fetch_users
+files:
+  api/__init__.py: ""
+  api/routes.py: |
+    from fastapi import FastAPI
+
+    from api.repo import fetch_users
+
+    app = FastAPI()
+
+
+    @app.get("/users")
+    def list_users():
+        return fetch_users()
+  api/repo.py: |
+    def fetch_users():
+        return []
+expected_entry_points:
+- entry_point: api/routes.py::list_users
+  kind: framework_handler
+  chain: [api/routes.py::list_users, api/repo.py::fetch_users]

@@ -1,0 +1,19 @@
+# Ship gate for flow_tool(mode="entry_points")
+# (docs/plans/FLOW-TOOL-TARGET.md#evaluation).
+# `run_flow_eval.py --gate` exits non-zero when a gated entry kind has a
+# precision or recall below its floor, a case errors, a returned kind or
+# chain differs from the expected one, or a chain hop has no graph edge.
+defaults:
+  gated: true
+  precision_floor: 0.8
+  recall_floor: 0.8
+kinds:
+  main: {}
+  framework_handler: {}
+  named_entry: {}
+  dispatched_method: {}
+  uncalled: {}
+  module_level: {}
+  # No fixture yet: a PyO3 or other FFI bridge in a scratch repository
+  # needs a native build. Reported, not gated.
+  ffi_export: {gated: false}

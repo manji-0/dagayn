@@ -1,0 +1,20 @@
+description: The helper's only caller is itself called only from tests; walking stops at test code.
+target: app/math.py::double
+negative: true
+files:
+  app/__init__.py: ""
+  app/math.py: |
+    def double(value):
+        return value * 2
+  app/batch.py: |
+    from app.math import double
+
+
+    def double_all(values):
+        return [double(value) for value in values]
+  tests/test_batch.py: |
+    from app.batch import double_all
+
+
+    def test_double_all():
+        assert double_all([1]) == [2]

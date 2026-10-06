@@ -1,0 +1,13 @@
+description: A script runs its work at module level, with no main function.
+target: jobs/steps.py::step
+files:
+  jobs/steps.py: |
+    def step():
+        return 1
+  jobs/nightly.py: |
+    from steps import step
+
+    step()
+expected_entry_points:
+- entry_point: jobs/nightly.py
+  kind: module_level
