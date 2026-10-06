@@ -430,17 +430,12 @@ def _run_postprocess(
     full_rebuild: bool = False,
     changed_files: list[str] | None = None,
     pre_affected_communities: int = 0,
-    skip_minimal_steps: bool = False,
-    skip_flow_steps: bool = False,
-    skip_community_steps: bool = False,
-    skip_summary_steps: bool = False,
-    skip_centrality_steps: bool = False,
-    skip_orphan_prune: bool = False,
 ) -> list[str]:
     """Run post-build steps based on *postprocess* level.
 
-    When *full_rebuild* is False and *changed_files* are available,
-    uses incremental flow/community detection for faster updates.
+    ``minimal`` runs signatures, FTS, the edge resolvers, centrality, and the
+    orphan prune. ``full`` adds flows, communities, and the summary tables,
+    traced incrementally for *changed_files* unless *full_rebuild*.
 
     Returns a list of warning strings (empty on success).
     """
@@ -451,175 +446,110 @@ def _run_postprocess(
         return warnings
 
     post_result = build_result.postprocess
-    native_full = (
-        full_rebuild
-        and postprocess == "full"
-        and not skip_minimal_steps
-        and not skip_flow_steps
-        and not skip_community_steps
-        and not skip_centrality_steps
-    )
-    if native_full:
-        from dagayn.postprocessing import run_post_processing
+    # -- Signatures + FTS (fast, always run unless "none") --
+    try:
+        store.compute_missing_signatures()
+        build_result.signatures_updated = True
+    except (sqlite3.OperationalError, RuntimeError, TypeError, KeyError) as e:
+        _warn(warnings, "Signature computation", e)
 
-        pp = run_post_processing(store)
-        dumped = pp.model_dump(exclude_none=True)
-        dumped.pop("warnings", None)
-        for name, value in dumped.items():
-            setattr(post_result, name, value)
-        warnings.extend(pp.warnings)
-        if pp.signatures_computed is not None:
-            build_result.signatures_updated = True
-        if pp.fts_indexed is not None:
-            build_result.fts_indexed = pp.fts_indexed
-            build_result.fts_rebuilt = True
-        if not skip_orphan_prune:
-            warnings.extend(_prune_orphaned_structures(store, build_result))
-        if not skip_summary_steps:
-            try:
-                _compute_summaries(store)
-                build_result.summaries_computed = True
-            except (sqlite3.OperationalError, RuntimeError, Exception) as e:
-                _warn(warnings, "Summary computation", e)
-        _record_postprocess_level(store, postprocess)
-        return warnings
+    try:
+        if changed_files and not full_rebuild:
+            fts_count = int(store.sync_fts_for_file_paths(changed_files))
+        else:
+            from dagayn.search import rebuild_fts_index
 
-    if not skip_minimal_steps:
-        # -- Signatures + FTS (fast, always run unless "none") --
-        try:
-            store.compute_missing_signatures()
-            build_result.signatures_updated = True
-        except (sqlite3.OperationalError, RuntimeError, TypeError, KeyError) as e:
-            _warn(warnings, "Signature computation", e)
+            fts_count = rebuild_fts_index(store)
+        build_result.fts_indexed = fts_count
+        build_result.fts_rebuilt = True
+    except (sqlite3.OperationalError, ImportError, RuntimeError, TypeError) as e:
+        _warn(warnings, "FTS index rebuild", e)
 
-        try:
-            if changed_files and not full_rebuild:
-                fts_count = int(store.sync_fts_for_file_paths(changed_files))
-            else:
-                from dagayn.search import rebuild_fts_index
+    try:
+        from dagayn.postprocessing import _resolve_bare_name_edges
 
-                fts_count = rebuild_fts_index(store)
-            build_result.fts_indexed = fts_count
-            build_result.fts_rebuilt = True
-        except (sqlite3.OperationalError, ImportError, RuntimeError, TypeError) as e:
-            _warn(warnings, "FTS index rebuild", e)
+        _resolve_bare_name_edges(store, post_result, warnings)
+    except (sqlite3.OperationalError, ImportError) as e:
+        _warn(warnings, "Bare-name edge resolution", e)
 
-        try:
-            from dagayn.postprocessing import _resolve_bare_name_edges
+    try:
+        from dagayn.postprocessing import _resolve_terraform_module_references
 
-            _resolve_bare_name_edges(store, post_result, warnings)
-        except (sqlite3.OperationalError, ImportError) as e:
-            _warn(warnings, "Bare-name edge resolution", e)
+        _resolve_terraform_module_references(store, post_result, warnings)
+    except (sqlite3.OperationalError, ImportError) as e:
+        _warn(warnings, "Terraform module reference resolution", e)
 
-        try:
-            from dagayn.postprocessing import _resolve_terraform_module_references
+    try:
+        from dagayn.postprocessing import _demote_unresolved_endpoint_edges
 
-            _resolve_terraform_module_references(store, post_result, warnings)
-        except (sqlite3.OperationalError, ImportError) as e:
-            _warn(warnings, "Terraform module reference resolution", e)
+        _demote_unresolved_endpoint_edges(store, post_result, warnings)
+    except (sqlite3.OperationalError, ImportError) as e:
+        _warn(warnings, "Unresolved endpoint demotion", e)
 
-        try:
-            from dagayn.postprocessing import _demote_unresolved_endpoint_edges
+    try:
+        from dagayn.postprocessing import _resolve_markdown_artifact_refs
 
-            _demote_unresolved_endpoint_edges(store, post_result, warnings)
-        except (sqlite3.OperationalError, ImportError) as e:
-            _warn(warnings, "Unresolved endpoint demotion", e)
+        _resolve_markdown_artifact_refs(store, post_result, warnings)
+    except (sqlite3.OperationalError, ImportError) as e:
+        _warn(warnings, "Markdown artifact ref resolution", e)
 
-        try:
-            from dagayn.postprocessing import _resolve_markdown_artifact_refs
+    try:
+        from dagayn.postprocessing import _resolve_terraform_artifact_refs
 
-            _resolve_markdown_artifact_refs(store, post_result, warnings)
-        except (sqlite3.OperationalError, ImportError) as e:
-            _warn(warnings, "Markdown artifact ref resolution", e)
+        _resolve_terraform_artifact_refs(store, post_result, warnings)
+    except (sqlite3.OperationalError, ImportError) as e:
+        _warn(warnings, "Terraform artifact ref resolution", e)
 
-        try:
-            from dagayn.postprocessing import _resolve_terraform_artifact_refs
+    try:
+        from dagayn.postprocessing import _apply_manifest_bridges
 
-            _resolve_terraform_artifact_refs(store, post_result, warnings)
-        except (sqlite3.OperationalError, ImportError) as e:
-            _warn(warnings, "Terraform artifact ref resolution", e)
+        _apply_manifest_bridges(store, post_result, warnings, changed_files)
+    except (sqlite3.OperationalError, ImportError) as e:
+        _warn(warnings, "Manifest bridge extraction", e)
 
-        try:
-            from dagayn.postprocessing import _apply_manifest_bridges
+    try:
+        from dagayn.postprocessing import _resolve_native_bindings
 
-            _apply_manifest_bridges(store, post_result, warnings, changed_files)
-        except (sqlite3.OperationalError, ImportError) as e:
-            _warn(warnings, "Manifest bridge extraction", e)
+        _resolve_native_bindings(store, post_result, warnings)
+    except (sqlite3.OperationalError, ImportError, RuntimeError) as e:
+        _warn(warnings, "Native binding resolution", e)
 
-        try:
-            from dagayn.postprocessing import _resolve_native_bindings
-
-            _resolve_native_bindings(store, post_result, warnings)
-        except (sqlite3.OperationalError, ImportError, RuntimeError) as e:
-            _warn(warnings, "Native binding resolution", e)
-
-    if postprocess != "none" and not skip_centrality_steps:
-        # File re-parses invalidate hub_scores / bridge_scores wholesale (see
-        # remove_files_data_tx), so every non-none postprocess level must
-        # recompute them or the tables stay empty after skip-flows updates.
-        from dagayn.postprocessing import _persist_centrality_scores
-
-        _persist_centrality_scores(
-            store,
-            post_result,
-            warnings,
-            changed_files if not full_rebuild else None,
-        )
-
-    if postprocess == "minimal":
-        if not skip_orphan_prune:
-            warnings.extend(_prune_orphaned_structures(store, build_result))
-
-        # The minimal path returns before the bottom of this function, so record
-        # the level here too. Leaving the previous run's ``postprocess_level``
-        # in place made a graph whose flows had just been pruned still advertise
-        # itself as fully post-processed.
-        _record_postprocess_level(store, postprocess)
-        return warnings
-
-    # -- Expensive: flows + communities (only for "full") --
-    use_incremental = not full_rebuild and bool(changed_files)
-
-    if not skip_flow_steps:
-        _detect_flows(store, post_result, warnings, use_incremental, changed_files)
-
-        if postprocess != "minimal":
-            try:
-                pruned = store.prune_orphaned_graph_structures()
-                store.commit()
-                if pruned:
-                    existing = build_result.orphans_pruned
-                    if existing is not None:
-                        for key, value in pruned.items():
-                            existing[key] = existing.get(key, 0) + value
-                    else:
-                        build_result.orphans_pruned = pruned
-            except (sqlite3.OperationalError, RuntimeError, TypeError) as e:
-                _warn(warnings, "Post-flow orphan pruning", e)
-
-    if not skip_community_steps:
+    if postprocess != "minimal":
+        # -- Expensive: flows + communities + summaries (only for "full") --
+        incremental = not full_rebuild
+        _detect_flows(store, post_result, warnings, incremental, changed_files)
         _detect_communities(
             store,
             post_result,
             warnings,
-            use_incremental,
+            incremental,
             changed_files,
             pre_affected_communities,
         )
-
-    if not skip_orphan_prune:
-        warnings.extend(_prune_orphaned_structures(store, build_result))
-
-    if not skip_summary_steps:
-        # -- Compute pre-computed summary tables --
         try:
             _compute_summaries(store)
             build_result.summaries_computed = True
         except (sqlite3.OperationalError, RuntimeError, Exception) as e:
             _warn(warnings, "Summary computation", e)
 
-    _record_postprocess_level(store, postprocess)
+    # File re-parses invalidate hub_scores / bridge_scores wholesale (see
+    # remove_files_data_tx), so every non-none postprocess level must
+    # recompute them or the tables stay empty after skip-flows updates.
+    from dagayn.postprocessing import _persist_centrality_scores
 
+    _persist_centrality_scores(
+        store,
+        post_result,
+        warnings,
+        changed_files if not full_rebuild else None,
+    )
+
+    warnings.extend(_prune_orphaned_structures(store, build_result))
+
+    # Recorded on every non-none level: leaving the previous run's
+    # ``postprocess_level`` in place made a graph whose flows had just been
+    # pruned still advertise itself as fully post-processed.
+    _record_postprocess_level(store, postprocess)
     return warnings
 
 
@@ -821,64 +751,14 @@ def build_or_update_graph(
             build_result.scip_hints = scip_report.hints or None
             scip_warnings = scip_report.warnings
         if not no_changes:
-            if postprocess == "none":
-                warnings = _run_postprocess(
-                    store,
-                    build_result,
-                    postprocess,
-                    full_rebuild=full_rebuild,
-                    changed_files=changed,
-                    pre_affected_communities=pre_affected_communities,
-                )
-            elif postprocess == "full" and not hasattr(store, "_conn"):
-                warnings = _run_postprocess(
-                    store,
-                    build_result,
-                    "minimal",
-                    full_rebuild=full_rebuild,
-                    changed_files=changed,
-                    pre_affected_communities=pre_affected_communities,
-                    skip_centrality_steps=True,
-                    skip_orphan_prune=True,
-                )
-                _detect_flows(store, build_result.postprocess, warnings, not full_rebuild, changed)
-                _detect_communities(
-                    store,
-                    build_result.postprocess,
-                    warnings,
-                    not full_rebuild,
-                    changed,
-                    pre_affected_communities,
-                )
-
-                try:
-                    _compute_summaries(store)
-                    build_result.summaries_computed = True
-                except (sqlite3.OperationalError, RuntimeError, Exception) as e:
-                    _warn(warnings, "Summary computation", e)
-                warnings.extend(
-                    _run_postprocess(
-                        store,
-                        build_result,
-                        postprocess,
-                        full_rebuild=full_rebuild,
-                        changed_files=changed,
-                        pre_affected_communities=pre_affected_communities,
-                        skip_minimal_steps=True,
-                        skip_flow_steps=True,
-                        skip_community_steps=True,
-                        skip_summary_steps=True,
-                    )
-                )
-            else:
-                warnings = _run_postprocess(
-                    store,
-                    build_result,
-                    postprocess,
-                    full_rebuild=full_rebuild,
-                    changed_files=changed,
-                    pre_affected_communities=pre_affected_communities,
-                )
+            warnings = _run_postprocess(
+                store,
+                build_result,
+                postprocess,
+                full_rebuild=full_rebuild,
+                changed_files=changed,
+                pre_affected_communities=pre_affected_communities,
+            )
             if warnings:
                 build_result.warnings = warnings
             if scip_warnings:
