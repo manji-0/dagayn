@@ -7,6 +7,7 @@ is left incomplete, or where two writers corrupt each other instead of queuing.
 from __future__ import annotations
 
 import collections
+import os
 import subprocess
 import sys
 import threading
@@ -238,6 +239,195 @@ class TestGraphReadWriteLock:
         with graph_write_lock(db, blocking=False):
             waited = time.monotonic() - started
         assert waited < 0.5
+
+
+_TRY_WRITE = (
+    "import sys\n"
+    "from dagayn.write_lock import WriteLockUnavailableError, graph_write_lock\n"
+    "try:\n"
+    "    with graph_write_lock(sys.argv[1], blocking=False):\n"
+    "        print('free')\n"
+    "except WriteLockUnavailableError:\n"
+    "    print('busy')\n"
+)
+
+
+def _other_process_can_write(db: Path) -> bool:
+    """Ask a fresh process whether it could take the write lock right now."""
+    result = subprocess.run(
+        [sys.executable, "-c", _TRY_WRITE, str(db)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+    )
+    return result.stdout.strip() == "free"
+
+
+class TestGraphLockFailurePaths:
+    """What a caller is left holding when a lock cannot be taken."""
+
+    def test_failed_upgrade_keeps_the_shared_lock(self, tmp_path):
+        """A reader whose nested write times out must still be a reader.
+
+        The upgrade drops the shared flock before polling for exclusive; if it
+        were not restored, a writer could slip in under a connection that is
+        still open, which is the overlap that tore ``sqlite_master``.
+        """
+        db = tmp_path / "graph.db"
+        db.touch()
+        reader = (
+            "import sys\n"
+            "from dagayn.write_lock import graph_read_lock\n"
+            "with graph_read_lock(sys.argv[1]):\n"
+            "    print('held', flush=True)\n"
+            "    sys.stdin.readline()\n"
+        )
+        proc = subprocess.Popen(
+            [sys.executable, "-c", reader, str(db)],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            assert proc.stdout is not None and proc.stdin is not None
+            assert proc.stdout.readline().strip() == "held"
+            with graph_read_lock(db):
+                with pytest.raises(WriteLockUnavailableError, match="timed out"):
+                    with graph_write_lock(db, timeout=0.3):
+                        pytest.fail("upgraded while another process reads")
+                with pytest.raises(WriteLockUnavailableError, match="another process"):
+                    with graph_write_lock(db, blocking=False):
+                        pytest.fail("upgraded while another process reads")
+                assert graph_lock_is_held(db)
+                assert not write_lock_is_held(db)
+
+                proc.stdin.write("done\n")
+                proc.stdin.flush()
+                proc.wait(timeout=30)
+                # Only this process reads now, and it still blocks writers.
+                assert not _other_process_can_write(db)
+                # And the upgrade works once the other reader is gone.
+                with graph_write_lock(db, timeout=5):
+                    assert write_lock_is_held(db)
+                assert graph_lock_is_held(db)
+                assert not write_lock_is_held(db)
+            assert not graph_lock_is_held(db)
+            assert _other_process_can_write(db)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait(timeout=30)
+
+    def test_thread_waiting_on_another_thread_times_out(self, tmp_path):
+        from dagayn.write_lock import acquire_graph_lock
+
+        db = tmp_path / "graph.db"
+        db.touch()
+        held = threading.Event()
+        done = threading.Event()
+
+        def writer() -> None:
+            with graph_write_lock(db):
+                held.set()
+                done.wait(30)
+
+        thread = threading.Thread(target=writer)
+        thread.start()
+        try:
+            assert held.wait(30)
+            started = time.monotonic()
+            with pytest.raises(WriteLockUnavailableError, match="another thread"):
+                acquire_graph_lock(db, exclusive=False, timeout=0.2)
+            assert time.monotonic() - started < 5
+            # The timed-out waiter left nothing behind in this thread.
+            with pytest.raises(RuntimeError, match="does not hold"):
+                from dagayn.write_lock import release_graph_lock
+
+                release_graph_lock(db)
+        finally:
+            done.set()
+            thread.join(30)
+        with graph_read_lock(db, timeout=5):
+            assert graph_lock_is_held(db)
+
+    def test_release_without_acquire_is_an_error(self, tmp_path):
+        from dagayn.write_lock import release_graph_lock
+
+        db = tmp_path / "graph.db"
+        with pytest.raises(RuntimeError, match="does not hold"):
+            release_graph_lock(db)
+        assert not graph_lock_is_held(db)
+
+    def test_lock_holder_pid_is_a_hint_or_none(self, tmp_path):
+        from dagayn.write_lock import lock_holder_pid
+
+        db = tmp_path / "graph.db"
+        assert lock_holder_pid(db) is None  # no lock file yet
+
+        with graph_write_lock(db):
+            assert lock_holder_pid(db) == os.getpid()
+
+        lock_file = tmp_path / "graph.db.write.lock"
+        lock_file.write_text("", encoding="utf-8")
+        assert lock_holder_pid(db) is None
+        lock_file.write_text("not-a-pid\n", encoding="utf-8")
+        assert lock_holder_pid(db) is None
+
+    def test_force_close_releases_every_bound_read_lock(self, tmp_path):
+        """Overlapping readers share one cached store; tearing it down frees the graph."""
+        from dagayn.write_lock import (
+            acquire_graph_lock,
+            bind_store_read_lock,
+            ensure_store_close_unbinds,
+        )
+
+        db = tmp_path / "graph.db"
+        store = GraphStore(db)
+        # A patchable store is wrapped in place, not proxied.
+        assert ensure_store_close_unbinds(store) is store
+        for _ in range(2):
+            acquire_graph_lock(db, exclusive=False)
+            bind_store_read_lock(store, db)
+        assert graph_lock_is_held(db)
+        assert not _other_process_can_write(db)
+
+        store._force_close()
+
+        assert not graph_lock_is_held(db)
+        assert _other_process_can_write(db)
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason=(
+            "bug: ensure_store_close_unbinds re-wraps an already patched store's close() on "
+            "every _get_store call, so one close() unbinds once per wrap layer and the first "
+            "of two overlapping readers releases the other reader's shared lock too"
+        ),
+    )
+    def test_closing_one_of_two_overlapping_readers_keeps_the_other_locked(
+        self, tmp_path, monkeypatch
+    ):
+        from dagayn.tools._common import _evict_store_cache, _get_store
+
+        monkeypatch.delenv("DAGAYN_DISABLE_STORE_CACHE", raising=False)
+        (tmp_path / ".git").mkdir()
+        db = (tmp_path / ".dagayn" / "graph.db").resolve()
+        db.parent.mkdir(parents=True)
+        GraphStore(db).close()
+        _evict_store_cache()
+        try:
+            first, _ = _get_store(str(tmp_path))
+            second, _ = _get_store(str(tmp_path))
+            assert first is second  # both callers lease the one cached store
+            first.close()
+            # The second reader's connection is still open: writers must wait.
+            assert graph_lock_is_held(db)
+            assert not _other_process_can_write(db)
+            second.close()
+            assert not graph_lock_is_held(db)
+        finally:
+            _evict_store_cache()
 
 
 class TestSharedConnectionThreadSafety:

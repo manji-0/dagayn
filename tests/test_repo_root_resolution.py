@@ -70,6 +70,17 @@ class TestUnsafeRootReason:
         monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
         assert unsafe_root_reason(tmp_path / "project") is None
 
+    def test_unknown_home_directory_does_not_block_a_project(self, tmp_path, monkeypatch):
+        """No resolvable home (no HOME, no passwd entry) is not a reason to refuse."""
+
+        def no_home() -> Path:
+            raise RuntimeError("Could not determine home directory.")
+
+        monkeypatch.setattr(Path, "home", staticmethod(no_home))
+        assert unsafe_root_reason(tmp_path / "project") is None
+        # The filesystem root is refused without needing to know the home.
+        assert unsafe_root_reason(Path(tmp_path.anchor)) == "the filesystem root"
+
     def test_env_override_allows_home(self, tmp_path, monkeypatch):
         home = tmp_path / "home"
         home.mkdir()
@@ -258,6 +269,54 @@ class TestFindProjectRootAmbientCwd:
         monkeypatch.setenv("WORKSPACE_FOLDER_PATHS", str(workspace))
 
         assert find_project_root() == workspace.resolve()
+
+    def test_json_list_of_workspace_folders_is_understood(self, tmp_path, monkeypatch):
+        """Multi-root hints may arrive as a JSON array rather than comma-separated."""
+        workspace = _git_repo(tmp_path / "json-ws")
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.chdir(home)
+        monkeypatch.setenv("WORKSPACE_FOLDER_PATHS", f'["{workspace}"]')
+
+        assert find_project_root() == workspace.resolve()
+
+    def test_malformed_json_hint_is_ignored(self, tmp_path, monkeypatch):
+        cwd_repo = _git_repo(tmp_path / "cwd-repo")
+        monkeypatch.chdir(cwd_repo)
+        monkeypatch.setenv("WORKSPACE_FOLDER_PATHS", f'["{tmp_path / "other"}"')
+
+        assert find_project_root() == cwd_repo.resolve()
+
+    def test_one_repo_named_by_several_hints_is_not_ambiguous(self, tmp_path, monkeypatch):
+        """The same folder from two variables (and a stale hint) is one candidate."""
+        workspace = _git_repo(tmp_path / "same")
+        nested = workspace / "src"
+        nested.mkdir()
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.chdir(home)
+        monkeypatch.setenv("CURSOR_PROJECT_DIR", str(workspace))
+        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(nested))
+        monkeypatch.setenv(
+            "WORKSPACE_FOLDER_PATHS", f"{workspace},{tmp_path / 'closed-window-gone'}"
+        )
+
+        assert find_project_root() == workspace.resolve()
+
+    def test_innermost_graph_only_workspace_holding_the_cwd_wins(self, tmp_path, monkeypatch):
+        """No VCS anywhere: hinted folders with a ``.dagayn`` graph are the roots."""
+        outer = tmp_path / "outer"
+        inner = outer / "packages" / "inner"
+        (outer / ".dagayn").mkdir(parents=True)
+        (inner / ".dagayn").mkdir(parents=True)
+        cwd = inner / "src"
+        cwd.mkdir()
+        unrelated = tmp_path / "unrelated"
+        (unrelated / ".dagayn").mkdir(parents=True)
+        monkeypatch.chdir(cwd)
+        monkeypatch.setenv("WORKSPACE_FOLDER_PATHS", f"{outer},{unrelated},{inner}")
+
+        assert find_project_root() == inner.resolve()
 
 
 class TestSessionPrepareResolution:

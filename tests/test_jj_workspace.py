@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -94,6 +95,62 @@ class TestSyntheticLayout:
         (orphan / ".jj").mkdir(parents=True)
         assert jj_workspace.is_jj_workspace(orphan) is False
         assert detect_vcs(orphan) == "none"
+
+
+@pytest.fixture()
+def path_without_jj(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A PATH that has git but no jj, as on a machine without jj installed."""
+    real_git = shutil.which("git")
+    assert real_git is not None
+    bin_dir = tmp_path / "git-only-bin"
+    bin_dir.mkdir()
+    (bin_dir / "git").symlink_to(real_git)
+    monkeypatch.setenv("PATH", str(bin_dir))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="symlinked git shim")
+class TestSyntheticWorkspaceWithoutJj:
+    """A jj workspace whose working copy jj cannot read (jj missing, stale, locked).
+
+    Commit-to-commit git answers still work through the backing git directory;
+    anything that needs ``@`` / ``@-`` must refuse rather than answer "no files"
+    or "no changes" — an empty answer would make a build store an empty graph.
+    """
+
+    def test_explicit_commit_resolves_through_the_backing_git_dir(
+        self, main_repo: Path, path_without_jj: None
+    ):
+        workspace = _synthetic_workspace(main_repo, relative=False)
+        head = _git(main_repo, "rev-parse", "HEAD").stdout.strip()
+
+        assert resolve_commit_sha(workspace, head) == head
+        assert resolve_commit_sha(workspace, "main") == head
+        assert resolve_commit_sha(workspace, "main; rm -rf /") is None
+
+    def test_head_relative_ref_needs_the_working_copy(self, main_repo: Path, path_without_jj: None):
+        workspace = _synthetic_workspace(main_repo, relative=False)
+
+        # ``HEAD`` means ``@-`` here, which only jj can name.
+        assert resolve_commit_sha(workspace, "HEAD") is None
+        assert _git_branch_info(workspace) == ("", "")
+
+    def test_changed_files_refuse_instead_of_reporting_nothing(
+        self, main_repo: Path, path_without_jj: None
+    ):
+        workspace = _synthetic_workspace(main_repo, relative=False)
+
+        with pytest.raises(JjWorkspaceError, match="could not read the working copy"):
+            get_changed_file_sources(workspace, "HEAD~1")
+
+    def test_file_set_refuses_with_the_jj_reason_not_a_native_extension_error(
+        self, main_repo: Path, path_without_jj: None
+    ):
+        workspace = _synthetic_workspace(main_repo, relative=False)
+
+        with pytest.raises(JjWorkspaceError) as excinfo:
+            collect_all_files(workspace)
+        assert "dagayn._core" not in str(excinfo.value)
+        assert str(workspace) in str(excinfo.value)
 
 
 def _jj(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
