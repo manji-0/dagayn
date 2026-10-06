@@ -210,13 +210,6 @@ def failing_signatures(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(build_tool, "_get_store", get_store)
 
 
-_PAYLOAD_DROPS_WARNINGS = (
-    "build_result_payload flattens BuildResult.postprocess over the top-level keys, "
-    "and PostprocessResult.warnings defaults to [], so the build's own warnings are "
-    "always replaced by [] on the wire (MCP tool, session prepare, queue worker)"
-)
-
-
 class TestPostprocessFailuresAreWarnings:
     def test_build_survives_a_failed_postprocess_step(self, repo, failing_signatures, caplog):
         result = build_or_update_graph(
@@ -230,7 +223,6 @@ class TestPostprocessFailuresAreWarnings:
         assert result["fts_indexed"] > 0
         assert _graph_metadata(repo, "postprocess_level") == "minimal"
 
-    @pytest.mark.xfail(strict=True, reason=_PAYLOAD_DROPS_WARNINGS)
     def test_build_reports_a_failed_postprocess_step(self, repo, failing_signatures):
         result = build_or_update_graph(
             full_rebuild=True, repo_root=str(repo), postprocess="minimal"
@@ -258,7 +250,6 @@ class TestPostprocessFailuresAreWarnings:
         assert result["communities_detected"] >= 1
         assert _graph_metadata(repo, "last_postprocessed_at")
 
-    @pytest.mark.xfail(strict=True, reason=_PAYLOAD_DROPS_WARNINGS)
     def test_run_postprocess_reports_failed_steps(self, repo, failing_signatures):
         build_or_update_graph(full_rebuild=True, repo_root=str(repo), postprocess="none")
 

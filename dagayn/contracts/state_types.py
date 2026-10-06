@@ -508,7 +508,14 @@ def build_result_payload(result: BuildResult) -> JsonObject:
     payload = result.model_dump(exclude_none=True)
     postprocess = payload.pop("postprocess", None)
     if postprocess:
+        build_warnings = list(payload.get("warnings") or [])
         payload.update(postprocess)
+        # Both carry ``warnings``: keep the build's, then the steps' own.
+        payload["warnings"] = build_warnings + [
+            warning
+            for warning in postprocess.get("warnings") or []
+            if warning not in build_warnings
+        ]
     return payload
 
 
