@@ -38,13 +38,13 @@ pub(super) fn parse_rust_with_parser(
         && let Some(tree) = parser.parse(source, None)
     {
         let root = tree.root_node();
-        let mut defined_names = HashSet::new();
-        collect_rust_defined_names(root, source, &mut defined_names);
-        let mut free_functions = HashSet::new();
-        collect_rust_free_functions(root, source, &mut free_functions);
-        let struct_fields = collect_rust_struct_fields(root, source);
-        let mut type_names = HashSet::new();
-        collect_rust_type_names(root, source, &mut type_names);
+        let RustFileFacts {
+            defined_names,
+            free_functions,
+            struct_fields,
+            type_names,
+            qualified_types,
+        } = collect_rust_file_facts(root, source);
         let scope =
             repo.map(|(root, cache)| modules::RustModuleScope::new(root, cache, &file_path));
         let context = RustParseContext {
@@ -61,7 +61,7 @@ pub(super) fn parse_rust_with_parser(
             bindings: RefCell::new(MemberCallBindings::with_types(type_names)),
             component_bindings: rust_uses_component_bindings(source),
         };
-        rust_note_qualified_types(root, &context);
+        rust_note_qualified_types(qualified_types, &context);
         rust_walk_children(root, &context, None, None, &mut nodes, &mut edges);
         rust_mark_std_calls(&mut edges, &context);
         let component_bindings = context.component_bindings;
@@ -481,63 +481,132 @@ struct RustParseContext<'a> {
     component_bindings: bool,
 }
 
-fn collect_rust_defined_names(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    names: &mut HashSet<String>,
-) {
-    match node.kind() {
-        "struct_item" | "enum_item" | "trait_item" | "type_item" => {
-            if let Some(name) = rust_type_name(node, source) {
-                names.insert(name);
-            }
+/// What the extraction needs to know about the whole file before it walks
+/// it, gathered in one pass.
+struct RustFileFacts {
+    /// Types, impls' types, functions, and `macro_rules!` (`name!`) the
+    /// file defines.
+    defined_names: HashSet<String>,
+    /// `fn`s outside `impl` and `trait` blocks.
+    free_functions: HashSet<String>,
+    /// `struct S { conn: Connection, store: &'a GraphStore }` -> S -> field
+    /// -> type.
+    struct_fields: HashMap<String, HashMap<String, String>>,
+    /// Types and impls' types.
+    type_names: HashSet<String>,
+    /// `scoped_type_identifier`s (path, name), in source order.
+    qualified_types: Vec<(String, String)>,
+}
+
+/// Visits every node once, with one cursor, depth first in source order.
+fn collect_rust_file_facts(root: tree_sitter::Node<'_>, source: &[u8]) -> RustFileFacts {
+    let mut facts = RustFileFacts {
+        defined_names: HashSet::new(),
+        free_functions: HashSet::new(),
+        struct_fields: HashMap::new(),
+        type_names: HashSet::new(),
+        qualified_types: Vec::new(),
+    };
+    let mut cursor = root.walk();
+    let mut depth = 0usize;
+    // Depth of the `impl` or `trait` block the cursor is in, whose `fn`s are
+    // not free functions.
+    let mut impl_or_trait: Option<usize> = None;
+    loop {
+        let node = cursor.node();
+        if impl_or_trait.is_some_and(|block| depth <= block) {
+            impl_or_trait = None;
         }
-        "impl_item" => {
-            if let Some(name) = rust_impl_type_name(node, source) {
-                names.insert(name);
+        match node.kind() {
+            "struct_item" | "enum_item" | "trait_item" | "type_item" => {
+                if let Some(name) = rust_type_name(node, source) {
+                    facts.defined_names.insert(name.clone());
+                    facts.type_names.insert(name);
+                }
+                if node.kind() == "struct_item" {
+                    rust_note_struct_fields(node, source, &mut facts.struct_fields);
+                }
             }
-        }
-        "function_item" | "function_signature_item" => {
-            if let Some(name) = rust_identifier_child(node, source) {
-                names.insert(name);
+            "impl_item" => {
+                if let Some(name) = rust_impl_type_name(node, source) {
+                    facts.defined_names.insert(name.clone());
+                    facts.type_names.insert(name);
+                }
             }
-        }
-        // `macro_rules! format` shadows `std::format!`.
-        "macro_definition" => {
-            if let Some(name) = node.child_by_field_name("name") {
-                names.insert(format!("{}!", node_text(name, source)));
+            "function_item" | "function_signature_item" => {
+                if let Some(name) = rust_identifier_child(node, source) {
+                    if node.kind() == "function_item" && impl_or_trait.is_none() {
+                        facts.free_functions.insert(name.clone());
+                    }
+                    facts.defined_names.insert(name);
+                }
             }
+            // `macro_rules! format` shadows `std::format!`.
+            "macro_definition" => {
+                if let Some(name) = node.child_by_field_name("name") {
+                    facts
+                        .defined_names
+                        .insert(format!("{}!", node_text(name, source)));
+                }
+            }
+            "scoped_type_identifier" => {
+                if let (Some(path), Some(name)) = (
+                    node.child_by_field_name("path"),
+                    node.child_by_field_name("name"),
+                ) {
+                    facts
+                        .qualified_types
+                        .push((node_text(path, source), node_text(name, source)));
+                }
+            }
+            _ => {}
         }
-        _ => {}
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_rust_defined_names(child, source, names);
+        if matches!(node.kind(), "impl_item" | "trait_item") && impl_or_trait.is_none() {
+            impl_or_trait = Some(depth);
+        }
+        if cursor.goto_first_child() {
+            depth += 1;
+            continue;
+        }
+        loop {
+            if cursor.goto_next_sibling() {
+                break;
+            }
+            if !cursor.goto_parent() {
+                return facts;
+            }
+            depth -= 1;
+        }
     }
 }
 
-fn collect_rust_type_names(
+fn rust_note_struct_fields(
     node: tree_sitter::Node<'_>,
     source: &[u8],
-    names: &mut HashSet<String>,
+    out: &mut HashMap<String, HashMap<String, String>>,
 ) {
-    match node.kind() {
-        "struct_item" | "enum_item" | "trait_item" | "type_item" => {
-            if let Some(name) = rust_type_name(node, source) {
-                names.insert(name);
-            }
+    let (Some(name), Some(body)) = (
+        node.child_by_field_name("name")
+            .map(|n| node_text(n, source)),
+        node.child_by_field_name("body"),
+    ) else {
+        return;
+    };
+    let mut fields = HashMap::new();
+    let mut cursor = body.walk();
+    for field in body.named_children(&mut cursor) {
+        if field.kind() != "field_declaration" {
+            continue;
         }
-        "impl_item" => {
-            if let Some(name) = rust_impl_type_name(node, source) {
-                names.insert(name);
-            }
+        if let (Some(field_name), Some(ty)) = (
+            field.child_by_field_name("name"),
+            field.child_by_field_name("type"),
+        ) && let Some(ty) = rust_receiver_type(ty, source)
+        {
+            fields.insert(node_text(field_name, source), ty);
         }
-        _ => {}
     }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_rust_type_names(child, source, names);
-    }
+    out.insert(name, fields);
 }
 
 fn rust_type_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
@@ -1338,48 +1407,6 @@ fn rust_receiver_owner(
     }
 }
 
-/// `struct S { conn: Connection, store: &'a GraphStore }` -> S -> field -> type.
-fn collect_rust_struct_fields(
-    root: tree_sitter::Node<'_>,
-    source: &[u8],
-) -> HashMap<String, HashMap<String, String>> {
-    fn visit(
-        node: tree_sitter::Node<'_>,
-        source: &[u8],
-        out: &mut HashMap<String, HashMap<String, String>>,
-    ) {
-        if node.kind() == "struct_item"
-            && let Some(name) = node
-                .child_by_field_name("name")
-                .map(|n| node_text(n, source))
-            && let Some(body) = node.child_by_field_name("body")
-        {
-            let mut fields = HashMap::new();
-            let mut cursor = body.walk();
-            for field in body.named_children(&mut cursor) {
-                if field.kind() != "field_declaration" {
-                    continue;
-                }
-                if let (Some(field_name), Some(ty)) = (
-                    field.child_by_field_name("name"),
-                    field.child_by_field_name("type"),
-                ) && let Some(ty) = rust_receiver_type(ty, source)
-                {
-                    fields.insert(node_text(field_name, source), ty);
-                }
-            }
-            out.insert(name, fields);
-        }
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            visit(child, source, out);
-        }
-    }
-    let mut out = HashMap::new();
-    visit(root, source, &mut out);
-    out
-}
-
 /// Calls in a macro's arguments. tree-sitter keeps them as a flat token tree
 /// (`assert_eq!(f(&x), 1)`, `json!({"a": g(x)})`, `format!("{}", x.m())`),
 /// so they are read from the tokens: a path followed by `(...)` is a call, a
@@ -1922,27 +1949,6 @@ fn rust_emit_argument_references(
     }
 }
 
-/// Free functions of the file: `fn`s outside `impl` and `trait` blocks.
-fn collect_rust_free_functions(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    names: &mut HashSet<String>,
-) {
-    match node.kind() {
-        "impl_item" | "trait_item" => return,
-        "function_item" => {
-            if let Some(name) = rust_identifier_child(node, source) {
-                names.insert(name);
-            }
-        }
-        _ => {}
-    }
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        collect_rust_free_functions(child, source, names);
-    }
-}
-
 /// Names a function body binds: parameters, `let` / `if let` / `while let` /
 /// `for` / `match` patterns, and closure parameters. Nested `fn`s are their
 /// own scope.
@@ -2351,34 +2357,24 @@ fn record_rust_deref_targets(root: tree_sitter::Node<'_>, source: &[u8], nodes: 
 /// `std::path::Path`) as if a `use` had brought them in: a variable typed
 /// by one binds the bare name (`Node`), whose calls (`node.kind()`) then
 /// know their crate. A name the file declares or `use`s is left alone.
-fn rust_note_qualified_types(root: tree_sitter::Node<'_>, context: &RustParseContext<'_>) {
-    fn visit(node: tree_sitter::Node<'_>, context: &RustParseContext<'_>) {
-        if node.kind() == "scoped_type_identifier"
-            && let (Some(path), Some(name)) = (
-                node.child_by_field_name("path"),
-                node.child_by_field_name("name"),
-            )
-        {
-            let mut segments: Vec<String> = node_text(path, context.source)
-                .split("::")
-                .map(|segment| segment.trim().to_string())
-                .collect();
-            let name = node_text(name, context.source);
-            let external = rust_std_crate(&segments).is_some()
-                || context
-                    .scope
-                    .is_some_and(|scope| scope.is_dependency(&segments[0]));
-            if external && !context.defined_names.contains(&name) {
-                segments.push(name.clone());
-                context.uses.borrow_mut().entry(name).or_insert(segments);
-            }
-        }
-        let mut cursor = node.walk();
-        for child in node.children(&mut cursor) {
-            visit(child, context);
+fn rust_note_qualified_types(
+    qualified_types: Vec<(String, String)>,
+    context: &RustParseContext<'_>,
+) {
+    for (path, name) in qualified_types {
+        let mut segments: Vec<String> = path
+            .split("::")
+            .map(|segment| segment.trim().to_string())
+            .collect();
+        let external = rust_std_crate(&segments).is_some()
+            || context
+                .scope
+                .is_some_and(|scope| scope.is_dependency(&segments[0]));
+        if external && !context.defined_names.contains(&name) {
+            segments.push(name.clone());
+            context.uses.borrow_mut().entry(name).or_insert(segments);
         }
     }
-    visit(root, context);
 }
 
 #[cfg(all(test, feature = "lang-rust"))]
