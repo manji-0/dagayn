@@ -565,19 +565,6 @@ def resolve_commit_sha(repo_root: Path, ref: str) -> str | None:
     return result.stdout.strip() or None
 
 
-def get_changed_files(repo_root: Path, base: str = "HEAD~1") -> list[str]:
-    """Get list of changed files via git diff plus working-tree status.
-
-    For SVN working copies the *base* parameter is ignored; modified/added/
-    deleted files are detected from ``svn status``.  Pass an SVN revision
-    range (e.g. ``"r100:HEAD"``) as *base* to compare against a specific
-    revision instead.
-    """
-    if detect_vcs(repo_root) == "svn":
-        return _get_svn_changed_files(repo_root, base if _SAFE_SVN_REV.match(base) else None)
-    return get_changed_file_sources(repo_root, base).get("files", [])
-
-
 def get_changed_file_sources(repo_root: Path, base: str = "HEAD~1") -> dict[str, list[str]]:
     """Get changed files grouped by origin.
 
@@ -811,16 +798,6 @@ def _get_svn_changed_files(repo_root: Path, rev_range: str | None = None) -> lis
             return files
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return []
-
-
-def get_staged_and_unstaged(repo_root: Path) -> list[str]:
-    """Get all modified files (staged + unstaged + untracked)."""
-    vcs = detect_vcs(repo_root)
-    if vcs == "svn":
-        return _get_svn_changed_files(repo_root)
-    if vcs == "jj":
-        return _get_jj_changed_file_sources(repo_root, "HEAD")["worktree"]
-    return _get_git_worktree_change_sources(repo_root)["worktree"]
 
 
 def _jj_working_copy_files(repo_root: Path) -> list[str]:

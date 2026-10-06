@@ -1,7 +1,7 @@
 """Integration tests exercising git-dependent code with real temporary repos.
 
 Tests cover:
-- get_changed_files with real git history
+- get_changed_file_sources with real git history
 - review_tool(mode="changes") diff attribution with real diffs
 - incremental_update detecting real file modifications
 - base ref injection rejection
@@ -21,7 +21,6 @@ from dagayn.incremental_build import full_build
 from dagayn.incremental_files import (
     collect_all_files,
     get_changed_file_sources,
-    get_changed_files,
     get_vcs_indexable_files,
 )
 from dagayn.incremental_update_pipeline import incremental_update
@@ -72,24 +71,24 @@ def git_repo(tmp_path: Path) -> Path:
 
 
 # ------------------------------------------------------------------
-# 1. get_changed_files with a real git repo
+# 1. get_changed_file_sources with a real git repo
 # ------------------------------------------------------------------
 
 
-def test_get_changed_files_real_git(git_repo: Path) -> None:
-    """get_changed_files should list hello.py as changed between HEAD~1..HEAD."""
-    changed = get_changed_files(git_repo, base="HEAD~1")
+def test_get_changed_file_sources_real_git(git_repo: Path) -> None:
+    """get_changed_file_sources should list hello.py as changed between HEAD~1..HEAD."""
+    changed = get_changed_file_sources(git_repo, base="HEAD~1")["files"]
     assert "hello.py" in changed
 
 
-def test_get_changed_files_real_git_includes_untracked_with_tracked(
+def test_get_changed_file_sources_real_git_includes_untracked_with_tracked(
     git_repo: Path,
 ) -> None:
     """Mixed tracked and untracked worktree changes are returned together."""
     (git_repo / "hello.py").write_text("def greet():\n    return 'hi now'\n")
     (git_repo / "new_file.py").write_text("def fresh():\n    return 'new'\n")
 
-    changed = get_changed_files(git_repo, base="HEAD")
+    changed = get_changed_file_sources(git_repo, base="HEAD")["files"]
     assert "hello.py" in changed
     assert "new_file.py" in changed
 
@@ -291,7 +290,7 @@ def test_incremental_update_noop_keeps_head_sha_when_base_unresolvable(
 
 def test_base_validation_rejects_injection(git_repo: Path) -> None:
     """Passing a malicious --flag as base should be rejected (empty list)."""
-    result = get_changed_files(git_repo, base="--output=/tmp/evil")
+    result = get_changed_file_sources(git_repo, base="--output=/tmp/evil")["files"]
     assert result == []
 
 

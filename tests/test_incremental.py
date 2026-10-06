@@ -17,14 +17,13 @@ from dagayn.incremental_build import (
     full_build,
 )
 from dagayn.incremental_files import (
+    _get_git_worktree_change_sources,
     _is_binary,
     _relativize_parsed_entities,
     ensure_repo_gitignore_excludes_crg,
     find_project_root,
     find_repo_root,
     get_changed_file_sources,
-    get_changed_files,
-    get_staged_and_unstaged,
     get_vcs_indexable_files,
 )
 from dagayn.incremental_update_pipeline import incremental_update, watch
@@ -637,12 +636,12 @@ class TestIsBinary:
 
 class TestGitOperations:
     @patch("subprocess.run")
-    def test_get_changed_files(self, mock_run, tmp_path):
+    def test_get_changed_file_sources_files(self, mock_run, tmp_path):
         mock_run.side_effect = [
             MagicMock(returncode=0, stdout="M\0src/a.py\0M\0src/b.py\0"),
             MagicMock(returncode=0, stdout=" M src/b.py\0?? src/c.py\0"),
         ]
-        result = get_changed_files(tmp_path)
+        result = get_changed_file_sources(tmp_path)["files"]
         assert result == ["src/a.py", "src/b.py", "src/c.py"]
         assert mock_run.call_count == 2
         call_args = mock_run.call_args
@@ -680,31 +679,31 @@ class TestGitOperations:
         assert result["untracked"] == ["src/new.py"]
 
     @patch("subprocess.run")
-    def test_get_changed_files_fallback(self, mock_run, tmp_path):
+    def test_get_changed_file_sources_fallback(self, mock_run, tmp_path):
         # First call fails, then working-tree status is still merged.
         mock_run.side_effect = [
             MagicMock(returncode=1, stdout=""),
             MagicMock(returncode=0, stdout="A  staged.py\0?? new.py\0"),
         ]
-        result = get_changed_files(tmp_path)
+        result = get_changed_file_sources(tmp_path)["files"]
         assert result == ["staged.py", "new.py"]
         assert mock_run.call_count == 2
 
     @patch("subprocess.run")
-    def test_get_changed_files_timeout(self, mock_run, tmp_path):
+    def test_get_changed_file_sources_timeout(self, mock_run, tmp_path):
         mock_run.side_effect = subprocess.TimeoutExpired("git", 30)
-        result = get_changed_files(tmp_path)
+        result = get_changed_file_sources(tmp_path)["files"]
         assert result == []
 
     @patch("subprocess.run")
-    def test_get_staged_and_unstaged(self, mock_run, tmp_path):
+    def test_git_worktree_change_sources(self, mock_run, tmp_path):
         mock_run.return_value = MagicMock(
             returncode=0,
             # ``--porcelain -z``: a rename is two NUL-separated fields,
             # new path first.
             stdout=" M src/a.py\0?? new.py\0R  new_name.py\0old.py\0",
         )
-        result = get_staged_and_unstaged(tmp_path)
+        result = _get_git_worktree_change_sources(tmp_path)["worktree"]
         assert "src/a.py" in result
         assert "new.py" in result
         assert "new_name.py" in result

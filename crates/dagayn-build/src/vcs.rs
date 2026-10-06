@@ -183,7 +183,8 @@ pub fn change_file_sources(repo_root: &Path, base: &str) -> Result<ChangeSources
     })
 }
 
-/// `get_staged_and_unstaged`, or what it raises, as for
+/// The local staged, unstaged, and untracked paths (the `worktree` group of
+/// [`change_file_sources`] against `HEAD`), or what it raises, as for
 /// [`change_file_sources`].
 pub fn staged_and_unstaged(repo_root: &Path) -> Result<Vec<String>, ChangeError> {
     match detect_vcs(repo_root) {
