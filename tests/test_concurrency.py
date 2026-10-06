@@ -397,14 +397,6 @@ class TestGraphLockFailurePaths:
         assert not graph_lock_is_held(db)
         assert _other_process_can_write(db)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "bug: ensure_store_close_unbinds re-wraps an already patched store's close() on "
-            "every _get_store call, so one close() unbinds once per wrap layer and the first "
-            "of two overlapping readers releases the other reader's shared lock too"
-        ),
-    )
     def test_closing_one_of_two_overlapping_readers_keeps_the_other_locked(
         self, tmp_path, monkeypatch
     ):

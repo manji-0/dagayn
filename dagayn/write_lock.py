@@ -636,13 +636,19 @@ class _ReadLockBoundStore:
         setattr(object.__getattribute__(self, "_inner"), name, value)
 
 
+#: Set on a store whose ``close`` already unbinds its read lock.
+_CLOSE_UNBINDS_MARK = "_dagayn_close_unbinds"
+
+
 def wrap_store_close_to_unbind(store: object) -> _CloseableStore:
     """Ensure ``store.close()`` releases a bound read lock.
 
     Returns *store* when ``close`` can be patched, otherwise a proxy whose
     ``close`` always unbinds. Callers must bind the lock to the returned object.
     """
-    if type(store) is _ReadLockBoundStore:
+    if type(store) is _ReadLockBoundStore or getattr(store, _CLOSE_UNBINDS_MARK, False):
+        # Already wrapped: another layer would unbind every reader's lock on
+        # the first close of a cached store shared by overlapping readers.
         return cast(_CloseableStore, store)
     inner_close = getattr(store, "close", None)
     if not callable(inner_close):
@@ -656,6 +662,7 @@ def wrap_store_close_to_unbind(store: object) -> _CloseableStore:
 
     try:
         store.close = close  # type: ignore[method-assign]
+        setattr(store, _CLOSE_UNBINDS_MARK, True)
     except (AttributeError, TypeError):
         return _ReadLockBoundStore(store)
 
