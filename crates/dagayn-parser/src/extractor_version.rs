@@ -176,8 +176,11 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 16: a closure bound by `let` in a function body is a function of it
         // (`run.call`), whose calls are its own.
         // 17: enums record their `variants`.
+        // 18: a function is a test by its attribute (`#[test]`,
+        // `#[tokio::test]`, ...) or a `tests/` path, not by a `test` name
+        // prefix: `test_node_json` and `tests_to_run` are helpers.
         extractor: "rust",
-        version: 17,
+        version: 18,
         languages: &["rust"],
     },
     ExtractorVersion {

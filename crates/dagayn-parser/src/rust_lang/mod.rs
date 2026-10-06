@@ -14,7 +14,7 @@ use super::stdlib::{StdlibEvidence, mark_external_edge, mark_stdlib_edge};
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{direct_child_text, line_count, line_of, node_text, should_skip_value_reference};
 use super::{
-    add_tested_by_edges, is_test_function, qualify, resolve_rust_call_targets,
+    add_tested_by_edges, is_rust_test_function, qualify, resolve_rust_call_targets,
     rust_node_with_leading_attributes,
 };
 
@@ -237,8 +237,7 @@ fn rust_walk_children(
                 if let Some(name) = rust_identifier_child(child, context.source) {
                     let qualified = qualify(&context.file_path, &name, owner());
                     let params = direct_child_text(child, context.source, &["parameters"]);
-                    let is_test =
-                        is_test_function(&name, &context.file_path, child, context.source);
+                    let is_test = is_rust_test_function(&context.file_path, child, context.source);
                     let mut extra = if child.kind() == "function_signature_item" {
                         json!({"is_abstract": true})
                     } else {
@@ -2425,6 +2424,35 @@ fn helpers_have_stable_contracts() {
         assert!(nodes.iter().any(|node| {
             node.kind == "Test" && node.name == "helpers_have_stable_contracts" && node.is_test
         }));
+    }
+
+    #[test]
+    fn test_parse_rust_with_parser_keeps_test_named_helpers_as_functions() {
+        let source = br#"
+fn test_node_json(name: &str) -> String {
+    name.to_string()
+}
+
+#[tokio::test]
+async fn reads_the_node() {
+    test_node_json("a");
+}
+"#;
+        let mut parser = new_rust_parser().expect("rust grammar should load");
+        let (nodes, _edges) =
+            parse_rust_with_parser("src/graph.rs", source, Some(&mut parser), None);
+
+        let helper = nodes
+            .iter()
+            .find(|node| node.name == "test_node_json")
+            .expect("helper");
+        assert_eq!(helper.kind, "Function");
+        assert!(!helper.is_test);
+        assert!(
+            nodes
+                .iter()
+                .any(|node| node.name == "reads_the_node" && node.is_test)
+        );
     }
 
     #[test]
