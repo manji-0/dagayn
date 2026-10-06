@@ -1,0 +1,54 @@
+description: A helper used from six modules that no test reaches, in a package whose other code is tested.
+files:
+  pkg/__init__.py: ''
+  pkg/util.py: |
+    def helper(value):
+        return value * 2
+  pkg/user0.py: |
+    from pkg.util import helper
+
+
+    def run0():
+        return helper(0)
+  pkg/user1.py: |
+    from pkg.util import helper
+
+
+    def run1():
+        return helper(1)
+  pkg/user2.py: |
+    from pkg.util import helper
+
+
+    def run2():
+        return helper(2)
+  pkg/user3.py: |
+    from pkg.util import helper
+
+
+    def run3():
+        return helper(3)
+  pkg/user4.py: |
+    from pkg.util import helper
+
+
+    def run4():
+        return helper(4)
+  pkg/user5.py: |
+    from pkg.util import helper
+
+
+    def run5():
+        return helper(5)
+  pkg/other.py: |
+    def other():
+        return 3
+  tests/test_other.py: |
+    from pkg.other import other
+
+
+    def test_other():
+        assert other() == 3
+expected_findings:
+- kind: untested_core
+  target: pkg/util.py::helper

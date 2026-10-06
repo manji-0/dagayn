@@ -1,0 +1,20 @@
+description: Directives name an existing file, an existing section, and an existing symbol.
+negative: true
+files:
+  app.py: |
+    def handler():
+        return 1
+  docs/spec.md: |
+    # Spec
+
+    ## Token refresh
+
+    Refresh tokens.
+  docs/guide.md: |
+    # Guide
+
+    <!-- constrained-by ./spec.md -->
+    <!-- derived-from ./spec.md#token-refresh -->
+    <!-- dagayn: implemented-by app.py::handler -->
+
+    Call the handler.

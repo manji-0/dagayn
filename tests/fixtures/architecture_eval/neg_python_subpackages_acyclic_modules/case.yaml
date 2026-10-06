@@ -1,0 +1,27 @@
+description: 'Two subpackages import each other, but no module imports one that imports it back: the package-level
+  cycle today''s ADP reports is not an import cycle.'
+negative: true
+expected_units:
+  pkg: python_package
+files:
+  pkg/__init__.py: ''
+  pkg/a/__init__.py: ''
+  pkg/b/__init__.py: ''
+  pkg/a/x.py: |
+    from pkg.b.y import value
+
+
+    def x():
+        return value()
+  pkg/b/y.py: |
+    def value():
+        return 1
+  pkg/b/z.py: |
+    from pkg.a.w import other
+
+
+    def z():
+        return other()
+  pkg/a/w.py: |
+    def other():
+        return 2

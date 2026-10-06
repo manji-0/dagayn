@@ -1,0 +1,13 @@
+# Ship gate for architecture_analysis_tool finding kinds
+# (docs/plans/ARCHITECTURE-TOOL-TARGET.md#evaluation).
+# `run_architecture_eval.py --gate` exits non-zero when a gated kind has a
+# precision or recall below its floor, a case errors, or an expected unit is
+# missing from the map.
+defaults:
+  gated: true
+  precision_floor: 0.8
+  recall_floor: 0.8
+kinds:
+  import_cycle: {}
+  untested_core: {}
+  broken_doc_link: {}

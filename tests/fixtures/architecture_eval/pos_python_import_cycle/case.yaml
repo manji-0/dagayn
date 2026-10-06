@@ -1,0 +1,24 @@
+description: a and b import each other at module level.
+files:
+  pkg/__init__.py: ''
+  pkg/a.py: |
+    from pkg.b import helper
+
+
+    def run():
+        return helper()
+  pkg/b.py: |
+    from pkg.a import run
+
+
+    def helper():
+        return 1
+
+
+    def again():
+        return run()
+expected_findings:
+- kind: import_cycle
+  target: pkg/a.py
+  also:
+  - pkg/b.py

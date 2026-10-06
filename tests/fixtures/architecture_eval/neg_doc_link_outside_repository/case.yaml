@@ -1,0 +1,12 @@
+description: A directive points at a file outside the repository, which the graph cannot judge.
+negative: true
+files:
+  AGENTS.md: |
+    # Agents
+
+    <!-- derived-from ~/.config/agent/AGENTS.md -->
+
+    Shared rules.
+  app.py: |
+    def main():
+        return 0
