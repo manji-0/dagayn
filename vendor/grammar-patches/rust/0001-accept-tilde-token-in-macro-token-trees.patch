@@ -1,0 +1,79 @@
+Accept tilde (~) token in macro token trees
+
+From https://github.com/tree-sitter/tree-sitter-rust/pull/317 (grammar.js and
+tests only; the generated files are regenerated). Drop this patch once the
+pin includes the PR.
+
+diff --git a/grammar.js b/grammar.js
+index 4a0ff4b6..968efa22 100644
+--- a/grammar.js
++++ b/grammar.js
+@@ -53,6 +53,7 @@ const TOKEN_TREE_NON_SPECIAL_PUNCTUATION = [
+   '>>', '+=', '-=', '*=', '/=', '%=', '^=', '&=', '|=', '<<=',
+   '>>=', '=', '==', '!=', '>', '<', '>=', '<=', '@', '_', '.',
+   '..', '...', '..=', ',', ';', ':', '::', '->', '=>', '#', '?',
++  '~',
+ ];
+ 
+ const primitiveTypes = numericTypes.concat(['bool', 'str', 'char']);
+diff --git a/test/corpus/macros.txt b/test/corpus/macros.txt
+index c8c0bb63..766a74e0 100644
+--- a/test/corpus/macros.txt
++++ b/test/corpus/macros.txt
+@@ -273,3 +273,56 @@ macro_rules! empty [
+     (macro_rule
+       left: (token_tree_pattern)
+       right: (token_tree))))
++
++================================================================================
++Macro matcher with tilde token
++================================================================================
++
++macro_rules! parser {
++    (0 (~$($fuel:tt)*) $rest:tt) => { $rest };
++}
++
++fn stable() {}
++
++--------------------------------------------------------------------------------
++
++(source_file
++  (macro_definition
++    name: (identifier)
++    (macro_rule
++      left: (token_tree_pattern
++        (integer_literal)
++        (token_tree_pattern
++          (token_repetition_pattern
++            (token_binding_pattern
++              name: (metavariable)
++              type: (fragment_specifier))))
++        (token_binding_pattern
++          name: (metavariable)
++          type: (fragment_specifier)))
++      right: (token_tree
++        (metavariable))))
++  (function_item
++    name: (identifier)
++    parameters: (parameters)
++    body: (block)))
++
++================================================================================
++Macro invocation with tilde token
++================================================================================
++
++m!(~);
++m!(~foo~);
++
++--------------------------------------------------------------------------------
++
++(source_file
++  (expression_statement
++    (macro_invocation
++      (identifier)
++      (token_tree)))
++  (expression_statement
++    (macro_invocation
++      (identifier)
++      (token_tree
++        (identifier)))))

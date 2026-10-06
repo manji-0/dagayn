@@ -89,6 +89,7 @@ include = [
     { path = "docs/**/*", format = "sdist" },
     { path = "dagayn/_vendor_grammars/**/*", format = "wheel" },
     { path = "dagayn/_vendor_grammars/**/*", format = "sdist" },
+    { path = "vendor/**/*", format = "sdist" },
     { path = ".claude-plugin/**/*", format = "sdist" },
     { path = "hooks/**/*", format = "sdist" },
     { path = "rust-toolchain.toml", format = "sdist" },

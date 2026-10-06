@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import gzip
+import hashlib
+import json
 import os
 import shutil
 import sys
@@ -71,9 +74,10 @@ class GrammarSpec:
 
     @property
     def cache_dir_name(self) -> str:
-        if self.cache_dir_override:
-            return self.cache_dir_override
-        return f"{self.repo}-{self.commit}"
+        name = self.cache_dir_override or f"{self.repo}-{self.commit}"
+        if digest := grammar_patch_digest(self.language):
+            name = f"{name}-patched-{digest[:12]}"
+        return name
 
 
 GRAMMAR_SPECS: dict[str, GrammarSpec] = {
@@ -490,6 +494,93 @@ GRAMMAR_SPECS: dict[str, GrammarSpec] = {
 }
 
 
+# Grammar patches kept in this repository (docs/GRAMMAR-PROVISIONING.md).
+# `grammar-patches/<language>/*.patch` change the pinned upstream source;
+# `grammars/<language>/` holds the files that
+# `tools/regenerate_patched_grammars.py` generated from the patched source,
+# with `STAMP.json` naming the pin and the patches they came from.
+VENDOR_ROOT = Path(__file__).resolve().parent.parent / "vendor"
+STAMP_NAME = "STAMP.json"
+# Records which pin (and patches) a prepared source directory came from,
+# so a directory staged from an older pin is not reused.
+SOURCE_MARKER = ".dagayn-source"
+
+
+def get_grammar_patch_dir(language: str) -> Path:
+    return VENDOR_ROOT / "grammar-patches" / language
+
+
+def get_patched_grammar_dir(language: str) -> Path:
+    return VENDOR_ROOT / "grammars" / language
+
+
+def grammar_patch_files(language: str) -> list[Path]:
+    patch_dir = get_grammar_patch_dir(language)
+    if not patch_dir.is_dir():
+        return []
+    return sorted(patch_dir.glob("*.patch"))
+
+
+def grammar_patch_digest(language: str) -> str | None:
+    """SHA-256 over the language's patch files, or None when it has none."""
+    patches = grammar_patch_files(language)
+    if not patches:
+        return None
+    digest = hashlib.sha256()
+    for patch in patches:
+        digest.update(patch.name.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(patch.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def grammar_source_identity(language: str) -> str:
+    """The pin, plus the patch digest for a patched grammar."""
+    spec = GRAMMAR_SPECS[language]
+    digest = grammar_patch_digest(language)
+    if digest is None:
+        return spec.commit
+    return f"{spec.commit}+patches.{digest}"
+
+
+def check_patched_grammar(language: str) -> list[str]:
+    """Problems with the committed generated files of a patched grammar.
+
+    Empty when the language has no patches, or when `STAMP.json` matches the
+    pin and the patches and every generated file matches its recorded hash.
+    """
+    spec = GRAMMAR_SPECS[language]
+    digest = grammar_patch_digest(language)
+    patched_dir = get_patched_grammar_dir(language)
+    stamp_path = patched_dir / STAMP_NAME
+    if digest is None:
+        if stamp_path.exists():
+            return [f"{stamp_path} exists but {get_grammar_patch_dir(language)} has no patches"]
+        return []
+    hint = f"run `python tools/regenerate_patched_grammars.py {language}`"
+    if not stamp_path.exists():
+        return [f"{stamp_path} is missing; {hint}"]
+    stamp = json.loads(stamp_path.read_text(encoding="utf-8"))
+    problems = []
+    if stamp.get("commit") != spec.commit:
+        problems.append(
+            f"{stamp_path} was generated from {stamp.get('commit')}, "
+            f"but the pin is {spec.commit}; {hint}"
+        )
+    if stamp.get("patches_sha256") != digest:
+        problems.append(f"{stamp_path} does not match the current patches; {hint}")
+    for rel_path, recorded in stamp.get("files", {}).items():
+        try:
+            content = _read_generated_file(patched_dir, rel_path)
+        except FileNotFoundError:
+            problems.append(f"{patched_dir / rel_path} is missing; {hint}")
+            continue
+        if hashlib.sha256(content).hexdigest() != recorded:
+            problems.append(f"{patched_dir / rel_path} does not match {stamp_path}; {hint}")
+    return problems
+
+
 def get_grammar_cache_root() -> Path:
     override = os.environ.get("DAGAYN_GRAMMAR_CACHE_DIR")
     if override:
@@ -549,8 +640,10 @@ def ensure_vendor_grammar_source(language: str) -> Path:
             source_subdirectory=spec.source_subdirectory,
             allowed_toplevel_dirs=allowed,
         )
+        _apply_patched_files(spec, extracted_dir)
         _inject_assets(spec, extracted_dir)
         _validate_required_paths(spec, extracted_dir)
+        _write_source_marker(spec, extracted_dir)
 
         if target_dir.exists():
             if _is_ready(spec, target_dir):
@@ -670,8 +763,13 @@ def _inject_assets(spec: GrammarSpec, destination: Path) -> None:
     if not spec.inject_python_binding:
         return
     binding_path = destination / "bindings" / "python" / "binding.c"
+    binding = _generate_binding_c(spec.language)
+    # Rewriting an unchanged file would bump its mtime and make Cargo rerun
+    # the grammar build script, which reads it.
+    if binding_path.exists() and binding_path.read_text(encoding="utf-8") == binding:
+        return
     binding_path.parent.mkdir(parents=True, exist_ok=True)
-    binding_path.write_text(_generate_binding_c(spec.language), encoding="utf-8")
+    binding_path.write_text(binding, encoding="utf-8")
 
 
 def _validate_required_paths(spec: GrammarSpec, destination: Path) -> None:
@@ -683,9 +781,45 @@ def _validate_required_paths(spec: GrammarSpec, destination: Path) -> None:
 
 
 def _is_ready(spec: GrammarSpec, destination: Path) -> bool:
-    return destination.exists() and all(
-        (destination / path).exists() for path in spec.required_paths
+    return (
+        destination.exists()
+        and all((destination / path).exists() for path in spec.required_paths)
+        and _read_source_marker(destination) == grammar_source_identity(spec.language)
     )
+
+
+def _read_source_marker(destination: Path) -> str | None:
+    try:
+        return (destination / SOURCE_MARKER).read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return None
+
+
+def _write_source_marker(spec: GrammarSpec, destination: Path) -> None:
+    (destination / SOURCE_MARKER).write_text(
+        grammar_source_identity(spec.language) + "\n", encoding="utf-8"
+    )
+
+
+def _read_generated_file(patched_dir: Path, rel_path: str) -> bytes:
+    plain = patched_dir / rel_path
+    if plain.exists():
+        return plain.read_bytes()
+    return gzip.decompress((patched_dir / f"{rel_path}.gz").read_bytes())
+
+
+def _apply_patched_files(spec: GrammarSpec, destination: Path) -> None:
+    """Overwrites the upstream files a patched grammar regenerated."""
+    if grammar_patch_digest(spec.language) is None:
+        return
+    if problems := check_patched_grammar(spec.language):
+        raise OSError("; ".join(problems))
+    patched_dir = get_patched_grammar_dir(spec.language)
+    stamp = json.loads((patched_dir / STAMP_NAME).read_text(encoding="utf-8"))
+    for rel_path in stamp["files"]:
+        target = destination / rel_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(_read_generated_file(patched_dir, rel_path))
 
 
 def main() -> int:

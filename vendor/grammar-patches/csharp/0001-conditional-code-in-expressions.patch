@@ -1,0 +1,196 @@
+Parse code compiled conditionally inside expressions and initializers.
+
+A binary operand, operator included:
+
+    if (x != null
+#if HAVE_DYNAMIC
+        && x != typeof(IDynamicMetaObjectProvider)
+#endif
+        && !x.IsAbstract)
+
+Since tree-sitter-c-sharp#430 (8c0abe0) no longer reads `&&` as two unary
+`&`, the operand inside `#if` cannot start an expression and the whole
+file becomes an ERROR (Newtonsoft.Json's JsonSerializerInternalReader.cs).
+
+Initializer elements that keep their commas inside `#if`:
+
+    { a,
+#if X
+      b,
+#endif
+      c }
+
+Without this, error recovery reads the first rule into such a list and
+drops the conditional elements (Newtonsoft.Json's
+DefaultContractResolver.cs). Local to dagayn; no upstream PR.
+
+diff --git a/grammar.js b/grammar.js
+index c4fd33d..d5fe463 100644
+--- a/grammar.js
++++ b/grammar.js
+@@ -1540,6 +1540,20 @@ export default grammar({
+         field('operator', '??'),
+         field('right', $.expression),
+       )),
++      // An operand compiled conditionally, operator included:
++      //   a
++      // #if X
++      //   && b
++      // #endif
++      prec.left(PREC.LOGICAL_OR, seq(
++        field('left', $.expression),
++        field('right', alias($.preproc_if_in_binary_expression, $.preproc_if)),
++      )),
++    ),
++
++    _conditional_binary_operand: $ => seq(
++      choice('&&', '||', '??'),
++      $.expression,
+     ),
+ 
+     postfix_unary_expression: $ => prec(PREC.POSTFIX, seq(
+@@ -1927,11 +1941,22 @@ export default grammar({
+ 
+     initializer_expression: $ => seq(
+       '{',
+-      commaSep($.expression),
+-      optional(','),
++      // Elements compiled conditionally keep their commas inside `#if`:
++      //   { a,
++      //   #if X
++      //     b,
++      //   #endif
++      //     c }
++      repeat(choice(
++        seq($.expression, ','),
++        alias($.preproc_if_in_initializer, $.preproc_if),
++      )),
++      optional(choice($.expression, ',')),
+       '}',
+     ),
+ 
++    _initializer_element: $ => seq($.expression, ','),
++
+     declaration_expression: $ => prec.dynamic(1, seq(
+       field('type', $.type),
+       field('name', $.identifier),
+@@ -2165,6 +2190,8 @@ export default grammar({
+     ...preprocIf('', $ => $.declaration),
+     ...preprocIf('_in_top_level', $ => choice($._top_level_item_no_statement, $.statement)),
+     ...preprocIf('_in_expression', $ => $.expression, -2, false),
++    ...preprocIf('_in_binary_expression', $ => $._conditional_binary_operand, 0, false),
++    ...preprocIf('_in_initializer', $ => $._initializer_element, -3),
+     ...preprocIf('_in_enum_member_declaration', $ => $.enum_member_declaration, 0, false),
+     ...preprocIf('_in_attribute_list', $ => $.attribute_list, -1, false),
+ 
+diff --git a/test/corpus/preprocessor.txt b/test/corpus/preprocessor.txt
+index 124bed8..16b2e1e 100644
+--- a/test/corpus/preprocessor.txt
++++ b/test/corpus/preprocessor.txt
+@@ -218,3 +218,106 @@ Shebang directive
+ 
+ (compilation_unit
+   (shebang_directive))
++
++================================================================================
++Conditional binary operands
++================================================================================
++
++bool b = x != null
++#if HAVE_DYNAMIC
++    && x != typeof(IDynamicMetaObjectProvider)
++#endif
++    && !x.IsAbstract;
++
++bool c = a
++#if A
++    || b
++#else
++    || c
++#endif
++    ;
++
++--------------------------------------------------------------------------------
++
++(compilation_unit
++  (global_statement
++    (local_declaration_statement
++      (variable_declaration
++        (predefined_type)
++        (variable_declarator
++          (identifier)
++          (binary_expression
++            (binary_expression
++              (binary_expression
++                (identifier)
++                (null_literal))
++              (preproc_if
++                (identifier)
++                (binary_expression
++                  (identifier)
++                  (typeof_expression
++                    (identifier)))))
++            (prefix_unary_expression
++              (member_access_expression
++                (identifier)
++                (identifier))))))))
++  (global_statement
++    (local_declaration_statement
++      (variable_declaration
++        (predefined_type)
++        (variable_declarator
++          (identifier)
++          (binary_expression
++            (identifier)
++            (preproc_if
++              (identifier)
++              (identifier)
++              (preproc_else
++                (identifier)))))))))
++
++================================================================================
++Conditional initializer elements
++================================================================================
++
++J[] b =
++{
++#if A
++    new X(),
++#endif
++#if D
++    new Y(),
++#else
++    new W(),
++#endif
++    new Z(),
++};
++
++--------------------------------------------------------------------------------
++
++(compilation_unit
++  (global_statement
++    (local_declaration_statement
++      (variable_declaration
++        (array_type
++          (identifier)
++          (array_rank_specifier))
++        (variable_declarator
++          (identifier)
++          (initializer_expression
++            (preproc_if
++              (identifier)
++              (object_creation_expression
++                (identifier)
++                (argument_list)))
++            (preproc_if
++              (identifier)
++              (object_creation_expression
++                (identifier)
++                (argument_list))
++              (preproc_else
++                (object_creation_expression
++                  (identifier)
++                  (argument_list))))
++            (object_creation_expression
++              (identifier)
++              (argument_list))))))))

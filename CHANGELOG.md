@@ -71,6 +71,19 @@ All notable changes to `dagayn` are documented here.
   Python extractor version is 10, so `dagayn update` re-parses Python
   files. See `docs/plans/RUFF-PYTHON-PARSER.md`.
 - The Rust workspace targets 1.98.0 (Ruff's parser crates need 1.97).
+- Grammars can carry local patches: `vendor/grammar-patches/<language>/`
+  holds the patches, and `vendor/grammars/<language>/` the parser generated
+  from them, which builds copy over the pinned upstream source (no
+  tree-sitter CLI or node needed). `tools/regenerate_patched_grammars.py`
+  regenerates it with the CLI version upstream generated with, after
+  checking that version reproduces upstream's `parser.c`. Rust takes three
+  unmerged upstream fixes (tree-sitter-rust#317 `~` in macro token trees,
+  #271 `where` on unit structs, #281 `pub type` in extern blocks); on
+  20,000 crates.io files, files with a parse error went from 101 to 80 and
+  the graph output did not change. The Rust extractor version is 18.
+- A grammar source staged under `dagayn/_vendor_grammars/` records the pin
+  (and patches) it came from, and the build replaces one staged from an
+  older pin instead of compiling it.
 
 ### Removed
 
@@ -103,6 +116,11 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- C#: a binary operand compiled conditionally, operator included
+  (`x != null\n#if X\n&& y\n#endif`), made the whole file an ERROR with
+  tree-sitter-c-sharp 8c0abe0, losing every class in it; a local grammar
+  patch parses it, and initializer elements inside `#if`, as code. The C#
+  extractor version is 7.
 - A Python-side SQLite connection to the graph could delete the WAL files
   under the native store in the same process, after which every native
   connection failed with "disk I/O error". The cache check on every tool
