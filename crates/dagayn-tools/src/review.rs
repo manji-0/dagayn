@@ -1077,8 +1077,11 @@ fn findings_summary(
 
 /// `_hints` from the findings: the first places to look, in order.
 fn findings_hints(findings: &Value) -> Value {
-    let mut steps = Vec::new();
-    for finding in findings.as_array().into_iter().flatten().take(3) {
+    let mut steps: Vec<Value> = Vec::new();
+    for finding in findings.as_array().into_iter().flatten() {
+        if steps.len() == 3 {
+            break;
+        }
         let kind = finding["kind"].as_str().unwrap_or_default();
         let step = match kind {
             "tests_to_run" => match finding["command"].as_str() {
@@ -1103,7 +1106,10 @@ fn findings_hints(findings: &Value) -> Value {
                 })
             }
         };
-        steps.push(step);
+        // Several untested files point at the same next step; list it once.
+        if !steps.contains(&step) {
+            steps.push(step);
+        }
     }
     json!({"next_steps": steps, "related": [], "warnings": []})
 }
@@ -1484,4 +1490,36 @@ fn budget_source_snippets(payload: Ordered, snippets: &[(String, String)]) -> Or
         json!({"kept": kept.len(), "total": snippets.len()}),
     );
     payload.set("_truncation", Value::Object(truncation))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hints_follow_the_findings_once_each() {
+        let findings = json!([
+            {"kind": "untested_change", "file": "a.py"},
+            {"kind": "untested_change", "file": "b.py"},
+            {"kind": "tests_to_run", "file": "t.py", "command": "pytest t.py"},
+            {"kind": "dangling_reference", "qualified_name": "a.py::gone",
+             "sites": [{"qualified_name": "c.py::caller"}]},
+        ]);
+        let steps = findings_hints(&findings)["next_steps"].clone();
+        let tools: Vec<&str> = steps
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["tool"].as_str().unwrap())
+            .collect();
+        assert_eq!(tools, ["review_tool", "shell", "query_graph_tool"]);
+        assert_eq!(steps[1]["suggestion"], "pytest t.py");
+        assert!(
+            steps[2]["suggestion"]
+                .as_str()
+                .unwrap()
+                .contains("target=\"c.py::caller\"")
+        );
+        assert_eq!(findings_hints(&json!([]))["next_steps"], json!([]));
+    }
 }
