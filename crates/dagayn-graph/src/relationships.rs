@@ -21,16 +21,6 @@ impl GraphStore {
             .map_err(Into::into)
     }
 
-    pub fn count_flow_memberships(&self, node_id: i64) -> Result<i64> {
-        self.conn
-            .query_row(
-                "SELECT COUNT(*) as cnt FROM flow_memberships WHERE node_id = ?",
-                [node_id],
-                |row| row.get(0),
-            )
-            .map_err(Into::into)
-    }
-
     pub fn count_flow_memberships_for_nodes(&self, node_ids: &[i64]) -> Result<HashMap<i64, i64>> {
         let mut out = node_ids
             .iter()
@@ -58,17 +48,6 @@ impl GraphStore {
             }
         }
         Ok(out)
-    }
-
-    pub fn get_flow_criticalities_for_node(&self, node_id: i64) -> Result<Vec<f64>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT f.criticality FROM flows f \
-             JOIN flow_memberships fm ON fm.flow_id = f.id \
-             WHERE fm.node_id = ?",
-        )?;
-        let rows = stmt.query_map([node_id], |row| row.get::<_, f64>(0))?;
-        rows.collect::<std::result::Result<Vec<_>, _>>()
-            .map_err(Into::into)
     }
 
     pub fn get_flow_criticalities_for_nodes(
@@ -102,18 +81,6 @@ impl GraphStore {
             }
         }
         Ok(out)
-    }
-
-    pub fn get_node_community_id(&self, node_id: i64) -> Result<Option<i64>> {
-        self.conn
-            .query_row(
-                "SELECT community_id FROM nodes WHERE id = ?",
-                [node_id],
-                |row| row.get::<_, Option<i64>>(0),
-            )
-            .optional()
-            .map(|row| row.flatten())
-            .map_err(Into::into)
     }
 
     pub fn get_community_ids_by_node_ids(

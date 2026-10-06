@@ -124,7 +124,6 @@ fn stores_flows_and_reads_flow_inputs() {
             .unwrap(),
         2
     );
-    assert_eq!(store.count_flow_memberships(callee_id).unwrap(), 1);
     let nodes_by_id = store.get_nodes_by_ids(&[entry_id, callee_id]).unwrap();
     assert_eq!(nodes_by_id[&entry_id].qualified_name, "app.py::entry");
     assert_eq!(nodes_by_id[&callee_id].qualified_name, "app.py::callee");
@@ -143,16 +142,11 @@ fn stores_flows_and_reads_flow_inputs() {
         .unwrap();
     assert_eq!(membership_counts[&entry_id], 1);
     assert_eq!(membership_counts[&callee_id], 1);
-    assert_eq!(
-        store.get_flow_criticalities_for_node(callee_id).unwrap(),
-        vec![0.25]
-    );
     let flow_criticalities = store
         .get_flow_criticalities_for_nodes(&[entry_id, callee_id])
         .unwrap();
     assert_eq!(flow_criticalities[&entry_id], vec![0.25]);
     assert_eq!(flow_criticalities[&callee_id], vec![0.25]);
-    assert_eq!(store.get_node_community_id(callee_id).unwrap(), None);
     let community_ids = store
         .get_community_ids_by_node_ids(&[entry_id, callee_id])
         .unwrap();
