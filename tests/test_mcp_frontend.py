@@ -1008,7 +1008,7 @@ def test_review_answers_in_rust_as_python_does(git_repo: Path, change: str) -> N
         (review, {"mode": "context", "changed_files": ["app.py"], "include_source": False}),
         (review, {"mode": "changes", "changed_files": ["app.py"], "include_source": True}),
         (review, {"mode": "changes", "detail_level": "verbose", "include_source": True}),
-        # Paths with no scope: minimal detail meets the KeyError Python raised.
+        # Paths with no scope.
         (review, {"mode": "changes", "base": "HEAD", "changed_files": [""]}),
         (
             review,
@@ -1028,9 +1028,10 @@ def test_review_answers_in_rust_as_python_does(git_repo: Path, change: str) -> N
         assert default["change_entity_summary"]["base"] == "HEAD"
         # A single-commit repository has no HEAD~1 to name explicitly.
         assert rust[-1]["structuredContent"]["diff_parse_status"] == "base_unresolved"
+    # Paths with no scope: minimal detail no longer reads the architecture
+    # delta, so the KeyError Python raised is gone.
     unscoped = rust[25]["structuredContent"]
-    assert unscoped["status"] == "error"
-    assert unscoped["error"] == "'baseline_comparison'"
+    assert unscoped["status"] == "ok"
     if change == "wide":
         trimmed = rust[8]["structuredContent"]
         assert trimmed["truncated"] is True
@@ -1145,15 +1146,10 @@ def test_verbose_review_with_sources_answers_in_rust_as_python_does(
     assert any(doc["evidence_level"] == "heuristic_reachable" for doc in docs), docs
     sourced = rust[1]["structuredContent"]["changed_functions"]
     assert any("source" in function for function in sourced), sourced
-    # At standard detail neither supplemental pass runs.
-    standard = rust[2]["structuredContent"]["analysis_summary"]
-    (contract,) = standard["stability_contracts"]
-    assert contract["supplemental_test_density_evaluated"] is False
-    assert contract["observed_heuristic_test_density"] is None
-    assert all(
-        doc["evidence_level"] != "heuristic_reachable"
-        for doc in standard["documentation_update_candidates"]
-    )
+    # Standard detail carries the findings, not the score-first summary.
+    standard = rust[2]["structuredContent"]
+    assert "analysis_summary" not in standard
+    assert isinstance(standard["findings"], list)
 
 
 @pytest.mark.parametrize("dirty", [False, True])

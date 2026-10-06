@@ -17,12 +17,13 @@ use dagayn_graph::{
 use serde_json::{Map, Value, json};
 
 use crate::answerability::Answerability;
-use crate::changes::{DiffParse, analyze_changes, parse_diff};
+use crate::changes::{Analysis, DiffParse, analyze_changes, parse_diff};
 use crate::coverage::splitlines;
 use crate::hints::{generate_hints, session};
 use crate::query::{edge_dict, node_dict};
 use crate::review_summary::change_analysis_summary;
 use crate::{Args, Context, OpenGraph, Ordered, Payload, open_graph, resolve_repo};
+use crate::{base_symbols, findings};
 
 const DECLARED: &[&str] = &[
     "mode",
@@ -46,6 +47,20 @@ const CONTEXT_BUDGET: usize = 8000;
 const MAX_GRAPH_ENTRIES: usize = 300;
 const MAX_SNIPPET_BYTES: usize = 120_000;
 const MAX_LINES_PER_FILE_CEILING: i64 = 2000;
+/// Findings kept per kind; `findings_omitted` counts the rest.
+const MAX_FINDINGS_PER_KIND: usize = 10;
+/// Fields `detail_level="verbose"` still carries from the score-first
+/// contract, for one release.
+const DEPRECATED_FIELDS: &[&str] = &[
+    "risk_score",
+    "review_priority_score",
+    "score_semantics",
+    "review_priorities",
+    "test_gaps",
+    "test_gap_evidence",
+    "changed_edges",
+    "analysis_summary",
+];
 
 /// `review_tool`'s arguments once fastmcp and `parse_review_request` accept
 /// them.
@@ -277,6 +292,62 @@ impl Review<'_> {
         })
     }
 
+    /// The findings for a change set (`findings.rs`), most actionable kind
+    /// first, and the base-side symbol delta behind them.
+    fn findings(
+        &self,
+        analysis: &Analysis,
+        changed_files: &[String],
+        base: &str,
+    ) -> Option<(Value, Value, Value)> {
+        let relative: Vec<String> = changed_files
+            .iter()
+            .map(|file| normalized_repo_path(file, self.root()))
+            .collect();
+        let delta = base_symbols::symbol_delta(self.root(), base, &relative);
+        let references =
+            base_symbols::references_to(self.store(), &delta.reference_targets(), &relative);
+        let mut nodes = Vec::new();
+        for function in analysis
+            .get("changed_functions")
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
+            if let Some(qn) = function["qualified_name"].as_str()
+                && !delta.unchanged_bodies.contains(qn)
+                && let Some(node) = self.store().get_node(qn).ok()?
+            {
+                nodes.push(node);
+            }
+        }
+        let inputs = findings::Inputs {
+            store: self.store(),
+            root: self.root(),
+            changed_files: &relative,
+            changed_nodes: &nodes,
+        };
+        let kinds = [
+            findings::dangling_references(&delta, &references),
+            findings::unchanged_callers(&delta, &references),
+            findings::contract_docs(&inputs)?,
+            findings::bridges(&inputs)?,
+            findings::untested_changes(&inputs)?,
+            findings::tests_to_run(&inputs)?,
+        ];
+        let mut all = Vec::new();
+        let mut omitted = Map::new();
+        for mut list in kinds {
+            if list.len() > MAX_FINDINGS_PER_KIND {
+                let kind = list[0]["kind"].as_str().unwrap_or_default().to_string();
+                omitted.insert(kind, json!(list.len() - MAX_FINDINGS_PER_KIND));
+                list.truncate(MAX_FINDINGS_PER_KIND);
+            }
+            all.extend(list);
+        }
+        Some((Value::Array(all), Value::Object(omitted), delta.to_json()))
+    }
+
     /// `detect_changes_func`.
     fn changes(&self, request: &Request) -> Answer {
         let (changed_files, sources) = attempt!(Some(self.changed_files(request)));
@@ -284,12 +355,12 @@ impl Review<'_> {
             return Some(Ok(Ordered::default()
                 .put("status", "ok")
                 .put("summary", "No changed files detected.")
-                .put("risk_score", 0.0)
-                .put("changed_functions", json!([]))
-                .put("affected_flows", json!([]))
-                .put("test_gaps", json!([]))
-                .put("review_priorities", json!([]))
-                .put("answerability", self.answerability.full())
+                .put("base", request.base)
+                .put("findings", json!([]))
+                .put("findings_omitted", json!({}))
+                .put("changed_file_count", 0)
+                .put("changed_files", json!([]))
+                .put("answerability", self.answerability.compact())
                 .put("missingness", json!(self.answerability.missingness()))));
         }
         // `parse_diff_result` reads the cache stamp before the diff.
@@ -333,7 +404,8 @@ impl Review<'_> {
             &changed_files,
             request.detail_level == "verbose",
         )?;
-        let full_guidance = summary["guidance"].clone();
+        let (findings, findings_omitted, symbol_delta) =
+            self.findings(&analysis, &changed_files, request.base)?;
         if request.include_source == Some(true) {
             for (key, value) in &mut analysis.fields {
                 if *key == "changed_functions"
@@ -346,132 +418,80 @@ impl Review<'_> {
             }
         }
 
-        let out = if request.detail_level == "minimal" {
-            let field = |key: &str| summary.get(key).cloned().unwrap_or(Value::Null);
-            let first = |key: &str, count: usize| -> Value {
-                json!(
-                    summary[key]
-                        .as_array()
-                        .map(|items| items.iter().take(count).cloned().collect::<Vec<_>>())
-                        .unwrap_or_default()
-                )
-            };
-            let delta = &summary["architecture_delta"];
-            // With no changed scope the delta has no baseline comparison,
-            // and the minimal reply raised `KeyError('baseline_comparison')`.
-            let Some(baseline) = delta.get("baseline_comparison").cloned() else {
-                return Some(Err(Failure::Raised(ChangeError {
-                    message: "'baseline_comparison'".to_string(),
-                    runtime_error: true,
-                })));
-            };
-            let priorities: Vec<Value> = analysis
-                .get("review_priorities")
-                .as_array()
-                .into_iter()
-                .flatten()
-                .take(3)
-                .map(|p| {
-                    p.get("name")
-                        .cloned()
-                        .unwrap_or_else(|| p.get("qualified_name").cloned().unwrap_or(json!("")))
-                })
-                .collect();
-            let semantics = match analysis.get("score_semantics") {
-                value if value.as_object().is_some_and(|m| !m.is_empty()) => value.clone(),
-                _ => field("score_semantics"),
-            };
-            Ordered::default()
-                .put("status", "ok")
-                .put("summary", analysis.get("summary").clone())
-                .put("risk_score", analysis.get("risk_score").clone())
+        let summary_text =
+            findings_summary(&changed_files, &analysis, &findings, &findings_omitted);
+        let flow_count = analysis
+            .get("affected_flows")
+            .as_array()
+            .map_or(0, Vec::len);
+        let mut out = Ordered::default()
+            .put("status", "ok")
+            .put("summary", summary_text)
+            .put("base", request.base)
+            .put("findings", findings.clone())
+            .put("findings_omitted", findings_omitted)
+            .put("changed_file_count", changed_files.len())
+            .put("changed_files", json!(changed_files))
+            .put("change_file_source_counts", source_counts(&sources))
+            .put(
+                "change_entity_summary",
+                analysis.get("change_entity_summary").clone(),
+            )
+            .put("affected_flow_count", flow_count)
+            .put(
+                "unmapped_changed_files",
+                analysis.get("unmapped_changed_files").clone(),
+            )
+            .put("next_drill_downs", summary["next_drill_downs"].clone());
+        out = match request.detail_level {
+            "minimal" => out,
+            "standard" => out
                 .put(
-                    "review_priority_score",
-                    analysis.get("review_priority_score").clone(),
+                    "changed_functions",
+                    analysis.get("changed_functions").clone(),
                 )
-                .put("score_semantics", semantics)
-                .put("risk_level", field("risk_level"))
-                .put("reason_codes", field("reason_codes"))
-                .put("changed_file_count", changed_files.len())
-                .put("changed_files", json!(changed_files))
-                .put("change_file_source_counts", source_counts(&sources))
-                .put(
-                    "change_entity_summary",
-                    analysis.get("change_entity_summary").clone(),
-                )
-                .put("changed_node_count", field("changed_node_count"))
-                .put("impacted_node_count", field("impacted_node_count"))
-                .put("impacted_file_count", field("impacted_file_count"))
-                .put(
-                    "test_gap_count",
-                    analysis.get("test_gaps").as_array().map_or(0, Vec::len),
-                )
-                .put(
-                    "test_gap_evidence",
-                    analysis.get("test_gap_evidence").clone(),
-                )
-                .put("test_gap_ranking", field("test_gap_ranking"))
-                .put("signal_quality", field("signal_quality"))
-                .put("recommended_tests", first("recommended_tests", 5))
-                .put("affected_flow_rankings", first("affected_flow_rankings", 5))
-                .put(
-                    "documentation_update_candidates",
-                    first("documentation_update_candidates", 5),
-                )
-                .put("stability_contracts", first("stability_contracts", 5))
-                .put("guidance", first("guidance", 3))
-                .put(
-                    "architecture_delta",
-                    json!({
-                        "mode": delta["mode"],
-                        "changed_scope_count": delta["changed_scopes"].as_array().map_or(0, Vec::len),
-                        "counts": delta["counts"],
-                        "baseline_comparison": baseline,
-                    }),
-                )
-                .put("review_priorities", priorities)
-                .put("next_drill_downs", field("next_drill_downs"))
-                .put("answerability", self.answerability.compact())
-                .put("missingness", json!(self.answerability.missingness()))
-        } else {
-            let mut out = Ordered::default()
-                .put("status", "ok")
-                .put("changed_files", json!(changed_files))
-                .put("change_file_sources", sources);
-            for (key, value) in &analysis.fields {
-                out = out.put(key, value.clone());
+                .put("affected_flows", analysis.get("affected_flows").clone()),
+            // `verbose`: the score-first fields of the earlier contract, kept
+            // for one release (docs/plans/REVIEW-TOOL-TARGET.md).
+            _ => {
+                let mut legacy = out
+                    .put("change_file_sources", sources)
+                    .put("symbol_delta", symbol_delta)
+                    .put("deprecated_fields", json!(DEPRECATED_FIELDS));
+                for (key, value) in &analysis.fields {
+                    if *key != "summary" {
+                        legacy = legacy.put(key, value.clone());
+                    }
+                }
+                legacy.put("analysis_summary", summary)
             }
-            out.put("analysis_summary", summary)
-                .put("answerability", self.answerability.full())
-                .put("missingness", json!(self.answerability.missingness()))
-                .apply_output_budget(
-                    CHANGES_BUDGET,
-                    &[
-                        "analysis_summary.recommended_tests",
-                        "analysis_summary.affected_flow_rankings",
-                        "analysis_summary.documentation_update_candidates",
-                        "analysis_summary.stability_contracts",
-                        "analysis_summary.guidance",
-                        "review_priorities",
-                        "affected_flows",
-                        "test_gaps",
-                        "changed_functions",
-                        "changed_edges",
-                    ],
-                )
         };
-        // The hints read the guidance as the result holds it after the trim
-        // (`standard`), or the summary's whole list (`minimal`).
-        let value = out.value();
-        let guidance_list = match value.get("analysis_summary") {
-            Some(trimmed) => trimmed["guidance"].clone(),
-            None => full_guidance,
-        };
-        let mut hints =
-            guidance_actions_to_hints(guidance_list.as_array().map(Vec::as_slice).unwrap_or(&[]));
-        if hints["next_steps"].as_array().is_none_or(Vec::is_empty) {
-            hints = self.hints("detect_changes", &value);
-        }
+        let out = out
+            .put(
+                "answerability",
+                if request.detail_level == "verbose" {
+                    self.answerability.full()
+                } else {
+                    self.answerability.compact()
+                },
+            )
+            .put("missingness", json!(self.answerability.missingness()))
+            .apply_output_budget(
+                CHANGES_BUDGET,
+                &[
+                    "analysis_summary.recommended_tests",
+                    "analysis_summary.affected_flow_rankings",
+                    "analysis_summary.documentation_update_candidates",
+                    "analysis_summary.stability_contracts",
+                    "analysis_summary.guidance",
+                    "review_priorities",
+                    "affected_flows",
+                    "test_gaps",
+                    "changed_functions",
+                    "changed_edges",
+                ],
+            );
+        let hints = findings_hints(&findings);
         Some(Ok(out.put("_hints", hints)))
     }
 
@@ -1016,6 +1036,76 @@ impl Review<'_> {
             ],
         ))
     }
+}
+
+/// The one-line summary: what changed, and the findings by kind, or that
+/// nothing beyond the diff needs checking.
+fn findings_summary(
+    changed_files: &[String],
+    analysis: &Analysis,
+    findings: &Value,
+    omitted: &Value,
+) -> String {
+    let symbols = analysis
+        .get("changed_functions")
+        .as_array()
+        .map_or(0, Vec::len);
+    let head = format!(
+        "{} changed file(s), {symbols} changed symbol(s).",
+        changed_files.len()
+    );
+    let mut counts: Vec<(String, u64)> = Vec::new();
+    for finding in findings.as_array().into_iter().flatten() {
+        let kind = finding["kind"].as_str().unwrap_or_default();
+        match counts.iter_mut().find(|(k, _)| k == kind) {
+            Some((_, count)) => *count += 1,
+            None => counts.push((kind.to_string(), 1)),
+        }
+    }
+    for (kind, count) in &mut counts {
+        *count += omitted[kind.as_str()].as_u64().unwrap_or(0);
+    }
+    if counts.is_empty() {
+        return format!("{head} Nothing beyond the diff needs checking.");
+    }
+    let listed: Vec<String> = counts
+        .iter()
+        .map(|(kind, count)| format!("{count} {kind}"))
+        .collect();
+    format!("{head} Findings: {}.", listed.join(", "))
+}
+
+/// `_hints` from the findings: the first places to look, in order.
+fn findings_hints(findings: &Value) -> Value {
+    let mut steps = Vec::new();
+    for finding in findings.as_array().into_iter().flatten().take(3) {
+        let kind = finding["kind"].as_str().unwrap_or_default();
+        let step = match kind {
+            "tests_to_run" => match finding["command"].as_str() {
+                Some(command) => json!({"tool": "shell", "suggestion": command}),
+                None => {
+                    json!({"tool": "shell", "suggestion": format!("run the tests in {}", finding["file"].as_str().unwrap_or_default())})
+                }
+            },
+            "untested_change" => json!({
+                "tool": "review_tool",
+                "suggestion": "review_tool mode=\"context\" -- read the untested functions before adding a test",
+            }),
+            _ => {
+                let target = finding["sites"][0]["qualified_name"]
+                    .as_str()
+                    .or_else(|| finding["qualified_name"].as_str())
+                    .or_else(|| finding["file"].as_str())
+                    .unwrap_or_default();
+                json!({
+                    "tool": "query_graph_tool",
+                    "suggestion": format!("query_graph_tool pattern=\"source_of\" target=\"{target}\" -- {kind}"),
+                })
+            }
+        };
+        steps.push(step);
+    }
+    json!({"next_steps": steps, "related": [], "warnings": []})
 }
 
 /// How many changed files each source (`base_diff`, `staged`, ...) named;

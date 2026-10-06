@@ -27,9 +27,11 @@ Case format (all paths repository-relative)::
 
 A finding matches an expected entry of the same kind when any of its target
 fields (``qualified_name``, ``file``, ``target``, ``source``) equals the
-expected target or one of its ``also`` alternatives. Each finding matches at
-most one expected entry and vice versa; unmatched findings are false
-positives, unmatched expectations are false negatives.
+expected target or one of its ``also`` alternatives; a grouped finding also
+offers each entry of its ``targets`` list. A finding matches every expected
+entry of its kind it meets (a grouped one can meet several), each expected
+entry is met at most once; unmatched findings are false positives, unmatched
+expectations are false negatives.
 
 Until review_tool emits ``findings`` the harness still runs: every case is
 scored with an empty list and ``findings_field_present`` is false.
@@ -426,7 +428,12 @@ def run_case(
 
 
 def finding_targets(finding: dict[str, Any]) -> set[str]:
-    return {str(finding[key]) for key in TARGET_KEYS if finding.get(key)}
+    targets = {str(finding[key]) for key in TARGET_KEYS if finding.get(key)}
+    # A grouped finding (one file, several symbols) lists them in ``targets``.
+    listed = finding.get("targets")
+    if isinstance(listed, list):
+        targets.update(str(item) for item in listed if item)
+    return targets
 
 
 def score_case(case: Case, findings: Iterable[dict[str, Any]]) -> dict[str, Any]:
@@ -445,16 +452,14 @@ def score_case(case: Case, findings: Iterable[dict[str, Any]]) -> dict[str, Any]
             ignored += 1
             continue
         targets = finding_targets(finding)
-        match = next(
-            (exp for exp in unmatched if exp.kind == kind and targets & set(exp.targets)),
-            None,
-        )
-        if match is None:
+        # A grouped finding may meet several expectations of its kind.
+        matches = [exp for exp in unmatched if exp.kind == kind and targets & set(exp.targets)]
+        if not matches:
             bump(kind, "fp")
             false_positives.append(
                 {"kind": kind, "targets": sorted(targets)},
             )
-        else:
+        for match in matches:
             unmatched.remove(match)
             bump(kind, "tp")
     for exp in unmatched:

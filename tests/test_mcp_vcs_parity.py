@@ -147,15 +147,16 @@ def test_a_jj_workspace_is_answered_in_rust_as_python_does(jj_workspace: Path, c
     reviews = _structured(rust[len(context) + len(READS) :])
     # HEAD~1 is rebased onto @-: the diff is @-'s own commit.
     last_commit = "app.py" if change in {"committed", "updated"} else "test_app.py"
-    assert reviews[0]["change_file_sources"]["base_diff"] == [last_commit]
+    assert reviews[0]["change_file_source_counts"]["base_diff"] == 1
+    assert last_commit in reviews[0]["changed_files"]
     if change in {"dirty", "indexed"}:
         assert reviews[4]["diff_parse_status"] == "base_unresolved"
     else:
         assert reviews[4]["summary"] == "No changed files detected."
     if change in {"dirty", "indexed"}:
-        sources = reviews[0]["change_file_sources"]
-        assert sources["unstaged"] == ["app.py"]
-        assert sources["staged"] == []
+        sources = reviews[0]["change_file_source_counts"]
+        assert sources["unstaged"] == 1
+        assert sources["staged"] == 0
         # The edit to helper; auth_token only once an update indexed it.
         names = {f["name"] for f in reviews[2]["changed_functions"]}
         assert ("auth_token" in names) is (change == "indexed"), names
@@ -348,7 +349,7 @@ def test_an_svn_working_copy_is_answered_in_rust_as_python_does(
     first = rust[1 + len(READS)]["structuredContent"]
     if recorded == "changes":
         assert first["changed_files"] == ["app.py", "test_app.py"]
-        assert first["change_file_sources"]["unstaged"] == ["app.py", "test_app.py"]
+        assert first["change_file_source_counts"]["unstaged"] == 2
         ranged = rust[1 + len(READS) + 2]["structuredContent"]
         assert ranged["changed_files"] == ["app.py", "gone.py"]
         calls_log = (record / "calls.log").read_text(encoding="utf-8").splitlines()

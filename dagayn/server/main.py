@@ -707,17 +707,21 @@ async def review_tool(
     repo_root: Optional[str] = None,
     detail_level: Literal["minimal", "standard", "verbose"] = "standard",
 ) -> ToolPayload:
-    """Review a change set: risk, reason codes, tests, flows, blast radius.
+    """Review a change set: what to check that the diff does not show.
 
-    Start with ``changes`` and read ``analysis_summary`` (flat at
-    ``detail_level="minimal"``); call another mode only where it points.
+    Start with ``changes`` and read ``findings``: each names a place to look,
+    the graph facts behind it, and an action. Kinds: dangling_reference
+    (removed or renamed symbol still referenced), unchanged_caller (new
+    required parameter, callers not edited), contract_doc_not_updated,
+    bridge_touched (one side of a manifest/Terraform/FFI bridge), untested_change,
+    tests_to_run (with a command). An empty list means nothing beyond the diff.
 
-    Modes: changes (risk, reason_codes, recommended tests, doc candidates),
-    context (source snippets), impact (blast radius, ``max_depth`` hops),
-    affected_flows (flows the change touches).
+    Modes: changes (findings), context (source snippets), impact (blast
+    radius, ``max_depth`` hops), affected_flows (flows the change touches).
+    ``detail_level="verbose"`` adds the deprecated score-first fields.
 
-    Trust: reason codes, blast radius, and flows show reach, not correctness;
-    confirm a bug with ``source_of`` or a reproduction.
+    Trust: findings rest on graph edges and a base-side re-parse; confirm one
+    with ``source_of`` or a reproduction before calling it a bug.
 
     Args:
         base: Git ref to diff against, plus staged, unstaged, and untracked

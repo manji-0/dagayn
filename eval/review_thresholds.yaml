@@ -4,13 +4,13 @@
 # A kind that emitted no findings has precision null, which is not "below";
 # set recall_floor to also fail a gated kind that never fires.
 defaults:
-  gated: false
+  gated: true
   precision_floor: 0.8
-  recall_floor: null
+  recall_floor: 0.8
 kinds:
-  dangling_reference: {gated: false}
-  unchanged_caller: {gated: false}
-  tests_to_run: {gated: false}
-  untested_change: {gated: false}
-  contract_doc_not_updated: {gated: false}
-  bridge_touched: {gated: false}
+  dangling_reference: {}
+  unchanged_caller: {}
+  tests_to_run: {}
+  untested_change: {}
+  contract_doc_not_updated: {}
+  bridge_touched: {}

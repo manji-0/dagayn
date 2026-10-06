@@ -443,33 +443,27 @@ def test_review_changes_answers_through_rust(reviewed_repo: Path) -> None:
 
     assert result["status"] == "ok", result["summary"]
     assert result["called_subtool"] == "detect_changes_func"
-    assert result["change_file_sources"]["unstaged"] == ["core/service.py"]
-    summary = result["analysis_summary"]
+    assert result["change_file_source_counts"]["unstaged"] == 1
+    by_kind = {finding["kind"]: finding for finding in result["findings"]}
+    # The changed function has a direct test, and an authored contract doc
+    # the change did not edit.
+    tests = by_kind["tests_to_run"]
+    assert any(t.endswith("tests/test_service.py::test_stable_api") for t in tests["targets"])
+    assert tests["command"].startswith("pytest tests/test_service.py")
+    doc = by_kind["contract_doc_not_updated"]
+    assert doc["file"].endswith(".md")
+    assert doc["evidence"][0]["relationship_role"] == "implemented_by"
+    assert "untested_change" not in by_kind
+    assert "contract_doc_not_updated" in result["summary"]
+
+    verbose = review_func(
+        mode="changes", base="HEAD", repo_root=str(reviewed_repo), detail_level="verbose"
+    )
+    summary = verbose["analysis_summary"]
     assert summary["risk_level"] in {"low", "medium", "high"}
     assert summary["changed_node_count"] >= 1
-    test = summary["recommended_tests"][0]
-    assert test["qualified_name"].endswith("tests/test_service.py::test_stable_api")
-    assert test["stability"]["stable"] is True
-    doc = summary["documentation_update_candidates"][0]
-    assert doc["stable_contract"] is True
-    assert doc["directive_hint"] == "<!-- dagayn: implemented-by <code-symbol> -->"
-    assert any(
-        item["reason_codes"] == ["documentation_update_candidates"]
-        and item["evidence"][0]["type"] == "authored"
-        for item in summary["guidance"]
-    )
     contract = summary["stability_contracts"][0]
     assert contract["scope_key"] == "core"
-    assert contract["stable"] is True
-    assert set(summary["guidance"][0]) >= {
-        "claim",
-        "evidence",
-        "confidence",
-        "missingness",
-        "action",
-        "reason_codes",
-        "counts",
-    }
 
 
 def test_review_context_answers_through_rust(reviewed_repo: Path) -> None:

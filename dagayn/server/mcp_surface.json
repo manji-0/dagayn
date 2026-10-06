@@ -810,7 +810,7 @@
      "tags": []
     }
    },
-   "description": "Review a change set: risk, reason codes, tests, flows, blast radius.\n\nStart with ``changes`` and read ``analysis_summary`` (flat at\n``detail_level=\"minimal\"``); call another mode only where it points.\n\nModes: changes (risk, reason_codes, recommended tests, doc candidates),\ncontext (source snippets), impact (blast radius, ``max_depth`` hops),\naffected_flows (flows the change touches).\n\nTrust: reason codes, blast radius, and flows show reach, not correctness;\nconfirm a bug with ``source_of`` or a reproduction.",
+   "description": "Review a change set: what to check that the diff does not show.\n\nStart with ``changes`` and read ``findings``: each names a place to look,\nthe graph facts behind it, and an action. Kinds: dangling_reference\n(removed or renamed symbol still referenced), unchanged_caller (new\nrequired parameter, callers not edited), contract_doc_not_updated,\nbridge_touched (one side of a manifest/Terraform/FFI bridge), untested_change,\ntests_to_run (with a command). An empty list means nothing beyond the diff.\n\nModes: changes (findings), context (source snippets), impact (blast\nradius, ``max_depth`` hops), affected_flows (flows the change touches).\n``detail_level=\"verbose\"`` adds the deprecated score-first fields.\n\nTrust: findings rest on graph edges and a base-side re-parse; confirm one\nwith ``source_of`` or a reproduction before calling it a bug.",
    "inputSchema": {
     "properties": {
      "mode": {

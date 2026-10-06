@@ -892,7 +892,9 @@ fn review_changes_scores_the_diff_against_base() {
     assert_eq!(changes["mode"], "changes");
     assert_eq!(changes["called_subtool"], "detect_changes_func");
     assert_eq!(changes["changed_files"], json!(["app.py"]));
-    assert_eq!(changes["diff_parse_status"], "ok");
+    assert_eq!(changes["base"], "HEAD~1");
+    assert!(changes.get("diff_parse_status").is_none());
+    assert!(changes.get("risk_level").is_none());
     let names: Vec<&str> = changes["changed_functions"]
         .as_array()
         .into_iter()
@@ -907,18 +909,32 @@ fn review_changes_scores_the_diff_against_base() {
         .find(|f| f["name"] == "auth_token")
         .expect("auth_token");
     assert_eq!(added["change_status"], "added");
+    // No test reaches the new function: one untested_change for app.py.
+    let findings = changes["findings"].as_array().expect("findings");
+    let untested = findings
+        .iter()
+        .find(|f| f["kind"] == "untested_change")
+        .expect("untested_change");
+    assert_eq!(untested["file"], "app.py");
+    assert!(
+        untested["targets"]
+            .as_array()
+            .is_some_and(|t| t.contains(&json!("app.py::auth_token")))
+    );
     assert!(
         changes["summary"]
             .as_str()
-            .is_some_and(|s| s.starts_with("Analyzed 1 changed file(s):"))
+            .is_some_and(|s| s.starts_with("1 changed file(s), ") && s.contains("untested_change"))
     );
-    let summary = &changes["analysis_summary"];
-    assert!(summary["reason_codes"].as_array().is_some());
     assert_eq!(
-        summary["next_drill_downs"]["flows"]["mode"],
+        changes["next_drill_downs"]["flows"]["mode"],
         "affected_flows"
     );
-    assert!(changes["_hints"]["next_steps"].as_array().is_some());
+    assert!(
+        changes["_hints"]["next_steps"]
+            .as_array()
+            .is_some_and(|s| !s.is_empty())
+    );
 
     let minimal = answer(
         &context,
@@ -927,15 +943,36 @@ fn review_changes_scores_the_diff_against_base() {
     );
     assert_eq!(minimal["changed_file_count"], 1);
     assert!(minimal.get("changed_functions").is_none());
+    assert!(minimal.get("review_priorities").is_none());
+    assert_eq!(minimal["findings"], changes["findings"]);
+
+    // verbose keeps the score-first fields for one release.
+    let verbose_changes = answer(
+        &context,
+        "review_tool",
+        json!({"mode": "changes", "detail_level": "verbose"}),
+    );
+    assert_eq!(verbose_changes["diff_parse_status"], "ok");
     assert!(
-        minimal["review_priorities"]
+        verbose_changes["analysis_summary"]["reason_codes"]
             .as_array()
-            .is_some_and(|p| p.len() <= 3)
+            .is_some()
+    );
+    assert!(verbose_changes["review_priorities"].as_array().is_some());
+    assert!(
+        verbose_changes["symbol_delta"]["removed"]
+            .as_array()
+            .is_some()
+    );
+    assert!(
+        verbose_changes["deprecated_fields"]
+            .as_array()
+            .is_some_and(|f| f.contains(&json!("analysis_summary")))
     );
 
     let none = answer(&context, "review_tool", json!({"changed_files": []}));
     assert_eq!(none["summary"], "No changed files detected.");
-    assert_eq!(none["risk_score"], 0.0);
+    assert_eq!(none["findings"], json!([]));
 
     // An explicit list scopes the review: app.py's lines in the base diff
     // add none of its nodes when only another file is named.

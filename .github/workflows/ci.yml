@@ -95,6 +95,10 @@ jobs:
         run: uv run python -m dagayn.vendor_grammars
       - name: Run tests with coverage
         run: uv run pytest --tb=short -q -n auto --dist loadfile --cov --cov-report=term-missing --cov-fail-under=80
+      - name: Gate review_tool findings on the eval set
+        # Builds a graph per case (docs/plans/REVIEW-TOOL-TARGET.md); fails
+        # when a finding kind drops below its precision or recall floor.
+        run: DAGAYN_REVIEW_EVAL=1 uv run pytest -q tests/test_review_eval.py
 
   rust-backend:
     runs-on: ubuntu-latest

@@ -360,7 +360,11 @@ class TestCrossArtifactReviewGuidance:
         _git_init(root)
 
         result = review_func(
-            mode="changes", base="HEAD", changed_files=["wrapper.py"], repo_root=str(root)
+            mode="changes",
+            base="HEAD",
+            changed_files=["wrapper.py"],
+            repo_root=str(root),
+            detail_level="verbose",
         )
 
         assert result["status"] == "ok", result
@@ -398,7 +402,11 @@ class TestCrossArtifactReviewGuidance:
             _git_init(tmp_path)
 
             result = review_func(
-                mode="changes", base="HEAD", changed_files=["wrapper.py"], repo_root=str(tmp_path)
+                mode="changes",
+                base="HEAD",
+                changed_files=["wrapper.py"],
+                repo_root=str(tmp_path),
+                detail_level="verbose",
             )
         finally:
             store.close()

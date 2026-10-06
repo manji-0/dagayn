@@ -167,10 +167,13 @@ def test_gate_only_fails_gated_kinds_below_floor():
     assert harness.gate_failures(summary, gated) == []
 
 
-def test_shipped_thresholds_start_ungated():
+def test_shipped_thresholds_gate_every_kind():
     thresholds = harness.load_thresholds()
     assert set(thresholds) == set(harness.FINDING_KINDS)
-    assert all(not conf["gated"] and conf["precision_floor"] == 0.8 for conf in thresholds.values())
+    assert all(
+        conf["gated"] and conf["precision_floor"] == 0.8 and conf["recall_floor"] == 0.8
+        for conf in thresholds.values()
+    )
 
 
 @pytest.mark.skipif(
@@ -184,3 +187,4 @@ def test_full_review_eval_runs(tmp_path: Path):
     assert result["summary"]["error_count"] == 0, [
         row["error"] for row in result["rows"] if row.get("error")
     ]
+    assert result["gate_failures"] == [], result["gate_failures"]

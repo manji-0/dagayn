@@ -65,9 +65,6 @@
 //!   (`pkg/gone.py` as `pkg.gone`, `crate::a::b`); relative TypeScript
 //!   specifiers that no longer resolve are not matched.
 
-// Nothing outside the tests calls this yet; review.rs wires it in.
-#![allow(dead_code)]
-
 #[cfg(test)]
 mod tests;
 
@@ -77,7 +74,9 @@ use std::process::Command;
 
 use dagayn_build::{Vcs, detect_vcs, is_safe_git_ref, jj, renames_since, svn};
 use dagayn_graph::{ConfidenceTier, GraphEdge, GraphStore};
-use dagayn_parser::{NodeKind, ParsedNode, RustOwnedParser};
+use dagayn_parser::{NodeKind, ParsedNode, RustOwnedParser, python_same_code};
+
+use crate::findings::normalize_code;
 use serde_json::{Value, json};
 
 /// Edge kinds that make a node depend on another. `CONTAINS` is structure,
@@ -363,6 +362,9 @@ pub(crate) struct SymbolDelta {
     pub signature_changed: Vec<SignatureChange>,
     /// `(base path, current path)` of each file compared.
     pub files_compared: Vec<(String, String)>,
+    /// Current qualified names of symbols on both sides whose code differs
+    /// only in comments or layout ([`crate::findings::normalize_code`]).
+    pub unchanged_bodies: HashSet<String>,
 }
 
 impl SymbolDelta {
@@ -378,6 +380,7 @@ impl SymbolDelta {
     }
 
     /// No symbol removed or reshaped (a pure move counts as empty).
+    #[cfg(test)]
     pub(crate) fn is_empty(&self) -> bool {
         self.removed.is_empty()
             && self.removed_tests.is_empty()
@@ -580,6 +583,11 @@ fn compare_file(
                 push_removed(delta, symbol);
             }
             Some(now) => {
+                let base_text = span(sides.base_source, node.line_start, node.line_end);
+                let now_text = span(sides.current_source, now.line_start, now.line_end);
+                if same_code(&base_text, &now_text, &now.language) {
+                    delta.unchanged_bodies.insert(qualified.clone());
+                }
                 if node.kind != NodeKind::Function || symbol.is_test || now.is_test {
                     continue;
                 }
@@ -611,6 +619,30 @@ fn compare_file(
         sides.base_source,
         sides.current_source,
     ));
+}
+
+/// Whether two spans of a symbol are the same code up to comments and
+/// layout: by syntax tree for Python, by [`normalize_code`] elsewhere (and
+/// for Python that does not parse on its own).
+fn same_code(before: &str, after: &str, language: &str) -> bool {
+    if language == "python"
+        && let Some(same) = python_same_code(before, after)
+    {
+        return same;
+    }
+    normalize_code(before, language) == normalize_code(after, language)
+}
+
+/// Lines `start..=end` (1-based) of `source`.
+fn span(source: &[u8], start: i64, end: i64) -> String {
+    let text = String::from_utf8_lossy(source);
+    let skip = usize::try_from(start.max(1) - 1).unwrap_or(0);
+    let take = usize::try_from(end - start + 1).unwrap_or(0);
+    text.lines()
+        .skip(skip)
+        .take(take)
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Whether a code symbol's name is still an identifier in the file: the
@@ -716,6 +748,9 @@ pub(crate) enum MatchKind {
     /// A bare-name edge in a file that imports the changed file and defines
     /// no symbol of that name.
     BareNameViaImport,
+    /// A Rust bare-name call no node of that name answers any more: a path
+    /// call (`math::add`) through a `mod` declaration leaves no import edge.
+    UnresolvedBareName,
 }
 
 impl MatchKind {
@@ -725,6 +760,7 @@ impl MatchKind {
             Self::ImportedName => "imported_name",
             Self::ImportedModule => "imported_module",
             Self::BareNameViaImport => "bare_name_via_import",
+            Self::UnresolvedBareName => "unresolved_bare_name",
         }
     }
 
@@ -734,7 +770,7 @@ impl MatchKind {
         match self {
             Self::ExactTarget | Self::ImportedName => "high",
             Self::ImportedModule => "medium",
-            Self::BareNameViaImport => "low",
+            Self::BareNameViaImport | Self::UnresolvedBareName => "low",
         }
     }
 }
@@ -753,22 +789,6 @@ pub(crate) struct Reference {
     /// The tier stored on the edge.
     pub edge_tier: ConfidenceTier,
     pub matched_by: MatchKind,
-}
-
-impl Reference {
-    pub(crate) fn to_json(&self) -> Value {
-        json!({
-            "target": self.target,
-            "edge_kind": self.edge_kind,
-            "source_qualified": self.source_qualified,
-            "edge_target": self.edge_target,
-            "file_path": self.file_path,
-            "line": self.line,
-            "edge_tier": self.edge_tier.as_str(),
-            "matched_by": self.matched_by.as_str(),
-            "confidence": self.matched_by.confidence(),
-        })
-    }
 }
 
 /// Edges from files outside `changed_files` that still point at `targets`,
@@ -920,6 +940,105 @@ pub(crate) fn references_to(
         }
     }
 
+    // Rust path calls whose name nothing defines any more.
+    let rust_targets: Vec<&&BaseSymbol> = targets
+        .iter()
+        .filter(|target| {
+            target.language == "rust" && target.kind == "Function" && target.parent_name.is_none()
+        })
+        .collect();
+    if !rust_targets.is_empty() {
+        let kinds: Vec<String> = ["Function", "Class", "Type", "Test"]
+            .iter()
+            .map(|kind| kind.to_string())
+            .collect();
+        let defined = store.count_nodes_by_name(&kinds, true).unwrap_or_default();
+        let names: Vec<String> = rust_targets
+            .iter()
+            .map(|target| target.name.clone())
+            .collect();
+        let calls = store
+            .get_edges_by_target_names(&names, "CALLS", false)
+            .unwrap_or_default();
+        for target in rust_targets {
+            if defined.get(&target.name).is_some_and(|count| *count > 0) {
+                continue;
+            }
+            for edge in calls.get(&target.name).into_iter().flatten() {
+                if edge.target_qualified == target.name
+                    && edge.file_path.ends_with(".rs")
+                    && outside(edge)
+                {
+                    add(target, edge, MatchKind::UnresolvedBareName);
+                }
+            }
+        }
+    }
+
+    // Terraform: a module is its directory, and references are unresolved
+    // names (`var.region`) or relative sources (`./modules/net`).
+    if targets.iter().any(|target| target.language == "terraform") {
+        let tf_files: Vec<String> = store
+            .get_all_files()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|file| file.ends_with(".tf"))
+            .collect();
+        let nodes = store.get_nodes_by_files(&tf_files).unwrap_or_default();
+        for target in targets
+            .iter()
+            .filter(|t| t.language == "terraform" && t.kind != "File")
+        {
+            let dir = parent_dir(&target.file_path);
+            let still_defined = nodes
+                .values()
+                .flatten()
+                .any(|node| node.name == target.name && parent_dir(&node.file_path) == dir);
+            if still_defined {
+                continue;
+            }
+            let edges = store
+                .get_edges_by_target_names(std::slice::from_ref(&target.name), "REFERENCES", false)
+                .unwrap_or_default();
+            for edge in edges.get(&target.name).into_iter().flatten() {
+                if edge.target_qualified == target.name
+                    && parent_dir(&edge.file_path) == dir
+                    && outside(edge)
+                {
+                    add(target, edge, MatchKind::UnresolvedBareName);
+                }
+            }
+        }
+        let gone_modules: Vec<(&&BaseSymbol, String)> = targets
+            .iter()
+            .filter(|t| t.language == "terraform" && t.kind == "File" && t.current_file.is_none())
+            .map(|t| (t, parent_dir(&t.file_path)))
+            .filter(|(_, dir)| !tf_files.iter().any(|file| parent_dir(file) == *dir))
+            .collect();
+        if !gone_modules.is_empty() {
+            let qns: Vec<String> = nodes
+                .values()
+                .flatten()
+                .map(|node| node.qualified_name.clone())
+                .collect();
+            let (outgoing, _) = store.get_edges_by_endpoints(&qns).unwrap_or_default();
+            for edge in outgoing.values().flatten() {
+                let source = edge.target_qualified.as_str();
+                if edge.kind != "IMPORTS_FROM"
+                    || !(source.starts_with("./") || source.starts_with("../"))
+                {
+                    continue;
+                }
+                let resolved = normalize_path(&format!("{}/{source}", parent_dir(&edge.file_path)));
+                for (target, dir) in &gone_modules {
+                    if resolved == *dir && outside(edge) {
+                        add(target, edge, MatchKind::ImportedModule);
+                    }
+                }
+            }
+        }
+    }
+
     let mut references: Vec<Reference> = found.into_values().collect();
     references.sort_by(|a, b| {
         (&a.target, a.matched_by, &a.file_path, a.line, &a.edge_kind).cmp(&(
@@ -931,6 +1050,29 @@ pub(crate) fn references_to(
         ))
     });
     references
+}
+
+/// The directory of a repo-relative path (`""` at the root).
+fn parent_dir(path: &str) -> String {
+    Path::new(path)
+        .parent()
+        .map(|dir| dir.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+/// `a/./b/../c` -> `a/c`, without touching the file system.
+fn normalize_path(path: &str) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    for part in path.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            other => parts.push(other),
+        }
+    }
+    parts.join("/")
 }
 
 /// The file part of a qualified name.

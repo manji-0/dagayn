@@ -66,7 +66,8 @@ def _review_predictions(repo_path: Path, case: BenchmarkPayload) -> dict[str, li
         repo_root=str(repo_path),
         changed_files=list(case.get("changed_files", [])),
         base=str(case.get("base", "HEAD~1")),
-        detail_level="standard",
+        # The score-first summary this benchmark scores is verbose-only now.
+        detail_level="verbose",
     )
     summary: BenchmarkPayload = (
         result.get("analysis_summary", {}) if isinstance(result, dict) else {}
