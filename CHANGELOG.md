@@ -45,6 +45,10 @@ All notable changes to `dagayn` are documented here.
   (`eval/run_review_eval.py`, cases in `tests/fixtures/review_eval`): a kind
   below 0.8 precision or recall (`eval/review_thresholds.yaml`) fails the
   build.
+- Removed the Python change analysis that nothing called any more:
+  `dagayn.changes` (`analyze_changes`, `parse_git_diff`, `compute_risk_score`,
+  ...), `dagayn.coverage`, `dagayn.constants`, and eight `_core.GraphStore`
+  bindings only they used. `review_tool` (Rust) is the change analysis.
 - `get_minimal_context_tool` reports changed files as `changes` (`state`,
   `files`, and the count of each `review_tool` finding kind) instead of the
   `risk` level and review-priority score, which ranked identifiers by
