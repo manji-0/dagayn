@@ -28,6 +28,23 @@ All notable changes to `dagayn` are documented here.
   kind lists 10 and counts the rest in `findings_omitted`. CI gates each
   kind at precision and recall 0.8 on `eval/run_architecture_eval.py`. See
   `docs/plans/ARCHITECTURE-TOOL-TARGET.md#finding-kinds`.
+- The architecture overview's community health report (`communities`,
+  `cross_community_coupling`, `warnings`, `architecture_health`,
+  `stable_component_policy`, `answerability`) moves behind
+  `detail_level="verbose"`, listed in `deprecated_fields`, for one release.
+  `minimal` is the map and the findings; `standard` adds each unit's
+  `surface`. On this repository `minimal` went from 18,952 to 7,265
+  characters. The `hubs`, `bridges`, `knowledge_gaps`,
+  `surprising_connections`, and `adp_violations` modes and
+  `get_suggested_questions_tool` answer with a `deprecated` note naming
+  their replacement, and go after one release.
+- SDP and SAP metrics, and package-level ADP, are computed over the declared
+  units instead of each file's directory; SAP's `scope_kind="directory"`
+  keeps the directory scopes. An unresolved import or a standard-library or
+  third-party target is no longer matched to a repository symbol by name:
+  `import abc` counted as a dependency on a TypeScript namespace `abc` in a
+  test fixture. On this repository package-level ADP went from 21 cycles to
+  0 and SDP from 8 violations to 0.
 - Python and TypeScript imports say whether they run when the module is
   loaded. Python `IMPORTS_FROM` inside a function body carry
   `import_scope: "function"` and inside `if TYPE_CHECKING:` carry

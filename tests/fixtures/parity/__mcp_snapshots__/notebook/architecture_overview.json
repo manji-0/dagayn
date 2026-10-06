@@ -2,8 +2,8 @@
   "_hints": {
     "next_steps": [
       {
-        "suggestion": "query_graph_tool pattern=\"docs_for\" -- follow documentation bridges; pattern=\"implementations_of\" -- follow implementation bridges",
-        "tool": "query_graph_tool"
+        "suggestion": "detail_level=\"standard\" -- the symbols other units use most (surface)",
+        "tool": "architecture_analysis_tool"
       }
     ],
     "related": [],
@@ -15,201 +15,8 @@
     "source": "explicit"
   },
   "_runtime": "<VOLATILE>",
-  "answerability": {
-    "answerability": [
-      0,
-      1,
-      0,
-      1,
-      0.0
-    ],
-    "counts": {
-      "communities": 1,
-      "current_head_sha": "59482a5d55dfb989b595cd778294de8619a2ed84",
-      "flows": 0,
-      "graph_head_sha": "59482a5d55dfb989b595cd778294de8619a2ed84",
-      "reportable_cross_artifact_edges": 1,
-      "reportable_unresolved_cross_artifact_edges": 0,
-      "stale_flow_memberships": 0,
-      "test_edges": 0,
-      "unassigned_nodes": 0,
-      "worktree_dirty": false
-    },
-    "parse": [
-      1,
-      1,
-      true
-    ],
-    "reason_codes": [
-      "missing_flows",
-      "missing_test_edges"
-    ],
-    "score": 0.75,
-    "status": "ok"
-  },
-  "architecture_health": {
-    "counts": {
-      "adp_violations": 0,
-      "bridge_nodes": 0,
-      "communities": 1,
-      "coupled_pairs_shown": 0,
-      "cross_artifact_edges": 1,
-      "hub_nodes": 0,
-      "knowledge_gaps": 3,
-      "sap_violations": 0,
-      "sdp_violations": 0,
-      "surprising_connections": 0,
-      "warnings": 0
-    },
-    "drill_downs": {
-      "adp": {
-        "artifact_scope": "code",
-        "mode": "adp_violations",
-        "tool": "architecture_analysis_tool"
-      },
-      "bridges": {
-        "mode": "bridges",
-        "tool": "architecture_analysis_tool"
-      },
-      "communities": {
-        "mode": "communities",
-        "tool": "architecture_analysis_tool"
-      },
-      "coupling": {
-        "mode": "overview",
-        "tool": "architecture_analysis_tool"
-      },
-      "hubs": {
-        "mode": "hubs",
-        "tool": "architecture_analysis_tool"
-      },
-      "knowledge_gaps": {
-        "mode": "knowledge_gaps",
-        "tool": "architecture_analysis_tool"
-      },
-      "sap": {
-        "artifact_scope": "code",
-        "mode": "sap_violations",
-        "tool": "architecture_analysis_tool"
-      },
-      "sdp": {
-        "artifact_scope": "code",
-        "mode": "sdp_violations",
-        "tool": "architecture_analysis_tool"
-      },
-      "surprising_connections": {
-        "mode": "surprising_connections",
-        "tool": "architecture_analysis_tool"
-      }
-    },
-    "guidance": [
-      {
-        "action": "query_graph_tool pattern=\"docs_for\" -- follow documentation bridges; pattern=\"implementations_of\" -- follow implementation bridges",
-        "claim": "Graph contains 1 CROSS_ARTIFACT edge(s); treat bridges as first-class transitions when reviewing coupling.",
-        "confidence": "medium",
-        "counts": {
-          "cross_artifact_edges": 1
-        },
-        "evidence": [
-          {
-            "cross_artifact_edge_count": 1,
-            "type": "extracted"
-          }
-        ],
-        "missingness": [
-          {
-            "claim_effect": "prefer docs_for / implementations_of / reportable bridges; treat low-confidence bridges as caveats",
-            "reason_code": "cross_artifact_bridge_is_static_evidence",
-            "severity": "low"
-          }
-        ],
-        "reason_codes": [
-          "cross_artifact_edges_present"
-        ]
-      }
-    ],
-    "reason_codes": [
-      "knowledge_gaps",
-      "cross_artifact_edges_present"
-    ],
-    "scoring_policy": {
-      "artifact_scope": "code",
-      "bounded_top_n": 5,
-      "formulas": {
-        "adp": "cycles in package dependency graph",
-        "sap": "distance from main sequence D=|A+I-1|",
-        "sdp": "dependencies should point toward lower instability"
-      },
-      "signals": [
-        "community_coupling",
-        "hub_nodes",
-        "bridge_nodes",
-        "cross_artifact_edges",
-        "knowledge_gaps",
-        "surprising_connections",
-        "adp",
-        "sdp",
-        "sap"
-      ],
-      "thresholds": {
-        "artifact_scope_default": "code",
-        "code_scope_includes_tests": false,
-        "sap_violation_distance_min": 0.5
-      },
-      "version": "<VOLATILE>"
-    },
-    "status": "ok",
-    "top_examples": {
-      "adp_violations": [],
-      "bridge_nodes": [],
-      "hub_nodes": [],
-      "knowledge_gaps": {
-        "isolated_nodes": [
-          {
-            "degree": 0,
-            "file": "analysis.ipynb",
-            "kind": "Function",
-            "name": "load_data",
-            "qualified_name": "analysis.ipynb::load_data"
-          },
-          {
-            "degree": 0,
-            "file": "analysis.ipynb",
-            "kind": "Function",
-            "name": "process",
-            "qualified_name": "analysis.ipynb::process"
-          }
-        ],
-        "single_file_communities": [],
-        "thin_communities": [],
-        "untested_hotspots": [
-          {
-            "degree": 5,
-            "evidence": "degree is at or above the repository p95 non-file degree threshold and no TESTED_BY edge starts from it",
-            "file": "analysis.ipynb",
-            "hotspot_min_degree": 5,
-            "kind": "Function",
-            "name": "load_data",
-            "qualified_name": "analysis.ipynb::load_data"
-          }
-        ]
-      },
-      "sap_violations": [],
-      "sdp_violations": [],
-      "surprising_connections": []
-    }
-  },
   "artifact_scope": "code",
   "called_subtool": "get_architecture_overview_func",
-  "communities": [
-    {
-      "assigned_member_count": 2,
-      "cohesion": 0.0,
-      "name": "analysis-data",
-      "size": 2
-    }
-  ],
-  "cross_community_coupling": [],
   "findings": [],
   "missingness": [
     {
@@ -224,26 +31,8 @@
     }
   ],
   "mode": "overview",
-  "stable_component_policy": {
-    "counts": {
-      "profiled_components": 1,
-      "should_be_stable_components": 0,
-      "stable_components": 0,
-      "stable_concrete_pressure_components": 0
-    },
-    "reason_codes": [],
-    "thresholds": {
-      "afferent_coupling_should_be_stable_min": 3,
-      "default_expected_doc_density": 0.25,
-      "default_expected_test_density": 0.5,
-      "instability_max": 0.35,
-      "stable_expected_doc_density": 0.5,
-      "stable_expected_test_density": 0.8
-    },
-    "top_examples": []
-  },
   "status": "ok",
-  "summary": "1 unit(s), 0 dependency pair(s) between them. No structural findings. Architecture: 1 communities, 0 coupled pairs, 0 warning(s)",
+  "summary": "1 unit(s), 0 dependency pair(s) between them. No structural findings.",
   "unit_edges": [],
   "units": [
     {
@@ -254,6 +43,5 @@
       "symbols": 2,
       "tests": 0
     }
-  ],
-  "warnings": []
+  ]
 }

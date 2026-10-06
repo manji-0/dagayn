@@ -16,7 +16,7 @@ use std::path::Path;
 use dagayn_graph::{GraphEdge, GraphNode, is_reportable_bridge};
 use serde_json::{Value, json};
 
-use crate::findings::{is_production_code, is_test_node};
+use crate::findings::{CODE_LANGUAGES, is_production_code, is_test_node};
 
 /// Symbols per unit that `surface` lists.
 const SURFACE_SIZE: usize = 3;
@@ -118,6 +118,42 @@ impl UnitIndex {
     pub(crate) fn unit_of(&self, file: &str) -> Option<usize> {
         self.unit_of_file.get(file).copied()
     }
+
+    /// Each unit's name, or `name (path)` for a name two units share (an
+    /// npm package and a Python package both called `app`).
+    pub(crate) fn labels(&self) -> Vec<String> {
+        let mut counts: HashMap<&str, usize> = HashMap::new();
+        for unit in &self.units {
+            *counts.entry(unit.name.as_str()).or_default() += 1;
+        }
+        self.units
+            .iter()
+            .map(|unit| {
+                if counts[unit.name.as_str()] > 1 {
+                    format!("{} ({})", unit.name, unit.path)
+                } else {
+                    unit.name.clone()
+                }
+            })
+            .collect()
+    }
+}
+
+/// The label of the declared unit of every code file (tests included: a
+/// crate's `tests/` belong to the crate), for metrics computed per unit.
+pub(crate) fn unit_scopes(root: &Path, nodes: &[GraphNode]) -> HashMap<String, String> {
+    let mut files: Vec<&str> = nodes
+        .iter()
+        .filter(|node| node.kind == "File" && CODE_LANGUAGES.contains(&node.language.as_str()))
+        .map(|node| node.file_path.as_str())
+        .collect();
+    files.sort_unstable();
+    let index = UnitIndex::discover(root, files.iter().copied());
+    let labels = index.labels();
+    files
+        .into_iter()
+        .filter_map(|file| Some((file.to_string(), labels[index.unit_of(file)?].clone())))
+        .collect()
 }
 
 fn parent(path: &str) -> &str {
@@ -316,20 +352,8 @@ pub(crate) fn unit_map(
             }
         }
     }
-    // A name two units share (an npm package and a Python package both
-    // called `app`) is told apart by the unit's directory.
-    let mut name_counts: HashMap<&str, usize> = HashMap::new();
-    for entry in &index.units {
-        *name_counts.entry(entry.name.as_str()).or_default() += 1;
-    }
-    let label = |unit: usize| -> String {
-        let entry = &index.units[unit];
-        if name_counts[entry.name.as_str()] > 1 {
-            format!("{} ({})", entry.name, entry.path)
-        } else {
-            entry.name.clone()
-        }
-    };
+    let labels = index.labels();
+    let label = |unit: usize| -> String { labels[unit].clone() };
     let mut order: Vec<usize> = (0..count).collect();
     order.sort_by(|a, b| {
         symbols[*b]

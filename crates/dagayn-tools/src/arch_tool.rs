@@ -100,6 +100,8 @@ struct Request<'a> {
     min_distance: f64,
     artifact_scope: &'a str,
     dependency_profile: &'a str,
+    /// The repository, for the manifests that declare units.
+    root: std::path::PathBuf,
 }
 
 impl<'a> Request<'a> {
@@ -171,14 +173,16 @@ impl<'a> Request<'a> {
                     "artifact_trace",
                 ],
             )?,
+            root: std::path::PathBuf::new(),
         })
     }
 }
 
 pub(crate) fn architecture(context: &Context, arguments: &Map<String, Value>) -> Option<Payload> {
     let args = Args::new(arguments, DECLARED)?;
-    let request = Request::parse(&args, arguments)?;
+    let mut request = Request::parse(&args, arguments)?;
     let root = resolve_repo(context, args.optional_string("repo_root")?)?;
+    request.root = root.path.clone();
     if request.mode == "community"
         && request.community_id.is_none()
         && request.community_name.is_none_or(str::is_empty)
@@ -349,6 +353,13 @@ pub(crate) fn architecture(context: &Context, arguments: &Map<String, Value>) ->
             false,
         ),
     };
+    let out = match DEPRECATED_MODES.iter().find(|(mode, _)| *mode == request.mode) {
+        Some((_, replacement)) => out.put(
+            "deprecated",
+            json!({"replacement": format!("architecture_analysis_tool {replacement}"), "removal": "next release"}),
+        ),
+        None => out,
+    };
     // `attach_answerability` for a subtool that reports none.
     let trailing = if trailing {
         vec![
@@ -418,13 +429,17 @@ fn with_unit_map(
                 .join(", ")
         )
     };
-    let mut out = Ordered::default().put("status", "ok").put(
-        "summary",
-        format!(
-            "{unit_count} unit(s), {edge_count} dependency pair(s) between them. {findings_summary} {}",
-            rest.get("summary").and_then(Value::as_str).unwrap_or("")
-        ),
+    let mut summary = format!(
+        "{unit_count} unit(s), {edge_count} dependency pair(s) between them. {findings_summary}"
     );
+    if detail_level == "verbose"
+        && let Some(legacy) = rest.get("summary").and_then(Value::as_str)
+    {
+        summary = format!("{summary} {legacy}");
+    }
+    let mut out = Ordered::default()
+        .put("status", "ok")
+        .put("summary", summary);
     out = out.put("units", json!(units));
     if unit_count > units.len() {
         out = out.put("units_omitted", unit_count - units.len());
@@ -437,13 +452,68 @@ fn with_unit_map(
     if !findings_omitted.is_empty() {
         out = out.put("findings_omitted", json!(findings_omitted));
     }
-    for (key, value) in rest.into_entries() {
-        if key != "status" && key != "summary" {
+    if detail_level == "verbose" {
+        // The community-based health report the overview gave before the
+        // map, for one release.
+        let mut deprecated = Vec::new();
+        for (key, value) in rest.into_entries() {
+            if key == "status" || key == "summary" {
+                continue;
+            }
+            if !matches!(key.as_str(), "artifact_scope" | "missingness" | "_hints") {
+                deprecated.push(key.clone());
+            }
             out = out.put(&key, value);
         }
+        return Some(out.put("deprecated_fields", json!(deprecated)));
     }
-    Some(out)
+    if let Some(scope) = rest.get("artifact_scope") {
+        out = out.put("artifact_scope", scope.clone());
+    }
+    if let Some(missingness) = rest.get("missingness") {
+        out = out.put("missingness", missingness.clone());
+    }
+    let mut next_steps = Vec::new();
+    if !findings.is_empty() {
+        next_steps.push(json!({
+            "tool": "query_graph_tool",
+            "suggestion": "pattern=\"source_of\" or \"importers_of\" -- open the place each finding names",
+        }));
+    }
+    if detail_level == "minimal" {
+        next_steps.push(json!({
+            "tool": "architecture_analysis_tool",
+            "suggestion": "detail_level=\"standard\" -- the symbols other units use most (surface)",
+        }));
+    }
+    Some(out.put(
+        "_hints",
+        json!({"next_steps": next_steps, "related": [], "warnings": []}),
+    ))
 }
+
+/// Modes the overview's map and findings replace
+/// (docs/plans/ARCHITECTURE-TOOL-TARGET.md#what-happens-to-the-current-modes),
+/// kept for one release.
+const DEPRECATED_MODES: &[(&str, &str)] = &[
+    (
+        "hubs",
+        "mode=\"overview\" detail_level=\"standard\" (each unit's surface)",
+    ),
+    (
+        "bridges",
+        "mode=\"overview\" detail_level=\"standard\" (each unit's surface)",
+    ),
+    (
+        "knowledge_gaps",
+        "mode=\"overview\" findings (untested_core); refactor_tool mode=\"suggest\" for unused code",
+    ),
+    ("surprising_connections", "mode=\"overview\" unit_edges"),
+    (
+        "adp_violations",
+        "mode=\"overview\" findings (import_cycle)",
+    ),
+];
 
 /// `make_response("ok", summary, **fields, next_tool_suggestions=...)`.
 fn make_response(
@@ -468,10 +538,12 @@ fn graph_for(
     artifact: Artifact,
     profile: Profile,
 ) -> ScopeGraph {
+    let file_scopes = request.granularity == "file";
     let view = View {
-        file_scopes: request.granularity == "file",
+        file_scopes,
         artifact,
         profile,
+        units: (!file_scopes).then(|| snapshot.unit_scopes(&request.root)),
     };
     ScopeGraph::new(&snapshot.dependencies(&view))
 }
@@ -617,11 +689,14 @@ fn sdp_violations(
     ))
 }
 
-fn sap_view(request: &Request, artifact: Artifact, profile: Profile) -> View {
+/// `scope_kind="package"` scopes by declared unit, `"directory"` by the
+/// file's directory, `"file"` by file.
+fn sap_view(request: &Request, snapshot: &Snapshot, artifact: Artifact, profile: Profile) -> View {
     View {
         file_scopes: request.scope_kind == "file",
         artifact,
         profile,
+        units: (request.scope_kind == "package").then(|| snapshot.unit_scopes(&request.root)),
     }
 }
 
@@ -633,7 +708,7 @@ fn sap(
     artifact: Artifact,
     profile: Profile,
 ) -> Ordered {
-    let view = sap_view(request, artifact, profile);
+    let view = sap_view(request, snapshot, artifact, profile);
     let raw = sap_metrics(
         snapshot,
         &view,
@@ -734,7 +809,7 @@ fn sap_violation_list(
     artifact: Artifact,
     profile: Profile,
 ) -> Option<Ordered> {
-    let view = sap_view(request, artifact, profile);
+    let view = sap_view(request, snapshot, artifact, profile);
     let raw = sap_metrics(snapshot, &view, request.scope_kind, None);
     let violations: Vec<Value> = sap_violations(&raw, request.min_distance)
         .iter()
