@@ -3,7 +3,8 @@
 //! carries).
 //!
 //! The graph's sync state, health, top communities and flows, a workflow
-//! routed from the task, and with `changed_files` a review-priority risk.
+//! routed from the task, and for changed files the count of each
+//! `review_tool(mode="changes")` finding kind.
 //! With `auto_prepare`, an `unbuilt` or `commit_drift` graph (or a local
 //! embedding index too far behind) queues a background `prepare`, and a
 //! smaller embedding gap an `embed`, in `.dagayn/task_queue.db`, starting the
@@ -20,6 +21,7 @@ use serde_json::{Map, Value, json};
 
 use crate::answerability::Answerability;
 use crate::changes::{DiffParse, analyze_changes_with, parse_diff};
+use crate::findings;
 use crate::pyunicode::casefold;
 use crate::{Args, Context, Ordered, Payload, open_graph, resolve_repo};
 
@@ -93,7 +95,7 @@ const WORKFLOWS: [Workflow; 6] = [
         name: "review",
         tools: ["review_tool", "flow_tool", "query_graph_tool"],
         recommended_action: "Run review_tool mode=changes first, then drill into context only when needed.",
-        why: "The task mentions reviewing a diff or PR, so risk and changed-node ranking are the fastest entry point.",
+        why: "The task mentions reviewing a diff or PR, so review_tool's findings are the fastest entry point.",
         confidence: "high",
     },
     Workflow {
@@ -258,60 +260,85 @@ fn max_risk_files() -> Option<usize> {
     Some(usize::try_from(value).unwrap_or(0))
 }
 
-/// The risk fields of the reply (step 3 of the Python body).
-struct Risk {
-    /// `unknown` (not analysed, or the analysis failed), `skipped`, `low`,
-    /// `medium`, or `high`.
-    level: &'static str,
-    score: f64,
+/// The change fields of the reply: what `review_tool(mode="changes")`
+/// would report for the changed files, counted by finding kind.
+struct Changes {
+    /// `none` (no changed files), `skipped` (more than `max_risk_files`),
+    /// `unresolved` (the base does not resolve), `unknown` (the analysis
+    /// failed), or `analysed`.
+    state: &'static str,
+    file_count: usize,
+    /// Finding kind -> count, in review order.
+    findings: Vec<(String, usize)>,
     top_affected: Vec<String>,
     affected_flows: Vec<String>,
-    test_gap_count: usize,
-    skipped_count: usize,
 }
 
-impl Risk {
-    fn unknown() -> Self {
+impl Changes {
+    fn of(state: &'static str, file_count: usize) -> Self {
         Self {
-            level: "unknown",
-            score: 0.0,
+            state,
+            file_count,
+            findings: Vec::new(),
             top_affected: Vec::new(),
             affected_flows: Vec::new(),
-            test_gap_count: 0,
-            skipped_count: 0,
         }
     }
 
-    fn scored(score: f64) -> Self {
-        let level = if score > 0.7 {
-            "high"
-        } else if score > 0.4 {
-            "medium"
-        } else {
-            "low"
-        };
-        Self {
-            level,
-            score,
-            ..Self::unknown()
+    /// The summary sentence, when there are changed files.
+    fn sentence(&self, base: &str) -> Option<String> {
+        let files = self.file_count;
+        match self.state {
+            "none" => None,
+            "skipped" => Some(format!(
+                "Changes: {files} file(s); too many to analyse here, run review_tool."
+            )),
+            "unresolved" => Some(format!(
+                "Changes: {files} file(s); base {base} does not resolve."
+            )),
+            "unknown" => Some(format!("Changes: {files} file(s); not analysed.")),
+            _ if self.findings.is_empty() => Some(format!(
+                "Changes: {files} file(s); nothing beyond the diff needs checking."
+            )),
+            _ => Some(format!(
+                "Changes: {files} file(s); review_tool findings: {}.",
+                self.findings
+                    .iter()
+                    .map(|(kind, count)| format!("{count} {kind}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )),
         }
+    }
+
+    /// The `changes` object of the reply.
+    fn value(&self) -> Value {
+        let findings: Map<String, Value> = self
+            .findings
+            .iter()
+            .map(|(kind, count)| (kind.clone(), json!(count)))
+            .collect();
+        json!({"state": self.state, "files": self.file_count, "findings": findings})
     }
 }
 
-/// `analyze_changes(store, [str(root / f) ...], repo_root=root, base=base,
-/// heuristic_test_gap_node_limit=10)`, which diffs `base` itself; a failure
-/// leaves the risk unknown, as Python's `except` does.
-fn risk_of(store: &dagayn_graph::GraphStore, root: &Path, base: &str, files: &[String]) -> Risk {
+/// What `review_tool(mode="changes")` finds in `files` against `base`,
+/// counted by kind; a failure leaves the changes `unknown`.
+fn changes_of(
+    store: &dagayn_graph::GraphStore,
+    root: &Path,
+    base: &str,
+    files: &[String],
+) -> Changes {
     match parse_diff(root, base) {
         DiffParse::BaseUnresolved => {
-            // No changed nodes: a zero score, but the files' flows still count.
             let absolute: Vec<String> = files.iter().map(|file| join(root, file)).collect();
             let Ok(flows) = store.get_affected_flows_annotated(&absolute) else {
-                return Risk::unknown();
+                return Changes::of("unknown", files.len());
             };
-            Risk {
+            Changes {
                 affected_flows: names(&flows, 5),
-                ..Risk::scored(0.0)
+                ..Changes::of("unresolved", files.len())
             }
         }
         DiffParse::Ranges(mut ranges) => {
@@ -321,22 +348,17 @@ fn risk_of(store: &dagayn_graph::GraphStore, root: &Path, base: &str, files: &[S
             ranges.retain(|rel, _| wanted.contains(&join(root, rel)));
             let Some(analysis) = analyze_changes_with(store, root, base, files, &ranges, false)
             else {
-                return Risk::unknown();
+                return Changes::of("unknown", files.len());
             };
-            let score = analysis
-                .get("review_priority_score")
-                .as_f64()
-                .unwrap_or(0.0);
+            let Some(found) = findings::change_findings(store, root, &analysis, files, base) else {
+                return Changes::of("unknown", files.len());
+            };
             let rows = |key: &str| analysis.get(key).as_array().cloned().unwrap_or_default();
-            let mut priorities = rows("review_priorities");
-            if priorities.is_empty() {
-                priorities = rows("changed_functions");
-            }
-            Risk {
-                top_affected: names(&priorities, 5),
+            Changes {
+                findings: found.counts,
+                top_affected: names(&rows("changed_functions"), 5),
                 affected_flows: names(&rows("affected_flows"), 5),
-                test_gap_count: rows("test_gaps").len(),
-                ..Risk::scored(score)
+                ..Changes::of("analysed", files.len())
             }
         }
     }
@@ -471,16 +493,12 @@ pub(crate) fn get_minimal_context(
         .filter(|tool| context.exposes(tool))
         .collect();
 
-    let risk = if changed_files.is_empty() {
-        Risk::unknown()
+    let changes = if changed_files.is_empty() {
+        Changes::of("none", 0)
     } else if changed_files.len() > max_risk_files {
-        Risk {
-            level: "skipped",
-            skipped_count: changed_files.len(),
-            ..Risk::unknown()
-        }
+        Changes::of("skipped", changed_files.len())
     } else {
-        risk_of(&graph.store, &graph.root, base, &changed_files)
+        changes_of(&graph.store, &graph.root, base, &changed_files)
     };
 
     // `get_communities(store, sort_by="size")[:3]`, then their names.
@@ -492,31 +510,19 @@ pub(crate) fn get_minimal_context(
         "{} nodes, {} edges across {} files.",
         stats.total_nodes, stats.total_edges, stats.files_count
     )];
-    if risk.level != "unknown" {
-        summary.push(format!(
-            "Review priority: {} ({:.2}).",
-            risk.level, risk.score
-        ));
-    }
-    if risk.skipped_count != 0 {
-        summary.push(format!(
-            "Risk analysis skipped for {} files.",
-            risk.skipped_count
-        ));
-    }
-    if risk.test_gap_count != 0 {
-        summary.push(format!("{} test gaps.", risk.test_gap_count));
+    if let Some(sentence) = changes.sentence(base) {
+        summary.push(sentence);
     }
 
     // `compact_response`.
     let mut response = Ordered::default()
         .put("status", "ok")
         .put("summary", summary.join(" "));
-    if !risk.top_affected.is_empty() {
-        response = response.put("key_entities", json!(risk.top_affected));
+    if !changes.top_affected.is_empty() {
+        response = response.put("key_entities", json!(changes.top_affected));
     }
-    if risk.level != "unknown" {
-        response = response.put("risk", risk.level);
+    if changes.state != "none" {
+        response = response.put("changes", changes.value());
     }
     if !communities.is_empty() {
         response = response.put("communities", json!(communities));
@@ -524,8 +530,8 @@ pub(crate) fn get_minimal_context(
     if !flows.is_empty() {
         response = response.put("top_flows", json!(flows));
     }
-    if !risk.affected_flows.is_empty() {
-        response = response.put("flows_affected", json!(risk.affected_flows));
+    if !changes.affected_flows.is_empty() {
+        response = response.put("flows_affected", json!(changes.affected_flows));
     }
     if !suggestions.is_empty() {
         response = response.put("next_tool_suggestions", json!(suggestions));

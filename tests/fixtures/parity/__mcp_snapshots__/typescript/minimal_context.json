@@ -47,6 +47,6 @@
     "useImports",
     "useBarrel"
   ],
-  "why": "The task mentions reviewing a diff or PR, so risk and changed-node ranking are the fastest entry point.",
+  "why": "The task mentions reviewing a diff or PR, so review_tool's findings are the fastest entry point.",
   "workflow": "review"
 }

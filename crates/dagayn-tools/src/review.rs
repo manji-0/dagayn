@@ -19,11 +19,11 @@ use serde_json::{Map, Value, json};
 use crate::answerability::Answerability;
 use crate::changes::{Analysis, DiffParse, analyze_changes, parse_diff};
 use crate::coverage::splitlines;
+use crate::findings;
 use crate::hints::{generate_hints, session};
 use crate::query::{edge_dict, node_dict};
 use crate::review_summary::change_analysis_summary;
 use crate::{Args, Context, OpenGraph, Ordered, Payload, open_graph, resolve_repo};
-use crate::{base_symbols, findings};
 
 const DECLARED: &[&str] = &[
     "mode",
@@ -47,8 +47,6 @@ const CONTEXT_BUDGET: usize = 8000;
 const MAX_GRAPH_ENTRIES: usize = 300;
 const MAX_SNIPPET_BYTES: usize = 120_000;
 const MAX_LINES_PER_FILE_CEILING: i64 = 2000;
-/// Findings kept per kind; `findings_omitted` counts the rest.
-const MAX_FINDINGS_PER_KIND: usize = 10;
 /// Fields `detail_level="verbose"` still carries from the score-first
 /// contract, for one release.
 const DEPRECATED_FIELDS: &[&str] = &[
@@ -293,7 +291,7 @@ impl Review<'_> {
     }
 
     /// The findings for a change set (`findings.rs`), most actionable kind
-    /// first, and the base-side symbol delta behind them.
+    /// first, the per-kind omissions, and the base-side symbol delta.
     fn findings(
         &self,
         analysis: &Analysis,
@@ -304,48 +302,13 @@ impl Review<'_> {
             .iter()
             .map(|file| normalized_repo_path(file, self.root()))
             .collect();
-        let delta = base_symbols::symbol_delta(self.root(), base, &relative);
-        let references =
-            base_symbols::references_to(self.store(), &delta.reference_targets(), &relative);
-        let mut nodes = Vec::new();
-        for function in analysis
-            .get("changed_functions")
-            .as_array()
-            .into_iter()
-            .flatten()
-        {
-            if let Some(qn) = function["qualified_name"].as_str()
-                && !delta.unchanged_bodies.contains(qn)
-                && let Some(node) = self.store().get_node(qn).ok()?
-            {
-                nodes.push(node);
-            }
-        }
-        let inputs = findings::Inputs {
-            store: self.store(),
-            root: self.root(),
-            changed_files: &relative,
-            changed_nodes: &nodes,
-        };
-        let kinds = [
-            findings::dangling_references(&delta, &references),
-            findings::unchanged_callers(&delta, &references),
-            findings::contract_docs(&inputs)?,
-            findings::bridges(&inputs)?,
-            findings::untested_changes(&inputs)?,
-            findings::tests_to_run(&inputs)?,
-        ];
-        let mut all = Vec::new();
-        let mut omitted = Map::new();
-        for mut list in kinds {
-            if list.len() > MAX_FINDINGS_PER_KIND {
-                let kind = list[0]["kind"].as_str().unwrap_or_default().to_string();
-                omitted.insert(kind, json!(list.len() - MAX_FINDINGS_PER_KIND));
-                list.truncate(MAX_FINDINGS_PER_KIND);
-            }
-            all.extend(list);
-        }
-        Some((Value::Array(all), Value::Object(omitted), delta.to_json()))
+        let found =
+            findings::change_findings(self.store(), self.root(), analysis, &relative, base)?;
+        Some((
+            Value::Array(found.findings),
+            Value::Object(found.omitted),
+            found.delta.to_json(),
+        ))
     }
 
     /// `detect_changes_func`.

@@ -337,7 +337,7 @@ def test_minimal_context_scores_a_committed_change_as_python_does(git_repo: Path
     rust, python, stderr = _call_both(git_repo, "get_minimal_context_tool", arguments)
     assert "answered get_minimal_context_tool in Rust" in stderr
     assert rust["structuredContent"] == python["structuredContent"]
-    assert rust["structuredContent"]["risk"] in {"low", "medium", "high"}
+    assert rust["structuredContent"]["changes"]["state"] == "analysed"
 
 
 def _hold_worker_lock(root: Path) -> Any:

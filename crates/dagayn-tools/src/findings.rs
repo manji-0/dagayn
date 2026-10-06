@@ -12,9 +12,10 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
 use dagayn_graph::{GraphEdge, GraphNode, GraphStore, is_reportable_bridge};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
-use crate::base_symbols::{Reference, SymbolDelta};
+use crate::base_symbols::{self, Reference, SymbolDelta};
+use crate::changes::Analysis;
 use crate::query::cross_artifact_role;
 
 /// Symbols a grouped finding lists by name; the rest are counted.
@@ -83,6 +84,88 @@ impl Inputs<'_> {
     fn changed_file_set(&self) -> HashSet<&str> {
         self.changed_files.iter().map(String::as_str).collect()
     }
+}
+
+/// Findings kept per kind; [`ChangeFindings::omitted`] counts the rest.
+pub(crate) const MAX_FINDINGS_PER_KIND: usize = 10;
+
+/// Every finder's output for one change set.
+pub(crate) struct ChangeFindings {
+    /// Most actionable kind first, at most [`MAX_FINDINGS_PER_KIND`] each.
+    pub findings: Vec<Value>,
+    /// Kind -> findings left out by the cap.
+    pub omitted: Map<String, Value>,
+    /// Kind -> all findings of that kind, in finder order, kinds with none
+    /// left out.
+    pub counts: Vec<(String, usize)>,
+    pub delta: SymbolDelta,
+}
+
+/// Runs every finder over a change set: the base-side delta and its
+/// references, then the graph finders over the changed functions whose code
+/// (not only comments or layout) changed. `changed_files` are repo-relative.
+pub(crate) fn change_findings(
+    store: &GraphStore,
+    root: &Path,
+    analysis: &Analysis,
+    changed_files: &[String],
+    base: &str,
+) -> Option<ChangeFindings> {
+    let delta = base_symbols::symbol_delta(root, base, changed_files);
+    let references = base_symbols::references_to(store, &delta.reference_targets(), changed_files);
+    let mut nodes = Vec::new();
+    for function in analysis
+        .get("changed_functions")
+        .as_array()
+        .into_iter()
+        .flatten()
+    {
+        if let Some(qn) = function["qualified_name"].as_str()
+            && !delta.unchanged_bodies.contains(qn)
+            && let Some(node) = store.get_node(qn).ok()?
+        {
+            nodes.push(node);
+        }
+    }
+    let inputs = Inputs {
+        store,
+        root,
+        changed_files,
+        changed_nodes: &nodes,
+    };
+    let kinds = [
+        dangling_references(&delta, &references),
+        unchanged_callers(&delta, &references),
+        contract_docs(&inputs)?,
+        bridges(&inputs)?,
+        untested_changes(&inputs)?,
+        tests_to_run(&inputs)?,
+    ];
+    let mut found = ChangeFindings {
+        findings: Vec::new(),
+        omitted: Map::new(),
+        counts: Vec::new(),
+        delta: SymbolDelta::default(),
+    };
+    for mut list in kinds {
+        let Some(kind) = list
+            .first()
+            .and_then(|f| f["kind"].as_str())
+            .map(str::to_string)
+        else {
+            continue;
+        };
+        found.counts.push((kind.clone(), list.len()));
+        if list.len() > MAX_FINDINGS_PER_KIND {
+            found
+                .omitted
+                .insert(kind, json!(list.len() - MAX_FINDINGS_PER_KIND));
+            list.truncate(MAX_FINDINGS_PER_KIND);
+        }
+        found.findings.extend(list);
+    }
+    found.delta = delta;
+    Some(found)
 }
 
 /// A node that is a test, by flag, kind, or where it lives.

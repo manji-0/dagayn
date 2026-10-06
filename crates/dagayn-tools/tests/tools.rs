@@ -225,27 +225,38 @@ fn minimal_context_routes_the_task_and_reports_health() {
     );
     assert_eq!(folded["workflow"], "debug");
 
-    // One commit: `HEAD~1` does not resolve, so no node changed, but the
-    // risk is scored (zero) all the same.
-    let risky = answer(
+    // One commit: `HEAD~1` does not resolve, which the summary says.
+    let unresolved = answer(
         &context,
         "get_minimal_context_tool",
         json!({"changed_files": ["app.py"], "base": "HEAD~1"}),
     );
-    assert_eq!(risky["risk"], "low");
+    assert!(unresolved.get("risk").is_none());
+    assert_eq!(unresolved["changes"]["state"], "unresolved");
     assert!(
-        risky["summary"]
+        unresolved["summary"]
             .as_str()
             .expect("summary")
-            .ends_with("Review priority: low (0.00).")
+            .ends_with("Changes: 1 file(s); base HEAD~1 does not resolve.")
     );
     let against_head = answer(
         &context,
         "get_minimal_context_tool",
         json!({"changed_files": ["app.py"], "base": "HEAD"}),
     );
-    // Every node of a changed file, not only those its hunks touch.
-    assert_eq!(against_head["key_entities"], json!(["helper", "main"]));
+    // Every node of a changed file, not only those its hunks touch, in
+    // file order.
+    assert_eq!(against_head["key_entities"], json!(["main", "helper"]));
+    // review_tool's findings, counted: main's test should run; helper went
+    // with its only caller, so nothing dangles.
+    assert_eq!(against_head["changes"]["state"], "analysed");
+    assert_eq!(
+        against_head["changes"]["findings"],
+        json!({"tests_to_run": 1})
+    );
+    assert!(against_head["summary"].as_str().is_some_and(|s| {
+        s.ends_with("Changes: 1 file(s); review_tool findings: 1 tests_to_run.")
+    }));
     assert!(declines(
         &context,
         "get_minimal_context_tool",

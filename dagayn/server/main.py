@@ -395,12 +395,13 @@ async def get_minimal_context_tool(
 
     Returns ``sync.state``, ``graph_health`` (with ``reason_codes``), top
     communities/flows, a ``recommended_action``, ``next_tool_suggestions``, and,
-    when there are changes, a risk level. An empty or HEAD-drifted graph queues a
+    when there are changes, ``changes``: how many of each ``review_tool``
+    finding kind they raise. An empty or HEAD-drifted graph queues a
     background refresh and returns at once; call ``ensure_graph_tool`` to wait.
 
     Trust: on ``commit_drift`` / ``worktree_behind`` answers about changed files
-    are hypotheses; risk, community, and flow hints are structure, not
-    correctness.
+    are hypotheses; finding counts, community, and flow hints point where to
+    look, not at a confirmed bug.
 
     Args:
         task: What you are doing (e.g. "review PR #42", "debug login timeout").

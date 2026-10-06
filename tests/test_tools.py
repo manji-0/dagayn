@@ -2608,13 +2608,13 @@ class TestGetMinimalContext:
         assert result["why"]
         assert result["confidence"] == "high"
 
-    def test_review_task_without_changed_files_reports_no_risk(self):
+    def test_review_task_without_changed_files_reports_no_changes(self):
         from dagayn.tools.context import get_minimal_context
 
         result = get_minimal_context(task="review changes", repo_root=str(self.root))
 
         assert result["workflow"] == "review"
-        assert "risk" not in result
+        assert "changes" not in result
         assert "review_tool" in result["next_tool_suggestions"]
 
     def test_changed_files_are_scored(self):
@@ -2624,10 +2624,11 @@ class TestGetMinimalContext:
             task="review changes", changed_files=["app.py"], repo_root=str(self.root)
         )
 
-        # Not a git checkout: the default base does not resolve, so nothing
-        # changed is attributed and the priority is zero.
-        assert result["risk"] == "low"
-        assert "Review priority: low (0.00)." in result["summary"]
+        # Not a git checkout: the default base does not resolve, which the
+        # change summary says instead of counting findings.
+        assert "risk" not in result
+        assert result["changes"] == {"state": "unresolved", "files": 1, "findings": {}}
+        assert "Changes: 1 file(s); base HEAD~1 does not resolve." in result["summary"]
 
     def test_reports_top_flows_separately_from_affected_flows(self):
         from dagayn.tools.context import get_minimal_context

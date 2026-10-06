@@ -241,7 +241,7 @@
      "tags": []
     }
    },
-   "description": "Get compact context for any task. Call this first.\n\nReturns ``sync.state``, ``graph_health`` (with ``reason_codes``), top\ncommunities/flows, a ``recommended_action``, ``next_tool_suggestions``, and,\nwhen there are changes, a risk level. An empty or HEAD-drifted graph queues a\nbackground refresh and returns at once; call ``ensure_graph_tool`` to wait.\n\nTrust: on ``commit_drift`` / ``worktree_behind`` answers about changed files\nare hypotheses; risk, community, and flow hints are structure, not\ncorrectness.",
+   "description": "Get compact context for any task. Call this first.\n\nReturns ``sync.state``, ``graph_health`` (with ``reason_codes``), top\ncommunities/flows, a ``recommended_action``, ``next_tool_suggestions``, and,\nwhen there are changes, ``changes``: how many of each ``review_tool``\nfinding kind they raise. An empty or HEAD-drifted graph queues a\nbackground refresh and returns at once; call ``ensure_graph_tool`` to wait.\n\nTrust: on ``commit_drift`` / ``worktree_behind`` answers about changed files\nare hypotheses; finding counts, community, and flow hints point where to\nlook, not at a confirmed bug.",
    "inputSchema": {
     "properties": {
      "task": {

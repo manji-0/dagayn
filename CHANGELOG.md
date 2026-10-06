@@ -40,11 +40,15 @@ All notable changes to `dagayn` are documented here.
   count: flows keep their summary and `changed_steps` (the full steps stay
   in `mode="affected_flows"`), and `minimal` lists the changed files once
   with `change_file_source_counts`. On the repository's last 14 commits,
-  `minimal` is 1.8K-21K characters (was 15K-29K).
+  `minimal` is 1.8K-14.7K characters (was 5K-27K).
 - CI gates each finding kind on a 38-case review eval
   (`eval/run_review_eval.py`, cases in `tests/fixtures/review_eval`): a kind
   below 0.8 precision or recall (`eval/review_thresholds.yaml`) fails the
   build.
+- `get_minimal_context_tool` reports changed files as `changes` (`state`,
+  `files`, and the count of each `review_tool` finding kind) instead of the
+  `risk` level and review-priority score, which ranked identifiers by
+  security-keyword prefixes.
 - Docs, skills, and the installed agent instructions (CLAUDE.md, AGENTS.md,
   and the other platform files) tell agents to read `findings`.
 - The Python extractor (`.py`, Jupyter notebooks, marimo apps, Databricks
