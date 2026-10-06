@@ -1,0 +1,15 @@
+description: Changes the ruff line length in a pyproject.toml that has no build bridge.
+negative: true
+commit_change: true
+base:
+  from: py_pkg
+change:
+  files:
+    pyproject.toml: |
+      [project]
+      name = "demo"
+      version = "0.1.0"
+      requires-python = ">=3.12"
+
+      [tool.ruff]
+      line-length = 120

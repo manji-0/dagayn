@@ -1,0 +1,30 @@
+# Terraform root module: variables in one file, a module call referencing
+# them in another, and a local child module.
+files:
+  infra/variables.tf: |
+    variable "region" {
+      type = string
+    }
+
+    variable "name" {
+      type    = string
+      default = "demo"
+    }
+  infra/main.tf: |
+    module "net" {
+      source = "./modules/net"
+      region = var.region
+      name   = var.name
+    }
+  infra/modules/net/main.tf: |
+    variable "region" {
+      type = string
+    }
+
+    variable "name" {
+      type = string
+    }
+
+    output "label" {
+      value = "${var.name}-${var.region}"
+    }

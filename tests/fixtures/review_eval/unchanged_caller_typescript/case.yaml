@@ -1,0 +1,27 @@
+description: Adds a required parameter to web/greet.ts::greet and updates its test; web/main.ts::main
+  (unchanged) still calls greet('world').
+negative: false
+commit_change: false
+base:
+  from: ts_web
+change:
+  files:
+    web/greet.ts: |
+      export function greet(name: string, punctuation: string): string {
+        return `hi ${name}${punctuation}`;
+      }
+    web/greet.test.ts: |
+      import { greet } from './greet';
+
+      test('greet', () => {
+        expect(greet('a', '!')).toBe('hi a!');
+      });
+expected_findings:
+- kind: unchanged_caller
+  target: web/main.ts::main
+  also:
+  - web/greet.ts::greet
+- kind: tests_to_run
+  target: web/greet.test.ts::test:greet@L3
+  also:
+  - web/greet.test.ts

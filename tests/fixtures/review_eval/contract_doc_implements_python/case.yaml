@@ -1,0 +1,33 @@
+description: 'pkg/report.py::render carries `# dagayn: implements docs/spec.md#Rendering` (implements_contract);
+  render changes, the doc does not.'
+negative: false
+commit_change: true
+base:
+  from: py_pkg
+  files:
+    pkg/report.py: |
+      # dagayn: implements docs/spec.md#Rendering
+      def render(rows):
+          lines = []
+          for row in rows:
+              lines.append(f"- {row}")
+          return "\n".join(lines)
+    docs/spec.md: |
+      # Spec
+
+      ## Rendering
+
+      Reports render one bullet per row.
+change:
+  files:
+    pkg/report.py: |
+      # dagayn: implements docs/spec.md#Rendering
+      def render(rows):
+          return "\n".join(f"- {row}" for row in rows if row)
+expected_findings:
+- kind: contract_doc_not_updated
+  target: docs/spec.md::rendering
+  also:
+  - docs/spec.md
+- kind: untested_change
+  target: pkg/report.py::render

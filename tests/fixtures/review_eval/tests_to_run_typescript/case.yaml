@@ -1,0 +1,16 @@
+description: Edits the body of web/greet.ts::greet, which web/greet.test.ts tests directly.
+negative: false
+commit_change: true
+base:
+  from: ts_web
+change:
+  files:
+    web/greet.ts: |
+      export function greet(name: string): string {
+        return 'hi ' + name;
+      }
+expected_findings:
+- kind: tests_to_run
+  target: web/greet.test.ts::test:greet@L3
+  also:
+  - web/greet.test.ts

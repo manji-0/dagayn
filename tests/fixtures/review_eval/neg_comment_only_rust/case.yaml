@@ -1,0 +1,21 @@
+description: Rewords a `///` doc comment and adds a `//` comment in src/math.rs, applied as a patch.
+negative: true
+commit_change: false
+base:
+  from: rust_crate
+change:
+  patch: |
+    --- a/src/math.rs
+    +++ b/src/math.rs
+    @@ -1,9 +1,10 @@
+    -/// Add two numbers.
+    +/// Add two numbers without overflow checks.
+     pub fn add(a: i64, b: i64) -> i64 {
+         a + b
+     }
+
+     /// Multiply two numbers.
+     pub fn mul(a: i64, b: i64) -> i64 {
+    +    // Plain multiplication; callers bound the inputs.
+         a * b
+     }

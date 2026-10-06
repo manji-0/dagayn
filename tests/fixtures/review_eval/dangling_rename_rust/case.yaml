@@ -1,0 +1,36 @@
+description: Renames src/math.rs::add to sum (and its in-file test), leaving src/lib.rs::twice calling
+  add.
+negative: false
+commit_change: false
+base:
+  from: rust_crate
+change:
+  files:
+    src/math.rs: |
+      /// Sum two numbers.
+      pub fn sum(a: i64, b: i64) -> i64 {
+          a + b
+      }
+
+      /// Multiply two numbers.
+      pub fn mul(a: i64, b: i64) -> i64 {
+          a * b
+      }
+
+      #[cfg(test)]
+      mod tests {
+          use super::*;
+
+          #[test]
+          fn add_works() {
+              assert_eq!(sum(1, 2), 3);
+          }
+      }
+expected_findings:
+- kind: dangling_reference
+  target: src/math.rs::add
+  also:
+  - src/lib.rs::twice
+  - src/lib.rs
+- kind: tests_to_run
+  target: src/math.rs::tests.add_works

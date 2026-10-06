@@ -1,0 +1,17 @@
+description: Edits the integration test tests/math_test.rs only. Running the edited test is tolerated.
+negative: true
+commit_change: false
+allowed_kinds:
+- tests_to_run
+base:
+  from: rust_crate
+change:
+  files:
+    tests/math_test.rs: |
+      use demo::math::mul;
+
+      #[test]
+      fn mul_works() {
+          assert_eq!(mul(2, 3), 6);
+          assert_eq!(mul(0, 9), 0);
+      }

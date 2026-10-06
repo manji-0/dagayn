@@ -1,0 +1,13 @@
+description: Reflows greet's signature and body across lines; same tokens.
+negative: true
+commit_change: false
+base:
+  from: ts_web
+change:
+  files:
+    web/greet.ts: |
+      export function greet(
+        name: string,
+      ): string {
+        return `hi ${name}`;
+      }

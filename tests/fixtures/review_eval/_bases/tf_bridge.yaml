@@ -1,0 +1,14 @@
+# Terraform deploying Python code, after tests/fixtures/terraform_cross_artifact:
+# the Lambda resource has HIGH CROSS_ARTIFACT edges to app/hello.py and
+# app/hello.py::main.
+files:
+  infra/main.tf: |
+    resource "aws_lambda_function" "auth" {
+      filename = "${path.module}/../app/hello.py"
+      handler  = "hello.main"
+      runtime  = "python3.12"
+      role     = "arn:aws:iam::123456789012:role/lambda"
+    }
+  app/hello.py: |
+    def main(event=None, context=None):
+        return {"ok": True}

@@ -1,0 +1,13 @@
+description: Edits tests/helpers.py, a non-test function used only by tests. It is test code, so no untested_change;
+  running the tests that use it is tolerated.
+negative: true
+commit_change: true
+allowed_kinds:
+- tests_to_run
+base:
+  from: py_pkg
+change:
+  files:
+    tests/helpers.py: |
+      def make_values(count, start=0):
+          return list(range(start, start + count))

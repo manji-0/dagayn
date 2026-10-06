@@ -1,0 +1,35 @@
+description: Adds a third parameter to src/math.rs::add and updates its in-file test; src/lib.rs::twice
+  (unchanged) still calls add(a, a).
+negative: false
+commit_change: true
+base:
+  from: rust_crate
+change:
+  files:
+    src/math.rs: |
+      /// Add two numbers.
+      pub fn add(a: i64, b: i64, c: i64) -> i64 {
+          a + b + c
+      }
+
+      /// Multiply two numbers.
+      pub fn mul(a: i64, b: i64) -> i64 {
+          a * b
+      }
+
+      #[cfg(test)]
+      mod tests {
+          use super::*;
+
+          #[test]
+          fn add_works() {
+              assert_eq!(add(1, 2, 0), 3);
+          }
+      }
+expected_findings:
+- kind: unchanged_caller
+  target: src/lib.rs::twice
+  also:
+  - src/math.rs::add
+- kind: tests_to_run
+  target: src/math.rs::tests.add_works

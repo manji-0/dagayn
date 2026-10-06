@@ -1,0 +1,64 @@
+# Small Rust crate: a math module with an in-file test module and an
+# integration test, an untested formatting module, an unchanged caller in
+# lib.rs, a build script, an example, and a toolchain pin.
+files:
+  Cargo.toml: |
+    [package]
+    name = "demo"
+    version = "0.1.0"
+    edition = "2021"
+  rust-toolchain.toml: |
+    [toolchain]
+    channel = "1.85.0"
+    components = ["clippy", "rustfmt"]
+  build.rs: |
+    fn main() {
+        println!("cargo:rerun-if-changed=build.rs");
+    }
+  examples/demo.rs: |
+    fn main() {
+        let total = demo::twice(21);
+        println!("{total}");
+    }
+  src/lib.rs: |
+    pub mod fmt;
+    pub mod math;
+
+    /// Double a number through the math module.
+    pub fn twice(a: i64) -> i64 {
+        math::add(a, a)
+    }
+  src/math.rs: |
+    /// Add two numbers.
+    pub fn add(a: i64, b: i64) -> i64 {
+        a + b
+    }
+
+    /// Multiply two numbers.
+    pub fn mul(a: i64, b: i64) -> i64 {
+        a * b
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn add_works() {
+            assert_eq!(add(1, 2), 3);
+        }
+    }
+  src/fmt.rs: |
+    // Formatting helpers.
+
+    /// Pad a string on the left to `width` characters.
+    pub fn pad(text: &str, width: usize) -> String {
+        format!("{text:>width$}")
+    }
+  tests/math_test.rs: |
+    use demo::math::mul;
+
+    #[test]
+    fn mul_works() {
+        assert_eq!(mul(2, 3), 6);
+    }

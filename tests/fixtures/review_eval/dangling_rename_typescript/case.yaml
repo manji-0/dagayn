@@ -1,0 +1,28 @@
+description: Renames web/greet.ts::greet to greeting and updates its test, leaving web/main.ts calling
+  greet.
+negative: false
+commit_change: true
+base:
+  from: ts_web
+change:
+  files:
+    web/greet.ts: |
+      export function greeting(name: string): string {
+        return `hi ${name}`;
+      }
+    web/greet.test.ts: |
+      import { greeting } from './greet';
+
+      test('greet', () => {
+        expect(greeting('a')).toBe('hi a');
+      });
+expected_findings:
+- kind: dangling_reference
+  target: web/greet.ts::greet
+  also:
+  - web/main.ts::main
+  - web/main.ts
+- kind: tests_to_run
+  target: web/greet.test.ts::test:greet@L3
+  also:
+  - web/greet.test.ts

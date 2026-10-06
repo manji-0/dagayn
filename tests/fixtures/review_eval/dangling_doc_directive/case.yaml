@@ -1,0 +1,26 @@
+description: Deletes pkg/report.py; docs/spec.md (unchanged) still declares it is implemented by pkg/report.py::render.
+  A contract_doc_not_updated finding for the same section is tolerated.
+negative: false
+commit_change: true
+allowed_kinds:
+- contract_doc_not_updated
+base:
+  from: py_pkg
+  files:
+    docs/spec.md: |
+      # Spec
+
+      ## Rendering
+
+      <!-- dagayn: implemented-by pkg/report.py::render -->
+
+      Reports render one bullet per row.
+change:
+  files:
+    pkg/report.py: null
+expected_findings:
+- kind: dangling_reference
+  target: pkg/report.py::render
+  also:
+  - docs/spec.md::rendering
+  - docs/spec.md

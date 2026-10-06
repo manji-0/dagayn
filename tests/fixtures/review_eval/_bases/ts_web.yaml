@@ -1,0 +1,25 @@
+# Small TypeScript module: an exported function with a direct test and an
+# unchanged caller in another file.
+files:
+  package.json: |
+    {
+      "name": "web",
+      "version": "0.1.0",
+      "private": true
+    }
+  web/greet.ts: |
+    export function greet(name: string): string {
+      return `hi ${name}`;
+    }
+  web/main.ts: |
+    import { greet } from './greet';
+
+    export function main(): string {
+      return greet('world');
+    }
+  web/greet.test.ts: |
+    import { greet } from './greet';
+
+    test('greet', () => {
+      expect(greet('a')).toBe('hi a');
+    });

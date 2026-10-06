@@ -1,0 +1,39 @@
+description: Edits pkg/util.py::helper, which docs/spec.md#helper declares as its implementation; the
+  doc is not in the change.
+negative: false
+commit_change: true
+base:
+  from: py_pkg
+  files:
+    docs/spec.md: |
+      # Spec
+
+      ## Helper
+
+      <!-- dagayn: implemented-by pkg/util.py::helper -->
+
+      `helper` adds one to its argument.
+change:
+  files:
+    pkg/util.py: |
+      def helper(x):
+          """Add one to x."""
+          return x + 1 if x >= 0 else 0
+
+
+      def legacy(x):
+          return x * 2
+
+
+      def format_total(values, separator):
+          total = sum(values)
+          return separator.join([str(value) for value in values]) + " = " + str(total)
+expected_findings:
+- kind: contract_doc_not_updated
+  target: docs/spec.md::helper
+  also:
+  - docs/spec.md
+- kind: tests_to_run
+  target: tests/test_util.py::test_helper
+- kind: tests_to_run
+  target: tests/test_util.py::test_helper_many

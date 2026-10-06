@@ -1,0 +1,19 @@
+description: Removes variable "region" from infra/variables.tf; infra/main.tf's module.net still reads
+  var.region.
+negative: false
+commit_change: false
+base:
+  from: tf_infra
+change:
+  files:
+    infra/variables.tf: |
+      variable "name" {
+        type    = string
+        default = "demo"
+      }
+expected_findings:
+- kind: dangling_reference
+  target: infra/variables.tf::var.region
+  also:
+  - infra/main.tf::module.net
+  - infra/main.tf

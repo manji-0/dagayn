@@ -1,0 +1,31 @@
+description: Edits src/fmt.rs::pad, which docs/fmt.md#padding declares as its implementation; the doc
+  is not in the change.
+negative: false
+commit_change: false
+base:
+  from: rust_crate
+  files:
+    docs/fmt.md: |
+      # Formatting
+
+      ## Padding
+
+      <!-- dagayn: implemented-by src/fmt.rs::pad -->
+
+      Padding right-aligns text to the requested width.
+change:
+  files:
+    src/fmt.rs: |
+      // Formatting helpers.
+
+      /// Pad a string on the right to `width` characters.
+      pub fn pad(text: &str, width: usize) -> String {
+          format!("{text:<width$}")
+      }
+expected_findings:
+- kind: contract_doc_not_updated
+  target: docs/fmt.md::padding
+  also:
+  - docs/fmt.md
+- kind: untested_change
+  target: src/fmt.rs::pad

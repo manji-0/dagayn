@@ -1,0 +1,21 @@
+description: Renames the Lambda handler in infra/main.tf and app/hello.py together; both bridge sides
+  are in the change.
+negative: false
+commit_change: true
+base:
+  from: tf_bridge
+change:
+  files:
+    infra/main.tf: |
+      resource "aws_lambda_function" "auth" {
+        filename = "${path.module}/../app/hello.py"
+        handler  = "hello.handler"
+        runtime  = "python3.12"
+        role     = "arn:aws:iam::123456789012:role/lambda"
+      }
+    app/hello.py: |
+      def handler(event=None, context=None):
+          return {"ok": True}
+expected_findings:
+- kind: untested_change
+  target: app/hello.py::handler

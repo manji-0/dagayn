@@ -1,0 +1,25 @@
+description: Adds a test to tests/test_util.py; production code is untouched. Running the edited tests
+  is tolerated.
+negative: true
+commit_change: true
+allowed_kinds:
+- tests_to_run
+base:
+  from: py_pkg
+change:
+  files:
+    tests/test_util.py: |
+      from pkg.util import helper
+      from tests.helpers import make_values
+
+
+      def test_helper():
+          assert helper(1) == 2
+
+
+      def test_helper_many():
+          assert [helper(v) for v in make_values(3)] == [1, 2, 3]
+
+
+      def test_helper_negative():
+          assert helper(-1) == 0

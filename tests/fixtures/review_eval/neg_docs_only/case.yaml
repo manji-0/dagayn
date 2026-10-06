@@ -1,0 +1,22 @@
+description: Prose edits in README.md and docs/guide.md; neither carries a contract directive.
+negative: true
+commit_change: true
+base:
+  from: py_pkg
+change:
+  files:
+    README.md: |
+      # demo
+
+      A tiny package used by the review_tool eval.
+
+      ## Usage
+
+      Call `run()` to get a number. It never raises.
+    docs/guide.md: |
+      # Guide
+
+      ## Getting started
+
+      Install the package with pip, then call the entry point. Nothing here is a
+      contract.

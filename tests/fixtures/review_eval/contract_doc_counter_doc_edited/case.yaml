@@ -1,0 +1,42 @@
+description: Same edit as contract_doc_python, but docs/spec.md#helper is updated in the same change.
+negative: false
+commit_change: false
+base:
+  from: py_pkg
+  files:
+    docs/spec.md: |
+      # Spec
+
+      ## Helper
+
+      <!-- dagayn: implemented-by pkg/util.py::helper -->
+
+      `helper` adds one to its argument.
+change:
+  files:
+    pkg/util.py: |
+      def helper(x):
+          """Add one to x."""
+          return x + 1 if x >= 0 else 0
+
+
+      def legacy(x):
+          return x * 2
+
+
+      def format_total(values, separator):
+          total = sum(values)
+          return separator.join([str(value) for value in values]) + " = " + str(total)
+    docs/spec.md: |
+      # Spec
+
+      ## Helper
+
+      <!-- dagayn: implemented-by pkg/util.py::helper -->
+
+      `helper` adds one to a non-negative argument and returns 0 otherwise.
+expected_findings:
+- kind: tests_to_run
+  target: tests/test_util.py::test_helper
+- kind: tests_to_run
+  target: tests/test_util.py::test_helper_many

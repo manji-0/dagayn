@@ -1,0 +1,20 @@
+description: Bumps the runtime of the Lambda in infra/main.tf (HIGH bridge to app/hello.py::main) without
+  touching the handler.
+negative: false
+commit_change: false
+base:
+  from: tf_bridge
+change:
+  files:
+    infra/main.tf: |
+      resource "aws_lambda_function" "auth" {
+        filename = "${path.module}/../app/hello.py"
+        handler  = "hello.main"
+        runtime  = "python3.13"
+        role     = "arn:aws:iam::123456789012:role/lambda"
+      }
+expected_findings:
+- kind: bridge_touched
+  target: app/hello.py::main
+  also:
+  - app/hello.py

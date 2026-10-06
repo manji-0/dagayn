@@ -1,0 +1,24 @@
+description: Adds an optional parameter with a default to pkg/util.py::legacy; existing calls still fit,
+  so no unchanged_caller.
+negative: false
+commit_change: true
+base:
+  from: py_pkg
+change:
+  files:
+    pkg/util.py: |
+      def helper(x):
+          """Add one to x."""
+          return x + 1
+
+
+      def legacy(x, factor=2):
+          return x * factor
+
+
+      def format_total(values, separator):
+          total = sum(values)
+          return separator.join([str(value) for value in values]) + " = " + str(total)
+expected_findings:
+- kind: untested_change
+  target: pkg/util.py::legacy

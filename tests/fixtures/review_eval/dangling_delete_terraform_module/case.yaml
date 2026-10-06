@@ -1,0 +1,16 @@
+description: Deletes the local child module infra/modules/net; infra/main.tf's module.net still sources
+  it.
+negative: false
+commit_change: true
+base:
+  from: tf_infra
+change:
+  files:
+    infra/modules/net/main.tf: null
+expected_findings:
+- kind: dangling_reference
+  target: infra/modules/net/main.tf
+  also:
+  - infra/modules/net
+  - infra/main.tf::module.net
+  - infra/main.tf

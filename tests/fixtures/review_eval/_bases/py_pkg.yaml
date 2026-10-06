@@ -1,0 +1,80 @@
+# Small Python package: a utility module with one tested and one untested
+# function, an unchanged caller in another file, a test file, a test helper,
+# and plain project files (README, CI workflow, pyproject without a bridge).
+files:
+  README.md: |
+    # demo
+
+    A tiny package used by the review_tool eval.
+
+    ## Usage
+
+    Call `run()` to get a number.
+  docs/guide.md: |
+    # Guide
+
+    ## Getting started
+
+    Install the package and call the entry point. Nothing here is a contract.
+  .github/workflows/ci.yml: |
+    name: ci
+    on: [push]
+    jobs:
+      test:
+        runs-on: ubuntu-latest
+        steps:
+          - uses: actions/checkout@v4
+          - run: python -m pytest -q
+  pyproject.toml: |
+    [project]
+    name = "demo"
+    version = "0.1.0"
+    requires-python = ">=3.12"
+
+    [tool.ruff]
+    line-length = 100
+  pkg/__init__.py: ""
+  pkg/util.py: |
+    def helper(x):
+        """Add one to x."""
+        return x + 1
+
+
+    def legacy(x):
+        return x * 2
+
+
+    def format_total(values, separator):
+        total = sum(values)
+        return separator.join([str(value) for value in values]) + " = " + str(total)
+  pkg/app.py: |
+    from pkg.util import format_total, helper, legacy
+
+
+    def run():
+        return helper(1) + legacy(2)
+
+
+    def summary():
+        return format_total([1, 2, 3], ", ")
+  pkg/report.py: |
+    def render(rows):
+        lines = []
+        for row in rows:
+            lines.append(f"- {row}")
+        return "\n".join(lines)
+  tests/__init__.py: ""
+  tests/helpers.py: |
+    def make_values(count):
+        return list(range(count))
+  tests/test_util.py: |
+    from pkg.util import helper
+    from tests.helpers import make_values
+
+
+    def test_helper():
+        assert helper(1) == 2
+
+
+    def test_helper_many():
+        assert [helper(v) for v in make_values(3)] == [1, 2, 3]

@@ -1,0 +1,12 @@
+description: Edits build.rs only. A build script is not production code, so no untested_change.
+negative: true
+commit_change: true
+base:
+  from: rust_crate
+change:
+  files:
+    build.rs: |
+      fn main() {
+          println!("cargo:rerun-if-changed=build.rs");
+          println!("cargo:rerun-if-env-changed=DEMO_PROFILE");
+      }

@@ -1,0 +1,32 @@
+description: Edits the bodies of src/math.rs::add (in-file unit test) and mul (integration test).
+negative: false
+commit_change: false
+base:
+  from: rust_crate
+change:
+  files:
+    src/math.rs: |
+      /// Add two numbers.
+      pub fn add(a: i64, b: i64) -> i64 {
+          b + a
+      }
+
+      /// Multiply two numbers.
+      pub fn mul(a: i64, b: i64) -> i64 {
+          b * a
+      }
+
+      #[cfg(test)]
+      mod tests {
+          use super::*;
+
+          #[test]
+          fn add_works() {
+              assert_eq!(add(1, 2), 3);
+          }
+      }
+expected_findings:
+- kind: tests_to_run
+  target: src/math.rs::tests.add_works
+- kind: tests_to_run
+  target: tests/math_test.rs::mul_works

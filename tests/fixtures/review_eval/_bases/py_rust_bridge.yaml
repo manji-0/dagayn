@@ -1,0 +1,42 @@
+# maturin bridge, copied from tests/fixtures/cross_artifact_manifest/py_rust:
+# pyproject.toml's manifest-path points at rust/Cargo.toml (EXACT
+# CROSS_ARTIFACT edge), and Cargo.toml points at rust/src/lib.rs (HIGH).
+files:
+  pyproject.toml: |
+    [build-system]
+    requires = ["maturin>=1.9,<2"]
+    build-backend = "maturin"
+
+    [project]
+    name = "demo-native"
+    version = "0.1.0"
+    requires-python = ">=3.12"
+
+    [tool.maturin]
+    manifest-path = "rust/Cargo.toml"
+    module-name = "demo_native._core"
+  demo_native/__init__.py: |
+    """Python package wrapping the maturin-built native module."""
+
+
+    def ping() -> str:
+        return "pong"
+  rust/Cargo.toml: |
+    [package]
+    name = "demo-native"
+    version = "0.1.0"
+    edition = "2021"
+
+    [lib]
+    name = "demo_native"
+    crate-type = ["cdylib"]
+
+    [dependencies]
+    pyo3 = { version = "0.22", features = ["extension-module"] }
+  rust/src/lib.rs: |
+    //! Tiny PyO3 extension used as a maturin bridge fixture.
+
+    #[allow(dead_code)]
+    fn add(a: i64, b: i64) -> i64 {
+        a + b
+    }

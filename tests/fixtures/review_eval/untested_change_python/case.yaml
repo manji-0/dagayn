@@ -1,0 +1,16 @@
+description: Edits pkg/report.py::render, which no test reaches directly or transitively.
+negative: false
+commit_change: false
+base:
+  from: py_pkg
+change:
+  files:
+    pkg/report.py: |
+      def render(rows):
+          lines = []
+          for row in rows:
+              lines.append(f"* {row}")
+          return "\n".join(lines)
+expected_findings:
+- kind: untested_change
+  target: pkg/report.py::render

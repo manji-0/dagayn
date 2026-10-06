@@ -1,0 +1,12 @@
+description: Edits examples/demo.rs only. Examples are not production code, so no untested_change.
+negative: true
+commit_change: false
+base:
+  from: rust_crate
+change:
+  files:
+    examples/demo.rs: |
+      fn main() {
+          let total = demo::twice(21);
+          println!("twice(21) = {total}");
+      }

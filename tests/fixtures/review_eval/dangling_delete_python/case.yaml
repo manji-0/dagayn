@@ -1,0 +1,22 @@
+description: Deletes pkg/util.py::legacy; pkg/app.py (unchanged) still imports and calls it.
+negative: false
+commit_change: true
+base:
+  from: py_pkg
+change:
+  files:
+    pkg/util.py: |
+      def helper(x):
+          """Add one to x."""
+          return x + 1
+
+
+      def format_total(values, separator):
+          total = sum(values)
+          return separator.join([str(value) for value in values]) + " = " + str(total)
+expected_findings:
+- kind: dangling_reference
+  target: pkg/util.py::legacy
+  also:
+  - pkg/app.py::run
+  - pkg/app.py

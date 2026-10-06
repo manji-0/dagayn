@@ -1,0 +1,25 @@
+description: Edits the body of pkg/util.py::helper, which two tests call directly.
+negative: false
+commit_change: true
+base:
+  from: py_pkg
+change:
+  files:
+    pkg/util.py: |
+      def helper(x):
+          """Add one to x."""
+          return 1 + x
+
+
+      def legacy(x):
+          return x * 2
+
+
+      def format_total(values, separator):
+          total = sum(values)
+          return separator.join([str(value) for value in values]) + " = " + str(total)
+expected_findings:
+- kind: tests_to_run
+  target: tests/test_util.py::test_helper
+- kind: tests_to_run
+  target: tests/test_util.py::test_helper_many

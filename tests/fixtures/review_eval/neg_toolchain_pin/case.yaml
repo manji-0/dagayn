@@ -1,0 +1,11 @@
+description: Bumps the rust-toolchain.toml channel; no source changes.
+negative: true
+commit_change: false
+base:
+  from: rust_crate
+change:
+  files:
+    rust-toolchain.toml: |
+      [toolchain]
+      channel = "1.86.0"
+      components = ["clippy", "rustfmt"]

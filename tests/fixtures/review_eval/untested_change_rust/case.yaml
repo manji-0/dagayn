@@ -1,0 +1,17 @@
+description: Edits src/fmt.rs::pad, which no test reaches.
+negative: false
+commit_change: true
+base:
+  from: rust_crate
+change:
+  files:
+    src/fmt.rs: |
+      // Formatting helpers.
+
+      /// Pad a string on the left to `width` characters.
+      pub fn pad(text: &str, width: usize) -> String {
+          format!("{text:>width$}").replace('\t', " ")
+      }
+expected_findings:
+- kind: untested_change
+  target: src/fmt.rs::pad
