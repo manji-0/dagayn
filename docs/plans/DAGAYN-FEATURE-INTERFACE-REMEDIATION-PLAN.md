@@ -116,8 +116,8 @@ Done criteria:
 ## Step 3: Calibrated Review Guidance
 
 <!-- derived-from ../audits/dagayn-fundamental-principles-recommendations.md#recommended-roadmap-shape -->
-<!-- dagayn: discusses-artifact ../../dagayn/tools/review.py::detect_changes_func -->
-<!-- dagayn: discusses-artifact ../../dagayn/tools/review.py::_change_analysis_summary -->
+<!-- dagayn: discusses-artifact ../../crates/dagayn-tools/src/review.rs::Review.changes -->
+<!-- dagayn: discusses-artifact ../../crates/dagayn-tools/src/review_summary.rs::change_analysis_summary -->
 
 `review_tool(mode="changes")` を最初の本格適用先にする。
 
@@ -148,8 +148,8 @@ Done criteria:
 ## Step 4: Stability-Backed Quality Policy
 
 <!-- derived-from ../audits/dagayn-fundamental-principles-recommendations.md#stability-as-a-quality-spine -->
-<!-- dagayn: discusses-artifact ../../dagayn/tools/review.py::_component_stability_profiles -->
-<!-- dagayn: discusses-artifact ../../dagayn/tools/review.py::_stability_contracts -->
+<!-- dagayn: discusses-artifact ../../crates/dagayn-tools/src/review_summary.rs::stability_profiles -->
+<!-- dagayn: discusses-artifact ../../crates/dagayn-tools/src/review_summary.rs::stability_contracts -->
 
 stable または should-be-stable component に対する品質期待を、review 専用 helper から
 dagayn 全体の policy signal にする。
@@ -202,8 +202,8 @@ Done criteria:
 ## Step 6: Refactor Work Packs
 
 <!-- derived-from ../audits/dagayn-fundamental-principles-recommendations.md#recommended-roadmap-shape -->
-<!-- dagayn: discusses-artifact ../../dagayn/refactor/suggestions.py::_execution_plan_for_suggestion -->
-<!-- dagayn: discusses-artifact ../../dagayn/refactor/suggestions.py::_work_pack_for_suggestion -->
+<!-- dagayn: discusses-artifact ../../crates/dagayn-tools/src/suggestions.rs::execution_plan -->
+<!-- dagayn: discusses-artifact ../../crates/dagayn-tools/src/suggestions.rs::attach_plan -->
 
 `refactor_tool(mode="suggest")` は既に `execution_plan` と `work_pack` を返すため、ここでは
 work pack を review/refactor contract に合わせて強くする。
