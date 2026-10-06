@@ -1,0 +1,16 @@
+description: A directive points at a document that was deleted.
+files:
+  docs/guide.md: |
+    # Guide
+
+    <!-- constrained-by ./removed.md -->
+
+    Text.
+  app.py: |
+    def main():
+        return 0
+expected_findings:
+- kind: broken_doc_link
+  target: docs/removed.md
+  also:
+  - docs/guide.md

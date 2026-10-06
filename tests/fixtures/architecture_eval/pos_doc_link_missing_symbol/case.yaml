@@ -1,0 +1,17 @@
+description: A directive names a function that was renamed, and another names one in a deleted module.
+files:
+  app.py: |
+    def handle_request():
+        return 1
+  docs/guide.md: |
+    # Guide
+
+    <!-- dagayn: implemented-by app.py::handler -->
+    <!-- dagayn: discusses-artifact legacy/review.py::detect_changes -->
+
+    Text.
+expected_findings:
+- kind: broken_doc_link
+  target: app.py::handler
+- kind: broken_doc_link
+  target: legacy/review.py::detect_changes

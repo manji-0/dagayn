@@ -1,0 +1,30 @@
+description: Three TypeScript modules import each other in a ring at runtime.
+files:
+  package.json: |
+    {"name": "demo-web"}
+  src/a.ts: |
+    import { b } from "./b";
+
+    export function a(): number {
+      return b() + 1;
+    }
+  src/b.ts: |
+    import { c } from "./c";
+
+    export function b(): number {
+      return c() + 1;
+    }
+  src/c.ts: |
+    import { a } from "./a";
+
+    export function c(): number {
+      return 0;
+    }
+
+    export const again = () => a();
+expected_findings:
+- kind: import_cycle
+  target: src/a.ts
+  also:
+  - src/b.ts
+  - src/c.ts

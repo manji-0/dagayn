@@ -1,0 +1,24 @@
+description: a.ts imports b.ts only with import type, which TypeScript erases; the runtime graph has no
+  cycle.
+negative: true
+files:
+  package.json: |
+    {"name": "demo-web"}
+  tsconfig.json: |
+    {"compilerOptions": {"strict": true}}
+  src/a.ts: |
+    import type { Helper } from "./b";
+
+    export function run(helper: Helper): number {
+      return helper.value;
+    }
+  src/b.ts: |
+    import { run } from "./a";
+
+    export interface Helper {
+      value: number;
+    }
+
+    export function call(): number {
+      return run({ value: 1 });
+    }

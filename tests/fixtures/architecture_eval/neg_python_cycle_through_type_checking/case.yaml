@@ -1,0 +1,22 @@
+description: b imports a only for type checkers (if TYPE_CHECKING:), so the import never runs.
+negative: true
+files:
+  pkg/__init__.py: ''
+  pkg/a.py: |
+    from pkg.b import Helper
+
+
+    class Service:
+        helper: Helper
+  pkg/b.py: |
+    from __future__ import annotations
+
+    from typing import TYPE_CHECKING
+
+    if TYPE_CHECKING:
+        from pkg.a import Service
+
+
+    class Helper:
+        def bind(self, service: Service) -> None:
+            self.service = service

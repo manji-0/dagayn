@@ -1,0 +1,15 @@
+description: A directive points at a config file that exists but is not indexed.
+negative: true
+files:
+  CONTRIBUTING.md: |
+    # Contributing
+
+    <!-- constrained-by ./prek.toml -->
+
+    Run the hooks.
+  prek.toml: |
+    [[repos]]
+    repo = "local"
+  app.py: |
+    def main():
+        return 0

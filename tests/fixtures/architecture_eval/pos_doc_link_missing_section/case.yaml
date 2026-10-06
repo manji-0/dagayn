@@ -1,0 +1,19 @@
+description: A directive names a heading the target document no longer has.
+files:
+  docs/spec.md: |
+    # Spec
+
+    ## Token rotation
+
+    Rotate tokens.
+  docs/guide.md: |
+    # Guide
+
+    <!-- derived-from ./spec.md#token-refresh -->
+
+    Text.
+expected_findings:
+- kind: broken_doc_link
+  target: docs/spec.md::token-refresh
+  also:
+  - docs/guide.md

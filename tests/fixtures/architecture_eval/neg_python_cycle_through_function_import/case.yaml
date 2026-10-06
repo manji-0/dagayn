@@ -1,0 +1,16 @@
+description: a imports b at module level; b imports a only inside a function, which runs after both modules
+  have loaded.
+negative: true
+files:
+  pkg/__init__.py: ''
+  pkg/a.py: |
+    from pkg.b import helper
+
+
+    def run():
+        return helper()
+  pkg/b.py: |
+    def helper():
+        from pkg.a import run
+
+        return run
