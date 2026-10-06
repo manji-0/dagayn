@@ -1,0 +1,16 @@
+# Ship gate for review_tool finding kinds (docs/plans/REVIEW-TOOL-TARGET.md).
+# `run_review_eval.py --gate` exits non-zero when a kind with `gated: true`
+# has a precision (or, if set, recall) below its floor on the eval set.
+# A kind that emitted no findings has precision null, which is not "below";
+# set recall_floor to also fail a gated kind that never fires.
+defaults:
+  gated: false
+  precision_floor: 0.8
+  recall_floor: null
+kinds:
+  dangling_reference: {gated: false}
+  unchanged_caller: {gated: false}
+  tests_to_run: {gated: false}
+  untested_change: {gated: false}
+  contract_doc_not_updated: {gated: false}
+  bridge_touched: {gated: false}
