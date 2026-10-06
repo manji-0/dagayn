@@ -767,6 +767,7 @@
       "target_community_name": "src-abc"
     }
   ],
+  "findings": [],
   "missingness": [
     {
       "claim_effect": "claims should be treated as graph-limited until this is resolved",
@@ -841,7 +842,7 @@
     ]
   },
   "status": "ok",
-  "summary": "1 unit(s), 0 dependency pair(s) between them. Architecture: 22 communities, 4 coupled pairs, 0 warning(s)",
+  "summary": "1 unit(s), 0 dependency pair(s) between them. No structural findings. Architecture: 22 communities, 4 coupled pairs, 0 warning(s)",
   "unit_edges": [],
   "units": [
     {

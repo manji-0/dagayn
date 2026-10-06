@@ -16,6 +16,18 @@ All notable changes to `dagayn` are documented here.
   dependency the graph cannot see (a call inside a macro) still shows.
   `detail_level="standard"` adds each unit's `surface`, the symbols other
   units use most. See `docs/plans/ARCHITECTURE-TOOL-TARGET.md#the-map`.
+- The architecture overview answers with `findings`: structural facts worth
+  acting on, each naming the place to change, and nothing when there is
+  none. `import_cycle` is a set of Python, JavaScript, or TypeScript modules
+  that import each other at load time (function-local, `TYPE_CHECKING`, and
+  `import type` imports do not count), with the imports to cut;
+  `untested_core` is a symbol used from at least the repository's p95 count
+  of other files (and at least 5) that no test reaches through its callers
+  within 4 hops; `broken_doc_link` is an authored directive pointing inside
+  the repository at a file, section, or symbol that does not exist. Each
+  kind lists 10 and counts the rest in `findings_omitted`. CI gates each
+  kind at precision and recall 0.8 on `eval/run_architecture_eval.py`. See
+  `docs/plans/ARCHITECTURE-TOOL-TARGET.md#finding-kinds`.
 - Python and TypeScript imports say whether they run when the module is
   loaded. Python `IMPORTS_FROM` inside a function body carry
   `import_scope: "function"` and inside `if TYPE_CHECKING:` carry

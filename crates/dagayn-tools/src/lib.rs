@@ -9,6 +9,7 @@
 mod analysis;
 mod answerability;
 mod apply;
+mod arch_findings;
 mod arch_tool;
 mod architecture;
 mod base_symbols;

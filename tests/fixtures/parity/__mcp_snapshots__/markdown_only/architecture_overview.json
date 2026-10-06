@@ -214,6 +214,7 @@
       "target_community_name": "guide"
     }
   ],
+  "findings": [],
   "missingness": [
     {
       "claim_effect": "claims should be treated as graph-limited until this is resolved",
@@ -246,7 +247,7 @@
     "top_examples": []
   },
   "status": "ok",
-  "summary": "0 unit(s), 0 dependency pair(s) between them. Architecture: 4 communities, 3 coupled pairs, 0 warning(s)",
+  "summary": "0 unit(s), 0 dependency pair(s) between them. No structural findings. Architecture: 4 communities, 3 coupled pairs, 0 warning(s)",
   "unit_edges": [],
   "units": [],
   "warnings": []

@@ -99,6 +99,11 @@ jobs:
         # Builds a graph per case (docs/plans/REVIEW-TOOL-TARGET.md); fails
         # when a finding kind drops below its precision or recall floor.
         run: DAGAYN_REVIEW_EVAL=1 uv run pytest -q tests/test_review_eval.py
+      - name: Gate architecture findings on the eval set
+        # Builds a graph per case (docs/plans/ARCHITECTURE-TOOL-TARGET.md);
+        # fails when a finding kind drops below its precision or recall floor
+        # or the map misses a declared unit.
+        run: DAGAYN_ARCHITECTURE_EVAL=1 uv run pytest -q tests/test_architecture_eval.py
 
   rust-backend:
     runs-on: ubuntu-latest

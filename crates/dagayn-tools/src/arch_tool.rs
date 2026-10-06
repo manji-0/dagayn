@@ -390,13 +390,38 @@ fn with_unit_map(
     let edges = store.get_all_edges().ok()?;
     let (mut units, mut unit_edges) =
         crate::units::unit_map(root, &nodes, &edges, detail_level != "minimal");
+    let (findings, findings_omitted) =
+        crate::arch_findings::architecture_findings(root, &nodes, &edges);
     let (unit_count, edge_count) = (units.len(), unit_edges.len());
     units.truncate(MAX_UNITS);
     unit_edges.truncate(MAX_UNIT_EDGES);
+    let mut by_kind: Vec<(&str, usize)> = Vec::new();
+    for finding in &findings {
+        let kind = finding["kind"].as_str().unwrap_or("");
+        match by_kind.iter_mut().find(|(known, _)| *known == kind) {
+            Some((_, count)) => *count += 1,
+            None => by_kind.push((kind, 1)),
+        }
+    }
+    for (kind, count) in &mut by_kind {
+        *count += findings_omitted.get(kind).copied().unwrap_or(0);
+    }
+    let findings_summary = if by_kind.is_empty() {
+        "No structural findings.".to_string()
+    } else {
+        format!(
+            "Findings: {}.",
+            by_kind
+                .iter()
+                .map(|(kind, count)| format!("{count} {kind}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    };
     let mut out = Ordered::default().put("status", "ok").put(
         "summary",
         format!(
-            "{unit_count} unit(s), {edge_count} dependency pair(s) between them. {}",
+            "{unit_count} unit(s), {edge_count} dependency pair(s) between them. {findings_summary} {}",
             rest.get("summary").and_then(Value::as_str).unwrap_or("")
         ),
     );
@@ -407,6 +432,10 @@ fn with_unit_map(
     out = out.put("unit_edges", json!(unit_edges));
     if edge_count > unit_edges.len() {
         out = out.put("unit_edges_omitted", edge_count - unit_edges.len());
+    }
+    out = out.put("findings", json!(findings));
+    if !findings_omitted.is_empty() {
+        out = out.put("findings_omitted", json!(findings_omitted));
     }
     for (key, value) in rest.into_entries() {
         if key != "status" && key != "summary" {
