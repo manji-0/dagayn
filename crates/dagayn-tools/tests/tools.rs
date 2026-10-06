@@ -937,6 +937,16 @@ fn review_changes_scores_the_diff_against_base() {
     assert_eq!(none["summary"], "No changed files detected.");
     assert_eq!(none["risk_score"], 0.0);
 
+    // An explicit list scopes the review: app.py's lines in the base diff
+    // add none of its nodes when only another file is named.
+    let scoped = answer(
+        &context,
+        "review_tool",
+        json!({"changed_files": ["notes.txt"]}),
+    );
+    assert_eq!(scoped["changed_files"], json!(["notes.txt"]));
+    assert_eq!(scoped["changed_functions"], json!([]));
+
     let sourced = answer(&context, "review_tool", json!({"include_source": true}));
     let functions = sourced["changed_functions"].as_array().unwrap();
     assert!(!functions.is_empty());

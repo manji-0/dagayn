@@ -291,12 +291,21 @@ impl Review<'_> {
         if let Some(error) = diff_stamp_error(self.root()) {
             return Some(Err(error.into()));
         }
-        let ranges = match parse_diff(self.root(), request.base) {
+        let mut ranges = match parse_diff(self.root(), request.base) {
             DiffParse::Ranges(ranges) => ranges,
             DiffParse::BaseUnresolved => {
                 return Some(Err(self.base_unresolved(request.base)));
             }
         };
+        // An explicit file list scopes the review: the base diff only narrows
+        // those files to their changed lines and adds no other file's nodes.
+        if request.changed_files.is_some() {
+            let wanted: HashSet<String> = changed_files
+                .iter()
+                .map(|file| absolute_path(self.root(), file))
+                .collect();
+            ranges.retain(|rel, _| wanted.contains(&absolute_path(self.root(), rel)));
+        }
         let mut analysis = analyze_changes(
             self.store(),
             self.root(),
