@@ -153,6 +153,10 @@ section.
 
 <!-- derived-from ../refactor-tool-suggest-spec.md#suggestion-types -->
 
+Proposed (2026-10): [REFACTOR-TOOL-TARGET.md](./REFACTOR-TOOL-TARGET.md#target-contract)
+replaces the suggestion types below with `findings` that fire only where a
+refactor is worth doing. This section describes the current design.
+
 The primary refactor-analysis surface should remain `refactor_tool`.
 
 The existing `suggest` mode is the right shape because the user is asking for
@@ -176,6 +180,10 @@ They serve different questions:
 - `query_graph_tool`: inspect a known relationship such as callers, callees,
   imports, tests, or file contents, or fetch a live source span with
   `pattern="source_of"` after choosing a `qualified_name`.
+
+[FLOW-TOOL-TARGET.md](./FLOW-TOOL-TARGET.md#target-contract) proposes
+that `flow_tool` answer which entry points reach a symbol, a third
+exploration question, instead of ranking stored reachable sets.
 
 `traverse_graph_tool` should be an advanced follow-up when the user wants a
 neighborhood rather than a specific relationship.
