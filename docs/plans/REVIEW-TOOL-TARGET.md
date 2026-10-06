@@ -41,23 +41,32 @@ in a scratch worktree, built with `dagayn build`, and reviewed with
 `base="HEAD~1"` and `detail_level="minimal"`, so every row is that commit's
 own diff on its own graph.
 
-| Commit | Change | Files | Output (chars) | `risk_level` | reason codes | changed nodes | impacted nodes |
-|---|---|---|---|---|---|---|---|
-| `027bbc80` | CI yaml only | 1 | 5,037 | low | 1 | 0 | 0 |
-| `a155e96f` | docs only | 1 | 4,993 | low | 1 | 34 | 91 |
-| `1a452379` | plan doc | 1 | 11,422 | low | 2 | 108 | 24 |
-| `6b90c812` | toolchain pin, 2 loops rewritten for clippy | 5 | 18,728 | medium | 10 | 118 | 475 |
-| `529f7b16` | builtin-name list fix | 2 | 15,436 | low | 6 | 94 | 461 |
-| `1def1b4f` | drop PowerShell parsing | 7 | 24,637 | medium | 10 | 245 | 448 |
-| `797ba750` | grammar Cargo features | 21 | 22,295 | medium | 13 | 331 | 483 |
-| `cf16d792` | Ruff parser only, −4,352 lines | 24 | 26,610 | medium | 13 | 559 | 437 |
-| `23ec41ef` | add the Ruff extractor | 16 | 20,306 | high | 13 | 449 | 425 |
-| `a30c7a4a` | query_graph to Rust | 12 | 17,572 | high | 13 | 330 | 444 |
+| Commit | Change | Files | Output (chars) | `risk_level` | reason codes | changed nodes | impacted nodes | test gaps |
+|---|---|---|---|---|---|---|---|---|
+| `027bbc80` | CI yaml only | 1 | 5,037 | low | 1 | 0 | 0 | 0 |
+| `a155e96f` | docs only | 1 | 4,993 | low | 1 | 34 | 91 | 0 |
+| `af60f448` | plan doc | 2 | 8,593 | low | 1 | 31 | 7 | 0 |
+| `1a452379` | plan doc | 1 | 11,422 | low | 2 | 108 | 24 | 0 |
+| `6b90c812` | toolchain pin, 2 loops rewritten for clippy | 5 | 18,728 | medium | 10 | 118 | 475 | 2 |
+| `529f7b16` | builtin-name list fix | 2 | 15,436 | low | 6 | 94 | 461 | 0 |
+| `60db881c` | drop a Python tool body | 4 | 15,315 | low | 9 | 255 | 459 | 1 |
+| `a686d073` | query_graph cases in Rust | 4 | 19,143 | high | 11 | 115 | 457 | 8 |
+| `1def1b4f` | drop PowerShell parsing | 7 | 24,637 | medium | 10 | 245 | 448 | 6 |
+| `a30c7a4a` | query_graph to Rust | 12 | 17,572 | high | 13 | 330 | 444 | 7 |
+| `20c9e0eb` | drop the tree-sitter Python grammar | 17 | 21,273 | medium | 12 | 607 | 460 | 6 |
+| `797ba750` | grammar Cargo features | 21 | 22,295 | medium | 13 | 331 | 483 | 6 |
+| `23ec41ef` | add the Ruff extractor (tests came later) | 16 | 20,306 | high | 13 | 449 | 425 | 288 |
+| `cf16d792` | Ruff parser only, −4,352 lines | 24 | 26,610 | medium | 13 | 559 | 437 | 3 |
+
+These are the 14 most recent non-merge commits before the review; none is
+left out.
 
 `detail_level="standard"` on the last three commits together (39 files)
-returned 548,671 characters: `changed_edges` alone was 388,545 (1,278 raw
-edges) and `affected_flows` 132,724, mostly flow `members` id arrays. Neither
-field is under `_truncation`.
+returned 548,671 characters. `_truncation` caps item counts, not size:
+`changed_functions` was cut from 140 items to 1 and `affected_flows` from 27
+to 1, yet that one flow still weighed 132,724 characters (its 512-entry
+`members` id array and steps), and `changed_edges`, which `_truncation` does
+not cover, carried all 1,278 raw edges in 388,545 characters.
 
 What the numbers mean:
 
@@ -68,7 +77,8 @@ What the numbers mean:
   lines) and still got `wide_blast_radius`, `critical_flow_affected`, and
   `architecture_violation_in_changed_scope`. `impacted_node_count` sits at
   425–483 whatever the change size, because flows are 512-member reachable
-  sets, so any changed node is "in a critical flow".
+  sets, so any changed node is "in a critical flow". The count and the level
+  disagree too: `60db881c` fired 9 reason codes and was rated `low`.
 - **Priority follows names, not risk.** `compute_change_risk_score` adds 0.20
   when an identifier token *starts with* a security keyword, and it checks
   the qualified name, which contains the file path. `python_call_signature`
@@ -91,6 +101,12 @@ What the numbers mean:
   manifest bridges exist.
 - **The design already admits part of this.** `score_semantics` calls
   `risk_score` a "legacy alias".
+
+Open question: the default `base` is `HEAD~1` plus staged, unstaged, and
+untracked files. On a dirty tree that re-reviews the previous commit together
+with the work in progress; a commit hook reviewing a 2-file change reported
+21 files. Whether the default should be `HEAD` when the tree is dirty is part
+of this contract.
 
 ## Finding kinds
 
@@ -132,7 +148,9 @@ A harness beside `eval/run_search_eval.py`, run in CI on fixed fixtures:
 1. **Done:** explicit `changed_files` scopes the review. The base diff used
    to add every other file's changed nodes, so a CI-only file list reported
    Rust functions from the previous commit (`crates/dagayn-tools/src/review.rs`,
-   regression case in `review_changes_scores_the_diff_against_base`).
+   regression case in `review_changes_scores_the_diff_against_base`). The
+   risk hint in `get_minimal_context_tool` had the same leak and is scoped the
+   same way.
 2. Bound the output: put `changed_edges` and flow `members` under
    `_truncation`, drop the duplicated lists from `minimal`.
 3. Eval harness with the negative cases and the seeded positives.
