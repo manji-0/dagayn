@@ -96,17 +96,14 @@ def _record_incremental_head_when_verified(
     repo_root: Path,
     store: GraphStore,
     diff_covers_graph: bool,
-    store_failures: list[str],
 ) -> None:
-    """Stamp ``git_head_sha`` = HEAD when the diff fully covered the graph commit."""
+    """Stamp ``git_head_sha`` = HEAD when the diff fully covered the graph commit.
+
+    Only the early returns that stored nothing call this; a run that stored
+    files records HEAD in :func:`finalize_incremental_update`, which first
+    checks for store failures.
+    """
     if not diff_covers_graph:
-        return
-    if store_failures:
-        logger.error(
-            "Not recording git_head_sha: %d file(s) failed to store, so the graph "
-            "does not describe HEAD",
-            len(store_failures),
-        )
         return
     _store_vcs_metadata(repo_root, store)
     store.commit()
@@ -206,7 +203,6 @@ def prepare_incremental_update(
             repo_root=repo_root,
             store=store,
             diff_covers_graph=diff_covers_graph,
-            store_failures=state.store_failures,
         )
         return _noop_incremental_result(state)
     return state
@@ -378,7 +374,6 @@ def apply_incremental_graph_mutations(state: IncrementalUpdateState) -> BuildRes
             repo_root=state.repo_root,
             store=state.store,
             diff_covers_graph=state.diff_covers_graph,
-            store_failures=state.store_failures,
         )
         return _state_result(state)
     return None
