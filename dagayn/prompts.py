@@ -4,7 +4,7 @@ Provides 5 pre-built prompt workflows, all starting from
 get_minimal_context_tool and preferring detail_level="minimal" first.
 
 1. review_changes   - pre-commit review using review_tool
-2. architecture_map - architecture docs using communities, flows, Mermaid
+2. architecture_map - architecture docs using the unit map, flows, Mermaid
 3. debug_issue      - guided debugging using search, flow tracing
 4. onboard_developer - new dev orientation using architecture and flows
 5. pre_merge_check  - PR readiness from review findings, tests, dead code
@@ -87,14 +87,14 @@ def architecture_map_prompt() -> list[PromptMessage]:
                 "## Architecture Mapping Workflow\n"
                 '1. Call `get_minimal_context_tool(task="map architecture")`.\n'
                 '2. Call `architecture_analysis_tool(mode="overview", '
-                'detail_level="minimal")` for community coupling summary.\n'
+                'detail_level="standard")` for the declared units, the '
+                "dependencies between them, and each unit's most used symbols.\n"
                 '3. Call `flow_tool(mode="list", detail_level="minimal")` for critical '
                 "flow names + criticality scores.\n"
-                '4. Only call `architecture_analysis_tool(mode="community", '
-                "community_name=<X>)` for the 1-2 communities the user is most "
-                "interested in.\n"
-                "5. Produce a concise Mermaid diagram showing communities as "
-                "boxes and key flows as arrows."
+                "4. Report the overview's `findings` (import cycles, untested core "
+                "code, broken doc links) next to the diagram.\n"
+                "5. Produce a concise Mermaid diagram showing units as boxes, "
+                "`unit_edges` as arrows, and key flows."
             ),
         }
     ]
@@ -140,10 +140,10 @@ def onboard_developer_prompt() -> list[PromptMessage]:
                 "## Onboarding Workflow\n"
                 '1. Call `get_minimal_context_tool(task="onboard developer")`.\n'
                 '2. Call `architecture_analysis_tool(mode="overview", '
-                'detail_level="minimal")` for the 30-second mental model.\n'
-                '3. Call `architecture_analysis_tool(mode="communities", '
-                'detail_level="minimal")` — '
-                "present as a table of module names + sizes.\n"
+                'detail_level="minimal")` for the 30-second mental model: '
+                "present `units` as a table of names, kinds, and sizes, and "
+                "`unit_edges` as who depends on whom.\n"
+                "3. Mention the overview's `findings`, if any, as known rough edges.\n"
                 '4. Call `flow_tool(mode="list", detail_level="minimal")` — highlight '
                 "the top 3 critical flows.\n"
                 "5. Only drill into a specific community or flow if the "

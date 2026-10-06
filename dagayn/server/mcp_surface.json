@@ -638,7 +638,7 @@
      "tags": []
     }
    },
-   "description": "Analyze architecture: health, clusters, hotspots, cycles, stability.\n\nStart with ``overview`` and read ``architecture_health``; run one drill-down\nfor a risk it names.\n\nModes: overview; communities, or one community by ``community_name`` /\n``community_id``; hubs and bridges (blast-radius hotspots); knowledge_gaps;\nsurprising_connections; adp_violations (dependency cycles); sdp_metrics and\nsdp_violations (a unit depending on a less stable one by more than\n``min_delta``); sap_metrics and sap_violations (abstractness vs instability;\nscopes farther than ``min_distance`` from the main sequence).\n\nTrust: reason codes, rankings, and metrics are structure leads, not design\nbugs; cite their counts and thresholds.",
+   "description": "Map the repository's units and report structural findings.\n\n``overview`` returns ``units`` (the crates, packages, and modules the\nmanifests declare), ``unit_edges`` (calls, imports, references, and bridges\nbetween two units; ``declared`` when a manifest lists the dependency), and\n``findings``: ``import_cycle`` (with the imports to cut), ``untested_core``,\n``broken_doc_link``. An empty ``findings`` list means nothing structural to\nact on. ``detail_level=\"standard\"`` adds each unit's ``surface``.\n\nMetric modes, per declared unit: sdp_metrics and sdp_violations (a unit\ndepending on a less stable one by more than ``min_delta``); sap_metrics and\nsap_violations (abstractness vs instability; farther than ``min_distance``\nfrom the main sequence). communities / community: graph clusters (need full\npost-processing). Deprecated, removed next release: hubs, bridges,\nknowledge_gaps, surprising_connections, adp_violations.\n\nTrust: a finding is a claim to confirm at its location before stating it;\nmetrics are structure leads, so cite their counts and thresholds.",
    "inputSchema": {
     "properties": {
      "mode": {
@@ -718,7 +718,7 @@
        "package"
       ],
       "type": "string",
-      "description": "(adp, sdp) \"package\" (default) or \"file\"."
+      "description": "(adp, sdp) \"package\" (declared units; default) or \"file\"."
      },
      "scope_kind": {
       "default": "package",
@@ -728,7 +728,7 @@
        "directory"
       ],
       "type": "string",
-      "description": "(sap) \"package\" (default), \"directory\", or \"file\"."
+      "description": "(sap) \"package\" (declared units; default), \"directory\",\nor \"file\"."
      },
      "unit_filter": {
       "anyOf": [
@@ -1546,7 +1546,7 @@
     "messages": [
      {
       "content": {
-       "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Architecture Mapping Workflow\n1. Call `get_minimal_context_tool(task=\"map architecture\")`.\n2. Call `architecture_analysis_tool(mode=\"overview\", detail_level=\"minimal\")` for community coupling summary.\n3. Call `flow_tool(mode=\"list\", detail_level=\"minimal\")` for critical flow names + criticality scores.\n4. Only call `architecture_analysis_tool(mode=\"community\", community_name=<X>)` for the 1-2 communities the user is most interested in.\n5. Produce a concise Mermaid diagram showing communities as boxes and key flows as arrows.",
+       "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Architecture Mapping Workflow\n1. Call `get_minimal_context_tool(task=\"map architecture\")`.\n2. Call `architecture_analysis_tool(mode=\"overview\", detail_level=\"standard\")` for the declared units, the dependencies between them, and each unit's most used symbols.\n3. Call `flow_tool(mode=\"list\", detail_level=\"minimal\")` for critical flow names + criticality scores.\n4. Report the overview's `findings` (import cycles, untested core code, broken doc links) next to the diagram.\n5. Produce a concise Mermaid diagram showing units as boxes, `unit_edges` as arrows, and key flows.",
        "type": "text"
       },
       "role": "user"
@@ -1603,7 +1603,7 @@
     "messages": [
      {
       "content": {
-       "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Onboarding Workflow\n1. Call `get_minimal_context_tool(task=\"onboard developer\")`.\n2. Call `architecture_analysis_tool(mode=\"overview\", detail_level=\"minimal\")` for the 30-second mental model.\n3. Call `architecture_analysis_tool(mode=\"communities\", detail_level=\"minimal\")` — present as a table of module names + sizes.\n4. Call `flow_tool(mode=\"list\", detail_level=\"minimal\")` — highlight the top 3 critical flows.\n5. Only drill into a specific community or flow if the developer asks.",
+       "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Onboarding Workflow\n1. Call `get_minimal_context_tool(task=\"onboard developer\")`.\n2. Call `architecture_analysis_tool(mode=\"overview\", detail_level=\"minimal\")` for the 30-second mental model: present `units` as a table of names, kinds, and sizes, and `unit_edges` as who depends on whom.\n3. Mention the overview's `findings`, if any, as known rough edges.\n4. Call `flow_tool(mode=\"list\", detail_level=\"minimal\")` — highlight the top 3 critical flows.\n5. Only drill into a specific community or flow if the developer asks.",
        "type": "text"
       },
       "role": "user"

@@ -39,8 +39,10 @@ supply the span.
    callers_of/importers_of for a transitive chain, and stop when
    `next_action` says the set is closed.
 4. Architecture: `architecture_analysis_tool(mode="overview",
-   detail_level="minimal")`; read `architecture_health` and drill down only
-   into a risk it names (`architecture-analysis` skill).
+   detail_level="minimal")`; read `units` / `unit_edges` (the declared
+   crates, packages, and modules and how they depend on each other) and
+   `findings`; an empty list means nothing structural to act on
+   (`architecture-analysis` skill).
 5. Refactor: `refactor_tool(mode="suggest")`, then preview renames with
    `refactor_tool(mode="rename")`; apply with `apply_refactor_tool` in the
    same `dagayn serve` session.
@@ -55,7 +57,7 @@ supply the span.
 | `query_graph_tool` | Callers, callees, imports, tests, linked docs, live source spans |
 | `semantic_search_nodes_tool` | Find code or doc sections by name, keyword, or meaning |
 | `flow_tool` | Reachable sets from entry points (not call sequences) |
-| `architecture_analysis_tool` | Architecture health and its drill-downs |
+| `architecture_analysis_tool` | Map of declared units and structural findings |
 | `refactor_tool` | Refactor suggestions, dead code, rename previews |
 | `get_docs_section_tool` | dagayn reference sections, e.g. `trust` |
 

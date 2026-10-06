@@ -52,7 +52,8 @@ the selected embedding mode so exploration chooses the right search strategy.
 2. Pick **one** next move from the Decision Model above — for structure or
    health questions only, that is
    `architecture_analysis_tool(mode="overview", detail_level="minimal")` (read
-   `architecture_health`, then use the architecture-analysis skill).
+   `units` and `unit_edges` for the layering, then `findings`; the
+   architecture-analysis skill covers the rest).
 3. With a concrete node, take its `source_of` span, then verify relationships
    with the narrow patterns. Read files only when `source_of` reports
    `source_coverage` as truncated or stale, or when you need surrounding code or

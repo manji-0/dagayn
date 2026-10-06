@@ -257,8 +257,9 @@ Use `dependency_profile="implementation"`, `"infra_dataflow"`, or
 `"artifact_trace"` only when the analysis needs CALLS, Terraform REFERENCES, or
 high-confidence CROSS_ARTIFACT traceability; the default `strict_static` profile
 keeps design-principle metrics on static dependency edges.
-Architecture and flow outputs are calibrated leads: `architecture_health`
-reports formulas, thresholds, and stable-component policy; `flow_tool` reports
+Architecture and flow outputs are calibrated leads: the architecture overview's
+`findings` are claims to confirm at the location each names, and its SDP/SAP
+modes report formulas and thresholds per declared unit; `flow_tool` reports
 a CALLS reachable set (not an ordered execution path), discloses truncation via
 `truncated` / `truncation_reason`, and reminds clients that criticality is a
 ranking signal, not a coverage guarantee.

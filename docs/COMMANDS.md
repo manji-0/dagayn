@@ -303,7 +303,7 @@ narrow `--tools` allow-list:
 ```bash
 dagayn tool review_tool --arg mode='"impact"' --arg 'changed_files=["src/app.py"]' --arg max_depth=3
 dagayn tool flow_tool --arg mode='"list"' --arg detail_level='"minimal"'
-dagayn tool architecture_analysis_tool --arg mode='"knowledge_gaps"' --arg top_n=10 --format summary
+dagayn tool architecture_analysis_tool --arg mode='"overview"' --format summary
 ```
 
 Tool responses include compact `_runtime` metadata (`version`, `pid`,
@@ -332,7 +332,8 @@ architecture metrics filtered to the scopes represented by that community.
 
 These CLI commands compute and detect package/file-level architecture-principle
 metrics directly from the graph, independently of the MCP
-`architecture_analysis_tool`. They default to `artifact_scope="code"` so
+`architecture_analysis_tool`. Their packages are directories; the MCP modes
+scope by declared unit (Cargo crate, npm package, Python import package, ...). They default to `artifact_scope="code"` so
 Markdown dependencies are not mixed into code design metrics; pass
 `--artifact-scope docs` or `--artifact-scope all` for documentation or legacy
 mixed-graph analysis.
