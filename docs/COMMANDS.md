@@ -725,7 +725,7 @@ an `action`. Kinds:
 - `bridge_touched`: the change edits the source side of a reportable
   cross-artifact bridge (manifest, Terraform, FFI) and not the other side.
 - `untested_change`: changed production functions with no test reaching them,
-  directly or through callers up to 2 hops. One finding per file; tests,
+  directly or through callers up to 4 hops. One finding per file; tests,
   `build.rs`, `examples/`, benches, fixtures, and generated code are excluded.
 - `tests_to_run`: direct tests of the changed code, and changed tests. One
   finding per test file (Rust unit tests: one per crate), with a `command`.

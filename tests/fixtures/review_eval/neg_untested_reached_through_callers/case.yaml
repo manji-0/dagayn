@@ -1,0 +1,47 @@
+description: Edits pkg/chain.py::leaf, which a test reaches through three callers (a dispatcher
+  shape); a test reaches it, so no untested_change.
+negative: true
+commit_change: true
+allowed_kinds: [tests_to_run]
+base:
+  from: py_pkg
+  files:
+    pkg/chain.py: |
+      def leaf(x):
+          return x + 1
+
+
+      def middle(x):
+          return leaf(x) * 2
+
+
+      def outer(x):
+          return middle(x) - 1
+
+
+      def entry(x):
+          return outer(x)
+    tests/test_chain.py: |
+      from pkg.chain import entry
+
+
+      def test_entry():
+          assert entry(1) == 3
+change:
+  files:
+    pkg/chain.py: |
+      def leaf(x):
+          return x + 2
+
+
+      def middle(x):
+          return leaf(x) * 2
+
+
+      def outer(x):
+          return middle(x) - 1
+
+
+      def entry(x):
+          return outer(x)
+expected_findings: []

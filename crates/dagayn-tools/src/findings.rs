@@ -21,7 +21,7 @@ use crate::query::cross_artifact_role;
 /// Symbols a grouped finding lists by name; the rest are counted.
 const MAX_LISTED: usize = 10;
 /// Caller hops `untested_change` walks looking for a test.
-const CALLER_TEST_DEPTH: usize = 2;
+const CALLER_TEST_DEPTH: usize = 4;
 
 /// Doc-to-code roles that state a contract (`implemented_by`), and the
 /// code-to-doc ones (`implements_contract`, ...).
