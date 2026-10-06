@@ -17,8 +17,8 @@ The question agents bring to it, "where is this code entered from?", is
 one it cannot ask. This note defines the target contract, the evidence
 behind it, and the order of work.
 
-Status: accepted ([decisions](#decisions-2026-10-07)); step 1 of the
-[order of work](#order-of-work) is done.
+Status: accepted ([decisions](#decisions-2026-10-07)); steps 1–3 of the
+[order of work](#order-of-work) are done.
 
 ## Target contract
 
@@ -130,20 +130,59 @@ Each answer fits in a few hundred characters and says something the
 caller list does not: `assess_graph_sync` is reached by the MCP
 `get_minimal_context` tool and by `dagayn status`, and by nothing else.
 
-The prototype also shows the false entry points to remove. For
-`node_text`, 3 of the 18 are trait methods with no static caller
-(`CStdlibScope.visit`, `CStdlibScope.std_type`,
-`PhpStdlibScope.collect_use`). They are called through dynamic dispatch,
-so they are not entry points. The `dead_code` suppressions already
-recognize this case as `overrides_or_implements`.
+The prototype also shows methods with no static caller. For
+`node_text`, 3 of the 18 are trait methods called through dynamic
+dispatch (`CStdlibScope.visit`, `CStdlibScope.std_type`,
+`PhpStdlibScope.collect_use`). They cannot be dropped: the entry of the
+first three targets, `serve_mcp.RustTools.call_tool`, is the same shape (a
+trait method the MCP library calls). They are labelled
+`dispatched_method` instead, which tells the agent that something outside
+the graph calls them.
+
+## Result
+
+<!-- derived-from #the-question-measured -->
+
+`flow_tool(mode="entry_points")` on this repository at `398b306f`, in
+`minimal`. The search stops at the nearest entry point on each path: with
+every entry reported, `assess_graph_sync` returned 15, ten of them CLI
+handlers that reach it through the Python-to-Rust `call_tool` bridge,
+which is itself an entry point.
+
+| Target | Callers reached | Entry points | Output (chars) | Entry points found |
+|---|---|---|---|---|
+| `assess_graph_sync` | 10 | 4 | 3,836 | `call_tool` (FFI), `RustTools.call_tool` (dispatched), `main` (`dagayn status`), `run_cli` (FFI) |
+| `is_production_code` | 22 | 2 | 3,404 | `call_tool` (FFI), `RustTools.call_tool` (dispatched) |
+| `GraphStore.get_flow_edge_data` | 42 | 7 | 5,841 | the two Python bindings, `call_tool`, `RustTools.call_tool`, `main`, `run_cli` |
+| `node_text` | 833 | 11 (10 shown) | 7,994 | 3 dispatched visitor methods, 6 FFI parse entry points, `main` |
+
+Each search takes 0.15–0.2 s and reads no stored flow. On the eval set
+(12 cases, 3 negative) every gated kind has precision and recall 1.00,
+every chain hop is a graph edge, and the output is 3.2–3.8K characters.
 
 ## Modes
 
 | Mode | Returns |
 |---|---|
-| `entry_points` with `target` (new default when a target is given) | the entry points that reach the target: `entry_point` (`path::name`, line), `kind` (`cli`, `mcp_tool`, `ffi_export`, `framework_handler`, `main`, `uncalled`), `unit`, `chain` (qualified names in call order), `hops`; `entry_points_omitted`; and `reached_callers` |
-| `list` without a target | entry points grouped by unit and kind, with counts; no members, no score |
+| `entry_points` with `target` | the nearest entry points that reach the target, 10 by default: `entry_point`, `kind`, `chain` (qualified names in call order), `hops`, and in `standard` `file` and `line`; `entry_points_omitted`, `reached_callers`, `truncated` |
+| `list` without a target (step 4) | entry points grouped by unit and kind, with counts; no members, no score |
 | `get` | deprecated: one stored flow, `detail_level` honoured (`minimal` drops `steps` and `path`), for one release |
+
+Entry kinds, from the first rule that holds:
+
+| Kind | The node |
+|---|---|
+| `main` | is named `main` or `__main__` |
+| `framework_handler` | has a framework decorator the flow trace knows (`@app.get`, `@click.command`, `@mcp.tool`, …) |
+| `ffi_export` | is exported across a language boundary (`extra.ffi_export`) |
+| `named_entry` | has a conventional entry name (`handle_*`, `on_*`, `lambda_handler`, …) |
+| `dispatched_method` | is a method nothing in the graph calls: a trait, interface, or framework calls it |
+| `uncalled` | is a function nothing in the graph calls |
+| `module_level` | is a file whose top-level code makes the call |
+
+A node with a caller anywhere in the graph, tests included, is
+`uncalled` only if one of the first four rules names it; so a helper that
+only tests call has no entry point, and its test callers are never walked.
 
 `review_tool(mode="affected_flows")` becomes the same search run from each
 changed function: which entry points the change reaches.
@@ -171,15 +210,25 @@ changed function: which entry points the change reaches.
 A harness beside `eval/run_architecture_eval.py`, run in CI on fixed
 fixtures:
 
-- **Negative cases**: a function called only from tests has no entry
-  points; a trait or interface method called through dynamic dispatch is
-  not an entry point; a fixture's `main` is not an entry point.
-- **Seeded positives** per major language: a CLI handler, a framework
-  route, an FFI export, and a `main`, each reaching a shared helper
-  through a known chain. Each must come back with that chain.
-- **Reported per run:** precision and recall of entry points per target,
-  whether every chain is a real call path, and `minimal` output size
-  (p50/max). Each check gates at 0.8.
+`eval/run_flow_eval.py`, gated in CI by `tests/test_flow_eval.py` with the
+floors in `eval/flow_thresholds.yaml`; cases live in
+`tests/fixtures/flow_eval`. Graphs are built with `--skip-flows`, so the
+eval also shows the mode needs no stored flows.
+
+- **Negative cases**: a function called only from tests; one whose only
+  caller is called only from tests; one called by a `main` under
+  `tests/fixtures/`. Each expects no entry points.
+- **Seeded positives**: a Python `main`, a `@click.command`, a FastAPI
+  route, a `handle_*` function called by `main` (only the handler is
+  expected), a module-level script, a Rust `main`, a Rust trait method
+  (expected as `dispatched_method`), an uncalled TypeScript export, and two
+  entry points reaching one target.
+- **Reported per run:** precision and recall per entry kind; any kind or
+  expected chain that differs; every chain hop without a `CALLS` or
+  `CROSS_ARTIFACT` edge in the built graph; output size (p50/max). Each
+  kind gates at 0.8, and a mismatch or a bad hop fails the gate.
+  `ffi_export` is reported but not gated until a fixture with a native
+  bridge exists.
 
 ## Order of work
 
@@ -189,10 +238,11 @@ fixtures:
    `minimal` returns the first 50 steps as qualified name and line with
    `steps_omitted`. On this repository `list` went from 292,909 to 21,115
    characters and `get flow_name=main` in `minimal` from 177,111 to 7,698.
-2. Eval harness with the cases above.
-3. `entry_points` mode on the query-time reverse search, reusing the flow
-   trace's entry-point rules and edge set, with the override exclusion
-   from `dead_code`.
+2. **Done:** eval harness with the cases above.
+3. **Done:** `entry_points` mode on the query-time reverse search
+   (`crates/dagayn-tools/src/entry_points.rs`), reusing the flow trace's
+   entry-point rules and edge set; methods without a static caller are
+   labelled `dispatched_method`, not dropped.
 4. `review_tool(mode="affected_flows")` and the skills move to it; `get`,
    criticality, `top_flows`, and `flow_snapshots` are deprecated for one
    release, then removed with the flow trace.
