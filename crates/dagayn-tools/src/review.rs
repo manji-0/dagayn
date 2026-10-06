@@ -393,7 +393,8 @@ impl Review<'_> {
                 .put("risk_level", field("risk_level"))
                 .put("reason_codes", field("reason_codes"))
                 .put("changed_file_count", changed_files.len())
-                .put("change_file_sources", sources)
+                .put("changed_files", json!(changed_files))
+                .put("change_file_source_counts", source_counts(&sources))
                 .put(
                     "change_entity_summary",
                     analysis.get("change_entity_summary").clone(),
@@ -423,14 +424,14 @@ impl Review<'_> {
                     "architecture_delta",
                     json!({
                         "mode": delta["mode"],
-                        "changed_scopes": delta["changed_scopes"],
+                        "changed_scope_count": delta["changed_scopes"].as_array().map_or(0, Vec::len),
                         "counts": delta["counts"],
                         "baseline_comparison": baseline,
                     }),
                 )
                 .put("review_priorities", priorities)
                 .put("next_drill_downs", field("next_drill_downs"))
-                .put("answerability", self.answerability.full())
+                .put("answerability", self.answerability.compact())
                 .put("missingness", json!(self.answerability.missingness()))
         } else {
             let mut out = Ordered::default()
@@ -455,6 +456,7 @@ impl Review<'_> {
                         "affected_flows",
                         "test_gaps",
                         "changed_functions",
+                        "changed_edges",
                     ],
                 )
         };
@@ -1014,6 +1016,19 @@ impl Review<'_> {
             ],
         ))
     }
+}
+
+/// How many changed files each source (`base_diff`, `staged`, ...) named;
+/// `minimal` lists the files once in `changed_files`.
+fn source_counts(sources: &Value) -> Value {
+    let counts: Map<String, Value> = sources
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(key, _)| key.as_str() != "files")
+        .filter_map(|(key, value)| Some((key.clone(), json!(value.as_array()?.len()))))
+        .collect();
+    Value::Object(counts)
 }
 
 /// `str(root / file)`: pathlib drops `.` components, repeated and trailing

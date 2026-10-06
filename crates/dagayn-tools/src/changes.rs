@@ -790,7 +790,16 @@ pub(crate) fn analyze_changes_with(
         .filter_map(|record| record["risk_score"].as_f64())
         .fold(0.0_f64, f64::max);
 
-    let affected = store.get_affected_flows_annotated(&abs_files).ok()?;
+    let changed_names: HashSet<&str> = changed_nodes
+        .iter()
+        .map(|node| node.qualified_name.as_str())
+        .collect();
+    let affected: Vec<Value> = store
+        .get_affected_flows_annotated(&abs_files)
+        .ok()?
+        .into_iter()
+        .map(|flow| compact_flow(flow, &changed_names))
+        .collect();
 
     // Test gaps.
     let eligible = |node: &GraphNode| !node.is_test && node.language != "markdown";
@@ -947,6 +956,40 @@ pub(crate) fn analyze_changes_with(
         ("review_priorities", Value::Array(priorities)),
     ];
     Some(Analysis { fields })
+}
+
+/// Steps of a flow a change review keeps: the ones the change touches.
+const CHANGED_STEPS_KEPT: usize = 5;
+
+/// A flow as a change review reports it: its summary fields and the steps
+/// the change touches, without the full `steps`, `path`, and `members`
+/// (`review_tool(mode="affected_flows")` keeps those). A 512-node flow was
+/// otherwise about 130K characters of mostly unchanged steps.
+fn compact_flow(flow: Value, changed: &HashSet<&str>) -> Value {
+    let Value::Object(mut map) = flow else {
+        return flow;
+    };
+    let steps = map.remove("steps");
+    map.remove("path");
+    map.remove("members");
+    let touched: Vec<Value> = steps
+        .as_ref()
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|step| {
+            step["qualified_name"]
+                .as_str()
+                .is_some_and(|name| changed.contains(name))
+        })
+        .cloned()
+        .collect();
+    map.insert("changed_step_count".to_string(), json!(touched.len()));
+    map.insert(
+        "changed_steps".to_string(),
+        Value::Array(touched.into_iter().take(CHANGED_STEPS_KEPT).collect()),
+    );
+    Value::Object(map)
 }
 
 #[cfg(test)]
