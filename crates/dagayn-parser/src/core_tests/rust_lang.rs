@@ -521,3 +521,56 @@ fn run(bindings: &Calculator, store: &mut Store<State>) {
     let (_, edges) = parser.parse_file("app/src/lib.rs", b"fn f(c: &C) { c.call_api(); }\n");
     assert!(!edges.iter().any(|edge| edge.kind == "CROSS_ARTIFACT"));
 }
+
+#[test]
+fn marks_rust_impls_no_repository_type_can_own() {
+    let source = br#"use std::sync::Arc;
+use core::slice;
+
+struct Option;
+struct Local;
+
+impl<T: Clone> Parse for T { fn parse() {} }
+impl From<u8> for String {}
+impl Tr for Arc<Local> {}
+impl<'a, T> Tr for slice::IterMut<'a, T> {}
+impl Tr for serde_json::Value {}
+impl Tr for Vec<u8> { fn tr() {} }
+impl Tr for Option {}
+impl Tr for Local {}
+impl Tr for crate::model::Remote {}
+impl Tr for Remote {}
+"#;
+    let (nodes, edges) = parse_rust("src/lib.rs", source);
+    let target_of = |owner: &str| {
+        edges
+            .iter()
+            .find(|edge| edge.kind == "IMPLEMENTS" && edge.source == format!("src/lib.rs::{owner}"))
+            .unwrap_or_else(|| panic!("no IMPLEMENTS from {owner}"))
+            .extra
+            .get("impl_target")
+            .and_then(|target| target.as_str())
+            .map(str::to_string)
+    };
+    assert_eq!(target_of("T").as_deref(), Some("generic"));
+    assert_eq!(target_of("String").as_deref(), Some("external"));
+    assert_eq!(target_of("Arc").as_deref(), Some("external"));
+    assert_eq!(target_of("IterMut").as_deref(), Some("external"));
+    // Without a repository, `serde_json` is not known to be a dependency.
+    assert_eq!(target_of("Value"), None);
+    assert_eq!(target_of("Vec").as_deref(), Some("external"));
+    // The file declares its own `Option`.
+    assert_eq!(target_of("Option"), None);
+    assert_eq!(target_of("Local"), None);
+    assert_eq!(target_of("Remote"), None);
+    let member_target = |name: &str| {
+        nodes
+            .iter()
+            .find(|node| node.name == name)
+            .and_then(|node| node.extra.get("impl_target"))
+            .and_then(|target| target.as_str())
+            .map(str::to_string)
+    };
+    assert_eq!(member_target("parse").as_deref(), Some("generic"));
+    assert_eq!(member_target("tr").as_deref(), Some("external"));
+}

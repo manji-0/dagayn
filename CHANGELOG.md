@@ -6,6 +6,17 @@ All notable changes to `dagayn` are documented here.
 
 ### Changed
 
+- Rust: the members of an `impl` block in another file than its type now
+  belong to the type's node, and the block's `IMPLEMENTS` edges start there.
+  The parser can only contain such members in their File node and start
+  `IMPLEMENTS` at `file::Type`, which is no node; a post-processing step
+  (`foreign_impl_members_linked` in the post-processing result) finds the
+  type by name, through the file's imports, the module the `impl` names, or
+  the only one in the package's source directory. In this repository,
+  `GraphStore` went from 1 `CONTAINS` edge to 220. An `impl` for a type
+  parameter or a standard-library or dependency type carries
+  `impl_target: "generic"` / `"external"` instead and stays as it was. The
+  Rust extractor version is 20. See `docs/SCHEMA.md#edges`.
 - `review_tool(mode="changes")` answers with `findings`: what a reviewer
   must check before merging that the diff does not show, and nothing when
   the change needs nothing beyond the diff. Each finding is one claim with a

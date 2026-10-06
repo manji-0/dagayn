@@ -558,7 +558,7 @@ fn load_bare_name_index(
 /// caller imports directly is `HIGH`. A method is `MEDIUM` even then, since
 /// the receiver's type is unknown, as is anything reached only through a
 /// namespace or a class declaration.
-fn resolve_via_imports(
+pub(crate) fn resolve_via_imports(
     candidates: &[String],
     source_file: &str,
     import_targets: &HashMap<String, HashSet<String>>,

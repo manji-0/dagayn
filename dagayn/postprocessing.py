@@ -113,6 +113,8 @@ def _resolve_bare_name_edges(
     ):
         result.bare_call_targets_resolved = int(store.resolve_bare_call_targets())
         result.bare_inheritance_targets_resolved = int(store.resolve_bare_inheritance_targets())
+    with _warn_on_failure("Rust impl member linking", _STEP_ERRORS, warnings):
+        result.foreign_impl_members_linked = int(store.link_foreign_impl_members())
 
 
 def _resolve_terraform_module_references(

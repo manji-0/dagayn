@@ -43,6 +43,7 @@ pub(super) fn parse_rust_with_parser(
             free_functions,
             struct_fields,
             type_names,
+            declared_types,
             qualified_types,
         } = collect_rust_file_facts(root, source);
         let scope =
@@ -58,6 +59,7 @@ pub(super) fn parse_rust_with_parser(
             struct_fields: &struct_fields,
             locals: RefCell::new(Vec::new()),
             defined_names: &defined_names,
+            declared_types: &declared_types,
             bindings: RefCell::new(MemberCallBindings::with_types(type_names)),
             component_bindings: rust_uses_component_bindings(source),
         };
@@ -220,21 +222,34 @@ fn rust_walk_children(
                 }
             }
             "impl_item" if let Some(type_name) = rust_impl_type_name(child, context.source) => {
+                let impl_target = rust_impl_target(child, &type_name, context);
                 let type_name = rust_scope_join(owner(), &type_name);
                 if let Some(trait_name) = rust_impl_trait_name(child, context.source) {
+                    let mut extra = json!({
+                        "relationship_role": "implements",
+                        "syntax_source": "impl_item",
+                    });
+                    if let Some(impl_target) = impl_target {
+                        extra["impl_target"] = json!(impl_target);
+                    }
                     edges.push(ParsedEdge {
                         kind: crate::core::types::EdgeKind::Implements,
                         source: qualify(&context.file_path, &type_name, None),
                         target: trait_name,
                         file_path: context.file_path.clone(),
                         line: child.start_position().row as i64 + 1,
-                        extra: json!({
-                            "relationship_role": "implements",
-                            "syntax_source": "impl_item",
-                        }),
+                        extra,
                     });
                 }
+                let first_member = nodes.len();
                 rust_walk_children(child, context, Some(&type_name), None, nodes, edges);
+                if let Some(impl_target) = impl_target {
+                    for member in &mut nodes[first_member..] {
+                        if member.parent_name.as_deref() == Some(type_name.as_str()) {
+                            member.extra["impl_target"] = json!(impl_target);
+                        }
+                    }
+                }
                 continue;
             }
             "function_item" | "function_signature_item" => {
@@ -474,6 +489,8 @@ struct RustParseContext<'a> {
     /// closure parameters, patterns), innermost last.
     locals: RefCell<Vec<HashSet<String>>>,
     defined_names: &'a HashSet<String>,
+    /// Types (structs, enums, traits, aliases) the file declares.
+    declared_types: &'a HashSet<String>,
     bindings: RefCell<MemberCallBindings>,
     /// The file generates WebAssembly component bindings
     /// (`wit_bindgen::generate!`, `wasmtime::component::bindgen!`,
@@ -494,6 +511,9 @@ struct RustFileFacts {
     struct_fields: HashMap<String, HashMap<String, String>>,
     /// Types and impls' types.
     type_names: HashSet<String>,
+    /// Types (structs, enums, traits, aliases) the file declares, not the
+    /// ones it only `impl`s.
+    declared_types: HashSet<String>,
     /// `scoped_type_identifier`s (path, name), in source order.
     qualified_types: Vec<(String, String)>,
 }
@@ -505,6 +525,7 @@ fn collect_rust_file_facts(root: tree_sitter::Node<'_>, source: &[u8]) -> RustFi
         free_functions: HashSet::new(),
         struct_fields: HashMap::new(),
         type_names: HashSet::new(),
+        declared_types: HashSet::new(),
         qualified_types: Vec::new(),
     };
     let mut cursor = root.walk();
@@ -521,6 +542,7 @@ fn collect_rust_file_facts(root: tree_sitter::Node<'_>, source: &[u8]) -> RustFi
             "struct_item" | "enum_item" | "trait_item" | "type_item" => {
                 if let Some(name) = rust_type_name(node, source) {
                     facts.defined_names.insert(name.clone());
+                    facts.declared_types.insert(name.clone());
                     facts.type_names.insert(name);
                 }
                 if node.kind() == "struct_item" {
@@ -616,6 +638,72 @@ fn rust_type_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> 
 fn rust_impl_type_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     node.child_by_field_name("type")
         .and_then(|ty| rust_type_ident(ty, source))
+}
+
+/// What an `impl` is for when no type of this repository can be its self
+/// type: `"generic"` for one of its type parameters (`impl<T> Parse for T`),
+/// `"external"` for a type of the standard library or a dependency
+/// (`impl From<X> for String`, `impl Tr for serde_json::Value`, a name a
+/// `use` brings from either). The graph leaves these where the extractor put
+/// them instead of linking them to a type of the same name.
+fn rust_impl_target(
+    node: tree_sitter::Node<'_>,
+    type_name: &str,
+    context: &RustParseContext<'_>,
+) -> Option<&'static str> {
+    let source = context.source;
+    if let Some(parameters) = node.child_by_field_name("type_parameters") {
+        let mut cursor = parameters.walk();
+        let generic = parameters.named_children(&mut cursor).any(|parameter| {
+            let name = if parameter.kind() == "type_identifier" {
+                Some(parameter)
+            } else {
+                parameter
+                    .child_by_field_name("name")
+                    .or_else(|| parameter.child_by_field_name("left"))
+            };
+            name.is_some_and(|name| {
+                name.kind() == "type_identifier" && node_text(name, source) == type_name
+            })
+        });
+        if generic {
+            return Some("generic");
+        }
+    }
+    let is_external = |segments: &[String]| {
+        rust_std_crate(segments).is_some()
+            || segments.first().is_some_and(|first| {
+                context
+                    .scope
+                    .is_some_and(|scope| scope.is_dependency(first))
+            })
+    };
+    let mut ty = node.child_by_field_name("type")?;
+    if ty.kind() == "generic_type"
+        && let Some(inner) = ty.child_by_field_name("type")
+    {
+        ty = inner;
+    }
+    if ty.kind() == "scoped_type_identifier" {
+        let path = ty.child_by_field_name("path")?;
+        let mut segments: Vec<String> = node_text(path, source)
+            .split("::")
+            .map(|segment| segment.trim().to_string())
+            .collect();
+        // `slice::IterMut` after `use core::slice`.
+        if let Some(used) = segments
+            .first()
+            .and_then(|first| context.uses.borrow().get(first).cloned())
+        {
+            segments.splice(..1, used);
+        }
+        return is_external(&segments).then_some("external");
+    }
+    if let Some(path) = context.uses.borrow().get(type_name) {
+        return is_external(path).then_some("external");
+    }
+    (is_rust_prelude_type(type_name) && !context.declared_types.contains(type_name))
+        .then_some("external")
 }
 
 fn rust_impl_trait_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
