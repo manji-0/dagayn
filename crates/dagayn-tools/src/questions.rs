@@ -67,12 +67,18 @@ pub(crate) fn suggested_questions(
                 ("total", json!(total)),
                 ("truncated", json!(truncated)),
                 ("by_priority", Value::Object(by_priority)),
+                (
+                    "deprecated",
+                    json!({
+                        "replacement": "architecture_analysis_tool mode=\"overview\" findings",
+                        "removal": "next release",
+                    }),
+                ),
             ],
             guidance,
             &[
-                "architecture_analysis_tool mode=\"knowledge_gaps\" -- structural weaknesses",
-                "review_tool mode=\"changes\" -- risk-scored review",
-                "architecture_analysis_tool mode=\"overview\" -- community map",
+                "architecture_analysis_tool mode=\"overview\" -- units and structural findings",
+                "review_tool mode=\"changes\" -- findings for the current change",
             ],
         )
         .put("_repo", graph.repo_context())

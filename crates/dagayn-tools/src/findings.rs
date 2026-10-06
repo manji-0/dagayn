@@ -32,7 +32,7 @@ const CONTRACT_ROLES_TO_DOC: &[&str] = &["implements_contract", "has_runbook", "
 const IMPLIED_BRIDGE_ROLES: &[&str] = &["builds_from_source"];
 
 /// Languages whose changed functions count as production code.
-const CODE_LANGUAGES: &[&str] = &[
+pub(crate) const CODE_LANGUAGES: &[&str] = &[
     "python",
     "rust",
     "typescript",

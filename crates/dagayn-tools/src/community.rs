@@ -401,6 +401,7 @@ fn architecture_health(
         file_scopes: false,
         artifact,
         profile: Profile::StrictStatic,
+        units: None,
     };
     let scopes = ScopeGraph::new(&snapshot.dependencies(&view));
     let adp = if scopes.is_empty() {

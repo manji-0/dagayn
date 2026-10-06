@@ -1538,13 +1538,20 @@ class TestCommunityTools:
         result = get_architecture_overview_func(repo_root=str(self.root))
         assert result["status"] == "ok"
 
-    def test_get_architecture_overview_has_expected_keys(self):
+    def test_get_architecture_overview_leads_with_units_and_findings(self):
         result = get_architecture_overview_func(repo_root=str(self.root))
+        assert {"summary", "units", "unit_edges", "findings"} <= set(result)
+        assert "architecture_health" not in result
+        assert all("surface" in unit for unit in result["units"])
+
+    def test_get_architecture_overview_has_expected_keys(self):
+        result = get_architecture_overview_func(repo_root=str(self.root), detail_level="verbose")
         assert "communities" in result
         assert "cross_community_coupling" in result
         assert "warnings" in result
         assert "summary" in result
         assert "architecture_health" in result
+        assert "architecture_health" in result["deprecated_fields"]
         assert "counts" in result["architecture_health"]
         assert "drill_downs" in result["architecture_health"]
         if result["architecture_health"]["guidance"]:
@@ -1560,14 +1567,12 @@ class TestCommunityTools:
 
     def test_get_architecture_overview_summary_format(self):
         result = get_architecture_overview_func(repo_root=str(self.root))
-        assert "Architecture:" in result["summary"]
-        assert "communities" in result["summary"]
-        assert "coupled pairs" in result["summary"]
-
-    def test_get_architecture_overview_standard_omits_members(self):
-        result = get_architecture_overview_func(repo_root=str(self.root))
-        for comm in result["communities"]:
-            assert "members" not in comm
+        assert "unit(s)" in result["summary"]
+        assert "dependency pair(s)" in result["summary"]
+        assert "communities" not in result["summary"]
+        verbose = get_architecture_overview_func(repo_root=str(self.root), detail_level="verbose")
+        assert "Architecture:" in verbose["summary"]
+        assert "coupled pairs" in verbose["summary"]
 
     def test_get_architecture_overview_verbose_includes_raw_edges(self):
         result = get_architecture_overview_func(repo_root=str(self.root), detail_level="verbose")

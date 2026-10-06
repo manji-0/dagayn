@@ -52,6 +52,10 @@
     "low": 1,
     "medium": 0
   },
+  "deprecated": {
+    "removal": "next release",
+    "replacement": "architecture_analysis_tool mode=\"overview\" findings"
+  },
   "guidance": [
     {
       "action": "review_tool mode=\"changes\" -- apply questions to current changes",
@@ -96,9 +100,8 @@
     }
   ],
   "next_tool_suggestions": [
-    "architecture_analysis_tool mode=\"knowledge_gaps\" -- structural weaknesses",
-    "review_tool mode=\"changes\" -- risk-scored review",
-    "architecture_analysis_tool mode=\"overview\" -- community map"
+    "architecture_analysis_tool mode=\"overview\" -- units and structural findings",
+    "review_tool mode=\"changes\" -- findings for the current change"
   ],
   "questions": [
     {

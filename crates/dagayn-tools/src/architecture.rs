@@ -99,24 +99,31 @@ pub(crate) struct View {
     pub file_scopes: bool,
     pub artifact: Artifact,
     pub profile: Profile,
+    /// The declared unit of each code file
+    /// ([`crate::units::unit_scopes`]); a file it does not list, and every
+    /// file when it is `None`, is scoped by its directory.
+    pub units: Option<HashMap<String, String>>,
 }
 
 impl View {
-    /// `review_helpers`' fixed view: packages, code, `strict_static`.
+    /// `review_helpers`' fixed view: directories, code, `strict_static`.
     pub(crate) fn review() -> Self {
         Self {
             file_scopes: false,
             artifact: Artifact::Code,
             profile: Profile::StrictStatic,
+            units: None,
         }
     }
 
     /// `node_file_to_scope_key` for a non-empty path.
     fn scope_of(&self, file_path: &str) -> String {
         if self.file_scopes {
-            file_path.to_string()
-        } else {
-            file_to_package(file_path)
+            return file_path.to_string();
+        }
+        match self.units.as_ref().and_then(|units| units.get(file_path)) {
+            Some(unit) => unit.clone(),
+            None => file_to_package(file_path),
         }
     }
 }
@@ -197,6 +204,11 @@ pub(crate) struct Snapshot {
 }
 
 impl Snapshot {
+    /// The declared unit of each code file, by its label.
+    pub(crate) fn unit_scopes(&self, root: &std::path::Path) -> HashMap<String, String> {
+        crate::units::unit_scopes(root, &self.all_nodes)
+    }
+
     pub(crate) fn read(store: &GraphStore) -> Option<Self> {
         Some(Self {
             all_nodes: store.get_all_nodes_filtered(false).ok()?,
@@ -235,9 +247,17 @@ impl Snapshot {
             let Some(source) = qualified.get(edge.source_qualified.as_str()) else {
                 continue;
             };
-            let target = qualified
-                .get(edge.target_qualified.as_str())
-                .or_else(|| names.get(edge.target_qualified.as_str()));
+            // An unresolved target is matched by name only when it can be a
+            // symbol of this repository: not a module an import names, and
+            // not a standard-library or third-party one (`import abc` is no
+            // dependency on a TypeScript namespace `abc`).
+            let by_name = edge.kind != "IMPORTS_FROM"
+                && edge.extra.get("external").and_then(Value::as_bool) != Some(true);
+            let target = qualified.get(edge.target_qualified.as_str()).or_else(|| {
+                by_name
+                    .then(|| names.get(edge.target_qualified.as_str()))
+                    .flatten()
+            });
             if let Some(target) = target
                 && target != source
             {

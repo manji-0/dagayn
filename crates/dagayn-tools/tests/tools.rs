@@ -1240,10 +1240,24 @@ fn architecture_metrics_follow_the_requested_view() {
     assert_eq!(gaps["_hints"]["next_steps"][0]["tool"], "refactor_tool");
     let surprising = arch(json!({"mode": "surprising_connections", "artifact_scope": "all"}));
     assert!(surprising["surprising_connections"].is_array());
+    assert_eq!(hubs["deprecated"]["removal"], "next release");
     let overview = arch(json!({}));
     assert_eq!(overview["called_subtool"], "get_architecture_overview_func");
-    assert_eq!(overview["architecture_health"]["status"], "ok");
-    assert!(overview["stable_component_policy"]["counts"].is_object());
+    assert!(overview["units"].is_array());
+    assert!(overview.get("architecture_health").is_none());
+    // `app.py` and `pkg/core.py` import each other at module level.
+    let cycle = &overview["findings"][0];
+    assert_eq!(cycle["kind"], "import_cycle");
+    assert_eq!(cycle["targets"], json!(["app.py", "pkg/core.py"]));
+    assert_eq!(cycle["cut"].as_array().map(Vec::len), Some(1));
+    let verbose = arch(json!({"detail_level": "verbose"}));
+    assert_eq!(verbose["architecture_health"]["status"], "ok");
+    assert!(verbose["stable_component_policy"]["counts"].is_object());
+    assert!(
+        verbose["deprecated_fields"]
+            .as_array()
+            .is_some_and(|fields| fields.contains(&json!("architecture_health")))
+    );
     let communities = arch(json!({"mode": "communities", "detail_level": "standard"}));
     assert_eq!(communities["called_subtool"], "list_communities_func");
     assert!(communities["answerability"].is_object());
