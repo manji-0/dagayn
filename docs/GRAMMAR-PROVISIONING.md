@@ -47,7 +47,9 @@ no grammar and no provisioning (see `docs/plans/RUFF-PYTHON-PARSER.md`).
 
 <!-- derived-from ./ARCHITECTURE.md#parsing-model -->
 
-Grammar source trees are **not** stored as tracked vendor directories in this repository.
+Grammar source trees are **not** stored as tracked vendor directories in this repository;
+only the patches of a patched grammar and the files generated from them are
+(see [Local grammar patches](#local-grammar-patches)).
 
 Instead, dagayn:
 
@@ -68,6 +70,59 @@ grammar files under `dagayn/_vendor_grammars/` before wheel/sdist assembly.
 Those generated staging files are ignored by git, but they are included in
 published artifacts so Python and Rust parser paths use the same pinned grammar
 sources after installation.
+
+## Local grammar patches
+
+<!-- derived-from #provisioning-model -->
+
+A grammar problem that is best fixed in the grammar itself is kept as a
+patch in this repository rather than in a fork:
+
+- `vendor/grammar-patches/<language>/NNNN-*.patch` change the pinned
+  upstream source (`grammar.js`, the external scanner, the test corpus).
+  Each opens with what it fixes and where it came from; a patch taken from
+  an unmerged upstream PR is dropped once the pin includes it.
+- `vendor/grammars/<language>/` holds the files generated from the patched
+  source that differ from upstream (`src/parser.c`, gzipped), and
+  `STAMP.json` with the pin, the SHA-256 of the patches, the tree-sitter
+  CLI version, and the hash of each file.
+
+`dagayn.vendor_grammars` copies those files over the fetched upstream
+source, so builds need neither the tree-sitter CLI nor node. It refuses a
+stamp that names another pin or other patches, and the cache directory of a
+patched grammar includes the patch digest.
+
+After changing a patch or the pin of a patched grammar, regenerate:
+
+```bash
+uv run python tools/regenerate_patched_grammars.py rust   # or no argument: all
+uv run python tools/regenerate_patched_grammars.py --check
+```
+
+The script needs `git` and `npm`. It installs the tree-sitter CLI version
+upstream's `package-lock.json` records, regenerates the unpatched source,
+and stops unless the result matches upstream's `parser.c` (CLI versions
+generate different parsers: tree-sitter-c-sharp 8c0abe0 regenerated with
+CLI 0.26.13 or 0.27.0 misparses `case int when x:`). It then applies the
+patches, regenerates, and runs `tree-sitter test`. The headers under
+`src/tree_sitter/` stay upstream's. `tests/test_vendor_grammars.py` checks
+that every committed stamp matches its pin and patches.
+
+Current patches:
+
+- Rust: tree-sitter-rust#317 (`~` in macro token trees), #271 (`where` on
+  unit structs), and #281 (`pub type` in extern blocks). #256 (`safe fn` in
+  extern blocks) is left out: it makes `safe` a keyword, which breaks
+  `let safe = ...` and `safe!` macros.
+- C#: a binary operand inside `#if`, operator included, and initializer
+  elements inside `#if` (local; tree-sitter-c-sharp#430 stopped reading
+  `&&` as two unary `&`, which had parsed the first by accident). `case`
+  labels inside `#if` still parse as errors, as they did before.
+
+A source directory prepared by `dagayn.vendor_grammars` records the pin and
+patch digest in `.dagayn-source`. The grammar build script uses
+`dagayn/_vendor_grammars/<language>` only while its marker matches, so a
+copy staged from an older pin is replaced rather than compiled.
 
 ## Building a subset of grammars
 
@@ -133,7 +188,8 @@ An explicit override is supported with:
 DAGAYN_GRAMMAR_CACHE_DIR=/custom/cache/path
 ```
 
-The cache key includes the pinned commit, so changing the pin yields a separate cached tree.
+The cache key includes the pinned commit (and, for a patched grammar, the patch
+digest), so changing either yields a separate cached tree.
 
 ## Pinned source contract
 

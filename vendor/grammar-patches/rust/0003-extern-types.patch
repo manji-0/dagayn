@@ -1,0 +1,47 @@
+feat: Extern types
+
+From https://github.com/tree-sitter/tree-sitter-rust/pull/281 (grammar.js and
+tests only; the generated files are regenerated). Drop this patch once the
+pin includes the PR.
+
+diff --git a/grammar.js b/grammar.js
+index 33ae72b4..eecc75af 100644
+--- a/grammar.js
++++ b/grammar.js
+@@ -519,6 +519,7 @@ module.exports = grammar({
+     ),
+ 
+     associated_type: $ => seq(
++      optional($.visibility_modifier),
+       'type',
+       field('name', $._type_identifier),
+       field('type_parameters', optional($.type_parameters)),
+diff --git a/test/corpus/declarations.txt b/test/corpus/declarations.txt
+index 7df0c0e5..88259b0f 100644
+--- a/test/corpus/declarations.txt
++++ b/test/corpus/declarations.txt
+@@ -2091,6 +2091,24 @@ where
+                 (type_identifier)))))))
+     (block)))
+ 
++================================================================================
++Extern types
++================================================================================
++
++extern {
++    pub type Opaque;
++}
++
++--------------------------------------------------------------------------------
++
++(source_file
++  (foreign_mod_item
++    (extern_modifier)
++    (declaration_list
++      (associated_type
++        (visibility_modifier)
++        (type_identifier)))))
++
+ ================================================================================
+ Higher-ranked types
+ ================================================================================

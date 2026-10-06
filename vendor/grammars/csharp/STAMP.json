@@ -1,0 +1,13 @@
+{
+  "language": "csharp",
+  "upstream": "tree-sitter/tree-sitter-c-sharp",
+  "commit": "8c0abe0b84a3681d3e6852ce2e2a1eecb4f731c5",
+  "patches": [
+    "0001-conditional-code-in-expressions.patch"
+  ],
+  "patches_sha256": "df018128de26b365b1aa27d9b9cb81dd044cdbb7dd9c3e6bb6c4f9b5e81889d2",
+  "tree_sitter_cli": "0.26.5",
+  "files": {
+    "src/parser.c": "d0a750ffb6959ce8642a9508996abac2f8b904e68fe572d987a9bab2ff83cf58"
+  }
+}

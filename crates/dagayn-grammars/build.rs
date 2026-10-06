@@ -416,6 +416,11 @@ fn main() {
         "cargo:rerun-if-changed={}",
         repo_root.join("dagayn/vendor_grammars.py").display()
     );
+    // Local grammar patches and the parsers generated from them.
+    println!(
+        "cargo:rerun-if-changed={}",
+        repo_root.join("vendor").display()
+    );
 
     let all_grammars: [&GrammarSpec; 28] = [
         &MARKDOWN,
@@ -549,7 +554,7 @@ fn stage_packaged_source(repo_root: &Path, spec: &GrammarSpec, source_dir: &Path
     if same_path(source_dir, &packaged) {
         return;
     }
-    if is_ready(&packaged, spec) {
+    if is_ready(&packaged, spec) && source_marker(&packaged) == source_marker(source_dir) {
         return;
     }
     if packaged.exists() {
@@ -582,6 +587,26 @@ fn stage_packaged_source(repo_root: &Path, spec: &GrammarSpec, source_dir: &Path
             )
         });
     }
+    let marker = source_dir.join(SOURCE_MARKER);
+    if marker.exists() {
+        fs::copy(&marker, packaged.join(SOURCE_MARKER)).unwrap_or_else(|err| {
+            panic!(
+                "failed to stage packaged {} grammar marker {}: {err}",
+                spec.language,
+                marker.display()
+            )
+        });
+    }
+}
+
+/// `dagayn.vendor_grammars` writes the pin (and patch digest) a prepared
+/// source came from to this file.
+const SOURCE_MARKER: &str = ".dagayn-source";
+
+fn source_marker(dir: &Path) -> Option<String> {
+    fs::read_to_string(dir.join(SOURCE_MARKER))
+        .ok()
+        .map(|marker| marker.trim().to_string())
 }
 
 fn same_path(left: &Path, right: &Path) -> bool {
@@ -591,15 +616,10 @@ fn same_path(left: &Path, right: &Path) -> bool {
     }
 }
 
+/// Asks `dagayn.vendor_grammars` for the pinned source. It returns the
+/// packaged copy only while that copy's marker names the current pin and
+/// patches, so a copy staged from an older pin is replaced.
 fn ensure_source_dir(repo_root: &Path, spec: &GrammarSpec) -> PathBuf {
-    let packaged = repo_root
-        .join("dagayn")
-        .join("_vendor_grammars")
-        .join(spec.language);
-    if is_ready(&packaged, spec) {
-        return packaged;
-    }
-
     let script = format!(
         "from dagayn.vendor_grammars import ensure_vendor_grammar_source; print(ensure_vendor_grammar_source({:?}))",
         spec.language

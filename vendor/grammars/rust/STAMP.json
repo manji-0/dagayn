@@ -1,0 +1,15 @@
+{
+  "language": "rust",
+  "upstream": "tree-sitter/tree-sitter-rust",
+  "commit": "77a3747266f4d621d0757825e6b11edcbf991ca5",
+  "patches": [
+    "0001-accept-tilde-token-in-macro-token-trees.patch",
+    "0002-allow-where-clauses-in-unit-structs.patch",
+    "0003-extern-types.patch"
+  ],
+  "patches_sha256": "f72fb905c8dfd6aee70fb69cd48b51c5a1f278f8de7a2e827be0584a6422b34c",
+  "tree_sitter_cli": "0.26.7",
+  "files": {
+    "src/parser.c": "0634f979c90850c4beefa3cd3f9c72c362c1358aaf5e16d54d2c0a5dde650851"
+  }
+}

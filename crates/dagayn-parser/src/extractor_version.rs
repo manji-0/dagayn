@@ -180,8 +180,11 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 18: a function is a test by its attribute (`#[test]`,
         // `#[tokio::test]`, ...) or a `tests/` path, not by a `test` name
         // prefix: `test_node_json` and `tests_to_run` are helpers.
+        // 19: the grammar carries local patches (vendor/grammar-patches/rust):
+        // `~` in macro token trees, `where` on unit structs, and
+        // `pub type` in extern blocks.
         extractor: "rust",
-        version: 18,
+        version: 19,
         languages: &["rust"],
     },
     ExtractorVersion {
@@ -279,8 +282,11 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // class of another file, `receiver_unknown`, and `receiver_from` for the
         // call it came from) and functions their declared `return_type`.
         // 6: tree-sitter-c-sharp 8c0abe0 (C# 14).
+        // 7: a local grammar patch (vendor/grammar-patches/csharp) parses
+        // `#if` around a binary operand (`a\n#if X\n&& b\n#endif`) and around
+        // initializer elements.
         extractor: "csharp",
-        version: 6,
+        version: 7,
         languages: &["csharp"],
     },
     ExtractorVersion {
