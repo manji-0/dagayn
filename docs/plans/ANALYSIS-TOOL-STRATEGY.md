@@ -125,6 +125,12 @@ questions.
 
 <!-- constrained-by ../ARCHITECTURE.md#post-processing -->
 
+Proposed replacement (2026-10):
+[ARCHITECTURE-TOOL-TARGET.md](./ARCHITECTURE-TOOL-TARGET.md#target-contract)
+replaces the composed health report below with a map of declared units and
+a list of findings. This section describes the current design until that
+ships.
+
 The primary architecture-analysis surface should be
 `architecture_analysis_tool(mode="overview")`.
 
