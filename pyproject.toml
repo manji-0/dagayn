@@ -140,6 +140,10 @@ norecursedirs = ["tests/fixtures"]
 source = ["dagayn"]
 
 [tool.coverage.report]
+# The fail-under check rounds the total to this many decimals before
+# comparing: at the default 0, 79.67% counted as 80% and CI passed while
+# printing "FAIL Required test coverage of 80% not reached".
+precision = 2
 exclude_also = [
     "if TYPE_CHECKING:",
     "if __name__ == .__main__.:",
