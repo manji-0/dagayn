@@ -1,6 +1,6 @@
 """Comprehensive end-to-end integration test for the v2 pipeline.
 
-Exercises: flows, communities, FTS search, analyze_changes,
+Exercises: flows, communities, FTS search,
 find_dead_code, generate_hints, review_changes_prompt,
 generate_wiki, and the Registry API.
 """
@@ -8,7 +8,6 @@ generate_wiki, and the Registry API.
 import tempfile
 from pathlib import Path
 
-from dagayn.changes import analyze_changes
 from dagayn.communities import (
     detect_communities,
     get_communities,
@@ -385,26 +384,6 @@ class TestV2Integration:
         results_func = hybrid_search(self.store, "query", kind="Function")["results"]
         assert len(results_func) > 0
 
-        # ---- Step 5: analyze_changes ----
-        change_result = analyze_changes(
-            self.store,
-            changed_files=["auth.py"],
-            changed_ranges=None,
-            repo_root=None,
-            base="HEAD~1",
-        )
-        assert change_result.summary
-        assert change_result.risk_score is not None
-        assert change_result.changed_functions is not None
-        assert change_result.test_gaps is not None
-        assert isinstance(change_result.risk_score, (int, float))
-        # auth.py has verify_token, logout -- logout should be a test gap
-        # (login has a TESTED_BY edge)
-        gap_names = [g["name"] for g in change_result.test_gaps]
-        assert "verify_token" in gap_names or "logout" in gap_names, (
-            f"Expected at least one test gap in auth.py, got: {gap_names}"
-        )
-
         # ---- Step 6: find_dead_code ----
         candidates = graph_dead_code_candidates(self.store)
         candidate_names = [d["name"] for d in candidates]
@@ -418,14 +397,21 @@ class TestV2Integration:
         # ---- Step 7: generate_hints ----
         reset_session()
         session = get_session()
+        # A review_tool(mode="changes") reply for auth.py (the change
+        # analysis itself runs in Rust; tests/test_review_changes.py covers it).
         hints = generate_hints(
             "detect_changes",
-            change_result.model_dump(),
+            {
+                "summary": "1 changed file(s), 3 changed symbol(s).",
+                "risk_score": 0.85,
+                "test_gaps": [{"name": "verify_token"}, {"name": "logout"}],
+            },
             session,
         )
         assert "next_steps" in hints
-        assert "warnings" in hints
         assert isinstance(hints["next_steps"], list)
+        assert "Test coverage gaps: verify_token, logout" in hints["warnings"]
+        assert any(w.startswith("High risk score (0.85)") for w in hints["warnings"])
 
         # ---- Step 8: review_changes_prompt ----
         prompt_messages = review_changes_prompt(base="HEAD~1")

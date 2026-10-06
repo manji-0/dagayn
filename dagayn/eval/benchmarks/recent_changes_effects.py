@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import importlib
 import logging
-import subprocess
 import tempfile
 import time
 from collections.abc import Callable
@@ -40,64 +39,6 @@ def _speedup(before_ms: float, after_ms: float) -> float:
     if after_ms <= 0:
         return 0.0
     return round(before_ms / after_ms, 2)
-
-
-def _scenario_diff_cache(config: BenchmarkPayload) -> BenchmarkPayload:
-    from dagayn import changes
-
-    repeat = int(config.get("effect_repeat", 1))
-    with tempfile.TemporaryDirectory() as tmpdir:
-        repo = Path(tmpdir)
-        subprocess.run(["git", "init"], cwd=repo, capture_output=True, check=True)
-        subprocess.run(
-            ["git", "config", "user.email", "bench@example.com"],
-            cwd=repo,
-            capture_output=True,
-            check=True,
-        )
-        subprocess.run(
-            ["git", "config", "user.name", "Bench"],
-            cwd=repo,
-            capture_output=True,
-            check=True,
-        )
-        target = repo / "app.py"
-        target.write_text("def main():\n    return 1\n", encoding="utf-8")
-        subprocess.run(["git", "add", "."], cwd=repo, capture_output=True, check=True)
-        subprocess.run(
-            ["git", "commit", "-m", "initial"],
-            cwd=repo,
-            capture_output=True,
-            check=True,
-        )
-        target.write_text("def main():\n    return 2\n", encoding="utf-8")
-
-        uncached_ms, _ = _measure_ms(
-            lambda: (
-                changes.parse_git_diff_ranges(str(repo), "HEAD"),
-                changes.parse_git_diff_ranges(str(repo), "HEAD"),
-            ),
-            repeat=repeat,
-        )
-        changes._parse_diff_result_cached.cache_clear()
-        cached_ms, cached = _measure_ms(
-            lambda: (
-                changes.parse_diff_ranges(str(repo), "HEAD"),
-                changes.parse_diff_ranges(str(repo), "HEAD"),
-            ),
-            repeat=repeat,
-        )
-        changes._parse_diff_result_cached.cache_clear()
-
-    return {
-        "scenario": "parse_diff_ranges_cache",
-        "before_ms": round(uncached_ms, 3),
-        "after_ms": round(cached_ms, 3),
-        "speedup": _speedup(uncached_ms, cached_ms),
-        "before_git_diff_calls": 2,
-        "after_git_diff_calls": 1,
-        "changed_file_count": len(cached[0]),
-    }
 
 
 def _scenario_centrality(store: Any, config: BenchmarkPayload) -> BenchmarkPayload:
@@ -326,9 +267,6 @@ def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[Benchmark
     """Run all recent-change effect measurements."""
     results: list[BenchmarkPayload] = []
 
-    def _diff_cache() -> BenchmarkPayload | list[BenchmarkPayload]:
-        return _scenario_diff_cache(config)
-
     def _centrality() -> BenchmarkPayload | list[BenchmarkPayload]:
         return _scenario_centrality(store, config)
 
@@ -345,7 +283,6 @@ def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[Benchmark
         return _scenario_mcp_latency(repo_path, store, config)
 
     # Keep scenario names stable even when a helper raises before returning.
-    _diff_cache.__name__ = "parse_diff_ranges_cache"
     _centrality.__name__ = "bridge_centrality_persisted_read"
     _dfs.__name__ = "dfs_lazy_fetch"
     _batch_remove.__name__ = "remove_files_data_batch"
@@ -353,7 +290,6 @@ def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[Benchmark
     _mcp_latency.__name__ = "mcp_latency"
 
     scenarios: list[Callable[[], BenchmarkPayload | list[BenchmarkPayload]]] = [
-        _diff_cache,
         _centrality,
         _dfs,
         _batch_remove,

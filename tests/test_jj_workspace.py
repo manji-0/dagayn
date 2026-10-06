@@ -17,7 +17,6 @@ import pytest
 from worktree_fixtures import git as _git
 
 from dagayn import jj_workspace
-from dagayn.changes import parse_git_diff
 from dagayn.graph import GraphStore
 from dagayn.incremental_build import full_build
 from dagayn.incremental_files import (
@@ -32,6 +31,7 @@ from dagayn.incremental_update_pipeline import incremental_update
 from dagayn.jj_workspace import JjWorkspaceError
 from dagayn.paths import get_db_path, is_project_root
 from dagayn.skills.hooks import _SHELL_JJ_WORKSPACE_NARROWING
+from dagayn.tools.review_dispatcher import review_func
 from dagayn.tools.sync_status import assess_graph_sync
 from dagayn.worktree import (
     is_gitignored,
@@ -168,14 +168,23 @@ class TestRealJjWorkspace:
         assert sources["worktree"] == []
 
     def test_diff_ranges_cover_the_working_copy(self, jj_workspace_dir: Path):
+        store = GraphStore(get_db_path(jj_workspace_dir))
+        try:
+            full_build(jj_workspace_dir, store)
+        finally:
+            store.close()
         (jj_workspace_dir / "hello.py").write_text(
-            "def greet():\n    return 'hello'\n\n\ndef wave():\n    return 'bye'\n"
+            "def greet():\n    return 'hi'\n\n\ndef wave():\n    return 'bye'\n"
         )
 
-        result = parse_git_diff(str(jj_workspace_dir), "HEAD")
+        result = review_func(
+            mode="changes", base="HEAD", repo_root=str(jj_workspace_dir), detail_level="verbose"
+        )
 
-        assert result.status == "ok"
-        assert "hello.py" in result.ranges
+        assert result["status"] == "ok", result["summary"]
+        assert result["diff_parse_status"] == "ok"
+        assert "hello.py" in result["changed_files"]
+        assert "greet" in {f["name"] for f in result["changed_functions"]}
 
     def test_ignore_rules_are_the_workspace_s(self, jj_workspace_dir: Path):
         assert is_gitignored(jj_workspace_dir, ".dagayn/graph.db") is True

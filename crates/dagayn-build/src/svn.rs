@@ -1,4 +1,4 @@
-//! SVN working copies, as `dagayn.incremental_files` and `dagayn.changes`
+//! SVN working copies, as `dagayn.incremental_files` and the change analysis
 //! read them: `svn status`, `svn diff --summarize`, `svn diff`, and
 //! `svn info`.
 //!

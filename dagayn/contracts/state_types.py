@@ -72,23 +72,6 @@ class ChangeEdgeRecord(_OpenTypedDict, total=False):
     change_status: Literal["existing", "added", "unknown"]
 
 
-class ChangeStatusCounts(_OpenTypedDict, total=False):
-    existing: int
-    added: int
-    unknown: int
-
-
-class ChangeEntitySummary(_OpenTypedDict, total=False):
-    nodes: ChangeStatusCounts
-    edges: ChangeStatusCounts
-    base: str | None
-
-
-class ChangeAttribution(_OpenTypedDict, total=False):
-    stale_line_range_files: list[str]
-    reason_codes: list[str]
-
-
 ChangeFlowStep: TypeAlias = FlowStepRecord
 
 
@@ -117,26 +100,6 @@ class ChangeFlowRecord(_OpenTypedDict, total=False):
 class AffectedFlowsResult(TypedDict):
     affected_flows: list[ChangeFlowRecord]
     total: int
-
-
-class ChangeTestGap(_OpenTypedDict, total=False):
-    name: str
-    qualified_name: str
-    file: str
-    kind: str
-    language: str
-    line_start: int
-    line_end: int
-    change_status: Literal["existing", "added", "unknown"]
-    coverage_confidence: str
-
-
-class ChangeTestGapEvidence(_OpenTypedDict, total=False):
-    direct_tested_by_edges: bool
-    heuristic_suppression_enabled: bool
-    heuristic_checked_node_count: int
-    heuristic_eligible_node_count: int
-    heuristic_truncated: bool
 
 
 EmbeddingStatusCode: TypeAlias = Literal[
@@ -546,32 +509,6 @@ def build_result_payload(result: BuildResult) -> JsonObject:
     if postprocess:
         payload.update(postprocess)
     return payload
-
-
-class ChangeAnalysisResult(BaseModel):
-    """Typed output of :func:`dagayn.changes.analyze_changes`.
-
-    ``changed_functions`` / ``changed_edges`` / ``test_gaps`` /
-    ``review_priorities`` items are JSON objects kept mutable because callers
-    enrich them in place (e.g. review tools attach ``source`` snippets).
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    summary: str = ""
-    risk_score: float = 0.0
-    review_priority_score: float = 0.0
-    score_semantics: dict[str, str] = Field(default_factory=dict)
-    changed_functions: list[ChangeNodeRecord] = Field(default_factory=list)
-    changed_edges: list[ChangeEdgeRecord] = Field(default_factory=list)
-    change_entity_summary: ChangeEntitySummary = Field(default_factory=ChangeEntitySummary)
-    diff_parse_status: str | None = None
-    unmapped_changed_files: list[str] = Field(default_factory=list)
-    attribution: ChangeAttribution = Field(default_factory=ChangeAttribution)
-    affected_flows: list[ChangeFlowRecord] = Field(default_factory=list)
-    test_gaps: list[ChangeTestGap] = Field(default_factory=list)
-    test_gap_evidence: ChangeTestGapEvidence = Field(default_factory=ChangeTestGapEvidence)
-    review_priorities: list[ChangeNodeRecord] = Field(default_factory=list)
 
 
 class DispatcherErrorResponse(BaseModel):

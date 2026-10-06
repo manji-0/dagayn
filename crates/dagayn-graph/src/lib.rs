@@ -78,8 +78,8 @@ const SECURITY_KEYWORDS: &[&str] = &[
 ];
 
 /// Identifier tokens that start with a security keyword but name ordinary,
-/// non-security concepts. Mirrors `SECURITY_KEYWORD_EXCLUDED_TOKENS` in
-/// `dagayn/constants.py`.
+/// non-security concepts: without them `hashmap` would match `hash`,
+/// `signal` would match `sign`, and `author` would match `auth`.
 const SECURITY_KEYWORD_EXCLUDED_TOKENS: &[&str] = &[
     "hashmap",
     "hashmaps",
@@ -109,7 +109,7 @@ const SECURITY_KEYWORD_EXCLUDED_TOKENS: &[&str] = &[
 /// Splits on every non-ASCII-alphanumeric character, on camelCase /
 /// PascalCase boundaries, on acronym boundaries (`HTTPServer` -> `http`,
 /// `server`), and between letters and digits (`sha256Hash` -> `sha`, `256`,
-/// `hash`). Mirrors `identifier_tokens` in `dagayn/changes.py`.
+/// `hash`).
 pub(crate) fn identifier_tokens(text: &str) -> Vec<String> {
     let chars: Vec<char> = text.chars().collect();
     let n = chars.len();
@@ -171,8 +171,7 @@ pub(crate) fn identifier_tokens(text: &str) -> Vec<String> {
 ///
 /// Matching at token starts keeps inflections (`tokens`, `hashed`,
 /// `signature`, `authenticate`) while dropping mid-word hits such as `design`
-/// or `assign` for `sign`. Mirrors `is_security_sensitive_identifier` in
-/// `dagayn/changes.py`.
+/// or `assign` for `sign`.
 pub(crate) fn identifier_matches_keywords(texts: &[&str], keywords: &[&str]) -> bool {
     texts.iter().any(|text| {
         let tokens = identifier_tokens(text);
@@ -446,7 +445,7 @@ impl ConfidenceTier {
 pub type EdgeEndpointMap = HashMap<String, Vec<GraphEdge>>;
 type ChangedRanges = HashMap<String, Vec<(i64, i64)>>;
 
-/// `compute_risk_score`'s prefetched inputs for one changed node.
+/// `compute_change_risk_score`'s prefetched inputs for one changed node.
 pub struct ChangeRiskInputs<'a> {
     pub node: &'a GraphNode,
     pub inbound_edges: &'a [GraphEdge],

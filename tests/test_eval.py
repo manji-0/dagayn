@@ -457,7 +457,6 @@ def test_runner_with_mock_repo(monkeypatch: pytest.MonkeyPatch) -> None:
             },
         )
         scenarios = {row["scenario"] for row in effect_results}
-        assert "parse_diff_ranges_cache" in scenarios
         assert "bridge_centrality_persisted_read" in scenarios
         assert "dfs_lazy_fetch" in scenarios
         assert "remove_files_data_batch" in scenarios
@@ -969,3 +968,61 @@ def test_scale_performance_emits_four_axes(monkeypatch, tmp_path):
     assert any(row.get("axis") == "query" for row in rows)
     assert any(row.get("axis") == "mcp" for row in rows)
     assert any(row["scenario"] == "embedding" and row["status"] == "skipped" for row in rows)
+
+
+class TestImpactAccuracyBranches:
+    """impact_accuracy reads review_tool(mode="changes"); its replies and
+    failures map to result rows without a repository."""
+
+    @staticmethod
+    def _run(monkeypatch, reply, *, changed=("a.py",), commits=None, parent_error=None):
+        from dagayn.eval.benchmarks import impact_accuracy
+        from dagayn.tools import review_dispatcher
+
+        def ensure_parent(_repo, _sha):
+            if parent_error:
+                raise RuntimeError(parent_error)
+
+        def review(**kwargs):
+            if isinstance(reply, Exception):
+                raise reply
+            assert kwargs["mode"] == "changes"
+            assert kwargs["base"] == "abc~1"
+            return reply
+
+        monkeypatch.setattr(impact_accuracy, "ensure_parent_available", ensure_parent)
+        monkeypatch.setattr(
+            impact_accuracy, "get_commit_changed_files", lambda _repo, _sha: list(changed)
+        )
+        monkeypatch.setattr(review_dispatcher, "review_func", review)
+        config = {"name": "mock", "test_commits": commits or [{"sha": "abc"}]}
+        return impact_accuracy.run(Path("."), None, config)
+
+    def test_predicted_files_come_from_functions_and_changed_flow_steps(self, monkeypatch):
+        reply = {
+            "status": "ok",
+            "changed_functions": [{"file_path": "a.py"}, {"file_path": "b.py"}],
+            "affected_flows": [{"changed_steps": [{"file": "c.py"}, {"file": ""}]}],
+        }
+        commits = [{"sha": "abc", "expected_impacted_files": ["a.py", "c.py", "d.py"]}]
+
+        [row] = self._run(monkeypatch, reply, commits=commits)
+
+        assert row["status"] == "ok"
+        assert row["predicted_files"] == 3
+        assert row["actual_files"] == 3
+        assert row["true_positives"] == 2
+
+    def test_a_review_error_reply_is_an_error_row(self, monkeypatch):
+        [row] = self._run(monkeypatch, {"status": "error", "summary": "base unresolved"})
+        assert (row["status"], row["error"]) == ("error", "base unresolved")
+
+    def test_a_review_exception_is_an_error_row(self, monkeypatch):
+        [row] = self._run(monkeypatch, RuntimeError("store locked"))
+        assert (row["status"], row["error"]) == ("error", "store locked")
+
+    def test_an_unreachable_parent_or_empty_commit_is_reported(self, monkeypatch):
+        [row] = self._run(monkeypatch, {}, parent_error="shallow clone")
+        assert (row["status"], row["error"]) == ("error", "shallow clone")
+        [row] = self._run(monkeypatch, {}, changed=())
+        assert (row["status"], row["error"]) == ("skipped", "no changed files")

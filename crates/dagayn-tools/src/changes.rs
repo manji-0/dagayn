@@ -1,7 +1,9 @@
-//! `dagayn.changes.analyze_changes`, as `detect_changes_func` calls it: diff
-//! ranges against `base`, renames, node attribution, the base revision's
-//! entities, review-priority scores, test gaps, and affected flows, as
-//! `ChangeAnalysisResult.model_dump()` orders them.
+//! The change analysis behind `detect_changes_func` (`review_tool
+//! mode="changes"`) and `get_minimal_context`, ported from the retired
+//! `dagayn/changes.py`: diff ranges against `base`, renames, node
+//! attribution, the base revision's entities, review-priority scores, test
+//! gaps, and affected flows, in the field order that module's
+//! `ChangeAnalysisResult` gave them.
 //!
 //! A git checkout diffs `base` against the working tree; a jj workspace
 //! diffs it (rebased onto `@-` when `HEAD`-relative) against the snapshot
@@ -594,7 +596,7 @@ fn edge_signature(edge: &GraphEdge) -> EdgeSignature {
 
 /// What `analyze_changes` hands back, with the nodes its callers reuse.
 pub(crate) struct Analysis {
-    /// `ChangeAnalysisResult.model_dump()`, in field order.
+    /// The reply fields, in the retired `ChangeAnalysisResult`'s order.
     pub fields: Vec<(&'static str, Value)>,
 }
 

@@ -37,32 +37,37 @@ def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[Benchmark
             results.append({**base, "status": "skipped", "error": "no changed files"})
             continue
 
-        # Get predicted impact from our tool
+        # Get predicted impact from review_tool(mode="changes").
         try:
-            from dagayn.changes import analyze_changes
+            from dagayn.tools.review_dispatcher import review_func
 
-            analysis = analyze_changes(
-                store,
-                changed,
+            analysis = review_func(
+                mode="changes",
                 repo_root=str(repo_path),
-                base=tc["sha"] + "~1",
+                base=sha + "~1",
+                changed_files=changed,
+                detail_level="standard",
             )
-            # Extract files from changed_functions and affected_flows
-            predicted = set(changed)
-            for f in analysis.changed_functions:
-                if isinstance(f, dict) and "file_path" in f:
-                    predicted.add(f["file_path"])
-                elif isinstance(f, dict) and "file" in f:
-                    predicted.add(f["file"])
-            for flow in analysis.affected_flows:
-                if isinstance(flow, dict):
-                    for node in flow.get("nodes", []):
-                        if isinstance(node, dict) and "file_path" in node:
-                            predicted.add(node["file_path"])
         except Exception as exc:
-            logger.warning("analyze_changes failed: %s", exc)
+            logger.warning("review_tool changes failed: %s", exc)
             results.append({**base, "status": "error", "error": str(exc)})
             continue
+        if analysis.get("status") != "ok":
+            error = str(analysis.get("error") or analysis.get("summary") or "review failed")
+            logger.warning("review_tool changes failed: %s", error)
+            results.append({**base, "status": "error", "error": error})
+            continue
+        # Files of the changed functions and of the changed steps of the
+        # affected flows.
+        predicted = set(changed)
+        for f in analysis.get("changed_functions", []):
+            if isinstance(f, dict) and f.get("file_path"):
+                predicted.add(str(f["file_path"]))
+        for flow in analysis.get("affected_flows", []):
+            if isinstance(flow, dict):
+                for step in flow.get("changed_steps", []):
+                    if isinstance(step, dict) and step.get("file"):
+                        predicted.add(str(step["file"]))
 
         expected_files = {str(item) for item in tc.get("expected_impacted_files", [])}
         expected_symbols = {str(item) for item in tc.get("expected_impacted_symbols", [])}

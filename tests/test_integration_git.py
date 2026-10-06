@@ -2,7 +2,7 @@
 
 Tests cover:
 - get_changed_files with real git history
-- parse_git_diff_ranges with real diffs
+- review_tool(mode="changes") diff attribution with real diffs
 - incremental_update detecting real file modifications
 - base ref injection rejection
 - wiki page path traversal protection
@@ -16,7 +16,6 @@ from pathlib import Path
 
 import pytest
 
-from dagayn.changes import analyze_changes, parse_git_diff_ranges
 from dagayn.graph import GraphStore
 from dagayn.incremental_build import full_build
 from dagayn.incremental_files import (
@@ -26,6 +25,8 @@ from dagayn.incremental_files import (
     get_vcs_indexable_files,
 )
 from dagayn.incremental_update_pipeline import incremental_update
+from dagayn.paths import get_db_path
+from dagayn.tools.review_dispatcher import review_func
 from tests.store_sql import store_conn
 
 
@@ -109,49 +110,55 @@ def test_get_changed_file_sources_real_git_separates_committed_from_worktree(
 
 
 # ------------------------------------------------------------------
-# 2. parse_git_diff_ranges with a real git repo
+# 2. review_tool(mode="changes") diff ranges with a real git repo
 # ------------------------------------------------------------------
 
 
-def test_parse_git_diff_ranges_real_git(git_repo: Path) -> None:
-    """parse_git_diff_ranges should return non-empty line ranges for hello.py."""
-    ranges = parse_git_diff_ranges(str(git_repo), base="HEAD~1")
-    assert "hello.py" in ranges
-    assert len(ranges["hello.py"]) > 0
-    # Each entry is a (start, end) tuple with positive line numbers
-    for start, end in ranges["hello.py"]:
-        assert start >= 1
-        assert end >= start
-
-
-def test_analyze_changes_real_git_marks_added_and_existing_nodes(git_repo: Path) -> None:
-    """Base-ref parsing distinguishes existing functions from added functions."""
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-        db_path = f.name
-
+def _build_graph(repo: Path) -> None:
+    store = GraphStore(str(get_db_path(repo)))
     try:
-        store = GraphStore(db_path)
-        (git_repo / "hello.py").write_text(
-            "def greet():\n    return 'hello now'\n\ndef farewell():\n    return 'goodbye'\n"
-        )
-        full_build(git_repo, store)
-
-        result = analyze_changes(
-            store,
-            changed_files=["hello.py"],
-            changed_ranges=parse_git_diff_ranges(str(git_repo), base="HEAD~1"),
-            repo_root=str(git_repo),
-            base="HEAD~1",
-        )
-
-        statuses = {node["name"]: node["change_status"] for node in result.changed_functions}
-        assert statuses["greet"] == "existing"
-        assert statuses["farewell"] == "added"
-        assert result.change_entity_summary["nodes"]["existing"] >= 1
-        assert result.change_entity_summary["nodes"]["added"] >= 1
-        store.close()
+        full_build(repo, store)
     finally:
-        Path(db_path).unlink(missing_ok=True)
+        store.close()
+
+
+def test_review_changes_maps_real_git_diff_ranges_to_functions(git_repo: Path) -> None:
+    """HEAD~1..HEAD only adds ``farewell``: the diff's line ranges attribute
+    the change to it and not to the untouched ``greet`` in the same file."""
+    _build_graph(git_repo)
+
+    result = review_func(
+        mode="changes", base="HEAD~1", repo_root=str(git_repo), detail_level="verbose"
+    )
+
+    assert result["status"] == "ok", result["summary"]
+    assert result["diff_parse_status"] == "ok"
+    assert result["changed_files"] == ["hello.py"]
+    assert [f["name"] for f in result["changed_functions"]] == ["farewell"]
+    assert result["changed_functions"][0]["file_path"] == "hello.py"
+    assert result["attribution"]["stale_line_range_files"] == []
+
+
+def test_review_changes_real_git_marks_added_and_existing_nodes(git_repo: Path) -> None:
+    """Base-ref parsing distinguishes existing functions from added functions."""
+    (git_repo / "hello.py").write_text(
+        "def greet():\n    return 'hello now'\n\ndef farewell():\n    return 'goodbye'\n"
+    )
+    _build_graph(git_repo)
+
+    result = review_func(
+        mode="changes", base="HEAD~1", repo_root=str(git_repo), detail_level="verbose"
+    )
+
+    assert result["status"] == "ok", result["summary"]
+    statuses = {node["name"]: node["change_status"] for node in result["changed_functions"]}
+    assert statuses == {"greet": "existing", "farewell": "added"}
+    assert result["change_entity_summary"]["base"] == "HEAD~1"
+    assert result["change_entity_summary"]["nodes"]["existing"] >= 1
+    assert result["change_entity_summary"]["nodes"]["added"] >= 1
+    edge_status = {edge["target"]: edge["change_status"] for edge in result["changed_edges"]}
+    assert edge_status["hello.py::greet"] == "existing"
+    assert edge_status["hello.py::farewell"] == "added"
 
 
 # ------------------------------------------------------------------

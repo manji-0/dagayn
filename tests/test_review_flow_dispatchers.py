@@ -221,6 +221,7 @@ def test_review_changes_single_commit_repo_returns_graceful_error(tmp_path) -> N
     assert result["mode"] == "changes"
     assert result["called_subtool"] == "detect_changes_func"
     assert "HEAD~1" in result["summary"]
+    assert result["diff_parse_status"] == "base_unresolved"
     reason_codes = [item["reason_code"] for item in result["missingness"]]
     assert "diff_base_unreachable" in reason_codes
 

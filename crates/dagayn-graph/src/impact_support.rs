@@ -92,7 +92,8 @@ impl GraphStore {
         Ok(out)
     }
 
-    /// `dagayn.changes.compute_risk_score` with its inputs prefetched.
+    /// A changed node's review-priority score (the retired Python
+    /// `compute_risk_score`), with its inputs prefetched.
     pub fn compute_change_risk_score(&self, inputs: ChangeRiskInputs<'_>) -> Result<f64> {
         let mut score = 0.0_f64;
 
