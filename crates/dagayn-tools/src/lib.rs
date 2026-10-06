@@ -23,6 +23,7 @@ mod difflib;
 mod docs;
 mod embedding_arm;
 mod ensure;
+mod entry_points;
 mod findings;
 mod flow;
 pub mod hints;

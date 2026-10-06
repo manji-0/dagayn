@@ -131,8 +131,9 @@ def test_flow_routes_modes(monkeypatch) -> None:
         include_source=True,
         repo_root="/repo",
     )
+    flow_dispatcher.flow_func(mode="entry_points", target="helper", repo_root="/repo")
 
-    assert opened == ["/repo", "/repo"]
+    assert opened == ["/repo", "/repo", "/repo"]
     assert calls[0] == (
         "flow_tool",
         {
@@ -155,6 +156,23 @@ def test_flow_routes_modes(monkeypatch) -> None:
             "detail_level": "standard",
         },
     )
+    # entry_points defaults to 10 results, not list's 50.
+    assert calls[2] == (
+        "flow_tool",
+        {
+            "mode": "entry_points",
+            "repo_root": "/repo",
+            "target": "helper",
+            "limit": 10,
+            "detail_level": "standard",
+        },
+    )
+
+
+def test_flow_entry_points_requires_target() -> None:
+    result = flow_dispatcher.flow_func(mode="entry_points")
+    assert result["status"] == "error"
+    assert result["error"] == 'Value error, mode="entry_points" requires target.'
 
 
 def test_flow_get_requires_selector() -> None:

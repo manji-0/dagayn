@@ -142,7 +142,7 @@ GraphSyncLegacyStatus: TypeAlias = Literal[
 
 TraversalMode: TypeAlias = Literal["bfs", "dfs"]
 RefactorMode: TypeAlias = Literal["rename", "dead_code", "suggest"]
-FlowMode: TypeAlias = Literal["list", "get"]
+FlowMode: TypeAlias = Literal["list", "get", "entry_points"]
 ReviewMode: TypeAlias = Literal["changes", "context", "affected_flows", "impact"]
 
 FlowSortBy: TypeAlias = Literal["criticality", "depth", "node_count", "file_count", "name"]
@@ -684,11 +684,28 @@ class FlowGetRequest(_FlowRequestBase):
         return self
 
 
-FlowRequest = Annotated[FlowListRequest | FlowGetRequest, Field(discriminator="mode")]
+class FlowEntryPointsRequest(_FlowRequestBase):
+    mode: Literal["entry_points"]
+    target: str | None = None
+    limit: int = 10
+    detail_level: FlowDetailLevel = "standard"
+
+    @model_validator(mode="after")
+    def require_target(self) -> FlowEntryPointsRequest:
+        if not self.target:
+            raise ValueError('mode="entry_points" requires target.')
+        return self
+
+
+FlowRequest = Annotated[
+    FlowListRequest | FlowGetRequest | FlowEntryPointsRequest, Field(discriminator="mode")
+]
 _FLOW_REQUEST_ADAPTER = TypeAdapter(FlowRequest)
 
 
-def parse_flow_request(**payload: Any) -> FlowListRequest | FlowGetRequest:
+def parse_flow_request(
+    **payload: Any,
+) -> FlowListRequest | FlowGetRequest | FlowEntryPointsRequest:
     """Validate flow dispatcher input."""
     return _FLOW_REQUEST_ADAPTER.validate_python(payload)
 

@@ -1236,7 +1236,7 @@
                 "tags": []
               }
             },
-            "description": "List or inspect flows: the nodes reachable from an entry point.\n\nA flow is a reachable set in BFS order, not a call sequence; use\n``query_graph_tool`` callees_of for call order. ``list`` ranks flows by\n``sort_by``; ``get`` returns one flow's members with file and line.",
+            "description": "Find where code is entered from, or list and inspect stored flows.\n\n``entry_points``: the nearest entry points (main, handlers, FFI exports,\nuncalled functions, trait-dispatched methods) reaching ``target``, each\nwith one shortest call chain; needs no stored flows. ``list``/``get``\nread the flows a full build stores: reachable sets, not call sequences.",
             "inputSchema": {
               "additionalProperties": false,
               "properties": {
@@ -1290,14 +1290,23 @@
                   "description": "(list) Entry-point kind filter, e.g. \"Function\" or \"Test\"."
                 },
                 "limit": {
-                  "default": 50,
-                  "type": "integer"
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Maximum results. Default: 50 flows (list), 10 entry points\n(entry_points)."
                 },
                 "mode": {
                   "default": "list",
                   "enum": [
                     "list",
-                    "get"
+                    "get",
+                    "entry_points"
                   ],
                   "type": "string"
                 },
@@ -1322,6 +1331,18 @@
                     "name"
                   ],
                   "type": "string"
+                },
+                "target": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "(entry_points) Node name or qualified name."
                 }
               },
               "type": "object"
@@ -2687,7 +2708,7 @@
                 "tags": []
               }
             },
-            "description": "List or inspect flows: the nodes reachable from an entry point.\n\nA flow is a reachable set in BFS order, not a call sequence; use\n``query_graph_tool`` callees_of for call order. ``list`` ranks flows by\n``sort_by``; ``get`` returns one flow's members with file and line.",
+            "description": "Find where code is entered from, or list and inspect stored flows.\n\n``entry_points``: the nearest entry points (main, handlers, FFI exports,\nuncalled functions, trait-dispatched methods) reaching ``target``, each\nwith one shortest call chain; needs no stored flows. ``list``/``get``\nread the flows a full build stores: reachable sets, not call sequences.",
             "inputSchema": {
               "additionalProperties": false,
               "properties": {
@@ -2741,14 +2762,23 @@
                   "description": "(list) Entry-point kind filter, e.g. \"Function\" or \"Test\"."
                 },
                 "limit": {
-                  "default": 50,
-                  "type": "integer"
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Maximum results. Default: 50 flows (list), 10 entry points\n(entry_points)."
                 },
                 "mode": {
                   "default": "list",
                   "enum": [
                     "list",
-                    "get"
+                    "get",
+                    "entry_points"
                   ],
                   "type": "string"
                 },
@@ -2773,6 +2803,18 @@
                     "name"
                   ],
                   "type": "string"
+                },
+                "target": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "(entry_points) Node name or qualified name."
                 }
               },
               "type": "object"

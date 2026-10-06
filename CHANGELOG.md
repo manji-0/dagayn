@@ -4,6 +4,18 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Added
+
+- `flow_tool(mode="entry_points", target=...)` answers which entry points
+  reach a symbol, each with one shortest call chain: `main`, framework
+  handlers, FFI exports, conventionally named entries, uncalled functions,
+  module-level scripts, and methods nothing calls statically
+  (`dispatched_method`, reached through a trait, interface, or framework).
+  The search stops at the nearest entry point on each path, never walks
+  test code, and reads no stored flows, so it answers on a graph built
+  without flows. `limit` defaults to 10 here. See
+  `docs/plans/FLOW-TOOL-TARGET.md`.
+
 ### Changed
 
 - `flow_tool(mode="list")` no longer returns each flow's `path` and

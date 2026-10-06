@@ -24,6 +24,7 @@ const DECLARED: &[&str] = &[
     "flow_id",
     "flow_name",
     "include_source",
+    "target",
     "repo_root",
 ];
 const SORT_KEYS: &[&str] = &["criticality", "depth", "node_count", "file_count", "name"];
@@ -40,10 +41,11 @@ pub(crate) fn flow(context: &Context, arguments: &Map<String, Value>) -> Option<
             Some(_) => None,
         }
     };
-    let mode = text("mode", "list", &["list", "get"])?;
+    let mode = text("mode", "list", &["list", "get", "entry_points"])?;
     let sort_by = text("sort_by", "criticality", SORT_KEYS)?;
     let detail_level = text("detail_level", "standard", &["minimal", "standard"])?;
-    let limit = args.integer("limit", 50)?;
+    let limit = args.integer("limit", if mode == "entry_points" { 10 } else { 50 })?;
+    let target = args.optional_string("target")?;
     let kind = args.optional_string("kind")?;
     let flow_id = match arguments.get("flow_id") {
         None | Some(Value::Null) => None,
@@ -66,6 +68,15 @@ pub(crate) fn flow(context: &Context, arguments: &Map<String, Value>) -> Option<
             "Value error, mode=\"get\" requires flow_id or flow_name.",
         );
     }
+    if mode == "entry_points" && target.is_none_or(str::is_empty) {
+        // `FlowEntryPointsRequest.target`.
+        return crate::dispatcher_error(
+            context,
+            &root,
+            &mode,
+            "Value error, mode=\"entry_points\" requires target.",
+        );
+    }
     let runtime = context.runtime.clone()?;
     let graph = open_graph(&root)?;
     let answerability = graph.answerability()?;
@@ -80,6 +91,15 @@ pub(crate) fn flow(context: &Context, arguments: &Map<String, Value>) -> Option<
             &detail_level,
         )?;
         ("list_flows", out)
+    } else if mode == "entry_points" {
+        let out = crate::entry_points::entry_points(
+            &graph.store,
+            &answerability,
+            target.unwrap_or_default(),
+            limit,
+            &detail_level,
+        )?;
+        ("entry_points", out)
     } else {
         let out = get_flow(
             &graph.store,

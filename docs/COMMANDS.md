@@ -302,7 +302,7 @@ narrow `--tools` allow-list:
 
 ```bash
 dagayn tool review_tool --arg mode='"impact"' --arg 'changed_files=["src/app.py"]' --arg max_depth=3
-dagayn tool flow_tool --arg mode='"list"' --arg detail_level='"minimal"'
+dagayn tool flow_tool --arg mode='"entry_points"' --arg target='"save_user"'
 dagayn tool architecture_analysis_tool --arg mode='"overview"' --format summary
 ```
 
@@ -844,6 +844,12 @@ Migration note for dagayn 3.0: v2 split architecture MCP/CLI tools such as
 Review and execution-flow drill-downs are also dispatcher-based in v3. Use
 `review_tool(mode="changes"|"context"|"affected_flows"|"impact")` and
 `flow_tool(mode="list"|"get")` instead of the v2 split MCP/CLI tools.
+
+`flow_tool(mode="entry_points", target=...)` answers which entry points reach
+a symbol: the nearest `main`, framework handler, FFI export, conventionally
+named entry, uncalled function, or method only a trait or framework calls
+(`dispatched_method`) on each path, with one shortest call chain each. It is
+computed at query time and needs no stored flows; test code is never walked.
 
 `refactor_tool(mode="suggest")` returns graph-backed remove, move, split, and
 document candidates. They are leads (structure, not correctness): confirm them

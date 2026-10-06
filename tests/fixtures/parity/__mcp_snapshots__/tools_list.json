@@ -120,7 +120,8 @@
           "limit": "integer",
           "mode": "string",
           "repo_root": "string",
-          "sort_by": "string"
+          "sort_by": "string",
+          "target": "string"
         },
         "required": []
       },
@@ -318,7 +319,8 @@
           "limit": "integer",
           "mode": "string",
           "repo_root": "string",
-          "sort_by": "string"
+          "sort_by": "string",
+          "target": "string"
         },
         "required": []
       },

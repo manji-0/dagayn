@@ -756,27 +756,32 @@ async def review_tool(
 
 @mcp.tool()
 def flow_tool(
-    mode: Literal["list", "get"] = "list",
+    mode: Literal["list", "get", "entry_points"] = "list",
     sort_by: Literal["criticality", "depth", "node_count", "file_count", "name"] = "criticality",
-    limit: int = 50,
+    limit: Optional[int] = None,
     kind: Optional[str] = None,
     detail_level: Literal["minimal", "standard"] = "standard",
     flow_id: Optional[int] = None,
     flow_name: Optional[str] = None,
     include_source: bool = False,
+    target: Optional[str] = None,
     repo_root: Optional[str] = None,
 ) -> ToolPayload:
-    """List or inspect flows: the nodes reachable from an entry point.
+    """Find where code is entered from, or list and inspect stored flows.
 
-    A flow is a reachable set in BFS order, not a call sequence; use
-    ``query_graph_tool`` callees_of for call order. ``list`` ranks flows by
-    ``sort_by``; ``get`` returns one flow's members with file and line.
+    ``entry_points``: the nearest entry points (main, handlers, FFI exports,
+    uncalled functions, trait-dispatched methods) reaching ``target``, each
+    with one shortest call chain; needs no stored flows. ``list``/``get``
+    read the flows a full build stores: reachable sets, not call sequences.
 
     Args:
+        limit: Maximum results. Default: 50 flows (list), 10 entry points
+            (entry_points).
         kind: (list) Entry-point kind filter, e.g. "Function" or "Test".
         flow_id: (get) Flow id from ``list``; wins over flow_name.
         flow_name: (get) Partial name match.
         include_source: (get) Add member source snippets.
+        target: (entry_points) Node name or qualified name.
     """
     return _tool("flow_dispatcher:flow_func")(
         mode=mode,
@@ -787,6 +792,7 @@ def flow_tool(
         flow_id=flow_id,
         flow_name=flow_name,
         include_source=include_source,
+        target=target,
         repo_root=_resolve_repo_root(repo_root),
     )
 

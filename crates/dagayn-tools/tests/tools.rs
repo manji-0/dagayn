@@ -1199,6 +1199,55 @@ fn flow_tool_lists_and_reads_stored_flows() {
 }
 
 #[test]
+fn flow_tool_finds_the_entry_points_that_reach_a_target() {
+    let repo = Repo::new("entry", true);
+    repo.build();
+    let context = Context {
+        runtime: Some(json!({})),
+        ..repo.context()
+    };
+    let found = answer(
+        &context,
+        "flow_tool",
+        json!({"mode": "entry_points", "target": "helper"}),
+    );
+    assert_eq!(found["called_subtool"], "entry_points");
+    assert_eq!(found["target"], "app.py::helper");
+    // `test_main` also calls main, through test code that is not walked.
+    assert_eq!(
+        found["entry_points"],
+        json!([{
+            "entry_point": "app.py::main",
+            "kind": "main",
+            "hops": 1,
+            "chain": ["app.py::main", "app.py::helper"],
+            "file": "app.py",
+            "line": 1,
+        }])
+    );
+    assert_eq!(found["entry_points_omitted"], 0);
+
+    let minimal = answer(
+        &context,
+        "flow_tool",
+        json!({"mode": "entry_points", "target": "app.py::helper", "detail_level": "minimal"}),
+    );
+    assert!(minimal["entry_points"][0].get("file").is_none());
+
+    let missing = answer(
+        &context,
+        "flow_tool",
+        json!({"mode": "entry_points", "target": "nowhere"}),
+    );
+    assert_eq!(missing["status"], "not_found");
+    let unnamed = answer(&context, "flow_tool", json!({"mode": "entry_points"}));
+    assert_eq!(
+        unnamed["error"],
+        "Value error, mode=\"entry_points\" requires target."
+    );
+}
+
+#[test]
 fn architecture_metrics_follow_the_requested_view() {
     let repo = Repo::new("arch", true);
     repo.write(
