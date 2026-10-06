@@ -93,8 +93,18 @@ fn dead_code(
     file_pattern: Option<&str>,
     limit: i64,
 ) -> Option<Ordered> {
-    let report = crate::dead_code::dead_code_report(store, kind, file_pattern)?;
-    let dead = report.dead;
+    let mut report = crate::dead_code::dead_code_report(store, kind, file_pattern)?;
+    // Samples under fixtures/ and testdata/ are written to be parsed, not
+    // called: count them as left out instead of listing them as dead. The
+    // suggest mode still ranks them, last.
+    let (fixtures, dead): (Vec<Value>, Vec<Value>) = report.dead.into_iter().partition(|item| {
+        item["qualified_name"]
+            .as_str()
+            .is_some_and(|qn| is_fixture_path(qn.split("::").next().unwrap_or(qn)))
+    });
+    if !fixtures.is_empty() {
+        *report.suppressed.entry("test_fixture").or_default() += fixtures.len();
+    }
     let total = dead.len();
     let truncated = total as i64 > limit;
     let left_out: usize = report.suppressed.values().sum();
@@ -520,4 +530,25 @@ fn rename(
         );
     let hint = hints::generate_hints("refactor", &out.value(), &mut hints::session(), exposed);
     Some(out.put("_hints", hint))
+}
+
+/// A path under a `fixtures/` or `testdata/` directory.
+fn is_fixture_path(path: &str) -> bool {
+    path.split(['/', '\\'])
+        .rev()
+        .skip(1)
+        .any(|part| matches!(part, "fixtures" | "testdata"))
+}
+
+#[cfg(test)]
+mod fixture_tests {
+    use super::is_fixture_path;
+
+    #[test]
+    fn fixture_paths_are_recognised() {
+        assert!(is_fixture_path("tests/fixtures/sample.py"));
+        assert!(is_fixture_path("pkg/testdata/in.go"));
+        assert!(!is_fixture_path("dagayn/fixture_loader.py"));
+        assert!(!is_fixture_path("src/fixtures.rs"));
+    }
 }
