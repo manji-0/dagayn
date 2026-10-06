@@ -139,10 +139,17 @@ from the CLI.
 Codex hooks in `~/.codex/config.toml`, unless `--no-hooks` is used. Claude hooks
 are written to `~/.claude/settings.json`.
 
-`architecture_analysis_tool(mode="overview")` returns `architecture_health`, a
-bounded composed summary of coupling, hubs, bridges, knowledge gaps, surprising
-connections, and ADP/SDP/SAP signals. v2 split architecture tools were removed;
-use `architecture_analysis_tool(mode=...)` for drill-downs.
+`architecture_analysis_tool(mode="overview")` returns a map of the units the
+repository declares (`units`: Cargo crates, npm packages, Go modules, Python
+import packages, Terraform modules; `unit_edges`: the calls, imports,
+references, and bridges between them, `declared` when a manifest lists the
+dependency) and `findings`: `import_cycle` (modules that import each other at
+load time, with the imports to cut), `untested_core` (code used from many files
+that no test reaches through its callers), and `broken_doc_link` (a directive
+pointing at a file, section, or symbol that is gone). An empty `findings` list
+means nothing structural to act on. `detail_level="standard"` adds each unit's
+`surface`; the community health report (`architecture_health`) is at
+`"verbose"` until the next release. SDP and SAP modes compute per declared unit.
 
 `dagayn visualize` is the static graph export surface. It requires `--format` and supports `graphml`, `mermaid-c4`, `svg`, `cypher`, and `obsidian`.
 </section>

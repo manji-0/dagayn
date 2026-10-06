@@ -33,7 +33,7 @@ All notable changes to `dagayn` are documented here.
   `stable_component_policy`, `answerability`) moves behind
   `detail_level="verbose"`, listed in `deprecated_fields`, for one release.
   `minimal` is the map and the findings; `standard` adds each unit's
-  `surface`. On this repository `minimal` went from 18,952 to 7,265
+  `surface`. On this repository `minimal` went from 18,952 to 7,205
   characters. The `hubs`, `bridges`, `knowledge_gaps`,
   `surprising_connections`, and `adp_violations` modes and
   `get_suggested_questions_tool` answer with a `deprecated` note naming

@@ -13,7 +13,9 @@ measures are directories rather than anything a language declares, and none
 of the top results on this repository is something to act on. This note
 defines the target contract, the evidence behind it, and the order of work.
 
-Status: proposed. Nothing below has shipped.
+Status: shipped. The overview answers with the map and `findings` (see
+[Result](#result)); the evidence below describes the output before that
+change.
 
 ## Target contract
 
@@ -124,6 +126,46 @@ The graph also lacks two facts the findings need: Python import edges carry
 no marker for function-local or `TYPE_CHECKING` imports (both are stored
 with the file as source and no context in `extra`), and Cargo, npm, and Go
 manifests are indexed only when a cross-artifact bridge points at them.
+
+## Result
+
+<!-- derived-from #evidence-the-current-output -->
+
+Measured on the same snapshot of this repository after the change, rebuilt
+with the new extractors:
+
+| | Before | After |
+|---|---|---|
+| `overview` output, `minimal` (chars) | 18,952 | 7,205 |
+| `overview` output, `standard` (chars) | 19,065 | 9,553 |
+| Summary | 569 communities, 5 coupled pairs, 51 warnings | 17 units, 25 dependency pairs, 6 `broken_doc_link` |
+| package-level `adp_violations` | 21 | 0 |
+| `sdp_violations` | 8 | 0 |
+| `sap_violations` | 7 | 2 |
+
+- **The map reads as the layering.** 17 units: 10 Cargo crates, the Python
+  package, the VS Code extension's npm package, and 5 top-level directories
+  (`tools`, `eval`, `scripts`, `diagrams`, `hooks`). Every edge between two
+  crates matches a dependency their `Cargo.toml` declares, and
+  `dagayn-parser → dagayn-grammars`, which the graph cannot see (the calls
+  sit inside a macro), shows up from the manifest alone.
+- **All six findings are real.** Four directives in
+  `docs/plans/DAGAYN-FEATURE-INTERFACE-REMEDIATION-PLAN.md` name functions of
+  the deleted `dagayn/tools/review.py`, and two (lines 205, 206) name Python
+  functions of `dagayn/refactor/suggestions.py` that moved to
+  `crates/dagayn-tools/src/suggestions.rs`. The two were not in the earlier
+  count because the graph keeps such links at `LOW` instead of dropping them.
+  No `import_cycle` or `untested_core`, as expected for a repository whose
+  Python modules have no cycle and whose most used code is tested.
+- **The cycles and violations were artifacts.** With units in place of
+  directories, the package cycles and the SDP violations disappear. Two
+  more came from matching an unresolved target by name: `import abc` in
+  `dagayn/` resolved to a TypeScript namespace `abc` in a test fixture.
+  Imports and standard-library or third-party targets are no longer matched
+  by name.
+- **The eval:** 15 cases (9 negative, 6 positive); every kind has precision
+  and recall 1.00 and every negative case is silent. The same findings come
+  out of a graph built with `--skip-postprocess`.
 
 ## The map
 

@@ -379,11 +379,12 @@ class TestGenerateSkills:
             assert "Otherwise skip ensure" in content
             assert "Do not call `ensure_graph_tool(force=True)` on every" in content
 
-    def test_explore_skill_uses_architecture_health(self, tmp_path):
-        """Generated exploration skill should use the composed architecture surface."""
+    def test_explore_skill_uses_the_unit_map(self, tmp_path):
+        """Generated exploration skill should read the overview's unit map."""
         skills_dir = generate_skills(tmp_path)
         content = (skills_dir / "explore-codebase" / "SKILL.md").read_text()
-        assert "architecture_health" in content
+        assert "unit_edges" in content
+        assert "architecture_health" not in content
         assert "architecture_analysis_tool" in content
         assert "flow_tool" in content
 
@@ -1485,7 +1486,8 @@ class TestInjectClaudeMd:
         assert "--tools" in content
         assert "--tool-profile" not in content
         assert "read `findings`" in content
-        assert "architecture_health" in content
+        assert "unit_edges" in content
+        assert "architecture_health" not in content
         assert "architecture_analysis_tool" in content
         assert "review_tool" in content
         assert "flow_tool" in content
@@ -1789,7 +1791,8 @@ class TestInjectPlatformInstructionsFiltering:
         assert "--tools" in content
         assert "--tool-profile" not in content
         assert "read `findings`" in content
-        assert "architecture_health" in content
+        assert "unit_edges" in content
+        assert "architecture_health" not in content
         assert "architecture_analysis_tool" in content
         assert "Drill-down tools" in content
 

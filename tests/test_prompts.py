@@ -61,9 +61,10 @@ class TestArchitectureMapPrompt:
             assert "content" in msg
             assert msg["role"] == "user"
 
-    def test_mentions_communities(self):
+    def test_mentions_the_unit_map(self):
         result = architecture_map_prompt()
-        assert "communities" in result[0]["content"].lower()
+        assert "unit_edges" in result[0]["content"]
+        assert "findings" in result[0]["content"]
 
     def test_mentions_mermaid(self):
         result = architecture_map_prompt()

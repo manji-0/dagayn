@@ -649,24 +649,29 @@ def architecture_analysis_tool(
         "artifact_trace",
     ] = "strict_static",
 ) -> ToolPayload:
-    """Analyze architecture: health, clusters, hotspots, cycles, stability.
+    """Map the repository's units and report structural findings.
 
-    Start with ``overview`` and read ``architecture_health``; run one drill-down
-    for a risk it names.
+    ``overview`` returns ``units`` (the crates, packages, and modules the
+    manifests declare), ``unit_edges`` (calls, imports, references, and bridges
+    between two units; ``declared`` when a manifest lists the dependency), and
+    ``findings``: ``import_cycle`` (with the imports to cut), ``untested_core``,
+    ``broken_doc_link``. An empty ``findings`` list means nothing structural to
+    act on. ``detail_level="standard"`` adds each unit's ``surface``.
 
-    Modes: overview; communities, or one community by ``community_name`` /
-    ``community_id``; hubs and bridges (blast-radius hotspots); knowledge_gaps;
-    surprising_connections; adp_violations (dependency cycles); sdp_metrics and
-    sdp_violations (a unit depending on a less stable one by more than
-    ``min_delta``); sap_metrics and sap_violations (abstractness vs instability;
-    scopes farther than ``min_distance`` from the main sequence).
+    Metric modes, per declared unit: sdp_metrics and sdp_violations (a unit
+    depending on a less stable one by more than ``min_delta``); sap_metrics and
+    sap_violations (abstractness vs instability; farther than ``min_distance``
+    from the main sequence). communities / community: graph clusters (need full
+    post-processing). Deprecated, removed next release: hubs, bridges,
+    knowledge_gaps, surprising_connections, adp_violations.
 
-    Trust: reason codes, rankings, and metrics are structure leads, not design
-    bugs; cite their counts and thresholds.
+    Trust: a finding is a claim to confirm at its location before stating it;
+    metrics are structure leads, so cite their counts and thresholds.
 
     Args:
-        granularity: (adp, sdp) "package" (default) or "file".
-        scope_kind: (sap) "package" (default), "directory", or "file".
+        granularity: (adp, sdp) "package" (declared units; default) or "file".
+        scope_kind: (sap) "package" (declared units; default), "directory",
+            or "file".
         unit_filter: (sap_metrics) Scope-key prefixes to keep.
         artifact_scope: "code" (default), "docs" (Markdown), or "all".
         dependency_profile: (adp, sdp, sap) Edges counted: "strict_static"
