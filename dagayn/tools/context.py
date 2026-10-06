@@ -28,7 +28,7 @@ def get_minimal_context(
     task: str = "",
     changed_files: list[str] | None = None,
     repo_root: str | None = None,
-    base: str = "HEAD~1",
+    base: str | None = None,
     detail_level: str = "minimal",
     *,
     auto_prepare: bool = False,

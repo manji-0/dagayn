@@ -193,6 +193,20 @@ pub fn staged_and_unstaged(repo_root: &Path) -> Result<Vec<String>, ChangeError>
     }
 }
 
+/// The base a review diffs against when the caller names none: `HEAD`
+/// while a git checkout has staged or unstaged changes to tracked files (the
+/// work in progress alone), `HEAD~1` otherwise (the last commit). Untracked
+/// files alone keep `HEAD~1`; they are still listed as changed either way.
+pub fn default_review_base(repo_root: &Path) -> &'static str {
+    if detect_vcs(repo_root) != Vcs::Git {
+        return "HEAD~1";
+    }
+    match worktree_sources(repo_root) {
+        Ok(worktree) if !worktree.staged.is_empty() || !worktree.unstaged.is_empty() => "HEAD",
+        _ => "HEAD~1",
+    }
+}
+
 /// What `_git_diff_cache_stamp` raises before the diff is parsed: the
 /// `git rev-parse HEAD` and `git status --porcelain` text it decodes as
 /// UTF-8 (paths stay quoted unless `core.quotePath` is off). `None` in an

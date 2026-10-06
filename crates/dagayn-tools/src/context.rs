@@ -377,9 +377,9 @@ pub(crate) fn get_minimal_context(
             .collect::<Option<_>>()?,
         Some(_) => return None,
     };
-    let base = match arguments.get("base") {
-        None => "HEAD~1",
-        Some(Value::String(base)) => base,
+    let explicit_base = match arguments.get("base") {
+        None => None,
+        Some(Value::String(base)) => Some(base.as_str()),
         Some(_) => return None,
     };
     let max_risk_files = max_risk_files()?;
@@ -389,6 +389,8 @@ pub(crate) fn get_minimal_context(
         .filter(|mode| !mode.is_empty())
         .unwrap_or("none");
     let root = resolve_repo(context, args.optional_string("repo_root")?)?;
+    // As `review_tool`: a dirty tree reviews its work in progress.
+    let base = explicit_base.unwrap_or_else(|| dagayn_build::default_review_base(&root));
     // `git`: `GIT_BACKED_VCS`, whose commit tier `commit_tier_from_sync` reads.
     let (git, vcs) = match detect_vcs(&root) {
         Vcs::Git => (true, "git"),

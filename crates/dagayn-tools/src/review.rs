@@ -60,8 +60,10 @@ struct Request<'a> {
 
 impl<'a> Request<'a> {
     fn parse(args: &Args<'a>, arguments: &'a Map<String, Value>) -> Option<Self> {
+        // No base: `review` picks one from the working tree once the repo
+        // root is known.
         let base = match arguments.get("base") {
-            None => "HEAD~1",
+            None => "",
             Some(Value::String(base)) => base.as_str(),
             Some(_) => return None,
         };
@@ -115,9 +117,12 @@ pub(crate) fn review(context: &Context, arguments: &Map<String, Value>) -> Optio
         }
         _ => return None,
     };
-    let request = Request::parse(&args, arguments)?;
+    let mut request = Request::parse(&args, arguments)?;
     let runtime = context.runtime.clone()?;
     let root = resolve_repo(context, args.optional_string("repo_root")?)?;
+    if !arguments.contains_key("base") {
+        request.base = dagayn_build::default_review_base(&root);
+    }
     let graph = open_graph(&root)?;
     let answerability = graph.answerability()?;
     let exposed = |tool: &str| context.exposes(tool);

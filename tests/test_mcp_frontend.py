@@ -1016,14 +1016,18 @@ def test_review_answers_in_rust_as_python_does(git_repo: Path, change: str) -> N
         ),
         (review, {"mode": "affected_flows", "changed_files": ["test_app.py"]}),
         (review, {"mode": "impact", "changed_files": ["test_app.py"], "detail_level": "verbose"}),
+        (review, {"mode": "changes", "base": "HEAD~1"}),
     ]
     rust, python, stderr = _session_both(git_repo, calls)
     assert stderr.count(REVIEW_TRACE) == len(calls)
     assert rust == python
     if change == "dirty":
-        # A single-commit repository has no HEAD~1: changes on the default
-        # base reports the unresolved diff base.
-        assert rust[12]["structuredContent"]["diff_parse_status"] == "base_unresolved"
+        # Tracked edits: the default base is HEAD, the work in progress.
+        default = rust[12]["structuredContent"]
+        assert default["status"] == "ok"
+        assert default["change_entity_summary"]["base"] == "HEAD"
+        # A single-commit repository has no HEAD~1 to name explicitly.
+        assert rust[-1]["structuredContent"]["diff_parse_status"] == "base_unresolved"
     unscoped = rust[25]["structuredContent"]
     assert unscoped["status"] == "error"
     assert unscoped["error"] == "'baseline_comparison'"

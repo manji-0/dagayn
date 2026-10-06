@@ -568,9 +568,16 @@
               "additionalProperties": false,
               "properties": {
                 "base": {
-                  "default": "HEAD~1",
-                  "description": "Git ref for change detection. Default: HEAD~1.",
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Git ref for change detection. Default: HEAD while tracked files\nhave uncommitted changes, else HEAD~1."
                 },
                 "changed_files": {
                   "anyOf": [
@@ -1130,9 +1137,16 @@
               "additionalProperties": false,
               "properties": {
                 "base": {
-                  "default": "HEAD~1",
-                  "description": "Git ref to diff against, plus staged, unstaged, and untracked\nfiles. Default: HEAD~1. For a branch pass ``git merge-base main HEAD``.",
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Git ref to diff against, plus staged, unstaged, and untracked\nfiles. Default: HEAD while tracked files have uncommitted changes\n(the work in progress), else HEAD~1 (the last commit). For a branch\npass ``git merge-base main HEAD``."
                 },
                 "changed_files": {
                   "anyOf": [
@@ -2159,9 +2173,16 @@
               "additionalProperties": false,
               "properties": {
                 "base": {
-                  "default": "HEAD~1",
-                  "description": "Git ref for change detection. Default: HEAD~1.",
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Git ref for change detection. Default: HEAD while tracked files\nhave uncommitted changes, else HEAD~1."
                 },
                 "changed_files": {
                   "anyOf": [
@@ -2567,9 +2588,16 @@
               "additionalProperties": false,
               "properties": {
                 "base": {
-                  "default": "HEAD~1",
-                  "description": "Git ref to diff against, plus staged, unstaged, and untracked\nfiles. Default: HEAD~1. For a branch pass ``git merge-base main HEAD``.",
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Git ref to diff against, plus staged, unstaged, and untracked\nfiles. Default: HEAD while tracked files have uncommitted changes\n(the work in progress), else HEAD~1 (the last commit). For a branch\npass ``git merge-base main HEAD``."
                 },
                 "changed_files": {
                   "anyOf": [

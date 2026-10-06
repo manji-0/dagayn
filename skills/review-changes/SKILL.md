@@ -18,8 +18,9 @@ first and open source only where it can change the verdict.
    automatically: use `ensure_graph_tool(force=True)` when uncommitted edits
    matter and hooks have not caught up.
 2. **Summarize the change**: `review_tool(mode="changes", base=...)`. Change
-   detection is the `base` diff (default `HEAD~1`) plus staged, unstaged, and
-   untracked files, so pass the merge base (`git merge-base main HEAD`) to
+   detection is the `base` diff plus staged, unstaged, and untracked files
+   (with no `base`: `HEAD` while tracked files have uncommitted edits, else
+   `HEAD~1`), so pass the merge base (`git merge-base main HEAD`) to
    review a whole branch; plain `base="main"` also counts commits that landed
    on `main` after the branch point, as reversed changes. At `detail_level="minimal"` the result is flat: read `risk_level`,
    `reason_codes`, `recommended_tests`, `affected_flow_rankings`,

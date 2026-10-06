@@ -25,7 +25,7 @@ def test_review_wrapper_exposes_typed_dispatch_args() -> None:
     ):
         assert name in params
     assert params["mode"].default == "changes"
-    assert params["base"].default == "HEAD~1"
+    assert params["base"].default is None
 
 
 def test_flow_wrapper_exposes_typed_dispatch_args() -> None:
@@ -215,7 +215,7 @@ def _init_single_commit_repo(tmp_path) -> str:
 def test_review_changes_single_commit_repo_returns_graceful_error(tmp_path) -> None:
     repo_root = _init_single_commit_repo(tmp_path)
 
-    result = review_dispatcher.review_func(mode="changes", repo_root=repo_root)
+    result = review_dispatcher.review_func(mode="changes", repo_root=repo_root, base="HEAD~1")
 
     assert result["status"] == "error"
     assert result["mode"] == "changes"
@@ -223,6 +223,16 @@ def test_review_changes_single_commit_repo_returns_graceful_error(tmp_path) -> N
     assert "HEAD~1" in result["summary"]
     reason_codes = [item["reason_code"] for item in result["missingness"]]
     assert "diff_base_unreachable" in reason_codes
+
+
+def test_review_changes_defaults_to_head_on_a_dirty_tree(tmp_path) -> None:
+    repo_root = _init_single_commit_repo(tmp_path)
+
+    result = review_dispatcher.review_func(mode="changes", repo_root=repo_root)
+
+    assert result["status"] == "ok"
+    assert result["change_entity_summary"]["base"] == "HEAD"
+    assert result["changed_files"] == ["app.py"]
 
 
 def test_review_dispatcher_routes_store_errors_into_its_envelope(monkeypatch) -> None:

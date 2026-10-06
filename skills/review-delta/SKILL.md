@@ -21,8 +21,10 @@ has the compact workflow if you want it in context.
    review. Do not call `ensure_graph_tool(force=True)` on every review: a
    forced refresh re-parses the changed files each time.
 3. **Get the risk summary**: `review_tool(mode="changes",
-   detail_level="minimal")`. The default `base="HEAD~1"` covers the last commit
-   plus staged, unstaged, and untracked files; pass `base=` to widen it. Read
+   detail_level="minimal")`. With no `base`, a tree with uncommitted edits to
+   tracked files reviews only that work in progress (`HEAD`); a clean tree
+   reviews the last commit (`HEAD~1`). Untracked files count either way; pass
+   `base=` to widen it. Read
    the flat fields: `risk_level`, `reason_codes`, `changed_node_count`,
    `impacted_node_count`, `recommended_tests`, `affected_flow_rankings`,
    `documentation_update_candidates`, `architecture_delta`, `next_drill_downs`

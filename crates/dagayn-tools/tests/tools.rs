@@ -230,7 +230,7 @@ fn minimal_context_routes_the_task_and_reports_health() {
     let risky = answer(
         &context,
         "get_minimal_context_tool",
-        json!({"changed_files": ["app.py"]}),
+        json!({"changed_files": ["app.py"], "base": "HEAD~1"}),
     );
     assert_eq!(risky["risk"], "low");
     assert!(
@@ -1002,6 +1002,24 @@ fn review_changes_scores_the_diff_against_base() {
         json!({"mode": "affected_flows", "base": "bad ref"}),
     );
     assert_eq!(flows["summary"], "No changed files detected.");
+
+    // No base: a clean tree reviews the last commit, a dirty one only its
+    // work in progress.
+    assert_eq!(changes["change_entity_summary"]["base"], "HEAD~1");
+    repo.write(
+        "app.py",
+        "def main():\n    return helper()\n\n\ndef helper():\n    return 3\n\n\ndef auth_token():\n    return 2\n",
+    );
+    repo.build();
+    let dirty = answer(&context, "review_tool", json!({}));
+    assert_eq!(dirty["change_entity_summary"]["base"], "HEAD");
+    let names: Vec<&str> = dirty["changed_functions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|f| f["name"].as_str())
+        .collect();
+    assert_eq!(names, ["helper"]);
 }
 
 #[test]

@@ -123,7 +123,7 @@ FIXTURE_CASES: dict[str, list[tuple[str, str, dict[str, Any]]]] = {
             "review_tool",
             {"mode": "changes", "base": "HEAD", "changed_files": ["src/functions.ts"]},
         ),
-        # The fixture is one commit: the default base HEAD~1 does not resolve.
+        # The fixture is one clean commit: the default base HEAD~1 does not resolve.
         ("review_bad_base", "review_tool", {"mode": "changes", "changed_files": ["src/calls.ts"]}),
     ],
     "javascript": [

@@ -102,16 +102,23 @@ What the numbers mean:
 - **The design already admits part of this.** `score_semantics` calls
   `risk_score` a "legacy alias".
 
-Open question: the default `base` is `HEAD~1` plus staged, unstaged, and
-untracked files. On a dirty tree that re-reviews the previous commit together
-with the work in progress; a commit hook reviewing a 2-file change reported
-21 files. Whether the default should be `HEAD` when the tree is dirty is part
-of this contract.
+Default base: `HEAD~1` plus staged, unstaged, and untracked files. On a
+dirty tree that re-reviews the previous commit together with the work in
+progress; a commit hook reviewing a 2-file change reported 21 files.
+
+## Decisions (2026-10-06)
+
+- The six finding kinds below go ahead; the eval still gates each one.
+- `risk_level`, `review_priorities`, and the always-on reason codes move
+  behind `detail_level="verbose"` for one release, then go. The MCP parity
+  snapshots are regenerated for the new contract.
+- With no explicit `base`, a dirty working tree reviews against `HEAD` (the
+  work in progress only); a clean tree keeps `HEAD~1` (the last commit).
 
 ## Finding kinds
 
-Proposed set, each with the graph fact it rests on. Pending approval; the
-eval decides which ship.
+Approved set, each with the graph fact it rests on; the eval decides which
+ship.
 
 | Kind | Fires when | Evidence | Action |
 |---|---|---|---|

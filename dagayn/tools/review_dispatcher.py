@@ -36,7 +36,7 @@ _SUBTOOLS: dict[str, str] = {
 def review_func(
     mode: ReviewMode = "changes",
     changed_files: list[str] | None = None,
-    base: str = "HEAD~1",
+    base: str | None = None,
     include_source: bool | None = None,
     max_depth: int = 2,
     max_nodes: int = 50,

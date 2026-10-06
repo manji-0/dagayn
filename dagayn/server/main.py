@@ -389,7 +389,7 @@ async def get_minimal_context_tool(
     task: str = "",
     changed_files: Optional[list[str]] = None,
     repo_root: Optional[str] = None,
-    base: str = "HEAD~1",
+    base: Optional[str] = None,
 ) -> ToolPayload:
     """Get compact context for any task. Call this first.
 
@@ -405,7 +405,8 @@ async def get_minimal_context_tool(
     Args:
         task: What you are doing (e.g. "review PR #42", "debug login timeout").
         changed_files: Explicit changed files. Auto-detected if omitted.
-        base: Git ref for change detection. Default: HEAD~1.
+        base: Git ref for change detection. Default: HEAD while tracked files
+            have uncommitted changes, else HEAD~1.
     """
     effective_local_embedding = _resolve_local_embedding(None) or "none"
     return await asyncio.to_thread(
@@ -697,7 +698,7 @@ def architecture_analysis_tool(
 @mcp.tool()
 async def review_tool(
     mode: Literal["changes", "context", "affected_flows", "impact"] = "changes",
-    base: str = "HEAD~1",
+    base: Optional[str] = None,
     changed_files: Optional[list[str]] = None,
     include_source: Optional[bool] = None,
     max_depth: int = 2,
@@ -720,7 +721,9 @@ async def review_tool(
 
     Args:
         base: Git ref to diff against, plus staged, unstaged, and untracked
-            files. Default: HEAD~1. For a branch pass ``git merge-base main HEAD``.
+            files. Default: HEAD while tracked files have uncommitted changes
+            (the work in progress), else HEAD~1 (the last commit). For a branch
+            pass ``git merge-base main HEAD``.
         changed_files: Explicit file list instead of the git diff.
         include_source: (context) Include source snippets.
         max_depth: (impact) Hops to walk. Default: 2.
