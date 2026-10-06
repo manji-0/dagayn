@@ -1013,9 +1013,9 @@ def _prompt_texts(messages: list[PromptMessage]) -> list[str]:
 
 @mcp.prompt()
 def review_changes(base: str = "HEAD~1") -> list[str]:
-    """Pre-commit review workflow using review_tool, affected flows, and test gaps.
+    """Pre-commit review workflow using review_tool findings.
 
-    Produces a structured code review with risk levels and actionable findings.
+    Produces a code review of what to check beyond the diff, one finding at a time.
 
     Args:
         base: Git ref to diff against. Default: HEAD~1.
@@ -1055,9 +1055,9 @@ def onboard_developer() -> list[str]:
 
 @mcp.prompt()
 def pre_merge_check(base: str = "HEAD~1") -> list[str]:
-    """PR readiness check with risk scoring, test gaps, and dead code detection.
+    """PR readiness check from review findings, tests to run, and dead code.
 
-    Produces a merge readiness report with risk assessment and recommendations.
+    Produces a merge readiness report: GO/NO-GO and the required follow-ups.
 
     Args:
         base: Git ref to diff against. Default: HEAD~1.

@@ -272,11 +272,16 @@ hide some public tools. Persistent server configs can use `CRG_TOOLS` for the
 same control.
 
 Tool responses use a calibrated guidance contract. Compatibility fields such as
-`status`, `summary`, `_hints`, and `next_tool_suggestions` remain, while review,
+`status`, `summary`, `_hints`, and `next_tool_suggestions` remain, while
 architecture, flow, refactor, search, and query responses can also include
 `guidance`, `answerability`, and `missingness`. Guidance items carry `claim`,
 `evidence`, `confidence`, `missingness`, `action`, `reason_codes`, and `counts`
 so agents can treat graph output as evidence-ranked leads rather than verdicts.
+`review_tool(mode="changes")` answers with `findings` instead: each is one
+claim a reviewer should check that the diff does not show (a reference left
+dangling, a caller not edited, a contract doc, a bridge, an untested change,
+tests to run), with the place to look and an action. An empty list means
+nothing beyond the diff needs checking.
 Use `detail_level="minimal"` for the top recommendations and
 `detail_level="standard"` for the full supporting sections.
 `query_graph_tool` zero-result and not-found responses include

@@ -12,6 +12,10 @@ one, and the one thing a reviewer most needs from a graph (what still points
 at code the change removed or reshaped) is missing. This note defines the
 target contract, the evidence behind it, and the order of work.
 
+Status: shipped. `review_tool(mode="changes")` now answers with `findings`
+(see [Order of work](#order-of-work)); the evidence below describes the output
+before that change.
+
 ## Target contract
 
 <!-- supersedes ./ANALYSIS-TOOL-STRATEGY.md#change-analysis -->
@@ -122,12 +126,16 @@ ship.
 
 | Kind | Fires when | Evidence | Action |
 |---|---|---|---|
-| `dangling_reference` | a symbol present at `base` is gone or renamed and a node outside the diff still calls, imports, or links to it | base-side parse of the changed file + inbound edges | open each referencing site |
-| `unchanged_caller` | a changed function's signature (params, return type, visibility) differs from `base` and a caller outside the diff was not edited | signature diff + `CALLS` edges | check the caller still fits |
-| `tests_to_run` | changed production code has direct `TESTED_BY` edges | direct test edges only | a runnable command per language (`cargo test -p … name`, `pytest path::name`) |
-| `untested_change` | changed production code (not tests, examples, build scripts, generated code) has no direct or transitive test | test edges + path classification | write or point to a test |
+| `dangling_reference` | a symbol or file present at `base` is gone, renamed, or moved and a node outside the diff still calls, imports, or links to it | base-side parse of the changed file + inbound edges; one finding per removed symbol, with its sites | open each referencing site |
+| `unchanged_caller` | a changed function gained a required parameter or lost parameters against `base` (a new optional or defaulted parameter does not count) and a caller outside the diff was not edited | signature diff + `CALLS` edges | check the caller still fits |
+| `tests_to_run` | changed production code has direct `TESTED_BY` edges, or the change edits tests | direct test edges only; one finding per test file, Rust unit tests one per crate | a runnable command per language (`cargo test -p … name`, `pytest path::name`) |
+| `untested_change` | changed production functions (not tests, `examples/`, benches, fixtures, build scripts, generated code) have no direct test and none among their callers up to 2 hops | test edges + path classification; one finding per file | write or point to a test |
 | `contract_doc_not_updated` | an authored contract doc (`implemented_by` / `implements_contract`) links to changed code and the doc is not in the diff | authored doc links | read the section, update or confirm |
 | `bridge_touched` | the change edits one side of a HIGH/EXACT cross-artifact bridge (manifest, Terraform, FFI, build config) and not the other | `CROSS_ARTIFACT` edges | check the other side |
+
+All six shipped. Comment- and layout-only edits are not changes (Python is
+compared by syntax tree), so they produce no findings. Each kind keeps 10
+findings and counts the rest in `findings_omitted`.
 
 Moved out of `changes` into drill-down modes or dropped: hotspot proximity,
 SDP/SAP/ADP density and "stable component contract gap" (architecture
@@ -158,18 +166,27 @@ A harness beside `eval/run_search_eval.py`, run in CI on fixed fixtures:
    regression case in `review_changes_scores_the_diff_against_base`). The
    risk hint in `get_minimal_context_tool` had the same leak and is scoped the
    same way.
-2. Bound the output: put `changed_edges` and flow `members` under
-   `_truncation`, drop the duplicated lists from `minimal`.
-3. Eval harness with the negative cases and the seeded positives.
-4. Base-side symbols: parse the `base` version of each changed file in Rust
-   (the parsers already run in-process), giving `removed` and signature
-   changes. This unlocks `dangling_reference` and `unchanged_caller`.
-5. `findings` list with the six kinds; `tests_to_run` commands per language.
-6. Retire the score-first fields: `risk_level`, `review_priorities`, and the
-   always-on reason codes move behind `detail_level="verbose"` for one
-   release, then go.
-7. Update the touch points listed below and regenerate the MCP parity
-   snapshots deliberately; the contract change breaks them by design.
+2. **Done** (`87b81908`): bound the output. Flows in a change review keep
+   their summary and `changed_steps`; `changed_edges` is trimmed first;
+   `minimal` lists the changed files once with per-source counts.
+3. **Done** (`819cd576`, `b7b7fb83`): eval harness
+   (`eval/run_review_eval.py`) with 13 negative cases and 23 seeded
+   positives in `tests/fixtures/review_eval`.
+4. **Done** (`ea0faf7b`, with `c0381f50` and `db5d3183`): base-side symbols
+   (`crates/dagayn-tools/src/base_symbols.rs`), giving removed symbols and
+   signature changes; Python snippets compared by syntax tree.
+5. **Done** (`a2916a62`): `findings` list with the six kinds
+   (`crates/dagayn-tools/src/findings.rs`); `tests_to_run` commands per
+   language. Every kind has precision and recall 1.00 on the 36-case eval,
+   gated in CI at 0.8 (`eval/review_thresholds.yaml`).
+6. **Done** (`a2916a62`): the score-first fields moved behind
+   `detail_level="verbose"`, listed in `deprecated_fields`; the MCP parity
+   snapshots were regenerated for the new contract.
+7. **Done**: the docs, skills, and agent instructions listed under touch
+   points describe `findings`.
+8. **Remaining:** after one release, drop the deprecated fields
+   (`DEPRECATED_FIELDS` in `crates/dagayn-tools/src/review.rs`) and the
+   verbose-only score-first summary.
 
 ## Touch points
 
@@ -178,8 +195,10 @@ A harness beside `eval/run_search_eval.py`, run in CI on fixed fixtures:
   (`compute_change_risk_score`).
 - Docs: `docs/COMMANDS.md`, `docs/LLM-OPTIMIZED-REFERENCE.md`,
   `docs/USAGE.md`, `docs/plans/ANALYSIS-TOOL-STRATEGY.md`, the MCP tool
-  description and server instructions, and the review / implement-feature
-  skills.
+  description and server instructions, the `review_changes` and
+  `pre_merge_check` MCP prompts (`dagayn/prompts.py`), the installed agent
+  instructions (`dagayn/skills/instructions.py`), and the review,
+  implement-feature, debug-issue, and refactor-safely skills.
 - Tests: `crates/dagayn-tools/tests/tools.rs` review cases, Python
   `tests/test_changes.py`, `tests/test_review_flow_dispatchers.py`, and
   `tests/fixtures/parity/__mcp_snapshots__`.

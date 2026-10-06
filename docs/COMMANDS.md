@@ -197,9 +197,11 @@ fresh graph at commit time.
 `dagayn detect-changes` uses the same combined change detection as
 `dagayn update`: tracked diffs plus staged, unstaged, and untracked working-tree
 files. Untracked files are reviewed as whole-file changes because Git has no
-line hunks for files it does not yet track. Standard and minimal tool responses
-include `change_file_sources.base_diff`, `worktree`, `staged`, `unstaged`, and
-`untracked` buckets alongside the compatibility `changed_files` list.
+line hunks for files it does not yet track. The CLI output includes
+`change_file_sources.base_diff`, `worktree`, `staged`, `unstaged`, and
+`untracked` buckets alongside the compatibility `changed_files` list;
+`review_tool(mode="changes")` counts them in `change_file_source_counts` and
+lists the buckets only at `detail_level="verbose"`.
 Change analysis also annotates changed nodes and relevant edges with
 `change_status` (`existing`, `added`, or `unknown`) and summarizes those counts
 in `change_entity_summary`, making before/after risk changes easier to read.
@@ -241,6 +243,12 @@ review-guidance outputs such as recommended tests, documentation update
 candidates, refactor suggestions, calibrated `guidance` items, stable-contract
 warnings, architecture leads, answerability warnings, and guidance field
 coverage. Configure cases with `guidance_precision_cases` in an eval YAML file.
+It reads review output at `detail_level="verbose"`, the only level that still
+carries the deprecated score-first fields, and goes when they do. The
+`findings` contract has its own gate: `eval/run_review_eval.py` scores each
+finding kind on the `tests/fixtures/review_eval` cases, and CI fails when a kind
+drops below its precision or recall floor in `eval/review_thresholds.yaml`
+(0.8; `DAGAYN_REVIEW_EVAL=1 uv run pytest -q tests/test_review_eval.py`).
 
 ```yaml
 guidance_precision_cases:
@@ -698,33 +706,62 @@ uses that remote provider unless the client explicitly passes a different
 default only when exactly one provider's required environment variables are
 configured.
 
-`review_tool(mode="changes")` is the primary change-analysis surface. Standard
-output includes `analysis_summary` with risk level, reason codes, recommended
-tests, affected-flow rankings, documentation update candidates, hotspot
-proximity, and architecture risks in changed scopes. It also includes
-`analysis_summary.guidance`, a bounded list of calibrated items. Each guidance
-item has `claim`, `evidence`, `confidence`, `missingness`, `action`,
-`reason_codes`, and `counts`; `_hints.next_steps` is derived from those actions
-when guidance is available. `risk_score` remains as a compatibility alias for
-`review_priority_score`: it ranks review attention from flow participation,
-callers, test evidence, security keywords (matched at identifier-token starts,
-so `design` does not count as `sign`), and community crossing, and is not a
-standalone changeability score. Recommended tests and documentation candidates
-keep their existing sections for compatibility, but now expose evidence type
-distinctions such as `authored`, `extracted`, and `heuristic_reachable`.
-Default guidance uses authored/extracted documentation evidence;
-heuristic-reachable Markdown and unresolved low-confidence Markdown code-span
-candidates are exploratory leads rather than quality-policy signals. Stable
-or should-be-stable components, identified from package-level SDP/SAP metrics,
-also produce `stability_contracts` so reviewers can see whether highly
-depended-on code has enough test and documentation density. Stable-component
-policy gates on `direct_test_density`; `heuristic_test_density` and
-`transitive_test_density` are supplemental signals so naming/source leads and
-call-chain reachability do not inflate the main density metric. Standard review
-output does not run the heavier heuristic/transitive density scan; use
-`detail_level="verbose"` when those exploratory coverage leads are needed.
-Verbose supplemental density is bounded and reports whether the scope was
-sampled/truncated.
+`review_tool(mode="changes")` is the primary change-analysis surface. It lists
+what a reviewer must check before merging that the diff does not show (target
+contract: [REVIEW-TOOL-TARGET.md](./plans/REVIEW-TOOL-TARGET.md#target-contract)).
+Read `findings` first. Each finding is one checkable claim: a `kind`, the place
+to look (`qualified_name` and/or `file`; a grouped finding lists `targets`), a
+`claim`, the graph facts behind it (`evidence`, or the referencing `sites`), and
+an `action`. Kinds:
+
+- `dangling_reference`: a symbol or file the change removed, renamed, or moved
+  is still referenced outside the change. One finding per removed symbol, with
+  its `sites`. The base side comes from re-parsing each changed file at `base`.
+- `unchanged_caller`: a function gained a required parameter or lost
+  parameters, and callers outside the change were not edited. A new optional
+  or defaulted parameter does not fire.
+- `contract_doc_not_updated`: an authored contract doc (`implemented-by` /
+  `implements`) is linked to changed code and was not edited.
+- `bridge_touched`: the change edits the source side of a reportable
+  cross-artifact bridge (manifest, Terraform, FFI) and not the other side.
+- `untested_change`: changed production functions with no test reaching them,
+  directly or through callers up to 2 hops. One finding per file; tests,
+  `build.rs`, `examples/`, benches, fixtures, and generated code are excluded.
+- `tests_to_run`: direct tests of the changed code, and changed tests. One
+  finding per test file (Rust unit tests: one per crate), with a `command`.
+
+Comment- and layout-only edits are not changes (Python is compared by syntax
+tree). Each kind keeps 10 findings; `findings_omitted` counts the rest per
+kind. An empty `findings` list means nothing beyond the diff needs checking,
+and `summary` says "Nothing beyond the diff needs checking."; otherwise it
+reads "N changed file(s), M changed symbol(s). Findings: ...". `_hints` is
+built from the first findings. Findings rest on graph edges and the base-side
+re-parse: confirm one with `source_of` or a reproduction before calling it a
+bug.
+
+Every detail level also carries `base` (the base actually used),
+`changed_file_count`, `changed_files`, `change_file_source_counts`,
+`change_entity_summary`, `affected_flow_count`, `unmapped_changed_files`,
+`next_drill_downs`, a compact `answerability`, and `missingness`. `standard`
+(the default) adds `changed_functions` and `affected_flows`; a flow there keeps
+its summary and `changed_steps` (only the steps the change touches), and
+`mode="affected_flows"` returns the full steps. Output is bounded by size, not
+only by item count.
+
+`detail_level="verbose"` adds the deprecated score-first fields of the earlier
+contract: `analysis_summary` (with `risk_level`, `reason_codes`, `guidance`,
+recommended tests, documentation candidates, and `stability_contracts`),
+`risk_score`, `review_priority_score`, `score_semantics`, `review_priorities`,
+`test_gaps`, `test_gap_evidence`, and `changed_edges`, plus `symbol_delta`,
+`change_file_sources`, and `deprecated_fields`, which names them. They stay for
+one release and then go; do not build new consumers on them.
+
+With no `base`, a checkout whose tracked files have staged or unstaged edits is
+reviewed against `HEAD` (the work in progress); a clean one against `HEAD~1`
+(the last commit). Untracked files count either way. To review a branch, pass
+its merge base with `main`. An explicit `changed_files` list scopes the review
+to those files; the base diff only narrows them to their changed lines. The
+`context`, `impact`, and `affected_flows` modes are unchanged.
 
 `get_minimal_context_tool` routes common English and Japanese task descriptions
 for review, debugging, exploration, feature addition, and refactoring to the

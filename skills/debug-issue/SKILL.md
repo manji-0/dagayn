@@ -38,9 +38,11 @@ the selected embedding mode so bug searches balance semantic recall with speed.
    trace; read `truncated`. Flows exist only after full post-processing — if
    the list is empty right after a bootstrap, run `dagayn postprocess`.
 5. **Check recent changes**: `review_tool(mode="changes",
-   detail_level="minimal")` and read `risk_level`, `reason_codes`,
-   `affected_flow_rankings`, and `recommended_tests`; use `mode="impact"` only
-   when the blast radius is still unclear.
+   detail_level="minimal")` and read `findings`: a `dangling_reference` or
+   `unchanged_caller` near the suspect is a likely cause, and `tests_to_run`
+   names the tests to rerun. With no `base` it reviews uncommitted edits, or
+   the last commit on a clean tree; pass `base=` for older changes. Use
+   `mode="impact"` only when the blast radius is still unclear.
 6. **Follow linked docs** when they can explain the behavior: `docs_for` from
    the suspect code point (runbooks and problem statements are often more
    useful than another caller hop), `implementations_of` when the report starts

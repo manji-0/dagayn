@@ -150,9 +150,11 @@ class TestPreMergeCheckPrompt:
         assert isinstance(result, list)
         assert len(result) >= 1
 
-    def test_mentions_risk_scoring(self):
+    def test_reads_review_findings(self):
         result = pre_merge_check_prompt()
-        assert "risk" in result[0]["content"].lower()
+        content = result[0]["content"]
+        assert "`findings`" in content
+        assert "risk >" not in content
 
     def test_mentions_test_gaps(self):
         result = pre_merge_check_prompt()

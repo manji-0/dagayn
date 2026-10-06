@@ -142,8 +142,8 @@ supply the span.
 
 1. Start with `get_minimal_context_tool(task=...)`: it reports `sync.state`
    and the next tool to call.
-2. Review: `review_tool(mode="changes")`, and read `analysis_summary` before
-   any drill-down.
+2. Review: `review_tool(mode="changes")`, and read `findings` before any
+   drill-down; an empty list means nothing beyond the diff needs checking.
 3. Explore: `semantic_search_nodes_tool` finds a node (code or a Markdown
    section); `query_graph_tool` traces it (callers_of, callees_of,
    importers_of, tests_for, docs_for, source_of). Pass `depth` to
@@ -162,7 +162,7 @@ supply the span.
 | ------ | ---------- |
 | `get_minimal_context_tool` | Start here: freshness, risk, next tools |
 | `ensure_graph_tool` | Graph empty or behind HEAD; bootstrap without embeddings |
-| `review_tool` | Change review: risk, tests, flows, blast radius |
+| `review_tool` | Change review: what to check that the diff does not show |
 | `query_graph_tool` | Callers, callees, imports, tests, linked docs, live source spans |
 | `semantic_search_nodes_tool` | Find code or doc sections by name, keyword, or meaning |
 | `flow_tool` | Reachable sets from entry points (not call sequences) |

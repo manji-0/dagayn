@@ -1,15 +1,17 @@
 ---
 name: review-changes
-description: Risk-ranked review of a branch or set of commits with the dagayn graph — blast radius, affected flows, missing tests, and stale linked docs — ending in a merge recommendation. Use when the user asks to review their branch or changes before merging, what a change breaks, or which tests to run. For only the uncommitted delta use review-delta; for a PR number or link use review-pr.
+description: Review of a branch or set of commits with the dagayn graph — references the change left dangling, unedited callers, missing tests, tests to run, and stale linked docs — ending in a merge recommendation. Use when the user asks to review their branch or changes before merging, what a change breaks, or which tests to run. For only the uncommitted delta use review-delta; for a PR number or link use review-pr.
 ---
 
 # Review Changes
 
 The graph already knows who calls the changed code, which flows pass through
-it, which tests cover it, and which docs are linked to it. Read that summary
-first and open source only where it can change the verdict.
+it, which tests cover it, and which docs are linked to it. Read the
+`findings` first and open source only where it can change the verdict.
 
 ## Steps
+
+<!-- constrained-by ../../docs/plans/REVIEW-TOOL-TARGET.md#target-contract -->
 
 1. **Orient**: `get_minimal_context_tool(task="<review goal>")`. If
    `graph_health.status` is `empty` or `sync.state` is `unbuilt` /
@@ -22,23 +24,36 @@ first and open source only where it can change the verdict.
    (with no `base`: `HEAD` while tracked files have uncommitted edits, else
    `HEAD~1`), so pass the merge base (`git merge-base main HEAD`) to
    review a whole branch; plain `base="main"` also counts commits that landed
-   on `main` after the branch point, as reversed changes. At `detail_level="minimal"` the result is flat: read `risk_level`,
-   `reason_codes`, `recommended_tests`, `affected_flow_rankings`,
-   `documentation_update_candidates`, `stability_contracts`, `guidance`,
-   `architecture_delta`, and `next_drill_downs`. Use the default `"standard"`
-   when you need the nested `analysis_summary` (it adds hotspot and
-   cross-artifact proximity).
-3. **Fetch source only where needed**: `review_tool(mode="context")` for
+   on `main` after the branch point, as reversed changes. An explicit
+   `changed_files` list scopes the review to those files. Read `findings`:
+   each is one claim to check that the diff does not show, with a `kind`, the
+   place to look (`qualified_name` / `file`, or `targets`), `evidence` or
+   `sites`, and an `action`. An empty list (summary "Nothing beyond the diff
+   needs checking.") means the diff is the whole review. `findings_omitted`
+   counts what each kind's cap of 10 left out. `detail_level="standard"` adds
+   `changed_functions` and `affected_flows`; the score-first fields
+   (`analysis_summary`, `risk_level`, ...) are deprecated and only in
+   `"verbose"`.
+3. **Work through the findings**, each with its own check:
+   - `dangling_reference` / `unchanged_caller`: open each listed site with
+     `query_graph_tool(pattern="source_of")`; a site still using the old name
+     or signature is a bug.
+   - `contract_doc_not_updated`: read the linked section (step 7).
+   - `bridge_touched`: check the other side of the bridge still matches.
+   - `untested_change`: confirm with `query_graph_tool(pattern="tests_for")`,
+     then suggest a test.
+   - `tests_to_run`: run its `command`, or list it in the review.
+4. **Fetch source only where needed**: `review_tool(mode="context")` for
    change-set snippets, `query_graph_tool(pattern="source_of")` for one symbol.
-4. **Drill down only on a concrete question**: `review_tool(mode="impact")` for
+5. **Drill down only on a concrete question**: `review_tool(mode="impact")` for
    blast radius (`max_depth` sets the hops), `mode="affected_flows"` for flows,
    `query_graph_tool(pattern="tests_for")` for uncertain coverage, and
    `callers_of` with `depth` up to 6 for transitive callers.
-5. **Follow documentation links**: `docs_for` on changed code symbols,
+6. **Follow documentation links**: `docs_for` on changed code symbols,
    `implementations_of` on changed Markdown sections (`<doc.md>::<section-slug>`).
-6. **Suggest tests** for changed behavior that nothing covers.
-7. **Docs update after code change**: when doc candidates or authored
-   `docs_for` links appear, don't stop at "docs may be stale":
+7. **Docs update after code change**: when a `contract_doc_not_updated`
+   finding or authored `docs_for` links appear, don't stop at "docs may be
+   stale":
    1. Rank them: `implemented_by` / `implements_contract` first, then
       `explained_by` / `has_runbook` / `problem_described_by`, then weaker
       `extracted` / `heuristic_reachable` hits.
@@ -54,7 +69,10 @@ first and open source only where it can change the verdict.
 
 Group findings by risk (high / medium / low), each with what changed and why it
 matters, test coverage, documentation updates required or deferred (path +
-role), and suggested improvements; end with a merge recommendation.
+role), and suggested improvements; end with a merge recommendation. The risk
+label is your judgment from the confirmed findings (their kinds and counts,
+e.g. "2 dangling_reference, 1 untested_change"); the tool no longer rates the
+change. With no findings, say the diff needs nothing beyond itself.
 
 ## Evidence
 
@@ -78,9 +96,9 @@ effect from a reproduction; keep them apart in a claim. Full rules:
   `commit_drift` or `worktree_behind`).
 <!-- /dagayn trust tiers -->
 
-- Tie each risk label to a metric: `reason_codes`, blast-radius counts, an
-  affected flow, a test gap, a changed public surface, or a dependency
-  direction change.
+- Tie each risk label to evidence: a finding and its sites, a blast-radius
+  count, an affected flow, a changed public surface, or a dependency direction
+  change.
 - Confirm behavior with `source_of` before calling something a bug; graph
   structure alone shows reach, not correctness.
 - `CROSS_ARTIFACT` documentation roles are typed evidence, not duplicate

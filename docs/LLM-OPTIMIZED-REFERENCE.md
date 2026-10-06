@@ -10,7 +10,7 @@ Routine refresh: hooks, `dagayn update`, `dagayn watch`, or `ensure_graph_tool(f
 
 Linked worktrees: `dagayn worktree sync` (or the `worktree-sync` skill) inherits the main checkout graph/MCP config before analysis.
 
-Feature work: find extension points with search/query/flow, implement, then `review_tool(mode="changes")` (see the `implement-feature` skill). After code changes, follow documentation update candidates via `docs_for` / the review-changes docs-update flow.
+Feature work: find extension points with search/query/flow, implement, then `review_tool(mode="changes")` (see the `implement-feature` skill). After code changes, follow `contract_doc_not_updated` findings and `docs_for` links with the review-changes docs-update flow.
 
 `dagayn serve` exposes the compact workflow MCP surface by default (`get_minimal_context_tool`, `ensure_graph_tool`, `review_tool`, `flow_tool`, `architecture_analysis_tool`, `refactor_tool`, `query_graph_tool`, `semantic_search_nodes_tool`, `get_docs_section_tool`). Use an exact `--tools` or `CRG_TOOLS` allow-list for a different surface; `all`, `full`, or `*` exposes every advanced/maintenance tool.
 
@@ -48,8 +48,12 @@ Highest (state it as fact):
 
 Medium (structure, not correctness):
 - `MEDIUM` edges: inferred from usage (observed methods, return-type tables).
-- `review_tool` `reason_codes`, blast radius, affected flows; architecture
-  metrics and rankings; refactor suggestions and dead-code candidates.
+- `review_tool` `findings`: each is a claim to check, resting on graph edges
+  and a base-side re-parse; open its `sites` or place with `source_of` before
+  calling it a bug. An empty list means nothing beyond the diff.
+- Blast radius and affected flows; `reason_codes` from architecture,
+  refactor, and answerability; architecture metrics and rankings; refactor
+  suggestions and dead-code candidates.
 - `TESTED_BY` edges: they follow the calls a test makes, so they are as good
   as those calls.
 - Explanatory doc links (`explained_by`, `has_runbook`, `describes_symbol`, …)
@@ -74,15 +78,22 @@ test or CLI run for an effect.
 Recommended sequence for reviewing a delta:
 
 1. `get_minimal_context_tool(task=...)` — enqueues background prepare when empty or out of sync (`sync.status`) and returns immediately; call `ensure_graph_tool()` if you must wait for the graph to be ready
-2. `review_tool(mode="changes")` and read `analysis_summary` first
+2. `review_tool(mode="changes")` and read `findings` first; an empty list means nothing beyond the diff needs checking
 3. Call `review_tool(mode="context")` / `mode="impact"` / `query_graph_tool` only for concrete source, blast-radius, or coverage questions
 4. Read only the files that remain ambiguous after graph queries. After a
    concrete `qualified_name`, prefer `query_graph_tool(pattern="source_of")`
    over a whole-file read.
 
-`review_tool(mode="changes")` returns an `analysis_summary` with risk reasons, recommended
-tests, affected-flow rankings, documentation update candidates, hotspot
-proximity, and architecture risks in changed scopes.
+`review_tool(mode="changes")` returns `findings`, each a checkable claim with a
+`kind`, the place to look, its `evidence` or `sites`, and an `action`:
+`dangling_reference` (a removed, renamed, or moved symbol still referenced),
+`unchanged_caller` (new required parameter or fewer parameters, callers not
+edited), `contract_doc_not_updated`, `bridge_touched`, `untested_change`, and
+`tests_to_run` (with a `command`). Each kind keeps 10; `findings_omitted`
+counts the rest. With no `base`, uncommitted edits to tracked files are
+reviewed against `HEAD`, a clean checkout against `HEAD~1`. The deprecated
+score-first fields (`analysis_summary`, `risk_score`, ...) appear only at
+`detail_level="verbose"`, for one release.
 
 The fork is designed to work well when docs, app code, and Terraform all change together.
 </section>
@@ -92,8 +103,8 @@ Recommended sequence for reviewing a PR or branch:
 
 1. `get_minimal_context_tool(task="PR review")`
 2. Refresh only when empty/stale: `ensure_graph_tool()` or `ensure_graph_tool(force=True)`; use `build_or_update_graph_tool(base="main")` only on the advanced surface when an explicit base ref is required
-3. `review_tool(mode="changes", base="main")` and read `analysis_summary` first
-4. Prefer `review_tool(mode="context")` snippets, or `query_graph_tool(pattern="source_of")` for one `qualified_name`, over full-file reads; use `mode="impact"` and relationship `query_graph_tool` only for high-risk follow-ups
+3. `review_tool(mode="changes", base=<merge base of the branch and main>)` and read `findings` first (plain `base="main"` also counts commits that landed on `main` after the branch point, as reversed changes)
+4. Prefer `review_tool(mode="context")` snippets, or `query_graph_tool(pattern="source_of")` for one `qualified_name`, over full-file reads; use `mode="impact"` and relationship `query_graph_tool` only to follow up a finding
 
 If the PR touches infrastructure, assume Terraform nodes and references are part of the review surface.
 </section>

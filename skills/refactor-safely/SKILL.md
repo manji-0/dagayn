@@ -42,9 +42,11 @@ edit set, and verify impact afterwards.
 6. **Keep docs in step**: preserve `dagayn:` directives; update Markdown
    `implemented-by path::symbol` targets after a code rename and code
    `implements docs/spec.md#section` targets after a heading or path change.
-7. **Verify**: `review_tool(mode="changes")` for risk, recommended tests,
-   affected flows, and doc candidates; drill into `mode="impact"` or
-   `"affected_flows"` only when it points there.
+7. **Verify**: `review_tool(mode="changes")` and read `findings`: a
+   `dangling_reference` or `unchanged_caller` names a site the refactor
+   missed, `contract_doc_not_updated` a doc to fix, and `tests_to_run` the
+   tests to run. Drill into `mode="impact"` or `"affected_flows"` only when a
+   finding points there.
 
 ## Judging suggestions
 

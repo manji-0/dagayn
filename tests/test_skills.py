@@ -305,16 +305,16 @@ class TestGenerateSkills:
         assert "--mode remote-embedding --provider openai" in review_pr
 
     def test_review_skills_use_composed_analysis_outputs(self, tmp_path):
-        """Generated review skills should point agents at composed Tier 1 output."""
+        """Generated review skills should point agents at the review findings."""
         skills_dir = generate_skills(tmp_path)
         review_changes = (skills_dir / "review-changes" / "SKILL.md").read_text()
         review_delta = (skills_dir / "review-delta" / "SKILL.md").read_text()
         review_pr = (skills_dir / "review-pr" / "SKILL.md").read_text()
 
-        assert "analysis_summary" in review_changes
-        assert "analysis_summary" in review_delta
-        assert "analysis_summary" in review_pr
-        assert "recommended_tests" in review_pr
+        for content in (review_changes, review_delta, review_pr):
+            assert "`findings`" in content
+            assert "tests_to_run" in content
+            assert "dangling_reference" in content
         for content in (review_changes, review_delta, review_pr):
             assert "review_tool" in content
             assert "detect_changes_tool" not in content
@@ -1484,7 +1484,7 @@ class TestInjectClaudeMd:
         assert "truncated" in content
         assert "--tools" in content
         assert "--tool-profile" not in content
-        assert "analysis_summary" in content
+        assert "read `findings`" in content
         assert "architecture_health" in content
         assert "architecture_analysis_tool" in content
         assert "review_tool" in content
@@ -1788,7 +1788,7 @@ class TestInjectPlatformInstructionsFiltering:
         content = (tmp_path / ".codex" / "AGENTS.md").read_text()
         assert "--tools" in content
         assert "--tool-profile" not in content
-        assert "analysis_summary" in content
+        assert "read `findings`" in content
         assert "architecture_health" in content
         assert "architecture_analysis_tool" in content
         assert "Drill-down tools" in content

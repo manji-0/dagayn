@@ -199,8 +199,9 @@ dagayn detect-changes --base HEAD~1
 Change review includes tracked diffs, staged changes, unstaged changes, and
 untracked files. Untracked files are treated as whole-file changes because Git
 does not provide line-level hunks for files it is not tracking yet. Inspect
-`change_file_sources` when you need to distinguish base-ref changes from local
-worktree, staged, unstaged, or untracked changes. Changed nodes and relevant
+`change_file_sources` (CLI output; `review_tool` counts them in
+`change_file_source_counts`) when you need to distinguish base-ref changes from
+local worktree, staged, unstaged, or untracked changes. Changed nodes and relevant
 edges include `change_status` (`existing`, `added`, or `unknown`), with counts
 grouped in `change_entity_summary`.
 
@@ -208,10 +209,14 @@ In MCP clients, start with `get_minimal_context_tool`, then choose
 `review_tool`, `architecture_analysis_tool`, `refactor_tool`, or
 `query_graph_tool`. Follow response hints to drill-down modes only when needed.
 For change review, prefer `review_tool(mode="changes", detail_level="minimal")`
-first. Its `guidance` list gives the next test, doc, architecture, or flow
-action in the shared `claim` / `evidence` / `confidence` / `missingness` /
-`action` shape. Use `detail_level="standard"` when you need the full raw
-sections behind those recommendations.
+first and read `findings`: each names a place to look that the diff does not
+show (a dangling reference, an unedited caller, a contract doc, a bridge, an
+untested change, tests to run), the graph facts behind it, and an action. An
+empty list means nothing beyond the diff needs checking. Use
+`detail_level="standard"` to add the changed functions and affected flows. With
+no `base`, uncommitted edits to tracked files are reviewed against `HEAD`, a
+clean checkout against `HEAD~1`. The full field list is in
+[COMMANDS.md](./COMMANDS.md).
 
 ## Start the MCP server
 
@@ -265,11 +270,16 @@ CLI results as the same implementation.
 
 ### Migrating response consumers
 
-Existing fields such as `summary`, `_hints`, `next_tool_suggestions`,
-`recommended_tests`, `documentation_update_candidates`, `stability_contracts`,
-and `work_pack` remain available. New consumers should read `guidance`,
+Existing fields such as `summary`, `_hints`, `next_tool_suggestions`, and
+`work_pack` remain available. New consumers should read `guidance`,
 `answerability`, and `missingness` first, then fall back to the older raw
 sections only when a drill-down needs more detail.
+
+`review_tool(mode="changes")` is the exception: it answers with `findings`.
+Its score-first fields (`analysis_summary`, `recommended_tests`,
+`documentation_update_candidates`, `stability_contracts`, `risk_score`,
+`review_priorities`, `test_gaps`, ...) appear only at
+`detail_level="verbose"`, listed in `deprecated_fields`, for one release.
 Dispatcher error paths and graph-limited not-found paths still carry
 `answerability` and `missingness`, computed for the requested `repo_root` when
 one is supplied.
@@ -286,9 +296,11 @@ After:
 
 ```python
 result = review_tool(mode="changes", detail_level="minimal")
-for item in result.get("guidance", []):
-    if item["confidence"] != "unknown":
-        follow(item["action"], evidence=item["evidence"])
+for finding in result["findings"]:
+    if finding["kind"] == "tests_to_run" and finding.get("command"):
+        run(finding["command"])
+    else:
+        check(finding["claim"], finding.get("sites") or finding.get("evidence"))
 ```
 
 Before:

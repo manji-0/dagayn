@@ -7,7 +7,7 @@ get_minimal_context_tool and preferring detail_level="minimal" first.
 2. architecture_map - architecture docs using communities, flows, Mermaid
 3. debug_issue      - guided debugging using search, flow tracing
 4. onboard_developer - new dev orientation using architecture and flows
-5. pre_merge_check  - PR readiness with risk scoring, test gaps, dead code
+5. pre_merge_check  - PR readiness from review findings, tests, dead code
 """
 
 from __future__ import annotations
@@ -49,23 +49,25 @@ def review_changes_prompt(base: str = "HEAD~1") -> list[PromptMessage]:
                 f"{_TOKEN_EFFICIENCY_PREAMBLE}\n"
                 f"## Review Workflow\n"
                 f'1. Call `get_minimal_context_tool(task="review changes against '
-                f'{base}")` to get risk overview.\n'
-                f'2. If risk is "low": call '
-                f'`review_tool(mode="changes", base="{base}", detail_level="minimal")` '
-                f"→ report summary "
-                f"+ any test gaps.\n"
-                f'3. If risk is "medium" or "high":\n'
-                f'   a. Call `review_tool(mode="changes", base="{base}", '
-                f'detail_level="standard")` for '
-                f"full change list.\n"
-                f"   b. For each high-risk function, call "
-                f'`query_graph_tool(pattern="callers_of", target=<func>, '
+                f'{base}")`.\n'
+                f'2. Call `review_tool(mode="changes", base="{base}", detail_level="minimal")` '
+                f"and read `findings`: what to check that the diff does not show. "
+                f"An empty list means nothing beyond the diff needs checking: "
+                f"report the summary and stop.\n"
+                f"3. For each finding:\n"
+                f"   a. dangling_reference or unchanged_caller: open each listed site "
+                f'with `query_graph_tool(pattern="source_of", target=<site>)`.\n'
+                f"   b. contract_doc_not_updated or bridge_touched: read the doc section "
+                f"or the other side of the bridge with `source_of`.\n"
+                f"   c. untested_change: confirm with "
+                f'`query_graph_tool(pattern="tests_for", target=<function>, '
                 f'detail_level="minimal")`.\n'
-                f'   c. Call `review_tool(mode="affected_flows", base="{base}", '
+                f"   d. tests_to_run: run its `command`.\n"
+                f'4. Call `review_tool(mode="affected_flows", base="{base}", '
                 f'detail_level="minimal")` '
-                f"only if >3 changed functions.\n"
-                f"4. Summarize: risk level, what changed, test gaps, "
-                f"specific improvements needed.\n\n"
+                f"only if a finding raises a flow question.\n"
+                f"5. Summarize: what changed, each confirmed finding with its action, "
+                f"and the tests to run.\n\n"
                 f'Do NOT call review_tool(mode="context") unless you need '
                 f"source code snippets for a specific function."
             ),
@@ -163,16 +165,18 @@ def pre_merge_check_prompt(base: str = "HEAD~1") -> list[PromptMessage]:
                 "## Pre-Merge Check Workflow\n"
                 f'1. Call `get_minimal_context_tool(task="pre-merge check against {base}")`.\n'
                 f'2. Call `review_tool(mode="changes", base="{base}", detail_level="minimal")` '
-                "for risk score and test gaps.\n"
-                "3. If risk > 0.4: call "
-                f'`review_tool(mode="affected_flows", base="{base}", detail_level="minimal")`.\n'
-                "4. If test_gap_count > 0: call "
+                "and read `findings` and `findings_omitted`. An empty list means "
+                "nothing beyond the diff needs checking.\n"
+                "3. For each dangling_reference or unchanged_caller finding: open its "
+                'sites with `query_graph_tool(pattern="source_of", target=<site>)`; '
+                "a site still using the old name or signature is a NO-GO.\n"
+                "4. For each untested_change finding: call "
                 '`query_graph_tool(pattern="tests_for", '
                 'target=<each untested function>, detail_level="minimal")` '
                 "for up to 3 functions.\n"
-                '5. Call `refactor_tool(mode="dead_code")` to check for newly dead code.\n'
-                '6. Only call `refactor_tool(mode="suggest")` or '
-                f'`review_tool(mode="impact", base="{base}")` if risk > 0.7.\n'
+                "5. Run the `command` of each tests_to_run finding; check each "
+                "contract_doc_not_updated and bridge_touched finding.\n"
+                '6. Call `refactor_tool(mode="dead_code")` to check for newly dead code.\n'
                 "7. Output: GO/NO-GO recommendation with 1-sentence "
                 "justification + list of required follow-ups."
             ),

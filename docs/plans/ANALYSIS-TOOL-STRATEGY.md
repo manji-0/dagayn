@@ -90,6 +90,11 @@ controls. They should not be marketed as the ordinary analysis starting point.
 
 <!-- constrained-by ../COMMANDS.md#mcp-tools -->
 
+Superseded (2026-10): [REVIEW-TOOL-TARGET.md](./REVIEW-TOOL-TARGET.md#target-contract)
+replaces the risk level, score, and reason codes below with `findings`, a list
+of claims a reviewer must check that the diff does not show. This section is
+kept as the history of the earlier design.
+
 The primary change-analysis surface should be `review_tool(mode="changes")`.
 
 It should compose these signals:
@@ -224,8 +229,11 @@ dispatcher tools replace profile-based specialization.
 Extend `review_tool(mode="changes")` with recommended tests, affected-flow ranking,
 architecture-delta summaries, and documentation-drift hints.
 
-Status: implemented. `review_tool(mode="changes")` now returns `analysis_summary` in
-standard mode and compact risk/test/flow/doc fields in minimal mode.
+Status: implemented, then superseded. `review_tool(mode="changes")` returned
+`analysis_summary` in standard mode and compact risk/test/flow/doc fields in
+minimal mode. It now returns `findings`
+([REVIEW-TOOL-TARGET.md](./REVIEW-TOOL-TARGET.md#target-contract)); the
+score-first fields remain at `detail_level="verbose"` for one release.
 
 ### Phase 4: enrich architecture overview
 

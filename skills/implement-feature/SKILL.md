@@ -42,13 +42,13 @@ retrieval setup.
    (`dagayn queue status` shows it), so call `ensure_graph_tool(force=True)`
    when the review must see your edit.
 6. **Verify**: `review_tool(mode="changes", detail_level="minimal")` and read
-   `risk_level`, `reason_codes`, `recommended_tests`, `affected_flow_rankings`,
-   and `documentation_update_candidates` (use the default `"standard"` for the
-   nested `analysis_summary`). Check `tests_for` on the new symbols when
-   coverage is unclear. For doc candidates, follow "Docs update after code
-   change" in review-changes.
+   `findings`. Fix each `dangling_reference` or `unchanged_caller` site, run
+   each `tests_to_run` `command`, and add a test for an `untested_change` (or
+   confirm one with `tests_for`). For `contract_doc_not_updated`, follow "Docs
+   update after code change" in review-changes. An empty list means nothing
+   beyond the diff needs checking.
 7. **Done when** the behavior is reachable from an existing flow or a
-   deliberate new entry point, the high-risk blast radius is understood, and
+   deliberate new entry point, every finding is fixed or explained, and
    linked specs or runbooks are updated or explicitly deferred.
 
 ## Evidence

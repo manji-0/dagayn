@@ -6,6 +6,47 @@ All notable changes to `dagayn` are documented here.
 
 ### Changed
 
+- `review_tool(mode="changes")` answers with `findings`: what a reviewer
+  must check before merging that the diff does not show, and nothing when
+  the change needs nothing beyond the diff. Each finding is one claim with a
+  `kind`, the place to look (`qualified_name` / `file`, or `targets`),
+  `evidence` or `sites`, and an `action`. Kinds: `dangling_reference` (a
+  removed, renamed, or moved symbol or file still referenced outside the
+  change, from a re-parse of each changed file at `base`),
+  `unchanged_caller` (a new required parameter or fewer parameters, with
+  callers outside the change not edited), `contract_doc_not_updated`,
+  `bridge_touched` (one side of a manifest, Terraform, or FFI bridge),
+  `untested_change` (one per file; tests, `build.rs`, `examples/`, benches,
+  fixtures, and generated code excluded), and `tests_to_run` (one per test
+  file, Rust unit tests one per crate, with a `command`). Comment- and
+  layout-only edits are no change (Python is compared by syntax tree). Each
+  kind keeps 10 findings and counts the rest in `findings_omitted`;
+  `summary` and `_hints` are built from the findings. See
+  `docs/plans/REVIEW-TOOL-TARGET.md`.
+- The score-first fields of `review_tool(mode="changes")`
+  (`analysis_summary` with `risk_level` and `reason_codes`, `risk_score`,
+  `review_priority_score`, `score_semantics`, `review_priorities`,
+  `test_gaps`, `test_gap_evidence`, `changed_edges`) appear only at
+  `detail_level="verbose"`, listed in `deprecated_fields`. They go after one
+  release.
+- With no `base`, `review_tool` reviews against `HEAD` while tracked files
+  have staged or unstaged edits (the work in progress), and against
+  `HEAD~1` on a clean tree. It used to review the previous commit together
+  with the work in progress.
+- An explicit `changed_files` list scopes `review_tool` and
+  `get_minimal_context_tool`'s risk hint to those files; the base diff no
+  longer adds every other changed file's nodes.
+- `review_tool(mode="changes")` output is bounded by size, not only by item
+  count: flows keep their summary and `changed_steps` (the full steps stay
+  in `mode="affected_flows"`), and `minimal` lists the changed files once
+  with `change_file_source_counts`. On the repository's last 14 commits,
+  `minimal` is 1.8K-21K characters (was 15K-29K).
+- CI gates each finding kind on a 36-case review eval
+  (`eval/run_review_eval.py`, cases in `tests/fixtures/review_eval`): a kind
+  below 0.8 precision or recall (`eval/review_thresholds.yaml`) fails the
+  build.
+- Docs, skills, and the installed agent instructions (CLAUDE.md, AGENTS.md,
+  and the other platform files) tell agents to read `findings`.
 - The Python extractor (`.py`, Jupyter notebooks, marimo apps, Databricks
   exports) parses with Ruff's parser (`ruff_python_parser` 0.0.16) instead
   of the tree-sitter Python grammar. Python extraction runs about 5.8 times
