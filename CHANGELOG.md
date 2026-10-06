@@ -6,6 +6,16 @@ All notable changes to `dagayn` are documented here.
 
 ### Changed
 
+- `architecture_analysis_tool(mode="overview")` starts with a map of the
+  units the repository declares: Cargo crates, npm packages, Go modules,
+  Python import packages, and Terraform modules, found from their manifests
+  on disk, with a top-level directory for code no manifest covers. `units`
+  lists each with its files, symbols, and tests; `unit_edges` aggregates the
+  calls, imports, references, inheritance, and FFI bridges between two
+  units, and marks with `declared: true` the pairs a manifest lists, so a
+  dependency the graph cannot see (a call inside a macro) still shows.
+  `detail_level="standard"` adds each unit's `surface`, the symbols other
+  units use most. See `docs/plans/ARCHITECTURE-TOOL-TARGET.md#the-map`.
 - Python and TypeScript imports say whether they run when the module is
   loaded. Python `IMPORTS_FROM` inside a function body carry
   `import_scope: "function"` and inside `if TYPE_CHECKING:` carry

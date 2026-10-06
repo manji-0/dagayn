@@ -489,6 +489,17 @@
     "top_examples": []
   },
   "status": "ok",
-  "summary": "Architecture: 5 communities, 1 coupled pairs, 0 warning(s)",
+  "summary": "1 unit(s), 0 dependency pair(s) between them. Architecture: 5 communities, 1 coupled pairs, 0 warning(s)",
+  "unit_edges": [],
+  "units": [
+    {
+      "files": 7,
+      "kind": "directory",
+      "name": "<root>",
+      "path": "",
+      "symbols": 18,
+      "tests": 0
+    }
+  ],
   "warnings": []
 }

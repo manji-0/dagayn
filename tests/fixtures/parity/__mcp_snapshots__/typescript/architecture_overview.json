@@ -841,6 +841,17 @@
     ]
   },
   "status": "ok",
-  "summary": "Architecture: 22 communities, 4 coupled pairs, 0 warning(s)",
+  "summary": "1 unit(s), 0 dependency pair(s) between them. Architecture: 22 communities, 4 coupled pairs, 0 warning(s)",
+  "unit_edges": [],
+  "units": [
+    {
+      "files": 33,
+      "kind": "directory",
+      "name": "src",
+      "path": "src",
+      "symbols": 168,
+      "tests": 7
+    }
+  ],
   "warnings": []
 }

@@ -294,6 +294,31 @@
     "top_examples": []
   },
   "status": "ok",
-  "summary": "Architecture: 1 communities, 0 coupled pairs, 0 warning(s)",
+  "summary": "2 unit(s), 1 dependency pair(s) between them. Architecture: 1 communities, 0 coupled pairs, 0 warning(s)",
+  "unit_edges": [
+    {
+      "declared": true,
+      "from": "@acme/web",
+      "to": "@acme/api-client"
+    }
+  ],
+  "units": [
+    {
+      "files": 2,
+      "kind": "npm_package",
+      "name": "@acme/api-client",
+      "path": "packages/api-client",
+      "symbols": 2,
+      "tests": 0
+    },
+    {
+      "files": 1,
+      "kind": "npm_package",
+      "name": "@acme/web",
+      "path": "apps/web",
+      "symbols": 1,
+      "tests": 0
+    }
+  ],
   "warnings": []
 }

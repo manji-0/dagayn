@@ -42,6 +42,7 @@ mod source;
 mod stats;
 mod suggestions;
 mod traverse;
+mod units;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};

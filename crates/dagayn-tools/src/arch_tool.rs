@@ -242,14 +242,19 @@ pub(crate) fn architecture(context: &Context, arguments: &Map<String, Value>) ->
     let (subtool, out, trailing) = match request.mode {
         "overview" => (
             "get_architecture_overview_func",
-            crate::community::overview(
+            with_unit_map(
+                &root.path,
                 &graph.store,
-                &answerability,
-                &exposed,
                 request.detail_level,
-                request.top_n,
-                request.artifact_scope,
-                artifact,
+                crate::community::overview(
+                    &graph.store,
+                    &answerability,
+                    &exposed,
+                    request.detail_level,
+                    request.top_n,
+                    request.artifact_scope,
+                    artifact,
+                )?,
             )?,
             false,
         ),
@@ -365,6 +370,50 @@ pub(crate) fn architecture(context: &Context, arguments: &Map<String, Value>) ->
         },
         &exposed,
     ))
+}
+
+/// Units the overview lists; the rest are counted in `units_omitted`.
+const MAX_UNITS: usize = 40;
+/// Unit edges the overview lists, heaviest first.
+const MAX_UNIT_EDGES: usize = 30;
+
+/// The overview led by the map of declared units
+/// (docs/plans/ARCHITECTURE-TOOL-TARGET.md#the-map); `surface` from
+/// `standard` up.
+fn with_unit_map(
+    root: &std::path::Path,
+    store: &dagayn_graph::GraphStore,
+    detail_level: &str,
+    rest: Ordered,
+) -> Option<Ordered> {
+    let nodes = store.get_all_nodes_filtered(false).ok()?;
+    let edges = store.get_all_edges().ok()?;
+    let (mut units, mut unit_edges) =
+        crate::units::unit_map(root, &nodes, &edges, detail_level != "minimal");
+    let (unit_count, edge_count) = (units.len(), unit_edges.len());
+    units.truncate(MAX_UNITS);
+    unit_edges.truncate(MAX_UNIT_EDGES);
+    let mut out = Ordered::default().put("status", "ok").put(
+        "summary",
+        format!(
+            "{unit_count} unit(s), {edge_count} dependency pair(s) between them. {}",
+            rest.get("summary").and_then(Value::as_str).unwrap_or("")
+        ),
+    );
+    out = out.put("units", json!(units));
+    if unit_count > units.len() {
+        out = out.put("units_omitted", unit_count - units.len());
+    }
+    out = out.put("unit_edges", json!(unit_edges));
+    if edge_count > unit_edges.len() {
+        out = out.put("unit_edges_omitted", edge_count - unit_edges.len());
+    }
+    for (key, value) in rest.into_entries() {
+        if key != "status" && key != "summary" {
+            out = out.put(&key, value);
+        }
+    }
+    Some(out)
 }
 
 /// `make_response("ok", summary, **fields, next_tool_suggestions=...)`.
