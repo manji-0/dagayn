@@ -1160,3 +1160,36 @@ fn records_webassembly_loads() {
         ]
     );
 }
+
+#[test]
+fn typescript_type_only_imports_are_marked() {
+    let source = br#"import type { User } from "./user";
+import { type Role, load } from "./role";
+export type { Id } from "./id";
+export { helper } from "./helper";
+import def from "./def";
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_nodes, edges) = parser.parse_file_in_repo(None, "src/app.ts", source);
+    let imports = edges
+        .iter()
+        .filter(|edge| edge.kind == "IMPORTS_FROM")
+        .map(|edge| {
+            (
+                edge.line,
+                edge.extra.get("import_kind").and_then(|kind| kind.as_str()),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        imports,
+        vec![
+            (1, Some("type")),
+            (2, None),
+            (3, Some("type")),
+            (4, None),
+            (5, None),
+        ],
+        "{edges:?}"
+    );
+}

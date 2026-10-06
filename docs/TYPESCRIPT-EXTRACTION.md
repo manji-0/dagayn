@@ -140,7 +140,7 @@ Nodes that are **not** created:
 |---|---|---|---|
 | `CONTAINS` | nearest existing container QN (File, Class, namespace, object container) | child QN | |
 | `CALLS` | the node that owns the call site (§5.1) | resolved QN, `pkg::symbol`, or a bare name | includes `new X()`, `super(...)`, JSX elements, tagged templates |
-| `IMPORTS_FROM` | File | resolved repo-relative file, or the raw specifier for external modules | static `import` and `export ... from`; `require("./m")` (`import_kind: "require"`, at any depth), dynamic `import("./m")` (`import_kind: "dynamic"`), and TypeScript `import x = require("./m")` (`import_kind: "import_equals"`) with a string-literal specifier; static imports carry no `import_kind` |
+| `IMPORTS_FROM` | File | resolved repo-relative file, or the raw specifier for external modules | static `import` and `export ... from`; `require("./m")` (`import_kind: "require"`, at any depth), dynamic `import("./m")` (`import_kind: "dynamic"`), and TypeScript `import x = require("./m")` (`import_kind: "import_equals"`) with a string-literal specifier; `import type` and `export type ... from` carry `import_kind: "type"`; other static imports carry no `import_kind` |
 | `REFERENCES` (value) | owning node | function or class used as a value | object `pair` values, shorthand properties, array elements, call arguments, assignment right-hand sides |
 | `REFERENCES` (type) | owning node | type QN | `relationship_role: "type_reference"` or `"type_query"`, `type_positions` (§7.4); one edge per `(source, target)` |
 | `REFERENCES` (decorator) | decorated node | decorator function | `relationship_role: "decorator"` (§7.7) |
@@ -920,6 +920,7 @@ QNs omit the `file::` prefix.
 | `module.exports = { a, b: fn }`, `module.exports.x =`, `exports.x =` | export index (named exports, exports object as `default`) | implemented (#18) |
 | `export =` | export index default | implemented (#18) |
 | `import fs = require("fs")` | `IMPORTS_FROM` (`import_kind: "import_equals"`); `fs.f()` resolves for repo modules | implemented (#19) |
+| `import type { A } from "./a"`, `export type { A } from "./a"` | `IMPORTS_FROM` (`import_kind: "type"`); an inline `import { type A }` is a plain import | implemented |
 | `import A = B.C` (alias of a namespace member) | not read | out of scope |
 
 ### 10.7 Type references

@@ -712,8 +712,11 @@ fn javascript_walk_syntax_node(
             return;
         }
         "import_statement" | "export_statement" => {
+            // `import type` / `export type ... from`: erased at compile
+            // time, so the module is never loaded for it.
+            let kind = javascript_is_type_only_statement(child).then_some("type");
             for target in javascript_import_targets(child, context.source) {
-                javascript_push_import(child, &target, None, context, edges);
+                javascript_push_import(child, &target, kind, context, edges);
             }
             if child.kind() == "import_statement" {
                 if let Some((_, target)) = javascript_import_equals(child, context.source) {
@@ -792,6 +795,17 @@ fn javascript_walk_syntax_node(
     javascript_walk_children(child, context, owner_path, enclosing_func, nodes, edges);
     javascript_bind_declarator(child, context);
     javascript_bind_assignment(child, context);
+}
+
+/// `import type { A } from "./m"` or `export type { A } from "./m"`: the
+/// `type` keyword right after `import` / `export`.
+fn javascript_is_type_only_statement(node: tree_sitter::Node<'_>) -> bool {
+    let mut cursor = node.walk();
+    let mut children = node.children(&mut cursor);
+    children.next();
+    children
+        .next()
+        .is_some_and(|child| child.kind() == "type" && !child.is_named())
 }
 
 /// An `IMPORTS_FROM` edge from the file to the module `specifier` names

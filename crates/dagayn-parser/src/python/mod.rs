@@ -120,6 +120,8 @@ fn parse_python_module_tree(
         enclosing_qualified: None,
         class_bases: Vec::new(),
         scopes: Vec::new(),
+        function_depth: 0,
+        type_checking_depth: 0,
         nodes: &mut nodes,
         edges: &mut edges,
     };
@@ -211,6 +213,12 @@ struct PythonWalker<'w, 'a> {
     /// their keyword. Only kept for a file with syntax errors (see
     /// [`PythonWalker::visit_stmt`]).
     scopes: Vec<WalkerScope>,
+    /// How many function bodies enclose the statement being walked; an
+    /// import inside one runs when the function is called, not on import.
+    function_depth: u32,
+    /// How many `if TYPE_CHECKING:` bodies enclose it; an import inside one
+    /// never runs.
+    type_checking_depth: u32,
     nodes: &'w mut Vec<ParsedNode>,
     edges: &'w mut Vec<ParsedEdge>,
 }
@@ -222,6 +230,7 @@ struct WalkerScope {
     enclosing_class: Option<String>,
     enclosing_qualified: Option<String>,
     class_bases: Vec<Vec<String>>,
+    function_depth: u32,
 }
 
 impl<'ast> SourceOrderVisitor<'ast> for PythonWalker<'_, '_> {
@@ -245,10 +254,13 @@ impl<'ast> SourceOrderVisitor<'ast> for PythonWalker<'_, '_> {
                 );
                 let class_bases =
                     std::mem::replace(&mut self.class_bases, outer.class_bases.clone());
+                let function_depth =
+                    std::mem::replace(&mut self.function_depth, outer.function_depth);
                 self.visit_statement(stmt);
                 self.enclosing_class = enclosing_class;
                 self.enclosing_qualified = enclosing_qualified;
                 self.class_bases = class_bases;
+                self.function_depth = function_depth;
                 self.scopes.extend(inner);
                 return;
             }
@@ -307,6 +319,7 @@ impl PythonWalker<'_, '_> {
                 enclosing_class: self.enclosing_class.clone(),
                 enclosing_qualified: self.enclosing_qualified.clone(),
                 class_bases: self.class_bases.clone(),
+                function_depth: self.function_depth,
             });
         }
     }
@@ -351,6 +364,18 @@ impl PythonWalker<'_, '_> {
                 self.emit_type_alias(alias);
             }
             Stmt::Import(_) | Stmt::ImportFrom(_) => self.emit_imports(stmt),
+            Stmt::If(branch) if python_is_type_checking_test(&branch.test) => {
+                self.visit_expr(&branch.test);
+                self.type_checking_depth += 1;
+                self.visit_body(&branch.body);
+                self.type_checking_depth -= 1;
+                for clause in &branch.elif_else_clauses {
+                    if let Some(test) = &clause.test {
+                        self.visit_expr(test);
+                    }
+                    self.visit_body(&clause.body);
+                }
+            }
             Stmt::Assign(assign) => self.visit_assign(assign),
             Stmt::AnnAssign(assign) => self.visit_assignment(
                 &assign.target,
@@ -455,7 +480,9 @@ impl PythonWalker<'_, '_> {
         if let Some(returns) = &function.returns {
             self.visit_annotation(returns);
         }
+        self.function_depth += 1;
         self.visit_body(&function.body);
+        self.function_depth -= 1;
         self.enclosing_qualified = outer;
         self.pop_scope();
         context.bindings.borrow_mut().restore(snapshot);
@@ -563,6 +590,12 @@ impl PythonWalker<'_, '_> {
                 {
                     mark_external_edge(&mut target, &mut extra, &package, StdlibEvidence::Likely);
                 }
+            }
+            // A module-level import runs on import and is left unmarked.
+            if self.type_checking_depth > 0 {
+                extra["import_scope"] = json!("type_checking");
+            } else if self.function_depth > 0 {
+                extra["import_scope"] = json!("function");
             }
             self.edges.push(ParsedEdge {
                 kind: crate::core::types::EdgeKind::ImportsFrom,
@@ -1011,6 +1044,16 @@ fn python_decorator_name(decorator: &Decorator, src: &PySource<'_>) -> Option<St
             Some(src.slice(&*call.func).to_string())
         }
         _ => None,
+    }
+}
+
+/// `TYPE_CHECKING` or `typing.TYPE_CHECKING` (any module alias), the test
+/// of an `if` whose body only type checkers run.
+fn python_is_type_checking_test(test: &Expr) -> bool {
+    match test {
+        Expr::Name(name) => name.id.as_str() == "TYPE_CHECKING",
+        Expr::Attribute(attribute) => attribute.attr.as_str() == "TYPE_CHECKING",
+        _ => false,
     }
 }
 
