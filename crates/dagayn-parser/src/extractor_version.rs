@@ -95,8 +95,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // class of another file, `receiver_unknown`, and `receiver_from` for the
         // call it came from) and functions their declared `return_type`.
         // 9: tree-sitter-vue ce8011a.
+        // 10: `import type` / `export type ... from` mark their IMPORTS_FROM
+        // `import_kind: "type"`.
         extractor: "javascript",
-        version: 9,
+        version: 10,
         languages: &["javascript", "typescript", "tsx", "vue", "svelte"],
     },
     ExtractorVersion {
@@ -127,8 +129,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // (docs/plans/RUFF-PYTHON-PARSER.md): better recovery from syntax
         // errors, decoded string literals, union annotations type receivers,
         // and spans end at the last statement, not at trailing comments.
+        // 11: IMPORTS_FROM inside a function body or an `if TYPE_CHECKING:`
+        // body record `import_scope` (`function` / `type_checking`).
         extractor: "python",
-        version: 10,
+        version: 11,
         languages: &["python", "notebook"],
     },
     ExtractorVersion {

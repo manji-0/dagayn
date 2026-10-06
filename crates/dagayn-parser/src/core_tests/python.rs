@@ -537,6 +537,61 @@ fn python_lazy_exports_are_imports() {
 }
 
 #[test]
+fn python_imports_record_whether_they_run_on_import() {
+    let source = br#"import os
+from typing import TYPE_CHECKING
+import typing
+
+if TYPE_CHECKING:
+    from app.models import User
+else:
+    from app.fallback import User
+
+if typing.TYPE_CHECKING:
+    import app.types
+
+class Service:
+    import json
+
+    def run(self):
+        from app.cli import main
+
+        def inner():
+            import app.inner
+
+def top():
+    import app.lazy
+"#;
+    let (_, edges) = parse_python("app/service.py", source);
+    let scopes = edges
+        .iter()
+        .filter(|edge| edge.kind == "IMPORTS_FROM")
+        .map(|edge| {
+            (
+                edge.line,
+                edge.extra.get("import_scope").and_then(|s| s.as_str()),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        scopes,
+        vec![
+            (1, None),
+            (2, None),
+            (3, None),
+            (6, Some("type_checking")),
+            (8, None),
+            (11, Some("type_checking")),
+            (14, None),
+            (17, Some("function")),
+            (20, Some("function")),
+            (23, Some("function")),
+        ],
+        "{edges:?}"
+    );
+}
+
+#[test]
 fn python_typed_receivers_never_bind_to_another_class_of_the_file() {
     // `store: GraphStore` of another module: its `close` is not the
     // `close` of a class this file declares.

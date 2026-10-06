@@ -108,6 +108,14 @@ Python `from pkg import name` records an `IMPORTS_FROM` edge to `pkg/name.py`
 `import pkg.name`. It points at `pkg/__init__.py` only for names that are not
 submodules and for `*`.
 
+An import that does not run when its module is loaded says so in `extra`:
+Python imports inside a function body carry `import_scope: "function"` and
+those inside an `if TYPE_CHECKING:` body `import_scope: "type_checking"`
+(module-level imports carry none); entries of a module `__getattr__` table
+carry `lazy_export: true`; TypeScript `import type` and `export type ... from`
+carry `import_kind: "type"`. Import-cycle analysis counts only the imports
+that run on load.
+
 The fork also stores confidence-related metadata and graph relationships used by higher-order analysis.
 
 ## Language extraction models

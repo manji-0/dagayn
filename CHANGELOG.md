@@ -6,6 +6,12 @@ All notable changes to `dagayn` are documented here.
 
 ### Changed
 
+- Python and TypeScript imports say whether they run when the module is
+  loaded. Python `IMPORTS_FROM` inside a function body carry
+  `import_scope: "function"` and inside `if TYPE_CHECKING:` carry
+  `import_scope: "type_checking"`; TypeScript `import type` and
+  `export type ... from` carry `import_kind: "type"`. The Python extractor
+  version is 11 and the JavaScript one 10. See `docs/SCHEMA.md#edges`.
 - Rust: the members of an `impl` block in another file than its type now
   belong to the type's node, and the block's `IMPLEMENTS` edges start there.
   The parser can only contain such members in their File node and start
