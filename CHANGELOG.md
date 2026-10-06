@@ -2,7 +2,7 @@
 
 All notable changes to `dagayn` are documented here.
 
-## Unreleased
+## 8.0.0 — 2026-10-07
 
 ### Changed
 
@@ -67,16 +67,17 @@ All notable changes to `dagayn` are documented here.
   `export type ... from` carry `import_kind: "type"`. The Python extractor
   version is 11 and the JavaScript one 10. See `docs/SCHEMA.md#edges`.
 - Rust: the members of an `impl` block in another file than its type now
-  belong to the type's node, and the block's `IMPLEMENTS` edges start there.
-  The parser can only contain such members in their File node and start
-  `IMPLEMENTS` at `file::Type`, which is no node; a post-processing step
-  (`foreign_impl_members_linked` in the post-processing result) finds the
-  type by name, through the file's imports, the module the `impl` names, or
-  the only one in the package's source directory. In this repository,
-  `GraphStore` went from 1 `CONTAINS` edge to 220. An `impl` for a type
-  parameter or a standard-library or dependency type carries
-  `impl_target: "generic"` / `"external"` instead and stays as it was. The
-  Rust extractor version is 20. See `docs/SCHEMA.md#edges`.
+  belong to the type's node, and the block's `IMPLEMENTS` edges start there
+  (#183, #187). The parser can only contain such members in their File node
+  and start `IMPLEMENTS` at `file::Type`, which is no node; a
+  post-processing step (`foreign_impl_members_linked` in the
+  post-processing result) finds the type by name, through the file's
+  imports, the module the `impl` names, or the only one in the package's
+  source directory. In this repository, `GraphStore` went from 1 `CONTAINS`
+  edge to 220. An `impl` for a type parameter or a standard-library or
+  dependency type carries `impl_target: "generic"` / `"external"` instead
+  and stays as it was. The Rust extractor version is 20. See
+  `docs/SCHEMA.md#edges`.
 - `review_tool(mode="changes")` answers with `findings`: what a reviewer
   must check before merging that the diff does not show, and nothing when
   the change needs nothing beyond the diff. Each finding is one claim with a
@@ -86,14 +87,18 @@ All notable changes to `dagayn` are documented here.
   change, from a re-parse of each changed file at `base`),
   `unchanged_caller` (a new required parameter or fewer parameters, with
   callers outside the change not edited), `contract_doc_not_updated`,
-  `bridge_touched` (one side of a manifest, Terraform, or FFI bridge),
-  `untested_change` (one per file; tests, `build.rs`, `examples/`, benches,
-  fixtures, and generated code excluded), and `tests_to_run` (one per test
-  file, Rust unit tests one per crate, with a `command`). Comment- and
-  layout-only edits are no change (Python is compared by syntax tree). Each
-  kind keeps 10 findings and counts the rest in `findings_omitted`;
-  `summary` and `_hints` are built from the findings. See
-  `docs/plans/REVIEW-TOOL-TARGET.md`.
+  `bridge_touched` (a change to where a manifest, Terraform, or FFI bridge
+  is defined: a code file's changed functions, never a test file that only
+  uses the bridge, and for a TOML manifest only when the table holding the
+  bridge's key changed), `untested_change` (one per file, when no test
+  reaches the changed code through up to four callers; tests, `build.rs`,
+  `examples/`, benches, fixtures, and generated code excluded), and
+  `tests_to_run` (one per test file, listing only what the graph marks as
+  tests, Rust unit tests one per crate, with a `command`). Comment- and
+  layout-only edits are no change (Python is compared by syntax tree, so a
+  docstring-only edit is none either). Each kind keeps 10 findings and
+  counts the rest in `findings_omitted`; `summary` and `_hints` are built
+  from the findings. See `docs/plans/REVIEW-TOOL-TARGET.md`.
 - The score-first fields of `review_tool(mode="changes")`
   (`analysis_summary` with `risk_level` and `reason_codes`, `risk_score`,
   `review_priority_score`, `score_semantics`, `review_priorities`,
@@ -104,6 +109,16 @@ All notable changes to `dagayn` are documented here.
   have staged or unstaged edits (the work in progress), and against
   `HEAD~1` on a clean tree. It used to review the previous commit together
   with the work in progress.
+- The `review_changes` and `pre_merge_check` MCP prompts leave `base` out
+  of their `review_tool` calls when none is given, so they get that
+  default instead of always passing `HEAD~1`.
+- `dagayn detect-changes`, which the pre-commit hook runs with `--brief`,
+  asks `review_tool` instead of the removed Python change analysis:
+  `--brief` prints the summary and one line per finding (with the test
+  command for `tests_to_run`), the full form prints the `standard` JSON,
+  and with no `--base` a dirty tree is reviewed against `HEAD`. It used to
+  print a "Review priority score" and review the previous commit together
+  with the staged one.
 - An explicit `changed_files` list scopes `review_tool` and
   `get_minimal_context_tool`'s risk hint to those files; the base diff no
   longer adds every other changed file's nodes.
@@ -112,38 +127,81 @@ All notable changes to `dagayn` are documented here.
   in `mode="affected_flows"`), and `minimal` lists the changed files once
   with `change_file_source_counts`. On the repository's last 14 commits,
   `minimal` is 1.8K-14.7K characters (was 5K-27K).
-- CI gates each finding kind on a 38-case review eval
+- CI gates each finding kind on a 41-case review eval
   (`eval/run_review_eval.py`, cases in `tests/fixtures/review_eval`): a kind
   below 0.8 precision or recall (`eval/review_thresholds.yaml`) fails the
   build.
-- Removed the Python change analysis that nothing called any more:
-  `dagayn.changes` (`analyze_changes`, `parse_git_diff`, `compute_risk_score`,
-  ...), `dagayn.coverage`, `dagayn.constants`, and eight `_core.GraphStore`
-  bindings only they used. `review_tool` (Rust) is the change analysis.
 - `get_minimal_context_tool` reports changed files as `changes` (`state`,
   `files`, and the count of each `review_tool` finding kind) instead of the
   `risk` level and review-priority score, which ranked identifiers by
-  security-keyword prefixes.
+  security-keyword prefixes. `key_entities` lists the changed symbols in
+  file order instead of by that score.
 - Docs, skills, and the installed agent instructions (CLAUDE.md, AGENTS.md,
   and the other platform files) tell agents to read `findings`.
+- The Rust front end of `dagayn serve` answers the cases 7.2.0 still left
+  to Python's server, so a session no longer starts it for them: jj
+  workspaces and SVN working copies (found from the working directory as
+  Python finds them, with their freshness, change listings, and diffs, for
+  every tool that answered in a git checkout), `get_minimal_context_tool`
+  with `changed_files`, any task text, a seeded worktree graph, or an
+  unbuilt or drifted graph (it queues the prepare or embedding refresh and
+  starts the queue worker itself), `review_tool(mode="changes")` with
+  `include_source=true` or `detail_level="verbose"`, review errors (a stale
+  jj working copy, a non-UTF-8 git listing, a missing `git` or `svn`, a
+  `base` that does not resolve), every `query_graph_tool` case, renames
+  with non-ASCII names, `apply_refactor_tool` on missing, unreadable, or
+  non-UTF-8 files, `get_wiki_page_tool` for any community name,
+  `list_repos_tool` on a missing or malformed registry, and SDP/SAP
+  thresholds of any size, with Python's replies. A registry only Python's
+  JSON parser reads (`NaN`, lone surrogates) still goes to Python.
+- Python's server and the `dagayn` Python CLI answer `review_tool`,
+  `get_minimal_context_tool`, `query_graph_tool`, `flow_tool`,
+  `architecture_analysis_tool`, `refactor_tool` (rename previews
+  included), `apply_refactor_tool`, `get_docs_section_tool`,
+  `get_wiki_page_tool`, `list_repos_tool`, `list_graph_stats_tool`,
+  `find_large_functions_tool`, and `get_suggested_questions_tool` with the
+  Rust implementation the front end uses, after opening the graph as
+  before, so `--http`, `python -m dagayn serve`, and `DAGAYN_PYTHON_CLI=1`
+  get the same answers. A direct `get_minimal_context` call (`dagayn tool`)
+  now carries `_repo`, and a direct `architecture_analysis` call with an
+  argument the MCP schema rejects (an unknown `dependency_profile`) raises
+  instead of returning a validation envelope.
+- Rust extraction takes 44% less time with the same output (#182, #184):
+  the five pre-passes share one cursor walk, and the wasm-host, neon, and
+  `Deref` passes are skipped when the file lacks the literal they look for.
+  Over 20,000 crates.io files it takes 38.0 s instead of 68.7 s, with
+  byte-identical nodes and edges.
+- tree-sitter goes to 0.27 and 13 grammar pins to their latest upstream
+  revisions (#185): C, C++, C#, Dart, Elixir, GDScript, Kotlin, PHP, R,
+  Scala, and Vue to their default branch, Perl to its 2.x release branch,
+  and Swift to 0.7.4 from the grammar's own generated-files branch instead
+  of the tree-sitter-language-pack sdist. Over 26,430 files in those
+  languages, output changes in 110, mostly recovered declarations (Kotlin
+  and PHP classes lost to error recovery, Swift nested types qualified under
+  their parent, Scala names read correctly); C headers holding C++ code
+  recover differently in 45 of 11,835. One C# file became a whole-file
+  ERROR with the new grammar, which a local grammar patch fixes (see
+  Fixed). Extractor versions: JavaScript 9 (Vue), C / C++ / Objective-C 7,
+  C# 6, Kotlin 5, Dart 5, Swift 4, Perl 4, Scala 4, Elixir 3, R 3,
+  GDScript 3, PHP 3, so `dagayn update` re-parses those files.
 - The Python extractor (`.py`, Jupyter notebooks, marimo apps, Databricks
   exports) parses with Ruff's parser (`ruff_python_parser` 0.0.16) instead
-  of the tree-sitter Python grammar. Python extraction runs about 5.8 times
-  faster (site-packages, 6,609 files: 7.2 s to 1.2 s) and recovers more
-  definitions and calls from files with syntax errors. The graph output is
-  the same except for these improvements: a definition's `line_end` no
-  longer counts the comment lines after its last statement; receivers typed
-  through a union annotation (`x: dict[str, int] | None`) resolve their
-  member calls; calls inside `[*f()]` displays and through a parenthesized
-  callee are found; string arguments are read decoded, with implicit
-  concatenation joined (bridge targets, notebook SQL table imports); an
-  interpolated f-string is a dynamic bridge target; `type X[T] = ...` is
-  named `X`; a parenthesized return annotation loses its parentheses. The
-  Python extractor version is 10, so `dagayn update` re-parses Python
-  files. See `docs/plans/RUFF-PYTHON-PARSER.md`.
+  of the tree-sitter Python grammar (#181). Python extraction runs about
+  5.8 times faster (site-packages, 6,609 files: 7.2 s to 1.2 s) and
+  recovers more definitions and calls from files with syntax errors. The
+  graph output is the same except for these improvements: a definition's
+  `line_end` no longer counts the comment lines after its last statement;
+  receivers typed through a union annotation (`x: dict[str, int] | None`)
+  resolve their member calls; calls inside `[*f()]` displays and through a
+  parenthesized callee are found; string arguments are read decoded, with
+  implicit concatenation joined (bridge targets, notebook SQL table
+  imports); an interpolated f-string is a dynamic bridge target;
+  `type X[T] = ...` is named `X`; a parenthesized return annotation loses
+  its parentheses. The Python extractor version is 10, so `dagayn update`
+  re-parses Python files. See `docs/plans/RUFF-PYTHON-PARSER.md`.
 - The Rust workspace targets 1.98.0 (Ruff's parser crates need 1.97).
-- Grammars can carry local patches: `vendor/grammar-patches/<language>/`
-  holds the patches, and `vendor/grammars/<language>/` the parser generated
+- Grammars can carry local patches (#186):
+  `vendor/grammar-patches/<language>/` holds the patches, and `vendor/grammars/<language>/` the parser generated
   from them, which builds copy over the pinned upstream source (no
   tree-sitter CLI or node needed). `tools/regenerate_patched_grammars.py`
   regenerates it with the CLI version upstream generated with, after
@@ -151,10 +209,23 @@ All notable changes to `dagayn` are documented here.
   unmerged upstream fixes (tree-sitter-rust#317 `~` in macro token trees,
   #271 `where` on unit structs, #281 `pub type` in extern blocks); on
   20,000 crates.io files, files with a parse error went from 101 to 80 and
-  the graph output did not change. The Rust extractor version is 18.
+  the graph output did not change. The Rust extractor version is 19.
 - A grammar source staged under `dagayn/_vendor_grammars/` records the pin
   (and patches) it came from, and the build replaces one staged from an
   older pin instead of compiling it.
+
+### Added
+
+- Each tree-sitter grammar is a Cargo feature, `lang-<language>`
+  (`lang-rust`, `lang-go`, `lang-markdown`, ...), and `all-languages`, the
+  default, turns on all of them, so default builds and the published wheels
+  are unchanged. `dagayn-parser`, `dagayn-build`, `dagayn-cli`, and
+  `dagayn-py` forward the `lang-*` features; build with
+  `--no-default-features --features lang-...` to compile only some
+  grammars. A file of a disabled language gets its File node and no
+  symbols. A clean release build of `dagayn-parser` takes 16 s wall / 31 s
+  CPU with no grammar instead of 20 s / 74 s. See
+  `docs/GRAMMAR-PROVISIONING.md#building-a-subset-of-grammars`.
 
 ### Removed
 
@@ -162,7 +233,23 @@ All notable changes to `dagayn` are documented here.
   `dagayn.vendor_grammars` no longer fetches it, and the `lang-python` Cargo
   feature is gone from every crate. Python needs no grammar, so every build,
   including `--no-default-features`, parses Python and notebooks.
-
+- The tree-sitter PowerShell grammar (about 1 MB of compiled tables in
+  `dagayn._core`). PowerShell files were parsed only to be given a File
+  node; they get the same File node without the parse.
+- The Python change analysis nothing called any more: `dagayn.changes`
+  (`analyze_changes`, `parse_git_diff`, `compute_risk_score`, ...),
+  `dagayn.coverage`, `dagayn.constants`, and the `_core.GraphStore`
+  bindings only they used. `review_tool` (Rust) is the change analysis.
+- The Python bodies of the tools Rust now answers: `dagayn.tools.review`,
+  `review_context`, `review_flows`, `review_helpers`, `flows_tools`,
+  `community_tools`, `architecture_tools`, `sap_tools`,
+  `query_graph_dispatch`, and `node_source`, `dagayn.bare_name_resolution`,
+  `dagayn.refactor.apply`, `dagayn.refactor.rename`,
+  `dagayn.wiki.get_wiki_page`, `dagayn.stability_policy`, and the Python
+  architecture analyses (`find_hub_nodes`, `find_knowledge_gaps`,
+  `find_surprising_connections`, `generate_suggested_questions`,
+  `communities.get_architecture_overview`). Call the tool functions
+  (`review_func`, `query_graph`, `refactor_func`, ...) instead.
 - Compatibility layers, now that nothing in the package needs them:
   the `dagayn.incremental` re-export module (import from
   `dagayn.incremental_build`, `dagayn.incremental_files`,
@@ -187,6 +274,29 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- Rust: a function is a test by a test attribute (`#[test]`,
+  `#[tokio::test]`, ...) or a `tests/` path, not by a name starting with
+  `test`. Helpers such as `test_node_json` and `tests_to_run` were Test
+  nodes (25 in this repository), and their calls became `TESTED_BY` edges
+  that made the functions they call look tested. Other languages keep the
+  name rule. The Rust extractor version is 18.
+- `review_tool(mode="changes")` never noticed a graph whose line ranges were
+  stale: it looked up the file hash under the absolute path the review
+  passes, while the graph stores repository-relative paths, so a function
+  prepended before re-indexing moved every diff hunk onto the wrong
+  function. A stale file now maps all its functions and is reported in
+  `stale_graph_line_ranges` at every detail level, and `changed_functions`
+  drops functions the base comparison shows unchanged but for comments or
+  layout.
+- `review_tool` hints list each next step once; several untested files used
+  to repeat the same hint.
+- `refactor_tool(mode="dead_code")` counts candidates under `fixtures/` or
+  `testdata/` in `suppressed` as `test_fixture` instead of listing them: on
+  this repository it went from 31 symbols, 30 of them sample functions
+  written to be parsed, to 0. `mode="suggest"` still ranks them last.
+- `query_graph_tool(pattern="callers_of")` answered in Rust skips every
+  builtin call name Python skips (167, such as `then` and `log`); it used to
+  skip only 32 array methods and walk the graph for the rest.
 - C#: a binary operand compiled conditionally, operator included
   (`x != null\n#if X\n&& y\n#endif`), made the whole file an ERROR with
   tree-sitter-c-sharp 8c0abe0, losing every class in it; a local grammar
@@ -200,12 +310,20 @@ All notable changes to `dagayn` are documented here.
   (`borrowed_sqlite_connection`, `EmbeddingStore`, the registry pool) keep
   the WAL on close (`SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE`); the native store
   checkpoints on its own.
+- Two tool calls reading one cached graph at the same time could let a
+  writer in while one was still reading: each lookup wrapped the store's
+  `close()` again, so the first reader to close released both readers'
+  shared locks. The store is wrapped once.
 - The ADP/SDP/SAP architecture tools (`detect_adp_violations_func`,
   `compute_sdp_metrics_func`, `detect_sdp_violations_func`,
   `compute_sap_metrics_func`, `detect_sap_violations_func`) and
   `get_wiki_page_tool` never closed the graph they opened, so each call left
   its store lease and the shared read lock held, and a later writer in the
   same server waited on it.
+- Build results (the MCP build tool, `session prepare`, the queue worker)
+  reported `warnings: []` whatever the build had warned about: the
+  post-processing result's empty list replaced the build's. The two lists
+  are now joined, the build's first.
 - `dagayn install --mode remote-embedding` now prints the environment
   variables the chosen provider needs: the check compared the mode against
   the legacy `remote` name, which was normalized away first, so it never
