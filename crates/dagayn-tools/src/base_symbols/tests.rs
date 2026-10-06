@@ -540,6 +540,36 @@ fn dirty_tree_against_head_reads_heads_blob() {
 }
 
 #[test]
+fn importing_the_class_is_no_reference_to_a_removed_method() {
+    for index in BOTH {
+        let repo = Repo::new("py-method");
+        repo.write(
+            "pkg/shapes.py",
+            "class Box:\n    def area(self):\n        return 1\n\n    def gone(self):\n        return 2\n",
+        );
+        repo.write(
+            "use_box.py",
+            "from pkg.shapes import Box\n\n\ndef size():\n    return Box().area()\n",
+        );
+        repo.commit("init");
+        let base = change_and_index(&repo, index, true, |repo| {
+            repo.write(
+                "pkg/shapes.py",
+                "class Box:\n    def area(self):\n        return 1\n",
+            );
+        });
+        let (_, delta, references) = repo.analyze(&base);
+        assert_eq!(removed_names(&delta), vec!["pkg/shapes.py::Box.gone"]);
+        assert!(
+            refs_to(&references, "pkg/shapes.py::Box.gone")
+                .iter()
+                .all(|r| r.edge_kind != "IMPORTS_FROM"),
+            "{index:?}: {references:?}"
+        );
+    }
+}
+
+#[test]
 fn function_turned_macro_generated_is_unconfirmed() {
     let repo = rust_repo("rs-macro");
     let base = change_and_index(&repo, Index::Incremental, false, |repo| {

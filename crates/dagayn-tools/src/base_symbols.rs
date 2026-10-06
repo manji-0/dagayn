@@ -865,7 +865,9 @@ pub(crate) fn references_to(
                 }
                 continue;
             }
-            if names_it {
+            // Importing a member's class is no reference to the member; the
+            // import only admits the file's bare-name edges below.
+            if names_it && target.parent_name.is_none() {
                 let kind = if *by_module {
                     MatchKind::ImportedModule
                 } else {
