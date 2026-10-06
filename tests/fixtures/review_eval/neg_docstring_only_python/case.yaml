@@ -1,0 +1,16 @@
+description: Adds a docstring to the untested pkg/report.py::render and changes nothing else; a
+  docstring documents the function, so no untested_change.
+negative: true
+commit_change: false
+base:
+  from: py_pkg
+change:
+  files:
+    pkg/report.py: |
+      def render(rows):
+          """Render rows as a Markdown bullet list."""
+          lines = []
+          for row in rows:
+              lines.append(f"- {row}")
+          return "\n".join(lines)
+expected_findings: []

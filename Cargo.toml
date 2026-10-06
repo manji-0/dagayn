@@ -40,6 +40,8 @@ regex = "1"
 # Ruff's parser crates are internal components of Ruff with no API
 # stability promise: every 0.0.x release may break, so pin exactly.
 ruff_python_ast = "=0.0.16"
+# The collection type of ruff_python_ast bodies; tracks its version.
+thin-vec = "0.2.20"
 ruff_python_parser = "=0.0.16"
 ruff_text_size = "=0.0.16"
 rusqlite = { version = "0.32", features = ["bundled"] }

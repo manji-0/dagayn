@@ -1295,14 +1295,39 @@ mod parser_core_tests {
 }
 
 /// Whether two Python snippets are the same code: their syntax trees are
-/// equal, so comments and layout (line breaks, redundant parentheses,
-/// trailing commas) do not count. `None` when either side does not parse on
-/// its own. Both sides are dedented first, so a method span compares too.
+/// equal once docstrings are dropped, so comments, docstrings, and layout
+/// (line breaks, redundant parentheses, trailing commas) do not count.
+/// `None` when either side does not parse on its own. Both sides are
+/// dedented first, so a method span compares too.
 pub fn python_same_code(before: &str, after: &str) -> Option<bool> {
     use ruff_python_ast::comparable::ComparableModModule;
-    let before = ruff_python_parser::parse_module(&dedent(before)).ok()?;
-    let after = ruff_python_parser::parse_module(&dedent(after)).ok()?;
-    Some(ComparableModModule::from(before.syntax()) == ComparableModModule::from(after.syntax()))
+    let parse = |text: &str| -> Option<ruff_python_ast::ModModule> {
+        let mut module = ruff_python_parser::parse_module(&dedent(text))
+            .ok()?
+            .into_syntax();
+        strip_docstrings(&mut module.body);
+        Some(module)
+    };
+    let (before, after) = (parse(before)?, parse(after)?);
+    Some(ComparableModModule::from(&before) == ComparableModModule::from(&after))
+}
+
+/// Drops the docstring that opens `body` and every function or class body
+/// nested in it.
+fn strip_docstrings(body: &mut thin_vec::ThinVec<ruff_python_ast::Stmt>) {
+    use ruff_python_ast::{Expr, Stmt};
+    if let Some(Stmt::Expr(first)) = body.first()
+        && matches!(*first.value, Expr::StringLiteral(_))
+    {
+        body.remove(0);
+    }
+    for stmt in body.iter_mut() {
+        match stmt {
+            Stmt::FunctionDef(def) => strip_docstrings(&mut def.body),
+            Stmt::ClassDef(class) => strip_docstrings(&mut class.body),
+            _ => {}
+        }
+    }
 }
 
 /// `text` with the indentation its non-blank lines share removed.

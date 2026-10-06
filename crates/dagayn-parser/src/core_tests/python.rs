@@ -906,4 +906,8 @@ fn python_same_code_ignores_comments_and_layout() {
         "    def total(values, sep):\n        return sep.join(values) + str(len(values) + 1)\n";
     assert_eq!(python_same_code(before, changed), Some(false));
     assert_eq!(python_same_code(before, "def broken(:\n"), None);
+    let documented = "    def total(values, sep):\n        \"\"\"Join and count.\"\"\"\n        return sep.join(values) + str(len(values))\n";
+    assert_eq!(python_same_code(before, documented), Some(true));
+    let reworded = documented.replace("Join and count.", "Join, then count.");
+    assert_eq!(python_same_code(documented, &reworded), Some(true));
 }
