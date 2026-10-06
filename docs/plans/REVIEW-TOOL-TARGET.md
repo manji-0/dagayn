@@ -110,6 +110,40 @@ Default base: `HEAD~1` plus staged, unstaged, and untracked files. On a
 dirty tree that re-reviews the previous commit together with the work in
 progress; a commit hook reviewing a 2-file change reported 21 files.
 
+## Result
+
+<!-- derived-from #evidence-the-current-output -->
+
+The same 14 commits, each on its own graph with `base="HEAD~1"` and
+`detail_level="minimal"`, after the findings contract (`a2916a62` and the
+fixes up to `767891d0`). "Before" is the output size from the evidence table.
+
+| Commit | Before (chars) | After (chars) | Summary |
+|---|---|---|---|
+| `20c9e0eb` | 21,273 | 3,296 | Findings: 1 tests_to_run. |
+| `cf16d792` | 26,610 | 5,598 | Findings: 1 tests_to_run. |
+| `23ec41ef` | 20,306 | 14,720 | Findings: 12 untested_change, 1 tests_to_run. |
+| `6b90c812` | 18,728 | 3,347 | Findings: 2 untested_change. |
+| `a155e96f` | 4,993 | 1,825 | Nothing beyond the diff needs checking. |
+| `027bbc80` | 5,037 | 1,847 | Nothing beyond the diff needs checking. |
+| `797ba750` | 22,295 | 4,024 | Findings: 1 tests_to_run. |
+| `1a452379` | 11,422 | 1,830 | Nothing beyond the diff needs checking. |
+| `1def1b4f` | 24,637 | 3,415 | Findings: 1 tests_to_run. |
+| `af60f448` | 8,593 | 1,856 | Nothing beyond the diff needs checking. |
+| `60db881c` | 15,315 | 3,074 | Findings: 1 tests_to_run. |
+| `a30c7a4a` | 17,572 | 8,532 | Findings: 7 tests_to_run. |
+| `529f7b16` | 15,436 | 2,363 | Findings: 1 tests_to_run. |
+| `a686d073` | 19,143 | 4,138 | Findings: 2 untested_change, 2 tests_to_run. |
+
+- All four docs- or CI-only commits report nothing beyond the diff.
+- `23ec41ef` added the Ruff extractor before its tests; its 12
+  `untested_change` findings are one per file, listing the functions.
+- None of these commits left a dangling reference or an unchanged caller,
+  which fits a history that compiled and passed CI; the eval's seeded cases
+  cover those kinds.
+- On the eval set (38 cases) every kind has precision and recall 1.00; CI
+  gates each at 0.8.
+
 ## Decisions (2026-10-06)
 
 - The six finding kinds below go ahead; the eval still gates each one.
@@ -177,8 +211,8 @@ A harness beside `eval/run_search_eval.py`, run in CI on fixed fixtures:
    signature changes; Python snippets compared by syntax tree.
 5. **Done** (`a2916a62`): `findings` list with the six kinds
    (`crates/dagayn-tools/src/findings.rs`); `tests_to_run` commands per
-   language. Every kind has precision and recall 1.00 on the 36-case eval,
-   gated in CI at 0.8 (`eval/review_thresholds.yaml`).
+   language. Every kind has precision and recall 1.00 on the eval (38
+   cases, counting two negative cases added afterwards), gated in CI at 0.8 (`eval/review_thresholds.yaml`).
 6. **Done** (`a2916a62`): the score-first fields moved behind
    `detail_level="verbose"`, listed in `deprecated_fields`; the MCP parity
    snapshots were regenerated for the new contract.

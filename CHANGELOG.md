@@ -41,7 +41,7 @@ All notable changes to `dagayn` are documented here.
   in `mode="affected_flows"`), and `minimal` lists the changed files once
   with `change_file_source_counts`. On the repository's last 14 commits,
   `minimal` is 1.8K-21K characters (was 15K-29K).
-- CI gates each finding kind on a 36-case review eval
+- CI gates each finding kind on a 38-case review eval
   (`eval/run_review_eval.py`, cases in `tests/fixtures/review_eval`): a kind
   below 0.8 precision or recall (`eval/review_thresholds.yaml`) fails the
   build.
