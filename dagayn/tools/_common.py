@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import contextvars
-import json
 import logging
 import os
 import sqlite3
 import threading
-from collections.abc import Mapping, MutableMapping, Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, TypedDict, cast
 
@@ -200,29 +199,6 @@ def _validate_repo_root(path: Path) -> Path:
             f"repo_root does not look like a project root (no .git or "
             f".dagayn/graph.db found): {resolved}"
         )
-    return resolved
-
-
-def resolve_contained_path(rel_path: str, repo_root: Path) -> Path | None:
-    """Resolve *rel_path* under *repo_root*, or ``None`` when it escapes.
-
-    Caller-supplied file lists (``changed_files`` on the review tools) reach
-    the filesystem, so they need the same containment guarantee the edit path
-    in ``apply_refactor_tool`` has. ``root / rel_path``
-    alone provides none: ``Path.__truediv__`` discards ``root`` when the right
-    operand is absolute, and ``..`` segments are not normalised until
-    ``resolve()``.
-    """
-    candidate = Path(rel_path)
-    if not candidate.is_absolute():
-        candidate = repo_root / candidate
-    try:
-        resolved = candidate.resolve()
-    except OSError:
-        return None
-    root = repo_root.resolve()
-    if resolved != root and not resolved.is_relative_to(root):
-        return None
     return resolved
 
 
@@ -1001,70 +977,3 @@ class ToolStoreScope:
         finally:
             if self._store is not None:
                 self._store.close()
-
-
-def _get_path(container: dict[str, object], path: str) -> tuple[dict[str, object] | None, str]:
-    current: object = container
-    parts = path.split(".")
-    for part in parts[:-1]:
-        if not isinstance(current, dict):
-            return None, parts[-1]
-        current = current.get(part)
-    return current if isinstance(current, dict) else None, parts[-1]
-
-
-def apply_output_budget(
-    payload: MutableMapping[str, DynamicValue],
-    budget_tokens: int = 5000,
-    list_priorities: list[str] | None = None,
-) -> ToolPayload:
-    """Trim list-valued fields until JSON size fits within budget_tokens.
-
-    Mutates payload in-place. Sets payload["truncated"] = True and adds
-    payload["_truncation"] = {field: {"kept": int, "total": int}} for each
-    trimmed field.
-
-    Fields in list_priorities are trimmed last-to-first (lowest priority
-    trimmed first). Fields not in list_priorities are never touched.
-    """
-    mutable_payload = cast(dict[str, object], payload)
-    if list_priorities is None:
-        list_priorities = []
-
-    def _est_tokens() -> int:
-        return len(json.dumps(mutable_payload, default=str)) // 4
-
-    if _est_tokens() <= budget_tokens:
-        return cast(ToolPayload, payload)
-
-    truncation: dict[str, dict[str, int]] = {}
-
-    for field in reversed(list_priorities):
-        parent, key = _get_path(mutable_payload, field)
-        if parent is None or key not in parent:
-            continue
-        raw_items = parent[key]
-        if not isinstance(raw_items, list):
-            continue
-        items = raw_items
-        total = len(items)
-        while len(items) > 1 and _est_tokens() > budget_tokens:
-            items = items[: len(items) // 2]
-            parent[key] = items
-        if len(items) < total:
-            parent[key] = items
-            truncation[field] = {"kept": len(items), "total": total}
-            mutable_payload["truncated"] = True
-        if _est_tokens() <= budget_tokens:
-            break
-
-    if truncation:
-        mutable_payload["_truncation"] = truncation
-    elif _est_tokens() > budget_tokens:
-        logger.warning(
-            "apply_output_budget: payload still exceeds %d tokens after trimming all lists",
-            budget_tokens,
-        )
-        mutable_payload["truncated"] = True
-
-    return cast(ToolPayload, payload)

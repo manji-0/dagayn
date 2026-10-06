@@ -9,7 +9,6 @@ import pytest
 from dagayn.graph import GraphStore
 from dagayn.graph.sqlite_errors import is_sqlite_corrupt_error
 from dagayn.tools._common import (
-    apply_output_budget,
     attach_answerability,
     graph_answerability_summary,
     guidance_actions_to_hints,
@@ -64,64 +63,6 @@ class TestMakeResponse:
         keys = list(r.keys())
         assert keys[0] == "status"
         assert keys[1] == "summary"
-
-
-class TestApplyOutputBudget:
-    def test_no_trimming_when_within_budget(self) -> None:
-        payload = {"status": "ok", "items": ["a", "b"]}
-        result = apply_output_budget(payload, budget_tokens=10000)
-        assert result["items"] == ["a", "b"]
-        assert "truncated" not in result
-
-    def test_trims_lowest_priority_first(self) -> None:
-        large = ["x" * 100] * 200
-        payload = {
-            "status": "ok",
-            "high": ["important"] * 5,
-            "low": large,
-        }
-        result = apply_output_budget(payload, budget_tokens=100, list_priorities=["high", "low"])
-        assert len(result["low"]) < 200
-        assert result["truncated"] is True
-        assert "low" in result["_truncation"]
-
-    def test_marks_truncated_true(self) -> None:
-        payload = {"items": ["x" * 1000] * 100}
-        result = apply_output_budget(payload, budget_tokens=50, list_priorities=["items"])
-        assert result["truncated"] is True
-
-    def test_truncation_metadata(self) -> None:
-        payload = {"items": list(range(200))}
-        result = apply_output_budget(payload, budget_tokens=50, list_priorities=["items"])
-        assert "items" in result["_truncation"]
-        assert result["_truncation"]["items"]["total"] == 200
-        assert result["_truncation"]["items"]["kept"] < 200
-
-    def test_ignores_non_list_fields(self) -> None:
-        payload = {"status": "ok", "count": 42}
-        result = apply_output_budget(payload, budget_tokens=1, list_priorities=["count"])
-        assert result["count"] == 42
-
-    def test_empty_priorities(self) -> None:
-        payload = {"items": ["x" * 1000] * 100}
-        result = apply_output_budget(payload, budget_tokens=1, list_priorities=[])
-        assert "truncated" in result
-
-    def test_trims_nested_list_fields(self) -> None:
-        payload = {"analysis_summary": {"guidance": [{"blob": "x" * 100}] * 200}}
-        result = apply_output_budget(
-            payload,
-            budget_tokens=100,
-            list_priorities=["analysis_summary.guidance"],
-        )
-        assert result["truncated"] is True
-        assert "analysis_summary.guidance" in result["_truncation"]
-        assert len(result["analysis_summary"]["guidance"]) < 200
-
-    def test_updates_payload_while_estimating_trim_size(self) -> None:
-        payload = {"items": ["x" * 100] * 8}
-        result = apply_output_budget(payload, budget_tokens=120, list_priorities=["items"])
-        assert result["_truncation"]["items"]["kept"] > 1
 
 
 class TestAnswerability:
