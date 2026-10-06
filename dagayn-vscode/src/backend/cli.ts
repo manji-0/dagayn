@@ -46,20 +46,6 @@ export class CliWrapper {
   }
 
   /**
-   * Return the CLI version string, or undefined when the CLI is not available.
-   */
-  async getVersion(): Promise<string | undefined> {
-    try {
-      const { stdout } = await execFileAsync(this.cliPath, ["--version"], {
-        timeout: 10_000,
-      });
-      return stdout.trim();
-    } catch {
-      return undefined;
-    }
-  }
-
-  /**
    * Build (or fully rebuild) the graph database for a workspace.
    */
   async buildGraph(workspaceRoot: string, options?: { fullRebuild?: boolean }): Promise<CliResult> {

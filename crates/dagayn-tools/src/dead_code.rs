@@ -38,11 +38,13 @@ const VALUE_CONTAINER_ROLES: &[&str] = &["struct", "enum", "record"];
 const SCOPE_CONTAINER_ROLES: &[&str] = &["object", "namespace", "ambient_module"];
 const CONFIG_LANGUAGES: &[&str] = &["terraform", "hcl", "json", "yaml", "toml"];
 
+/// Test files and test data: fixtures are samples written to be parsed,
+/// not called.
 fn test_file_re() -> &'static regex::Regex {
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     RE.get_or_init(|| {
         regex::Regex::new(
-            r"([\\/]__tests__[\\/]|\.(spec|test|cy)\.[cm]?[jt]sx?$|[\\/]test_[^/\\]*\.py$|[\\/]e2e[_-]?tests?[\\/]|[\\/]test[_-]utils?[\\/])",
+            r"([\\/]__tests__[\\/]|\.(spec|test|cy)\.[cm]?[jt]sx?$|[\\/]test_[^/\\]*\.py$|[\\/]e2e[_-]?tests?[\\/]|[\\/]test[_-]utils?[\\/]|(^|[\\/])(fixtures|testdata)[\\/])",
         )
         .expect("regex")
     })
@@ -790,4 +792,24 @@ fn graph_candidates(
         ));
     }
     Some((dead, cache))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fixtures_and_test_data_are_test_files() {
+        for path in [
+            "tests/fixtures/sample_cross_language.py",
+            "pkg/testdata/input.go",
+            "web/src/__tests__/a.ts",
+            "tests/test_util.py",
+        ] {
+            assert!(test_file_re().is_match(path), "{path}");
+        }
+        for path in ["dagayn/fixture_loader.py", "src/fixtures.rs", "pkg/app.py"] {
+            assert!(!test_file_re().is_match(path), "{path}");
+        }
+    }
 }
