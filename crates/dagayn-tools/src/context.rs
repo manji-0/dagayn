@@ -11,6 +11,7 @@
 //! Verifying a freshly seeded worktree's content clears its marker, as the
 //! Python assessment does.
 
+use std::collections::HashSet;
 use std::path::Path;
 
 use dagayn_build::task_queue::{self, TaskPayload};
@@ -313,7 +314,11 @@ fn risk_of(store: &dagayn_graph::GraphStore, root: &Path, base: &str, files: &[S
                 ..Risk::scored(0.0)
             }
         }
-        DiffParse::Ranges(ranges) => {
+        DiffParse::Ranges(mut ranges) => {
+            // Only the named files' lines count; the rest of the base diff
+            // adds no nodes.
+            let wanted: HashSet<String> = files.iter().map(|file| join(root, file)).collect();
+            ranges.retain(|rel, _| wanted.contains(&join(root, rel)));
             let Some(analysis) = analyze_changes_with(store, root, base, files, &ranges, false)
             else {
                 return Risk::unknown();

@@ -946,6 +946,15 @@ fn review_changes_scores_the_diff_against_base() {
     );
     assert_eq!(scoped["changed_files"], json!(["notes.txt"]));
     assert_eq!(scoped["changed_functions"], json!([]));
+    let scoped_context = answer(
+        &context,
+        "get_minimal_context_tool",
+        json!({"changed_files": ["notes.txt"]}),
+    );
+    assert!(
+        !scoped_context.to_string().contains("auth_token"),
+        "{scoped_context}"
+    );
 
     let sourced = answer(&context, "review_tool", json!({"include_source": true}));
     let functions = sourced["changed_functions"].as_array().unwrap();
