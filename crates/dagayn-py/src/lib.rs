@@ -225,32 +225,6 @@ impl PyGraphStore {
         graph_nodes_to_py_vec(py, nodes)
     }
 
-    fn get_files_matching(&self, pattern: &str) -> PyResult<Vec<String>> {
-        self.with_store(|store| store.get_files_matching(pattern))
-    }
-
-    fn count_flow_memberships(&self, node_id: i64) -> PyResult<i64> {
-        self.with_store(|store| store.count_flow_memberships(node_id))
-    }
-
-    fn count_flow_memberships_for_nodes(
-        &self,
-        node_ids: Vec<i64>,
-    ) -> PyResult<std::collections::HashMap<i64, i64>> {
-        self.with_store(|store| store.count_flow_memberships_for_nodes(&node_ids))
-    }
-
-    fn get_flow_criticalities_for_node(&self, node_id: i64) -> PyResult<Vec<f64>> {
-        self.with_store(|store| store.get_flow_criticalities_for_node(node_id))
-    }
-
-    fn get_flow_criticalities_for_nodes(
-        &self,
-        node_ids: Vec<i64>,
-    ) -> PyResult<std::collections::HashMap<i64, Vec<f64>>> {
-        self.with_store(|store| store.get_flow_criticalities_for_nodes(&node_ids))
-    }
-
     fn get_flow_qualified_names_for_flows(
         &self,
         py: Python<'_>,
@@ -263,30 +237,6 @@ impl PyGraphStore {
             out.set_item(flow_id, PySet::new(py, qualified_names)?)?;
         }
         Ok(out.unbind().into_any())
-    }
-
-    fn get_node_community_id(&self, node_id: i64) -> PyResult<Option<i64>> {
-        self.with_store(|store| store.get_node_community_id(node_id))
-    }
-
-    fn get_community_ids_by_node_ids(
-        &self,
-        py: Python<'_>,
-        node_ids: Vec<i64>,
-    ) -> PyResult<Py<PyAny>> {
-        let community_ids =
-            self.with_store(|store| store.get_community_ids_by_node_ids(&node_ids))?;
-        Ok(community_ids.into_py_dict(py)?.unbind().into_any())
-    }
-
-    fn get_community_ids_by_qualified_names(
-        &self,
-        py: Python<'_>,
-        qns: Vec<String>,
-    ) -> PyResult<Py<PyAny>> {
-        let community_ids =
-            self.with_store(|store| store.get_community_ids_by_qualified_names(&qns))?;
-        Ok(community_ids.into_py_dict(py)?.unbind().into_any())
     }
 
     fn get_all_community_member_qns(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {

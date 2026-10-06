@@ -1,38 +1,34 @@
-"""Tests for heuristic test coverage inference."""
+"""Tests for test coverage inference: ``query_graph_tool(pattern="tests_for")``
+(the Rust inference review_tool also uses to suppress test gaps) and the
+store's transitive ``TESTED_BY`` lookup."""
 
-import tempfile
 from pathlib import Path
 
-from dagayn.coverage import infer_tests_for_node
+import pytest
+
 from dagayn.graph import GraphStore
 from dagayn.parser import EdgeInfo, NodeInfo
+from dagayn.paths import get_db_path
+from dagayn.tools.query import query_graph
 
 
 class TestCoverageInference:
-    def setup_method(self):
-        self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-        self.store = GraphStore(self.tmp.name)
-
-    def teardown_method(self):
+    @pytest.fixture(autouse=True)
+    def _repo(self, tmp_path: Path):
+        self.root = tmp_path / "repo"
+        (self.root / ".git").mkdir(parents=True)
+        self.store = GraphStore(str(get_db_path(self.root)))
+        yield
         self.store.close()
-        Path(self.tmp.name).unlink(missing_ok=True)
 
-    def _add_func(
-        self,
-        name: str,
-        path: str,
-        *,
-        is_test: bool = False,
-        line_start: int = 1,
-        line_end: int = 20,
-    ) -> None:
+    def _add_func(self, name: str, path: str, *, is_test: bool = False) -> None:
         self.store.upsert_node(
             NodeInfo(
                 kind="Test" if is_test else "Function",
                 name=name,
                 file_path=path,
-                line_start=line_start,
-                line_end=line_end,
+                line_start=1,
+                line_end=20,
                 language="python",
                 is_test=is_test,
             )
@@ -49,7 +45,13 @@ class TestCoverageInference:
             )
         )
 
-    def test_infer_tests_for_node_rejects_cross_module_name_collision(self):
+    def _tests_for(self, qualified_name: str) -> list[dict]:
+        self.store.commit()
+        result = query_graph("tests_for", qualified_name, repo_root=str(self.root))
+        assert result["status"] == "ok", result
+        return result["results"]
+
+    def test_tests_for_rejects_cross_module_name_collision(self):
         """Same symbol name in another module must not inherit heuristic coverage."""
         self._add_func("process", path="pkg/alpha.py")
         self._add_func("process", path="pkg/beta.py")
@@ -59,51 +61,38 @@ class TestCoverageInference:
             "tests/test_alpha.py::test_process_alpha",
             "tests/test_alpha.py",
         )
-        self.store.commit()
 
-        alpha = self.store.get_node("pkg/alpha.py::process")
-        beta = self.store.get_node("pkg/beta.py::process")
-        assert alpha is not None
-        assert beta is not None
-
-        alpha_tests = infer_tests_for_node(self.store, alpha)
-        beta_tests = infer_tests_for_node(self.store, beta)
+        alpha_tests = self._tests_for("pkg/alpha.py::process")
+        beta_tests = self._tests_for("pkg/beta.py::process")
 
         assert [item["qualified_name"] for item in alpha_tests] == [
             "tests/test_alpha.py::test_process_alpha"
         ]
+        assert alpha_tests[0]["coverage_source"] == "graph_edge"
         assert beta_tests == []
 
-    def test_infer_tests_for_node_rejects_prefix_name_collision(self):
+    def test_tests_for_rejects_prefix_name_collision(self):
         """get_user must not match test_get_user_profile without exact symbol evidence."""
         self._add_func("get_user", path="pkg/users.py")
         self._add_func("get_user_profile", path="pkg/users.py")
         self._add_func("test_get_user_profile", path="tests/test_users.py", is_test=True)
-        self.store.commit()
 
-        get_user = self.store.get_node("pkg/users.py::get_user")
-        assert get_user is not None
+        assert self._tests_for("pkg/users.py::get_user") == []
 
-        inferred = infer_tests_for_node(self.store, get_user)
-        assert inferred == []
-
-    def test_infer_tests_for_node_keeps_module_linked_name_match(self):
+    def test_tests_for_keeps_module_linked_name_match(self):
         """Module-linked naming heuristics still surface medium-confidence coverage."""
         self._add_func("process", path="pkg/alpha.py")
         self._add_func("test_process_alpha", path="tests/test_alpha.py", is_test=True)
-        self.store.commit()
 
-        target = self.store.get_node("pkg/alpha.py::process")
-        assert target is not None
-
-        inferred = infer_tests_for_node(self.store, target)
+        inferred = self._tests_for("pkg/alpha.py::process")
 
         assert inferred[0]["qualified_name"] == "tests/test_alpha.py::test_process_alpha"
         assert inferred[0]["confidence"] == "medium"
         assert inferred[0]["coverage_source"] == "heuristic"
 
-    def test_infer_tests_for_node_skips_bare_tested_by_when_qualified_exists(self):
-        """Qualified TESTED_BY edges must not be augmented by bare-name collisions."""
+    def test_tests_for_skips_bare_tested_by_when_qualified_exists(self):
+        """Qualified TESTED_BY edges must not be augmented by bare-name collisions;
+        a node with no qualified edge still reads the bare one."""
         self._add_func("process", path="pkg/alpha.py")
         self._add_func("process", path="pkg/beta.py")
         self._add_func("test_process_alpha", path="tests/test_alpha.py", is_test=True)
@@ -118,16 +107,15 @@ class TestCoverageInference:
             "tests/test_beta.py::test_process_beta",
             "tests/test_beta.py",
         )
-        self.store.commit()
 
-        alpha = self.store.get_node("pkg/alpha.py::process")
-        assert alpha is not None
-
-        inferred = infer_tests_for_node(self.store, alpha)
-
-        assert [item["qualified_name"] for item in inferred] == [
+        assert [item["qualified_name"] for item in self._tests_for("pkg/alpha.py::process")] == [
             "tests/test_alpha.py::test_process_alpha"
         ]
+        beta = self._tests_for("pkg/beta.py::process")
+        assert [item["qualified_name"] for item in beta] == [
+            "tests/test_beta.py::test_process_beta"
+        ]
+        assert beta[0]["coverage_source"] == "graph_edge"
 
     def test_get_transitive_tests_skips_bare_fallback_when_qualified_exists(self):
         """Bare TESTED_BY fallback is skipped once qualified coverage is found."""
