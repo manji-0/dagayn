@@ -36,21 +36,23 @@ search hits as leads, and confirm a claim with \
 )
 
 
-def review_changes_prompt(base: str = "HEAD~1") -> list[PromptMessage]:
+def review_changes_prompt(base: str | None = None) -> list[PromptMessage]:
     """Pre-commit review workflow.
 
     Args:
-        base: Git ref to diff against. Default: HEAD~1.
+        base: Git ref to diff against. Default: review_tool's own (HEAD while
+            tracked files have uncommitted changes, else HEAD~1).
     """
+    base_arg = f', base="{base}"' if base else ""
+    against = f" against {base}" if base else ""
     return [
         {
             "role": "user",
             "content": (
                 f"{_TOKEN_EFFICIENCY_PREAMBLE}\n"
                 f"## Review Workflow\n"
-                f'1. Call `get_minimal_context_tool(task="review changes against '
-                f'{base}")`.\n'
-                f'2. Call `review_tool(mode="changes", base="{base}", detail_level="minimal")` '
+                f'1. Call `get_minimal_context_tool(task="review changes{against}")`.\n'
+                f'2. Call `review_tool(mode="changes"{base_arg}, detail_level="minimal")` '
                 f"and read `findings`: what to check that the diff does not show. "
                 f"An empty list means nothing beyond the diff needs checking: "
                 f"report the summary and stop.\n"
@@ -63,7 +65,7 @@ def review_changes_prompt(base: str = "HEAD~1") -> list[PromptMessage]:
                 f'`query_graph_tool(pattern="tests_for", target=<function>, '
                 f'detail_level="minimal")`.\n'
                 f"   d. tests_to_run: run its `command`.\n"
-                f'4. Call `review_tool(mode="affected_flows", base="{base}", '
+                f'4. Call `review_tool(mode="affected_flows"{base_arg}, '
                 f'detail_level="minimal")` '
                 f"only if a finding raises a flow question.\n"
                 f"5. Summarize: what changed, each confirmed finding with its action, "
@@ -151,20 +153,23 @@ def onboard_developer_prompt() -> list[PromptMessage]:
     ]
 
 
-def pre_merge_check_prompt(base: str = "HEAD~1") -> list[PromptMessage]:
+def pre_merge_check_prompt(base: str | None = None) -> list[PromptMessage]:
     """PR readiness check workflow.
 
     Args:
-        base: Git ref to diff against. Default: HEAD~1.
+        base: Git ref to diff against. Default: review_tool's own (HEAD while
+            tracked files have uncommitted changes, else HEAD~1).
     """
+    base_arg = f', base="{base}"' if base else ""
+    against = f" against {base}" if base else ""
     return [
         {
             "role": "user",
             "content": (
                 f"{_TOKEN_EFFICIENCY_PREAMBLE}\n"
                 "## Pre-Merge Check Workflow\n"
-                f'1. Call `get_minimal_context_tool(task="pre-merge check against {base}")`.\n'
-                f'2. Call `review_tool(mode="changes", base="{base}", detail_level="minimal")` '
+                f'1. Call `get_minimal_context_tool(task="pre-merge check{against}")`.\n'
+                f'2. Call `review_tool(mode="changes"{base_arg}, detail_level="minimal")` '
                 "and read `findings` and `findings_omitted`. An empty list means "
                 "nothing beyond the diff needs checking.\n"
                 "3. For each dangling_reference or unchanged_caller finding: open its "

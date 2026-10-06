@@ -1012,15 +1012,16 @@ def _prompt_texts(messages: list[PromptMessage]) -> list[str]:
 
 
 @mcp.prompt()
-def review_changes(base: str = "HEAD~1") -> list[str]:
+def review_changes(base: str = "") -> list[str]:
     """Pre-commit review workflow using review_tool findings.
 
     Produces a code review of what to check beyond the diff, one finding at a time.
 
     Args:
-        base: Git ref to diff against. Default: HEAD~1.
+        base: Git ref to diff against. Empty: review_tool's default (HEAD
+            while tracked files have uncommitted changes, else HEAD~1).
     """
-    return _prompt_texts(review_changes_prompt(base=base))
+    return _prompt_texts(review_changes_prompt(base=base or None))
 
 
 @mcp.prompt()
@@ -1054,15 +1055,16 @@ def onboard_developer() -> list[str]:
 
 
 @mcp.prompt()
-def pre_merge_check(base: str = "HEAD~1") -> list[str]:
+def pre_merge_check(base: str = "") -> list[str]:
     """PR readiness check from review findings, tests to run, and dead code.
 
     Produces a merge readiness report: GO/NO-GO and the required follow-ups.
 
     Args:
-        base: Git ref to diff against. Default: HEAD~1.
+        base: Git ref to diff against. Empty: review_tool's default (HEAD
+            while tracked files have uncommitted changes, else HEAD~1).
     """
-    return _prompt_texts(pre_merge_check_prompt(base=base))
+    return _prompt_texts(pre_merge_check_prompt(base=base or None))
 
 
 def _tool_components() -> ComponentPayload:

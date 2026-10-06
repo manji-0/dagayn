@@ -25,8 +25,11 @@ class TestReviewChangesPrompt:
             assert msg["role"] == "user"
 
     def test_default_base(self):
+        # No base: the prompt leaves review_tool to pick one (HEAD on a dirty
+        # tree, else HEAD~1).
         result = review_changes_prompt()
-        assert "HEAD~1" in result[0]["content"]
+        assert 'review_tool(mode="changes", detail_level="minimal")' in result[0]["content"]
+        assert "base=" not in result[0]["content"]
 
     def test_custom_base(self):
         result = review_changes_prompt(base="main")
