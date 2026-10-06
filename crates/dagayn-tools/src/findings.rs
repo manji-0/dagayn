@@ -230,7 +230,8 @@ pub(crate) fn tests_to_run(inputs: &Inputs) -> Option<Vec<Value>> {
             continue;
         }
         if is_test_node(node, &rel) {
-            if matches!(node.kind.as_str(), "Function" | "Test") {
+            // A helper in a test file is not a test to run.
+            if node.is_test || node.kind == "Test" {
                 covers
                     .entry(node.qualified_name.clone())
                     .or_insert_with(|| (node.clone(), Vec::new()));
