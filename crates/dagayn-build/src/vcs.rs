@@ -421,6 +421,65 @@ pub(crate) fn dedupe(paths: impl IntoIterator<Item = String>) -> Vec<String> {
         .collect()
 }
 
+/// Renames between `base` and the working tree as `{new_path: old_path}`:
+/// `git diff --name-status -M -z <base> --`, or `base..@` on the backing
+/// repository of a jj workspace (`HEAD`-relative refs rebased onto `@-`).
+///
+/// Only tracked paths count: a file moved with plain `mv` and not yet added
+/// is a deletion plus an untracked file to git. Empty for an unsafe ref, an
+/// SVN working copy, or any VCS failure.
+pub fn renames_since(repo_root: &Path, base: &str) -> std::collections::HashMap<String, String> {
+    if !is_safe_git_ref(base) || base.starts_with('-') {
+        return std::collections::HashMap::new();
+    }
+    let payload = match detect_vcs(repo_root) {
+        Vcs::Svn => None,
+        Vcs::Jj => jj::working_copy(repo_root).and_then(|wc| {
+            let resolved = jj::resolve_commit(repo_root, base, Some(&wc))?;
+            jj::run_git(
+                repo_root,
+                &[
+                    "diff",
+                    "--name-status",
+                    "-M",
+                    "-z",
+                    &resolved,
+                    &wc.commit,
+                    "--",
+                ],
+            )
+        }),
+        Vcs::Git | Vcs::None => git_raw(
+            repo_root,
+            &["diff", "--name-status", "-M", "-z", base, "--"],
+        ),
+    };
+    payload
+        .map(|payload| parse_renames(&payload))
+        .unwrap_or_default()
+}
+
+/// The `R<score> old new` records of `git diff --name-status -z`.
+fn parse_renames(payload: &str) -> std::collections::HashMap<String, String> {
+    let fields = nul_fields(payload);
+    let mut renames = std::collections::HashMap::new();
+    let mut index = 0;
+    while index < fields.len() {
+        let status = fields[index];
+        if status.starts_with(['R', 'C']) {
+            if status.starts_with('R')
+                && let (Some(old), Some(new)) = (fields.get(index + 1), fields.get(index + 2))
+            {
+                renames.insert((*new).to_string(), (*old).to_string());
+            }
+            index += 3;
+        } else {
+            index += 2;
+        }
+    }
+    renames
+}
+
 /// True when `repo_root` is a linked git worktree (its `.git` is a file).
 pub fn is_linked_worktree(repo_root: &Path) -> bool {
     repo_root.join(".git").is_file()
@@ -447,6 +506,14 @@ mod tests {
             parse_name_status(payload),
             vec!["a.py", "old.py", "new.py", "gone.py"]
         );
+    }
+
+    #[test]
+    fn renames_map_new_path_to_old_and_skip_copies() {
+        let payload = "M\0a.py\0R087\0old.py\0new.py\0C100\0src.py\0copy.py\0D\0gone.py\0";
+        let renames = parse_renames(payload);
+        assert_eq!(renames.len(), 1);
+        assert_eq!(renames.get("new.py").map(String::as_str), Some("old.py"));
     }
 
     #[test]

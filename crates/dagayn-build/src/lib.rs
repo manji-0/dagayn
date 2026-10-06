@@ -35,5 +35,6 @@ pub use status::{
 pub use update::{UpdateOptions, UpdateReport, incremental_update};
 pub use vcs::{
     ChangeError, ChangeSources, Vcs, change_file_sources, default_review_base, detect_vcs,
-    diff_stamp_error, is_linked_worktree, is_safe_git_ref, main_checkout, staged_and_unstaged,
+    diff_stamp_error, is_linked_worktree, is_safe_git_ref, main_checkout, renames_since,
+    staged_and_unstaged,
 };

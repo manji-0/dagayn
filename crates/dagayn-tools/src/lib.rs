@@ -11,6 +11,7 @@ mod answerability;
 mod apply;
 mod arch_tool;
 mod architecture;
+mod base_symbols;
 mod changes;
 mod community;
 mod context;
