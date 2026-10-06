@@ -331,10 +331,19 @@ impl Context<'_> {
             return Some(false);
         };
         let current = sha256_hex(&bytes);
-        let stored = self.store.get_file_meta_for_files(graph_paths).ok()?;
-        Some(graph_paths.iter().any(|graph_path| {
+        // The graph stores repo-relative paths, while the node lookup also
+        // answers for absolute ones: ask for the hash under both.
+        let mut keys: Vec<String> = graph_paths.to_vec();
+        for graph_path in graph_paths {
+            let rel = repo_relative(graph_path, self.root);
+            if !keys.contains(&rel) {
+                keys.push(rel);
+            }
+        }
+        let stored = self.store.get_file_meta_for_files(&keys).ok()?;
+        Some(keys.iter().any(|key| {
             stored
-                .get(graph_path)
+                .get(key)
                 .is_some_and(|(hash, _)| !hash.is_empty() && *hash != current)
         }))
     }

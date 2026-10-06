@@ -148,15 +148,6 @@ def test_a_renamed_file_maps_to_the_graph_s_old_path(tmp_path: Path) -> None:
     assert [f["qualified_name"] for f in result["changed_functions"]] == ["src/app.py::alpha"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "stale_line_range_files never fires from the review path: the changed "
-        "path is absolute while the graph's file_hash rows are keyed by the "
-        "repo-relative path, so line ranges are trusted even when the indexed "
-        "content is stale (the retired Python analyze_changes behaved the same)"
-    ),
-)
 def test_stale_indexed_line_ranges_degrade_to_the_whole_file(tmp_path: Path) -> None:
     root = _repo(tmp_path, {"app.py": THREE})
     # Prepend a function without re-indexing: the graph's line ranges are stale.
@@ -166,7 +157,13 @@ def test_stale_indexed_line_ranges_degrade_to_the_whole_file(tmp_path: Path) -> 
 
     assert result["attribution"]["stale_line_range_files"] == ["app.py"]
     assert "stale_graph_line_ranges" in result["attribution"]["reason_codes"]
-    assert {"alpha", "beta", "gamma"} <= _names(result)
+    # The graph maps the whole file, but the base comparison shows alpha,
+    # beta, and gamma only moved down: they are not changed.
+    assert not {"alpha", "beta", "gamma"} & _names(result)
+    # Every detail level says the graph is behind the file.
+    minimal = review_func(mode="changes", repo_root=str(root), detail_level="minimal")
+    stale = [m for m in minimal["missingness"] if m["reason_code"] == "stale_graph_line_ranges"]
+    assert stale and stale[0]["files"] == ["app.py"]
 
 
 # ---------------------------------------------------------------------------

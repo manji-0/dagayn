@@ -292,9 +292,13 @@ impl Review<'_> {
 
     /// The findings for a change set (`findings.rs`), most actionable kind
     /// first, the per-kind omissions, and the base-side symbol delta.
+    ///
+    /// `changed_functions` loses the ones the base comparison shows only
+    /// moved or were reformatted: when the graph is behind a file, every
+    /// function in it is mapped as changed.
     fn findings(
         &self,
-        analysis: &Analysis,
+        analysis: &mut Analysis,
         changed_files: &[String],
         base: &str,
     ) -> Option<(Value, Value, Value)> {
@@ -304,6 +308,17 @@ impl Review<'_> {
             .collect();
         let found =
             findings::change_findings(self.store(), self.root(), analysis, &relative, base)?;
+        for (key, value) in &mut analysis.fields {
+            if *key == "changed_functions"
+                && let Value::Array(functions) = value
+            {
+                functions.retain(|function| {
+                    function["qualified_name"]
+                        .as_str()
+                        .is_none_or(|qn| !found.delta.unchanged_bodies.contains(qn))
+                });
+            }
+        }
         Some((
             Value::Array(found.findings),
             Value::Object(found.omitted),
@@ -368,7 +383,7 @@ impl Review<'_> {
             request.detail_level == "verbose",
         )?;
         let (findings, findings_omitted, symbol_delta) =
-            self.findings(&analysis, &changed_files, request.base)?;
+            self.findings(&mut analysis, &changed_files, request.base)?;
         if request.include_source == Some(true) {
             for (key, value) in &mut analysis.fields {
                 if *key == "changed_functions"
@@ -383,6 +398,9 @@ impl Review<'_> {
 
         let summary_text =
             findings_summary(&changed_files, &analysis, &findings, &findings_omitted);
+        let stale_files = analysis.get("attribution")["stale_line_range_files"]
+            .as_array()
+            .cloned();
         let flow_count = analysis
             .get("affected_flows")
             .as_array()
@@ -429,6 +447,18 @@ impl Review<'_> {
                 legacy.put("analysis_summary", summary)
             }
         };
+        let mut missingness = self.answerability.missingness();
+        if let Some(stale) = stale_files.filter(|files| !files.is_empty()) {
+            missingness.push(json!({
+                "reason_code": "stale_graph_line_ranges",
+                "severity": "medium",
+                "claim_effect": format!(
+                    "{} changed file(s) differ from what the graph indexed, so every function in them counts as changed; update the graph before trusting their findings",
+                    stale.len()
+                ),
+                "files": stale,
+            }));
+        }
         let out = out
             .put(
                 "answerability",
@@ -438,7 +468,7 @@ impl Review<'_> {
                     self.answerability.compact()
                 },
             )
-            .put("missingness", json!(self.answerability.missingness()))
+            .put("missingness", json!(missingness))
             .apply_output_budget(
                 CHANGES_BUDGET,
                 &[
