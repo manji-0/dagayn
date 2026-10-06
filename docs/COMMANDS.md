@@ -330,20 +330,30 @@ architecture metrics filtered to the scopes represented by that community.
 
 <!-- derived-from ./USAGE.md -->
 
-These CLI commands compute and detect package/file-level architecture-principle
-metrics directly from the graph, independently of the MCP
-`architecture_analysis_tool`. Their packages are directories; the MCP modes
-scope by declared unit (Cargo crate, npm package, Python import package, ...). They default to `artifact_scope="code"` so
-Markdown dependencies are not mixed into code design metrics; pass
-`--artifact-scope docs` or `--artifact-scope all` for documentation or legacy
-mixed-graph analysis.
+These CLI commands answer with the matching `architecture_analysis_tool`
+mode (`adp_violations`, `sdp_metrics`, `sdp_violations`, `sap_metrics`,
+`sap_violations`), so the CLI and MCP clients see the same scopes and
+numbers. `--format json` prints the MCP answer without the fields meant for
+an agent (`_hints`, `next_tool_suggestions`, `_runtime`, `_repo`). A
+`package` is a declared unit (Cargo crate, npm package, Go module, Python
+import package, Terraform module, or a top-level directory no manifest
+covers), not a directory; `sap-metrics` and `detect-sap` keep directory
+scopes under `--scope-kind directory`. They default to
+`artifact_scope="code"` so Markdown dependencies are not mixed into code
+design metrics; pass `--artifact-scope docs` or `--artifact-scope all` for
+documentation or legacy mixed-graph analysis.
 
 - `dagayn detect-adp` — Detect cyclic dependencies (Acyclic Dependencies
-  Principle violations). Reports cycles with length and severity.
+  Principle violations). Reports cycles with length and severity. Deprecated
+  with the `adp_violations` mode it reads, and removed with it after one
+  release; the overview's `import_cycle` findings replace it
+  (`dagayn tool architecture_analysis_tool --arg 'mode="overview"'`). It warns
+  on stderr.
   - `--granularity {package,file}` (default `package`)
   - `--artifact-scope {code,docs,all}` (default `code`)
   - `--min-cycle-size N` (default 2)
   - `--max-cycle-length N` (default 10)
+  - `--top-n N` (default: every cycle)
   - `--format {json,text}` (default `json`)
 - `dagayn sdp-metrics` — Compute per-scope instability (Stable Dependencies
   Principle) scores. Returns `instability`, `Ca`, and `Ce` per scope, sorted,
@@ -358,12 +368,15 @@ mixed-graph analysis.
   - `--granularity {package,file}` (default `package`)
   - `--artifact-scope {code,docs,all}` (default `code`)
   - `--min-delta FLOAT` (default 0.1)
+  - `--top-n N` (default: every violation)
   - `--format {json,text}` (default `json`)
 <!-- derived-from ./SAP-METRICS.md -->
 
 - `dagayn sap-metrics` — Compute per-scope abstractness, instability, and
   distance from the main sequence (Stable Abstractions Principle). Returns
-  `A`, `I`, and `D` per scope, limited by `--top-n`.
+  `A`, `I`, and `D` per scope, limited by `--top-n`; scopes the metric does
+  not apply to (no eligible types, or isolated) are listed apart in
+  `inapplicable_metrics`.
   - `--scope-kind {package,file,directory}` (default `package`)
   - `--unit-filter PREFIXES` — comma-separated scope_key prefixes to restrict
     output
@@ -371,16 +384,17 @@ mixed-graph analysis.
   - `--top-n N` (default 30)
   - `--format {json,text}` (default `json`)
 - `dagayn detect-sap` — Detect scopes whose distance from the main sequence
-  meets `--min-distance`.
+  meets `--min-distance`, with the zone (`pain` or `uselessness`) each is in.
   - `--scope-kind {package,file,directory}` (default `package`)
   - `--artifact-scope {code,docs,all}` (default `code`)
   - `--min-distance FLOAT` (default 0.5)
+  - `--top-n N` (default: every violation)
   - `--format {json,text}` (default `json`)
 
 All five commands accept `--repo` to override the repository root
 (auto-detected by default). `detect-sap` suppresses test-scope and
-fixture-scope entries from the violation list, consistent with the matching
-`architecture_analysis_tool(mode="sap_violations")` MCP mode.
+fixture-scope entries from the violation list, as
+`architecture_analysis_tool(mode="sap_violations")` does.
 
 ### Profiling
 

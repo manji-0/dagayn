@@ -42,6 +42,17 @@ All notable changes to `dagayn` are documented here.
   `surprising_connections`, and `adp_violations` modes and
   `get_suggested_questions_tool` answer with a `deprecated` note naming
   their replacement, and go after one release.
+- `dagayn detect-adp`, `sdp-metrics`, `detect-sdp`, `sap-metrics`, and
+  `detect-sap` answer with the matching `architecture_analysis_tool` mode
+  instead of a separate Python implementation, so their packages are
+  declared units, as over MCP, not directories: on this repository
+  `detect-adp` goes from 21 cycles to 0 and `detect-sdp` from 8 violations
+  to 0. `--format json` prints the MCP answer without its agent guidance
+  (`_hints`, `next_tool_suggestions`, `_runtime`, `_repo`); `sap-metrics`
+  lists inapplicable scopes apart in `inapplicable_metrics`, and
+  `detect-sap` reports each scope's zone in place of `A` and `I`. The
+  `detect-*` commands take `--top-n` and still list everything by default.
+  `detect-adp` warns on stderr that it goes with the `adp_violations` mode.
 - SDP and SAP metrics, and package-level ADP, are computed over the declared
   units instead of each file's directory; SAP's `scope_kind="directory"`
   keeps the directory scopes. An unresolved import or a standard-library or
