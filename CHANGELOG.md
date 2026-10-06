@@ -6,6 +6,10 @@ All notable changes to `dagayn` are documented here.
 
 ### Changed
 
+- A `DAGAYN_BACKEND` other than unset, empty, or `rust` raises, as
+  `python` already did. A value such as `auto` used to select a Python
+  graph path that has had no supported use since the engine became
+  Rust-only; that path is removed.
 - `architecture_analysis_tool(mode="overview")` starts with a map of the
   units the repository declares: Cargo crates, npm packages, Go modules,
   Python import packages, and Terraform modules, found from their manifests

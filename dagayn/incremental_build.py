@@ -20,9 +20,8 @@ from .incremental_files import (
     _MAX_DEPENDENT_FILES,
     _MAX_DEPENDENT_HOPS,
     _dedupe_preserve_order,
-    _is_binary,
     _relativize_parsed_entities,
-    _rust_backend_enabled,
+    _require_rust_backend,
     _store_vcs_metadata,
     collect_all_files,
     get_vcs_indexable_files,
@@ -31,7 +30,7 @@ from .incremental_files import (
 from .parser import CodeParser
 from .parser._base.types import EdgeInfo, NodeInfo
 from .parser.dispatch import detect_language as _detect_parser_language
-from .parser.ignore import _load_ignore_patterns, _should_ignore
+from .parser.ignore import _load_ignore_patterns
 
 _IGNORE_SCOPE_NAMES = frozenset({".gitignore", ".dagaynignore"})
 
@@ -50,7 +49,6 @@ _GRAPH_STORE_ERRORS = (sqlite3.Error, OSError, RuntimeError, ValueError, TypeErr
 _MAX_PARSE_WORKERS = int(os.environ.get("CRG_PARSE_WORKERS", str(min(os.cpu_count() or 4, 8))))
 _STORE_BATCH_SIZE = int(os.environ.get("DAGAYN_STORE_BATCH_SIZE", "128"))
 _RUST_PARSE_BATCH_SIZE = int(os.environ.get("DAGAYN_RUST_PARSE_BATCH_SIZE", "500"))
-_DEFAULT_BACKEND = "rust"
 
 type ParsedNodes = list[NodeInfo] | list[list[Any]]
 type ParsedEdges = list[EdgeInfo] | list[list[Any]]
@@ -208,11 +206,10 @@ def _vcs_scope(repo_root: Path, recurse_submodules: bool | None) -> set[str] | N
     if not candidates:
         return None
     patterns = _load_ignore_patterns(repo_root)
-    if _rust_backend_enabled():
-        from dagayn._core import filter_ignored_paths
+    _require_rust_backend()
+    from dagayn._core import filter_ignored_paths
 
-        return set(filter_ignored_paths(candidates, patterns))
-    return {path for path in candidates if not _should_ignore(path, patterns)}
+    return set(filter_ignored_paths(candidates, patterns))
 
 
 def _indexable_scope(
@@ -290,78 +287,20 @@ def _filter_incremental_candidates(
     ignore_patterns: list[str],
 ) -> tuple[list[str], list[str]]:
     """Return ``(parseable_files, removed_files)`` for incremental update."""
-    if _rust_backend_enabled():
-        try:
-            from dagayn._core import filter_incremental_candidates
-
-            return filter_incremental_candidates(
-                repo_root,
-                list(rel_paths),
-                ignore_patterns,
-            )
-        except (ImportError, RuntimeError, TypeError, ValueError) as exc:
-            raise RuntimeError(
-                "Rust incremental candidate filtering requires dagayn._core. "
-                "Install a wheel with the native extension or rebuild from source."
-            ) from exc
-
-    existing_files: list[str] = []
-    removed_files: list[str] = []
-    for rel_path in rel_paths:
-        if _should_ignore(rel_path, ignore_patterns):
-            continue
-        abs_path = repo_root / rel_path
-        if not abs_path.is_file():
-            removed_files.append(rel_path)
-            continue
-        # "Exists but is no longer indexable" is a removal, not a skip: a file
-        # that became a symlink or binary otherwise kept its previous nodes
-        # forever, while a full build's stale-file purge dropped them.
-        if abs_path.is_symlink() or _is_binary(abs_path):
-            removed_files.append(rel_path)
-            continue
-        # A case-only rename still answers is_file() under the old spelling on a
-        # case-insensitive filesystem, so the old path would be re-parsed rather
-        # than removed and the graph would hold two node sets for one file.
-        on_disk = _on_disk_spelling(repo_root, rel_path)
-        if on_disk is not None and on_disk != rel_path:
-            removed_files.append(rel_path)
-            continue
-        existing_files.append(rel_path)
-
-    parser = CodeParser()
-    candidates = []
-    for rel_path in existing_files:
-        if parser.detect_language(repo_root / rel_path) is not None:
-            candidates.append(rel_path)
-        else:
-            removed_files.append(rel_path)
-    return candidates, removed_files
-
-
-def _on_disk_spelling(repo_root: Path, rel_path: str) -> str | None:
-    """Return how the filesystem spells *rel_path*, when that differs.
-
-    Only the final component is checked; a case-only rename renames one entry
-    and scanning every parent for every candidate would cost more than the case
-    it guards. ``None`` means "same spelling, or undeterminable".
-    """
-    parent_rel, _, file_name = rel_path.rpartition("/")
-    parent_dir = repo_root / parent_rel if parent_rel else repo_root
+    _require_rust_backend()
     try:
-        entries = list(parent_dir.iterdir())
-    except OSError:
-        return None
-    matched: str | None = None
-    for entry in entries:
-        name = entry.name
-        if name == file_name:
-            return None
-        if name.lower() == file_name.lower():
-            matched = name
-    if matched is None:
-        return None
-    return f"{parent_rel}/{matched}" if parent_rel else matched
+        from dagayn._core import filter_incremental_candidates
+
+        return filter_incremental_candidates(
+            repo_root,
+            list(rel_paths),
+            ignore_patterns,
+        )
+    except (ImportError, RuntimeError, TypeError, ValueError) as exc:
+        raise RuntimeError(
+            "Rust incremental candidate filtering requires dagayn._core. "
+            "Install a wheel with the native extension or rebuild from source."
+        ) from exc
 
 
 def _classify_python_changed_files(
@@ -575,8 +514,7 @@ def _split_rust_parser_files(
     rel_paths: list[str],
     repo_root: Path | None = None,
 ) -> tuple[list[str], list[str]]:
-    if not _rust_backend_enabled():
-        return [], rel_paths
+    _require_rust_backend()
     rust_files: list[str] = []
     python_files: list[str] = []
     for rel_path in rel_paths:

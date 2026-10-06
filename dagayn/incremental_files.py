@@ -21,8 +21,6 @@ from .parser.ignore import _load_ignore_patterns, _should_ignore
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_BACKEND = "rust"
-
 
 def find_svn_root(start: Path | None = None) -> Optional[Path]:
     """Walk up from start to find the SVN working copy root.
@@ -885,15 +883,20 @@ def _get_svn_all_tracked_files(repo_root: Path) -> list[str]:
     return []
 
 
-def _backend_selection() -> str:
-    selected = os.environ.get("DAGAYN_BACKEND", _DEFAULT_BACKEND).strip().lower()
+def _require_rust_backend() -> None:
+    """Reject a ``DAGAYN_BACKEND`` other than ``rust``: the graph engine is Rust-only.
+
+    There is no Python graph engine to fall back to, so an unknown value is an
+    error rather than a silent switch to code that no longer exists.
+    """
+    selected = os.environ.get("DAGAYN_BACKEND", "").strip().lower()
     if selected == "python":
         raise RuntimeError("DAGAYN_BACKEND=python was removed. The graph engine is Rust-only.")
-    return selected or _DEFAULT_BACKEND
-
-
-def _rust_backend_enabled() -> bool:
-    return _backend_selection() == "rust"
+    if selected not in ("", "rust"):
+        raise RuntimeError(
+            f"Unknown DAGAYN_BACKEND={selected!r}. The graph engine is Rust-only; "
+            "unset it or set it to 'rust'."
+        )
 
 
 def collect_all_files(
@@ -918,8 +921,9 @@ def collect_all_files(
         # backend (the fallback below is the only place that honoured it).
         recurse_submodules = _RECURSE_SUBMODULES
 
+    _require_rust_backend()
     vcs = detect_vcs(repo_root)
-    if _rust_backend_enabled() and vcs != "svn":
+    if vcs != "svn":
         # Rust discovery runs `git ls-files` from the directory, which lists the
         # enclosing main checkout of a jj workspace; hand it the jj file set.
         # Resolved outside the try so a jj failure is not reported as a

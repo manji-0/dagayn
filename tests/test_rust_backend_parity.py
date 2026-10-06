@@ -13,7 +13,7 @@ import pytest
 
 from dagayn.graph import GraphStore
 from dagayn.incremental_build import _split_rust_parser_files, full_build
-from dagayn.incremental_files import _rust_backend_enabled
+from dagayn.incremental_files import _require_rust_backend
 from dagayn.incremental_update_pipeline import incremental_update
 from dagayn.parser import CodeParser, EdgeInfo, NodeInfo
 
@@ -93,11 +93,15 @@ def test_get_affected_flows_absolute_path_matches_rust_backend(tmp_path):
     assert py_names == rust_names
 
 
-def test_rust_backend_is_default_when_extension_is_available(monkeypatch):
-    """DAGAYN_BACKEND defaults to Rust when the native extension can be loaded."""
-    monkeypatch.delenv("DAGAYN_BACKEND", raising=False)
+@pytest.mark.parametrize("value", [None, "", "rust", " Rust "])
+def test_rust_backend_is_accepted(monkeypatch, value):
+    """An unset, empty, or ``rust`` DAGAYN_BACKEND selects the Rust engine."""
+    if value is None:
+        monkeypatch.delenv("DAGAYN_BACKEND", raising=False)
+    else:
+        monkeypatch.setenv("DAGAYN_BACKEND", value)
 
-    assert _rust_backend_enabled() is True
+    _require_rust_backend()
 
 
 def test_rust_file_discovery_includes_compound_terraform_extensions(tmp_path):
@@ -141,7 +145,15 @@ def test_python_backend_is_rejected(monkeypatch):
     monkeypatch.setenv("DAGAYN_BACKEND", "python")
 
     with pytest.raises(RuntimeError, match="removed"):
-        _rust_backend_enabled()
+        _require_rust_backend()
+
+
+def test_unknown_backend_is_rejected(monkeypatch):
+    """Any other value has no engine to select, so it fails instead of falling back."""
+    monkeypatch.setenv("DAGAYN_BACKEND", "auto")
+
+    with pytest.raises(RuntimeError, match="Rust-only"):
+        _require_rust_backend()
 
 
 def test_python_store_uses_python_parser_when_rust_is_default(tmp_path, monkeypatch):
