@@ -564,3 +564,26 @@ def test_minimal_context_queues_a_local_embedding_refresh_as_python_did(
     assert ("prepare" in replies[0]) == (kind == "prepare")
     assert rows[0] == rows[1]
     assert rows[0][0][1] == kind
+
+
+def test_detect_changes_prints_the_review_findings(reviewed_repo: Path, capsys) -> None:
+    """The pre-commit hook's `dagayn detect-changes --brief` reads review_tool:
+    the summary, then one line per finding with its command."""
+    import argparse
+    import json
+
+    from dagayn.cli.commands import detect_changes
+
+    detect_changes.handle(argparse.Namespace(base=None, brief=True, repo=str(reviewed_repo)))
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].startswith("1 changed file(s), "), lines
+    assert any(
+        line.startswith("  - tests_to_run: tests/test_service.py") and "$ pytest" in line
+        for line in lines
+    ), lines
+    assert any(line.startswith("  - contract_doc_not_updated: ") for line in lines), lines
+
+    detect_changes.handle(argparse.Namespace(base=None, brief=False, repo=str(reviewed_repo)))
+    full = json.loads(capsys.readouterr().out)
+    assert full["base"] == "HEAD"
+    assert {f["kind"] for f in full["findings"]} >= {"tests_to_run", "contract_doc_not_updated"}
