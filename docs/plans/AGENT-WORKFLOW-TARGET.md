@@ -24,9 +24,9 @@ ambiguous name costs a round trip with no hint of how to retry. This note
 defines the workflow, the response contract that carries it, the evidence,
 and the order of work.
 
-Status: accepted ([decisions](#decisions-2026-10-07)); steps 1–3, 5, and
-7, the additive half of step 4, and the contract check of step 6 are done
-(see the [order of work](#order-of-work)).
+Status: accepted ([decisions](#decisions-2026-10-07)); steps 1–5 and 7,
+and the contract check of step 6, are done (see the
+[order of work](#order-of-work)).
 
 ## Target contract
 
@@ -57,11 +57,10 @@ Consequences of that sentence:
   `{tool, args, why}` items whose `args` are complete JSON the agent can
   pass unchanged (a `qualified_name`, not "the chosen node"). It replaces
   `recommended_action`, `next_tool_suggestions`, `next_action`,
-  `exactness.next_action`, `guidance[].action`, `next_drill_downs`, and
-  `_hints.next_steps`, which move behind `detail_level="verbose"` for one
-  release, listed in `deprecated_fields` (step 4 of the
-  [order of work](#order-of-work) names the two of them whose fate is
-  still a decision). An empty `next` means the answer
+  `exactness.next_action`, `next_drill_downs`, and `_hints`, which move
+  behind `detail_level="verbose"` for one release, listed in
+  `deprecated_fields`. `guidance[].action` stays, as each guidance item's
+  own description ([decisions](#decisions-2026-10-08)). An empty `next` means the answer
   is complete.
 - **A budget per level, for every mode.** `minimal` fits in 8K characters
   (about 2K tokens) and `standard` in 32K, for any input; what does not fit
@@ -166,6 +165,13 @@ related node(s)" with `counts.result_count: 13`.
 - An ambiguous target is not answered per candidate: the reply names
   the retries in `next` and runs nothing.
 
+## Decisions (2026-10-08)
+
+- `_hints` goes behind `verbose` whole: its `warnings` repeat
+  `missingness` codes and its `related` is nearly always empty.
+- `guidance[].action` stays, as each guidance item's own description;
+  `next` is the list to run.
+
 ## Evaluation
 
 Two gates. The first runs in CI today; the other two are the pending
@@ -267,14 +273,22 @@ floors in `eval/workflow_thresholds.yaml`) when they are built.
      runnable (a `tests_to_run` command as `{"tool": "shell"}`). The
      Python search builds the same list. Arguments at their defaults are
      left out.
-   - The old fields go behind `verbose` with `deprecated_fields`.
-     Two amendments to the contract above, for the decision before this
-     half: `guidance[].action` stays, as each guidance item's own
-     description (the remediation plan's item contract requires it, and
-     `next` is the list to run); and `_hints` either goes behind
-     `verbose` whole, since its `warnings` repeat `missingness` codes and
-     its `related` is nearly always empty, or stays with its
-     `next_steps` dropped.
+   - **Done:** the earlier fields go behind `verbose`
+     ([decisions](#decisions-2026-10-08)). `dagayn_tools::seal_reply`
+     (and its Python twin, now idempotent so a reply Rust sealed passes
+     through Python unchanged) drops `next_action`,
+     `exactness.next_action`, `next_drill_downs`, `next_tool_suggestions`,
+     and `_hints` below `verbose` and names the ones present in
+     `deprecated_fields` at `verbose`. `get_minimal_context_tool` has no
+     `verbose`, so its `recommended_action` and `next_tool_suggestions`
+     go now, as its `top_flows` did; what only they said moved into
+     `why` (a queued repair) or `next`. Two things only the old fields
+     said moved into `next` first: a transitive query stopped at its
+     `depth` puts the same call at `depth=6` first, and a rename preview
+     names `apply_refactor_tool` with `dry_run`. In the snapshots 82
+     files changed, and nothing but these fields. On this repository
+     `get_minimal_context_tool` went from 976 to 804 characters and
+     search at `minimal` from 4,005 to 3,569.
 5. **Done:** counts. Below `full`, `query_graph_tool` folds a node's
    edges into one row, and `guidance` counted the edges before the fold:
    `callers_of make_response` said 11 rows and 13 nodes. `guidance` now
@@ -312,7 +326,8 @@ floors in `eval/workflow_thresholds.yaml`) when they are built.
    fails when a copy drifts. The MCP server instructions name `next` and
    the `workflow` section in two sentences, inside the default
    descriptions' 8,500-character budget.
-8. After one release: remove the deprecated next-step fields.
+8. After one release: remove the next-step fields `verbose` still
+   carries, and the hint engine that builds `_hints`.
 
 ## Touch points
 
