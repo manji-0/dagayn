@@ -1,16 +1,4 @@
 {
-  "_hints": {
-    "next_steps": [
-      {
-        "suggestion": "query_graph_tool pattern=\"source_of\" -- fetch the chosen node's live span",
-        "tool": "query_graph_tool"
-      }
-    ],
-    "related": [],
-    "warnings": [
-      "missing_embeddings"
-    ]
-  },
   "_repo": {
     "db_path": "<VOLATILE>",
     "repo_root": "<REPO>",
@@ -31,10 +19,6 @@
   "exactness": {
     "ambiguity": null,
     "exact_match_count": 0,
-    "next_action": {
-      "suggestion": "fetch live source with pattern=\"source_of\" for the chosen qualified_name",
-      "tool": "query_graph_tool"
-    },
     "source_arm": "fts_only"
   },
   "guidance": [
@@ -98,10 +82,6 @@
       "why": "read the File this search ranked"
     }
   ],
-  "next_action": {
-    "suggestion": "fetch live source with pattern=\"source_of\" for the chosen qualified_name",
-    "tool": "query_graph_tool"
-  },
   "query": "barrel",
   "result_count": 9,
   "results": [

@@ -201,7 +201,7 @@ def layered_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 def test_adp_violations_truncated_suggests_listing_every_cycle(layered_repo: Path) -> None:
     result = architecture_analysis.architecture_analysis_func(
-        mode="adp_violations", repo_root=str(layered_repo), top_n=2
+        mode="adp_violations", repo_root=str(layered_repo), top_n=2, detail_level="verbose"
     )
 
     assert result["truncated"] is True
@@ -215,7 +215,11 @@ def test_adp_violations_truncated_suggests_listing_every_cycle(layered_repo: Pat
 
 def test_sdp_violations_truncate_to_top_n(layered_repo: Path) -> None:
     result = architecture_analysis.architecture_analysis_func(
-        mode="sdp_violations", repo_root=str(layered_repo), top_n=1, min_delta=0.0
+        mode="sdp_violations",
+        repo_root=str(layered_repo),
+        top_n=1,
+        min_delta=0.0,
+        detail_level="verbose",
     )
 
     assert result["status"] == "ok"

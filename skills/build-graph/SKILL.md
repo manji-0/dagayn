@@ -25,7 +25,7 @@ the selected embedding mode so graph builds refresh the right retrieval indexes.
    which prints `Graph state:` and embedding coverage). Read
    `graph_health.status` (`ok` / `degraded` / `empty`) and `sync.state`:
    - `unbuilt` (empty graph) or `commit_drift` (HEAD moved): follow
-     `recommended_action`; the server has usually queued a refresh already.
+     `next` (`ensure_graph_tool` first, unless a refresh is queued); the server has usually queued a refresh already.
    - `worktree_behind` (uncommitted edits not indexed yet): refresh with
      `ensure_graph_tool(force=True)`.
    - `worktree_ahead` / `commit_synced`: already current; nothing to build.

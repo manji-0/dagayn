@@ -1,9 +1,4 @@
 {
-  "_hints": {
-    "next_steps": [],
-    "related": [],
-    "warnings": []
-  },
   "_repo": {
     "db_path": "<VOLATILE>",
     "repo_root": "<REPO>",
@@ -352,32 +347,6 @@
   "missingness": [],
   "mode": "changes",
   "next": [],
-  "next_drill_downs": {
-    "architecture": {
-      "mode": "overview",
-      "tool": "architecture_analysis_tool"
-    },
-    "docs_for": {
-      "pattern": "docs_for",
-      "tool": "query_graph_tool"
-    },
-    "flows": {
-      "mode": "affected_flows",
-      "tool": "review_tool"
-    },
-    "impact_radius": {
-      "mode": "impact",
-      "tool": "review_tool"
-    },
-    "implementations_of": {
-      "pattern": "implementations_of",
-      "tool": "query_graph_tool"
-    },
-    "review_context": {
-      "mode": "context",
-      "tool": "review_tool"
-    }
-  },
   "status": "ok",
   "summary": "1 changed file(s), 0 changed symbol(s). Nothing beyond the diff needs checking.",
   "unmapped_changed_files": []

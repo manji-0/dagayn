@@ -563,7 +563,8 @@ class TestTools:
         assert result["result_count"] == 0
         assert result["results"] == []
         assert result["zero_result_reason"] == "target_not_found_in_graph"
-        assert result["next_action"]["tool"] == "semantic_search_nodes_tool"
+        assert result["next"][0]["tool"] == "semantic_search_nodes_tool"
+        assert "next_action" not in result
         assert any(
             item["reason_code"] == "target_not_found_in_graph" for item in result["missingness"]
         )
@@ -632,9 +633,11 @@ class TestTools:
 
         assert result["result_count"] == 0
         assert result["zero_result_reason"] == "not_found_in_current_graph"
-        assert result["next_action"]["tool"] == "semantic_search_nodes_tool"
+        # Nothing found, nothing to read: the reply says so with an empty next.
+        assert result["next"] == []
+        assert "next_action" not in result
+        assert "next_action" not in result["exactness"]
         assert {item["reason_code"] for item in result["missingness"]} >= {"missing_embeddings"}
-        assert result["exactness"]["next_action"]["tool"] == "semantic_search_nodes_tool"
 
     def test_query_graph_implementations_of_reads_both_authored_directions(self):
         self.store.upsert_node(
@@ -1231,7 +1234,7 @@ class TestFlowTools:
         assert result["total"] >= 1
         flow_names = [f["name"] for f in result["affected_flows"]]
         assert any("handle_request" in n for n in flow_names)
-        assert result["deprecated_fields"] == ["affected_flows", "total"]
+        assert result["deprecated_fields"] == ["affected_flows", "total", "_hints"]
 
     def test_get_affected_flows_no_changed_files(self):
         result = review_func(mode="affected_flows", changed_files=[], repo_root=str(self.root))
@@ -2501,7 +2504,7 @@ class TestGetMinimalContext:
         )
         assert result["status"] == "ok"
         assert "summary" in result
-        assert "next_tool_suggestions" in result
+        assert isinstance(result["next"], list)
         assert result["graph_health"]["status"] in {"ok", "degraded", "empty"}
         assert "answerability" in result["graph_health"]
 
@@ -2570,10 +2573,7 @@ class TestGetMinimalContext:
         # `_repo` names the repository on every tool's answer.
         result.pop("_repo")
         serialized = json.dumps(result, default=str)
-        # `next` carries the calls `next_tool_suggestions` and
-        # `recommended_action` only named, which leave it in step 4 of
-        # docs/plans/AGENT-WORKFLOW-TARGET.md#order-of-work.
-        assert len(serialized) < 900
+        assert len(serialized) < 800
 
     def test_task_routing_review(self):
         from dagayn.tools.context import get_minimal_context
@@ -2582,7 +2582,7 @@ class TestGetMinimalContext:
             task="review PR #42",
             repo_root=str(self.root),
         )
-        assert "review_tool" in result["next_tool_suggestions"]
+        assert "review_tool" in [call["tool"] for call in result["next"]]
 
     def test_task_routing_debug(self):
         from dagayn.tools.context import get_minimal_context
@@ -2591,7 +2591,12 @@ class TestGetMinimalContext:
             task="debug login bug",
             repo_root=str(self.root),
         )
-        assert "semantic_search_nodes_tool" in result["next_tool_suggestions"]
+        # After ensure_graph_tool when the fixture's graph trails HEAD.
+        assert {
+            "args": {"detail_level": "minimal", "query": "debug login bug"},
+            "tool": "semantic_search_nodes_tool",
+            "why": "locate the code the task is about",
+        } in result["next"]
 
     def test_task_routing_refactor(self):
         from dagayn.tools.context import get_minimal_context
@@ -2600,14 +2605,14 @@ class TestGetMinimalContext:
             task="refactor auth module",
             repo_root=str(self.root),
         )
-        assert "refactor_tool" in result["next_tool_suggestions"]
+        assert "refactor_tool" in [call["tool"] for call in result["next"]]
 
     @pytest.mark.parametrize(
         ("task", "expected_tool"),
         [
             ("コード探索をしたい", "architecture_analysis_tool"),
             ("コードレビューをしたい", "review_tool"),
-            ("新規機能追加をしたい", "query_graph_tool"),
+            ("新規機能追加をしたい", "semantic_search_nodes_tool"),
             ("リファクタリングをしたい", "refactor_tool"),
             ("リファクタリングでヘルパーを追加したい", "refactor_tool"),
         ],
@@ -2617,7 +2622,7 @@ class TestGetMinimalContext:
 
         result = get_minimal_context(task=task, repo_root=str(self.root))
 
-        assert expected_tool in result["next_tool_suggestions"]
+        assert expected_tool in [call["tool"] for call in result["next"]]
 
     def test_task_routing_returns_structured_workflow_guidance(self):
         from dagayn.tools.context import get_minimal_context
@@ -2625,7 +2630,8 @@ class TestGetMinimalContext:
         result = get_minimal_context(task="コードレビューをしたい", repo_root=str(self.root))
 
         assert result["workflow"] == "review"
-        assert result["recommended_action"]
+        assert result["next"]
+        assert "recommended_action" not in result
         assert result["why"]
         assert result["confidence"] == "high"
 
@@ -2636,7 +2642,7 @@ class TestGetMinimalContext:
 
         assert result["workflow"] == "review"
         assert "changes" not in result
-        assert "review_tool" in result["next_tool_suggestions"]
+        assert "review_tool" in [call["tool"] for call in result["next"]]
 
     def test_changed_files_are_scored(self):
         from dagayn.tools.context import get_minimal_context
@@ -2732,8 +2738,8 @@ class TestGetMinimalContext:
             )
 
             assert result["graph_health"]["status"] == "empty"
-            assert result["next_tool_suggestions"][0] == "ensure_graph_tool"
-            assert "ensure_graph_tool" in result["recommended_action"]
+            assert result["next"][0]["tool"] == "ensure_graph_tool"
+            assert "next_tool_suggestions" not in result
             assert result["confidence"] == "high"
             assert "_hints" not in result
         finally:

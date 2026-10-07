@@ -526,14 +526,14 @@ class TestMinimalContextAutoPrepare:
         )
         assert _queued(main_repo) == []
         assert result["sync"]["status"] == "dirty_worktree"
-        assert "ensure_graph_tool" not in result.get("recommended_action", "")
+        assert "ensure_graph_tool" not in [call["tool"] for call in result["next"]]
 
     def test_drift_without_auto_prepare_queues_nothing(self, main_repo: Path):
         _seed_store(main_repo, head_sha="0" * 40)
         result = get_minimal_context(task="explore codebase", repo_root=str(main_repo))
         assert _queued(main_repo) == []
         assert "repair" not in result
-        assert result["recommended_action"] == "Call ensure_graph_tool to sync the graph."
+        assert result["next"][0]["tool"] == "ensure_graph_tool"
 
     def test_uc_m3_non_git_root_never_auto_prepares(self, tmp_path: Path):
         """UC-M3: a misdetected non-repo root (e.g. $HOME) must not bootstrap.

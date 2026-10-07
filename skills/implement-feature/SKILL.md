@@ -22,7 +22,7 @@ retrieval setup.
 
 1. **Orient**: `get_minimal_context_tool(task="<feature goal>")`. If
    `graph_health.status` is `empty` or `sync.state` is `unbuilt` /
-   `commit_drift`, follow `recommended_action` (call `ensure_graph_tool()` when
+   `commit_drift`, follow `next` (call `ensure_graph_tool()` when
    you need to wait for it).
 2. **Find extension points** — pick the one path that fits:
    - Product language or a fuzzy concept →

@@ -94,7 +94,7 @@ and directive dependencies are Medium; an empty `implementations_of` or
    wins and the graph is stale — note it and continue.
 2. Read each section with the Stage-2 context loaded.
 3. For a directive or symbol you didn't pre-read, note it as unverified rather
-   than tool-calling mid-read; keep any `zero_result_reason` / `next_action`
+   than tool-calling mid-read; keep any `zero_result_reason` / `next`
    from an empty query with the note instead of calling the link absent.
 4. Collect surprises: places where the prose says something the dependency
    context didn't predict.

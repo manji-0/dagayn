@@ -150,7 +150,7 @@ Targets:
    - `review_tool(mode="impact", changed_files=["<doc.md>"])` for outbound reach.
    - `query_graph_tool(pattern="implementations_of", target="<doc.md>::<section-slug>")`
      for code links; `docs_for` from the code side.
-   Keep `zero_result_reason`, `next_action`, and `missingness` from any empty
+   Keep `zero_result_reason`, `next`, and `missingness` from any empty
    result in your notes instead of assuming the link can't exist.
 5. If a link didn't take effect, recheck the slug and the path base. A link to
    a misspelled anchor leaves its `REFERENCES` edge at LOW, so look for that;

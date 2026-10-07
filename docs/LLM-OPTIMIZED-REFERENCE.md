@@ -59,9 +59,11 @@ The reply contract of `query_graph_tool`, `semantic_search_nodes_tool`,
   graph-wide `answerability` summary is `get_minimal_context_tool`'s
   `graph_health`; the six tools add it only at `detail_level="verbose"`
   (`"full"` for `query_graph_tool`).
-- `next_action`, `_hints.next_steps`, `recommended_action`,
-  `next_tool_suggestions`, and `next_drill_downs` still appear and say the
-  same in prose; read `next`.
+- The earlier next-step fields (`next_action`, `exactness.next_action`,
+  `next_drill_downs`, `next_tool_suggestions`, `_hints`) appear only at
+  `detail_level="verbose"` (`"full"` for `query_graph_tool`), named in
+  `deprecated_fields`, for one release. `get_minimal_context_tool` no
+  longer returns `recommended_action` or `next_tool_suggestions`.
 </section>
 
 <section name="trust">
@@ -108,7 +110,7 @@ Low (a hypothesis until `source_of` or a reproduction confirms it):
 - `LOW` edges: calls nothing settled; possible hidden callers.
 - `heuristic_reachable` doc links (bare code-span mentions).
 - A file-level `tests_for` of 0, an empty `callers_of`, or any other absence:
-  read `zero_result_reason`, `next_action`, and `missingness` before claiming
+  read `zero_result_reason`, `next`, and `missingness` before claiming
   something does not exist.
 - `truncated` results (narrow first) and `status="ambiguous"` (pick a
   candidate first).

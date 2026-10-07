@@ -15,7 +15,7 @@ it, which tests cover it, and which docs are linked to it. Read the
 
 1. **Orient**: `get_minimal_context_tool(task="<review goal>")`. If
    `graph_health.status` is `empty` or `sync.state` is `unbuilt` /
-   `commit_drift`, follow `recommended_action`; call `ensure_graph_tool()`
+   `commit_drift`, follow `next`; call `ensure_graph_tool()`
    only when you must wait for the refresh. A dirty worktree is not refreshed
    automatically: use `ensure_graph_tool(force=True)` when uncommitted edits
    matter and hooks have not caught up.
@@ -132,7 +132,7 @@ effect from a reproduction; keep them apart in a claim. Full rules:
   contracts, explanatory roles are usually `extracted`, and
   `heuristic_reachable` stays tentative. Cite the role and the query used.
 - Before claiming something is absent, read `zero_result_reason`,
-  `next_action`, and `missingness`; report `truncated` /
+  `next`, and `missingness`; report `truncated` /
   `total` when a result is incomplete. Unresolved (`LOW`) calls can hide
   callers — `dagayn build --scip` settles them where SCIP indexers exist.
 - Function concern profiles (`concern_separation`, the

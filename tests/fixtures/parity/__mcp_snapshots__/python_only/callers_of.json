@@ -52,10 +52,6 @@
       "why": "read the Function callers_of found"
     }
   ],
-  "next_action": {
-    "suggestion": "fetch live source with pattern=\"source_of\", then callers_of/callees_of",
-    "tool": "query_graph_tool"
-  },
   "original_target": "create_user",
   "pattern": "callers_of",
   "resolution": "exact_name",

@@ -1,22 +1,4 @@
 {
-  "_hints": {
-    "next_steps": [
-      {
-        "suggestion": "Get risk-scored change analysis with mode=\"changes\"",
-        "tool": "review_tool"
-      },
-      {
-        "suggestion": "Find the entry points reaching one symbol with mode=\"entry_points\"",
-        "tool": "flow_tool"
-      },
-      {
-        "suggestion": "Build full review context with mode=\"context\"",
-        "tool": "review_tool"
-      }
-    ],
-    "related": [],
-    "warnings": []
-  },
   "_repo": {
     "db_path": "<VOLATILE>",
     "repo_root": "<REPO>",

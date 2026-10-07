@@ -14,7 +14,7 @@ edit set, and verify impact afterwards.
 
 1. **Orient**: `get_minimal_context_tool(task="<refactor goal>")`. If
    `graph_health.status` is `empty` or `sync.state` is `unbuilt` /
-   `commit_drift`, follow `recommended_action` (the server has usually queued a
+   `commit_drift`, follow `next` (the server has usually queued a
    refresh already); call `ensure_graph_tool()` only when you must wait for it.
 2. **Find candidates**: `refactor_tool(mode="suggest")` answers with
    `findings`: `unused_symbol` (verified dead code, test fixtures left out),
@@ -25,7 +25,7 @@ edit set, and verify impact afterwards.
 3. **Map the blast radius** before touching public code:
    - `query_graph_tool(pattern="callers_of", target=..., depth=6)` (also
      `importers_of`) returns the transitive set in one call; stop when
-     `next_action` says the set is closed.
+     `reachability.state` is `complete`.
    - `tests_for`, `children_of`, and `source_of` for the symbol itself.
    - Linked docs: `docs_for` from code, `implementations_of` from a Markdown
      section (`<doc.md>::<section-slug>`).

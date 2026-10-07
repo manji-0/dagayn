@@ -95,8 +95,8 @@ def test_importers_of_walks_to_the_fixed_point(store):
     assert result["reachability"]["state"] == "complete"
     assert result["reachability"]["depth_limit_reached"] is False
     assert "within 6 hops" in result["summary"]
-    assert result["next_action"]["tool"] is None
-    assert "closed" in result["next_action"]["suggestion"]
+    # Closed: nothing deeper to ask for.
+    assert all(call["args"].get("depth") is None for call in result["next"])
 
 
 def test_node_reached_by_two_paths_appears_once_at_its_shortest_hop(store):
@@ -115,7 +115,11 @@ def test_depth_limit_is_reported(store):
         "/repo/c.py::f_c",
     }
     assert result["reachability"]["depth_limit_reached"] is True
-    assert "raise depth" in result["next_action"]["suggestion"]
+    assert result["next"][0]["args"] == {
+        "depth": 6,
+        "pattern": "callers_of",
+        "target": "/repo/a.py::f_a",
+    }
 
 
 def test_callers_of_walks_call_chains(store):

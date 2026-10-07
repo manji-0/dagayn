@@ -242,9 +242,13 @@ def test_refactor_rename_previews_through_rust(rename_repo: Path) -> None:
     assert not any(name == "other.py" for name, _, _ in sites)
     assert result["stats"]["high"] >= 3
     assert "rename_edits_graph_limited" in {m["reason_code"] for m in result["missingness"]}
-    assert result["next_tool_suggestions"][0].startswith(
-        f"apply_refactor_tool(refactor_id='{refactor_id}', dry_run=true)"
-    )
+    assert result["next"] == [
+        {
+            "args": {"dry_run": True, "refactor_id": refactor_id},
+            "tool": "apply_refactor_tool",
+            "why": "preview the unified diff in this session before any file is written",
+        }
+    ]
     assert result["_repo"]["repo_root"] == str(rename_repo.resolve())
     # The preview waits in the store apply_refactor_tool reads.
     assert _pending_refactors[refactor_id]["edits"] == result["edits"]

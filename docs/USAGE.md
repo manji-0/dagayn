@@ -272,10 +272,11 @@ CLI results as the same implementation.
 
 ### Migrating response consumers
 
-Existing fields such as `summary`, `_hints`, and `next_tool_suggestions`
-remain available; `refactor_tool`'s per-suggestion `work_pack` and
-`execution_plan` moved to `detail_level="verbose"`. New consumers should read `guidance`
-and `missingness` first, then fall back to the older raw
+`next` lists the calls to make, with their arguments; the earlier next-step
+fields (`_hints`, `next_action`, `next_tool_suggestions`, `next_drill_downs`)
+moved to `detail_level="verbose"` for one release, as `refactor_tool`'s
+per-suggestion `work_pack` and `execution_plan` did. New consumers should read
+`next`, `guidance`, and `missingness` first, then fall back to the older raw
 sections only when a drill-down needs more detail.
 
 `review_tool(mode="changes")` is the exception: it answers with `findings`.
@@ -319,13 +320,14 @@ After:
 ```python
 result = query_graph_tool(pattern="callers_of", target="handler")
 if result.get("zero_result_reason"):
-    follow(result["next_action"])
+    for call in result["next"]:
+        follow(call["tool"], call["args"])
 ```
 
 `query_graph_tool` keeps the same zero-result contract for both empty
 relationship results and missing targets. Missing targets return
 `status="not_found"`, `result_count=0`, `results=[]`,
-`zero_result_reason="target_not_found_in_graph"`, `next_action`, and
+`zero_result_reason="target_not_found_in_graph"`, `next`, and
 `missingness`; do not treat that as proof the symbol cannot
 exist outside the current graph.
 

@@ -312,15 +312,17 @@ fn minimal_context_queues_a_prepare_for_an_unbuilt_graph() {
     assert_eq!(observed["sync"]["state"], "unbuilt");
     assert_eq!(observed["sync"]["status"], "empty");
     assert_eq!(observed["graph_health"]["status"], "empty");
+    // The graph first, with nothing to fill in.
     assert_eq!(
-        observed["next_tool_suggestions"],
-        json!([
-            "ensure_graph_tool",
-            "review_tool",
-            "semantic_search_nodes_tool",
-            "architecture_analysis_tool"
-        ])
+        observed["next"][0],
+        json!({
+            "tool": "ensure_graph_tool",
+            "args": {},
+            "why": "the graph is empty; build it before any analysis",
+        })
     );
+    assert!(observed.get("next_tool_suggestions").is_none());
+    assert!(observed.get("recommended_action").is_none());
     assert!(observed.get("repair").is_none());
 
     // Queuing needs an interpreter for the worker.
@@ -382,15 +384,8 @@ fn minimal_context_reports_and_repairs_commit_drift() {
         observed["sync"],
         json!({"state": "commit_drift", "status": "git_drift", "vcs": "git"})
     );
-    assert_eq!(
-        observed["recommended_action"],
-        "Call ensure_graph_tool to sync the graph."
-    );
     assert_eq!(observed["why"], "sync.state=commit_drift");
-    assert_eq!(
-        observed["next_tool_suggestions"][0],
-        json!("ensure_graph_tool")
-    );
+    assert_eq!(observed["next"][0]["tool"], "ensure_graph_tool");
     assert!(
         observed["graph_health"]["reason_codes"]
             .as_array()
@@ -403,10 +398,15 @@ fn minimal_context_reports_and_repairs_commit_drift() {
         "get_minimal_context_tool",
         json!({"task": "fix"}),
     );
-    assert_eq!(
-        repaired["recommended_action"],
-        "Graph repair is queued; call ensure_graph_tool only if you must wait for it."
+    assert!(
+        repaired["why"]
+            .as_str()
+            .is_some_and(|why| why.contains("repair is queued")),
+        "{}",
+        repaired["why"]
     );
+    // A queued repair is not something to call.
+    assert_ne!(repaired["next"][0]["tool"], "ensure_graph_tool");
     assert_eq!(repaired["repair"]["kind"], "prepare");
     assert_eq!(repaired["_repo"]["source"], "explicit");
 }
@@ -424,7 +424,7 @@ fn minimal_context_queues_missing_local_embeddings() {
     let queued = answer(&context, "get_minimal_context_tool", json!({}));
     assert_eq!(queued["sync"]["state"], "commit_synced");
     assert_eq!(queued["repair"]["kind"], "prepare");
-    assert_eq!(queued["recommended_action"], observed["recommended_action"]);
+    assert_eq!(queued["next"], observed["next"]);
     assert_eq!(
         queued_tasks(&repo)[0].3,
         r#"{"local_embedding": "bge-m3", "keep_local_embedding_server": true, "budget_seconds": 300}"#
@@ -508,8 +508,8 @@ fn an_ambiguous_target_names_its_retries() {
     assert_eq!(flow["status"], "ambiguous");
     assert_eq!(flow["next"][0]["tool"], "flow_tool");
     assert_eq!(flow["next"][0]["args"]["mode"], "entry_points");
-    // The hints say the retry, not the generic follow-ups.
-    assert_eq!(flow["_hints"]["next_steps"][0]["tool"], "flow_tool");
+    // `next` is the one place that says what to call.
+    assert!(flow.get("_hints").is_none());
     let retried = answer(&context, "flow_tool", flow["next"][0]["args"].clone());
     assert_eq!(retried["status"], "ok");
 }
@@ -563,10 +563,8 @@ fn query_graph_answers_callers_and_callees_of_exact_targets() {
         json!({"pattern": "callees_of", "target": "zz_no_such_symbol"}),
     );
     assert_eq!(missing["status"], "not_found");
-    assert_eq!(
-        missing["_hints"]["warnings"],
-        json!(["not_found_in_current_graph"])
-    );
+    assert_eq!(missing["next"][0]["tool"], "semantic_search_nodes_tool");
+    assert!(missing.get("_hints").is_none());
 
     // The live span, as the worktree holds it.
     let source = answer(
@@ -827,7 +825,8 @@ fn review_answers_affected_flows_from_the_worktree_and_explicit_files() {
     );
     assert!(auto.get("affected_flows").is_none());
     assert_eq!(auto["_runtime"]["pid"], 1);
-    assert_eq!(auto["_hints"]["next_steps"][0]["tool"], "review_tool");
+    assert!(auto["next"].is_array());
+    assert!(auto.get("_hints").is_none());
     let text = call(&context, "review_tool", &json!({"mode": "affected_flows"}))
         .expect("answered")
         .text;
@@ -849,7 +848,7 @@ fn review_answers_affected_flows_from_the_worktree_and_explicit_files() {
     assert_eq!(flow["missing_step_count"], 0);
     assert_eq!(
         verbose["deprecated_fields"],
-        json!(["affected_flows", "total"])
+        json!(["affected_flows", "total", "_hints"])
     );
 
     let none = answer(
@@ -936,7 +935,8 @@ fn review_impact_reports_the_blast_radius_and_trims_like_python() {
         reasons.contains(&"changed_files_not_in_graph"),
         "{reasons:?}"
     );
-    assert_eq!(small["_hints"]["next_steps"][0]["tool"], "review_tool");
+    assert!(small["next"].is_array());
+    assert!(small.get("_hints").is_none());
 
     let wide = impact(json!({"mode": "impact", "changed_files": ["app.py"], "max_nodes": 500}));
     assert_eq!(wide["truncated"], true);
@@ -1031,14 +1031,12 @@ fn review_changes_scores_the_diff_against_base() {
             .as_str()
             .is_some_and(|s| s.starts_with("1 changed file(s), ") && s.contains("untested_change"))
     );
-    assert_eq!(
-        changes["next_drill_downs"]["flows"]["mode"],
-        "affected_flows"
-    );
+    assert!(changes.get("next_drill_downs").is_none());
+    assert!(changes.get("_hints").is_none());
     assert!(
-        changes["_hints"]["next_steps"]
+        changes["next"]
             .as_array()
-            .is_some_and(|s| !s.is_empty())
+            .is_some_and(|next| !next.is_empty())
     );
 
     let minimal = answer(
@@ -1058,6 +1056,19 @@ fn review_changes_scores_the_diff_against_base() {
         json!({"mode": "changes", "detail_level": "verbose"}),
     );
     assert_eq!(verbose_changes["diff_parse_status"], "ok");
+    assert_eq!(
+        verbose_changes["next_drill_downs"]["flows"]["mode"],
+        "affected_flows"
+    );
+    let deprecated = verbose_changes["deprecated_fields"]
+        .as_array()
+        .expect("deprecated_fields");
+    assert!(deprecated.contains(&json!("risk_score")), "{deprecated:?}");
+    assert!(
+        deprecated.contains(&json!("next_drill_downs")),
+        "{deprecated:?}"
+    );
+    assert!(deprecated.contains(&json!("_hints")), "{deprecated:?}");
     assert!(
         verbose_changes["analysis_summary"]["reason_codes"]
             .as_array()
@@ -1264,7 +1275,7 @@ fn flow_tool_lists_and_reads_stored_flows() {
     for key in ["path", "members", "files"] {
         assert!(flows[0].get(key).is_none(), "{key}");
     }
-    assert_eq!(listed["_hints"]["next_steps"][0]["tool"], "flow_tool");
+    assert!(listed.get("_hints").is_none());
     let id = flows[0]["id"].clone();
     let minimal = answer(&context, "flow_tool", json!({"detail_level": "minimal"}));
     assert_eq!(minimal["flows"][0]["entry_point"], flows[0]["entry_point"]);
@@ -1304,10 +1315,7 @@ fn flow_tool_lists_and_reads_stored_flows() {
         json!({"mode": "get", "flow_id": 999}),
     );
     assert_eq!(missing["status"], "not_found");
-    assert_eq!(
-        missing["_hints"]["next_steps"][0]["tool"],
-        "query_graph_tool"
-    );
+    assert!(missing.get("_hints").is_none());
 
     for arguments in [
         json!({"mode": "get"}),
@@ -1445,7 +1453,15 @@ fn architecture_metrics_follow_the_requested_view() {
     );
     let gaps = arch(json!({"mode": "knowledge_gaps"}));
     assert!(gaps["gaps"]["_meta"]["thresholds"].is_object());
+    assert!(gaps.get("_hints").is_none());
+    // verbose keeps the earlier next-step fields for one release, named.
+    let gaps = arch(json!({"mode": "knowledge_gaps", "detail_level": "verbose"}));
     assert_eq!(gaps["_hints"]["next_steps"][0]["tool"], "refactor_tool");
+    assert!(
+        gaps["deprecated_fields"]
+            .as_array()
+            .is_some_and(|fields| fields.contains(&json!("_hints")))
+    );
     let surprising = arch(json!({"mode": "surprising_connections", "artifact_scope": "all"}));
     assert!(surprising["surprising_connections"].is_array());
     assert_eq!(hubs["deprecated"]["removal"], "next release");
@@ -1506,10 +1522,8 @@ fn refactor_finds_dead_code_and_suggests() {
         .filter_map(|d| d["name"].as_str())
         .collect();
     assert!(names.contains(&"orphan"), "{names:?}");
-    assert_eq!(
-        dead["_hints"]["next_steps"].as_array().map(Vec::is_empty),
-        Some(false)
-    );
+    assert!(dead["next"].is_array());
+    assert!(dead.get("_hints").is_none());
     let suggest = answer(&context, "refactor_tool", json!({}));
     assert_eq!(suggest["findings"][0]["kind"], "unused_symbol");
     assert_eq!(

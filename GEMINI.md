@@ -13,7 +13,7 @@ Recommended workflow:
 The fork is especially useful in repositories that mix application code, docs, and Terraform.
 
 MCP responses are evidence-ranked leads, not verdicts. Prefer `guidance`,
-`answerability`, `missingness`, `zero_result_reason`, and `next_action` before
+`next`, `missingness`, and `zero_result_reason` before
 falling back to legacy raw fields. Documentation bridge results distinguish
 `authored`, `extracted`, and `heuristic_reachable` evidence.
 

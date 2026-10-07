@@ -1592,7 +1592,25 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    payload = payload.replace("next", crate::next::after_query(pattern, target, &rows));
+    let mut next = crate::next::after_query(pattern, target, &rows);
+    // A chain cut at the depth asked for goes on: the deeper call first.
+    if let Some(reachability) = &found.reachability
+        && reachability.get("depth_limit_reached") == Some(&Value::Bool(true))
+        && reachability.get("truncated") != Some(&Value::Bool(true))
+        && depth < MAX_DEPTH
+        && let Some(calls) = next.as_array_mut()
+    {
+        calls.insert(
+            0,
+            crate::next::call(
+                "query_graph_tool",
+                json!({"pattern": pattern, "target": target, "depth": MAX_DEPTH}),
+                format!("nodes beyond {depth} hops may reach it"),
+            ),
+        );
+        calls.truncate(crate::next::MAX_NEXT);
+    }
+    payload = payload.replace("next", next);
     let mut missingness = answerability.missingness();
     // `_attach_source_of_coverage`.
     if let Some(coverage) = found.source

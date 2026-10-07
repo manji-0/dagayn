@@ -109,76 +109,27 @@ pub struct Payload {
 }
 
 impl Payload {
-    /// The payload with `key` set to `value` after its other keys, unless it
-    /// has `key` already.
-    fn with_last(self, key: &str, value: Value) -> Self {
-        let Value::Object(mut object) = self.value else {
-            unreachable!("a payload is an object");
-        };
-        if object.contains_key(key) {
-            return Self {
-                text: self.text,
-                value: Value::Object(object),
-            };
-        }
-        let mut text = self.text;
-        if text.ends_with('}') {
-            text.pop();
-            if text.len() > 1 {
-                text.push(',');
-            }
-            text.push_str(&json!(key).to_string());
-            text.push(':');
-            text.push_str(&value.to_string());
-            text.push('}');
-        }
-        object.insert(key.to_string(), value);
-        Self {
-            text,
-            value: Value::Object(object),
-        }
-    }
-
-    /// The payload without the top-level `key`, its other keys in order.
-    fn without(self, key: &str) -> Self {
-        let Some(Value::Object(mut value)) = Some(self.value) else {
-            unreachable!("a payload is an object");
-        };
-        if value.remove(key).is_none() {
-            return Self {
-                text: self.text,
-                value: Value::Object(value),
-            };
-        }
-        let entries: Vec<(String, Box<serde_json::value::RawValue>)> =
+    /// The payload after `change` edits its top-level entries, in order.
+    fn edit(self, change: impl FnOnce(&mut Vec<(String, Value)>)) -> Self {
+        let mut entries: Vec<(String, Value)> =
             match serde_json::from_str::<OrderedEntries>(&self.text) {
                 Ok(OrderedEntries(entries)) => entries,
-                Err(_) => {
-                    return Self {
-                        text: Value::Object(value.clone()).to_string(),
-                        value: Value::Object(value),
-                    };
-                }
+                Err(_) => match self.value {
+                    Value::Object(map) => map.into_iter().collect(),
+                    _ => unreachable!("a payload is an object"),
+                },
             };
-        let mut text = String::from("{");
-        for (name, item) in entries.iter().filter(|(name, _)| name != key) {
-            if text.len() > 1 {
-                text.push(',');
-            }
-            text.push_str(&json!(name).to_string());
-            text.push(':');
-            text.push_str(item.get());
+        change(&mut entries);
+        let mut ordered = Ordered::default();
+        for (key, value) in entries {
+            ordered = ordered.put(&key, value);
         }
-        text.push('}');
-        Self {
-            text,
-            value: Value::Object(value),
-        }
+        ordered.into_payload()
     }
 }
 
-/// A JSON object's entries in document order, each value kept as raw text.
-struct OrderedEntries(Vec<(String, Box<serde_json::value::RawValue>)>);
+/// A JSON object's entries in document order.
+struct OrderedEntries(Vec<(String, Value)>);
 
 impl<'de> serde::Deserialize<'de> for OrderedEntries {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
@@ -203,12 +154,9 @@ impl<'de> serde::Deserialize<'de> for OrderedEntries {
     }
 }
 
-/// The tools whose replies carry the graph's `answerability` only at
-/// `detail_level="verbose"` (or `"full"`), and never on an error: graph-wide
-/// health is `get_minimal_context_tool`'s to report, and each reply keeps
-/// the `missingness` that applies to it
-/// (docs/plans/AGENT-WORKFLOW-TARGET.md#target-contract).
-const SUMMARY_AT_VERBOSE_ONLY: [&str; 6] = [
+/// The six Tier 1 analysis tools, whose replies `seal_reply` holds to the
+/// reply contract.
+const TIER1_ANALYSIS_TOOLS: [&str; 6] = [
     "query_graph_tool",
     "semantic_search_nodes_tool",
     "review_tool",
@@ -232,16 +180,70 @@ pub fn call(context: &Context, name: &str, arguments: &Value) -> Option<Payload>
         arguments.get("detail_level").and_then(Value::as_str),
         Some("verbose" | "full")
     );
-    if !SUMMARY_AT_VERBOSE_ONLY.contains(&name) {
+    if !TIER1_ANALYSIS_TOOLS.contains(&name) {
         return Some(payload);
     }
-    // Every reply says what to call next; a reply that names nothing is
-    // complete (docs/plans/AGENT-WORKFLOW-TARGET.md#target-contract).
-    let payload = payload.with_last("next", json!([]));
-    if verbose && payload.value.get("status") != Some(&json!("error")) {
-        return Some(payload);
+    let error = payload.value.get("status") == Some(&json!("error"));
+    Some(payload.edit(|entries| seal_reply(entries, verbose, error)))
+}
+
+/// What every Tier 1 reply says what to call next with, before `next`; they
+/// stay at `verbose`, named in `deprecated_fields`, for one release.
+const NEXT_STEP_FIELDS: [&str; 4] = [
+    "next_action",
+    "next_drill_downs",
+    "next_tool_suggestions",
+    "_hints",
+];
+
+/// The reply contract of docs/plans/AGENT-WORKFLOW-TARGET.md#target-contract
+/// on one reply's entries: `next` always (`[]` where nothing follows), the
+/// graph's `answerability` only at `verbose` and never on an error, and the
+/// earlier next-step fields only at `verbose`. The Python server seals its own
+/// replies the same way (`dagayn/tools/_common.py::summary_at_verbose_only`).
+fn seal_reply(entries: &mut Vec<(String, Value)>, verbose: bool, error: bool) {
+    if !entries.iter().any(|(key, _)| key == "next") {
+        entries.push(("next".into(), json!([])));
     }
-    Some(payload.without("answerability"))
+    if !verbose || error {
+        entries.retain(|(key, _)| key != "answerability");
+    }
+    if !verbose {
+        entries.retain(|(key, _)| !NEXT_STEP_FIELDS.contains(&key.as_str()));
+        for (key, value) in entries.iter_mut() {
+            if key == "exactness"
+                && let Some(exactness) = value.as_object_mut()
+            {
+                exactness.remove("next_action");
+            }
+        }
+        return;
+    }
+    let mut deprecated: Vec<Value> = Vec::new();
+    for (key, value) in entries.iter() {
+        if NEXT_STEP_FIELDS.contains(&key.as_str()) {
+            deprecated.push(json!(key));
+        } else if key == "exactness" && value.get("next_action").is_some() {
+            deprecated.push(json!("exactness.next_action"));
+        }
+    }
+    if deprecated.is_empty() {
+        return;
+    }
+    match entries
+        .iter_mut()
+        .find(|(key, _)| key == "deprecated_fields")
+    {
+        // Idempotent, as the Python twin is.
+        Some((_, Value::Array(fields))) => {
+            for name in deprecated {
+                if !fields.contains(&name) {
+                    fields.push(name);
+                }
+            }
+        }
+        _ => entries.push(("deprecated_fields".into(), Value::Array(deprecated))),
+    }
 }
 
 fn answer(context: &Context, name: &str, arguments: &Map<String, Value>) -> Option<Payload> {

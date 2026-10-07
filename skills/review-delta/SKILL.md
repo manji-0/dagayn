@@ -16,7 +16,7 @@ has the compact workflow if you want it in context.
 
 1. **Orient**: `get_minimal_context_tool(task="<review goal>")`.
 2. **Refresh only when needed**: if `graph_health.status` is `empty` or
-   `sync.state` is `unbuilt` / `commit_drift`, follow `recommended_action`. If
+   `sync.state` is `unbuilt` / `commit_drift`, follow `next`. If
    the working tree is newer than the graph (edit hooks only queue an async
    update; `dagayn queue status` shows it), call
    `ensure_graph_tool(force=True)`. Otherwise skip ensure and go straight to
@@ -88,7 +88,7 @@ dagayn instructions (full rules: `get_docs_section_tool(section_name="trust")`).
 `contract_doc_not_updated` findings and authored doc links are not optional
 reading: update them (see the "Docs update
 after code change" steps in review-changes) or list them as deferred. Before
-claiming something is missing, read `zero_result_reason`, `next_action`,
+claiming something is missing, read `zero_result_reason`, `next`,
 and `missingness`, and narrow truncated results first.
 
 ## CLI fallback

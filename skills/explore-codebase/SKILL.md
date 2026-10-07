@@ -49,7 +49,7 @@ the selected embedding mode so exploration chooses the right search strategy.
 
 1. Orient with `get_minimal_context_tool(task="<what you need to understand>")`.
    If `graph_health.status` is `empty` or `sync.state` is `unbuilt` /
-   `commit_drift`, follow `recommended_action` (call `ensure_graph_tool()` when
+   `commit_drift`, follow `next` (call `ensure_graph_tool()` when
    you need to wait for it).
 2. Pick **one** next move from the Decision Model above — for structure or
    health questions only, that is
@@ -129,7 +129,7 @@ effect from a reproduction; keep them apart in a claim. Full rules:
   labels, so don't assume both directions are stored; read `evidence_type`
   (`authored`, `extracted`, `heuristic_reachable`) and `missingness`.
 - An empty or not-found result is limited to the current graph: use
-  `zero_result_reason` and `next_action` to choose the next lookup.
+  `zero_result_reason` and `next` to choose the next lookup.
 - Cite counts, thresholds, reason codes, and truncation flags for structural
   claims.
 

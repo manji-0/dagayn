@@ -20,7 +20,7 @@ the selected embedding mode so bug searches balance semantic recall with speed.
 
 1. **Orient**: `get_minimal_context_tool(task="<bug or symptom>")`. If
    `graph_health.status` is `empty` or `sync.state` is `unbuilt` /
-   `commit_drift`, follow `recommended_action` (call `ensure_graph_tool()` when
+   `commit_drift`, follow `next` (call `ensure_graph_tool()` when
    you need to wait for it).
 2. **Find the code**: `semantic_search_nodes_tool` for the symptom; for a log
    line, CLI command, or UI string, one `rg` to map the literal to a node, then
@@ -109,7 +109,7 @@ effect from a reproduction; keep them apart in a claim. Full rules:
   what the code depends on.
 - Doc links carry `evidence_type`: `authored` contracts beat `extracted`
   explanations; `heuristic_reachable` needs source confirmation.
-- If a query returns nothing, read `zero_result_reason`, `next_action`,
+- If a query returns nothing, read `zero_result_reason`, `next`,
   and `missingness` before ruling a path out. Unresolved
   (`LOW`) calls can hide the real callee; where SCIP indexers are installed,
   `dagayn build --scip` settles them (settled edges carry `resolved_by: "scip"`).

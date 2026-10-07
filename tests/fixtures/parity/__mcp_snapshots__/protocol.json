@@ -15,24 +15,12 @@
       "result": {
         "content": [
           {
-            "text": "{\"status\":\"not_found\",\"summary\":\"No node found matching 'nope' in the current graph.\",\"result_count\":0,\"results\":[],\"zero_result_reason\":\"target_not_found_in_graph\",\"next_action\":{\"suggestion\":\"broaden the query or verify the graph is up to date\",\"tool\":\"semantic_search_nodes_tool\"},\"next\":[{\"args\":{\"detail_level\":\"minimal\",\"query\":\"nope\"},\"tool\":\"semantic_search_nodes_tool\",\"why\":\"find the node by name or meaning\"}],\"missingness\":[{\"claim_effect\":\"claims should be treated as graph-limited until this is resolved\",\"reason_code\":\"missing_test_edges\",\"severity\":\"medium\"},{\"claim_effect\":\"absence is graph-limited, not proof the symbol does not exist\",\"reason_code\":\"target_not_found_in_graph\",\"severity\":\"medium\"}],\"guidance\":[{\"action\":\"semantic_search_nodes_tool -- verify the target and refresh the graph\",\"claim\":\"No graph relationships matched 'callers_of' for 'nope'.\",\"confidence\":\"low\",\"counts\":{\"result_count\":0},\"evidence\":[{\"pattern\":\"callers_of\",\"result_count\":0,\"target\":\"nope\",\"type\":\"computed\"}],\"missingness\":[{\"claim_effect\":\"absence is graph-limited, not proof the relationship does not exist\",\"reason_code\":\"not_found_in_current_graph\",\"severity\":\"medium\"}],\"reason_codes\":[\"zero_result\"]}],\"_hints\":{\"next_steps\":[{\"suggestion\":\"semantic_search_nodes_tool -- verify the target and refresh the graph\",\"tool\":\"semantic_search_nodes_tool\"}],\"related\":[],\"warnings\":[\"not_found_in_current_graph\"]},\"_repo\":{\"db_path\":\"<REPO>/.dagayn/graph.db\",\"repo_root\":\"<REPO>\",\"source\":\"explicit\"}}",
+            "text": "{\"status\":\"not_found\",\"summary\":\"No node found matching 'nope' in the current graph.\",\"result_count\":0,\"results\":[],\"zero_result_reason\":\"target_not_found_in_graph\",\"next\":[{\"args\":{\"detail_level\":\"minimal\",\"query\":\"nope\"},\"tool\":\"semantic_search_nodes_tool\",\"why\":\"find the node by name or meaning\"}],\"missingness\":[{\"claim_effect\":\"claims should be treated as graph-limited until this is resolved\",\"reason_code\":\"missing_test_edges\",\"severity\":\"medium\"},{\"claim_effect\":\"absence is graph-limited, not proof the symbol does not exist\",\"reason_code\":\"target_not_found_in_graph\",\"severity\":\"medium\"}],\"guidance\":[{\"action\":\"semantic_search_nodes_tool -- verify the target and refresh the graph\",\"claim\":\"No graph relationships matched 'callers_of' for 'nope'.\",\"confidence\":\"low\",\"counts\":{\"result_count\":0},\"evidence\":[{\"pattern\":\"callers_of\",\"result_count\":0,\"target\":\"nope\",\"type\":\"computed\"}],\"missingness\":[{\"claim_effect\":\"absence is graph-limited, not proof the relationship does not exist\",\"reason_code\":\"not_found_in_current_graph\",\"severity\":\"medium\"}],\"reason_codes\":[\"zero_result\"]}],\"_repo\":{\"db_path\":\"<REPO>/.dagayn/graph.db\",\"repo_root\":\"<REPO>\",\"source\":\"explicit\"}}",
             "type": "text"
           }
         ],
         "isError": false,
         "structuredContent": {
-          "_hints": {
-            "next_steps": [
-              {
-                "suggestion": "semantic_search_nodes_tool -- verify the target and refresh the graph",
-                "tool": "semantic_search_nodes_tool"
-              }
-            ],
-            "related": [],
-            "warnings": [
-              "not_found_in_current_graph"
-            ]
-          },
           "_repo": {
             "db_path": "<VOLATILE>",
             "repo_root": "<REPO>",
@@ -88,10 +76,6 @@
               "why": "find the node by name or meaning"
             }
           ],
-          "next_action": {
-            "suggestion": "broaden the query or verify the graph is up to date",
-            "tool": "semantic_search_nodes_tool"
-          },
           "result_count": 0,
           "results": [],
           "status": "not_found",
@@ -536,7 +520,7 @@
                 "tags": []
               }
             },
-            "description": "Get compact context for any task. Call this first.\n\nReturns ``sync.state``, ``graph_health`` (with ``reason_codes``), top\ncommunities/flows, a ``recommended_action``, ``next_tool_suggestions``, and,\nwhen there are changes, ``changes``: how many of each ``review_tool``\nfinding kind they raise. An empty or HEAD-drifted graph queues a\nbackground refresh and returns at once; call ``ensure_graph_tool`` to wait.\n\nTrust: on ``commit_drift`` / ``worktree_behind`` answers about changed files\nare hypotheses; finding counts, community, and flow hints point where to\nlook, not at a confirmed bug.",
+            "description": "Get compact context for any task. Call this first.\n\nReturns ``sync.state``, ``graph_health`` (with ``reason_codes``), top\ncommunities, ``next`` (the task's first calls, with arguments), and,\nwhen there are changes, ``changes``: how many of each ``review_tool``\nfinding kind they raise. An empty or HEAD-drifted graph queues a\nbackground refresh and returns at once; call ``ensure_graph_tool`` to wait.\n\nTrust: on ``commit_drift`` / ``worktree_behind`` answers about changed files\nare hypotheses; finding counts, community, and flow hints point where to\nlook, not at a confirmed bug.",
             "inputSchema": {
               "additionalProperties": false,
               "properties": {
@@ -605,7 +589,7 @@
               "properties": {
                 "depth": {
                   "default": 1,
-                  "description": "(callers_of, importers_of) Hops to follow, 1-6. Default: 1. Pass 6\nfor \"directly or indirectly\"; ``next_action`` says when the set is\nclosed.",
+                  "description": "(callers_of, importers_of) Hops to follow, 1-6. Default: 1. Pass 6\nfor \"directly or indirectly\"; ``reachability.state`` says when the set is\nclosed.",
                   "type": "integer"
                 },
                 "detail_level": {
@@ -1779,24 +1763,12 @@
       "result": {
         "content": [
           {
-            "text": "{\"status\":\"not_found\",\"summary\":\"No node found matching 'nope' in the current graph.\",\"result_count\":0,\"results\":[],\"zero_result_reason\":\"target_not_found_in_graph\",\"next_action\":{\"suggestion\":\"broaden the query or verify the graph is up to date\",\"tool\":\"semantic_search_nodes_tool\"},\"next\":[{\"args\":{\"detail_level\":\"minimal\",\"query\":\"nope\"},\"tool\":\"semantic_search_nodes_tool\",\"why\":\"find the node by name or meaning\"}],\"missingness\":[{\"claim_effect\":\"claims should be treated as graph-limited until this is resolved\",\"reason_code\":\"missing_test_edges\",\"severity\":\"medium\"},{\"claim_effect\":\"absence is graph-limited, not proof the symbol does not exist\",\"reason_code\":\"target_not_found_in_graph\",\"severity\":\"medium\"}],\"guidance\":[{\"action\":\"semantic_search_nodes_tool -- verify the target and refresh the graph\",\"claim\":\"No graph relationships matched 'callers_of' for 'nope'.\",\"confidence\":\"low\",\"counts\":{\"result_count\":0},\"evidence\":[{\"pattern\":\"callers_of\",\"result_count\":0,\"target\":\"nope\",\"type\":\"computed\"}],\"missingness\":[{\"claim_effect\":\"absence is graph-limited, not proof the relationship does not exist\",\"reason_code\":\"not_found_in_current_graph\",\"severity\":\"medium\"}],\"reason_codes\":[\"zero_result\"]}],\"_hints\":{\"next_steps\":[{\"suggestion\":\"semantic_search_nodes_tool -- verify the target and refresh the graph\",\"tool\":\"semantic_search_nodes_tool\"}],\"related\":[],\"warnings\":[\"not_found_in_current_graph\"]},\"_repo\":{\"db_path\":\"<REPO>/.dagayn/graph.db\",\"repo_root\":\"<REPO>\",\"source\":\"explicit\"}}",
+            "text": "{\"status\":\"not_found\",\"summary\":\"No node found matching 'nope' in the current graph.\",\"result_count\":0,\"results\":[],\"zero_result_reason\":\"target_not_found_in_graph\",\"next\":[{\"args\":{\"detail_level\":\"minimal\",\"query\":\"nope\"},\"tool\":\"semantic_search_nodes_tool\",\"why\":\"find the node by name or meaning\"}],\"missingness\":[{\"claim_effect\":\"claims should be treated as graph-limited until this is resolved\",\"reason_code\":\"missing_test_edges\",\"severity\":\"medium\"},{\"claim_effect\":\"absence is graph-limited, not proof the symbol does not exist\",\"reason_code\":\"target_not_found_in_graph\",\"severity\":\"medium\"}],\"guidance\":[{\"action\":\"semantic_search_nodes_tool -- verify the target and refresh the graph\",\"claim\":\"No graph relationships matched 'callers_of' for 'nope'.\",\"confidence\":\"low\",\"counts\":{\"result_count\":0},\"evidence\":[{\"pattern\":\"callers_of\",\"result_count\":0,\"target\":\"nope\",\"type\":\"computed\"}],\"missingness\":[{\"claim_effect\":\"absence is graph-limited, not proof the relationship does not exist\",\"reason_code\":\"not_found_in_current_graph\",\"severity\":\"medium\"}],\"reason_codes\":[\"zero_result\"]}],\"_repo\":{\"db_path\":\"<REPO>/.dagayn/graph.db\",\"repo_root\":\"<REPO>\",\"source\":\"explicit\"}}",
             "type": "text"
           }
         ],
         "isError": false,
         "structuredContent": {
-          "_hints": {
-            "next_steps": [
-              {
-                "suggestion": "semantic_search_nodes_tool -- verify the target and refresh the graph",
-                "tool": "semantic_search_nodes_tool"
-              }
-            ],
-            "related": [],
-            "warnings": [
-              "not_found_in_current_graph"
-            ]
-          },
           "_repo": {
             "db_path": "<VOLATILE>",
             "repo_root": "<REPO>",
@@ -1852,10 +1824,6 @@
               "why": "find the node by name or meaning"
             }
           ],
-          "next_action": {
-            "suggestion": "broaden the query or verify the graph is up to date",
-            "tool": "semantic_search_nodes_tool"
-          },
           "result_count": 0,
           "results": [],
           "status": "not_found",
@@ -2145,7 +2113,7 @@
                 "tags": []
               }
             },
-            "description": "Get compact context for any task. Call this first.\n\nReturns ``sync.state``, ``graph_health`` (with ``reason_codes``), top\ncommunities/flows, a ``recommended_action``, ``next_tool_suggestions``, and,\nwhen there are changes, ``changes``: how many of each ``review_tool``\nfinding kind they raise. An empty or HEAD-drifted graph queues a\nbackground refresh and returns at once; call ``ensure_graph_tool`` to wait.\n\nTrust: on ``commit_drift`` / ``worktree_behind`` answers about changed files\nare hypotheses; finding counts, community, and flow hints point where to\nlook, not at a confirmed bug.",
+            "description": "Get compact context for any task. Call this first.\n\nReturns ``sync.state``, ``graph_health`` (with ``reason_codes``), top\ncommunities, ``next`` (the task's first calls, with arguments), and,\nwhen there are changes, ``changes``: how many of each ``review_tool``\nfinding kind they raise. An empty or HEAD-drifted graph queues a\nbackground refresh and returns at once; call ``ensure_graph_tool`` to wait.\n\nTrust: on ``commit_drift`` / ``worktree_behind`` answers about changed files\nare hypotheses; finding counts, community, and flow hints point where to\nlook, not at a confirmed bug.",
             "inputSchema": {
               "additionalProperties": false,
               "properties": {
@@ -2214,7 +2182,7 @@
               "properties": {
                 "depth": {
                   "default": 1,
-                  "description": "(callers_of, importers_of) Hops to follow, 1-6. Default: 1. Pass 6\nfor \"directly or indirectly\"; ``next_action`` says when the set is\nclosed.",
+                  "description": "(callers_of, importers_of) Hops to follow, 1-6. Default: 1. Pass 6\nfor \"directly or indirectly\"; ``reachability.state`` says when the set is\nclosed.",
                   "type": "integer"
                 },
                 "detail_level": {

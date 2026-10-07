@@ -685,6 +685,14 @@ fn rename(
         .put("answerability", answerability.full())
         .replace("missingness", json!(missingness))
         .put(
+            "next",
+            json!([crate::next::call(
+                "apply_refactor_tool",
+                json!({"refactor_id": id, "dry_run": true}),
+                "preview the unified diff in this session before any file is written",
+            )]),
+        )
+        .put(
             "next_tool_suggestions",
             json!([
                 format!("apply_refactor_tool(refactor_id='{id}', dry_run=true) in the same session -- preview unified diff before writing files"),

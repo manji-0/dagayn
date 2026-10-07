@@ -94,7 +94,7 @@ class TestQueryGraphSourceOf:
         assert item["line_start"] == 1
         assert item["line_end"] == 2
         assert result["source_coverage"]["truncated"] is False
-        assert "callers_of" in result["next_action"]["suggestion"]
+        assert result["next"][0]["args"]["pattern"] == "callers_of"
 
     def test_minimal_keeps_source_and_locators(self, tmp_path: Path) -> None:
         root = _repo(tmp_path)
@@ -329,5 +329,5 @@ class TestSemanticSearchMinimalLocators:
         assert item["line_start"] == 10
         assert item["line_end"] == 18
         assert "signature" not in item
-        assert "source_of" in result["next_action"]["suggestion"]
+        assert result["next"][0]["args"]["pattern"] == "source_of"
         assert "source_of" in result["guidance"][0]["action"]

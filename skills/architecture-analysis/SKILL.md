@@ -14,7 +14,7 @@ mode only when the user asks for one by name.
 
 1. **Orient**: `get_minimal_context_tool(task="<architecture goal>")`. If
    `graph_health.status` is `empty` or `sync.state` is `unbuilt` /
-   `commit_drift`, follow `recommended_action`. The overview needs no
+   `commit_drift`, follow `next`. The overview needs no
    post-processing: it answers right after an `ensure_graph_tool` bootstrap.
 2. **Overview**: `architecture_analysis_tool(mode="overview",
    detail_level="minimal")`.
@@ -90,7 +90,7 @@ dagayn instructions (full rules: `get_docs_section_tool(section_name="trust")`).
   that a call the extractor cannot resolve is missing from them.
 - SDP / SAP values are **Medium** leads, not design bugs: cite the formula's
   inputs, the threshold, and `total` / `truncated`.
-- For a zero-result query, cite `zero_result_reason` and `next_action` rather
+- For a zero-result query, cite `zero_result_reason` and `next` rather
   than treating it as proof that no relationship exists.
 - Call-based profiles (`implementation`) are only as good as call resolution;
   `dagayn build --scip` makes them compiler-accurate where indexers exist.

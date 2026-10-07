@@ -52,10 +52,6 @@
       "why": "who calls what you just read"
     }
   ],
-  "next_action": {
-    "suggestion": "inspect callers_of/callees_of after reading the live span; Read the file only for surrounding context or edits",
-    "tool": "query_graph_tool"
-  },
   "original_target": "get_email",
   "pattern": "source_of",
   "resolution": "exact_name",

@@ -1,25 +1,4 @@
 {
-  "_hints": {
-    "next_steps": [
-      {
-        "suggestion": "Fetch focused source context with mode=\"context\"",
-        "tool": "review_tool"
-      },
-      {
-        "suggestion": "See which entry points reach the change with mode=\"affected_flows\"",
-        "tool": "review_tool"
-      },
-      {
-        "suggestion": "Expand blast radius with mode=\"impact\"",
-        "tool": "review_tool"
-      }
-    ],
-    "related": [
-      "services.py",
-      "main.py"
-    ],
-    "warnings": []
-  },
   "_repo": {
     "db_path": "<VOLATILE>",
     "repo_root": "<REPO>",

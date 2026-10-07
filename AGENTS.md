@@ -21,7 +21,7 @@ This repository ships `dagayn`, a fork of `code-review-graph` with extra emphasi
   (full rules: `get_docs_section_tool(section_name="trust")`); reach,
   correctness, and user-visible effect are separate claims
 - treat `query_graph_tool` zero-result and not-found responses as graph-limited:
-  read `zero_result_reason`, `next_action`, and missingness before concluding
+  read `zero_result_reason`, `next`, and missingness before concluding
   absence
 - after a concrete `qualified_name`, fetch the body with
   `query_graph_tool(pattern="source_of")` before opening the file

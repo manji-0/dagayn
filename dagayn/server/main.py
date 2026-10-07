@@ -397,7 +397,7 @@ async def get_minimal_context_tool(
     """Get compact context for any task. Call this first.
 
     Returns ``sync.state``, ``graph_health`` (with ``reason_codes``), top
-    communities/flows, a ``recommended_action``, ``next_tool_suggestions``, and,
+    communities, ``next`` (the task's first calls, with arguments), and,
     when there are changes, ``changes``: how many of each ``review_tool``
     finding kind they raise. An empty or HEAD-drifted graph queues a
     background refresh and returns at once; call ``ensure_graph_tool`` to wait.
@@ -448,7 +448,7 @@ def query_graph_tool(
             trims fields and guidance; "full" adds per-edge rows and hits the
             output budget sooner.
         depth: (callers_of, importers_of) Hops to follow, 1-6. Default: 1. Pass 6
-            for "directly or indirectly"; ``next_action`` says when the set is
+            for "directly or indirectly"; ``reachability.state`` says when the set is
             closed.
 
     ``results_complete`` is false when the output budget cut rows. An import

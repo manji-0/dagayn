@@ -82,11 +82,9 @@ const EXPLORE: &[&str] = &[
     "オンボーディング",
 ];
 
-/// `(workflow, suggested tools, recommended_action, why, confidence)`.
+/// `(workflow, why, confidence)`; `first_calls` says what to call.
 struct Workflow {
     name: &'static str,
-    tools: [&'static str; 3],
-    recommended_action: &'static str,
     why: &'static str,
     confidence: &'static str,
 }
@@ -94,63 +92,31 @@ struct Workflow {
 const WORKFLOWS: [Workflow; 6] = [
     Workflow {
         name: "review",
-        tools: ["review_tool", "flow_tool", "query_graph_tool"],
-        recommended_action: "Run review_tool mode=changes first, then drill into context only when needed.",
         why: "The task mentions reviewing a diff or PR, so review_tool's findings are the fastest entry point.",
         confidence: "high",
     },
     Workflow {
         name: "debug",
-        tools: [
-            "semantic_search_nodes_tool",
-            "query_graph_tool",
-            "flow_tool",
-        ],
-        recommended_action: "Search for the failing concept, then trace callers and callees around the matching node.",
         why: "The task mentions a bug or failure, so locating the relevant symbol before graph traversal reduces noise.",
         confidence: "high",
     },
     Workflow {
         name: "refactor",
-        tools: [
-            "refactor_tool",
-            "query_graph_tool",
-            "architecture_analysis_tool",
-        ],
-        recommended_action: "Get graph-backed refactor suggestions, then verify impact before editing.",
         why: "The task mentions cleanup or refactoring, so candidate ranking and safety checks should precede file edits.",
         confidence: "high",
     },
     Workflow {
         name: "explore",
-        tools: [
-            "architecture_analysis_tool",
-            "flow_tool",
-            "query_graph_tool",
-        ],
-        recommended_action: "Start with architecture_analysis_tool mode=overview, then trace a symbol with query_graph_tool or flow_tool mode=entry_points.",
         why: "The task asks to understand structure, so a broad graph summary is cheaper than reading files first.",
         confidence: "high",
     },
     Workflow {
         name: "feature",
-        tools: [
-            "semantic_search_nodes_tool",
-            "query_graph_tool",
-            "review_tool",
-        ],
-        recommended_action: "Search for related symbols, trace dependencies, then run change review after implementation.",
         why: "The task mentions adding behavior, so finding extension points should come before editing.",
         confidence: "medium",
     },
     Workflow {
         name: "general",
-        tools: [
-            "review_tool",
-            "semantic_search_nodes_tool",
-            "architecture_analysis_tool",
-        ],
-        recommended_action: "Use minimal change review, semantic search, or architecture overview based on the first concrete finding.",
         why: "No specific workflow keyword was detected, so the default keeps broad options available.",
         confidence: "low",
     },
@@ -531,12 +497,6 @@ pub(crate) fn get_minimal_context(
     let health = Answerability::compute(&graph.store, &stats, freshness.as_ref());
 
     let workflow = workflow_for_task(task);
-    let suggestions: Vec<&str> = workflow
-        .tools
-        .iter()
-        .copied()
-        .filter(|tool| context.exposes(tool))
-        .collect();
 
     let changes = if changed_files.is_empty() {
         Changes::of("none", 0)
@@ -571,9 +531,6 @@ pub(crate) fn get_minimal_context(
     if !communities.is_empty() {
         response = response.put("communities", json!(communities));
     }
-    if !suggestions.is_empty() {
-        response = response.put("next_tool_suggestions", json!(suggestions));
-    }
     let empty = health.status == "empty" || sync.state == "unbuilt";
     let next = first_calls(
         workflow.name,
@@ -592,7 +549,6 @@ pub(crate) fn get_minimal_context(
     response = response
         .put("next", next)
         .put("workflow", workflow.name)
-        .put("recommended_action", workflow.recommended_action)
         .put("why", workflow.why)
         .put("confidence", workflow.confidence)
         .put("graph_health", health.without_counts())
@@ -623,20 +579,7 @@ pub(crate) fn get_minimal_context(
         );
     }
     if empty {
-        let mut tools = vec!["ensure_graph_tool"];
-        tools.extend(
-            suggestions
-                .iter()
-                .filter(|tool| **tool != "ensure_graph_tool"),
-        );
         response = response
-            .set(
-                "recommended_action",
-                json!(
-                    "Call ensure_graph_tool first; the graph is empty and analysis tools will \
-                     return nothing useful."
-                ),
-            )
             .set(
                 "why",
                 json!(
@@ -644,31 +587,17 @@ pub(crate) fn get_minimal_context(
                      review, search, or architecture analysis."
                 ),
             )
-            .set("confidence", json!("high"))
-            .set("next_tool_suggestions", json!(tools));
+            .set("confidence", json!("high"));
     } else if sync.state == "commit_drift" {
-        let action = if repair.is_some() {
-            "Graph repair is queued; call ensure_graph_tool only if you must wait for it."
+        let why = if repair.is_some() {
+            "sync.state=commit_drift; a graph repair is queued: call ensure_graph_tool only \
+             if you must wait for it."
         } else {
-            "Call ensure_graph_tool to sync the graph."
+            "sync.state=commit_drift"
         };
-        // Python indexes `next_tool_suggestions`, which is absent when the
-        // session exposes none of the workflow's tools (a `KeyError`).
-        let mut tools: Vec<&str> = response
-            .get("next_tool_suggestions")?
-            .as_array()?
-            .iter()
-            .filter_map(Value::as_str)
-            .collect();
-        if !tools.contains(&"ensure_graph_tool") {
-            tools.insert(0, "ensure_graph_tool");
-        }
-        let tools = json!(tools);
         response = response
-            .set("recommended_action", json!(action))
-            .set("why", json!(format!("sync.state={}", sync.state)))
-            .set("confidence", json!("high"))
-            .set("next_tool_suggestions", tools);
+            .set("why", json!(why))
+            .set("confidence", json!("high"));
     }
     let mut repo = graph.repo_context();
     if repair

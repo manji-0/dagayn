@@ -52,10 +52,6 @@
       "why": "read the Function callees_of found"
     }
   ],
-  "next_action": {
-    "suggestion": "fetch live source with pattern=\"source_of\", then callers_of/callees_of",
-    "tool": "query_graph_tool"
-  },
   "original_target": "run",
   "pattern": "callees_of",
   "resolution": "exact_name",

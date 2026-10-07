@@ -1,22 +1,4 @@
 {
-  "_hints": {
-    "next_steps": [
-      {
-        "suggestion": "Inspect a specific community with mode=\"community\"",
-        "tool": "architecture_analysis_tool"
-      },
-      {
-        "suggestion": "See cross-community coupling with mode=\"overview\"",
-        "tool": "architecture_analysis_tool"
-      },
-      {
-        "suggestion": "Find where a community member is entered from with mode=\"entry_points\"",
-        "tool": "flow_tool"
-      }
-    ],
-    "related": [],
-    "warnings": []
-  },
   "_repo": {
     "db_path": "<VOLATILE>",
     "repo_root": "<REPO>",

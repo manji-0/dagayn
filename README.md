@@ -272,7 +272,8 @@ hide some public tools. Persistent server configs can use `CRG_TOOLS` for the
 same control.
 
 Tool responses use a calibrated guidance contract. Compatibility fields such as
-`status`, `summary`, `_hints`, and `next_tool_suggestions` remain, while
+`status` and `summary` remain, every reply lists the calls to make next in
+`next` (with their arguments), while
 architecture, flow, refactor, search, and query responses can also include
 `guidance` and `missingness` (the graph-wide `answerability` summary comes from
 `get_minimal_context_tool`, or `detail_level="verbose"`). Guidance items carry `claim`,
@@ -286,7 +287,7 @@ nothing beyond the diff needs checking.
 Use `detail_level="minimal"` for the top recommendations and
 `detail_level="standard"` for the full supporting sections.
 `query_graph_tool` zero-result and not-found responses include
-`zero_result_reason`, `next_action`, `result_count`, `results`, and
+`zero_result_reason`, `next`, `result_count`, `results`, and
 `missingness`; treat absence as graph-limited until source
 or tests confirm it. Documentation bridge results label evidence as `authored`,
 `extracted`, or `heuristic_reachable` so Markdown traceability is not confused

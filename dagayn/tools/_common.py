@@ -772,18 +772,42 @@ def attach_answerability(
     return payload
 
 
+#: What a Tier 1 reply said to call next before ``next``; they stay at
+#: ``detail_level="verbose"``, named in ``deprecated_fields``, for one release.
+NEXT_STEP_FIELDS = ("next_action", "next_drill_downs", "next_tool_suggestions", "_hints")
+
+
 def summary_at_verbose_only(payload: ToolPayload, detail_level: str | None) -> ToolPayload:
-    """Drop the graph's ``answerability`` below ``detail_level="verbose"``
-    (or ``"full"``) and from every error, and add an empty ``next`` where the
-    reply has none, as ``dagayn_tools::call`` does for the Tier 1 analysis
-    tools: graph-wide health is ``get_minimal_context_tool``'s to report, and
-    each reply keeps its own ``missingness``
-    (docs/plans/AGENT-WORKFLOW-TARGET.md#target-contract)."""
-    # Every reply says what to call next; one that names nothing is complete.
+    """Hold a Tier 1 analysis reply to the reply contract, as
+    ``dagayn_tools::seal_reply`` does
+    (docs/plans/AGENT-WORKFLOW-TARGET.md#target-contract): ``next`` always
+    (``[]`` where nothing follows), the graph's ``answerability`` only at
+    ``detail_level="verbose"`` (or ``"full"``) and never on an error, and the
+    earlier next-step fields only at ``verbose``, named in
+    ``deprecated_fields``."""
+    verbose = detail_level in ("verbose", "full")
     payload.setdefault("next", [])
-    if detail_level in ("verbose", "full") and payload.get("status") != "error":
+    if not verbose or payload.get("status") == "error":
+        payload.pop("answerability", None)
+    if not verbose:
+        for key in NEXT_STEP_FIELDS:
+            payload.pop(key, None)
+        exactness = payload.get("exactness")
+        if isinstance(exactness, dict):
+            exactness.pop("next_action", None)
         return payload
-    payload.pop("answerability", None)
+    deprecated: list[str] = []
+    for key, value in payload.items():
+        if key in NEXT_STEP_FIELDS:
+            deprecated.append(key)
+        elif key == "exactness" and isinstance(value, dict) and "next_action" in value:
+            deprecated.append("exactness.next_action")
+    # Idempotent: a reply Rust already sealed passes through unchanged.
+    existing = payload.get("deprecated_fields")
+    if isinstance(existing, list):
+        existing.extend(name for name in deprecated if name not in existing)
+    elif deprecated:
+        payload["deprecated_fields"] = deprecated
     return payload
 
 

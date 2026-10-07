@@ -38,12 +38,6 @@
       "why": "findings: what the change needs checked beyond its diff"
     }
   ],
-  "next_tool_suggestions": [
-    "review_tool",
-    "flow_tool",
-    "query_graph_tool"
-  ],
-  "recommended_action": "Run review_tool mode=changes first, then drill into context only when needed.",
   "status": "ok",
   "summary": "9 nodes, 8 edges across 6 files.",
   "sync": {

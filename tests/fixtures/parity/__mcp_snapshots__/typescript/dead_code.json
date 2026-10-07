@@ -1,22 +1,4 @@
 {
-  "_hints": {
-    "next_steps": [
-      {
-        "suggestion": "Verify call sites before applying a rename",
-        "tool": "query_graph_tool"
-      },
-      {
-        "suggestion": "Check risk of the refactored code",
-        "tool": "review_tool"
-      },
-      {
-        "suggestion": "Find related symbols to also rename",
-        "tool": "semantic_search_nodes_tool"
-      }
-    ],
-    "related": [],
-    "warnings": []
-  },
   "_repo": {
     "db_path": "<VOLATILE>",
     "repo_root": "<REPO>",

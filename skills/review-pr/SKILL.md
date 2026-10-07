@@ -31,7 +31,7 @@ retrieval setup.
    `main` after the branch point show up as reversed changes.
 3. **Refresh only when needed**: if `graph_health.status` is `empty` or
    `sync.state` is `unbuilt` / `commit_drift` (e.g. right after the checkout),
-   follow `recommended_action`, or call `ensure_graph_tool()` to wait for the
+   follow `next`, or call `ensure_graph_tool()` to wait for the
    refresh (it already re-syncs a moved HEAD; `force=True` is only for
    uncommitted edits). Otherwise skip ensure and go to review.
    Do not call `ensure_graph_tool(force=True)` on every PR when the graph is
@@ -109,7 +109,7 @@ dagayn instructions (full rules: `get_docs_section_tool(section_name="trust")`).
   with `source_of` or a test before reporting it in the review.
 - When a result is bounded (`truncated`, `total`, thresholds) say so in the
   review; when a query comes back empty, report `zero_result_reason` and
-  `next_action` rather than concluding the thing doesn't exist.
+  `next` rather than concluding the thing doesn't exist.
 - On large PRs, triage from the findings and cap drill-downs to the first
   few per kind; report `findings_omitted` and list the rest as residual
   uncertainty.

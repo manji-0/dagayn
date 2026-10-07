@@ -33,7 +33,7 @@ the selected embedding mode so agents can avoid stale or wasteful search advice.
 <!-- derived-from ../../docs/ARCHITECTURE.md#hybrid-search -->
 
 1. **Check the graph** with `get_minimal_context_tool`; skip ensure when
-   `graph_health.status` is `ok`, and follow `recommended_action` when it is
+   `graph_health.status` is `ok`, and follow `next` when it is
    `empty`.
 2. **Search and read how it ranked**:
    `semantic_search_nodes_tool(query="auth handler")`.
@@ -58,7 +58,7 @@ the selected embedding mode so agents can avoid stale or wasteful search advice.
      relationship you need (callers, callees, tests, docs, imports, children).
    - Several plausible fuzzy hits → `source_of` or `file_summary` on the top
      few before concluding.
-   - A `next_action` in the result comes first.
+   - The result's `next` comes first.
    - `traverse_graph_tool` (advanced surface: `dagayn serve --tools all` or
      `dagayn tool`) is for a bounded neighborhood once the start node is clear.
    Treat semantic search as start-node discovery, not final proof.

@@ -674,7 +674,7 @@ row per related node; for `callers_of`, `callees_of`, `inheritors_of`, and
 `importers_of`, the edge lines are folded into the row as `lines` with the
 edge's `confidence_tier`, and rows drop `id`, `language`, default
 `parent_name` / `is_test`, and a `file_path` already in `qualified_name`.
-It omits `answerability`, `edges`, and `_hints`. `minimal` keeps fewer row fields, drops `guidance` and
+It omits `answerability` and `edges`. `minimal` keeps fewer row fields, drops `guidance` and
 `description`, and returns every row that fits a 2,000-token budget. `full`
 returns the earlier `standard` shape: one row per edge, the `edges` list, full
 `answerability`, and `_hints`.
@@ -748,15 +748,16 @@ Comment- and layout-only edits are not changes (Python is compared by syntax
 tree). Each kind keeps 10 findings; `findings_omitted` counts the rest per
 kind. An empty `findings` list means nothing beyond the diff needs checking,
 and `summary` says "Nothing beyond the diff needs checking."; otherwise it
-reads "N changed file(s), M changed symbol(s). Findings: ...". `_hints` is
-built from the first findings. Findings rest on graph edges and the base-side
+reads "N changed file(s), M changed symbol(s). Findings: ...". `next` makes
+the first findings runnable: `source_of` on a finding's symbol, or a
+`tests_to_run` command as `{"tool": "shell"}`. Findings rest on graph edges and the base-side
 re-parse: confirm one with `source_of` or a reproduction before calling it a
 bug.
 
 Every detail level also carries `base` (the base actually used),
 `changed_file_count`, `changed_files`, `change_file_source_counts`,
 `change_entity_summary`, `affected_flow_count`, `unmapped_changed_files`,
-`next_drill_downs`, and `missingness`. `standard`
+`next`, and `missingness`. `standard`
 (the default) adds `changed_functions` and `affected_flows`; a flow there keeps
 its summary and `changed_steps` (only the steps the change touches), and
 `mode="affected_flows"` returns the full steps. Output is bounded by size, not
@@ -779,9 +780,10 @@ to those files; the base diff only narrows them to their changed lines. The
 
 `get_minimal_context_tool` routes common English and Japanese task descriptions
 for review, debugging, exploration, feature addition, and refactoring to the
-next small set of MCP tools. It also returns `workflow`,
-`recommended_action`, `why`, and `confidence` so clients can show the next
-step without requiring users to know tool names. It includes compact
+first calls of that workflow, as `next` (each with its arguments: the
+task's text as a search query, a review at `detail_level="minimal"`,
+`ensure_graph_tool` first on an empty or drifted graph). It also returns
+`workflow`, `why`, and `confidence`. It includes compact
 `graph_health` answerability metadata and a `sync` object carrying the
 freshness `state` (`unbuilt` / `commit_drift` / `commit_synced` /
 `worktree_behind` / `worktree_ahead`) alongside the legacy `status`
@@ -881,12 +883,12 @@ verification commands (`detail_level="minimal"` leaves it out).
 keeps every edit for `apply_refactor_tool`, and `verbose` returns them all.
 
 `semantic_search_nodes_tool` and `query_graph_tool` report result counts,
-exactness or ambiguity, evidence type, zero-result reason, and a `next_action`
-lead. Mixed docs/code hits are labelled so a Markdown body hit is not confused
+exactness or ambiguity, evidence type, zero-result reason, and `next`: the
+first hits' `source_of`, or one retry per candidate of an ambiguous target. Mixed docs/code hits are labelled so a Markdown body hit is not confused
 with a code symbol hit.
 For `query_graph_tool`, missing targets use the same consumer contract as empty
 relationship results: `status="not_found"`, `result_count=0`, `results=[]`,
-`zero_result_reason="target_not_found_in_graph"`, `next_action`, and
+`zero_result_reason="target_not_found_in_graph"`, `next`, and
 `missingness`.
 A bare target name resolves to its node when exactly one node carries that exact
 name (`resolution="exact_name"`, with `original_target`), even when fuzzy search
@@ -896,12 +898,10 @@ ranks look-alike names higher; several exact-name matches return
 result list itself; at `detail_level="full"`, `truncated` also turns true when
 only `edges` were trimmed. `standard` and `full` list the same related nodes,
 and `full` reaches the output budget sooner.
-With `depth` above 1, `next_action` reports whether the transitive set is
-closed (`tool: null`: no other node is reachable over graph edges), cut off by
-the row limit or output budget, or stopped at `depth` with nodes still ahead.
-When `architecture_analysis_tool(mode="adp_violations")` is truncated, its first
-`next_tool_suggestions` entry repeats the call with `top_n` set to the total
-cycle count.
+With `depth` above 1, `reachability` reports whether the transitive set is
+closed (`state="complete"`: no other node is reachable over graph edges), cut
+off by the row limit or output budget, or stopped at `depth` with nodes still
+ahead; in the last case `next` starts with the same call at `depth=6`.
 
 `architecture_analysis_tool(mode="knowledge_gaps", top_n=20)` returns bounded
 structural weakness categories with explicit thresholds and raw counts.
