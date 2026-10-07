@@ -16,7 +16,7 @@ are closures inside tests, and every remove candidate is a test fixture.
 question; `suggest` does not. This note defines the target contract, the
 evidence behind it, and the order of work.
 
-Status: accepted ([decisions](#decisions-2026-10-07)); steps 1–4 of the
+Status: accepted ([decisions](#decisions-2026-10-07)); steps 1–5 of the
 [order of work](#order-of-work) are done.
 
 ## Target contract
@@ -119,7 +119,7 @@ Proposed set; the eval decides which ship.
 | Kind | Fires when | Evidence | Action |
 |---|---|---|---|
 | `unused_symbol` | the `dead_code` pipeline reports a symbol as unreferenced | the `dead_code` record, with its `suppressed` counts and `verification` status | delete it, or point to the dynamic use the graph missed |
-| `complex_hotspot` | a production function passes today's split thresholds and at least the repository's p90 number of commits in the last 90 days changed lines inside it | split metrics plus the commits whose hunks touch the function | split it; the split pays off where the code keeps changing |
+| `complex_hotspot` | a production function passes today's split thresholds and at least 5 commits in the last 90 days changed lines inside it (`git log -L`) | split metrics plus the commit count | split it; the split pays off where the code keeps changing |
 | `undocumented_surface` | a symbol in a unit's `surface` (the symbols other units use most) has no doc comment | the `surface` entry and its inbound edges from other units | document it |
 
 Fates of today's types:
@@ -246,8 +246,20 @@ step 4 it also runs the full gate.
    reported and ungated. On this repository `findings` is empty, matching
    `dead_code`, and `suggestions` dropped from 655 to 570 (no `move`, no
    fixture `remove`).
-5. `complex_hotspot` and `undocumented_surface`; `split` and `document`
-   behind `verbose` for one release, listed in `deprecated_fields`.
+5. **Done:** `complex_hotspot` counts commits per function with
+   `git log -L` (about 20 ms each, after one `--name-only` pass drops files
+   changed fewer than 5 times) and fires at 5 commits in 90 days;
+   `undocumented_surface` checks each unit's `surface` for a docstring or a
+   comment block above the symbol. Below `verbose` the reply is the
+   findings; the suggestions are `verbose`-only, listed in
+   `deprecated_fields`. On the eval every kind has precision and recall
+   1.00, and all three are gated in CI. On this repository (4.5 s,
+   9,468 characters): 65 `complex_hotspot`, led by
+   `build_or_update_graph` (250 lines, 22 commits) and
+   `rust_walk_children` (361 lines, 17 commits), a repository rewritten
+   within the window; and 10 `undocumented_surface`, five of them checked
+   by hand against the source (`GraphStore`, `ParsedNode`, `LockMode`,
+   `Config`, `rust_parser_owns_source`), all without a doc comment.
 6. Docs, skills, and the MCP description describe `findings`.
 
 ## Touch points
