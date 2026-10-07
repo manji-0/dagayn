@@ -2,21 +2,13 @@
   "_hints": {
     "next_steps": [
       {
-        "suggestion": "refactor_tool mode=\"suggest\" -- inspect work_pack, then run the verification commands before editing",
-        "tool": "refactor_tool"
-      },
-      {
-        "suggestion": "refactor_tool mode=\"suggest\" -- inspect work_pack, then run the verification commands before editing",
+        "suggestion": "refactor_tool mode=\"suggest\" -- read the plan for this suggestion's type in plans, then run the verification commands before editing",
         "tool": "refactor_tool"
       }
     ],
     "related": [],
     "warnings": [
       "dynamic_dispatch_not_proven_absent",
-      "defer_condition",
-      "defer_condition",
-      "dynamic_dispatch_not_proven_absent",
-      "defer_condition",
       "defer_condition"
     ]
   },
@@ -63,7 +55,7 @@
   },
   "guidance": [
     {
-      "action": "refactor_tool mode=\"suggest\" -- inspect work_pack, then run the verification commands before editing",
+      "action": "refactor_tool mode=\"suggest\" -- read the plan for this suggestion's type in plans, then run the verification commands before editing",
       "claim": "Remove unused function 'ping'",
       "confidence": "medium",
       "counts": {
@@ -123,24 +115,10 @@
         "no_importers",
         "no_references",
         "name_unreferenced_in_source"
-      ],
-      "work_pack": {
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "required_tests": [
-          "Run tests covering demo_native/__init__.py"
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions."
-      }
+      ]
     },
     {
-      "action": "refactor_tool mode=\"suggest\" -- inspect work_pack, then run the verification commands before editing",
+      "action": "refactor_tool mode=\"suggest\" -- read the plan for this suggestion's type in plans, then run the verification commands before editing",
       "claim": "Remove unused function 'add'",
       "confidence": "medium",
       "counts": {
@@ -200,21 +178,7 @@
         "no_importers",
         "no_references",
         "name_unreferenced_in_source"
-      ],
-      "work_pack": {
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "required_tests": [
-          "Run tests covering rust/src/lib.rs"
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions."
-      }
+      ]
     }
   ],
   "missingness": [
@@ -234,6 +198,25 @@
       "severity": "medium"
     }
   ],
+  "plans": {
+    "remove": {
+      "defer_if": [
+        "The symbol is public API.",
+        "The only evidence is absence from the graph and dynamic use is plausible."
+      ],
+      "minimum_steps": [
+        "Search for runtime registration, reflection, generated references, and docs mentions.",
+        "Delete the smallest candidate first.",
+        "Run focused tests and detect_changes before deleting more candidates."
+      ],
+      "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
+      "safety_checks": [
+        "Treat public API, fixtures, and plugin entry points as high-risk.",
+        "Verify generated code and downstream package exports manually."
+      ],
+      "why_now": "The graph found no callers, importers, references, tests, or subclasses."
+    }
+  },
   "status": "ok",
   "suggestions": [
     {
@@ -254,26 +237,6 @@
         "subclass_count": 0,
         "test_ref_count": 0
       },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering demo_native/__init__.py"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
-      },
       "priority": "low",
       "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
       "reason_codes": [
@@ -286,49 +249,7 @@
       "symbols": [
         "demo_native/__init__.py::ping"
       ],
-      "type": "remove",
-      "verification_steps": [
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "demo_native/__init__.py"
-          ],
-          "estimated_risk": "medium",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "demo_native",
-        "primary_file": "demo_native/__init__.py",
-        "required_tests": [
-          "Run tests covering demo_native/__init__.py"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering demo_native/__init__.py"
-        ]
-      }
+      "type": "remove"
     },
     {
       "affected_files": [
@@ -348,26 +269,6 @@
         "subclass_count": 0,
         "test_ref_count": 0
       },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering rust/src/lib.rs"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
-      },
       "priority": "low",
       "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
       "reason_codes": [
@@ -380,49 +281,7 @@
       "symbols": [
         "rust/src/lib.rs::add"
       ],
-      "type": "remove",
-      "verification_steps": [
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "rust/src/lib.rs"
-          ],
-          "estimated_risk": "medium",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "rust/src",
-        "primary_file": "rust/src/lib.rs",
-        "required_tests": [
-          "Run tests covering rust/src/lib.rs"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering rust/src/lib.rs"
-        ]
-      }
+      "type": "remove"
     }
   ],
   "summary": "Generated 2 refactoring suggestion(s).",

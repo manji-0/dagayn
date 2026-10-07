@@ -805,16 +805,16 @@ def refactor_tool(
     kind: Optional[str] = None,
     file_pattern: Optional[str] = None,
     limit: int = 50,
+    detail_level: Literal["minimal", "standard", "verbose"] = "standard",
     repo_root: Optional[str] = None,
 ) -> ToolPayload:
     """Plan refactors from the graph: suggestions, dead code, rename previews.
 
     Modes:
     - suggest (default): remove, move, split, and document candidates.
-    - dead_code: functions/classes nothing in the repository refers to: no
-      graph callers, tests, or importers, not an entry point, registration, FFI
-      export, or override, and the name appears in no other file or line of the
-      repository. Candidates that may still be used are counted in
+    - dead_code: functions/classes nothing refers to: no caller, test,
+      importer, entry point, registration, FFI export, override, or other
+      mention of the name. Candidates that may still be used are counted in
       ``suppressed`` (filter with ``kind``, ``file_pattern``).
     - rename: preview renaming ``old_name`` to ``new_name``. Returns edits and a
       ``refactor_id`` (valid 10 min) for ``apply_refactor_tool`` in the same
@@ -825,8 +825,9 @@ def refactor_tool(
     ``source_of`` before removing or moving.
 
     Args:
-        limit: (dead_code, suggest) Maximum results. Default: 50; ``total``
-            shows the full count when truncated.
+        limit: (dead_code, suggest) Maximum results; see ``total``.
+        detail_level: "verbose" adds each suggestion's plan and all rename
+            edits (else: plans per type, 20 edits, per-file counts).
     """
     return _tool("refactor_tools:refactor_func")(
         mode=mode,
@@ -835,6 +836,7 @@ def refactor_tool(
         kind=kind,
         file_pattern=file_pattern,
         limit=limit,
+        detail_level=detail_level,
         repo_root=_resolve_repo_root(repo_root),
     )
 

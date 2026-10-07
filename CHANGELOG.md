@@ -61,6 +61,18 @@ All notable changes to `dagayn` are documented here.
   arrays and returns the first 50 steps as qualified name and line, with
   `steps_omitted` counting the rest. It used to ignore the argument.
 
+- `refactor_tool` takes `detail_level` (`minimal`, `standard`, `verbose`;
+  default `standard`). Below `verbose`, `suggest` states each suggestion
+  type's execution plan once in `plans` instead of attaching an
+  `execution_plan` and `work_pack` to every suggestion, drops function
+  splits' `concern_separation` profile, and keeps `work_packs` for the first
+  five (not in `minimal`); on this repository the default 50 suggestions
+  went from 221K to 71K characters. A rename preview lists the first 20
+  `edits` with `edits_omitted` and per-file `files` counts (585 edits for
+  `node_text`: 91K to 8K characters); `verbose` keeps the earlier layout.
+- Next-step hints drawn from guidance no longer repeat the same step or
+  warning.
+
 ### Fixed
 
 - `dagayn tool refactor_tool` with no arguments runs `mode="suggest"`, as

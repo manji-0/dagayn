@@ -90,8 +90,10 @@ def refactor_func(
         file_pattern: (dead_code mode) Optional file path substring filter.
         limit: (dead_code, suggest) Maximum results to return. Default: 50.
         top_n: (dead_code, suggest) Alias for limit used by other dispatcher tools.
-        detail_level: Accepted for CLI/MCP consistency; refactor payloads are
-            already bounded by limit/top_n.
+        detail_level: ``minimal``, ``standard`` (default), or ``verbose``:
+            ``verbose`` keeps each suggestion's execution plan and work pack and
+            every rename edit; the others state each suggestion type's plan
+            once and list the first 20 rename edits with per-file counts.
         repo_root: Repository root path. Auto-detected if omitted.
 
     Returns:
@@ -99,8 +101,6 @@ def refactor_func(
     """
     if top_n is not None:
         limit = top_n
-    _ = detail_level
-
     try:
         request = parse_refactor_request(
             mode=mode,
@@ -129,12 +129,14 @@ def refactor_func(
         arguments: dict[str, Any] = {
             "old_name": request.old_name,
             "new_name": request.new_name,
+            "detail_level": request.detail_level,
         }
     else:
         arguments = {
             "kind": request.kind,
             "file_pattern": request.file_pattern,
             "limit": request.limit,
+            "detail_level": request.detail_level,
         }
     with ToolStoreScope(logger=logger, context="refactor_func") as scope:
         # Resolves the repository and creates, migrates, or waits for the

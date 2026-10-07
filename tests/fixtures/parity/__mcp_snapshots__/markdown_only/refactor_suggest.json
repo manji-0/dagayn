@@ -68,6 +68,7 @@
       "severity": "medium"
     }
   ],
+  "plans": {},
   "status": "ok",
   "suggestions": [],
   "summary": "Generated 0 refactoring suggestion(s).",

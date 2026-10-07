@@ -1408,6 +1408,34 @@ fn refactor_finds_dead_code_and_suggests() {
             .is_some_and(|s| s.iter().any(|x| x["type"] == "remove"))
     );
     assert!(suggest["work_packs"].is_array());
+    // Each type's plan is stated once, not on every suggestion.
+    let remove = suggest["suggestions"]
+        .as_array()
+        .and_then(|s| s.iter().find(|x| x["type"] == "remove"))
+        .expect("remove");
+    assert!(remove.get("execution_plan").is_none() && remove.get("work_pack").is_none());
+    assert!(suggest["plans"]["remove"]["minimum_steps"].is_array());
+    let minimal = answer(
+        &context,
+        "refactor_tool",
+        json!({"detail_level": "minimal"}),
+    );
+    assert!(minimal.get("work_packs").is_none());
+    let verbose = answer(
+        &context,
+        "refactor_tool",
+        json!({"detail_level": "verbose"}),
+    );
+    assert!(verbose["suggestions"][0]["work_pack"].is_object());
+    assert!(verbose.get("plans").is_none());
+    let steps = &suggest["_hints"]["next_steps"];
+    let unique: std::collections::HashSet<String> = steps
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(Value::to_string)
+        .collect();
+    assert_eq!(unique.len(), steps.as_array().map_or(0, Vec::len));
     let preview = answer(
         &context,
         "refactor_tool",
@@ -1415,6 +1443,11 @@ fn refactor_finds_dead_code_and_suggests() {
     );
     let id = preview["refactor_id"].as_str().expect("id").to_string();
     assert_eq!(preview["edits"][0]["source"], "definition");
+    assert_eq!(preview["edits_omitted"], 0);
+    assert_eq!(
+        preview["files"],
+        json!([{"file": "unused.py", "edit_count": 1}])
+    );
     let stored: Value =
         serde_json::from_str(&dagayn_tools::pending::get(&id).expect("pending")).expect("json");
     assert_eq!(stored["new_name"], "kept");

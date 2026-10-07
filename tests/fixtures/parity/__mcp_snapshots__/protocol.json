@@ -1360,10 +1360,20 @@
                 "tags": []
               }
             },
-            "description": "Plan refactors from the graph: suggestions, dead code, rename previews.\n\nModes:\n- suggest (default): remove, move, split, and document candidates.\n- dead_code: functions/classes nothing in the repository refers to: no\n  graph callers, tests, or importers, not an entry point, registration, FFI\n  export, or override, and the name appears in no other file or line of the\n  repository. Candidates that may still be used are counted in\n  ``suppressed`` (filter with ``kind``, ``file_pattern``).\n- rename: preview renaming ``old_name`` to ``new_name``. Returns edits and a\n  ``refactor_id`` (valid 10 min) for ``apply_refactor_tool`` in the same\n  ``dagayn serve`` session (advanced surface: ``dagayn serve --tools all``).\n\nTrust: suggestions and dead-code hits are leads; public APIs, dynamic\ndispatch, and entry points often have no static caller, so verify with\n``source_of`` before removing or moving.",
+            "description": "Plan refactors from the graph: suggestions, dead code, rename previews.\n\nModes:\n- suggest (default): remove, move, split, and document candidates.\n- dead_code: functions/classes nothing refers to: no caller, test,\n  importer, entry point, registration, FFI export, override, or other\n  mention of the name. Candidates that may still be used are counted in\n  ``suppressed`` (filter with ``kind``, ``file_pattern``).\n- rename: preview renaming ``old_name`` to ``new_name``. Returns edits and a\n  ``refactor_id`` (valid 10 min) for ``apply_refactor_tool`` in the same\n  ``dagayn serve`` session (advanced surface: ``dagayn serve --tools all``).\n\nTrust: suggestions and dead-code hits are leads; public APIs, dynamic\ndispatch, and entry points often have no static caller, so verify with\n``source_of`` before removing or moving.",
             "inputSchema": {
               "additionalProperties": false,
               "properties": {
+                "detail_level": {
+                  "default": "standard",
+                  "description": "\"verbose\" adds each suggestion's plan and all rename\nedits (else: plans per type, 20 edits, per-file counts).",
+                  "enum": [
+                    "minimal",
+                    "standard",
+                    "verbose"
+                  ],
+                  "type": "string"
+                },
                 "file_pattern": {
                   "anyOf": [
                     {
@@ -1388,7 +1398,7 @@
                 },
                 "limit": {
                   "default": 50,
-                  "description": "(dead_code, suggest) Maximum results. Default: 50; ``total``\nshows the full count when truncated.",
+                  "description": "(dead_code, suggest) Maximum results; see ``total``.",
                   "type": "integer"
                 },
                 "mode": {
@@ -2832,10 +2842,20 @@
                 "tags": []
               }
             },
-            "description": "Plan refactors from the graph: suggestions, dead code, rename previews.\n\nModes:\n- suggest (default): remove, move, split, and document candidates.\n- dead_code: functions/classes nothing in the repository refers to: no\n  graph callers, tests, or importers, not an entry point, registration, FFI\n  export, or override, and the name appears in no other file or line of the\n  repository. Candidates that may still be used are counted in\n  ``suppressed`` (filter with ``kind``, ``file_pattern``).\n- rename: preview renaming ``old_name`` to ``new_name``. Returns edits and a\n  ``refactor_id`` (valid 10 min) for ``apply_refactor_tool`` in the same\n  ``dagayn serve`` session (advanced surface: ``dagayn serve --tools all``).\n\nTrust: suggestions and dead-code hits are leads; public APIs, dynamic\ndispatch, and entry points often have no static caller, so verify with\n``source_of`` before removing or moving.",
+            "description": "Plan refactors from the graph: suggestions, dead code, rename previews.\n\nModes:\n- suggest (default): remove, move, split, and document candidates.\n- dead_code: functions/classes nothing refers to: no caller, test,\n  importer, entry point, registration, FFI export, override, or other\n  mention of the name. Candidates that may still be used are counted in\n  ``suppressed`` (filter with ``kind``, ``file_pattern``).\n- rename: preview renaming ``old_name`` to ``new_name``. Returns edits and a\n  ``refactor_id`` (valid 10 min) for ``apply_refactor_tool`` in the same\n  ``dagayn serve`` session (advanced surface: ``dagayn serve --tools all``).\n\nTrust: suggestions and dead-code hits are leads; public APIs, dynamic\ndispatch, and entry points often have no static caller, so verify with\n``source_of`` before removing or moving.",
             "inputSchema": {
               "additionalProperties": false,
               "properties": {
+                "detail_level": {
+                  "default": "standard",
+                  "description": "\"verbose\" adds each suggestion's plan and all rename\nedits (else: plans per type, 20 edits, per-file counts).",
+                  "enum": [
+                    "minimal",
+                    "standard",
+                    "verbose"
+                  ],
+                  "type": "string"
+                },
                 "file_pattern": {
                   "anyOf": [
                     {
@@ -2860,7 +2880,7 @@
                 },
                 "limit": {
                   "default": 50,
-                  "description": "(dead_code, suggest) Maximum results. Default: 50; ``total``\nshows the full count when truncated.",
+                  "description": "(dead_code, suggest) Maximum results; see ``total``.",
                   "type": "integer"
                 },
                 "mode": {

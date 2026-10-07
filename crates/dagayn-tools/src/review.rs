@@ -1260,7 +1260,10 @@ pub(crate) fn guidance_actions_to_hints(guidance: &[Value]) -> Value {
         if suggestion.is_empty() {
             continue;
         }
-        next_steps.push(json!({"tool": tool, "suggestion": suggestion}));
+        let step = json!({"tool": tool, "suggestion": suggestion});
+        if !next_steps.contains(&step) {
+            next_steps.push(step);
+        }
         let missing = match item.get("missingness") {
             Some(Value::Object(one)) => vec![Value::Object(one.clone())],
             Some(Value::Array(many)) => many.clone(),
@@ -1276,10 +1279,13 @@ pub(crate) fn guidance_actions_to_hints(guidance: &[Value]) -> Value {
                     .get("reason_code")
                     .filter(|c| !c.is_null() && *c != "")
             {
-                warnings.push(match code {
+                let code = match code {
                     Value::String(s) => s.clone(),
                     other => other.to_string(),
-                });
+                };
+                if !warnings.contains(&code) {
+                    warnings.push(code);
+                }
             }
         }
         if next_steps.len() >= 3 {

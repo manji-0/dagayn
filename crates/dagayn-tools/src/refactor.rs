@@ -15,8 +15,13 @@ const DECLARED: &[&str] = &[
     "kind",
     "file_pattern",
     "limit",
+    "detail_level",
     "repo_root",
 ];
+
+/// Rename edits a `standard` or `minimal` preview lists; the pending store
+/// keeps every edit for `apply_refactor_tool`.
+const PREVIEW_EDITS: usize = 20;
 
 pub(crate) fn refactor(context: &Context, arguments: &Map<String, Value>) -> Option<Payload> {
     let args = Args::new(arguments, DECLARED)?;
@@ -34,6 +39,15 @@ pub(crate) fn refactor(context: &Context, arguments: &Map<String, Value>) -> Opt
     let kind = args.optional_string("kind")?;
     let file_pattern = args.optional_string("file_pattern")?;
     let limit = args.integer("limit", 50)?;
+    let detail_level = match arguments.get("detail_level") {
+        None => "standard",
+        Some(Value::String(level))
+            if matches!(level.as_str(), "minimal" | "standard" | "verbose") =>
+        {
+            level.as_str()
+        }
+        Some(_) => return None,
+    };
     let rename_names = if mode == "rename" {
         // `RefactorRenameRequest`: a missing name is not a string, an empty
         // one is shorter than `min_length=1`.
@@ -61,13 +75,13 @@ pub(crate) fn refactor(context: &Context, arguments: &Map<String, Value>) -> Opt
     let answerability = graph.answerability()?;
     if let Some((old, new)) = rename_names {
         let exposed = |tool: &str| context.exposes(tool);
-        let out = rename(store, &answerability, old, new, &exposed)?;
+        let out = rename(store, &answerability, old, new, &exposed, detail_level)?;
         return Some(out.put("_repo", graph.repo_context()).into_payload());
     }
     let out = if mode == "dead_code" {
         dead_code(store, &answerability, kind, file_pattern, limit)?
     } else {
-        suggest(store, &answerability, limit)?
+        suggest(store, &answerability, limit, detail_level)?
     };
     let exposed = |tool: &str| context.exposes(tool);
     // `suggest` takes its hints from its guidance when that names a step.
@@ -236,6 +250,7 @@ fn suggest(
     store: &dagayn_graph::GraphStore,
     answerability: &Answerability,
     limit: i64,
+    detail_level: &str,
 ) -> Option<Ordered> {
     let suggestions = crate::suggestions::ranked_suggestions(store)?;
     let total = suggestions.len();
@@ -266,14 +281,77 @@ fn suggest(
     if truncated {
         summary.push_str(&format!(" Showing first {limit}."));
     }
-    let guidance = refactor_guidance(&shown);
+    let mut guidance = refactor_guidance(&shown);
+    if detail_level == "verbose" {
+        return Some(
+            Ordered::default()
+                .put("status", "ok")
+                .put("summary", summary)
+                .put("suggestions", Value::Array(shown))
+                .put("work_packs", Value::Array(packs))
+                .put("guidance", Value::Array(guidance))
+                .put("total", total)
+                .put("truncated", truncated)
+                .put("counts_by_type", Value::Object(counts))
+                .put("answerability", answerability.full())
+                .put("missingness", json!(answerability.missingness())),
+        );
+    }
+    // Each type's plan is the same text for every suggestion of that type:
+    // state it once.
+    let mut plans = Map::new();
+    for s in &shown {
+        let kind = s["type"].as_str().unwrap_or("unknown");
+        if !plans.contains_key(kind) {
+            let mut plan = s.get("execution_plan").cloned().unwrap_or(json!({}));
+            if let Some(object) = plan.as_object_mut() {
+                object.remove("required_tests");
+            }
+            plans.insert(kind.to_string(), plan);
+        }
+    }
+    let shown: Vec<Value> = shown
+        .into_iter()
+        .map(|mut s| {
+            if let Some(object) = s.as_object_mut() {
+                for key in ["execution_plan", "work_pack", "verification_steps"] {
+                    object.remove(key);
+                }
+                if detail_level == "minimal" {
+                    object.remove("evidence");
+                } else if let Some(evidence) =
+                    object.get_mut("evidence").and_then(Value::as_object_mut)
+                {
+                    evidence.remove("concern_separation");
+                }
+            }
+            s
+        })
+        .collect();
+    // The guidance repeats a suggestion's evidence, which `suggestions`
+    // already carries.
+    for item in &mut guidance {
+        if let Some(evidence) = item.get_mut("evidence").and_then(Value::as_object_mut) {
+            evidence.remove("raw");
+        }
+        if let Some(object) = item.as_object_mut() {
+            object.remove("work_pack");
+            object.insert(
+                "action".into(),
+                json!("refactor_tool mode=\"suggest\" -- read the plan for this suggestion's type in plans, then run the verification commands before editing"),
+            );
+        }
+    }
+    let mut out = Ordered::default()
+        .put("status", "ok")
+        .put("summary", summary)
+        .put("suggestions", Value::Array(shown))
+        .put("plans", Value::Object(plans));
+    if detail_level != "minimal" {
+        out = out.put("work_packs", Value::Array(packs));
+    }
     Some(
-        Ordered::default()
-            .put("status", "ok")
-            .put("summary", summary)
-            .put("suggestions", Value::Array(shown))
-            .put("work_packs", Value::Array(packs))
-            .put("guidance", Value::Array(guidance))
+        out.put("guidance", Value::Array(guidance))
             .put("total", total)
             .put("truncated", truncated)
             .put("counts_by_type", Value::Object(counts))
@@ -349,6 +427,7 @@ fn rename(
     old: &str,
     new: &str,
     exposed: &dyn Fn(&str) -> bool,
+    detail_level: &str,
 ) -> Option<Ordered> {
     use crate::query::sanitize;
     if !is_valid_identifier(new) {
@@ -517,6 +596,37 @@ fn rename(
     );
     for (key, value) in preview.into_entries() {
         out = out.put(&key, value);
+    }
+    if detail_level != "verbose" {
+        // Per-file counts and the first edits; the pending store keeps all
+        // of them for `apply_refactor_tool`.
+        let mut files: Vec<(String, usize)> = Vec::new();
+        for edit in &edits {
+            let file = edit
+                .get("file")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            match files.iter_mut().find(|(f, _)| *f == file) {
+                Some((_, count)) => *count += 1,
+                None => files.push((file, 1)),
+            }
+        }
+        out = out
+            .replace(
+                "edits",
+                json!(edits.iter().take(PREVIEW_EDITS).collect::<Vec<_>>()),
+            )
+            .put("edits_omitted", edits.len().saturating_sub(PREVIEW_EDITS))
+            .put(
+                "files",
+                json!(
+                    files
+                        .iter()
+                        .map(|(file, count)| json!({"file": file, "edit_count": count}))
+                        .collect::<Vec<_>>()
+                ),
+            );
     }
     let out = out
         .put("answerability", answerability.full())

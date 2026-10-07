@@ -859,15 +859,15 @@ document candidates. They are leads (structure, not correctness): confirm them
 with `source_of` or a reproduction on a current graph (see the `trust` section
 of `get_docs_section_tool`). Verify public APIs,
 test artifacts, dynamic dispatch, and generated entry points before changing
-source. Suggestions include `execution_plan` with minimum safe steps, required
-tests, rollback guidance, and defer conditions. Suggestion payloads also include
-`work_pack` so agents can pick a first commit scope, success criteria, and
-verification commands without inventing a separate planning tool. Work packs
-include `blast_radius`, `required_tests`, `documentation_obligations`,
-`safe_first_commit`, `rollback_path`, and `defer_conditions`. Split
-suggestions for functions may also include a `concern_separation` profile that
-reports role-aware single-responsibility pressure, side-effect evidence,
-purity likelihood, context clarity, missingness, and a first extraction action.
+source. `plans` states, once per suggestion type, the minimum safe steps,
+safety checks, rollback guidance, and defer conditions; `work_packs` gives the
+first five suggestions a first commit scope, blast radius, required tests, and
+verification commands (`detail_level="minimal"` leaves it out).
+`detail_level="verbose"` returns the earlier layout: an `execution_plan` and
+`work_pack` on every suggestion, and for function splits a
+`concern_separation` profile in `evidence`. A rename preview lists the first
+20 `edits` with `edits_omitted` and per-file `files` counts; the pending store
+keeps every edit for `apply_refactor_tool`, and `verbose` returns them all.
 
 `semantic_search_nodes_tool` and `query_graph_tool` report result counts,
 exactness or ambiguity, evidence type, zero-result reason, and a `next_action`

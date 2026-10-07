@@ -2,31 +2,13 @@
   "_hints": {
     "next_steps": [
       {
-        "suggestion": "refactor_tool mode=\"suggest\" -- inspect work_pack, then run the verification commands before editing",
-        "tool": "refactor_tool"
-      },
-      {
-        "suggestion": "refactor_tool mode=\"suggest\" -- inspect work_pack, then run the verification commands before editing",
-        "tool": "refactor_tool"
-      },
-      {
-        "suggestion": "refactor_tool mode=\"suggest\" -- inspect work_pack, then run the verification commands before editing",
+        "suggestion": "refactor_tool mode=\"suggest\" -- read the plan for this suggestion's type in plans, then run the verification commands before editing",
         "tool": "refactor_tool"
       }
     ],
     "related": [],
     "warnings": [
       "dynamic_dispatch_not_proven_absent",
-      "defer_condition",
-      "defer_condition",
-      "defer_condition",
-      "dynamic_dispatch_not_proven_absent",
-      "defer_condition",
-      "defer_condition",
-      "defer_condition",
-      "dynamic_dispatch_not_proven_absent",
-      "defer_condition",
-      "defer_condition",
       "defer_condition"
     ]
   },
@@ -71,7 +53,7 @@
   },
   "guidance": [
     {
-      "action": "refactor_tool mode=\"suggest\" -- inspect work_pack, then run the verification commands before editing",
+      "action": "refactor_tool mode=\"suggest\" -- read the plan for this suggestion's type in plans, then run the verification commands before editing",
       "claim": "Remove unused function 'go'",
       "confidence": "low",
       "counts": {
@@ -138,25 +120,10 @@
         "no_references",
         "name_unreferenced_in_source",
         "stable_component_guard"
-      ],
-      "work_pack": {
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "required_tests": [
-          "Run tests covering src/classes.ts"
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions."
-      }
+      ]
     },
     {
-      "action": "refactor_tool mode=\"suggest\" -- inspect work_pack, then run the verification commands before editing",
+      "action": "refactor_tool mode=\"suggest\" -- read the plan for this suggestion's type in plans, then run the verification commands before editing",
       "claim": "Remove unused function 'deep'",
       "confidence": "low",
       "counts": {
@@ -223,25 +190,10 @@
         "no_references",
         "name_unreferenced_in_source",
         "stable_component_guard"
-      ],
-      "work_pack": {
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "required_tests": [
-          "Run tests covering src/functions.ts"
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions."
-      }
+      ]
     },
     {
-      "action": "refactor_tool mode=\"suggest\" -- inspect work_pack, then run the verification commands before editing",
+      "action": "refactor_tool mode=\"suggest\" -- read the plan for this suggestion's type in plans, then run the verification commands before editing",
       "claim": "Remove unused function 'put'",
       "confidence": "low",
       "counts": {
@@ -308,22 +260,7 @@
         "no_references",
         "name_unreferenced_in_source",
         "stable_component_guard"
-      ],
-      "work_pack": {
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "required_tests": [
-          "Run tests covering src/functions.ts"
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions."
-      }
+      ]
     }
   ],
   "missingness": [
@@ -333,6 +270,26 @@
       "severity": "medium"
     }
   ],
+  "plans": {
+    "remove": {
+      "defer_if": [
+        "The symbol is public API.",
+        "The only evidence is absence from the graph and dynamic use is plausible.",
+        "Stable component policy requires contract and test evidence first."
+      ],
+      "minimum_steps": [
+        "Search for runtime registration, reflection, generated references, and docs mentions.",
+        "Delete the smallest candidate first.",
+        "Run focused tests and detect_changes before deleting more candidates."
+      ],
+      "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
+      "safety_checks": [
+        "Treat public API, fixtures, and plugin entry points as high-risk.",
+        "Verify generated code and downstream package exports manually."
+      ],
+      "why_now": "The graph found no callers, importers, references, tests, or subclasses."
+    }
+  },
   "status": "ok",
   "suggestions": [
     {
@@ -352,27 +309,6 @@
         "source_available": true,
         "subclass_count": 0,
         "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "Stable component policy requires contract and test evidence first."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/classes.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
       },
       "priority": "low",
       "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
@@ -408,50 +344,7 @@
       "symbols": [
         "src/classes.ts::Named.go"
       ],
-      "type": "remove",
-      "verification_steps": [
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/classes.ts"
-          ],
-          "estimated_risk": "medium",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src",
-        "primary_file": "src/classes.ts",
-        "required_tests": [
-          "Run tests covering src/classes.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/classes.ts"
-        ]
-      }
+      "type": "remove"
     },
     {
       "affected_files": [
@@ -470,27 +363,6 @@
         "source_available": true,
         "subclass_count": 0,
         "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "Stable component policy requires contract and test evidence first."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/functions.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
       },
       "priority": "low",
       "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
@@ -526,50 +398,7 @@
       "symbols": [
         "src/functions.ts::api.nested.deep"
       ],
-      "type": "remove",
-      "verification_steps": [
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/functions.ts"
-          ],
-          "estimated_risk": "medium",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src",
-        "primary_file": "src/functions.ts",
-        "required_tests": [
-          "Run tests covering src/functions.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/functions.ts"
-        ]
-      }
+      "type": "remove"
     },
     {
       "affected_files": [
@@ -588,27 +417,6 @@
         "source_available": true,
         "subclass_count": 0,
         "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "Stable component policy requires contract and test evidence first."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/functions.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
       },
       "priority": "low",
       "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
@@ -644,50 +452,7 @@
       "symbols": [
         "src/functions.ts::api.put"
       ],
-      "type": "remove",
-      "verification_steps": [
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/functions.ts"
-          ],
-          "estimated_risk": "medium",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src",
-        "primary_file": "src/functions.ts",
-        "required_tests": [
-          "Run tests covering src/functions.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/functions.ts"
-        ]
-      }
+      "type": "remove"
     },
     {
       "affected_files": [
@@ -706,27 +471,6 @@
         "source_available": true,
         "subclass_count": 0,
         "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "Stable component policy requires contract and test evidence first."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/functions.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
       },
       "priority": "low",
       "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
@@ -762,50 +506,7 @@
       "symbols": [
         "src/functions.ts::namedExpr"
       ],
-      "type": "remove",
-      "verification_steps": [
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/functions.ts"
-          ],
-          "estimated_risk": "medium",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src",
-        "primary_file": "src/functions.ts",
-        "required_tests": [
-          "Run tests covering src/functions.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/functions.ts"
-        ]
-      }
+      "type": "remove"
     },
     {
       "affected_files": [
@@ -824,27 +525,6 @@
         "source_available": true,
         "subclass_count": 0,
         "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "Stable component policy requires contract and test evidence first."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/barrel-user.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
       },
       "priority": "low",
       "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
@@ -881,51 +561,7 @@
       "symbols": [
         "src/barrel-user.ts::useBarrel"
       ],
-      "type": "remove",
-      "verification_steps": [
-        "Verify crate-level and downstream API consumers before deleting.",
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/barrel-user.ts"
-          ],
-          "estimated_risk": "high",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src",
-        "primary_file": "src/barrel-user.ts",
-        "required_tests": [
-          "Run tests covering src/barrel-user.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/barrel-user.ts"
-        ]
-      }
+      "type": "remove"
     },
     {
       "affected_files": [
@@ -944,27 +580,6 @@
         "source_available": true,
         "subclass_count": 0,
         "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "Stable component policy requires contract and test evidence first."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/calls.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
       },
       "priority": "low",
       "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
@@ -1002,51 +617,7 @@
       "symbols": [
         "src/calls.ts::Caller"
       ],
-      "type": "remove",
-      "verification_steps": [
-        "Verify crate-level and downstream API consumers before deleting.",
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/calls.ts"
-          ],
-          "estimated_risk": "high",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src",
-        "primary_file": "src/calls.ts",
-        "required_tests": [
-          "Run tests covering src/calls.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/calls.ts"
-        ]
-      }
+      "type": "remove"
     },
     {
       "affected_files": [
@@ -1065,27 +636,6 @@
         "source_available": true,
         "subclass_count": 0,
         "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "Stable component policy requires contract and test evidence first."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/classes.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
       },
       "priority": "low",
       "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
@@ -1123,51 +673,7 @@
       "symbols": [
         "src/classes.ts::Named"
       ],
-      "type": "remove",
-      "verification_steps": [
-        "Verify crate-level and downstream API consumers before deleting.",
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/classes.ts"
-          ],
-          "estimated_risk": "high",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src",
-        "primary_file": "src/classes.ts",
-        "required_tests": [
-          "Run tests covering src/classes.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/classes.ts"
-        ]
-      }
+      "type": "remove"
     },
     {
       "affected_files": [
@@ -1187,26 +693,6 @@
         "subclass_count": 0,
         "test_ref_count": 0
       },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/components/App.tsx"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
-      },
       "priority": "low",
       "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
       "reason_codes": [
@@ -1220,50 +706,7 @@
       "symbols": [
         "src/components/App.tsx::Fwd"
       ],
-      "type": "remove",
-      "verification_steps": [
-        "Verify crate-level and downstream API consumers before deleting.",
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/components/App.tsx"
-          ],
-          "estimated_risk": "high",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src/components",
-        "primary_file": "src/components/App.tsx",
-        "required_tests": [
-          "Run tests covering src/components/App.tsx"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/components/App.tsx"
-        ]
-      }
+      "type": "remove"
     },
     {
       "affected_files": [
@@ -1283,26 +726,6 @@
         "subclass_count": 0,
         "test_ref_count": 0
       },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/components/App.tsx"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
-      },
       "priority": "low",
       "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
       "reason_codes": [
@@ -1316,50 +739,7 @@
       "symbols": [
         "src/components/App.tsx::Memo"
       ],
-      "type": "remove",
-      "verification_steps": [
-        "Verify crate-level and downstream API consumers before deleting.",
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/components/App.tsx"
-          ],
-          "estimated_risk": "high",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src/components",
-        "primary_file": "src/components/App.tsx",
-        "required_tests": [
-          "Run tests covering src/components/App.tsx"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/components/App.tsx"
-        ]
-      }
+      "type": "remove"
     },
     {
       "affected_files": [
@@ -1378,27 +758,6 @@
         "source_available": true,
         "subclass_count": 0,
         "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "Stable component policy requires contract and test evidence first."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/cts-file.cts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
       },
       "priority": "low",
       "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
@@ -1435,51 +794,7 @@
       "symbols": [
         "src/cts-file.cts::inCts"
       ],
-      "type": "remove",
-      "verification_steps": [
-        "Verify crate-level and downstream API consumers before deleting.",
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/cts-file.cts"
-          ],
-          "estimated_risk": "high",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src",
-        "primary_file": "src/cts-file.cts",
-        "required_tests": [
-          "Run tests covering src/cts-file.cts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/cts-file.cts"
-        ]
-      }
+      "type": "remove"
     },
     {
       "affected_files": [
@@ -1499,26 +814,6 @@
         "subclass_count": 0,
         "test_ref_count": 0
       },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/extra/Testimonial.tsx"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
-      },
       "priority": "low",
       "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
       "reason_codes": [
@@ -1532,50 +827,7 @@
       "symbols": [
         "src/extra/Testimonial.tsx::TestimonialCard"
       ],
-      "type": "remove",
-      "verification_steps": [
-        "Verify crate-level and downstream API consumers before deleting.",
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/extra/Testimonial.tsx"
-          ],
-          "estimated_risk": "high",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src/extra",
-        "primary_file": "src/extra/Testimonial.tsx",
-        "required_tests": [
-          "Run tests covering src/extra/Testimonial.tsx"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/extra/Testimonial.tsx"
-        ]
-      }
+      "type": "remove"
     },
     {
       "affected_files": [
@@ -1595,26 +847,6 @@
         "subclass_count": 0,
         "test_ref_count": 0
       },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/extra/heritage.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
-      },
       "priority": "low",
       "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
       "reason_codes": [
@@ -1629,50 +861,7 @@
       "symbols": [
         "src/extra/heritage.ts::G2"
       ],
-      "type": "remove",
-      "verification_steps": [
-        "Verify crate-level and downstream API consumers before deleting.",
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/extra/heritage.ts"
-          ],
-          "estimated_risk": "high",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src/extra",
-        "primary_file": "src/extra/heritage.ts",
-        "required_tests": [
-          "Run tests covering src/extra/heritage.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/extra/heritage.ts"
-        ]
-      }
+      "type": "remove"
     },
     {
       "affected_files": [
@@ -1692,26 +881,6 @@
         "subclass_count": 0,
         "test_ref_count": 0
       },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/extra/heritage.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
-      },
       "priority": "low",
       "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
       "reason_codes": [
@@ -1726,50 +895,7 @@
       "symbols": [
         "src/extra/heritage.ts::Other"
       ],
-      "type": "remove",
-      "verification_steps": [
-        "Verify crate-level and downstream API consumers before deleting.",
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/extra/heritage.ts"
-          ],
-          "estimated_risk": "high",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src/extra",
-        "primary_file": "src/extra/heritage.ts",
-        "required_tests": [
-          "Run tests covering src/extra/heritage.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/extra/heritage.ts"
-        ]
-      }
+      "type": "remove"
     },
     {
       "affected_files": [
@@ -1789,26 +915,6 @@
         "subclass_count": 0,
         "test_ref_count": 0
       },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/extra/heritage.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
-      },
       "priority": "low",
       "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
       "reason_codes": [
@@ -1822,50 +928,7 @@
       "symbols": [
         "src/extra/heritage.ts::wrapped"
       ],
-      "type": "remove",
-      "verification_steps": [
-        "Verify crate-level and downstream API consumers before deleting.",
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/extra/heritage.ts"
-          ],
-          "estimated_risk": "high",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src/extra",
-        "primary_file": "src/extra/heritage.ts",
-        "required_tests": [
-          "Run tests covering src/extra/heritage.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/extra/heritage.ts"
-        ]
-      }
+      "type": "remove"
     },
     {
       "affected_files": [
@@ -1885,26 +948,6 @@
         "subclass_count": 0,
         "test_ref_count": 0
       },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/frameworks/express.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
-      },
       "priority": "low",
       "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
       "reason_codes": [
@@ -1918,50 +961,7 @@
       "symbols": [
         "src/frameworks/express.ts::lambdaHandler"
       ],
-      "type": "remove",
-      "verification_steps": [
-        "Verify crate-level and downstream API consumers before deleting.",
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/frameworks/express.ts"
-          ],
-          "estimated_risk": "high",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src/frameworks",
-        "primary_file": "src/frameworks/express.ts",
-        "required_tests": [
-          "Run tests covering src/frameworks/express.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/frameworks/express.ts"
-        ]
-      }
+      "type": "remove"
     },
     {
       "affected_files": [
@@ -1981,26 +981,6 @@
         "subclass_count": 0,
         "test_ref_count": 0
       },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/frameworks/next/app/api/users/route.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
-      },
       "priority": "low",
       "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
       "reason_codes": [
@@ -2014,50 +994,7 @@
       "symbols": [
         "src/frameworks/next/app/api/users/route.ts::GET"
       ],
-      "type": "remove",
-      "verification_steps": [
-        "Verify crate-level and downstream API consumers before deleting.",
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/frameworks/next/app/api/users/route.ts"
-          ],
-          "estimated_risk": "high",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src/frameworks/next/app/api/users",
-        "primary_file": "src/frameworks/next/app/api/users/route.ts",
-        "required_tests": [
-          "Run tests covering src/frameworks/next/app/api/users/route.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/frameworks/next/app/api/users/route.ts"
-        ]
-      }
+      "type": "remove"
     },
     {
       "affected_files": [
@@ -2077,26 +1014,6 @@
         "subclass_count": 0,
         "test_ref_count": 0
       },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/frameworks/next/app/api/users/route.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
-      },
       "priority": "low",
       "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
       "reason_codes": [
@@ -2110,50 +1027,7 @@
       "symbols": [
         "src/frameworks/next/app/api/users/route.ts::POST"
       ],
-      "type": "remove",
-      "verification_steps": [
-        "Verify crate-level and downstream API consumers before deleting.",
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/frameworks/next/app/api/users/route.ts"
-          ],
-          "estimated_risk": "high",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src/frameworks/next/app/api/users",
-        "primary_file": "src/frameworks/next/app/api/users/route.ts",
-        "required_tests": [
-          "Run tests covering src/frameworks/next/app/api/users/route.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/frameworks/next/app/api/users/route.ts"
-        ]
-      }
+      "type": "remove"
     },
     {
       "affected_files": [
@@ -2173,26 +1047,6 @@
         "subclass_count": 0,
         "test_ref_count": 0
       },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/frameworks/next/app/page.tsx"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
-      },
       "priority": "low",
       "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
       "reason_codes": [
@@ -2206,50 +1060,7 @@
       "symbols": [
         "src/frameworks/next/app/page.tsx::Page"
       ],
-      "type": "remove",
-      "verification_steps": [
-        "Verify crate-level and downstream API consumers before deleting.",
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/frameworks/next/app/page.tsx"
-          ],
-          "estimated_risk": "high",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src/frameworks/next/app",
-        "primary_file": "src/frameworks/next/app/page.tsx",
-        "required_tests": [
-          "Run tests covering src/frameworks/next/app/page.tsx"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/frameworks/next/app/page.tsx"
-        ]
-      }
+      "type": "remove"
     },
     {
       "affected_files": [
@@ -2269,26 +1080,6 @@
         "subclass_count": 0,
         "test_ref_count": 0
       },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/frameworks/next/app/page.tsx"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
-      },
       "priority": "low",
       "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
       "reason_codes": [
@@ -2302,50 +1093,7 @@
       "symbols": [
         "src/frameworks/next/app/page.tsx::generateMetadata"
       ],
-      "type": "remove",
-      "verification_steps": [
-        "Verify crate-level and downstream API consumers before deleting.",
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/frameworks/next/app/page.tsx"
-          ],
-          "estimated_risk": "high",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src/frameworks/next/app",
-        "primary_file": "src/frameworks/next/app/page.tsx",
-        "required_tests": [
-          "Run tests covering src/frameworks/next/app/page.tsx"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/frameworks/next/app/page.tsx"
-        ]
-      }
+      "type": "remove"
     },
     {
       "affected_files": [
@@ -2364,27 +1112,6 @@
         "source_available": true,
         "subclass_count": 0,
         "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "Stable component policy requires contract and test evidence first."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/functions.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
       },
       "priority": "low",
       "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
@@ -2421,51 +1148,7 @@
       "symbols": [
         "src/functions.ts::agen"
       ],
-      "type": "remove",
-      "verification_steps": [
-        "Verify crate-level and downstream API consumers before deleting.",
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/functions.ts"
-          ],
-          "estimated_risk": "high",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src",
-        "primary_file": "src/functions.ts",
-        "required_tests": [
-          "Run tests covering src/functions.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/functions.ts"
-        ]
-      }
+      "type": "remove"
     },
     {
       "affected_files": [
@@ -2484,27 +1167,6 @@
         "source_available": true,
         "subclass_count": 0,
         "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "Stable component policy requires contract and test evidence first."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/functions.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
       },
       "priority": "low",
       "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
@@ -2541,51 +1203,7 @@
       "symbols": [
         "src/functions.ts::asyncFn"
       ],
-      "type": "remove",
-      "verification_steps": [
-        "Verify crate-level and downstream API consumers before deleting.",
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/functions.ts"
-          ],
-          "estimated_risk": "high",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src",
-        "primary_file": "src/functions.ts",
-        "required_tests": [
-          "Run tests covering src/functions.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/functions.ts"
-        ]
-      }
+      "type": "remove"
     },
     {
       "affected_files": [
@@ -2604,27 +1222,6 @@
         "source_available": true,
         "subclass_count": 0,
         "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "Stable component policy requires contract and test evidence first."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/functions.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
       },
       "priority": "low",
       "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
@@ -2661,51 +1258,7 @@
       "symbols": [
         "src/functions.ts::fnExpr"
       ],
-      "type": "remove",
-      "verification_steps": [
-        "Verify crate-level and downstream API consumers before deleting.",
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/functions.ts"
-          ],
-          "estimated_risk": "high",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src",
-        "primary_file": "src/functions.ts",
-        "required_tests": [
-          "Run tests covering src/functions.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/functions.ts"
-        ]
-      }
+      "type": "remove"
     },
     {
       "affected_files": [
@@ -2724,27 +1277,6 @@
         "source_available": true,
         "subclass_count": 0,
         "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "Stable component policy requires contract and test evidence first."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/functions.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
       },
       "priority": "low",
       "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
@@ -2781,51 +1313,7 @@
       "symbols": [
         "src/functions.ts::gen"
       ],
-      "type": "remove",
-      "verification_steps": [
-        "Verify crate-level and downstream API consumers before deleting.",
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/functions.ts"
-          ],
-          "estimated_risk": "high",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src",
-        "primary_file": "src/functions.ts",
-        "required_tests": [
-          "Run tests covering src/functions.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/functions.ts"
-        ]
-      }
+      "type": "remove"
     },
     {
       "affected_files": [
@@ -2844,27 +1332,6 @@
         "source_available": true,
         "subclass_count": 0,
         "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "Stable component policy requires contract and test evidence first."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/functions.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
       },
       "priority": "low",
       "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
@@ -2901,51 +1368,7 @@
       "symbols": [
         "src/functions.ts::over"
       ],
-      "type": "remove",
-      "verification_steps": [
-        "Verify crate-level and downstream API consumers before deleting.",
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/functions.ts"
-          ],
-          "estimated_risk": "high",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src",
-        "primary_file": "src/functions.ts",
-        "required_tests": [
-          "Run tests covering src/functions.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/functions.ts"
-        ]
-      }
+      "type": "remove"
     },
     {
       "affected_files": [
@@ -2964,27 +1387,6 @@
         "source_available": true,
         "subclass_count": 0,
         "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "Stable component policy requires contract and test evidence first."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/functions.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
       },
       "priority": "low",
       "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
@@ -3021,51 +1423,7 @@
       "symbols": [
         "src/functions.ts::withCallbacks"
       ],
-      "type": "remove",
-      "verification_steps": [
-        "Verify crate-level and downstream API consumers before deleting.",
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/functions.ts"
-          ],
-          "estimated_risk": "high",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src",
-        "primary_file": "src/functions.ts",
-        "required_tests": [
-          "Run tests covering src/functions.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/functions.ts"
-        ]
-      }
+      "type": "remove"
     },
     {
       "affected_files": [
@@ -3084,27 +1442,6 @@
         "source_available": true,
         "subclass_count": 0,
         "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "Stable component policy requires contract and test evidence first."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/imports.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
       },
       "priority": "low",
       "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
@@ -3141,51 +1478,7 @@
       "symbols": [
         "src/imports.ts::useImports"
       ],
-      "type": "remove",
-      "verification_steps": [
-        "Verify crate-level and downstream API consumers before deleting.",
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/imports.ts"
-          ],
-          "estimated_risk": "high",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src",
-        "primary_file": "src/imports.ts",
-        "required_tests": [
-          "Run tests covering src/imports.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/imports.ts"
-        ]
-      }
+      "type": "remove"
     },
     {
       "affected_files": [
@@ -3204,27 +1497,6 @@
         "source_available": true,
         "subclass_count": 0,
         "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "Stable component policy requires contract and test evidence first."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/mts-file.mts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
       },
       "priority": "low",
       "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
@@ -3261,51 +1533,7 @@
       "symbols": [
         "src/mts-file.mts::inMts"
       ],
-      "type": "remove",
-      "verification_steps": [
-        "Verify crate-level and downstream API consumers before deleting.",
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/mts-file.mts"
-          ],
-          "estimated_risk": "high",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src",
-        "primary_file": "src/mts-file.mts",
-        "required_tests": [
-          "Run tests covering src/mts-file.mts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/mts-file.mts"
-        ]
-      }
+      "type": "remove"
     },
     {
       "affected_files": [
@@ -3324,27 +1552,6 @@
         "source_available": true,
         "subclass_count": 0,
         "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "Stable component policy requires contract and test evidence first."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/namespaces.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
       },
       "priority": "low",
       "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
@@ -3381,51 +1588,7 @@
       "symbols": [
         "src/namespaces.ts::Legacy.old"
       ],
-      "type": "remove",
-      "verification_steps": [
-        "Verify crate-level and downstream API consumers before deleting.",
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/namespaces.ts"
-          ],
-          "estimated_risk": "high",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src",
-        "primary_file": "src/namespaces.ts",
-        "required_tests": [
-          "Run tests covering src/namespaces.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/namespaces.ts"
-        ]
-      }
+      "type": "remove"
     },
     {
       "affected_files": [
@@ -3444,27 +1607,6 @@
         "source_available": true,
         "subclass_count": 0,
         "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "Stable component policy requires contract and test evidence first."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/namespaces.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
       },
       "priority": "low",
       "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
@@ -3501,51 +1643,7 @@
       "symbols": [
         "src/namespaces.ts::useNs"
       ],
-      "type": "remove",
-      "verification_steps": [
-        "Verify crate-level and downstream API consumers before deleting.",
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/namespaces.ts"
-          ],
-          "estimated_risk": "high",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src",
-        "primary_file": "src/namespaces.ts",
-        "required_tests": [
-          "Run tests covering src/namespaces.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/namespaces.ts"
-        ]
-      }
+      "type": "remove"
     },
     {
       "affected_files": [
@@ -3564,27 +1662,6 @@
         "source_available": true,
         "subclass_count": 0,
         "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "Stable component policy requires contract and test evidence first."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/typerefs.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
       },
       "priority": "low",
       "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
@@ -3621,51 +1698,7 @@
       "symbols": [
         "src/typerefs.ts::constrained"
       ],
-      "type": "remove",
-      "verification_steps": [
-        "Verify crate-level and downstream API consumers before deleting.",
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/typerefs.ts"
-          ],
-          "estimated_risk": "high",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src",
-        "primary_file": "src/typerefs.ts",
-        "required_tests": [
-          "Run tests covering src/typerefs.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/typerefs.ts"
-        ]
-      }
+      "type": "remove"
     },
     {
       "affected_files": [
@@ -3684,27 +1717,6 @@
         "source_available": true,
         "subclass_count": 0,
         "test_ref_count": 0
-      },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "Stable component policy requires contract and test evidence first."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering src/typerefs.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
       },
       "priority": "low",
       "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
@@ -3741,51 +1753,7 @@
       "symbols": [
         "src/typerefs.ts::typed"
       ],
-      "type": "remove",
-      "verification_steps": [
-        "Verify crate-level and downstream API consumers before deleting.",
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "src/typerefs.ts"
-          ],
-          "estimated_risk": "high",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible.",
-          "The affected component is stable or should be stable by shared policy."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "src",
-        "primary_file": "src/typerefs.ts",
-        "required_tests": [
-          "Run tests covering src/typerefs.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering src/typerefs.ts"
-        ]
-      }
+      "type": "remove"
     }
   ],
   "summary": "Generated 31 refactoring suggestion(s).",

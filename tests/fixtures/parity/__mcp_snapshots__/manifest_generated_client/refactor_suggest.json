@@ -2,14 +2,13 @@
   "_hints": {
     "next_steps": [
       {
-        "suggestion": "refactor_tool mode=\"suggest\" -- inspect work_pack, then run the verification commands before editing",
+        "suggestion": "refactor_tool mode=\"suggest\" -- read the plan for this suggestion's type in plans, then run the verification commands before editing",
         "tool": "refactor_tool"
       }
     ],
     "related": [],
     "warnings": [
       "dynamic_dispatch_not_proven_absent",
-      "defer_condition",
       "defer_condition"
     ]
   },
@@ -56,7 +55,7 @@
   },
   "guidance": [
     {
-      "action": "refactor_tool mode=\"suggest\" -- inspect work_pack, then run the verification commands before editing",
+      "action": "refactor_tool mode=\"suggest\" -- read the plan for this suggestion's type in plans, then run the verification commands before editing",
       "claim": "Remove unused function 'boot'",
       "confidence": "low",
       "counts": {
@@ -118,21 +117,7 @@
         "no_references",
         "public_api_candidate",
         "name_unreferenced_in_source"
-      ],
-      "work_pack": {
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "required_tests": [
-          "Run tests covering apps/web/src/main.ts"
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions."
-      }
+      ]
     }
   ],
   "missingness": [
@@ -152,6 +137,25 @@
       "severity": "medium"
     }
   ],
+  "plans": {
+    "remove": {
+      "defer_if": [
+        "The symbol is public API.",
+        "The only evidence is absence from the graph and dynamic use is plausible."
+      ],
+      "minimum_steps": [
+        "Search for runtime registration, reflection, generated references, and docs mentions.",
+        "Delete the smallest candidate first.",
+        "Run focused tests and detect_changes before deleting more candidates."
+      ],
+      "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
+      "safety_checks": [
+        "Treat public API, fixtures, and plugin entry points as high-risk.",
+        "Verify generated code and downstream package exports manually."
+      ],
+      "why_now": "The graph found no callers, importers, references, tests, or subclasses."
+    }
+  },
   "status": "ok",
   "suggestions": [
     {
@@ -172,26 +176,6 @@
         "subclass_count": 0,
         "test_ref_count": 0
       },
-      "execution_plan": {
-        "defer_if": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "minimum_steps": [
-          "Search for runtime registration, reflection, generated references, and docs mentions.",
-          "Delete the smallest candidate first.",
-          "Run focused tests and detect_changes before deleting more candidates."
-        ],
-        "required_tests": [
-          "Run tests covering apps/web/src/main.ts"
-        ],
-        "rollback": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safety_checks": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "why_now": "The graph found no callers, importers, references, tests, or subclasses."
-      },
       "priority": "low",
       "rationale": "No callers, test references, importers, references, or subclasses were found in the graph.",
       "reason_codes": [
@@ -205,50 +189,7 @@
       "symbols": [
         "apps/web/src/main.ts::boot"
       ],
-      "type": "remove",
-      "verification_steps": [
-        "Verify crate-level and downstream API consumers before deleting.",
-        "Search for runtime registration or dynamic dispatch before deleting.",
-        "Run the tests that cover the affected file or package."
-      ],
-      "work_pack": {
-        "blast_radius": {
-          "affected_file_count": 1,
-          "affected_files": [
-            "apps/web/src/main.ts"
-          ],
-          "estimated_risk": "high",
-          "symbol_count": 1
-        },
-        "defer_conditions": [
-          "The symbol is public API.",
-          "The only evidence is absence from the graph and dynamic use is plausible."
-        ],
-        "documentation_obligations": [
-          "Check docs_for/implementations_of for authored contracts before editing."
-        ],
-        "estimated_size": "small",
-        "first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "owner_scope": "apps/web/src",
-        "primary_file": "apps/web/src/main.ts",
-        "required_tests": [
-          "Run tests covering apps/web/src/main.ts"
-        ],
-        "risk_controls": [
-          "Treat public API, fixtures, and plugin entry points as high-risk.",
-          "Verify generated code and downstream package exports manually."
-        ],
-        "rollback_path": "Restore the symbol if any dynamic or downstream reference appears.",
-        "safe_first_commit": "Search for runtime registration, reflection, generated references, and docs mentions.",
-        "success_criteria": [
-          "Public behavior and call signatures are unchanged unless the suggestion explicitly says otherwise.",
-          "Focused tests pass for the affected file or package.",
-          "review_tool(mode=\"changes\") does not show unexpected blast-radius growth."
-        ],
-        "verification_commands": [
-          "Run tests covering apps/web/src/main.ts"
-        ]
-      }
+      "type": "remove"
     }
   ],
   "summary": "Generated 1 refactoring suggestion(s).",

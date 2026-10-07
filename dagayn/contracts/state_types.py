@@ -753,7 +753,7 @@ class _RefactorRequestBase(BaseModel):
     file_pattern: str | None = None
     limit: int = 50
     top_n: int | None = None
-    detail_level: str = "standard"
+    detail_level: Literal["minimal", "standard", "verbose"] = "standard"
     repo_root: str | None = None
 
 

@@ -192,6 +192,7 @@
       },
       "refactor_tool": {
         "params": {
+          "detail_level": "string",
           "file_pattern": "string",
           "kind": "string",
           "limit": "integer",
@@ -358,6 +359,7 @@
       },
       "refactor_tool": {
         "params": {
+          "detail_level": "string",
           "file_pattern": "string",
           "kind": "string",
           "limit": "integer",

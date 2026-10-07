@@ -272,8 +272,9 @@ CLI results as the same implementation.
 
 ### Migrating response consumers
 
-Existing fields such as `summary`, `_hints`, `next_tool_suggestions`, and
-`work_pack` remain available. New consumers should read `guidance`,
+Existing fields such as `summary`, `_hints`, and `next_tool_suggestions`
+remain available; `refactor_tool`'s per-suggestion `work_pack` and
+`execution_plan` moved to `detail_level="verbose"`. New consumers should read `guidance`,
 `answerability`, and `missingness` first, then fall back to the older raw
 sections only when a drill-down needs more detail.
 
