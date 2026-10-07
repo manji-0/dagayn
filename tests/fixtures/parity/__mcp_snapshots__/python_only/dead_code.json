@@ -157,11 +157,6 @@
       "severity": "medium"
     },
     {
-      "claim_effect": "claims should be treated as graph-limited until this is resolved",
-      "reason_code": "stale_derived_structures",
-      "severity": "medium"
-    },
-    {
       "claim_effect": "dead-code claims do not cover dynamic runtime references",
       "reason_code": "absence_evidence_requires_manual_verification",
       "severity": "medium"

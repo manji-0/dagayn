@@ -7,6 +7,16 @@ use serde_json::{Map, Value, json};
 
 use crate::suggestions::round_to;
 
+/// Reason codes about communities and stored flows, which only the answers
+/// read from them carry as missingness.
+const DERIVED_STRUCTURE_CODES: [&str; 5] = [
+    "missing_flows",
+    "missing_communities",
+    "missing_flows_table",
+    "missing_communities_table",
+    "stale_derived_structures",
+];
+
 pub(crate) struct Answerability {
     pub status: &'static str,
     pub score: f64,
@@ -185,10 +195,23 @@ impl Answerability {
         health
     }
 
-    /// `missingness_from_answerability`.
+    /// `missingness_from_answerability` for an answer that reads no derived
+    /// structure: the codes about communities and stored flows say nothing
+    /// about it (docs/plans/AGENT-WORKFLOW-TARGET.md#caveats).
     pub(crate) fn missingness(&self) -> Vec<Value> {
+        self.missingness_where(|code| !DERIVED_STRUCTURE_CODES.contains(&code))
+    }
+
+    /// `missingness_from_answerability` for an answer read from communities
+    /// or stored flows: every code.
+    pub(crate) fn missingness_with_derived(&self) -> Vec<Value> {
+        self.missingness_where(|_| true)
+    }
+
+    fn missingness_where(&self, keep: impl Fn(&str) -> bool) -> Vec<Value> {
         self.reason_codes
             .iter()
+            .filter(|code| keep(code))
             .map(|code| {
                 json!({
                     "reason_code": code,

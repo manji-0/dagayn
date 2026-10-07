@@ -104,11 +104,6 @@
       "severity": "medium"
     },
     {
-      "claim_effect": "claims should be treated as graph-limited until this is resolved",
-      "reason_code": "stale_derived_structures",
-      "severity": "medium"
-    },
-    {
       "claim_effect": "semantic ranking may be keyword-only",
       "reason_code": "missing_embeddings",
       "severity": "medium"

@@ -84,8 +84,14 @@ class TestAnswerability:
         assert answerability["status"] == "degraded"
         assert "missing_flows_table" in answerability["reason_codes"]
         assert "missing_communities_table" in answerability["reason_codes"]
-        missingness = missingness_from_answerability(answerability)
+        missingness = missingness_from_answerability(answerability, with_derived=True)
         assert {item["reason_code"] for item in missingness} >= {
+            "missing_flows_table",
+            "missing_communities_table",
+        }
+        assert not {
+            item["reason_code"] for item in missingness_from_answerability(answerability)
+        } & {
             "missing_flows_table",
             "missing_communities_table",
         }
@@ -127,8 +133,9 @@ class TestAnswerability:
         assert answerability["counts"]["stale_flow_memberships"] == 3
         assert answerability["counts"]["unassigned_nodes"] == 4
         assert answerability["score"] < 0.9
-        missingness = missingness_from_answerability(answerability)
+        missingness = missingness_from_answerability(answerability, with_derived=True)
         assert any(item["reason_code"] == "stale_derived_structures" for item in missingness)
+        assert not missingness_from_answerability(answerability)
 
     def test_answerability_uses_db_path_without_conn(self, tmp_path) -> None:
         graph_db = tmp_path / "graph.db"
@@ -465,13 +472,15 @@ class TestAttachAnswerability:
                 closed.append(True)
 
         monkeypatch.setattr("dagayn.tools._common._get_store", lambda _repo: (Store(), None))
-        payload: dict[str, Any] = {"status": "ok", "answerability": dict(self._SUMMARY)}
+        supplied = {**self._SUMMARY, "reason_codes": ["missing_flows", "missing_test_edges"]}
+        payload: dict[str, Any] = {"status": "ok", "answerability": supplied}
 
         result = attach_answerability(payload, "/repo")
 
         assert closed == [True]
-        assert result["answerability"]["reason_codes"] == ["missing_flows"]
-        assert [m["reason_code"] for m in result["missingness"]] == ["missing_flows"]
+        assert result["answerability"]["reason_codes"] == ["missing_flows", "missing_test_edges"]
+        # missing_flows says nothing about an answer that reads no stored flow.
+        assert [m["reason_code"] for m in result["missingness"]] == ["missing_test_edges"]
 
     def test_unopenable_graph_reports_answerability_unavailable(self, monkeypatch) -> None:
         def refuse(_repo: object) -> Any:

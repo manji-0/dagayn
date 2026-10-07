@@ -42,13 +42,7 @@
       ]
     }
   ],
-  "missingness": [
-    {
-      "claim_effect": "claims should be treated as graph-limited until this is resolved",
-      "reason_code": "stale_derived_structures",
-      "severity": "medium"
-    }
-  ],
+  "missingness": [],
   "next_action": {
     "suggestion": "fetch live source with pattern=\"source_of\", then callers_of/callees_of",
     "tool": "query_graph_tool"

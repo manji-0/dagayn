@@ -649,7 +649,10 @@ pub(crate) fn overview(
             stability_policy_summary(&profiles, top_n.clamp(1, 5)),
         )
         .put("answerability", answerability.full())
-        .put("missingness", json!(answerability.missingness()))
+        .put(
+            "missingness",
+            json!(answerability.missingness_with_derived()),
+        )
         .apply_output_budget(
             4000,
             &[

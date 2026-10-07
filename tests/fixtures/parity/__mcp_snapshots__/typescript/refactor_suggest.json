@@ -218,13 +218,7 @@
   "findings_omitted": {
     "unused_symbol": 21
   },
-  "missingness": [
-    {
-      "claim_effect": "claims should be treated as graph-limited until this is resolved",
-      "reason_code": "stale_derived_structures",
-      "severity": "medium"
-    }
-  ],
+  "missingness": [],
   "status": "ok",
   "summary": "Findings: 31 unused_symbol."
 }

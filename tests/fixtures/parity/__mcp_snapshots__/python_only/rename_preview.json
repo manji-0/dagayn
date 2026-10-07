@@ -112,11 +112,6 @@
       "severity": "medium"
     },
     {
-      "claim_effect": "claims should be treated as graph-limited until this is resolved",
-      "reason_code": "stale_derived_structures",
-      "severity": "medium"
-    },
-    {
       "claim_effect": "edit list covers graph-known call, reference, and import sites only; string-based access, getattr, re-exports, generated code, and non-code files are not included",
       "reason_code": "rename_edits_graph_limited",
       "severity": "medium"

@@ -107,13 +107,7 @@
       "size": 3
     }
   ],
-  "missingness": [
-    {
-      "claim_effect": "claims should be treated as graph-limited until this is resolved",
-      "reason_code": "stale_derived_structures",
-      "severity": "medium"
-    }
-  ],
+  "missingness": [],
   "mode": "communities",
   "status": "ok",
   "summary": "Found 22 communities. Showing first 10.",

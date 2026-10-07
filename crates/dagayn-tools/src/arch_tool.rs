@@ -880,7 +880,10 @@ pub(crate) fn analysis_response(
     next: &[&str],
 ) -> Ordered {
     fields.push(("answerability", answerability.full()));
-    fields.push(("missingness", json!(answerability.missingness())));
+    fields.push((
+        "missingness",
+        json!(answerability.missingness_with_derived()),
+    ));
     let hints = guidance_actions_to_hints(std::slice::from_ref(&guidance));
     fields.push(("guidance", json!([guidance])));
     make_response(context, summary, fields, next).replace("_hints", hints)

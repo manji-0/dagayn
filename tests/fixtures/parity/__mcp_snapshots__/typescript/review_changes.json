@@ -356,13 +356,7 @@
   "changed_functions": [],
   "findings": [],
   "findings_omitted": {},
-  "missingness": [
-    {
-      "claim_effect": "claims should be treated as graph-limited until this is resolved",
-      "reason_code": "stale_derived_structures",
-      "severity": "medium"
-    }
-  ],
+  "missingness": [],
   "mode": "changes",
   "next_drill_downs": {
     "architecture": {

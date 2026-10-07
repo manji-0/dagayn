@@ -247,7 +247,7 @@ fn list_flows(
         "severity": "low",
         "claim_effect": "flow ranking is not a coverage guarantee",
     });
-    let mut missingness = answerability.missingness();
+    let mut missingness = answerability.missingness_with_derived();
     missingness.push(ranking.clone());
     if truncated > 0 {
         missingness.push(json!({
@@ -470,7 +470,7 @@ fn get_flow(
         (None, None) => None,
     };
     let Some(flow) = flow.as_mut() else {
-        let mut missingness = answerability.missingness();
+        let mut missingness = answerability.missingness_with_derived();
         missingness.push(json!({
             "reason_code": "flow_not_found_in_current_graph",
             "severity": "medium",
@@ -556,7 +556,7 @@ fn get_flow(
     } else {
         Vec::new()
     };
-    let mut missingness = answerability.missingness();
+    let mut missingness = answerability.missingness_with_derived();
     missingness.extend(stale_missing.iter().cloned());
     missingness.extend(truncated_missing.iter().cloned());
     missingness.push(json!({

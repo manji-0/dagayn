@@ -772,10 +772,29 @@ def attach_answerability(
     return payload
 
 
+#: Reason codes about communities and stored flows, which only answers read
+#: from them carry as missingness (docs/plans/AGENT-WORKFLOW-TARGET.md#caveats).
+DERIVED_STRUCTURE_CODES = frozenset(
+    {
+        "missing_flows",
+        "missing_communities",
+        "missing_flows_table",
+        "missing_communities_table",
+        "stale_derived_structures",
+    }
+)
+
+
 def missingness_from_answerability(
     answerability: Mapping[str, object],
+    *,
+    with_derived: bool = False,
 ) -> list[MissingnessRecord]:
-    """Convert answerability reason codes into response-level missingness items."""
+    """Convert answerability reason codes into response-level missingness items.
+
+    The codes in :data:`DERIVED_STRUCTURE_CODES` are left out unless
+    ``with_derived`` says the answer was read from communities or stored flows.
+    """
     severity_by_code = {
         "empty_graph": "high",
         "missing_flows": "medium",
@@ -810,6 +829,8 @@ def missingness_from_answerability(
     }
     items: list[MissingnessRecord] = []
     for code in cast(Sequence[object], answerability.get("reason_codes") or []):
+        if not with_derived and str(code) in DERIVED_STRUCTURE_CODES:
+            continue
         severity = severity_by_code.get(str(code), "low")
         items.append(
             seal_missingness_item(
