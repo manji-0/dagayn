@@ -16,7 +16,7 @@ are closures inside tests, and every remove candidate is a test fixture.
 question; `suggest` does not. This note defines the target contract, the
 evidence behind it, and the order of work.
 
-Status: accepted ([decisions](#decisions-2026-10-07)); steps 1–3 of the
+Status: accepted ([decisions](#decisions-2026-10-07)); steps 1–4 of the
 [order of work](#order-of-work) are done.
 
 ## Target contract
@@ -211,8 +211,8 @@ recall 0.00 and the gate fails, as it should. Read as findings, today's
 | `split` | `complex_hotspot` | 1 | 1 | 0 | the same long function fires whether it changed twelve times or never |
 | `document` | `undocumented_surface` | 0 | 2 | 1 | fires on the long function, misses the function another package uses |
 
-CI runs the fast fixture checks (`tests/test_refactor_eval.py`); the full
-gate joins CI with step 4.
+CI runs the fast fixture checks (`tests/test_refactor_eval.py`); since
+step 4 it also runs the full gate.
 
 ## Order of work
 
@@ -239,8 +239,13 @@ gate joins CI with step 4.
    `tests/fixtures/refactor_eval`, floors in
    `eval/refactor_thresholds.yaml`); a case can add later commits, which
    `complex_hotspot` needs. See [Baseline](#baseline).
-4. `unused_symbol` from the `dead_code` record, fixtures left out; drop
-   the community-based move; add the full eval gate to CI.
+4. **Done:** `findings` with `unused_symbol` from the `dead_code`
+   record, fixtures left out (also from the `remove` suggestions); the
+   community-based move is gone; the eval gate is in CI for
+   `unused_symbol` (precision and recall 1.00), with the two unbuilt kinds
+   reported and ungated. On this repository `findings` is empty, matching
+   `dead_code`, and `suggestions` dropped from 655 to 570 (no `move`, no
+   fixture `remove`).
 5. `complex_hotspot` and `undocumented_surface`; `split` and `document`
    behind `verbose` for one release, listed in `deprecated_fields`.
 6. Docs, skills, and the MCP description describe `findings`.
