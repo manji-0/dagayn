@@ -41,6 +41,7 @@
       "severity": "medium"
     }
   ],
+  "next": [],
   "next_action": {
     "suggestion": "fetch live source with pattern=\"source_of\", then callers_of/callees_of",
     "tool": "query_graph_tool"

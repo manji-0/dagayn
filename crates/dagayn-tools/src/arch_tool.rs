@@ -448,7 +448,9 @@ fn with_unit_map(
     if edge_count > unit_edges.len() {
         out = out.put("unit_edges_omitted", edge_count - unit_edges.len());
     }
-    out = out.put("findings", json!(findings));
+    out = out
+        .put("findings", json!(findings))
+        .put("next", crate::next::from_findings(&findings));
     if !findings_omitted.is_empty() {
         out = out.put("findings_omitted", json!(findings_omitted));
     }

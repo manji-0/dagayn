@@ -774,10 +774,13 @@ def attach_answerability(
 
 def summary_at_verbose_only(payload: ToolPayload, detail_level: str | None) -> ToolPayload:
     """Drop the graph's ``answerability`` below ``detail_level="verbose"``
-    (or ``"full"``) and from every error, as ``dagayn_tools::call`` does for the
-    Tier 1 analysis tools: graph-wide health is ``get_minimal_context_tool``'s
-    to report, and each reply keeps its own ``missingness``
+    (or ``"full"``) and from every error, and add an empty ``next`` where the
+    reply has none, as ``dagayn_tools::call`` does for the Tier 1 analysis
+    tools: graph-wide health is ``get_minimal_context_tool``'s to report, and
+    each reply keeps its own ``missingness``
     (docs/plans/AGENT-WORKFLOW-TARGET.md#target-contract)."""
+    # Every reply says what to call next; one that names nothing is complete.
+    payload.setdefault("next", [])
     if detail_level in ("verbose", "full") and payload.get("status") != "error":
         return payload
     payload.pop("answerability", None)

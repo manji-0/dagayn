@@ -63,6 +63,137 @@ pub(crate) fn retries(
     Value::Array(calls)
 }
 
+/// `source_of` (a file's summary for a file) for the first hits of a
+/// search, in rank order: a hit is a lead until its live span is read. The
+/// Python search builds the same list (`dagayn/tools/query.py::_read_hits`).
+pub(crate) fn read_hits(results: &[Value]) -> Value {
+    let calls: Vec<Value> = results
+        .iter()
+        .filter_map(|hit| {
+            let target = hit.get("qualified_name")?.as_str()?;
+            let kind = hit.get("kind").and_then(Value::as_str).unwrap_or("node");
+            let read = if kind == "File" {
+                "file_summary"
+            } else {
+                "source_of"
+            };
+            Some(call(
+                "query_graph_tool",
+                json!({"pattern": read, "target": target}),
+                format!("read the {kind} this search ranked"),
+            ))
+        })
+        .take(MAX_NEXT)
+        .collect();
+    Value::Array(calls)
+}
+
+/// What to read after a `query_graph_tool` answer: after a span, who calls
+/// it; after a relationship, the first related nodes' spans (a file's
+/// summary for a file), in the order the reply lists them.
+pub(crate) fn after_query(pattern: &str, target: &str, rows: &[Value]) -> Value {
+    if pattern == "source_of" {
+        if rows.is_empty() {
+            return json!([]);
+        }
+        return json!([call(
+            "query_graph_tool",
+            json!({"pattern": "callers_of", "target": target}),
+            "who calls what you just read",
+        )]);
+    }
+    let mut seen: Vec<&str> = Vec::new();
+    let calls: Vec<Value> = rows
+        .iter()
+        .filter_map(|row| {
+            let name = row.get("qualified_name")?.as_str()?;
+            if name == target || seen.contains(&name) {
+                return None;
+            }
+            seen.push(name);
+            let kind = row.get("kind").and_then(Value::as_str).unwrap_or("node");
+            let read = if kind == "File" {
+                "file_summary"
+            } else {
+                "source_of"
+            };
+            Some(call(
+                "query_graph_tool",
+                json!({"pattern": read, "target": name}),
+                format!("read the {kind} {pattern} found"),
+            ))
+        })
+        .take(MAX_NEXT)
+        .collect();
+    Value::Array(calls)
+}
+
+/// Where to look first for the first findings, in their order: a test
+/// command to run, a symbol's span, a cycle's imports, or a file's summary.
+/// A finding names its own place; `next` only makes the first ones runnable.
+pub(crate) fn from_findings(findings: &[Value]) -> Value {
+    let calls: Vec<Value> = findings
+        .iter()
+        .filter_map(|finding| {
+            let why = finding
+                .get("claim")
+                .or_else(|| finding.get("action"))
+                .and_then(Value::as_str)
+                .unwrap_or("check this finding");
+            if let Some(command) = finding.get("command").and_then(Value::as_str) {
+                return Some(call("shell", json!({"command": command}), why));
+            }
+            let symbol = finding
+                .get("qualified_name")
+                .and_then(Value::as_str)
+                .or_else(|| {
+                    finding["targets"]
+                        .as_array()?
+                        .first()?
+                        .as_str()
+                        .filter(|target| target.contains("::"))
+                });
+            let file = finding.get("file").and_then(Value::as_str);
+            let (pattern, target) = match (symbol, file) {
+                (Some(symbol), _) => ("source_of", symbol),
+                (None, Some(file)) if finding["kind"] == "import_cycle" => ("imports_of", file),
+                (None, Some(file)) => ("file_summary", file),
+                (None, None) => return None,
+            };
+            Some(call(
+                "query_graph_tool",
+                json!({"pattern": pattern, "target": target}),
+                why,
+            ))
+        })
+        .take(MAX_NEXT)
+        .collect();
+    Value::Array(calls)
+}
+
+/// `source_of` for the first entry points, each read once.
+pub(crate) fn read_entry_points(entries: &[Value]) -> Value {
+    let mut seen: Vec<&str> = Vec::new();
+    let calls: Vec<Value> = entries
+        .iter()
+        .filter_map(|entry| {
+            let name = entry.get("entry_point")?.as_str()?;
+            if seen.contains(&name) {
+                return None;
+            }
+            seen.push(name);
+            let kind = entry.get("kind").and_then(Value::as_str).unwrap_or("entry");
+            Some(call(
+                "query_graph_tool",
+                json!({"pattern": "source_of", "target": name}),
+                format!("read the {kind} entry point"),
+            ))
+        })
+        .take(MAX_NEXT)
+        .collect();
+    Value::Array(calls)
+}
+
 /// `_hints` that say what `next` says, for a reply whose generic hints
 /// would point elsewhere.
 pub(crate) fn as_hints(next: &Value) -> Value {

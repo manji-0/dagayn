@@ -281,6 +281,7 @@
     }
   ],
   "mode": "impact",
+  "next": [],
   "status": "ok",
   "summary": "Blast radius for 1 changed file(s):\n  - 5 nodes directly changed\n  - 5 nodes impacted (within 2 hops)\n  - 2 additional files affected",
   "total_impacted": 5,

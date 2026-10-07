@@ -77,6 +77,32 @@
       "severity": "medium"
     }
   ],
+  "next": [
+    {
+      "args": {
+        "pattern": "source_of",
+        "target": "services.py::get_email"
+      },
+      "tool": "query_graph_tool",
+      "why": "read the Function this search ranked"
+    },
+    {
+      "args": {
+        "pattern": "source_of",
+        "target": "services.py::create_user"
+      },
+      "tool": "query_graph_tool",
+      "why": "read the Function this search ranked"
+    },
+    {
+      "args": {
+        "pattern": "source_of",
+        "target": "models.py::User"
+      },
+      "tool": "query_graph_tool",
+      "why": "read the Class this search ranked"
+    }
+  ],
   "next_action": {
     "suggestion": "fetch live source with pattern=\"source_of\" for the chosen qualified_name",
     "tool": "query_graph_tool"

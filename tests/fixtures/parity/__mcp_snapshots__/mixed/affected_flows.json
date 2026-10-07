@@ -67,6 +67,24 @@
     }
   ],
   "mode": "affected_flows",
+  "next": [
+    {
+      "args": {
+        "pattern": "source_of",
+        "target": "app.py::build_graph"
+      },
+      "tool": "query_graph_tool",
+      "why": "read the uncalled entry point"
+    },
+    {
+      "args": {
+        "pattern": "source_of",
+        "target": "app.py::run_analysis"
+      },
+      "tool": "query_graph_tool",
+      "why": "read the uncalled entry point"
+    }
+  ],
   "reached_callers": 0,
   "status": "ok",
   "summary": "2 entry point(s) reach the 2 changed function(s) in 1 file(s)",

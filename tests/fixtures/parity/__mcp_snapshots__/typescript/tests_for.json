@@ -36,6 +36,24 @@
     }
   ],
   "missingness": [],
+  "next": [
+    {
+      "args": {
+        "pattern": "source_of",
+        "target": "src/__tests__/calls.test.ts::it:decl works@L6"
+      },
+      "tool": "query_graph_tool",
+      "why": "read the Test tests_for found"
+    },
+    {
+      "args": {
+        "pattern": "source_of",
+        "target": "src/__tests__/calls.test.ts::it:only@L12"
+      },
+      "tool": "query_graph_tool",
+      "why": "read the Test tests_for found"
+    }
+  ],
   "next_action": {
     "suggestion": "fetch live source with pattern=\"source_of\", then callers_of/callees_of",
     "tool": "query_graph_tool"

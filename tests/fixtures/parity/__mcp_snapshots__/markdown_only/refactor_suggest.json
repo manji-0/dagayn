@@ -31,6 +31,7 @@
       "severity": "medium"
     }
   ],
+  "next": [],
   "status": "ok",
   "summary": "Nothing worth refactoring."
 }

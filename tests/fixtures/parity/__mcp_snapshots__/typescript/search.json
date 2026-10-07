@@ -72,6 +72,32 @@
       "severity": "medium"
     }
   ],
+  "next": [
+    {
+      "args": {
+        "pattern": "file_summary",
+        "target": "src/barrel/a.ts"
+      },
+      "tool": "query_graph_tool",
+      "why": "read the File this search ranked"
+    },
+    {
+      "args": {
+        "pattern": "file_summary",
+        "target": "src/barrel/b.ts"
+      },
+      "tool": "query_graph_tool",
+      "why": "read the File this search ranked"
+    },
+    {
+      "args": {
+        "pattern": "file_summary",
+        "target": "src/barrel-user.ts"
+      },
+      "tool": "query_graph_tool",
+      "why": "read the File this search ranked"
+    }
+  ],
   "next_action": {
     "suggestion": "fetch live source with pattern=\"source_of\" for the chosen qualified_name",
     "tool": "query_graph_tool"

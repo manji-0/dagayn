@@ -333,6 +333,7 @@ pub(crate) fn entry_points(
             .put("status", "ok")
             .put("summary", summary)
             .put("target", qn)
+            .put("next", crate::next::read_entry_points(&shown))
             .put("entry_points", Value::Array(shown))
             .put("entry_points_omitted", total.saturating_sub(keep))
             .put("reached_callers", found.reached)

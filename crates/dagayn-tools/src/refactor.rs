@@ -358,6 +358,7 @@ fn suggest(
     let out = Ordered::default()
         .put("status", "ok")
         .put("summary", summary)
+        .put("next", crate::next::from_findings(&findings))
         .put("findings", Value::Array(findings))
         .put("findings_omitted", Value::Object(omitted));
     if detail_level != "verbose" {

@@ -109,6 +109,36 @@ pub struct Payload {
 }
 
 impl Payload {
+    /// The payload with `key` set to `value` after its other keys, unless it
+    /// has `key` already.
+    fn with_last(self, key: &str, value: Value) -> Self {
+        let Value::Object(mut object) = self.value else {
+            unreachable!("a payload is an object");
+        };
+        if object.contains_key(key) {
+            return Self {
+                text: self.text,
+                value: Value::Object(object),
+            };
+        }
+        let mut text = self.text;
+        if text.ends_with('}') {
+            text.pop();
+            if text.len() > 1 {
+                text.push(',');
+            }
+            text.push_str(&json!(key).to_string());
+            text.push(':');
+            text.push_str(&value.to_string());
+            text.push('}');
+        }
+        object.insert(key.to_string(), value);
+        Self {
+            text,
+            value: Value::Object(object),
+        }
+    }
+
     /// The payload without the top-level `key`, its other keys in order.
     fn without(self, key: &str) -> Self {
         let Some(Value::Object(mut value)) = Some(self.value) else {
@@ -195,9 +225,13 @@ pub fn call(context: &Context, name: &str, arguments: &Value) -> Option<Payload>
         arguments.get("detail_level").and_then(Value::as_str),
         Some("verbose" | "full")
     );
-    if !SUMMARY_AT_VERBOSE_ONLY.contains(&name)
-        || (verbose && payload.value.get("status") != Some(&json!("error")))
-    {
+    if !SUMMARY_AT_VERBOSE_ONLY.contains(&name) {
+        return Some(payload);
+    }
+    // Every reply says what to call next; a reply that names nothing is
+    // complete (docs/plans/AGENT-WORKFLOW-TARGET.md#target-contract).
+    let payload = payload.with_last("next", json!([]));
+    if verbose && payload.value.get("status") != Some(&json!("error")) {
         return Some(payload);
     }
     Some(payload.without("answerability"))

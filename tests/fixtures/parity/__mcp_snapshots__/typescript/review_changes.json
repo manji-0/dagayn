@@ -351,6 +351,7 @@
   "findings_omitted": {},
   "missingness": [],
   "mode": "changes",
+  "next": [],
   "next_drill_downs": {
     "architecture": {
       "mode": "overview",

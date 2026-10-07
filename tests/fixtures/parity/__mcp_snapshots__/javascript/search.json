@@ -77,6 +77,32 @@
       "severity": "medium"
     }
   ],
+  "next": [
+    {
+      "args": {
+        "pattern": "source_of",
+        "target": "helpers.js::helper"
+      },
+      "tool": "query_graph_tool",
+      "why": "read the Function this search ranked"
+    },
+    {
+      "args": {
+        "pattern": "file_summary",
+        "target": "helpers.js"
+      },
+      "tool": "query_graph_tool",
+      "why": "read the File this search ranked"
+    },
+    {
+      "args": {
+        "pattern": "source_of",
+        "target": "helpers.js::other"
+      },
+      "tool": "query_graph_tool",
+      "why": "read the Function this search ranked"
+    }
+  ],
   "next_action": {
     "suggestion": "fetch live source with pattern=\"source_of\", then callers_of/callees_of",
     "tool": "query_graph_tool"

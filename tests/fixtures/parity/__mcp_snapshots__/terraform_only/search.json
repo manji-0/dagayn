@@ -77,6 +77,32 @@
       "severity": "medium"
     }
   ],
+  "next": [
+    {
+      "args": {
+        "pattern": "source_of",
+        "target": "outputs.tf::output.instance_id"
+      },
+      "tool": "query_graph_tool",
+      "why": "read the Function this search ranked"
+    },
+    {
+      "args": {
+        "pattern": "source_of",
+        "target": "outputs.tf::output.instance_type"
+      },
+      "tool": "query_graph_tool",
+      "why": "read the Function this search ranked"
+    },
+    {
+      "args": {
+        "pattern": "file_summary",
+        "target": "outputs.tf"
+      },
+      "tool": "query_graph_tool",
+      "why": "read the File this search ranked"
+    }
+  ],
   "next_action": {
     "suggestion": "fetch live source with pattern=\"source_of\" for the chosen qualified_name",
     "tool": "query_graph_tool"

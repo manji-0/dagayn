@@ -1249,6 +1249,14 @@ fn not_found(
         .put("results", json!([]))
         .put("zero_result_reason", "target_not_found_in_graph")
         .put("next_action", exactness_action(pattern, 0, 0))
+        .put(
+            "next",
+            json!([crate::next::call(
+                "semantic_search_nodes_tool",
+                json!({"query": target, "detail_level": "minimal"}),
+                "find the node by name or meaning",
+            )]),
+        )
         .put("answerability", answerability.full())
         .put("missingness", json!(missingness))
         .put("guidance", guidance.clone())
@@ -1499,6 +1507,7 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
         .put("confidence", confidence)
         .put("zero_result_reason", zero_result_reason)
         .put("next_action", next_action)
+        .put("next", json!([]))
         .put("resolution", resolution.as_str())
         .put("exact_match_count", exact_count);
     if matches!(resolution, Resolution::ExactName | Resolution::Fuzzy) {
@@ -1574,6 +1583,12 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
             transitive_next_action(reachability, results_complete),
         );
     }
+    let rows = payload
+        .get("results")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    payload = payload.replace("next", crate::next::after_query(pattern, target, &rows));
     let mut missingness = answerability.missingness();
     // `_attach_source_of_coverage`.
     if let Some(coverage) = found.source

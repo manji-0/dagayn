@@ -38,6 +38,7 @@
       "severity": "medium"
     }
   ],
+  "next": [],
   "status": "ok",
   "summary": "Found 0 dead code symbol(s) that nothing in the repository refers to.",
   "suppressed": {},

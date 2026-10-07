@@ -158,6 +158,7 @@
     }
   ],
   "mode": "list",
+  "next": [],
   "status": "ok",
   "summary": "Found 5 reachable-set flow(s)"
 }

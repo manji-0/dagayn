@@ -90,6 +90,7 @@
     }
   ],
   "mode": "list",
+  "next": [],
   "status": "ok",
   "summary": "Found 1 reachable-set flow(s)"
 }

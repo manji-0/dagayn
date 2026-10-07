@@ -176,6 +176,32 @@
       "severity": "medium"
     }
   ],
+  "next": [
+    {
+      "args": {
+        "pattern": "source_of",
+        "target": "esm.mjs::EsmDefault"
+      },
+      "tool": "query_graph_tool",
+      "why": "Nothing in the repository refers to esm.mjs::EsmDefault."
+    },
+    {
+      "args": {
+        "pattern": "source_of",
+        "target": "types.js::JsClass"
+      },
+      "tool": "query_graph_tool",
+      "why": "Nothing in the repository refers to types.js::JsClass."
+    },
+    {
+      "args": {
+        "pattern": "source_of",
+        "target": "comp.jsx::JsxComp"
+      },
+      "tool": "query_graph_tool",
+      "why": "Nothing in the repository refers to comp.jsx::JsxComp."
+    }
+  ],
   "status": "ok",
   "summary": "Findings: 9 unused_symbol."
 }

@@ -2570,7 +2570,10 @@ class TestGetMinimalContext:
         # `_repo` names the repository on every tool's answer.
         result.pop("_repo")
         serialized = json.dumps(result, default=str)
-        assert len(serialized) < 800
+        # `next` carries the calls `next_tool_suggestions` and
+        # `recommended_action` only named, which leave it in step 4 of
+        # docs/plans/AGENT-WORKFLOW-TARGET.md#order-of-work.
+        assert len(serialized) < 900
 
     def test_task_routing_review(self):
         from dagayn.tools.context import get_minimal_context

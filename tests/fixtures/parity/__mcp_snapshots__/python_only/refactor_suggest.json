@@ -80,6 +80,32 @@
       "severity": "medium"
     }
   ],
+  "next": [
+    {
+      "args": {
+        "pattern": "source_of",
+        "target": "models.py::Address"
+      },
+      "tool": "query_graph_tool",
+      "why": "Nothing in the repository refers to models.py::Address."
+    },
+    {
+      "args": {
+        "pattern": "source_of",
+        "target": "main.py::run"
+      },
+      "tool": "query_graph_tool",
+      "why": "Nothing in the repository refers to main.py::run."
+    },
+    {
+      "args": {
+        "pattern": "source_of",
+        "target": "services.py::get_email"
+      },
+      "tool": "query_graph_tool",
+      "why": "Nothing in the repository refers to services.py::get_email."
+    }
+  ],
   "status": "ok",
   "summary": "Findings: 3 unused_symbol."
 }

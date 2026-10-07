@@ -26,6 +26,15 @@
     "score": 0.6,
     "status": "degraded"
   },
+  "next": [
+    {
+      "args": {
+        "detail_level": "minimal"
+      },
+      "tool": "review_tool",
+      "why": "findings: what the change needs checked beyond its diff"
+    }
+  ],
   "next_tool_suggestions": [
     "review_tool",
     "flow_tool",

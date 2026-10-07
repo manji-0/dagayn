@@ -72,6 +72,7 @@
     }
   ],
   "mode": "list",
+  "next": [],
   "status": "ok",
   "summary": "Found 0 reachable-set flow(s)"
 }

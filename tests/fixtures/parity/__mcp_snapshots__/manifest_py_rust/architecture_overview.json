@@ -26,6 +26,7 @@
     }
   ],
   "mode": "overview",
+  "next": [],
   "status": "ok",
   "summary": "2 unit(s), 0 dependency pair(s) between them. No structural findings.",
   "unit_edges": [],

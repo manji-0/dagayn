@@ -48,6 +48,16 @@
       "severity": "medium"
     }
   ],
+  "next": [
+    {
+      "args": {
+        "pattern": "source_of",
+        "target": "apps/web/src/main.ts::boot"
+      },
+      "tool": "query_graph_tool",
+      "why": "Nothing in the repository refers to apps/web/src/main.ts::boot."
+    }
+  ],
   "status": "ok",
   "summary": "Findings: 1 unused_symbol."
 }

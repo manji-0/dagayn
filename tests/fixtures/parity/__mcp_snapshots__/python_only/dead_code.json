@@ -130,6 +130,7 @@
       "severity": "medium"
     }
   ],
+  "next": [],
   "status": "ok",
   "summary": "Found 3 dead code symbol(s) that nothing in the repository refers to.",
   "suppressed": {},

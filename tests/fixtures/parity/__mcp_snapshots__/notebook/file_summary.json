@@ -42,6 +42,24 @@
       "severity": "medium"
     }
   ],
+  "next": [
+    {
+      "args": {
+        "pattern": "source_of",
+        "target": "analysis.ipynb::load_data"
+      },
+      "tool": "query_graph_tool",
+      "why": "read the Function file_summary found"
+    },
+    {
+      "args": {
+        "pattern": "source_of",
+        "target": "analysis.ipynb::process"
+      },
+      "tool": "query_graph_tool",
+      "why": "read the Function file_summary found"
+    }
+  ],
   "next_action": {
     "suggestion": "fetch live source with pattern=\"source_of\", then callers_of/callees_of",
     "tool": "query_graph_tool"

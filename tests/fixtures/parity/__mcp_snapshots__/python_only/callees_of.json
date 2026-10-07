@@ -42,6 +42,16 @@
       "severity": "medium"
     }
   ],
+  "next": [
+    {
+      "args": {
+        "pattern": "source_of",
+        "target": "services.py::create_user"
+      },
+      "tool": "query_graph_tool",
+      "why": "read the Function callees_of found"
+    }
+  ],
   "next_action": {
     "suggestion": "fetch live source with pattern=\"source_of\", then callers_of/callees_of",
     "tool": "query_graph_tool"

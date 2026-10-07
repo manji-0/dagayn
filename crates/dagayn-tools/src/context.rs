@@ -22,6 +22,7 @@ use serde_json::{Map, Value, json};
 use crate::answerability::Answerability;
 use crate::changes::{DiffParse, analyze_changes_with, parse_diff};
 use crate::findings;
+use crate::next;
 use crate::pyunicode::casefold;
 use crate::{Args, Context, Ordered, Payload, open_graph, resolve_repo};
 
@@ -177,6 +178,62 @@ fn workflow_for_task(task: &str) -> &'static Workflow {
         .iter()
         .find(|workflow| workflow.name == name)
         .unwrap_or(&WORKFLOWS[5])
+}
+
+/// The first calls of the task's workflow, with their arguments
+/// (docs/plans/AGENT-WORKFLOW-TARGET.md#target-contract): the graph first
+/// when `sync_first` says why it must come first, then the phase the
+/// workflow enters at. Arguments at their defaults are left out.
+fn first_calls(
+    workflow: &str,
+    task: &str,
+    base: Option<&str>,
+    has_changes: bool,
+    sync_first: Option<&str>,
+    exposes: &dyn Fn(&str) -> bool,
+) -> Value {
+    let task = task.trim();
+    let mut review = json!({"detail_level": "minimal"});
+    if let Some(base) = base {
+        review["base"] = json!(base);
+    }
+    let review = next::call(
+        "review_tool",
+        review,
+        "findings: what the change needs checked beyond its diff",
+    );
+    let search = (!task.is_empty()).then(|| {
+        next::call(
+            "semantic_search_nodes_tool",
+            json!({"query": task, "detail_level": "minimal"}),
+            "locate the code the task is about",
+        )
+    });
+    let overview = next::call(
+        "architecture_analysis_tool",
+        json!({}),
+        "the declared units, how they depend on each other, and what to act on",
+    );
+    let refactor = next::call(
+        "refactor_tool",
+        json!({"detail_level": "minimal"}),
+        "findings: where a refactor is worth doing",
+    );
+    let mut calls: Vec<Value> = Vec::new();
+    if let Some(why) = sync_first {
+        calls.push(next::call("ensure_graph_tool", json!({}), why));
+    }
+    let workflow_calls: Vec<Option<Value>> = match workflow {
+        "review" => vec![Some(review)],
+        "debug" | "feature" => vec![search],
+        "refactor" => vec![Some(refactor)],
+        "explore" => vec![Some(overview), search],
+        _ => vec![has_changes.then_some(review), search, Some(overview)],
+    };
+    calls.extend(workflow_calls.into_iter().flatten());
+    calls.retain(|call| call["tool"].as_str().is_some_and(exposes));
+    calls.truncate(next::MAX_NEXT);
+    Value::Array(calls)
 }
 
 /// Up to `limit` non-empty `name`s of `items` (`_names_from_items`).
@@ -517,7 +574,23 @@ pub(crate) fn get_minimal_context(
     if !suggestions.is_empty() {
         response = response.put("next_tool_suggestions", json!(suggestions));
     }
+    let empty = health.status == "empty" || sync.state == "unbuilt";
+    let next = first_calls(
+        workflow.name,
+        task,
+        explicit_base,
+        changes.state != "none",
+        if empty {
+            Some("the graph is empty; build it before any analysis")
+        } else if sync.state == "commit_drift" && repair.is_none() {
+            Some("the graph describes another commit; sync it first")
+        } else {
+            None
+        },
+        &|tool| context.exposes(tool),
+    );
     response = response
+        .put("next", next)
         .put("workflow", workflow.name)
         .put("recommended_action", workflow.recommended_action)
         .put("why", workflow.why)
@@ -549,7 +622,7 @@ pub(crate) fn get_minimal_context(
             }),
         );
     }
-    if health.status == "empty" || sync.state == "unbuilt" {
+    if empty {
         let mut tools = vec!["ensure_graph_tool"];
         tools.extend(
             suggestions

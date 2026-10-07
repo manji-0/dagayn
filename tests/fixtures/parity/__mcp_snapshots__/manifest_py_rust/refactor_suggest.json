@@ -64,6 +64,24 @@
       "severity": "medium"
     }
   ],
+  "next": [
+    {
+      "args": {
+        "pattern": "source_of",
+        "target": "demo_native/__init__.py::ping"
+      },
+      "tool": "query_graph_tool",
+      "why": "Nothing in the repository refers to demo_native/__init__.py::ping."
+    },
+    {
+      "args": {
+        "pattern": "source_of",
+        "target": "rust/src/lib.rs::add"
+      },
+      "tool": "query_graph_tool",
+      "why": "Nothing in the repository refers to rust/src/lib.rs::add."
+    }
+  ],
   "status": "ok",
   "summary": "Findings: 2 unused_symbol."
 }

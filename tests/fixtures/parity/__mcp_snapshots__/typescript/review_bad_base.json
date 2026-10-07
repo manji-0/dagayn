@@ -17,6 +17,7 @@
     }
   ],
   "mode": "changes",
+  "next": [],
   "status": "error",
   "summary": "Could not resolve the diff base 'HEAD~1' in <REPO>. Pass a reachable ref (the default HEAD~1 does not exist in a single-commit repository, and a rebase or gc can make a recorded sha unreachable)."
 }

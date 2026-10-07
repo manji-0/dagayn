@@ -235,6 +235,34 @@ def query_graph(
 _MAX_SEARCH_LIMIT = 200
 
 
+#: The most calls a ``next`` list names (``dagayn_tools::next::MAX_NEXT``).
+_MAX_NEXT = 3
+
+
+def _read_hits(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """``source_of`` for the first hits, in rank order, as
+    ``dagayn_tools::next::read_hits`` builds them: a hit is a lead until its
+    live span is read (docs/plans/AGENT-WORKFLOW-TARGET.md#target-contract)."""
+    calls: list[dict[str, Any]] = []
+    for hit in results:
+        target = hit.get("qualified_name")
+        if not isinstance(target, str):
+            continue
+        kind = hit.get("kind") if isinstance(hit.get("kind"), str) else "node"
+        read = "file_summary" if kind == "File" else "source_of"
+        calls.append(
+            {
+                # Keys in the order serde_json writes them.
+                "args": {"pattern": read, "target": target},
+                "tool": "query_graph_tool",
+                "why": f"read the {kind} this search ranked",
+            }
+        )
+        if len(calls) == _MAX_NEXT:
+            break
+    return calls
+
+
 def semantic_search_nodes(
     query: str,
     kind: str | None = None,
@@ -362,6 +390,7 @@ def semantic_search_nodes(
             "confidence": confidence,
             "zero_result_reason": zero_result_reason,
             "next_action": next_action,
+            "next": _read_hits(results),
             "exactness": {
                 "exact_match_count": len(exact_matches),
                 "ambiguity": ambiguity,

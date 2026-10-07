@@ -77,6 +77,32 @@
       "severity": "medium"
     }
   ],
+  "next": [
+    {
+      "args": {
+        "pattern": "source_of",
+        "target": "api.md::post-build"
+      },
+      "tool": "query_graph_tool",
+      "why": "read the DocSection this search ranked"
+    },
+    {
+      "args": {
+        "pattern": "source_of",
+        "target": "api.md::post-build--body-1"
+      },
+      "tool": "query_graph_tool",
+      "why": "read the DocBody this search ranked"
+    },
+    {
+      "args": {
+        "pattern": "source_of",
+        "target": "api.md::endpoints"
+      },
+      "tool": "query_graph_tool",
+      "why": "read the DocSection this search ranked"
+    }
+  ],
   "next_action": {
     "suggestion": "fetch live source with pattern=\"source_of\" for the chosen qualified_name",
     "tool": "query_graph_tool"

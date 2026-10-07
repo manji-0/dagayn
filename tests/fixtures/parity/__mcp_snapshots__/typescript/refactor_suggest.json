@@ -188,6 +188,32 @@
     "unused_symbol": 21
   },
   "missingness": [],
+  "next": [
+    {
+      "args": {
+        "pattern": "source_of",
+        "target": "src/calls.ts::Caller"
+      },
+      "tool": "query_graph_tool",
+      "why": "Nothing in the repository refers to src/calls.ts::Caller."
+    },
+    {
+      "args": {
+        "pattern": "source_of",
+        "target": "src/classes.ts::Named"
+      },
+      "tool": "query_graph_tool",
+      "why": "Nothing in the repository refers to src/classes.ts::Named."
+    },
+    {
+      "args": {
+        "pattern": "source_of",
+        "target": "src/extra/heritage.ts::G2"
+      },
+      "tool": "query_graph_tool",
+      "why": "Nothing in the repository refers to src/extra/heritage.ts::G2."
+    }
+  ],
   "status": "ok",
   "summary": "Findings: 31 unused_symbol."
 }

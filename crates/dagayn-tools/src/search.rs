@@ -781,6 +781,7 @@ pub(crate) fn semantic_search(
             .put("confidence", confidence)
             .put("zero_result_reason", zero_result_reason)
             .put("next_action", next_action.clone())
+            .put("next", crate::next::read_hits(&results))
             .put(
                 "exactness",
                 json!({

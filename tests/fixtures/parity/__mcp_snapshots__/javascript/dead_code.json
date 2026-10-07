@@ -325,6 +325,7 @@
       "severity": "medium"
     }
   ],
+  "next": [],
   "status": "ok",
   "summary": "Found 9 dead code symbol(s) that nothing in the repository refers to. Left out 1 graph candidate(s) that may still be used (see suppressed).",
   "suppressed": {

@@ -353,6 +353,7 @@ impl Review<'_> {
                 .put("base", request.base)
                 .put("findings", json!([]))
                 .put("findings_omitted", json!({}))
+                .put("next", json!([]))
                 .put("changed_file_count", 0)
                 .put("changed_files", json!([]))
                 .put("answerability", self.answerability.compact())
@@ -428,6 +429,10 @@ impl Review<'_> {
             .put("base", request.base)
             .put("findings", findings.clone())
             .put("findings_omitted", findings_omitted)
+            .put(
+                "next",
+                crate::next::from_findings(findings.as_array().map_or(&[], Vec::as_slice)),
+            )
             .put("changed_file_count", changed_files.len())
             .put("changed_files", json!(changed_files))
             .put("change_file_source_counts", source_counts(&sources))
@@ -823,6 +828,7 @@ impl Review<'_> {
                 .put("status", "ok")
                 .put("summary", "No changed files detected.")
                 .put("entry_points", json!([]))
+                .put("next", json!([]))
                 .put("entry_points_omitted", 0)
                 .put("changed_function_count", 0)
                 .put("answerability", self.answerability.full())
@@ -884,6 +890,7 @@ impl Review<'_> {
             .put("changed_files", json!(changed_files))
             .put("change_file_sources", sources)
             .put("changed_function_count", changed.len())
+            .put("next", crate::next::read_entry_points(&entries))
             .put("entry_points", Value::Array(entries))
             .put("entry_points_omitted", omitted)
             .put("reached_callers", reached)

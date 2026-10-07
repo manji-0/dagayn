@@ -28,6 +28,15 @@
     "score": 0.75,
     "status": "ok"
   },
+  "next": [
+    {
+      "args": {
+        "detail_level": "minimal"
+      },
+      "tool": "review_tool",
+      "why": "findings: what the change needs checked beyond its diff"
+    }
+  ],
   "next_tool_suggestions": [
     "review_tool",
     "flow_tool",

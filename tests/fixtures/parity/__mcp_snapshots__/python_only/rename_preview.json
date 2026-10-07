@@ -86,6 +86,7 @@
     }
   ],
   "new_name": "make_user",
+  "next": [],
   "next_tool_suggestions": [
     "apply_refactor_tool(refactor_id='<REFACTOR_ID>', dry_run=true) in the same session -- preview unified diff before writing files",
     "apply_refactor_tool(refactor_id='<REFACTOR_ID>') in the same session -- apply the rename"

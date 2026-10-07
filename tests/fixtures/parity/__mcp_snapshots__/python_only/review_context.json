@@ -269,6 +269,7 @@
     }
   ],
   "mode": "context",
+  "next": [],
   "status": "ok",
   "summary": "Review context for 1 changed file(s):\n  - 3 directly changed nodes\n  - 6 impacted nodes in 2 files\n\nReview guidance:\n- 2 changed function(s) lack test coverage: create_user, get_email"
 }

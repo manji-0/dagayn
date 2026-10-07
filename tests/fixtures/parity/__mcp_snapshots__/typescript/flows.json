@@ -425,6 +425,7 @@
     }
   ],
   "mode": "list",
+  "next": [],
   "status": "ok",
   "summary": "Found 21 reachable-set flow(s)"
 }
