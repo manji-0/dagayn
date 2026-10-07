@@ -404,21 +404,27 @@ impl Review<'_> {
             &changed_files,
             &ranges,
         )?;
-        let absolute: Vec<String> = changed_files
-            .iter()
-            .map(|file| absolute_path(self.root(), file))
-            .collect();
-        let impact = self
-            .store()
-            .get_impact_radius(&absolute, request.max_depth, 500)
-            .ok()?;
-        let summary = change_analysis_summary(
-            self.store(),
-            &analysis,
-            &impact,
-            &changed_files,
-            request.detail_level == "verbose",
-        )?;
+        // The score-first summary (blast radius, stability profiles, SAP) is
+        // only shown at `verbose`; below it, nothing reads it.
+        let summary = if request.detail_level == "verbose" {
+            let absolute: Vec<String> = changed_files
+                .iter()
+                .map(|file| absolute_path(self.root(), file))
+                .collect();
+            let impact = self
+                .store()
+                .get_impact_radius(&absolute, request.max_depth, 500)
+                .ok()?;
+            Some(change_analysis_summary(
+                self.store(),
+                &analysis,
+                &impact,
+                &changed_files,
+                true,
+            )?)
+        } else {
+            None
+        };
         let (findings, findings_omitted, symbol_delta) =
             self.findings(&mut analysis, &changed_files, request.base)?;
         if request.include_source == Some(true) {
@@ -463,8 +469,7 @@ impl Review<'_> {
             .put(
                 "unmapped_changed_files",
                 analysis.get("unmapped_changed_files").clone(),
-            )
-            .put("next_drill_downs", summary["next_drill_downs"].clone());
+            );
         out = match request.detail_level {
             "minimal" => out,
             "standard" => out
@@ -476,7 +481,9 @@ impl Review<'_> {
             // `verbose`: the score-first fields of the earlier contract, kept
             // for one release (docs/plans/REVIEW-TOOL-TARGET.md).
             _ => {
+                let summary = summary.unwrap_or_default();
                 let mut legacy = out
+                    .put("next_drill_downs", summary["next_drill_downs"].clone())
                     .put("change_file_sources", sources)
                     .put("symbol_delta", symbol_delta)
                     .put("deprecated_fields", json!(DEPRECATED_FIELDS));
