@@ -170,6 +170,12 @@ related node(s)" with `counts.result_count: 13`.
   `missingness` codes and its `related` is nearly always empty.
 - `guidance[].action` stays, as each guidance item's own description;
   `next` is the list to run.
+- Later the same day: below `verbose` a reply drops what is diagnosis or
+  restatement. `_runtime`, `called_subtool`, the whole of `guidance` (its
+  claim is `summary`, its counts the reply's own, its caveats
+  `missingness`, its action `next`), and search's `embedding_health` go
+  to `verbose`; `_repo` keeps only `repo_root`. This replaces the
+  decision above to keep `guidance` in the default reply.
 
 ## Evaluation
 
@@ -334,6 +340,18 @@ fixtures the tests build.
    descriptions' 8,500-character budget.
 8. After one release: remove the next-step fields `verbose` still
    carries, and the hint engine that builds `_hints`.
+9. **Done:** the envelope. `dagayn_tools::trim_envelope` (and its
+   Python twin) applies the decision of 2026-10-08 below `verbose` and
+   to every `get_minimal_context_tool` reply; search accepts
+   `detail_level="verbose"` natively. The MCP text was already minified
+   JSON on every path, so the size went down only by fields. On this
+   repository (compact characters): search at `minimal` 3,569 → 2,075,
+   `flow_tool entry_points` 4,175 → 3,236, `source_of` 3,076 → 2,421,
+   `get_minimal_context_tool` 804 → 734. The parity tests compared the
+   reply text only when `_runtime` was absent; they now compare it as
+   JSON, since serde_json sorts nested keys and Python does not. A
+   review at `minimal` also stops computing the score-first summary it
+   no longer shows (1.93 s → 1.72 s on this repository).
 
 ## Touch points
 
