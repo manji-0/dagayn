@@ -55,6 +55,8 @@
     "status": "ok"
   },
   "counts_by_type": {},
+  "findings": [],
+  "findings_omitted": {},
   "guidance": [],
   "missingness": [
     {
@@ -71,7 +73,7 @@
   "plans": {},
   "status": "ok",
   "suggestions": [],
-  "summary": "Generated 0 refactoring suggestion(s).",
+  "summary": "Findings: nothing worth doing. Generated 0 refactoring suggestion(s).",
   "total": 0,
   "truncated": false,
   "work_packs": []

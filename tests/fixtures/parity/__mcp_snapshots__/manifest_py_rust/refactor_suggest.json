@@ -53,6 +53,41 @@
   "counts_by_type": {
     "remove": 2
   },
+  "findings": [
+    {
+      "action": "Delete it, or point to the dynamic use the graph missed.",
+      "claim": "Nothing in the repository refers to demo_native/__init__.py::ping.",
+      "evidence": {
+        "public_api_candidate": false,
+        "verification": {
+          "files_scanned": 4,
+          "files_skipped": 0,
+          "status": "complete"
+        }
+      },
+      "file": "demo_native/__init__.py",
+      "kind": "unused_symbol",
+      "line": 4,
+      "qualified_name": "demo_native/__init__.py::ping"
+    },
+    {
+      "action": "Delete it, or point to the dynamic use the graph missed.",
+      "claim": "Nothing in the repository refers to rust/src/lib.rs::add.",
+      "evidence": {
+        "public_api_candidate": false,
+        "verification": {
+          "files_scanned": 4,
+          "files_skipped": 0,
+          "status": "complete"
+        }
+      },
+      "file": "rust/src/lib.rs",
+      "kind": "unused_symbol",
+      "line": 4,
+      "qualified_name": "rust/src/lib.rs::add"
+    }
+  ],
+  "findings_omitted": {},
   "guidance": [
     {
       "action": "refactor_tool mode=\"suggest\" -- read the plan for this suggestion's type in plans, then run the verification commands before editing",
@@ -284,7 +319,7 @@
       "type": "remove"
     }
   ],
-  "summary": "Generated 2 refactoring suggestion(s).",
+  "summary": "Findings: 2 unused_symbol. Generated 2 refactoring suggestion(s).",
   "total": 2,
   "truncated": false,
   "work_packs": [

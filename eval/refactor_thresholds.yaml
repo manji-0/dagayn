@@ -1,13 +1,13 @@
 # Ship gate for refactor_tool(mode="suggest") finding kinds
 # (docs/plans/REFACTOR-TOOL-TARGET.md#evaluation).
 # `run_refactor_eval.py --gate` exits non-zero when a gated kind has a
-# precision or recall below its floor or a case errors. CI runs the gate once
-# `suggest` answers with findings (order of work, step 4).
+# precision or recall below its floor or a case errors.
 defaults:
   gated: true
   precision_floor: 0.8
   recall_floor: 0.8
 kinds:
   unused_symbol: {}
-  complex_hotspot: {}
-  undocumented_surface: {}
+  # Not implemented until step 5 of the order of work: reported, not gated.
+  complex_hotspot: {gated: false}
+  undocumented_surface: {gated: false}

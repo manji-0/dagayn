@@ -75,6 +75,14 @@ All notable changes to `dagayn` are documented here.
   went from 221K to 71K characters. A rename preview lists the first 20
   `edits` with `edits_omitted` and per-file `files` counts (585 edits for
   `node_text`: 91K to 8K characters); `verbose` keeps the earlier layout.
+- `refactor_tool(mode="suggest")` answers with `findings` (and
+  `findings_omitted`), a list of refactors worth doing that is empty when
+  there is none. The first kind is `unused_symbol`, the verified dead-code
+  report without test fixtures; on this repository it is empty, as
+  `dead_code` is. `suggestions` no longer include `move` (60 here, almost
+  all closures, test helpers, or functions whose callers share their file)
+  or `remove` candidates under `fixtures/` or `testdata/` (all 30 here),
+  reversing `8adec381`. The refactor eval now gates `unused_symbol` in CI.
 - Next-step hints drawn from guidance no longer repeat the same step or
   warning.
 

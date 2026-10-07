@@ -109,6 +109,11 @@ jobs:
         # an entry kind drops below its precision or recall floor or a chain
         # hop has no graph edge.
         run: DAGAYN_FLOW_EVAL=1 uv run pytest -q tests/test_flow_eval.py
+      - name: Gate refactor findings on the eval set
+        # Builds a graph and a short history per case
+        # (docs/plans/REFACTOR-TOOL-TARGET.md); fails when a gated finding kind
+        # drops below its precision or recall floor.
+        run: DAGAYN_REFACTOR_EVAL=1 uv run pytest -q tests/test_refactor_eval.py
 
   rust-backend:
     runs-on: ubuntu-latest

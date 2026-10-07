@@ -854,8 +854,11 @@ Without `target` it lists the repository's entry points per declared unit,
 counted by kind. `mode="list"` and `mode="get"` read stored flows and are
 deprecated.
 
-`refactor_tool(mode="suggest")` returns graph-backed remove, move, split, and
-document candidates. They are leads (structure, not correctness): confirm them
+`refactor_tool(mode="suggest")` answers with `findings`, refactors worth doing
+(`unused_symbol`: the verified dead-code report without test fixtures; 10 per
+kind, the rest in `findings_omitted`), followed by graph-backed remove, split,
+and document `suggestions`. Move suggestions are gone: communities did not
+separate a misplaced function from a well-placed one. Suggestions are leads (structure, not correctness): confirm them
 with `source_of` or a reproduction on a current graph (see the `trust` section
 of `get_docs_section_tool`). Verify public APIs,
 test artifacts, dynamic dispatch, and generated entry points before changing

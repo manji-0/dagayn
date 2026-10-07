@@ -16,10 +16,11 @@ edit set, and verify impact afterwards.
    `graph_health.status` is `empty` or `sync.state` is `unbuilt` /
    `commit_drift`, follow `recommended_action` (the server has usually queued a
    refresh already); call `ensure_graph_tool()` only when you must wait for it.
-2. **Find candidates**: `refactor_tool(mode="suggest")` ranks remove, move,
-   split, and document candidates with evidence. Use `mode="dead_code"` only to
-   drill into remove candidates. Narrow long output with `limit` (the response's
-   `total` tells you how many exist).
+2. **Find candidates**: `refactor_tool(mode="suggest")` answers with
+   `findings` (today `unused_symbol`: verified dead code, test fixtures left
+   out); an empty list means nothing worth doing. Its `suggestions` (split,
+   document, remove) are size-based leads, not findings. Use
+   `mode="dead_code"` to see what the dead-code check left out and why.
 3. **Map the blast radius** before touching public code:
    - `query_graph_tool(pattern="callers_of", target=..., depth=6)` (also
      `importers_of`) returns the transitive set in one call; stop when

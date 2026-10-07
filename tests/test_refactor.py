@@ -1279,8 +1279,8 @@ class TestSuggestRefactorings:
             assert "success_criteria" in s["work_pack"]
             assert s["type"] in ("move", "remove", "split", "document")
 
-    def test_remove_suggestions_prioritize_executable_code(self):
-        """Executable dead-code suggestions rank ahead of docs and fixtures."""
+    def test_remove_suggestions_leave_out_fixtures(self):
+        """Executable dead code is suggested for removal; fixtures are not."""
         (self.root / "tests" / "fixtures").mkdir(parents=True)
         (self.root / "tests" / "fixtures" / "helpers.py").write_text(
             "def fixture_helper():\n    pass\n\n", encoding="utf-8"
@@ -1301,7 +1301,8 @@ class TestSuggestRefactorings:
 
         assert suggestions[0]["symbols"] == [f"{self.lib}::orphan_func"]
         assert suggestions[0]["category"] == "executable"
-        assert any(s["category"] == "fixture" for s in suggestions)
+        # A fixture is a test input: deleting it breaks its test.
+        assert not any(s["category"] == "fixture" for s in suggestions)
 
     def test_remove_suggestions_demote_exported_api_candidates(self, tmp_path):
         """Exported API candidates are high-risk even when graph-unreferenced."""
@@ -1420,7 +1421,7 @@ class TestSuggestRefactorings:
         assert f"{tests_rs}::integration_style_helper" not in symbols
         assert f"{core_tests_rs}::parser_fixture_helper" not in symbols
 
-    def test_move_suggestions_require_multiple_known_callers(self):
+    def test_suggestions_do_not_move_functions_between_communities(self):
         """A single cross-community caller is too weak for a move suggestion."""
         self.store.upsert_node(
             NodeInfo(
@@ -1510,11 +1511,11 @@ class TestSuggestRefactorings:
             ],
         )
 
+        # Every caller now sits in one other community, which used to make a
+        # move suggestion; communities no longer place a function
+        # (docs/plans/REFACTOR-TOOL-TARGET.md#decisions-2026-10-07).
         moves = [s for s in suggest_refactorings(self.store) if s["type"] == "move"]
-        move = next(s for s in moves if s["symbols"] == ["/repo/source.py::owned_by_source"])
-        assert move["confidence"] == "low"
-        assert move["evidence"]["incoming_call_count"] == 2
-        assert move["evidence"]["minimum_call_threshold"] == 2
+        assert moves == []
 
     def test_split_and_document_suggestions_for_large_complex_units(self, tmp_path):
         """Large live code with little explanation gets split/document suggestions."""

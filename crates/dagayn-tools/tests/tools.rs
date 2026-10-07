@@ -1408,6 +1408,12 @@ fn refactor_finds_dead_code_and_suggests() {
             .is_some_and(|s| s.iter().any(|x| x["type"] == "remove"))
     );
     assert!(suggest["work_packs"].is_array());
+    assert_eq!(suggest["findings"][0]["kind"], "unused_symbol");
+    assert_eq!(
+        suggest["findings"][0]["qualified_name"],
+        "unused.py::orphan"
+    );
+    assert_eq!(suggest["findings_omitted"], json!({}));
     // Each type's plan is stated once, not on every suggestion.
     let remove = suggest["suggestions"]
         .as_array()

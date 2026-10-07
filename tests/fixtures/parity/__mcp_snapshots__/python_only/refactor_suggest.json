@@ -52,6 +52,57 @@
   "counts_by_type": {
     "remove": 3
   },
+  "findings": [
+    {
+      "action": "Delete it, or point to the dynamic use the graph missed.",
+      "claim": "Nothing in the repository refers to models.py::Address.",
+      "evidence": {
+        "public_api_candidate": false,
+        "verification": {
+          "files_scanned": 3,
+          "files_skipped": 0,
+          "status": "complete"
+        }
+      },
+      "file": "models.py",
+      "kind": "unused_symbol",
+      "line": 7,
+      "qualified_name": "models.py::Address"
+    },
+    {
+      "action": "Delete it, or point to the dynamic use the graph missed.",
+      "claim": "Nothing in the repository refers to main.py::run.",
+      "evidence": {
+        "public_api_candidate": false,
+        "verification": {
+          "files_scanned": 3,
+          "files_skipped": 0,
+          "status": "complete"
+        }
+      },
+      "file": "main.py",
+      "kind": "unused_symbol",
+      "line": 4,
+      "qualified_name": "main.py::run"
+    },
+    {
+      "action": "Delete it, or point to the dynamic use the graph missed.",
+      "claim": "Nothing in the repository refers to services.py::get_email.",
+      "evidence": {
+        "public_api_candidate": false,
+        "verification": {
+          "files_scanned": 3,
+          "files_skipped": 0,
+          "status": "complete"
+        }
+      },
+      "file": "services.py",
+      "kind": "unused_symbol",
+      "line": 8,
+      "qualified_name": "services.py::get_email"
+    }
+  ],
+  "findings_omitted": {},
   "guidance": [
     {
       "action": "refactor_tool mode=\"suggest\" -- read the plan for this suggestion's type in plans, then run the verification commands before editing",
@@ -376,7 +427,7 @@
       "type": "remove"
     }
   ],
-  "summary": "Generated 3 refactoring suggestion(s).",
+  "summary": "Findings: 3 unused_symbol. Generated 3 refactoring suggestion(s).",
   "total": 3,
   "truncated": false,
   "work_packs": [

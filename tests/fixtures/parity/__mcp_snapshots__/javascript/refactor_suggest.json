@@ -52,6 +52,153 @@
   "counts_by_type": {
     "remove": 9
   },
+  "findings": [
+    {
+      "action": "Delete it, or point to the dynamic use the graph missed.",
+      "claim": "Nothing in the repository refers to esm.mjs::EsmDefault.",
+      "evidence": {
+        "public_api_candidate": true,
+        "verification": {
+          "files_scanned": 7,
+          "files_skipped": 0,
+          "status": "complete"
+        }
+      },
+      "file": "esm.mjs",
+      "kind": "unused_symbol",
+      "line": 3,
+      "qualified_name": "esm.mjs::EsmDefault"
+    },
+    {
+      "action": "Delete it, or point to the dynamic use the graph missed.",
+      "claim": "Nothing in the repository refers to types.js::JsClass.",
+      "evidence": {
+        "public_api_candidate": true,
+        "verification": {
+          "files_scanned": 7,
+          "files_skipped": 0,
+          "status": "complete"
+        }
+      },
+      "file": "types.js",
+      "kind": "unused_symbol",
+      "line": 2,
+      "qualified_name": "types.js::JsClass"
+    },
+    {
+      "action": "Delete it, or point to the dynamic use the graph missed.",
+      "claim": "Nothing in the repository refers to comp.jsx::JsxComp.",
+      "evidence": {
+        "public_api_candidate": true,
+        "verification": {
+          "files_scanned": 7,
+          "files_skipped": 0,
+          "status": "complete"
+        }
+      },
+      "file": "comp.jsx",
+      "kind": "unused_symbol",
+      "line": 2,
+      "qualified_name": "comp.jsx::JsxComp"
+    },
+    {
+      "action": "Delete it, or point to the dynamic use the graph missed.",
+      "claim": "Nothing in the repository refers to comp.jsx::Arrow.",
+      "evidence": {
+        "public_api_candidate": true,
+        "verification": {
+          "files_scanned": 7,
+          "files_skipped": 0,
+          "status": "complete"
+        }
+      },
+      "file": "comp.jsx",
+      "kind": "unused_symbol",
+      "line": 3,
+      "qualified_name": "comp.jsx::Arrow"
+    },
+    {
+      "action": "Delete it, or point to the dynamic use the graph missed.",
+      "claim": "Nothing in the repository refers to esm.mjs::esmFn.",
+      "evidence": {
+        "public_api_candidate": true,
+        "verification": {
+          "files_scanned": 7,
+          "files_skipped": 0,
+          "status": "complete"
+        }
+      },
+      "file": "esm.mjs",
+      "kind": "unused_symbol",
+      "line": 2,
+      "qualified_name": "esm.mjs::esmFn"
+    },
+    {
+      "action": "Delete it, or point to the dynamic use the graph missed.",
+      "claim": "Nothing in the repository refers to types.js::JsClass.field.",
+      "evidence": {
+        "public_api_candidate": false,
+        "verification": {
+          "files_scanned": 7,
+          "files_skipped": 0,
+          "status": "complete"
+        }
+      },
+      "file": "types.js",
+      "kind": "unused_symbol",
+      "line": 5,
+      "qualified_name": "types.js::JsClass.field"
+    },
+    {
+      "action": "Delete it, or point to the dynamic use the graph missed.",
+      "claim": "Nothing in the repository refers to types.js::JsClass.g.",
+      "evidence": {
+        "public_api_candidate": false,
+        "verification": {
+          "files_scanned": 7,
+          "files_skipped": 0,
+          "status": "complete"
+        }
+      },
+      "file": "types.js",
+      "kind": "unused_symbol",
+      "line": 6,
+      "qualified_name": "types.js::JsClass.g"
+    },
+    {
+      "action": "Delete it, or point to the dynamic use the graph missed.",
+      "claim": "Nothing in the repository refers to types.js::obj.m.",
+      "evidence": {
+        "public_api_candidate": true,
+        "verification": {
+          "files_scanned": 7,
+          "files_skipped": 0,
+          "status": "complete"
+        }
+      },
+      "file": "types.js",
+      "kind": "unused_symbol",
+      "line": 8,
+      "qualified_name": "types.js::obj.m"
+    },
+    {
+      "action": "Delete it, or point to the dynamic use the graph missed.",
+      "claim": "Nothing in the repository refers to types.js::obj.n.",
+      "evidence": {
+        "public_api_candidate": true,
+        "verification": {
+          "files_scanned": 7,
+          "files_skipped": 0,
+          "status": "complete"
+        }
+      },
+      "file": "types.js",
+      "kind": "unused_symbol",
+      "line": 8,
+      "qualified_name": "types.js::obj.n"
+    }
+  ],
+  "findings_omitted": {},
   "guidance": [
     {
       "action": "refactor_tool mode=\"suggest\" -- read the plan for this suggestion's type in plans, then run the verification commands before editing",
@@ -576,7 +723,7 @@
       "type": "remove"
     }
   ],
-  "summary": "Generated 9 refactoring suggestion(s).",
+  "summary": "Findings: 9 unused_symbol. Generated 9 refactoring suggestion(s).",
   "total": 9,
   "truncated": false,
   "work_packs": [

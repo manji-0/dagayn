@@ -246,12 +246,65 @@ fn refactor_guidance(suggestions: &[Value]) -> Vec<Value> {
         .collect()
 }
 
+/// Findings each kind lists before counting the rest in `findings_omitted`.
+const FINDINGS_PER_KIND: usize = 10;
+
+/// `unused_symbol` findings: the verified dead-code report without test
+/// fixtures (docs/plans/REFACTOR-TOOL-TARGET.md#finding-kinds).
+fn unused_symbol_findings(store: &dagayn_graph::GraphStore) -> Option<(Vec<Value>, usize)> {
+    let report = crate::dead_code::dead_code_report(store, None, None)?;
+    if report.verification.status == "unavailable" {
+        return Some((Vec::new(), 0));
+    }
+    let verification = report.verification.value();
+    let found: Vec<Value> = report
+        .dead
+        .iter()
+        .filter(|item| {
+            !item["qualified_name"]
+                .as_str()
+                .is_some_and(|qn| is_fixture_path(qn.split("::").next().unwrap_or(qn)))
+        })
+        .map(|item| {
+            json!({
+                "kind": "unused_symbol",
+                "qualified_name": item["qualified_name"],
+                "file": item["file"],
+                "line": item["line"],
+                "claim": format!(
+                    "Nothing in the repository refers to {}.",
+                    item["qualified_name"].as_str().unwrap_or("this symbol")
+                ),
+                "evidence": {
+                    "public_api_candidate": item["public_api_candidate"],
+                    "verification": verification,
+                },
+                "action": "Delete it, or point to the dynamic use the graph missed.",
+            })
+        })
+        .collect();
+    let omitted = found.len().saturating_sub(FINDINGS_PER_KIND);
+    Some((found.into_iter().take(FINDINGS_PER_KIND).collect(), omitted))
+}
+
 fn suggest(
     store: &dagayn_graph::GraphStore,
     answerability: &Answerability,
     limit: i64,
     detail_level: &str,
 ) -> Option<Ordered> {
+    let (unused, unused_omitted) = unused_symbol_findings(store)?;
+    let findings_summary = if unused.is_empty() {
+        "Findings: nothing worth doing.".to_string()
+    } else {
+        format!("Findings: {} unused_symbol.", unused.len() + unused_omitted)
+    };
+    let mut omitted = Map::new();
+    if unused_omitted > 0 {
+        omitted.insert("unused_symbol".into(), json!(unused_omitted));
+    }
+    let findings = Value::Array(unused);
+    let findings_omitted = Value::Object(omitted);
     let suggestions = crate::suggestions::ranked_suggestions(store)?;
     let total = suggestions.len();
     let truncated = total as i64 > limit;
@@ -277,7 +330,7 @@ fn suggest(
             Value::Object(pack)
         })
         .collect();
-    let mut summary = format!("Generated {total} refactoring suggestion(s).");
+    let mut summary = format!("{findings_summary} Generated {total} refactoring suggestion(s).");
     if truncated {
         summary.push_str(&format!(" Showing first {limit}."));
     }
@@ -287,6 +340,8 @@ fn suggest(
             Ordered::default()
                 .put("status", "ok")
                 .put("summary", summary)
+                .put("findings", findings)
+                .put("findings_omitted", findings_omitted)
                 .put("suggestions", Value::Array(shown))
                 .put("work_packs", Value::Array(packs))
                 .put("guidance", Value::Array(guidance))
@@ -345,6 +400,8 @@ fn suggest(
     let mut out = Ordered::default()
         .put("status", "ok")
         .put("summary", summary)
+        .put("findings", findings)
+        .put("findings_omitted", findings_omitted)
         .put("suggestions", Value::Array(shown))
         .put("plans", Value::Object(plans));
     if detail_level != "minimal" {
@@ -643,7 +700,7 @@ fn rename(
 }
 
 /// A path under a `fixtures/` or `testdata/` directory.
-fn is_fixture_path(path: &str) -> bool {
+pub(crate) fn is_fixture_path(path: &str) -> bool {
     path.split(['/', '\\'])
         .rev()
         .skip(1)

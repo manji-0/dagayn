@@ -844,100 +844,8 @@ pub(crate) fn suggest_refactorings(store: &GraphStore) -> Option<Vec<Value>> {
                 node_community.insert(qn.clone(), *cid);
             }
         }
-        let names: HashMap<i64, String> = rows.iter().cloned().collect();
-        let funcs = store
-            .get_nodes_by_kind(&["Function".to_string()], None)
-            .ok()?;
-        let qns: Vec<String> = funcs.iter().map(|n| n.qualified_name.clone()).collect();
-        let (_, incoming) = store.get_edges_by_endpoints(&qns).ok()?;
-        let mut cache: HashMap<String, Vec<String>> = HashMap::new();
-        for f in &funcs {
-            let Some(&own) = node_community.get(&f.qualified_name) else {
-                continue;
-            };
-            let lines = cache
-                .entry(f.file_path.clone())
-                .or_insert_with(|| source_lines(store, &f.file_path));
-            if external_api_candidate(&f.language, f.line_start, lines) {
-                continue;
-            }
-            let calls: Vec<&GraphEdge> = incoming
-                .get(&f.qualified_name)
-                .into_iter()
-                .flatten()
-                .filter(|e| e.kind == "CALLS")
-                .collect();
-            if calls.len() < 2 {
-                continue;
-            }
-            let mut callers: HashSet<i64> = HashSet::new();
-            if calls
-                .iter()
-                .any(|e| match node_community.get(&e.source_qualified) {
-                    Some(c) => {
-                        callers.insert(*c);
-                        false
-                    }
-                    None => true,
-                })
-            {
-                continue;
-            }
-            // Every caller is known; the any() above stopped at none.
-            for e in &calls {
-                if let Some(c) = node_community.get(&e.source_qualified) {
-                    callers.insert(*c);
-                }
-            }
-            if callers.len() != 1 {
-                continue;
-            }
-            let target = *callers.iter().next()?;
-            if target == own {
-                continue;
-            }
-            let count = calls.len();
-            let confidence = if count >= 8 {
-                "high"
-            } else if count >= 4 {
-                "medium"
-            } else {
-                "low"
-            };
-            let name_of = |c: i64| {
-                names
-                    .get(&c)
-                    .cloned()
-                    .unwrap_or_else(|| format!("community-{c}"))
-            };
-            let (src, tgt) = (name_of(own), name_of(target));
-            suggestions.push(json!({
-                "type": "move",
-                "description": format!("Move '{}' from '{src}' to '{tgt}'", sanitize(&f.name)),
-                "symbols": [sanitize(&f.qualified_name)],
-                "rationale": format!("Function is in community '{src}' but only called by members of community '{tgt}'."),
-                "priority": "medium",
-                "confidence": confidence,
-                "category": "executable",
-                "estimated_risk": "medium",
-                "affected_files": [f.file_path],
-                "reason_codes": ["single_external_caller_community", "no_unknown_callers", "private_candidate"],
-                "evidence": {
-                    "incoming_call_count": count,
-                    "caller_community_count": 1,
-                    "unknown_caller_count": 0,
-                    "minimum_call_threshold": 2,
-                    "medium_confidence_threshold": 4,
-                    "high_confidence_threshold": 8,
-                    "source_community": src,
-                    "target_community": tgt,
-                },
-                "verification_steps": [
-                    "Review imports and call sites before moving the function.",
-                    "Run tests for both source and target communities.",
-                ],
-            }));
-        }
+        // Communities feed the split concern profile; they no longer place
+        // a function (docs/plans/REFACTOR-TOOL-TARGET.md#decisions-2026-10-07).
     }
 
     let dead = find_dead_code(store, None, None)?;
@@ -953,7 +861,10 @@ pub(crate) fn suggest_refactorings(store: &GraphStore) -> Option<Vec<Value>> {
             .or_insert_with(|| source_lines(store, &file));
         let language = str_of(&record["language"]).to_string();
         let line = record["line"].as_i64();
-        if is_test_artifact(false, &file, &language, line, lines) {
+        // Fixtures are test inputs: deleting one breaks its test.
+        if is_test_artifact(false, &file, &language, line, lines)
+            || crate::refactor::is_fixture_path(&file)
+        {
             continue;
         }
         let mut record = record;

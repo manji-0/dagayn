@@ -51,6 +51,171 @@
   "counts_by_type": {
     "remove": 31
   },
+  "findings": [
+    {
+      "action": "Delete it, or point to the dynamic use the graph missed.",
+      "claim": "Nothing in the repository refers to src/calls.ts::Caller.",
+      "evidence": {
+        "public_api_candidate": true,
+        "verification": {
+          "files_scanned": 37,
+          "files_skipped": 0,
+          "status": "complete"
+        }
+      },
+      "file": "src/calls.ts",
+      "kind": "unused_symbol",
+      "line": 6,
+      "qualified_name": "src/calls.ts::Caller"
+    },
+    {
+      "action": "Delete it, or point to the dynamic use the graph missed.",
+      "claim": "Nothing in the repository refers to src/classes.ts::Named.",
+      "evidence": {
+        "public_api_candidate": true,
+        "verification": {
+          "files_scanned": 37,
+          "files_skipped": 0,
+          "status": "complete"
+        }
+      },
+      "file": "src/classes.ts",
+      "kind": "unused_symbol",
+      "line": 53,
+      "qualified_name": "src/classes.ts::Named"
+    },
+    {
+      "action": "Delete it, or point to the dynamic use the graph missed.",
+      "claim": "Nothing in the repository refers to src/extra/heritage.ts::G2.",
+      "evidence": {
+        "public_api_candidate": true,
+        "verification": {
+          "files_scanned": 37,
+          "files_skipped": 0,
+          "status": "complete"
+        }
+      },
+      "file": "src/extra/heritage.ts",
+      "kind": "unused_symbol",
+      "line": 4,
+      "qualified_name": "src/extra/heritage.ts::G2"
+    },
+    {
+      "action": "Delete it, or point to the dynamic use the graph missed.",
+      "claim": "Nothing in the repository refers to src/extra/heritage.ts::Other.",
+      "evidence": {
+        "public_api_candidate": true,
+        "verification": {
+          "files_scanned": 37,
+          "files_skipped": 0,
+          "status": "complete"
+        }
+      },
+      "file": "src/extra/heritage.ts",
+      "kind": "unused_symbol",
+      "line": 14,
+      "qualified_name": "src/extra/heritage.ts::Other"
+    },
+    {
+      "action": "Delete it, or point to the dynamic use the graph missed.",
+      "claim": "Nothing in the repository refers to src/barrel-user.ts::useBarrel.",
+      "evidence": {
+        "public_api_candidate": true,
+        "verification": {
+          "files_scanned": 37,
+          "files_skipped": 0,
+          "status": "complete"
+        }
+      },
+      "file": "src/barrel-user.ts",
+      "kind": "unused_symbol",
+      "line": 2,
+      "qualified_name": "src/barrel-user.ts::useBarrel"
+    },
+    {
+      "action": "Delete it, or point to the dynamic use the graph missed.",
+      "claim": "Nothing in the repository refers to src/classes.ts::Named.go.",
+      "evidence": {
+        "public_api_candidate": false,
+        "verification": {
+          "files_scanned": 37,
+          "files_skipped": 0,
+          "status": "complete"
+        }
+      },
+      "file": "src/classes.ts",
+      "kind": "unused_symbol",
+      "line": 54,
+      "qualified_name": "src/classes.ts::Named.go"
+    },
+    {
+      "action": "Delete it, or point to the dynamic use the graph missed.",
+      "claim": "Nothing in the repository refers to src/components/App.tsx::Memo.",
+      "evidence": {
+        "public_api_candidate": true,
+        "verification": {
+          "files_scanned": 37,
+          "files_skipped": 0,
+          "status": "complete"
+        }
+      },
+      "file": "src/components/App.tsx",
+      "kind": "unused_symbol",
+      "line": 28,
+      "qualified_name": "src/components/App.tsx::Memo"
+    },
+    {
+      "action": "Delete it, or point to the dynamic use the graph missed.",
+      "claim": "Nothing in the repository refers to src/components/App.tsx::Fwd.",
+      "evidence": {
+        "public_api_candidate": true,
+        "verification": {
+          "files_scanned": 37,
+          "files_skipped": 0,
+          "status": "complete"
+        }
+      },
+      "file": "src/components/App.tsx",
+      "kind": "unused_symbol",
+      "line": 29,
+      "qualified_name": "src/components/App.tsx::Fwd"
+    },
+    {
+      "action": "Delete it, or point to the dynamic use the graph missed.",
+      "claim": "Nothing in the repository refers to src/cts-file.cts::inCts.",
+      "evidence": {
+        "public_api_candidate": true,
+        "verification": {
+          "files_scanned": 37,
+          "files_skipped": 0,
+          "status": "complete"
+        }
+      },
+      "file": "src/cts-file.cts",
+      "kind": "unused_symbol",
+      "line": 1,
+      "qualified_name": "src/cts-file.cts::inCts"
+    },
+    {
+      "action": "Delete it, or point to the dynamic use the graph missed.",
+      "claim": "Nothing in the repository refers to src/extra/Testimonial.tsx::TestimonialCard.",
+      "evidence": {
+        "public_api_candidate": true,
+        "verification": {
+          "files_scanned": 37,
+          "files_skipped": 0,
+          "status": "complete"
+        }
+      },
+      "file": "src/extra/Testimonial.tsx",
+      "kind": "unused_symbol",
+      "line": 1,
+      "qualified_name": "src/extra/Testimonial.tsx::TestimonialCard"
+    }
+  ],
+  "findings_omitted": {
+    "unused_symbol": 21
+  },
   "guidance": [
     {
       "action": "refactor_tool mode=\"suggest\" -- read the plan for this suggestion's type in plans, then run the verification commands before editing",
@@ -1756,7 +1921,7 @@
       "type": "remove"
     }
   ],
-  "summary": "Generated 31 refactoring suggestion(s).",
+  "summary": "Findings: 31 unused_symbol. Generated 31 refactoring suggestion(s).",
   "total": 31,
   "truncated": false,
   "work_packs": [
