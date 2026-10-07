@@ -24,8 +24,8 @@ ambiguous name costs a round trip with no hint of how to retry. This note
 defines the workflow, the response contract that carries it, the evidence,
 and the order of work.
 
-Status: accepted ([decisions](#decisions-2026-10-07)); steps 1–3 and 5,
-the additive half of step 4, and the contract check of step 6 are done
+Status: accepted ([decisions](#decisions-2026-10-07)); steps 1–3, 5, and
+7, the additive half of step 4, and the contract check of step 6 are done
 (see the [order of work](#order-of-work)).
 
 ## Target contract
@@ -295,9 +295,16 @@ evals already build.
    - Not covered: a Python-side dispatcher error reached through
      `dagayn tool` (not MCP) still carries `answerability`; the contract
      is the MCP surface's.
-7. One source of truth: a `workflow` section in
-   `docs/LLM-OPTIMIZED-REFERENCE.md`; skills, instruction files, and MCP
-   server instructions derive from it, with a drift test.
+7. **Done:** one source of truth. `dagayn/skills/workflow.py` holds the
+   phases and the `next` rule, as `trust.py` holds the trust tiers; the
+   `workflow` section of `docs/LLM-OPTIMIZED-REFERENCE.md` (with the reply
+   contract: arguments, budgets, `missingness`, the deprecated fields),
+   the installed instructions (`_CLAUDE_MD_SECTION`, refreshed in
+   `AGENTS.md` and `GEMINI.md`), and seven skills carry it verbatim, and
+   `tests/test_skills.py::test_skill_workflow_matches_the_canonical_block`
+   fails when a copy drifts. The MCP server instructions name `next` and
+   the `workflow` section in two sentences, inside the default
+   descriptions' 8,500-character budget.
 8. After one release: remove the deprecated next-step fields.
 
 ## Touch points
