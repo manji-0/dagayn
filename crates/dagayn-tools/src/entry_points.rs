@@ -123,7 +123,10 @@ fn search(store: &GraphStore, targets: &[GraphNode]) -> Option<Search> {
         for node in &level {
             let qn = node.qualified_name.as_str();
             let has_callers = callers.get(qn).is_some_and(|list| !list.is_empty());
-            if let Some(kind) = entry_kind(node, has_callers) {
+            // A target is its own entry point only when nothing calls it; a
+            // called target named like an entry (`render`, `handle`) is not.
+            let kind = entry_kind(node, has_callers).filter(|_| depth > 0 || !has_callers);
+            if let Some(kind) = kind {
                 let mut chain = vec![node.qualified_name.clone()];
                 while let Some(Some(step)) = next.get(chain.last()?) {
                     chain.push(step.clone());

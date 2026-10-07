@@ -813,7 +813,7 @@ fn decorator_res() -> &'static [Regex] {
             r"(app|router)\.(get|post|put|delete|patch|use|all)\b",
             r"(?i)@(Override|OnLifecycleEvent|Composable)",
             r"(?i)(HiltViewModel|AndroidEntryPoint|Inject)",
-            r"(?i)\w+\.(tool|tool_plain|system_prompt|result_validator)\b",
+            r"(?i)\w+\.(tool|tool_plain|prompt|resource|system_prompt|result_validator)\b",
             r"^tool\b",
             r"(?i)\w+\.(middleware|exception_handler|on_exception)\b",
             r"(?i)\w+\.route\b",

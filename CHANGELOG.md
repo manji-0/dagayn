@@ -13,9 +13,11 @@ All notable changes to `dagayn` are documented here.
   (`dispatched_method`, reached through a trait, interface, or framework).
   The search stops at the nearest entry point on each path, never walks
   test code, and reads no stored flows, so it answers on a graph built
-  without flows. `limit` defaults to 10 here. See
-  `docs/plans/FLOW-TOOL-TARGET.md`.
-- `eval/run_flow_eval.py` scores the entry points on 12 fixture cases per
+  without flows. `limit` defaults to 10 here. The target itself is listed
+  only when nothing calls it. FastMCP-style `@mcp.prompt` and
+  `@mcp.resource` decorators count as framework entry points, for the
+  stored flow trace too. See `docs/plans/FLOW-TOOL-TARGET.md`.
+- `eval/run_flow_eval.py` scores the entry points on 13 fixture cases per
   entry kind and checks every chain hop against the built graph; CI gates
   it like the review and architecture evals.
 

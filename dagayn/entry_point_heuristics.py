@@ -56,7 +56,9 @@ _FRAMEWORK_DECORATOR_PATTERNS: list[re.Pattern[str]] = [
     # Kotlin coroutines / Android ViewModel
     re.compile(r"(HiltViewModel|AndroidEntryPoint|Inject)", re.IGNORECASE),
     # AI/agent frameworks (pydantic-ai, langchain, etc.)
-    re.compile(r"\w+\.(tool|tool_plain|system_prompt|result_validator)\b", re.IGNORECASE),
+    re.compile(
+        r"\w+\.(tool|tool_plain|prompt|resource|system_prompt|result_validator)\b", re.IGNORECASE
+    ),
     re.compile(r"^tool\b"),  # bare @tool (LangChain, etc.)
     # Middleware and exception handlers (Starlette, FastAPI, Sanic)
     re.compile(r"\w+\.(middleware|exception_handler|on_exception)\b", re.IGNORECASE),

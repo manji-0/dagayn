@@ -1,0 +1,21 @@
+description: An MCP prompt function is registered with @mcp.prompt(); nothing calls it, but it is a framework handler, not merely uncalled.
+target: server/text.py::render
+files:
+  server/__init__.py: ""
+  server/main.py: |
+    from mcp.server.fastmcp import FastMCP
+
+    from server.text import render
+
+    mcp = FastMCP("demo")
+
+
+    @mcp.prompt()
+    def review_changes():
+        return render("review")
+  server/text.py: |
+    def render(name):
+        return name.upper()
+expected_entry_points:
+- entry_point: server/main.py::review_changes
+  kind: framework_handler

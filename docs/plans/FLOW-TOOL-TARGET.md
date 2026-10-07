@@ -157,7 +157,7 @@ which is itself an entry point.
 | `node_text` | 833 | 11 (10 shown) | 7,994 | 3 dispatched visitor methods, 6 FFI parse entry points, `main` |
 
 Each search takes 0.15–0.2 s and reads no stored flow. On the eval set
-(12 cases, 3 negative) every gated kind has precision and recall 1.00,
+(13 cases, 3 negative) every gated kind has precision and recall 1.00,
 every chain hop is a graph edge, and the output is 3.2–3.8K characters.
 
 ## Modes
@@ -219,7 +219,8 @@ eval also shows the mode needs no stored flows.
   caller is called only from tests; one called by a `main` under
   `tests/fixtures/`. Each expects no entry points.
 - **Seeded positives**: a Python `main`, a `@click.command`, a FastAPI
-  route, a `handle_*` function called by `main` (only the handler is
+  route, an `@mcp.prompt` function whose target is named like an entry
+  (`render`, which must not be listed itself), a `handle_*` function called by `main` (only the handler is
   expected), a module-level script, a Rust `main`, a Rust trait method
   (expected as `dispatched_method`), an uncalled TypeScript export, and two
   entry points reaching one target.
