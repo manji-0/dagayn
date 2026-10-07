@@ -114,6 +114,7 @@ def _refactor_predictions(repo_path: Path, case: BenchmarkPayload) -> list[str]:
         mode="suggest",
         repo_root=str(repo_path),
         limit=int(case.get("limit") or case.get("k") or 5),
+        detail_level="verbose",
     )
     suggestions = list(result.get("suggestions", [])) if isinstance(result, dict) else []
     out: list[str] = []

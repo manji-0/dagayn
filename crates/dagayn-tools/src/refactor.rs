@@ -81,7 +81,7 @@ pub(crate) fn refactor(context: &Context, arguments: &Map<String, Value>) -> Opt
     let out = if mode == "dead_code" {
         dead_code(store, &answerability, kind, file_pattern, limit)?
     } else {
-        suggest(store, &answerability, limit, detail_level)?
+        suggest(store, &graph.root, &answerability, limit, detail_level)?
     };
     let exposed = |tool: &str| context.exposes(tool);
     // `suggest` takes its hints from its guidance when that names a step.
@@ -287,32 +287,94 @@ fn unused_symbol_findings(store: &dagayn_graph::GraphStore) -> Option<(Vec<Value
     Some((found.into_iter().take(FINDINGS_PER_KIND).collect(), omitted))
 }
 
+/// Fields `suggest` keeps only at `detail_level="verbose"`, for one release
+/// (docs/plans/REFACTOR-TOOL-TARGET.md#order-of-work).
+const DEPRECATED_FIELDS: &[&str] = &[
+    "suggestions",
+    "work_packs",
+    "guidance",
+    "total",
+    "truncated",
+    "counts_by_type",
+];
+
 fn suggest(
     store: &dagayn_graph::GraphStore,
+    root: &std::path::Path,
     answerability: &Answerability,
     limit: i64,
     detail_level: &str,
 ) -> Option<Ordered> {
+    let suggestions = crate::suggestions::ranked_suggestions(store)?;
+    let splits: Vec<&Value> = suggestions
+        .iter()
+        .filter(|s| s["type"] == "split")
+        .collect();
+    let hotspots = crate::refactor_findings::complex_hotspots(store, root, &splits);
+    let undocumented = crate::refactor_findings::undocumented_surface(store, root)?;
     let (unused, unused_omitted) = unused_symbol_findings(store)?;
-    let findings_summary = if unused.is_empty() {
-        "Findings: nothing worth doing.".to_string()
-    } else {
-        format!("Findings: {} unused_symbol.", unused.len() + unused_omitted)
-    };
+
+    let mut findings: Vec<Value> = unused;
     let mut omitted = Map::new();
+    let mut counts: Vec<(&str, usize)> = vec![("unused_symbol", findings.len() + unused_omitted)];
     if unused_omitted > 0 {
         omitted.insert("unused_symbol".into(), json!(unused_omitted));
     }
-    let findings = Value::Array(unused);
-    let findings_omitted = Value::Object(omitted);
-    let suggestions = crate::suggestions::ranked_suggestions(store)?;
+    for (kind, found) in [
+        ("complex_hotspot", hotspots.clone().unwrap_or_default()),
+        ("undocumented_surface", undocumented),
+    ] {
+        counts.push((kind, found.len()));
+        if found.len() > FINDINGS_PER_KIND {
+            omitted.insert(kind.into(), json!(found.len() - FINDINGS_PER_KIND));
+        }
+        findings.extend(found.into_iter().take(FINDINGS_PER_KIND));
+    }
+    if detail_level == "minimal" {
+        for finding in &mut findings {
+            if let Some(object) = finding.as_object_mut() {
+                object.remove("evidence");
+            }
+        }
+    }
+    let fired: Vec<String> = counts
+        .iter()
+        .filter(|(_, n)| *n > 0)
+        .map(|(kind, n)| format!("{n} {kind}"))
+        .collect();
+    let summary = if fired.is_empty() {
+        "Nothing worth refactoring.".to_string()
+    } else {
+        format!("Findings: {}.", fired.join(", "))
+    };
+    let mut missingness = answerability.missingness();
+    if hotspots.is_none() {
+        missingness.push(json!({
+            "reason_code": "no_git_history",
+            "severity": "medium",
+            "claim_effect": "complex_hotspot needs git history; it was not checked",
+        }));
+    }
+    let out = Ordered::default()
+        .put("status", "ok")
+        .put("summary", summary)
+        .put("findings", Value::Array(findings))
+        .put("findings_omitted", Value::Object(omitted));
+    if detail_level != "verbose" {
+        return Some(
+            out.put("answerability", answerability.full())
+                .put("missingness", json!(missingness)),
+        );
+    }
+
+    // The earlier, size-based suggestions.
     let total = suggestions.len();
     let truncated = total as i64 > limit;
-    let mut counts = Map::new();
+    let mut by_type = Map::new();
     for s in &suggestions {
         let key = s["type"].as_str().unwrap_or("unknown").to_string();
-        let count = counts.get(&key).and_then(Value::as_i64).unwrap_or(0) + 1;
-        counts.insert(key, json!(count));
+        let count = by_type.get(&key).and_then(Value::as_i64).unwrap_or(0) + 1;
+        by_type.insert(key, json!(count));
     }
     let shown = py_prefix(&suggestions, limit);
     let packs: Vec<Value> = py_prefix(&suggestions, limit.min(5))
@@ -330,90 +392,17 @@ fn suggest(
             Value::Object(pack)
         })
         .collect();
-    let mut summary = format!("{findings_summary} Generated {total} refactoring suggestion(s).");
-    if truncated {
-        summary.push_str(&format!(" Showing first {limit}."));
-    }
-    let mut guidance = refactor_guidance(&shown);
-    if detail_level == "verbose" {
-        return Some(
-            Ordered::default()
-                .put("status", "ok")
-                .put("summary", summary)
-                .put("findings", findings)
-                .put("findings_omitted", findings_omitted)
-                .put("suggestions", Value::Array(shown))
-                .put("work_packs", Value::Array(packs))
-                .put("guidance", Value::Array(guidance))
-                .put("total", total)
-                .put("truncated", truncated)
-                .put("counts_by_type", Value::Object(counts))
-                .put("answerability", answerability.full())
-                .put("missingness", json!(answerability.missingness())),
-        );
-    }
-    // Each type's plan is the same text for every suggestion of that type:
-    // state it once.
-    let mut plans = Map::new();
-    for s in &shown {
-        let kind = s["type"].as_str().unwrap_or("unknown");
-        if !plans.contains_key(kind) {
-            let mut plan = s.get("execution_plan").cloned().unwrap_or(json!({}));
-            if let Some(object) = plan.as_object_mut() {
-                object.remove("required_tests");
-            }
-            plans.insert(kind.to_string(), plan);
-        }
-    }
-    let shown: Vec<Value> = shown
-        .into_iter()
-        .map(|mut s| {
-            if let Some(object) = s.as_object_mut() {
-                for key in ["execution_plan", "work_pack", "verification_steps"] {
-                    object.remove(key);
-                }
-                if detail_level == "minimal" {
-                    object.remove("evidence");
-                } else if let Some(evidence) =
-                    object.get_mut("evidence").and_then(Value::as_object_mut)
-                {
-                    evidence.remove("concern_separation");
-                }
-            }
-            s
-        })
-        .collect();
-    // The guidance repeats a suggestion's evidence, which `suggestions`
-    // already carries.
-    for item in &mut guidance {
-        if let Some(evidence) = item.get_mut("evidence").and_then(Value::as_object_mut) {
-            evidence.remove("raw");
-        }
-        if let Some(object) = item.as_object_mut() {
-            object.remove("work_pack");
-            object.insert(
-                "action".into(),
-                json!("refactor_tool mode=\"suggest\" -- read the plan for this suggestion's type in plans, then run the verification commands before editing"),
-            );
-        }
-    }
-    let mut out = Ordered::default()
-        .put("status", "ok")
-        .put("summary", summary)
-        .put("findings", findings)
-        .put("findings_omitted", findings_omitted)
-        .put("suggestions", Value::Array(shown))
-        .put("plans", Value::Object(plans));
-    if detail_level != "minimal" {
-        out = out.put("work_packs", Value::Array(packs));
-    }
+    let guidance = refactor_guidance(&shown);
     Some(
-        out.put("guidance", Value::Array(guidance))
+        out.put("suggestions", Value::Array(shown))
+            .put("work_packs", Value::Array(packs))
+            .put("guidance", Value::Array(guidance))
             .put("total", total)
             .put("truncated", truncated)
-            .put("counts_by_type", Value::Object(counts))
+            .put("counts_by_type", Value::Object(by_type))
+            .put("deprecated_fields", json!(DEPRECATED_FIELDS))
             .put("answerability", answerability.full())
-            .put("missingness", json!(answerability.missingness())),
+            .put("missingness", json!(missingness)),
     )
 }
 

@@ -8,6 +8,5 @@ defaults:
   recall_floor: 0.8
 kinds:
   unused_symbol: {}
-  # Not implemented until step 5 of the order of work: reported, not gated.
-  complex_hotspot: {gated: false}
-  undocumented_surface: {gated: false}
+  complex_hotspot: {}
+  undocumented_surface: {}

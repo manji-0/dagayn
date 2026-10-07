@@ -811,7 +811,7 @@ def refactor_tool(
     """Plan refactors from the graph: suggestions, dead code, rename previews.
 
     Modes:
-    - suggest (default): ``findings``; split/document leads.
+    - suggest (default): ``findings``; "verbose" adds the old leads.
     - dead_code: functions/classes nothing refers to: no caller, test,
       importer, entry point, registration, FFI export, override, or other
       mention of the name. Candidates that may still be used are counted in

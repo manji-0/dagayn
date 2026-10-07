@@ -36,6 +36,7 @@ mod pyunicode;
 mod query;
 mod questions;
 mod refactor;
+mod refactor_findings;
 mod repos;
 mod review;
 mod review_summary;

@@ -2489,7 +2489,11 @@ class TestRefactorToolWithNativeBackend:
         result = refactor_tools.refactor_func(mode="suggest", repo_root=str(repo), limit=50)
 
         assert result["status"] == "ok", result
-        assert isinstance(result["suggestions"], list)
+        assert isinstance(result["findings"], list)
+        verbose = refactor_tools.refactor_func(
+            mode="suggest", repo_root=str(repo), limit=50, detail_level="verbose"
+        )
+        assert isinstance(verbose["suggestions"], list)
 
     def test_rename_mode(self, tmp_path, monkeypatch):
         monkeypatch.setenv("DAGAYN_BACKEND", "rust")

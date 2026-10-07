@@ -75,6 +75,14 @@ All notable changes to `dagayn` are documented here.
   went from 221K to 71K characters. A rename preview lists the first 20
   `edits` with `edits_omitted` and per-file `files` counts (585 edits for
   `node_text`: 91K to 8K characters); `verbose` keeps the earlier layout.
+- `refactor_tool(mode="suggest")` adds the `complex_hotspot` finding (a
+  function past the split thresholds whose lines changed in 5 or more
+  commits in the last 90 days) and `undocumented_surface` (a symbol other
+  units use most, without documentation). Below `verbose` the reply is the
+  findings alone (about 9K characters here, from 71K); the size-based
+  `suggestions`, `work_packs`, `guidance`, and `counts_by_type` are only in
+  `verbose` for one release, listed in `deprecated_fields`. All three kinds
+  are gated in CI at precision and recall 1.00 on the eval.
 - `refactor_tool(mode="suggest")` answers with `findings` (and
   `findings_omitted`), a list of refactors worth doing that is empty when
   there is none. The first kind is `unused_symbol`, the verified dead-code

@@ -54,10 +54,8 @@
     "score": 0.75,
     "status": "ok"
   },
-  "counts_by_type": {},
   "findings": [],
   "findings_omitted": {},
-  "guidance": [],
   "missingness": [
     {
       "claim_effect": "claims should be treated as graph-limited until this is resolved",
@@ -70,11 +68,6 @@
       "severity": "medium"
     }
   ],
-  "plans": {},
   "status": "ok",
-  "suggestions": [],
-  "summary": "Findings: nothing worth doing. Generated 0 refactoring suggestion(s).",
-  "total": 0,
-  "truncated": false,
-  "work_packs": []
+  "summary": "Nothing worth refactoring."
 }

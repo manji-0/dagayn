@@ -1402,39 +1402,36 @@ fn refactor_finds_dead_code_and_suggests() {
         Some(false)
     );
     let suggest = answer(&context, "refactor_tool", json!({}));
-    assert!(
-        suggest["suggestions"]
-            .as_array()
-            .is_some_and(|s| s.iter().any(|x| x["type"] == "remove"))
-    );
-    assert!(suggest["work_packs"].is_array());
     assert_eq!(suggest["findings"][0]["kind"], "unused_symbol");
     assert_eq!(
         suggest["findings"][0]["qualified_name"],
         "unused.py::orphan"
     );
+    assert!(suggest["findings"][0]["evidence"].is_object());
     assert_eq!(suggest["findings_omitted"], json!({}));
-    // Each type's plan is stated once, not on every suggestion.
-    let remove = suggest["suggestions"]
-        .as_array()
-        .and_then(|s| s.iter().find(|x| x["type"] == "remove"))
-        .expect("remove");
-    assert!(remove.get("execution_plan").is_none() && remove.get("work_pack").is_none());
-    assert!(suggest["plans"]["remove"]["minimum_steps"].is_array());
+    assert_eq!(suggest["summary"], "Findings: 1 unused_symbol.");
+    // The size-based suggestions are verbose-only, for one release.
+    assert!(suggest.get("suggestions").is_none());
     let minimal = answer(
         &context,
         "refactor_tool",
         json!({"detail_level": "minimal"}),
     );
-    assert!(minimal.get("work_packs").is_none());
+    assert!(minimal["findings"][0].get("evidence").is_none());
     let verbose = answer(
         &context,
         "refactor_tool",
         json!({"detail_level": "verbose"}),
     );
+    assert!(
+        verbose["suggestions"]
+            .as_array()
+            .is_some_and(|s| s.iter().any(|x| x["type"] == "remove"))
+    );
     assert!(verbose["suggestions"][0]["work_pack"].is_object());
-    assert!(verbose.get("plans").is_none());
-    let steps = &suggest["_hints"]["next_steps"];
+    assert!(verbose["work_packs"].is_array());
+    assert_eq!(verbose["deprecated_fields"][0], "suggestions");
+    let steps = &verbose["_hints"]["next_steps"];
     let unique: std::collections::HashSet<String> = steps
         .as_array()
         .into_iter()

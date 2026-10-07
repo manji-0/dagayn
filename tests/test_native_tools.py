@@ -179,7 +179,15 @@ def test_refactor_dead_code_answers_through_rust(unused_repo: Path) -> None:
 
 
 def test_refactor_suggest_answers_through_rust(unused_repo: Path) -> None:
-    result = refactor_func(mode="suggest", top_n=1, repo_root=str(unused_repo))
+    findings = refactor_func(mode="suggest", repo_root=str(unused_repo))
+    assert {f["qualified_name"] for f in findings["findings"]} == {
+        "lib.py::orphan_one",
+        "lib.py::orphan_two",
+        "lib.py::orphan_three",
+    }
+    result = refactor_func(
+        mode="suggest", top_n=1, detail_level="verbose", repo_root=str(unused_repo)
+    )
     assert result["status"] == "ok"
     assert result["total"] >= 1
     assert len(result["suggestions"]) == 1
@@ -196,9 +204,9 @@ def test_refactor_suggest_answers_through_rust(unused_repo: Path) -> None:
 
 
 def test_refactor_defaults_to_suggest_like_the_mcp_tool(unused_repo: Path) -> None:
-    result = refactor_func(top_n=1, repo_root=str(unused_repo))
+    result = refactor_func(repo_root=str(unused_repo))
     assert result["status"] == "ok"
-    assert len(result["suggestions"]) == 1
+    assert result["summary"] == "Findings: 3 unused_symbol."
 
 
 @pytest.fixture
