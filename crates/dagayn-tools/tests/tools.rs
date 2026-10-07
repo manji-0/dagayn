@@ -2301,3 +2301,152 @@ fn every_reply_names_calls_that_answer_and_fits_its_budget() {
     assert!(followed >= 10, "only {followed} calls followed");
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// Runs `first` and then each reply's `next[0]` (but a shell command), at
+/// most `limit` calls in all; the calls made, with their replies.
+fn follow_next(
+    context: &Context,
+    first: (&str, Value),
+    limit: usize,
+) -> Vec<(String, Value, Value)> {
+    let mut trace = Vec::new();
+    let (mut tool, mut args) = (first.0.to_string(), first.1);
+    while trace.len() < limit {
+        let reply = answer(context, &tool, args.clone());
+        let step = reply["next"]
+            .as_array()
+            .and_then(|next| next.iter().find(|call| call["tool"] != "shell"))
+            .cloned();
+        trace.push((tool, args, reply));
+        let Some(step) = step else {
+            break;
+        };
+        tool = step["tool"].as_str().expect("tool").to_string();
+        args = step["args"].clone();
+    }
+    trace
+}
+
+/// docs/plans/AGENT-WORKFLOW-TARGET.md#evaluation, the follow-the-next
+/// traces: from the first call of a task, following `next[0]` reaches the
+/// answer within six calls.
+#[test]
+fn following_next_reaches_the_answer() {
+    let repo = Repo::new("traces", true);
+    repo.write(".gitignore", ".dagayn/\n");
+    repo.write("lib.py", "def helper():\n    return 2\n");
+    repo.build();
+    let context = Context {
+        runtime: Some(json!({})),
+        ..repo.context()
+    };
+    let shown = |trace: &[(String, Value, Value)]| {
+        trace
+            .iter()
+            .map(|(tool, args, reply)| format!("{tool} {args} -> {}", reply["status"]))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    // A symptom: the trace finds the function and reads who calls it.
+    let trace = follow_next(
+        &context,
+        (
+            "get_minimal_context_tool",
+            json!({"task": "debug why main fails"}),
+        ),
+        6,
+    );
+    assert!(
+        trace
+            .iter()
+            .any(|(tool, args, reply)| tool == "query_graph_tool"
+                && args["pattern"] == "callers_of"
+                && args["target"] == "app.py::main"
+                && reply["status"] == "ok"),
+        "{}",
+        shown(&trace)
+    );
+
+    // An ambiguous name: one retry, then an answer.
+    let trace = follow_next(
+        &context,
+        (
+            "query_graph_tool",
+            json!({"pattern": "callers_of", "target": "helper"}),
+        ),
+        2,
+    );
+    assert_eq!(trace[0].2["status"], "ambiguous", "{}", shown(&trace));
+    assert_eq!(trace[1].2["status"], "ok", "{}", shown(&trace));
+
+    // A change that nothing tests: the review names it.
+    repo.write(
+        "app.py",
+        "def main():\n    return helper()\n\n\ndef helper():\n    pass\n\n\ndef added():\n    return 1\n",
+    );
+    repo.build();
+    let trace = follow_next(
+        &context,
+        (
+            "get_minimal_context_tool",
+            json!({"task": "review my change"}),
+        ),
+        6,
+    );
+    assert!(
+        trace.iter().any(|(tool, _, reply)| tool == "review_tool"
+            && reply["findings"]
+                .as_array()
+                .is_some_and(|findings| findings.iter().any(|f| f["kind"] == "untested_change"))),
+        "{}",
+        shown(&trace)
+    );
+}
+
+/// docs/plans/AGENT-WORKFLOW-TARGET.md#evaluation, the discrimination check:
+/// on a graph that matches its commit, no reply carries a medium or high
+/// caveat about the graph.
+#[test]
+fn a_fresh_graph_raises_no_caveats() {
+    let repo = Repo::new("fresh", true);
+    repo.build();
+    let context = Context {
+        runtime: Some(json!({})),
+        ..repo.context()
+    };
+    let graph_codes = [
+        "stale_derived_structures",
+        "missing_flows",
+        "missing_communities",
+        "graph_describes_another_commit",
+        "uncommitted_changes_may_be_unindexed",
+        "graph_built_by_older_extractor",
+        "many_unresolved_cross_artifact_edges",
+    ];
+    let cases = [
+        ("semantic_search_nodes_tool", json!({"query": "helper"})),
+        (
+            "query_graph_tool",
+            json!({"pattern": "callers_of", "target": "app.py::helper"}),
+        ),
+        (
+            "flow_tool",
+            json!({"mode": "entry_points", "target": "app.py::helper"}),
+        ),
+        ("review_tool", json!({"mode": "changes", "base": "HEAD"})),
+        ("architecture_analysis_tool", json!({})),
+        ("refactor_tool", json!({})),
+    ];
+    let mut noisy = Vec::new();
+    for (tool, arguments) in cases {
+        let reply = answer(&context, tool, arguments.clone());
+        for item in reply["missingness"].as_array().into_iter().flatten() {
+            let code = item["reason_code"].as_str().unwrap_or("");
+            if graph_codes.contains(&code) && item["severity"] != "low" {
+                noisy.push(format!("{tool} {arguments}: {code}"));
+            }
+        }
+    }
+    assert!(noisy.is_empty(), "{}", noisy.join("\n"));
+}

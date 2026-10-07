@@ -158,7 +158,7 @@ fn first_calls(
     sync_first: Option<&str>,
     exposes: &dyn Fn(&str) -> bool,
 ) -> Value {
-    let task = task.trim();
+    let terms = search_terms(task);
     let mut review = json!({"detail_level": "minimal"});
     if let Some(base) = base {
         review["base"] = json!(base);
@@ -168,10 +168,10 @@ fn first_calls(
         review,
         "findings: what the change needs checked beyond its diff",
     );
-    let search = (!task.is_empty()).then(|| {
+    let search = (!terms.is_empty()).then(|| {
         next::call(
             "semantic_search_nodes_tool",
-            json!({"query": task, "detail_level": "minimal"}),
+            json!({"query": terms, "detail_level": "minimal"}),
             "locate the code the task is about",
         )
     });
@@ -200,6 +200,33 @@ fn first_calls(
     calls.retain(|call| call["tool"].as_str().is_some_and(exposes));
     calls.truncate(next::MAX_NEXT);
     Value::Array(calls)
+}
+
+/// Words of a task that say how to work, not what to look for.
+const TASK_WORDS: &[&str] = &[
+    "a", "an", "and", "are", "broken", "change", "changes", "code", "crash", "crashes", "do",
+    "does", "explain", "fail", "failing", "fails", "find", "for", "how", "i", "in", "is", "issue",
+    "it", "look", "me", "my", "of", "on", "our", "please", "problem", "show", "the", "this", "to",
+    "we", "what", "when", "where", "why", "with", "wrong",
+];
+
+/// The task's search terms: its words less the ones that route it to a
+/// workflow and those that say how to work. Search requires its most
+/// selective word, so "debug why login fails" must search for "login", not
+/// for "fails". Words outside ASCII (a Japanese task) are kept as they are.
+fn search_terms(task: &str) -> String {
+    let routing = [REVIEW, DEBUG, FEATURE, REFACTOR, EXPLORE];
+    task.split_whitespace()
+        .filter(|word| {
+            let bare = casefold(word.trim_matches(|c: char| c.is_ascii_punctuation()));
+            !bare.is_empty()
+                && !TASK_WORDS.contains(&bare.as_str())
+                && !routing
+                    .iter()
+                    .any(|keywords| keywords.contains(&bare.as_str()))
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Up to `limit` non-empty `name`s of `items` (`_names_from_items`).

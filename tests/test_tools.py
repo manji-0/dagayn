@@ -2593,7 +2593,8 @@ class TestGetMinimalContext:
         )
         # After ensure_graph_tool when the fixture's graph trails HEAD.
         assert {
-            "args": {"detail_level": "minimal", "query": "debug login bug"},
+            # The routing words go; the search requires its most selective word.
+            "args": {"detail_level": "minimal", "query": "login"},
             "tool": "semantic_search_nodes_tool",
             "why": "locate the code the task is about",
         } in result["next"]
