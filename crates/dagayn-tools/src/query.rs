@@ -1259,6 +1259,7 @@ fn not_found(
 
 /// The early `ambiguous` answer of `resolve_query_target`.
 fn ambiguous(
+    arguments: &Map<String, Value>,
     pattern: &str,
     target: &str,
     candidates: &[&GraphNode],
@@ -1291,6 +1292,19 @@ fn ambiguous(
             ),
         )
         .put("candidates_truncated", candidates.len() >= 5)
+        .put(
+            "next",
+            crate::next::retries(
+                "query_graph_tool",
+                arguments,
+                &[
+                    ("pattern", None),
+                    ("depth", Some(json!(1))),
+                    ("detail_level", Some(json!("standard"))),
+                ],
+                candidates,
+            ),
+        )
         .put("answerability", answerability.full())
         .put("missingness", json!(missingness))
         .put("_repo", graph.repo_context())
@@ -1411,9 +1425,11 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
                 let hits = store.search_nodes(target, NAME_SEARCH_LIMIT).ok()?;
                 let named: Vec<&GraphNode> = hits.iter().filter(|hit| hit.name == target).collect();
                 let candidates: Vec<&GraphNode> = if named.is_empty() {
-                    hits.iter().take(5).collect()
+                    crate::next::tests_last(hits.iter().take(5))
                 } else {
-                    named.iter().copied().take(5).collect()
+                    let mut named = crate::next::tests_last(named.iter().copied());
+                    named.truncate(5);
+                    named
                 };
                 if named.len() == 1 {
                     (Some(named[0].clone()), Resolution::ExactName)
@@ -1421,6 +1437,7 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
                     (Some(candidates[0].clone()), Resolution::Fuzzy)
                 } else if candidates.len() > 1 {
                     return Some(ambiguous(
+                        arguments,
                         pattern,
                         target,
                         &candidates,

@@ -89,6 +89,7 @@ pub(crate) fn flow(context: &Context, arguments: &Map<String, Value>) -> Option<
         let out = match target.filter(|t| !t.is_empty()) {
             Some(target) => crate::entry_points::entry_points(
                 &graph.store,
+                arguments,
                 &answerability,
                 target,
                 limit,

@@ -450,6 +450,47 @@ fn minimal_context_never_queues_outside_a_repository() {
 }
 
 #[test]
+fn an_ambiguous_target_names_its_retries() {
+    let repo = Repo::new("ambiguous", false);
+    repo.write("lib.py", "def helper():\n    pass\n");
+    repo.build();
+    let context = Context {
+        runtime: Some(json!({})),
+        ..repo.context()
+    };
+    let query = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": "helper", "depth": 2}),
+    );
+    assert_eq!(query["status"], "ambiguous");
+    let targets: Vec<&Value> = query["next"]
+        .as_array()
+        .expect("next")
+        .iter()
+        .map(|call| &call["args"]["target"])
+        .collect();
+    assert_eq!(targets.len(), 2, "{}", query["next"]);
+    assert!(targets.contains(&&json!("app.py::helper")), "{targets:?}");
+    assert!(targets.contains(&&json!("lib.py::helper")), "{targets:?}");
+    assert_eq!(query["next"][0]["args"]["depth"], 2);
+    assert_eq!(query["next"][0]["args"]["pattern"], "callers_of");
+
+    let flow = answer(
+        &context,
+        "flow_tool",
+        json!({"mode": "entry_points", "target": "helper"}),
+    );
+    assert_eq!(flow["status"], "ambiguous");
+    assert_eq!(flow["next"][0]["tool"], "flow_tool");
+    assert_eq!(flow["next"][0]["args"]["mode"], "entry_points");
+    // The hints say the retry, not the generic follow-ups.
+    assert_eq!(flow["_hints"]["next_steps"][0]["tool"], "flow_tool");
+    let retried = answer(&context, "flow_tool", flow["next"][0]["args"].clone());
+    assert_eq!(retried["status"], "ok");
+}
+
+#[test]
 fn query_graph_answers_callers_and_callees_of_exact_targets() {
     let repo = Repo::new("query", false);
     repo.build();

@@ -84,6 +84,8 @@ fn resolve(store: &GraphStore, target: &str) -> Option<Result<Option<GraphNode>,
         0 => Some(Ok(None)),
         1 => Some(Ok(named.pop())),
         _ => {
+            // Production code first, as `next::tests_last` orders it.
+            named.sort_by_key(|node| node.is_test);
             named.truncate(MAX_CANDIDATES);
             Some(Err(named))
         }
@@ -215,6 +217,7 @@ fn entry_value(entry: &Entry, detail_level: &str) -> Value {
 /// `flow_tool(mode="entry_points")`.
 pub(crate) fn entry_points(
     store: &GraphStore,
+    arguments: &Map<String, Value>,
     answerability: &Answerability,
     target: &str,
     limit: i64,
@@ -239,6 +242,17 @@ pub(crate) fn entry_points(
             );
         }
         Err(candidates) => {
+            let shown: Vec<&GraphNode> = candidates.iter().collect();
+            let next = crate::next::retries(
+                "flow_tool",
+                arguments,
+                &[
+                    ("mode", None),
+                    ("limit", None),
+                    ("detail_level", Some(json!("standard"))),
+                ],
+                &shown,
+            );
             let mut missingness = answerability.missingness();
             missingness.push(json!({
                 "reason_code": "ambiguous_target",
@@ -257,8 +271,10 @@ pub(crate) fn entry_points(
                         "candidates",
                         json!(candidates.iter().map(node_dict).collect::<Vec<_>>()),
                     )
+                    .put("next", next.clone())
                     .put("answerability", answerability.full())
-                    .put("missingness", json!(missingness)),
+                    .put("missingness", json!(missingness))
+                    .put("_hints", crate::next::as_hints(&next)),
             );
         }
     };

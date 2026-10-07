@@ -67,6 +67,32 @@
       "severity": "medium"
     }
   ],
+  "next": [
+    {
+      "args": {
+        "pattern": "implementations_of",
+        "target": "docs/README.md::graph-api"
+      },
+      "tool": "query_graph_tool",
+      "why": "'graph-api' as the DocSection at docs/README.md:5"
+    },
+    {
+      "args": {
+        "pattern": "implementations_of",
+        "target": "docs/README.md::graph-api--body-1"
+      },
+      "tool": "query_graph_tool",
+      "why": "'graph-api--body-1' as the DocBody at docs/README.md:7"
+    },
+    {
+      "args": {
+        "pattern": "implementations_of",
+        "target": "docs/README.md"
+      },
+      "tool": "query_graph_tool",
+      "why": "'docs/README.md' as the File at docs/README.md:1"
+    }
+  ],
   "pattern": "implementations_of",
   "result_count": 0,
   "results": [],
