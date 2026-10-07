@@ -259,10 +259,11 @@ high-confidence CROSS_ARTIFACT traceability; the default `strict_static` profile
 keeps design-principle metrics on static dependency edges.
 Architecture and flow outputs are calibrated leads: the architecture overview's
 `findings` are claims to confirm at the location each names, and its SDP/SAP
-modes report formulas and thresholds per declared unit; `flow_tool` reports
-a CALLS reachable set (not an ordered execution path), discloses truncation via
-`truncated` / `truncation_reason`, and reminds clients that criticality is a
-ranking signal, not a coverage guarantee.
+modes report formulas and thresholds per declared unit; `flow_tool(mode="entry_points")`
+returns the nearest entry points reaching a symbol with one call chain each,
+computed at query time; its stored-flow modes (`list`, `get`) report a CALLS
+reachable set (not an ordered execution path), disclose truncation via
+`truncated` / `truncation_reason`, and remain for one release.
 Tool responses also include `_runtime` metadata (`version`, `pid`, `python`,
 and `package_root`) so you can spot when a long-lived MCP server is still
 serving an older dagayn process than a direct `dagayn tool ...` CLI check.

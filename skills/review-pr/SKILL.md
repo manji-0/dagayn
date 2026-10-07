@@ -55,9 +55,9 @@ retrieval setup.
    `query_graph_tool(pattern="source_of")`. Open a whole file only when that
    span is truncated, stale, or you need its neighbors.
 6. **Confirm each finding, then drill down where it raises a question**:
-   - Blast radius: `review_tool(mode="impact", base=...)`; flows:
-     `review_tool(mode="affected_flows", base=...)` or `flow_tool(mode="get",
-     flow_name=...)`.
+   - Blast radius: `review_tool(mode="impact", base=...)`; the entry points
+     that reach the change: `review_tool(mode="affected_flows", base=...)`,
+     or `flow_tool(mode="entry_points", target=...)` for one symbol.
    - Callers of a changed public function:
      `query_graph_tool(pattern="callers_of", target=..., depth=3)` (up to 6) —
      check `reachability` before calling it the full set. Call targets marked

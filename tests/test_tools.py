@@ -1215,29 +1215,41 @@ class TestFlowTools:
             mode="affected_flows", changed_files=["auth.py"], repo_root=str(self.root)
         )
         assert result["status"] == "ok"
+        # handle_request reaches the changed check_auth.
+        entries = [e["entry_point"] for e in result["entry_points"]]
+        assert any(e.endswith("::handle_request") for e in entries)
+        assert "affected_flows" not in result
+
+    def test_get_affected_flows_verbose_keeps_the_stored_flows(self):
+        result = review_func(
+            mode="affected_flows",
+            changed_files=["auth.py"],
+            detail_level="verbose",
+            repo_root=str(self.root),
+        )
         assert result["total"] >= 1
-        # The handle_request flow passes through auth.py
         flow_names = [f["name"] for f in result["affected_flows"]]
         assert any("handle_request" in n for n in flow_names)
+        assert result["deprecated_fields"] == ["affected_flows", "total"]
 
     def test_get_affected_flows_no_changed_files(self):
         result = review_func(mode="affected_flows", changed_files=[], repo_root=str(self.root))
         assert result["status"] == "ok"
-        assert result["total"] == 0
-        assert result["affected_flows"] == []
+        assert result["entry_points"] == []
+        assert result["changed_function_count"] == 0
 
     def test_get_affected_flows_unrelated_file(self):
         result = review_func(
             mode="affected_flows", changed_files=["unrelated.py"], repo_root=str(self.root)
         )
         assert result["status"] == "ok"
-        assert result["total"] == 0
+        assert result["entry_points"] == []
 
     def test_get_affected_flows_summary(self):
         result = review_func(
             mode="affected_flows", changed_files=["auth.py"], repo_root=str(self.root)
         )
-        assert "flow(s) affected" in result["summary"]
+        assert "entry point(s) reach the" in result["summary"]
         assert "changed_files" in result
 
 
@@ -2635,7 +2647,7 @@ class TestGetMinimalContext:
         assert result["changes"] == {"state": "unresolved", "files": 1, "findings": {}}
         assert "Changes: 1 file(s); base HEAD~1 does not resolve." in result["summary"]
 
-    def test_reports_top_flows_separately_from_affected_flows(self):
+    def test_reports_no_stored_flow_names(self):
         from dagayn.tools.context import get_minimal_context
 
         store = GraphStore(str(self.root / ".dagayn" / "graph.db"))
@@ -2676,7 +2688,9 @@ class TestGetMinimalContext:
 
         result = get_minimal_context(task="explore codebase", repo_root=str(self.root))
 
-        assert result["top_flows"] == ["search-flow", "login-flow", "checkout-flow"]
+        # Stored flows rank reachable sets by size; flow_tool mode="entry_points"
+        # answers where code is entered from, so the context names none.
+        assert "top_flows" not in result
         assert "flows_affected" not in result
 
     def test_uses_dedicated_store_connection(self, monkeypatch):

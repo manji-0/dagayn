@@ -396,16 +396,14 @@ class TestGenerateSkills:
         assert "sap_violations" in content
         assert "get_architecture_overview_tool" not in content
 
-    def test_debug_and_explore_list_flows_before_get(self, tmp_path):
+    def test_debug_and_explore_find_entry_points(self, tmp_path):
         skills_dir = generate_skills(tmp_path)
         debug = (skills_dir / "debug-issue" / "SKILL.md").read_text()
         explore = (skills_dir / "explore-codebase" / "SKILL.md").read_text()
 
-        assert 'flow_tool(mode="list"' in debug
-        assert 'flow_tool(mode="get")' in debug
-        assert debug.index('flow_tool(mode="list"') < debug.index('flow_tool(mode="get")')
-        assert 'flow_tool(mode="list"' in explore
-        assert 'flow_tool(mode="get")' in explore
+        assert 'flow_tool(mode="entry_points"' in debug
+        assert 'flow_tool(mode="list"' not in debug
+        assert 'flow_tool(mode="entry_points"' in explore
 
     def test_markdown_reading_prefers_rg_for_raw_scans(self, tmp_path):
         skills_dir = generate_skills(tmp_path)

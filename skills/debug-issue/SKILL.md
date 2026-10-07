@@ -32,11 +32,13 @@ the selected embedding mode so bug searches balance semantic recall with speed.
    `unresolved_targets` because packages are not nodes — that is expected, not
    a gap. If a target is `status="ambiguous"`, re-query with a
    `qualified_name` from `candidates`.
-4. **Find the entry point**: `flow_tool(mode="list", detail_level="minimal")`
-   or `review_tool(mode="affected_flows")`, then `flow_tool(mode="get")` with
-   the chosen `flow_name` (or `flow_id`). A flow is a reachable set in BFS order, not an execution
-   trace; read `truncated`. Flows exist only after full post-processing — if
-   the list is empty right after a bootstrap, run `dagayn postprocess`.
+4. **Find the entry point**: `flow_tool(mode="entry_points",
+   target=<suspect>)` returns the nearest entry points that reach it (`main`,
+   framework handlers, FFI exports, uncalled functions, trait-dispatched
+   methods), each with one shortest call `chain` to read in order. It needs no
+   stored flows and never walks test code. `dispatched_method` means a trait,
+   interface, or framework calls it, which the graph cannot see; an empty list
+   means only tests (or dynamic calls) reach the suspect.
 5. **Check recent changes**: `review_tool(mode="changes",
    detail_level="minimal")` and read `findings`: a `dangling_reference` or
    `unchanged_caller` near the suspect is a likely cause, and `tests_to_run`
@@ -92,8 +94,7 @@ effect from a reproduction; keep them apart in a claim. Full rules:
 
 ```bash
 dagayn tool get_minimal_context_tool --arg 'task="debug login timeout"'
-dagayn tool flow_tool --arg mode='"list"' --arg detail_level='"minimal"'
-dagayn tool flow_tool --arg mode='"get"' --arg 'flow_name="handle_request"'
+dagayn tool flow_tool --arg mode='"entry_points"' --arg target='"src/auth.py::handler"'
 dagayn tool query_graph_tool --arg pattern='"callers_of"' --arg target='"src/auth.py::handler"' --arg depth=4
 dagayn tool query_graph_tool --arg pattern='"source_of"' --arg target='"src/auth.py::handler"'
 ```

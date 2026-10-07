@@ -6,7 +6,7 @@
         "tool": "review_tool"
       },
       {
-        "suggestion": "Inspect a specific affected flow with mode=\"get\"",
+        "suggestion": "Find the entry points reaching one symbol with mode=\"entry_points\"",
         "tool": "flow_tool"
       },
       {
@@ -23,7 +23,6 @@
     "source": "explicit"
   },
   "_runtime": "<VOLATILE>",
-  "affected_flows": [],
   "answerability": {
     "answerability": [
       0,
@@ -68,6 +67,30 @@
   "changed_files": [
     "app.py"
   ],
+  "changed_function_count": 2,
+  "entry_points": [
+    {
+      "chain": [
+        "app.py::build_graph"
+      ],
+      "entry_point": "app.py::build_graph",
+      "file": "app.py",
+      "hops": 0,
+      "kind": "uncalled",
+      "line": 1
+    },
+    {
+      "chain": [
+        "app.py::run_analysis"
+      ],
+      "entry_point": "app.py::run_analysis",
+      "file": "app.py",
+      "hops": 0,
+      "kind": "uncalled",
+      "line": 5
+    }
+  ],
+  "entry_points_omitted": 0,
   "missingness": [
     {
       "claim_effect": "claims should be treated as graph-limited until this is resolved",
@@ -81,7 +104,8 @@
     }
   ],
   "mode": "affected_flows",
+  "reached_callers": 0,
   "status": "ok",
-  "summary": "0 flow(s) affected by changes in 1 file(s)",
-  "total": 0
+  "summary": "2 entry point(s) reach the 2 changed function(s) in 1 file(s)",
+  "truncated": false
 }

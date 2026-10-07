@@ -42,9 +42,6 @@
     "status": "synced",
     "vcs": "git"
   },
-  "top_flows": [
-    "run"
-  ],
   "why": "The task mentions reviewing a diff or PR, so review_tool's findings are the fastest entry point.",
   "workflow": "review"
 }

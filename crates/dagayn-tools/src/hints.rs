@@ -141,10 +141,13 @@ pub fn infer_intent(session: &SessionState) -> &'static str {
 fn workflow(tool_name: &str) -> &'static [(&'static str, &'static str)] {
     match tool_name {
         "flow" => &[
-            ("flow_tool", "Drill into a specific flow with mode=\"get\""),
+            (
+                "query_graph_tool",
+                "Read an entry point or a chain step with pattern=\"source_of\"",
+            ),
             (
                 "review_tool",
-                "Check changed-file flow impact with mode=\"affected_flows\"",
+                "See which entry points reach the change with mode=\"affected_flows\"",
             ),
             (
                 "architecture_analysis_tool",
@@ -155,7 +158,7 @@ fn workflow(tool_name: &str) -> &'static [(&'static str, &'static str)] {
             ("flow_tool", "Use the public dispatcher with mode=\"get\""),
             (
                 "review_tool",
-                "Check changed-file flow impact with mode=\"affected_flows\"",
+                "See which entry points reach the change with mode=\"affected_flows\"",
             ),
             (
                 "architecture_analysis_tool",
@@ -169,7 +172,7 @@ fn workflow(tool_name: &str) -> &'static [(&'static str, &'static str)] {
             ),
             (
                 "review_tool",
-                "Check changed-file flow impact with mode=\"affected_flows\"",
+                "See which entry points reach the change with mode=\"affected_flows\"",
             ),
             (
                 "flow_tool",
@@ -183,7 +186,7 @@ fn workflow(tool_name: &str) -> &'static [(&'static str, &'static str)] {
             ),
             (
                 "flow_tool",
-                "Inspect a specific affected flow with mode=\"get\"",
+                "Find the entry points reaching one symbol with mode=\"entry_points\"",
             ),
             (
                 "review_tool",
@@ -199,7 +202,10 @@ fn workflow(tool_name: &str) -> &'static [(&'static str, &'static str)] {
                 "architecture_analysis_tool",
                 "See cross-community coupling with mode=\"overview\"",
             ),
-            ("flow_tool", "See execution flows across communities"),
+            (
+                "flow_tool",
+                "Find where a community member is entered from with mode=\"entry_points\"",
+            ),
         ],
         "get_community" => &[
             (
@@ -228,7 +234,10 @@ fn workflow(tool_name: &str) -> &'static [(&'static str, &'static str)] {
                 "review_tool",
                 "See how recent changes affect the architecture",
             ),
-            ("flow_tool", "Explore execution flows"),
+            (
+                "flow_tool",
+                "Find where a symbol is entered from with mode=\"entry_points\"",
+            ),
         ],
         "get_architecture_overview" => &[
             (
@@ -251,10 +260,13 @@ fn workflow(tool_name: &str) -> &'static [(&'static str, &'static str)] {
             ),
             (
                 "review_tool",
-                "Inspect affected reachable-set flows with mode=\"affected_flows\"",
+                "See which entry points reach the change with mode=\"affected_flows\"",
             ),
             ("review_tool", "Expand blast radius with mode=\"impact\""),
-            ("flow_tool", "Inspect a specific flow with mode=\"get\""),
+            (
+                "flow_tool",
+                "Find the entry points reaching a symbol with mode=\"entry_points\"",
+            ),
         ],
         "detect_changes" => &[
             (
@@ -263,7 +275,7 @@ fn workflow(tool_name: &str) -> &'static [(&'static str, &'static str)] {
             ),
             (
                 "review_tool",
-                "See affected execution flows with mode=\"affected_flows\"",
+                "See which entry points reach the change with mode=\"affected_flows\"",
             ),
             ("review_tool", "Expand blast radius with mode=\"impact\""),
             (
@@ -287,7 +299,10 @@ fn workflow(tool_name: &str) -> &'static [(&'static str, &'static str)] {
                 "query_graph_tool",
                 "Inspect callers/callees of a search result",
             ),
-            ("flow_tool", "See the execution flow through a matched node"),
+            (
+                "flow_tool",
+                "Find the entry points reaching a matched node with mode=\"entry_points\"",
+            ),
             ("review_tool", "Check the blast radius from matched nodes"),
         ],
         _ => &[],
@@ -414,7 +429,7 @@ mod tests {
         let second = generate_hints("review", &json!({}), &mut session, &all);
         assert_eq!(
             second["next_steps"],
-            json!([{"tool": "flow_tool", "suggestion": "Inspect a specific flow with mode=\"get\""}])
+            json!([{"tool": "flow_tool", "suggestion": "Find the entry points reaching a symbol with mode=\"entry_points\""}])
         );
         assert_eq!(session.inferred_intent.as_deref(), Some("reviewing"));
         assert_eq!(infer_intent(&SessionState::default()), "exploring");

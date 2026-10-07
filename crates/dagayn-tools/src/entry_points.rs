@@ -88,7 +88,9 @@ struct Search {
     truncated: bool,
 }
 
-fn search(store: &GraphStore, target: &GraphNode) -> Option<Search> {
+/// Searches from every target at once; each entry's chain ends at the
+/// nearest target.
+fn search(store: &GraphStore, targets: &[GraphNode]) -> Option<Search> {
     let (calls_out, _) = store.get_flow_edge_data().ok()?;
     let mut callers: HashMap<&str, Vec<&str>> = HashMap::new();
     for (source, targets) in &calls_out {
@@ -103,11 +105,16 @@ fn search(store: &GraphStore, target: &GraphNode) -> Option<Search> {
         list.sort_unstable();
     }
 
-    // `next[qn]` is the callee one hop closer to the target.
+    // `next[qn]` is the callee one hop closer to a target.
     let mut next: HashMap<String, Option<String>> = HashMap::new();
-    next.insert(target.qualified_name.clone(), None);
+    let mut level: Vec<GraphNode> = Vec::new();
+    for target in targets {
+        if next.insert(target.qualified_name.clone(), None).is_none() {
+            level.push(target.clone());
+        }
+    }
+    let sources = next.len();
     let mut entries: Vec<Entry> = Vec::new();
-    let mut level: Vec<GraphNode> = vec![target.clone()];
     let mut truncated = false;
     let mut depth = 0;
     while !level.is_empty() {
@@ -175,7 +182,7 @@ fn search(store: &GraphStore, target: &GraphNode) -> Option<Search> {
     });
     Some(Search {
         entries,
-        reached: next.len() - 1,
+        reached: next.len() - sources,
         truncated,
     })
 }
@@ -244,7 +251,7 @@ pub(crate) fn entry_points(
             );
         }
     };
-    let found = search(store, &node)?;
+    let found = search(store, std::slice::from_ref(&node))?;
     let total = found.entries.len();
     let keep = usize::try_from(limit.max(0)).unwrap_or(usize::MAX);
     let shown: Vec<Value> = found
@@ -308,4 +315,32 @@ pub(crate) fn entry_points(
             .put("guidance", Value::Array(guidance))
             .put("_hints", hints),
     )
+}
+
+/// The nearest entry points reaching any of `targets`, as
+/// `review_tool(mode="affected_flows")` reports them: the first `limit`
+/// entries, how many were left out, the callers walked, and whether the
+/// search stopped early.
+pub(crate) fn entry_points_reaching(
+    store: &GraphStore,
+    targets: &[GraphNode],
+    limit: usize,
+    detail_level: &str,
+) -> Option<(Vec<Value>, usize, usize, bool)> {
+    if targets.is_empty() {
+        return Some((Vec::new(), 0, 0, false));
+    }
+    let found = search(store, targets)?;
+    let shown = found
+        .entries
+        .iter()
+        .take(limit)
+        .map(|entry| entry_value(entry, detail_level))
+        .collect();
+    Some((
+        shown,
+        found.entries.len().saturating_sub(limit),
+        found.reached,
+        found.truncated,
+    ))
 }

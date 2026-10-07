@@ -71,12 +71,12 @@ _INTENT_TOOLS: dict[str, set[str]] = {
 _WORKFLOW: dict[str, list[HintStep]] = {
     "flow": [
         {
-            "tool": "flow_tool",
-            "suggestion": 'Drill into a specific flow with mode="get"',
+            "tool": "query_graph_tool",
+            "suggestion": 'Read an entry point or a chain step with pattern="source_of"',
         },
         {
             "tool": "review_tool",
-            "suggestion": 'Check changed-file flow impact with mode="affected_flows"',
+            "suggestion": 'See which entry points reach the change with mode="affected_flows"',
         },
         {
             "tool": "architecture_analysis_tool",
@@ -90,7 +90,7 @@ _WORKFLOW: dict[str, list[HintStep]] = {
         },
         {
             "tool": "review_tool",
-            "suggestion": 'Check changed-file flow impact with mode="affected_flows"',
+            "suggestion": 'See which entry points reach the change with mode="affected_flows"',
         },
         {
             "tool": "architecture_analysis_tool",
@@ -104,7 +104,7 @@ _WORKFLOW: dict[str, list[HintStep]] = {
         },
         {
             "tool": "review_tool",
-            "suggestion": 'Check changed-file flow impact with mode="affected_flows"',
+            "suggestion": 'See which entry points reach the change with mode="affected_flows"',
         },
         {
             "tool": "flow_tool",
@@ -118,7 +118,7 @@ _WORKFLOW: dict[str, list[HintStep]] = {
         },
         {
             "tool": "flow_tool",
-            "suggestion": 'Inspect a specific affected flow with mode="get"',
+            "suggestion": 'Find the entry points reaching one symbol with mode="entry_points"',
         },
         {
             "tool": "review_tool",
@@ -136,7 +136,7 @@ _WORKFLOW: dict[str, list[HintStep]] = {
         },
         {
             "tool": "flow_tool",
-            "suggestion": "See execution flows across communities",
+            "suggestion": 'Find where a community member is entered from with mode="entry_points"',
         },
     ],
     "get_community": [
@@ -168,7 +168,7 @@ _WORKFLOW: dict[str, list[HintStep]] = {
         },
         {
             "tool": "flow_tool",
-            "suggestion": "Explore execution flows",
+            "suggestion": 'Find where a symbol is entered from with mode="entry_points"',
         },
     ],
     "get_architecture_overview": [
@@ -192,7 +192,7 @@ _WORKFLOW: dict[str, list[HintStep]] = {
         },
         {
             "tool": "review_tool",
-            "suggestion": 'Inspect affected reachable-set flows with mode="affected_flows"',
+            "suggestion": 'See which entry points reach the change with mode="affected_flows"',
         },
         {
             "tool": "review_tool",
@@ -200,7 +200,7 @@ _WORKFLOW: dict[str, list[HintStep]] = {
         },
         {
             "tool": "flow_tool",
-            "suggestion": 'Inspect a specific flow with mode="get"',
+            "suggestion": 'Find the entry points reaching a symbol with mode="entry_points"',
         },
     ],
     "detect_changes": [
@@ -210,7 +210,7 @@ _WORKFLOW: dict[str, list[HintStep]] = {
         },
         {
             "tool": "review_tool",
-            "suggestion": 'See affected execution flows with mode="affected_flows"',
+            "suggestion": 'See which entry points reach the change with mode="affected_flows"',
         },
         {
             "tool": "review_tool",
@@ -242,7 +242,7 @@ _WORKFLOW: dict[str, list[HintStep]] = {
         },
         {
             "tool": "flow_tool",
-            "suggestion": "See the execution flow through a matched node",
+            "suggestion": 'Find the entry points reaching a matched node with mode="entry_points"',
         },
         {
             "tool": "review_tool",

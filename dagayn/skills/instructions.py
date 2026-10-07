@@ -122,7 +122,7 @@ supply the span.
 | `review_tool` | Change review: what to check that the diff does not show |
 | `query_graph_tool` | Callers, callees, imports, tests, linked docs, live source spans |
 | `semantic_search_nodes_tool` | Find code or doc sections by name, keyword, or meaning |
-| `flow_tool` | Reachable sets from entry points (not call sequences) |
+| `flow_tool` | Entry points that reach a symbol, with the call chain |
 | `architecture_analysis_tool` | Map of declared units and structural findings |
 | `refactor_tool` | Refactor suggestions, dead code, rename previews |
 | `get_docs_section_tool` | dagayn reference sections, e.g. `trust` |

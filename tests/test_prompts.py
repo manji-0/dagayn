@@ -124,9 +124,9 @@ class TestOnboardDeveloperPrompt:
         result = onboard_developer_prompt()
         assert "architecture" in result[0]["content"].lower()
 
-    def test_mentions_critical_flows(self):
+    def test_shows_where_code_is_entered_from(self):
         result = onboard_developer_prompt()
-        assert "critical" in result[0]["content"].lower()
+        assert 'flow_tool(mode="entry_points"' in result[0]["content"]
 
 
 class TestPreMergeCheckPrompt:

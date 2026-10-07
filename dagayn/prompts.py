@@ -67,7 +67,7 @@ def review_changes_prompt(base: str | None = None) -> list[PromptMessage]:
                 f"   d. tests_to_run: run its `command`.\n"
                 f'4. Call `review_tool(mode="affected_flows"{base_arg}, '
                 f'detail_level="minimal")` '
-                f"only if a finding raises a flow question.\n"
+                f"only if you need the entry points that reach the change.\n"
                 f"5. Summarize: what changed, each confirmed finding with its action, "
                 f"and the tests to run.\n\n"
                 f'Do NOT call review_tool(mode="context") unless you need '
@@ -89,8 +89,8 @@ def architecture_map_prompt() -> list[PromptMessage]:
                 '2. Call `architecture_analysis_tool(mode="overview", '
                 'detail_level="standard")` for the declared units, the '
                 "dependencies between them, and each unit's most used symbols.\n"
-                '3. Call `flow_tool(mode="list", detail_level="minimal")` for critical '
-                "flow names + criticality scores.\n"
+                '3. For a unit\'s most used symbols, call `flow_tool(mode="entry_points", '
+                'target=<symbol>, detail_level="minimal")` to show where it is entered from.\n'
                 "4. Report the overview's `findings` (import cycles, untested core "
                 "code, broken doc links) next to the diagram.\n"
                 "5. Produce a concise Mermaid diagram showing units as boxes, "
@@ -120,9 +120,9 @@ def debug_issue_prompt(description: str = "") -> list[PromptMessage]:
                 "3. For the top 1-2 results, call "
                 '`query_graph_tool(pattern="callers_of", target=<name>, '
                 'detail_level="minimal")`.\n'
-                "4. If the issue involves a reachable set from an entry point: call "
-                '`flow_tool(mode="get", flow_name=<relevant flow>)` for the single most '
-                "relevant flow.\n"
+                "4. To see how execution reaches the suspect: call "
+                '`flow_tool(mode="entry_points", target=<name>, detail_level="minimal")` '
+                "and read each entry point's call chain.\n"
                 '5. Only call `review_tool(mode="context")` or `review_tool(mode="impact")` '
                 "if you need to trace the blast radius of a specific change."
             ),
@@ -144,10 +144,10 @@ def onboard_developer_prompt() -> list[PromptMessage]:
                 "present `units` as a table of names, kinds, and sizes, and "
                 "`unit_edges` as who depends on whom.\n"
                 "3. Mention the overview's `findings`, if any, as known rough edges.\n"
-                '4. Call `flow_tool(mode="list", detail_level="minimal")` — highlight '
-                "the top 3 critical flows.\n"
-                "5. Only drill into a specific community or flow if the "
-                "developer asks."
+                "4. For the symbols the developer will touch first, call "
+                '`flow_tool(mode="entry_points", target=<symbol>, detail_level="minimal")` '
+                "to show which commands or handlers reach them.\n"
+                "5. Only drill into a specific unit or symbol if the developer asks."
             ),
         }
     ]

@@ -46,7 +46,7 @@ it, which tests cover it, and which docs are linked to it. Read the
 4. **Fetch source only where needed**: `review_tool(mode="context")` for
    change-set snippets, `query_graph_tool(pattern="source_of")` for one symbol.
 5. **Drill down only on a concrete question**: `review_tool(mode="impact")` for
-   blast radius (`max_depth` sets the hops), `mode="affected_flows"` for flows,
+   blast radius (`max_depth` sets the hops), `mode="affected_flows"` for the entry points that reach the change,
    `query_graph_tool(pattern="tests_for")` for uncertain coverage, and
    `callers_of` with `depth` up to 6 for transitive callers.
 6. **Follow documentation links**: `docs_for` on changed code symbols,

@@ -49,6 +49,9 @@ const MAX_SNIPPET_BYTES: usize = 120_000;
 const MAX_LINES_PER_FILE_CEILING: i64 = 2000;
 /// Fields `detail_level="verbose"` still carries from the score-first
 /// contract, for one release.
+/// Entry points `affected_flows` lists before counting the rest.
+const ENTRY_POINT_LIMIT: usize = 10;
+
 const DEPRECATED_FIELDS: &[&str] = &[
     "risk_score",
     "review_priority_score",
@@ -780,47 +783,97 @@ impl Review<'_> {
         Some(payload)
     }
 
-    /// `get_affected_flows_func`.
+    /// `get_affected_flows_func`: the entry points that reach the changed
+    /// functions (docs/plans/FLOW-TOOL-TARGET.md#modes); the stored flows
+    /// that contain them only at `detail_level="verbose"`, for one release.
     fn affected_flows(&self, request: &Request) -> Answer {
         let (changed_files, sources) = attempt!(Some(self.changed_files(request)));
-        self.affected_flows_of(changed_files, sources).map(Ok)
-    }
-
-    fn affected_flows_of(&self, changed_files: Vec<String>, sources: Value) -> Option<Ordered> {
         if changed_files.is_empty() {
-            return Some(
-                Ordered::default()
-                    .put("status", "ok")
-                    .put("summary", "No changed files detected.")
-                    .put("affected_flows", json!([]))
-                    .put("total", 0)
-                    .put("answerability", self.answerability.full())
-                    .put("missingness", json!(self.answerability.missingness())),
-            );
+            return Some(Ok(Ordered::default()
+                .put("status", "ok")
+                .put("summary", "No changed files detected.")
+                .put("entry_points", json!([]))
+                .put("entry_points_omitted", 0)
+                .put("changed_function_count", 0)
+                .put("answerability", self.answerability.full())
+                .put("missingness", json!(self.answerability.missingness()))));
         }
-        let absolute: Vec<String> = changed_files
-            .iter()
-            .map(|file| absolute_path(self.root(), file))
-            .collect();
-        let flows = self.store().get_affected_flows_annotated(&absolute).ok()?;
-        let total = flows.len();
-        let out = Ordered::default()
+        // Changed lines narrow a file to the functions they touch; a file
+        // without a diff range (untracked, or an unresolved base) counts whole.
+        let ranges = match parse_diff(self.root(), request.base) {
+            DiffParse::Ranges(ranges) => ranges,
+            DiffParse::BaseUnresolved => Default::default(),
+        };
+        let mut changed: Vec<GraphNode> = Vec::new();
+        for file in &changed_files {
+            let absolute = absolute_path(self.root(), file);
+            let file_ranges = ranges
+                .iter()
+                .find(|(rel, _)| absolute_path(self.root(), rel) == absolute)
+                .map(|(_, ranges)| ranges);
+            for node in self.store().get_nodes_by_file(&absolute).ok()? {
+                if node.kind != "Function" || !findings::is_production_code(&node, &node.file_path)
+                {
+                    continue;
+                }
+                let touched = file_ranges.is_none_or(|ranges| {
+                    ranges
+                        .iter()
+                        .any(|(start, end)| *start <= node.line_end && node.line_start <= *end)
+                });
+                if touched {
+                    changed.push(node);
+                }
+            }
+        }
+        let (entries, omitted, reached, truncated) = crate::entry_points::entry_points_reaching(
+            self.store(),
+            &changed,
+            ENTRY_POINT_LIMIT,
+            request.detail_level,
+        )?;
+        let count = entries.len() + omitted;
+        let mut missingness = self.answerability.missingness();
+        if truncated {
+            missingness.push(json!({
+                "reason_code": "truncated_search",
+                "severity": "medium",
+                "claim_effect": "the entry-point search stopped early; farther entry points are not listed",
+            }));
+        }
+        let mut out = Ordered::default()
             .put("status", "ok")
             .put(
                 "summary",
                 format!(
-                    "{total} flow(s) affected by changes in {} file(s)",
+                    "{count} entry point(s) reach the {} changed function(s) in {} file(s)",
+                    changed.len(),
                     changed_files.len()
                 ),
             )
             .put("changed_files", json!(changed_files))
             .put("change_file_sources", sources)
-            .put("affected_flows", Value::Array(flows))
-            .put("total", total)
+            .put("changed_function_count", changed.len())
+            .put("entry_points", Value::Array(entries))
+            .put("entry_points_omitted", omitted)
+            .put("reached_callers", reached)
+            .put("truncated", truncated);
+        if request.detail_level == "verbose" {
+            let absolute: Vec<String> = changed_files
+                .iter()
+                .map(|file| absolute_path(self.root(), file))
+                .collect();
+            let flows = self.store().get_affected_flows_annotated(&absolute).ok()?;
+            out = out
+                .put("total", flows.len())
+                .put("affected_flows", Value::Array(flows))
+                .put("deprecated_fields", json!(["affected_flows", "total"]));
+        }
+        let out = out
             .put("answerability", self.answerability.full())
-            .put("missingness", json!(self.answerability.missingness()));
+            .put("missingness", json!(missingness));
         let hints = self.hints("get_affected_flows", &out.value());
-        Some(out.put("_hints", hints))
+        Some(Ok(out.put("_hints", hints)))
     }
 
     /// `get_impact_radius` (the tool, `dagayn.tools.query`).

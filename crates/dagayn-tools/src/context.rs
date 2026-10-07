@@ -2,7 +2,7 @@
 //! the MCP tool runs it with `auto_prepare=True`, which [`Context::auto_prepare`]
 //! carries).
 //!
-//! The graph's sync state, health, top communities and flows, a workflow
+//! The graph's sync state, health, top communities, a workflow
 //! routed from the task, and for changed files the count of each
 //! `review_tool(mode="changes")` finding kind.
 //! With `auto_prepare`, an `unbuilt` or `commit_drift` graph (or a local
@@ -127,7 +127,7 @@ const WORKFLOWS: [Workflow; 6] = [
             "flow_tool",
             "query_graph_tool",
         ],
-        recommended_action: "Start with architecture_analysis_tool mode=overview, then drill into communities or flow_tool mode=list.",
+        recommended_action: "Start with architecture_analysis_tool mode=overview, then trace a symbol with query_graph_tool or flow_tool mode=entry_points.",
         why: "The task asks to understand structure, so a broad graph summary is cheaper than reading files first.",
         confidence: "high",
     },
@@ -271,7 +271,6 @@ struct Changes {
     /// Finding kind -> count, in review order.
     findings: Vec<(String, usize)>,
     top_affected: Vec<String>,
-    affected_flows: Vec<String>,
 }
 
 impl Changes {
@@ -281,7 +280,6 @@ impl Changes {
             file_count,
             findings: Vec::new(),
             top_affected: Vec::new(),
-            affected_flows: Vec::new(),
         }
     }
 
@@ -331,16 +329,7 @@ fn changes_of(
     files: &[String],
 ) -> Changes {
     match parse_diff(root, base) {
-        DiffParse::BaseUnresolved => {
-            let absolute: Vec<String> = files.iter().map(|file| join(root, file)).collect();
-            let Ok(flows) = store.get_affected_flows_annotated(&absolute) else {
-                return Changes::of("unknown", files.len());
-            };
-            Changes {
-                affected_flows: names(&flows, 5),
-                ..Changes::of("unresolved", files.len())
-            }
-        }
+        DiffParse::BaseUnresolved => Changes::of("unresolved", files.len()),
         DiffParse::Ranges(mut ranges) => {
             // Only the named files' lines count; the rest of the base diff
             // adds no nodes.
@@ -357,7 +346,6 @@ fn changes_of(
             Changes {
                 findings: found.counts,
                 top_affected: names(&rows("changed_functions"), 5),
-                affected_flows: names(&rows("affected_flows"), 5),
                 ..Changes::of("analysed", files.len())
             }
         }
@@ -504,7 +492,6 @@ pub(crate) fn get_minimal_context(
     // `get_communities(store, sort_by="size")[:3]`, then their names.
     let community_rows = json_rows(graph.store.get_communities_json("size", 0));
     let communities = names(&community_rows[..community_rows.len().min(3)], 3);
-    let flows = names(&json_rows(graph.store.get_flows_json("criticality", 3)), 3);
 
     let mut summary = vec![format!(
         "{} nodes, {} edges across {} files.",
@@ -526,12 +513,6 @@ pub(crate) fn get_minimal_context(
     }
     if !communities.is_empty() {
         response = response.put("communities", json!(communities));
-    }
-    if !flows.is_empty() {
-        response = response.put("top_flows", json!(flows));
-    }
-    if !changes.affected_flows.is_empty() {
-        response = response.put("flows_affected", json!(changes.affected_flows));
     }
     if !suggestions.is_empty() {
         response = response.put("next_tool_suggestions", json!(suggestions));

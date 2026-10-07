@@ -59,7 +59,7 @@ dagayn serve
 - `get_minimal_context_tool` for quick orientation
 - `ensure_graph_tool` when `graph_health` is empty (safe bootstrap; no embeddings)
 - `review_tool(mode="changes")` or `review_tool(mode="context")` for review work
-- `query_graph_tool`, `semantic_search_nodes_tool`, and `flow_tool(mode="list")` for exploration
+- `query_graph_tool`, `semantic_search_nodes_tool`, and `flow_tool(mode="entry_points")` for exploration
 - `query_graph_tool(pattern="source_of")` after a search hit to fetch a live span
 - `architecture_analysis_tool(mode="overview")` and its drill-down modes for
   evidence-backed architecture analysis
@@ -167,7 +167,7 @@ supply the span.
 | `review_tool` | Change review: what to check that the diff does not show |
 | `query_graph_tool` | Callers, callees, imports, tests, linked docs, live source spans |
 | `semantic_search_nodes_tool` | Find code or doc sections by name, keyword, or meaning |
-| `flow_tool` | Reachable sets from entry points (not call sequences) |
+| `flow_tool` | Entry points that reach a symbol, with the call chain |
 | `architecture_analysis_tool` | Map of declared units and structural findings |
 | `refactor_tool` | Refactor suggestions, dead code, rename previews |
 | `get_docs_section_tool` | dagayn reference sections, e.g. `trust` |

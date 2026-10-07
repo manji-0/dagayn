@@ -36,8 +36,7 @@ the selected embedding mode so graph builds refresh the right retrieval indexes.
      and search, but no flows or communities.
    - Flows or communities missing (`graph_health.reason_codes` lists
      `missing_flows` / `missing_communities` — `status` can still read `ok` —
-     or `flow_tool` / the architecture overview come back empty right after a
-     bootstrap): run `dagayn postprocess` (`run_postprocess_tool()` on the
+     or `flow_tool(mode="list")` comes back empty right after a bootstrap): run `dagayn postprocess` (`run_postprocess_tool()` on the
      advanced surface).
    - CLI, full build with post-processing: `dagayn build`; add `--scip` to let
      installed SCIP indexers (rust-analyzer, scip-typescript, scip-go,

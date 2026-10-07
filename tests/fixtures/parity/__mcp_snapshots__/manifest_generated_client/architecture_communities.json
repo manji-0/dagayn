@@ -10,7 +10,7 @@
         "tool": "architecture_analysis_tool"
       },
       {
-        "suggestion": "See execution flows across communities",
+        "suggestion": "Find where a community member is entered from with mode=\"entry_points\"",
         "tool": "flow_tool"
       }
     ],

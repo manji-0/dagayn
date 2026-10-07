@@ -6,7 +6,7 @@
         "tool": "review_tool"
       },
       {
-        "suggestion": "Inspect affected reachable-set flows with mode=\"affected_flows\"",
+        "suggestion": "See which entry points reach the change with mode=\"affected_flows\"",
         "tool": "review_tool"
       },
       {

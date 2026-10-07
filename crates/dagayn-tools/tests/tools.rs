@@ -741,11 +741,21 @@ fn review_answers_affected_flows_from_the_worktree_and_explicit_files() {
     let auto = answer(&context, "review_tool", json!({"mode": "affected_flows"}));
     assert_eq!(auto["change_file_sources"]["unstaged"], json!(["app.py"]));
     assert_eq!(auto["changed_files"], json!(["app.py"]));
-    assert_eq!(auto["total"], 1);
-    let flow = &auto["affected_flows"][0];
-    assert_eq!(flow["steps"][0]["step_kind"], "entry");
-    assert_eq!(flow["bridge_step_count"], 0);
-    assert_eq!(flow["missing_step_count"], 0);
+    // Only `helper`'s line changed; `main` reaches it, and `test_main`,
+    // which calls `main`, is test code the search does not walk.
+    assert_eq!(auto["changed_function_count"], 1);
+    assert_eq!(
+        auto["entry_points"],
+        json!([{
+            "entry_point": "app.py::main",
+            "kind": "main",
+            "hops": 1,
+            "chain": ["app.py::main", "app.py::helper"],
+            "file": "app.py",
+            "line": 1,
+        }])
+    );
+    assert!(auto.get("affected_flows").is_none());
     assert_eq!(auto["_runtime"]["pid"], 1);
     assert_eq!(auto["_hints"]["next_steps"][0]["tool"], "review_tool");
     let text = call(&context, "review_tool", &json!({"mode": "affected_flows"}))
@@ -753,9 +763,23 @@ fn review_answers_affected_flows_from_the_worktree_and_explicit_files() {
         .text;
     assert!(
         text.starts_with(
-            r#"{"status":"ok","mode":"affected_flows","called_subtool":"get_affected_flows_func","summary":"1 flow(s) affected"#
+            r#"{"status":"ok","mode":"affected_flows","called_subtool":"get_affected_flows_func","summary":"1 entry point(s) reach the 1 changed function(s) in 1 file(s)"#
         ),
         "{text}"
+    );
+    let verbose = answer(
+        &context,
+        "review_tool",
+        json!({"mode": "affected_flows", "detail_level": "verbose"}),
+    );
+    assert_eq!(verbose["total"], 1);
+    let flow = &verbose["affected_flows"][0];
+    assert_eq!(flow["steps"][0]["step_kind"], "entry");
+    assert_eq!(flow["bridge_step_count"], 0);
+    assert_eq!(flow["missing_step_count"], 0);
+    assert_eq!(
+        verbose["deprecated_fields"],
+        json!(["affected_flows", "total"])
     );
 
     let none = answer(
@@ -774,7 +798,7 @@ fn review_answers_affected_flows_from_the_worktree_and_explicit_files() {
         explicit["change_file_sources"],
         json!({"files": ["./app.py", "gone.py"], "explicit": ["./app.py", "gone.py"]})
     );
-    assert_eq!(explicit["total"], 1);
+    assert_eq!(explicit["entry_points"][0]["entry_point"], "app.py::main");
 }
 
 #[test]
@@ -1172,7 +1196,10 @@ fn flow_tool_lists_and_reads_stored_flows() {
         json!({"mode": "get", "flow_id": 999}),
     );
     assert_eq!(missing["status"], "not_found");
-    assert_eq!(missing["_hints"]["next_steps"][0]["tool"], "flow_tool");
+    assert_eq!(
+        missing["_hints"]["next_steps"][0]["tool"],
+        "query_graph_tool"
+    );
 
     for arguments in [
         json!({"mode": "get"}),

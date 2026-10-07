@@ -21,6 +21,17 @@ All notable changes to `dagayn` are documented here.
 
 ### Changed
 
+- `review_tool(mode="affected_flows")` answers with `entry_points`: the
+  nearest entry points that reach the changed functions (the functions
+  whose lines the diff touches), each with one call chain, plus
+  `changed_function_count`. The stored flows that contain the change
+  (`affected_flows`, `total`) are only in `detail_level="verbose"` for one
+  release, listed in `deprecated_fields`.
+- `get_minimal_context_tool` no longer returns `top_flows` or
+  `flows_affected`: flow names without a file, ranked by a criticality that
+  tracks flow size. The explore workflow, skills, MCP prompts, agent
+  instructions, and next-step hints point at
+  `flow_tool(mode="entry_points")` instead of listing stored flows.
 - `flow_tool(mode="list")` no longer returns each flow's `path` and
   `members` node-id arrays or its `files` list (`file_count` stays); on
   this repository the default list went from about 293K to 21K

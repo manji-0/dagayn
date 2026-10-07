@@ -29,8 +29,9 @@ retrieval setup.
      `semantic_search_nodes_tool(query="<concept>", detail_level="minimal")`.
    - A known symbol or file → `query_graph_tool` with `source_of`,
      `children_of`, `callers_of`, `callees_of`, or `file_summary`.
-   - An existing user journey → `flow_tool(mode="list")`, then
-     `flow_tool(mode="get", flow_name=...)` (or `flow_id=`) for one flow.
+   - An existing user journey → `flow_tool(mode="entry_points",
+     target=<a symbol on it>)` for the commands or handlers that already
+     reach it, with the call chain from each.
    - A spec → `query_graph_tool(pattern="implementations_of",
      target="<doc.md>::<section-slug>")`, or `docs_for` from nearby code.
 3. **Read only that surface**: `source_of` for one symbol, or
