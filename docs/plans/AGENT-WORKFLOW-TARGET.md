@@ -24,8 +24,8 @@ ambiguous name costs a round trip with no hint of how to retry. This note
 defines the workflow, the response contract that carries it, the evidence,
 and the order of work.
 
-Status: accepted ([decisions](#decisions-2026-10-07)); steps 1–3 of the
-[order of work](#order-of-work) are done.
+Status: accepted ([decisions](#decisions-2026-10-07)); steps 1–3 and 5
+of the [order of work](#order-of-work) are done.
 
 ## Target contract
 
@@ -250,7 +250,11 @@ evals already build.
    tool returns it; the old fields go behind `verbose` with
    `deprecated_fields`. `get_minimal_context_tool` fills `args` from the
    task (a search query for a symptom, `base` for a review).
-5. Counts: `query_graph_tool` states one number.
+5. **Done:** counts. Below `full`, `query_graph_tool` folds a node's
+   edges into one row, and `guidance` counted the edges before the fold:
+   `callers_of make_response` said 11 rows and 13 nodes. `guidance` now
+   counts the rows; `full`, which lists one row per edge, still counts
+   edges, consistently with its own `result_count`.
 6. Eval: follow-the-next traces and the discrimination check, gated.
 7. One source of truth: a `workflow` section in
    `docs/LLM-OPTIMIZED-REFERENCE.md`; skills, instruction files, and MCP
