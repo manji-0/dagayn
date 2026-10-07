@@ -24,7 +24,7 @@ ambiguous name costs a round trip with no hint of how to retry. This note
 defines the workflow, the response contract that carries it, the evidence,
 and the order of work.
 
-Status: accepted ([decisions](#decisions-2026-10-07)); steps 1–2 of the
+Status: accepted ([decisions](#decisions-2026-10-07)); steps 1–3 of the
 [order of work](#order-of-work) are done.
 
 ## Target contract
@@ -234,9 +234,18 @@ evals already build.
      is 20,888 characters with `base=HEAD~3` once the diff spans 75
      snapshot files; its budget is 32K at every level. The contract check
      in step 6 holds it to 8K.
-3. Ambiguity: candidates ordered non-test first, `next` with one call
-   per candidate, in `query_graph_tool` and `flow_tool`, sharing one
-   resolver.
+3. **Done:** ambiguity. `query_graph_tool` and `flow_tool`
+   (`entry_points`) order candidates production code first and answer
+   with `next`, the first three as calls (`crates/dagayn-tools/src/next.rs`
+   builds them, the first piece of step 4's builder). A retry keeps the
+   arguments that shape the answer (`pattern`, `depth`, `mode`, `limit`,
+   `detail_level`) only where they differ from the default, so it reads
+   the same whichever server filled the defaults in. `flow_tool`'s
+   `_hints` now name the retries instead of the architecture overview.
+   On this repository `callers_of make_response` returns the two calls
+   to make, one per `make_response`. The two resolvers stay separate:
+   `query_graph_tool` falls back to fuzzy hits when no name matches,
+   which `flow_tool` should not.
 4. `next`: one builder in `crates/dagayn-tools/src/hints.rs`; every Tier 1
    tool returns it; the old fields go behind `verbose` with
    `deprecated_fields`. `get_minimal_context_tool` fills `args` from the
