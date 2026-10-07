@@ -16,7 +16,7 @@ are closures inside tests, and every remove candidate is a test fixture.
 question; `suggest` does not. This note defines the target contract, the
 evidence behind it, and the order of work.
 
-Status: accepted ([decisions](#decisions-2026-10-07)); steps 1–2 of the
+Status: accepted ([decisions](#decisions-2026-10-07)); steps 1–3 of the
 [order of work](#order-of-work) are done.
 
 ## Target contract
@@ -198,6 +198,22 @@ fixtures:
 - **This repository**, expected after the change: 0 `unused_symbol`
   (matching `dead_code`), and every `complex_hotspot` checked by hand.
 
+### Baseline
+
+`eval/run_refactor_eval.py` on its 9 cases (5 negative) at `06791361`,
+before any finding kind exists. `findings` is absent, so every kind has
+recall 0.00 and the gate fails, as it should. Read as findings, today's
+`suggestions` score:
+
+| Today's type | Reads as | TP | FP | FN | Why |
+|---|---|---|---|---|---|
+| `remove` | `unused_symbol` | 2 | 1 | 0 | the fixture sample in `neg_unused_fixture_sample` |
+| `split` | `complex_hotspot` | 1 | 1 | 0 | the same long function fires whether it changed twelve times or never |
+| `document` | `undocumented_surface` | 0 | 2 | 1 | fires on the long function, misses the function another package uses |
+
+CI runs the fast fixture checks (`tests/test_refactor_eval.py`); the full
+gate joins CI with step 4.
+
 ## Order of work
 
 1. **Done:** the CLI default. `dagayn tool refactor_tool` with no
@@ -219,9 +235,12 @@ fixtures:
 
    The `suggest` numbers stay large because the suggestions themselves are
    the problem: steps 4–5 replace them.
-3. Eval harness with the negative and positive cases above.
+3. **Done:** eval harness (`eval/run_refactor_eval.py`,
+   `tests/fixtures/refactor_eval`, floors in
+   `eval/refactor_thresholds.yaml`); a case can add later commits, which
+   `complex_hotspot` needs. See [Baseline](#baseline).
 4. `unused_symbol` from the `dead_code` record, fixtures left out; drop
-   the community-based move.
+   the community-based move; add the full eval gate to CI.
 5. `complex_hotspot` and `undocumented_surface`; `split` and `document`
    behind `verbose` for one release, listed in `deprecated_fields`.
 6. Docs, skills, and the MCP description describe `findings`.
