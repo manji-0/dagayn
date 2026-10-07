@@ -1,0 +1,29 @@
+description: 'app, which nothing depends on, starts using plugins: an unstable crate depending on a more
+  stable one is what SDP asks for.'
+negative: true
+commit_change: true
+allowed_kinds:
+- untested_change
+base:
+  from: rust_workspace
+change:
+  files:
+    app/Cargo.toml: |
+      [package]
+      name = "app"
+      version = "0.1.0"
+      edition = "2021"
+
+      [dependencies]
+      feature = { path = "../feature" }
+      kernel = { path = "../kernel" }
+      extras = { path = "../extras" }
+      plugins = { path = "../plugins" }
+    app/src/lib.rs: |
+      use feature::feature;
+      use kernel::base;
+      use plugins::plugin;
+
+      pub fn run() -> i64 {
+          feature() + base() + plugin()
+      }

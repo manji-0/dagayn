@@ -29,8 +29,8 @@ has the compact workflow if you want it in context.
    `base=` to widen it, or `changed_files=` to scope it to some files. Read
    `findings`: each names a place to look that the diff does not show
    (`dangling_reference`, `unchanged_caller`, `contract_doc_not_updated`,
-   `bridge_touched`, `untested_change`, `tests_to_run`), its `evidence` or
-   `sites`, and an `action`. An empty list means nothing beyond the diff needs
+   `bridge_touched`, `unstable_dependency`, `untested_change`, `tests_to_run`),
+   its `evidence` or `sites`, and an `action`. An empty list means nothing beyond the diff needs
    checking; say so and stop. The score-first fields (`analysis_summary`,
    `risk_level`, ...) are deprecated and only in `detail_level="verbose"`.
 4. **Fetch source only for what can change the verdict**:
@@ -38,7 +38,8 @@ has the compact workflow if you want it in context.
    pattern="source_of")` for one symbol.
 5. **Check each finding**: open the `sites` of a `dangling_reference` or
    `unchanged_caller` with `source_of`; read the doc behind a
-   `contract_doc_not_updated`; check the other side of a `bridge_touched`.
+   `contract_doc_not_updated`; check the other side of a `bridge_touched`;
+   ask whether an `unstable_dependency` can point the other way.
    `review_tool(mode="impact")` (`max_depth`, default 2, is the hop count)
    only when a behavior change has no finding but may still reach callers.
 6. **Check coverage**: run the `command` of each `tests_to_run` finding;

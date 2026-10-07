@@ -143,6 +143,7 @@ pub(crate) fn change_findings(
         bridges(&inputs)?,
         untested_changes(&inputs)?,
         tests_to_run(&inputs)?,
+        unstable_dependencies(&inputs)?,
     ];
     let mut found = ChangeFindings {
         findings: Vec::new(),
@@ -171,12 +172,36 @@ pub(crate) fn change_findings(
     Some(found)
 }
 
+/// `unstable_dependency` findings for the dependencies between declared
+/// units this change introduced (docs/plans/STABILITY-FINDING-TARGET.md).
+fn unstable_dependencies(inputs: &Inputs) -> Option<Vec<Value>> {
+    let ranges = match crate::changes::parse_diff(inputs.root, inputs.base) {
+        crate::changes::DiffParse::Ranges(ranges) => ranges,
+        crate::changes::DiffParse::BaseUnresolved => return Some(Vec::new()),
+    };
+    if !inputs
+        .changed_files
+        .iter()
+        .any(|file| ranges.contains_key(file))
+    {
+        return Some(Vec::new());
+    }
+    let snapshot = crate::architecture::Snapshot::read(inputs.store)?;
+    Some(
+        crate::stability::unstable_dependencies(inputs.root, &snapshot)
+            .iter()
+            .filter(|dependency| dependency.introduced_by(inputs.root, inputs.base, &ranges))
+            .map(crate::stability::UnstableDependency::finding)
+            .collect(),
+    )
+}
+
 /// A node that is a test, by flag, kind, or where it lives.
 pub(crate) fn is_test_node(node: &GraphNode, rel: &str) -> bool {
     node.is_test || node.kind == "Test" || is_test_path(rel)
 }
 
-fn is_test_path(rel: &str) -> bool {
+pub(crate) fn is_test_path(rel: &str) -> bool {
     let rel = rel.replace('\\', "/");
     let name = rel.rsplit('/').next().unwrap_or(&rel);
     rel.split('/')

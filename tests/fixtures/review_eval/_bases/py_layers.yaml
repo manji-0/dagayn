@@ -1,0 +1,33 @@
+# Python import packages in layers: kernel (used by feature and app),
+# feature, app, and plugins, which depends on two leaf packages.
+files:
+  kernel/__init__.py: |
+    def base():
+        """The value every other package builds on."""
+        return 1
+  feature/__init__.py: |
+    from kernel import base
+
+
+    def feature():
+        return base() + 1
+  app/__init__.py: |
+    from feature import feature
+    from kernel import base
+
+
+    def run():
+        return feature() + base()
+  plugins/__init__.py: |
+    from extras import extra
+    from thirdparty import vendored
+
+
+    def plugin():
+        return extra() + vendored()
+  extras/__init__.py: |
+    def extra():
+        return 2
+  thirdparty/__init__.py: |
+    def vendored():
+        return 3

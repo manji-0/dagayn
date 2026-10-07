@@ -1,0 +1,36 @@
+description: kernel already imports plugins at base; the change rewrites that import line. The line is
+  touched, but the base already named plugins, so the change did not introduce the dependency.
+negative: true
+commit_change: true
+allowed_kinds:
+- untested_change
+base:
+  from: py_layers
+  files:
+    kernel/__init__.py: |
+      from plugins import plugin
+
+
+      def base():
+          """The value every other package builds on."""
+          return 1 + plugin()
+    plugins/__init__.py: |
+      from extras import extra
+      from thirdparty import vendored
+
+
+      def plugin():
+          return extra() + vendored()
+
+
+      def other():
+          return 4
+change:
+  files:
+    kernel/__init__.py: |
+      from plugins import other, plugin
+
+
+      def base():
+          """The value every other package builds on."""
+          return 1 + plugin() + other()

@@ -658,11 +658,12 @@ def architecture_analysis_tool(
     """Map the repository's units and report structural findings.
 
     ``overview`` returns ``units`` (the crates, packages, and modules the
-    manifests declare), ``unit_edges`` (calls, imports, references, and bridges
-    between two units; ``declared`` when a manifest lists the dependency), and
-    ``findings``: ``import_cycle`` (with the imports to cut), ``untested_core``,
-    ``broken_doc_link``. An empty ``findings`` list means nothing structural to
-    act on. ``detail_level="standard"`` adds each unit's ``surface``.
+    manifests declare), ``unit_edges`` (the dependencies between two units;
+    ``declared`` when a manifest lists one), and
+    ``findings``: ``import_cycle`` (with the imports to cut),
+    ``unstable_dependency``, ``untested_core``, ``broken_doc_link``. An empty
+    ``findings`` list means nothing structural to act on.
+    ``detail_level="standard"`` adds each unit's ``surface``.
 
     Metric modes, per declared unit: sdp_metrics and sdp_violations (a unit
     depending on a less stable one by more than ``min_delta``); sap_metrics and
@@ -724,10 +725,11 @@ async def review_tool(
 
     Start with ``changes`` and read ``findings``: each names a place to look,
     the graph facts behind it, and an action. Kinds: dangling_reference
-    (removed or renamed symbol still referenced), unchanged_caller (new
-    required parameter, callers not edited), contract_doc_not_updated,
-    bridge_touched (one side of a manifest/Terraform/FFI bridge), untested_change,
-    tests_to_run (with a command). An empty list means nothing beyond the diff.
+    (a removed symbol still referenced), unchanged_caller (new required
+    parameter, callers not edited), contract_doc_not_updated, bridge_touched
+    (one side of a manifest/Terraform/FFI bridge), unstable_dependency,
+    untested_change, tests_to_run (with a command). An empty list means
+    nothing beyond the diff.
 
     Modes: changes (findings), context (source snippets), impact (blast
     radius, ``max_depth`` hops), affected_flows (flows the change touches).

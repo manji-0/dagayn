@@ -139,7 +139,8 @@ Recommended sequence for reviewing a delta:
 `kind`, the place to look, its `evidence` or `sites`, and an `action`:
 `dangling_reference` (a removed, renamed, or moved symbol still referenced),
 `unchanged_caller` (new required parameter or fewer parameters, callers not
-edited), `contract_doc_not_updated`, `bridge_touched`, `untested_change`, and
+edited), `contract_doc_not_updated`, `bridge_touched`, `unstable_dependency`
+(the change makes a unit depend on a less stable one), `untested_change`, and
 `tests_to_run` (with a `command`). Each kind keeps 10; `findings_omitted`
 counts the rest. With no `base`, uncommitted edits to tracked files are
 reviewed against `HEAD`, a clean checkout against `HEAD~1`. The deprecated
@@ -195,7 +196,9 @@ repository declares (`units`: Cargo crates, npm packages, Go modules, Python
 import packages, Terraform modules; `unit_edges`: the calls, imports,
 references, and bridges between them, `declared` when a manifest lists the
 dependency) and `findings`: `import_cycle` (modules that import each other at
-load time, with the imports to cut), `untested_core` (code used from many files
+load time, with the imports to cut), `unstable_dependency` (a unit that depends
+on a less stable one, with the imports that make it and the SAP position of
+the unit depended on), `untested_core` (code used from many files
 that no test reaches through its callers), and `broken_doc_link` (a directive
 pointing at a file, section, or symbol that is gone). An empty `findings` list
 means nothing structural to act on. `detail_level="standard"` adds each unit's

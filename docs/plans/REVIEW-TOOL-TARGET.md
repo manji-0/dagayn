@@ -167,7 +167,10 @@ ship.
 | `contract_doc_not_updated` | an authored contract doc (`implemented_by` / `implements_contract`) links to changed code and the doc is not in the diff | authored doc links | read the section, update or confirm |
 | `bridge_touched` | the change edits one side of a HIGH/EXACT cross-artifact bridge (manifest, Terraform, FFI, build config) and not the other | `CROSS_ARTIFACT` edges | check the other side |
 
-All six shipped. Comment- and layout-only edits are not changes (Python is
+All six shipped; a seventh, `unstable_dependency` (the change makes a
+declared unit depend on a less stable one), followed on 2026-10-08
+([STABILITY-FINDING-TARGET.md](./STABILITY-FINDING-TARGET.md#target-contract)).
+Comment- and layout-only edits are not changes (Python is
 compared by syntax tree), so they produce no findings. Each kind keeps 10
 findings and counts the rest in `findings_omitted`.
 

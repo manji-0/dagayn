@@ -14,3 +14,4 @@ kinds:
   untested_change: {}
   contract_doc_not_updated: {}
   bridge_touched: {}
+  unstable_dependency: {}

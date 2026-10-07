@@ -739,6 +739,12 @@ an `action`. Kinds:
   `implements`) is linked to changed code and was not edited.
 - `bridge_touched`: the change edits the source side of a reportable
   cross-artifact bridge (manifest, Terraform, FFI) and not the other side.
+- `unstable_dependency`: the change makes a declared unit depend on a less
+  stable one (instability gap above 0.1, `strict_static` imports): every
+  edge behind the dependency is on a line the diff touches, and the base
+  version of those files did not name the unit depended on. Evidence: both
+  units' afferent and efferent counts and instability, the sites, and the
+  SAP abstractness and distance of the unit depended on where SAP applies.
 - `untested_change`: changed production functions with no test reaching them,
   directly or through callers up to 4 hops. One finding per file; tests,
   `build.rs`, `examples/`, benches, fixtures, and generated code are excluded.

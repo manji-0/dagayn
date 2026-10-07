@@ -1,0 +1,81 @@
+# A Cargo workspace in layers: kernel (used by feature and app), feature,
+# app, and plugins, which depends on two leaf crates.
+files:
+  Cargo.toml: |
+    [workspace]
+    members = ["kernel", "feature", "app", "plugins", "extras", "thirdparty"]
+  kernel/Cargo.toml: |
+    [package]
+    name = "kernel"
+    version = "0.1.0"
+    edition = "2021"
+  feature/Cargo.toml: |
+    [package]
+    name = "feature"
+    version = "0.1.0"
+    edition = "2021"
+
+    [dependencies]
+    kernel = { path = "../kernel" }
+  app/Cargo.toml: |
+    [package]
+    name = "app"
+    version = "0.1.0"
+    edition = "2021"
+
+    [dependencies]
+    feature = { path = "../feature" }
+    kernel = { path = "../kernel" }
+    extras = { path = "../extras" }
+  plugins/Cargo.toml: |
+    [package]
+    name = "plugins"
+    version = "0.1.0"
+    edition = "2021"
+
+    [dependencies]
+    extras = { path = "../extras" }
+    thirdparty = { path = "../thirdparty" }
+  extras/Cargo.toml: |
+    [package]
+    name = "extras"
+    version = "0.1.0"
+    edition = "2021"
+  thirdparty/Cargo.toml: |
+    [package]
+    name = "thirdparty"
+    version = "0.1.0"
+    edition = "2021"
+  kernel/src/lib.rs: |
+    /// The value every other crate builds on.
+    pub fn base() -> i64 {
+        1
+    }
+  feature/src/lib.rs: |
+    use kernel::base;
+
+    pub fn feature() -> i64 {
+        base() + 1
+    }
+  app/src/lib.rs: |
+    use feature::feature;
+    use kernel::base;
+
+    pub fn run() -> i64 {
+        feature() + base()
+    }
+  plugins/src/lib.rs: |
+    use extras::extra;
+    use thirdparty::vendored;
+
+    pub fn plugin() -> i64 {
+        extra() + vendored()
+    }
+  extras/src/lib.rs: |
+    pub fn extra() -> i64 {
+        2
+    }
+  thirdparty/src/lib.rs: |
+    pub fn vendored() -> i64 {
+        3
+    }

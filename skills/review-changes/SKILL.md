@@ -40,6 +40,9 @@ it, which tests cover it, and which docs are linked to it. Read the
      or signature is a bug.
    - `contract_doc_not_updated`: read the linked section (step 7).
    - `bridge_touched`: check the other side of the bridge still matches.
+   - `unstable_dependency`: the change makes a unit depend on a less stable
+     one; ask whether the dependency can point the other way (move what is
+     needed into the stable unit, or an interface it owns).
    - `untested_change`: confirm with `query_graph_tool(pattern="tests_for")`,
      then suggest a test.
    - `tests_to_run`: run its `command`, or list it in the review.

@@ -43,6 +43,7 @@ mod review;
 mod review_summary;
 mod search;
 mod source;
+mod stability;
 mod stats;
 mod suggestions;
 mod traverse;

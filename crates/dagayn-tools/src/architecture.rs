@@ -238,6 +238,14 @@ impl Snapshot {
 
     /// Each dependency edge of the profile, as source and target scopes.
     pub(crate) fn dependencies(&self, view: &View) -> Vec<(String, String)> {
+        self.dependency_edges(view)
+            .into_iter()
+            .map(|(source, target, _)| (source, target))
+            .collect()
+    }
+
+    /// [`Snapshot::dependencies`] with the edge behind each one.
+    pub(crate) fn dependency_edges(&self, view: &View) -> Vec<(String, String, &GraphEdge)> {
         let (qualified, names) = self.scope_maps(view);
         let mut out = Vec::new();
         for edge in &self.edges {
@@ -261,7 +269,7 @@ impl Snapshot {
             if let Some(target) = target
                 && target != source
             {
-                out.push((source.clone(), target.clone()));
+                out.push((source.clone(), target.clone(), edge));
             }
         }
         out

@@ -1,0 +1,23 @@
+description: 'kernel, which feature and app import, starts importing plugins, which imports two packages:
+  a stable package now depends on a less stable one.'
+negative: false
+commit_change: false
+allowed_kinds:
+- untested_change
+base:
+  from: py_layers
+change:
+  files:
+    kernel/__init__.py: |
+      from plugins import plugin
+
+
+      def base():
+          """The value every other package builds on."""
+          return 1 + plugin()
+expected_findings:
+- kind: unstable_dependency
+  target: kernel/__init__.py
+  also:
+  - kernel
+  - plugins

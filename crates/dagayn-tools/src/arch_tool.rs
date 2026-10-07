@@ -397,12 +397,14 @@ fn with_unit_map(
     detail_level: &str,
     rest: Ordered,
 ) -> Option<Ordered> {
-    let nodes = store.get_all_nodes_filtered(false).ok()?;
-    let edges = store.get_all_edges().ok()?;
-    let (mut units, mut unit_edges) =
-        crate::units::unit_map(root, &nodes, &edges, detail_level != "minimal");
-    let (findings, findings_omitted) =
-        crate::arch_findings::architecture_findings(root, &nodes, &edges);
+    let snapshot = crate::architecture::Snapshot::read(store)?;
+    let (mut units, mut unit_edges) = crate::units::unit_map(
+        root,
+        &snapshot.all_nodes,
+        &snapshot.edges,
+        detail_level != "minimal",
+    );
+    let (findings, findings_omitted) = crate::arch_findings::architecture_findings(root, &snapshot);
     let (unit_count, edge_count) = (units.len(), unit_edges.len());
     units.truncate(MAX_UNITS);
     unit_edges.truncate(MAX_UNIT_EDGES);

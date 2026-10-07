@@ -69,6 +69,7 @@ FINDING_KINDS = (
     "untested_change",
     "contract_doc_not_updated",
     "bridge_touched",
+    "unstable_dependency",
 )
 TARGET_KEYS = ("qualified_name", "file", "target", "source")
 CASE_KEYS = {

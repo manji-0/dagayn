@@ -1,0 +1,25 @@
+description: kernel already imports plugins at base; the change edits another line of kernel. The dependency
+  is the architecture overview's to report, not this change's.
+negative: true
+commit_change: true
+allowed_kinds:
+- untested_change
+base:
+  from: py_layers
+  files:
+    kernel/__init__.py: |
+      from plugins import plugin
+
+
+      def base():
+          """The value every other package builds on."""
+          return 1 + plugin()
+change:
+  files:
+    kernel/__init__.py: |
+      from plugins import plugin
+
+
+      def base():
+          """The value every other package builds on."""
+          return 2 + plugin()

@@ -11,3 +11,4 @@ kinds:
   import_cycle: {}
   untested_core: {}
   broken_doc_link: {}
+  unstable_dependency: {}

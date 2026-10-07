@@ -50,7 +50,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 CASES_DIR = REPO_ROOT / "tests" / "fixtures" / "architecture_eval"
 THRESHOLDS_PATH = Path(__file__).resolve().parent / "architecture_thresholds.yaml"
 
-FINDING_KINDS = ("import_cycle", "untested_core", "broken_doc_link")
+FINDING_KINDS = ("import_cycle", "unstable_dependency", "untested_core", "broken_doc_link")
 TARGET_KEYS = ("qualified_name", "file", "target", "source")
 CASE_KEYS = {"description", "negative", "files", "expected_findings", "expected_units"}
 

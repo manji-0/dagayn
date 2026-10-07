@@ -218,7 +218,9 @@ Considered and not proposed:
 - **SDP / SAP as findings**: an instability or abstractness score crossing
   a threshold is not a defect without a stated design intent. The metrics
   stay available as explicit modes, computed over declared units instead
-  of directories.
+  of directories. Revised (2026-10-08): a dependency on a less stable unit,
+  with the import that makes it, is now the finding `unstable_dependency`;
+  SAP stays evidence ([STABILITY-FINDING-TARGET.md](./STABILITY-FINDING-TARGET.md#target-contract)).
 - **Layer rules** ("`tools` must not depend on `cli`"): useful, but only
   with a rule file the repository authors. Revisit once the map is in use.
 - **Dead code**: `refactor_tool(mode="suggest")` already reports removal

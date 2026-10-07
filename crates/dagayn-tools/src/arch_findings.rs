@@ -32,13 +32,18 @@ const NON_LOADING_IMPORT_KINDS: &[&str] = &["type", "require", "dynamic"];
 /// The overview's findings and the per-kind count of those not listed.
 pub(crate) fn architecture_findings(
     root: &Path,
-    nodes: &[GraphNode],
-    edges: &[GraphEdge],
+    snapshot: &crate::architecture::Snapshot,
 ) -> (Vec<Value>, BTreeMap<&'static str, usize>) {
+    let (nodes, edges) = (&snapshot.all_nodes, &snapshot.edges);
     let mut findings = Vec::new();
     let mut omitted = BTreeMap::new();
+    let unstable: Vec<Value> = crate::stability::unstable_dependencies(root, snapshot)
+        .iter()
+        .map(crate::stability::UnstableDependency::finding)
+        .collect();
     for (kind, mut found) in [
         ("import_cycle", import_cycles(nodes, edges)),
+        ("unstable_dependency", unstable),
         ("untested_core", untested_core(nodes, edges)),
         ("broken_doc_link", broken_doc_links(root, nodes, edges)),
     ] {

@@ -1,0 +1,31 @@
+description: 'kernel, which feature and app depend on, starts using plugins, which depends on two crates:
+  a stable crate now depends on a less stable one.'
+negative: false
+commit_change: true
+allowed_kinds:
+- untested_change
+base:
+  from: rust_workspace
+change:
+  files:
+    kernel/Cargo.toml: |
+      [package]
+      name = "kernel"
+      version = "0.1.0"
+      edition = "2021"
+
+      [dependencies]
+      plugins = { path = "../plugins" }
+    kernel/src/lib.rs: |
+      use plugins::plugin;
+
+      /// The value every other crate builds on.
+      pub fn base() -> i64 {
+          1 + plugin()
+      }
+expected_findings:
+- kind: unstable_dependency
+  target: kernel/src/lib.rs
+  also:
+  - kernel
+  - plugins

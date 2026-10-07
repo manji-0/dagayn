@@ -26,7 +26,9 @@ mode only when the user asks for one by name.
      lists; such a pair with no counts is one the graph cannot see (a call
      inside a macro).
    - `findings`: `import_cycle` (modules that import each other when they load,
-     with `cut`, the imports that break it), `untested_core` (a symbol used
+     with `cut`, the imports that break it), `unstable_dependency` (a unit
+     that depends on a less stable one, with the import `sites` and the SAP
+     position of the unit depended on), `untested_core` (a symbol used
      from many files that no test reaches through its callers), and
      `broken_doc_link` (a directive pointing at a file, section, or symbol that
      is gone). Empty means nothing structural to act on; say so.

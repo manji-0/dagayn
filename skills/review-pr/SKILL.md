@@ -43,7 +43,8 @@ retrieval setup.
    still referenced outside the PR), `unchanged_caller` (a new required
    parameter or fewer parameters, callers not edited),
    `contract_doc_not_updated`, `bridge_touched` (one side of a manifest,
-   Terraform, or FFI bridge), `untested_change`, and `tests_to_run` (with a
+   Terraform, or FFI bridge), `unstable_dependency` (the PR makes a unit depend
+   on a less stable one), `untested_change`, and `tests_to_run` (with a
    `command`). Each kind keeps 10; `findings_omitted` counts the rest. An empty
    list means nothing beyond the diff needs checking. The default
    `detail_level="standard"` adds `changed_functions` and `affected_flows`;
