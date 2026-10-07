@@ -1,11 +1,7 @@
 {
   "_repo": {
-    "db_path": "<VOLATILE>",
-    "repo_root": "<REPO>",
-    "source": "explicit"
+    "repo_root": "<REPO>"
   },
-  "_runtime": "<VOLATILE>",
-  "called_subtool": "list_communities_func",
   "communities": [
     {
       "cohesion": 0.0,

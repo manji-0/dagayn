@@ -15,45 +15,15 @@
       "result": {
         "content": [
           {
-            "text": "{\"status\":\"not_found\",\"summary\":\"No node found matching 'nope' in the current graph.\",\"result_count\":0,\"results\":[],\"zero_result_reason\":\"target_not_found_in_graph\",\"next\":[{\"args\":{\"detail_level\":\"minimal\",\"query\":\"nope\"},\"tool\":\"semantic_search_nodes_tool\",\"why\":\"find the node by name or meaning\"}],\"missingness\":[{\"claim_effect\":\"claims should be treated as graph-limited until this is resolved\",\"reason_code\":\"missing_test_edges\",\"severity\":\"medium\"},{\"claim_effect\":\"absence is graph-limited, not proof the symbol does not exist\",\"reason_code\":\"target_not_found_in_graph\",\"severity\":\"medium\"}],\"guidance\":[{\"action\":\"semantic_search_nodes_tool -- verify the target and refresh the graph\",\"claim\":\"No graph relationships matched 'callers_of' for 'nope'.\",\"confidence\":\"low\",\"counts\":{\"result_count\":0},\"evidence\":[{\"pattern\":\"callers_of\",\"result_count\":0,\"target\":\"nope\",\"type\":\"computed\"}],\"missingness\":[{\"claim_effect\":\"absence is graph-limited, not proof the relationship does not exist\",\"reason_code\":\"not_found_in_current_graph\",\"severity\":\"medium\"}],\"reason_codes\":[\"zero_result\"]}],\"_repo\":{\"db_path\":\"<REPO>/.dagayn/graph.db\",\"repo_root\":\"<REPO>\",\"source\":\"explicit\"}}",
+            "text": "{\"status\":\"not_found\",\"summary\":\"No node found matching 'nope' in the current graph.\",\"result_count\":0,\"results\":[],\"zero_result_reason\":\"target_not_found_in_graph\",\"next\":[{\"args\":{\"detail_level\":\"minimal\",\"query\":\"nope\"},\"tool\":\"semantic_search_nodes_tool\",\"why\":\"find the node by name or meaning\"}],\"missingness\":[{\"claim_effect\":\"claims should be treated as graph-limited until this is resolved\",\"reason_code\":\"missing_test_edges\",\"severity\":\"medium\"},{\"claim_effect\":\"absence is graph-limited, not proof the symbol does not exist\",\"reason_code\":\"target_not_found_in_graph\",\"severity\":\"medium\"}],\"_repo\":{\"repo_root\":\"<REPO>\"}}",
             "type": "text"
           }
         ],
         "isError": false,
         "structuredContent": {
           "_repo": {
-            "db_path": "<VOLATILE>",
-            "repo_root": "<REPO>",
-            "source": "explicit"
+            "repo_root": "<REPO>"
           },
-          "guidance": [
-            {
-              "action": "semantic_search_nodes_tool -- verify the target and refresh the graph",
-              "claim": "No graph relationships matched 'callers_of' for 'nope'.",
-              "confidence": "low",
-              "counts": {
-                "result_count": 0
-              },
-              "evidence": [
-                {
-                  "pattern": "callers_of",
-                  "result_count": 0,
-                  "target": "nope",
-                  "type": "computed"
-                }
-              ],
-              "missingness": [
-                {
-                  "claim_effect": "absence is graph-limited, not proof the relationship does not exist",
-                  "reason_code": "not_found_in_current_graph",
-                  "severity": "medium"
-                }
-              ],
-              "reason_codes": [
-                "zero_result"
-              ]
-            }
-          ],
           "missingness": [
             {
               "claim_effect": "claims should be treated as graph-limited until this is resolved",
@@ -1763,45 +1733,15 @@
       "result": {
         "content": [
           {
-            "text": "{\"status\":\"not_found\",\"summary\":\"No node found matching 'nope' in the current graph.\",\"result_count\":0,\"results\":[],\"zero_result_reason\":\"target_not_found_in_graph\",\"next\":[{\"args\":{\"detail_level\":\"minimal\",\"query\":\"nope\"},\"tool\":\"semantic_search_nodes_tool\",\"why\":\"find the node by name or meaning\"}],\"missingness\":[{\"claim_effect\":\"claims should be treated as graph-limited until this is resolved\",\"reason_code\":\"missing_test_edges\",\"severity\":\"medium\"},{\"claim_effect\":\"absence is graph-limited, not proof the symbol does not exist\",\"reason_code\":\"target_not_found_in_graph\",\"severity\":\"medium\"}],\"guidance\":[{\"action\":\"semantic_search_nodes_tool -- verify the target and refresh the graph\",\"claim\":\"No graph relationships matched 'callers_of' for 'nope'.\",\"confidence\":\"low\",\"counts\":{\"result_count\":0},\"evidence\":[{\"pattern\":\"callers_of\",\"result_count\":0,\"target\":\"nope\",\"type\":\"computed\"}],\"missingness\":[{\"claim_effect\":\"absence is graph-limited, not proof the relationship does not exist\",\"reason_code\":\"not_found_in_current_graph\",\"severity\":\"medium\"}],\"reason_codes\":[\"zero_result\"]}],\"_repo\":{\"db_path\":\"<REPO>/.dagayn/graph.db\",\"repo_root\":\"<REPO>\",\"source\":\"explicit\"}}",
+            "text": "{\"status\":\"not_found\",\"summary\":\"No node found matching 'nope' in the current graph.\",\"result_count\":0,\"results\":[],\"zero_result_reason\":\"target_not_found_in_graph\",\"next\":[{\"args\":{\"detail_level\":\"minimal\",\"query\":\"nope\"},\"tool\":\"semantic_search_nodes_tool\",\"why\":\"find the node by name or meaning\"}],\"missingness\":[{\"claim_effect\":\"claims should be treated as graph-limited until this is resolved\",\"reason_code\":\"missing_test_edges\",\"severity\":\"medium\"},{\"claim_effect\":\"absence is graph-limited, not proof the symbol does not exist\",\"reason_code\":\"target_not_found_in_graph\",\"severity\":\"medium\"}],\"_repo\":{\"repo_root\":\"<REPO>\"}}",
             "type": "text"
           }
         ],
         "isError": false,
         "structuredContent": {
           "_repo": {
-            "db_path": "<VOLATILE>",
-            "repo_root": "<REPO>",
-            "source": "explicit"
+            "repo_root": "<REPO>"
           },
-          "guidance": [
-            {
-              "action": "semantic_search_nodes_tool -- verify the target and refresh the graph",
-              "claim": "No graph relationships matched 'callers_of' for 'nope'.",
-              "confidence": "low",
-              "counts": {
-                "result_count": 0
-              },
-              "evidence": [
-                {
-                  "pattern": "callers_of",
-                  "result_count": 0,
-                  "target": "nope",
-                  "type": "computed"
-                }
-              ],
-              "missingness": [
-                {
-                  "claim_effect": "absence is graph-limited, not proof the relationship does not exist",
-                  "reason_code": "not_found_in_current_graph",
-                  "severity": "medium"
-                }
-              ],
-              "reason_codes": [
-                "zero_result"
-              ]
-            }
-          ],
           "missingness": [
             {
               "claim_effect": "claims should be treated as graph-limited until this is resolved",

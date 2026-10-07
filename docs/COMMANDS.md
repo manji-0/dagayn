@@ -306,9 +306,10 @@ dagayn tool flow_tool --arg mode='"entry_points"' --arg target='"save_user"'
 dagayn tool architecture_analysis_tool --arg mode='"overview"' --format summary
 ```
 
-Tool responses include compact `_runtime` metadata (`version`, `pid`,
-`python`, and `package_root`) so agents can compare a direct CLI run with a
-running MCP server. A long-lived MCP process keeps the implementation it loaded
+Tool responses at `detail_level="verbose"` (and the maintenance tools'
+responses) include compact `_runtime` metadata (`version`, `pid`, `python`,
+and `package_root`) and the full `_repo` (`db_path`, how the root was found)
+so agents can compare a direct CLI run with a running MCP server. A long-lived MCP process keeps the implementation it loaded
 at startup; after editing or upgrading dagayn, restart `dagayn serve` before
 treating MCP output as the same truth source as `dagayn tool`.
 

@@ -1,40 +1,9 @@
 {
   "_repo": {
-    "db_path": "<VOLATILE>",
-    "repo_root": "<REPO>",
-    "source": "explicit"
+    "repo_root": "<REPO>"
   },
   "confidence": "high",
   "exact_match_count": 1,
-  "guidance": [
-    {
-      "action": "query_graph_tool pattern=\"callers_of\" -- drill into a relationship",
-      "claim": "Graph query 'callers_of' returned 1 related node(s) for 'services.py::create_user'.",
-      "confidence": "medium",
-      "counts": {
-        "result_count": 1
-      },
-      "evidence": [
-        {
-          "exact_match_count": 1,
-          "pattern": "callers_of",
-          "result_count": 1,
-          "target": "services.py::create_user",
-          "type": "computed"
-        }
-      ],
-      "missingness": [
-        {
-          "claim_effect": "graph edges are static extraction, not runtime traces",
-          "reason_code": "relationship_query_not_runtime_proof",
-          "severity": "low"
-        }
-      ],
-      "reason_codes": [
-        "graph_relationship_query"
-      ]
-    }
-  ],
   "missingness": [
     {
       "claim_effect": "claims should be treated as graph-limited until this is resolved",

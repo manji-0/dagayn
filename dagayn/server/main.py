@@ -25,7 +25,7 @@ from ..prompts import (
     pre_merge_check_prompt,
     review_changes_prompt,
 )
-from ..tools._common import ToolPayload, summary_at_verbose_only
+from ..tools._common import ToolPayload, summary_at_verbose_only, trim_envelope
 from .tool_allowlist import _resolve_tool_allow_list
 
 type ComponentPayload = dict[str, object]
@@ -413,7 +413,7 @@ async def get_minimal_context_tool(
             have uncommitted changes, else HEAD~1.
     """
     effective_local_embedding = _resolve_local_embedding(None) or "none"
-    return await asyncio.to_thread(
+    payload = await asyncio.to_thread(
         _tool("context:get_minimal_context"),
         task=task,
         changed_files=changed_files,
@@ -423,6 +423,7 @@ async def get_minimal_context_tool(
         local_embedding=effective_local_embedding,
         prepare_budget_seconds=300,
     )
+    return trim_envelope(payload)
 
 
 @mcp.tool()

@@ -1,12 +1,8 @@
 {
   "_repo": {
-    "db_path": "<VOLATILE>",
-    "repo_root": "<REPO>",
-    "source": "explicit"
+    "repo_root": "<REPO>"
   },
-  "_runtime": "<VOLATILE>",
   "base": "HEAD~1",
-  "called_subtool": "detect_changes_func",
   "diff_parse_status": "base_unresolved",
   "error": "Could not resolve the diff base 'HEAD~1' in <REPO>. Pass a reachable ref (the default HEAD~1 does not exist in a single-commit repository, and a rebase or gc can make a recorded sha unreachable).",
   "missingness": [

@@ -408,7 +408,11 @@ fn minimal_context_reports_and_repairs_commit_drift() {
     // A queued repair is not something to call.
     assert_ne!(repaired["next"][0]["tool"], "ensure_graph_tool");
     assert_eq!(repaired["repair"]["kind"], "prepare");
-    assert_eq!(repaired["_repo"]["source"], "explicit");
+    // How the root was found is diagnosis; the reply names the repository.
+    assert_eq!(
+        repaired["_repo"].as_object().map(|repo| repo.len()),
+        Some(1)
+    );
 }
 
 #[test]
@@ -465,7 +469,17 @@ fn query_graph_counts_one_row_per_node_everywhere() {
     );
     // main and twice, though twice calls it from two lines.
     assert_eq!(callers["result_count"], 2, "{}", callers["results"]);
-    assert_eq!(callers["guidance"][0]["counts"]["result_count"], 2);
+    assert!(callers.get("guidance").is_none());
+    // full lists one row per edge, and its guidance counts the same rows.
+    let full = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": "app.py::helper", "detail_level": "full"}),
+    );
+    assert_eq!(
+        full["guidance"][0]["counts"]["result_count"],
+        full["result_count"]
+    );
     assert!(
         callers["summary"]
             .as_str()
@@ -528,7 +542,7 @@ fn query_graph_answers_callers_and_callees_of_exact_targets() {
     assert_eq!(callers["results"][0]["qualified_name"], "app.py::main");
     assert_eq!(callers["results"][0]["lines"], json!([2]));
     assert!(callers["results"][0].get("file_path").is_none());
-    assert_eq!(callers["guidance"][0]["counts"]["result_count"], 1);
+    assert!(callers.get("guidance").is_none());
     assert_eq!(callers["results_complete"], true);
     // Graph-wide health is get_minimal_context_tool's; detail_level="full" keeps it.
     assert!(callers.get("answerability").is_none());
@@ -756,7 +770,16 @@ fn search_without_embeddings_ranks_fts_hits() {
         json!({"query": "helper"}),
     );
     assert_eq!(found["search_mode"], "fts_only");
-    assert_eq!(found["embedding_health"]["status"], "provider_unavailable");
+    assert!(found.get("embedding_health").is_none());
+    let verbose = answer(
+        &context,
+        "semantic_search_nodes_tool",
+        json!({"query": "helper", "detail_level": "verbose"}),
+    );
+    assert_eq!(
+        verbose["embedding_health"]["status"],
+        "provider_unavailable"
+    );
     assert_eq!(found["results"][0]["qualified_name"], "app.py::helper");
     assert_eq!(found["exactness"]["exact_match_count"], 1);
     let none = answer(
@@ -824,7 +847,8 @@ fn review_answers_affected_flows_from_the_worktree_and_explicit_files() {
         }])
     );
     assert!(auto.get("affected_flows").is_none());
-    assert_eq!(auto["_runtime"]["pid"], 1);
+    assert!(auto.get("_runtime").is_none());
+    assert_eq!(auto["_repo"].as_object().map(|repo| repo.len()), Some(1));
     assert!(auto["next"].is_array());
     assert!(auto.get("_hints").is_none());
     let text = call(&context, "review_tool", &json!({"mode": "affected_flows"}))
@@ -832,7 +856,7 @@ fn review_answers_affected_flows_from_the_worktree_and_explicit_files() {
         .text;
     assert!(
         text.starts_with(
-            r#"{"status":"ok","mode":"affected_flows","called_subtool":"get_affected_flows_func","summary":"1 entry point(s) reach the 1 changed function(s) in 1 file(s)"#
+            r#"{"status":"ok","mode":"affected_flows","summary":"1 entry point(s) reach the 1 changed function(s) in 1 file(s)"#
         ),
         "{text}"
     );
@@ -918,7 +942,7 @@ fn review_impact_reports_the_blast_radius_and_trims_like_python() {
     let impact = |arguments: Value| answer(&context, "review_tool", arguments);
 
     let small = impact(json!({"mode": "impact", "changed_files": ["test_app.py", "gone.py"]}));
-    assert_eq!(small["called_subtool"], "get_impact_radius");
+    assert!(small.get("called_subtool").is_none());
     assert_eq!(small["unmatched_changed_files"], json!(["gone.py"]));
     assert!(
         small["summary"]
@@ -949,9 +973,13 @@ fn review_impact_reports_the_blast_radius_and_trims_like_python() {
     )
     .expect("answered")
     .text;
+    let (payload_end, trim) = (
+        text.find(r#""missingness":"#),
+        text.find(r#""_truncation":{"#),
+    );
     assert!(
-        text.contains(r#""guidance":[],"_truncation":{"#),
-        "the trim record follows the payload"
+        payload_end.is_some() && trim > payload_end,
+        "the trim record follows the payload: {text}"
     );
 
     let minimal =
@@ -995,7 +1023,7 @@ fn review_changes_scores_the_diff_against_base() {
     };
     let changes = answer(&context, "review_tool", json!({}));
     assert_eq!(changes["mode"], "changes");
-    assert_eq!(changes["called_subtool"], "detect_changes_func");
+    assert!(changes.get("called_subtool").is_none());
     assert_eq!(changes["changed_files"], json!(["app.py"]));
     assert_eq!(changes["base"], "HEAD~1");
     assert!(changes.get("diff_parse_status").is_none());
@@ -1069,6 +1097,10 @@ fn review_changes_scores_the_diff_against_base() {
         "{deprecated:?}"
     );
     assert!(deprecated.contains(&json!("_hints")), "{deprecated:?}");
+    // verbose keeps the diagnosis the agent's envelope leaves out.
+    assert_eq!(verbose_changes["called_subtool"], "detect_changes_func");
+    assert!(verbose_changes["_runtime"].is_object());
+    assert!(verbose_changes["_repo"]["db_path"].is_string());
     assert!(
         verbose_changes["analysis_summary"]["reason_codes"]
             .as_array()
@@ -1186,7 +1218,7 @@ fn review_context_reads_contained_sources_and_caps_long_files() {
     let review = |arguments: Value| answer(&context, "review_tool", arguments);
     let full =
         review(json!({"mode": "context", "changed_files": ["app.py", "../escape.py", "gone.py"]}));
-    assert_eq!(full["called_subtool"], "get_review_context");
+    assert!(full.get("called_subtool").is_none());
     let ctx = &full["context"];
     assert_eq!(
         ctx["source_snippets"]["app.py"],
@@ -1268,7 +1300,7 @@ fn flow_tool_lists_and_reads_stored_flows() {
         ..repo.context()
     };
     let listed = answer(&context, "flow_tool", json!({}));
-    assert_eq!(listed["called_subtool"], "list_flows");
+    assert!(listed.get("called_subtool").is_none());
     let flows = listed["flows"].as_array().expect("flows");
     assert!(!flows.is_empty());
     assert_eq!(flows[0]["missing_node_count"], 0);
@@ -1285,7 +1317,7 @@ fn flow_tool_lists_and_reads_stored_flows() {
         "flow_tool",
         json!({"mode": "get", "flow_id": id, "include_source": true}),
     );
-    assert_eq!(got["called_subtool"], "get_flow");
+    assert!(got.get("called_subtool").is_none());
     assert_eq!(got["status"], "ok");
     let steps = got["flow"]["steps"].as_array().expect("steps");
     assert_eq!(steps[0]["step_kind"], "entry");
@@ -1354,7 +1386,7 @@ fn flow_tool_finds_the_entry_points_that_reach_a_target() {
         "flow_tool",
         json!({"mode": "entry_points", "target": "helper"}),
     );
-    assert_eq!(found["called_subtool"], "entry_points");
+    assert!(found.get("called_subtool").is_none());
     assert_eq!(found["target"], "app.py::helper");
     // `test_main` also calls main, through test code that is not walked.
     assert_eq!(
@@ -1412,7 +1444,7 @@ fn architecture_metrics_follow_the_requested_view() {
     };
     let arch = |arguments: Value| answer(&context, "architecture_analysis_tool", arguments);
     let adp = arch(json!({"mode": "adp_violations"}));
-    assert_eq!(adp["called_subtool"], "detect_adp_violations_func");
+    assert!(adp.get("called_subtool").is_none());
     assert_eq!(adp["count"], 1);
     assert_eq!(adp["violations"][0]["nodes"], json!(["<root>", "pkg"]));
     assert!(adp.get("answerability").is_none());
@@ -1442,7 +1474,7 @@ fn architecture_metrics_follow_the_requested_view() {
             .is_some_and(|s| s.contains("min_distance=1.5e+16)"))
     );
     let hubs = arch(json!({"mode": "hubs", "artifact_scope": "all"}));
-    assert_eq!(hubs["called_subtool"], "get_hub_nodes_func");
+    assert!(hubs.get("called_subtool").is_none());
     assert!(hubs["hub_nodes"].as_array().is_some_and(|h| !h.is_empty()));
     assert_eq!(hubs["include_tests"], true);
     let bridges = arch(json!({"mode": "bridges", "top_n": 1}));
@@ -1466,7 +1498,7 @@ fn architecture_metrics_follow_the_requested_view() {
     assert!(surprising["surprising_connections"].is_array());
     assert_eq!(hubs["deprecated"]["removal"], "next release");
     let overview = arch(json!({}));
-    assert_eq!(overview["called_subtool"], "get_architecture_overview_func");
+    assert!(overview.get("called_subtool").is_none());
     assert!(overview["units"].is_array());
     assert!(overview.get("architecture_health").is_none());
     // `app.py` and `pkg/core.py` import each other at module level.
@@ -1483,7 +1515,7 @@ fn architecture_metrics_follow_the_requested_view() {
             .is_some_and(|fields| fields.contains(&json!("architecture_health")))
     );
     let communities = arch(json!({"mode": "communities", "detail_level": "standard"}));
-    assert_eq!(communities["called_subtool"], "list_communities_func");
+    assert!(communities.get("called_subtool").is_none());
     assert!(communities.get("answerability").is_none());
     let first = communities["communities"][0]["id"].clone();
     let community =
@@ -2047,7 +2079,7 @@ fn search_ranks_stored_vectors_against_the_sidecar_query() {
     let found = answer(
         &context,
         "semantic_search_nodes_tool",
-        json!({"query": "something that assists", "limit": 3}),
+        json!({"query": "something that assists", "limit": 3, "detail_level": "verbose"}),
     );
     let health = &found["embedding_health"];
     assert_eq!(health["status"], "degraded", "{health}");

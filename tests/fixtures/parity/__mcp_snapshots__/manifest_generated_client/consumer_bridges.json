@@ -1,39 +1,9 @@
 {
   "_repo": {
-    "db_path": "<VOLATILE>",
-    "repo_root": "<REPO>",
-    "source": "explicit"
+    "repo_root": "<REPO>"
   },
   "confidence": "low",
   "exact_match_count": 1,
-  "guidance": [
-    {
-      "action": "semantic_search_nodes_tool -- verify the target and refresh the graph",
-      "claim": "No graph relationships matched 'bridges_from' for 'apps/web/package.json'.",
-      "confidence": "low",
-      "counts": {
-        "result_count": 0
-      },
-      "evidence": [
-        {
-          "pattern": "bridges_from",
-          "result_count": 0,
-          "target": "apps/web/package.json",
-          "type": "computed"
-        }
-      ],
-      "missingness": [
-        {
-          "claim_effect": "absence is graph-limited, not proof the relationship does not exist",
-          "reason_code": "not_found_in_current_graph",
-          "severity": "medium"
-        }
-      ],
-      "reason_codes": [
-        "zero_result"
-      ]
-    }
-  ],
   "missingness": [
     {
       "claim_effect": "claims should be treated as graph-limited until this is resolved",

@@ -777,6 +777,24 @@ def attach_answerability(
 NEXT_STEP_FIELDS = ("next_action", "next_drill_downs", "next_tool_suggestions", "_hints")
 
 
+#: Kept to ``verbose`` as diagnosis or restatement, as
+#: ``dagayn_tools::VERBOSE_DETAIL_FIELDS`` is.
+VERBOSE_DETAIL_FIELDS = ("_runtime", "called_subtool", "guidance", "embedding_health")
+
+
+def trim_envelope(payload: ToolPayload) -> ToolPayload:
+    """The envelope below ``verbose``, as ``dagayn_tools::trim_envelope``
+    builds it: no :data:`VERBOSE_DETAIL_FIELDS`, and ``_repo`` names only the
+    repository."""
+    for key in VERBOSE_DETAIL_FIELDS:
+        payload.pop(key, None)
+    repo = payload.get("_repo")
+    if isinstance(repo, dict):
+        for field in [field for field in repo if field != "repo_root"]:
+            del repo[field]
+    return payload
+
+
 def summary_at_verbose_only(payload: ToolPayload, detail_level: str | None) -> ToolPayload:
     """Hold a Tier 1 analysis reply to the reply contract, as
     ``dagayn_tools::seal_reply`` does
@@ -790,6 +808,7 @@ def summary_at_verbose_only(payload: ToolPayload, detail_level: str | None) -> T
     if not verbose or payload.get("status") == "error":
         payload.pop("answerability", None)
     if not verbose:
+        trim_envelope(payload)
         for key in NEXT_STEP_FIELDS:
             payload.pop(key, None)
         exactness = payload.get("exactness")

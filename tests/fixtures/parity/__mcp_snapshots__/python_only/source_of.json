@@ -1,40 +1,9 @@
 {
   "_repo": {
-    "db_path": "<VOLATILE>",
-    "repo_root": "<REPO>",
-    "source": "explicit"
+    "repo_root": "<REPO>"
   },
   "confidence": "medium",
   "exact_match_count": 1,
-  "guidance": [
-    {
-      "action": "query_graph_tool pattern=\"callers_of\" -- inspect callers after reading the span",
-      "claim": "Live source span for 'services.py::get_email'.",
-      "confidence": "medium",
-      "counts": {
-        "result_count": 1
-      },
-      "evidence": [
-        {
-          "exact_match_count": 1,
-          "pattern": "source_of",
-          "result_count": 1,
-          "target": "services.py::get_email",
-          "type": "computed"
-        }
-      ],
-      "missingness": [
-        {
-          "claim_effect": "text is a worktree slice of the graph span; surrounding helpers and imports are omitted",
-          "reason_code": "live_source_span",
-          "severity": "low"
-        }
-      ],
-      "reason_codes": [
-        "live_source_fetch"
-      ]
-    }
-  ],
   "missingness": [
     {
       "claim_effect": "claims should be treated as graph-limited until this is resolved",

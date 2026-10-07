@@ -180,11 +180,37 @@ pub fn call(context: &Context, name: &str, arguments: &Value) -> Option<Payload>
         arguments.get("detail_level").and_then(Value::as_str),
         Some("verbose" | "full")
     );
+    if name == "get_minimal_context_tool" {
+        // No verbose level: always the agent's envelope.
+        return Some(payload.edit(trim_envelope));
+    }
     if !TIER1_ANALYSIS_TOOLS.contains(&name) {
         return Some(payload);
     }
     let error = payload.value.get("status") == Some(&json!("error"));
     Some(payload.edit(|entries| seal_reply(entries, verbose, error)))
+}
+
+/// What a reply carries for diagnosis or restates elsewhere, kept to
+/// `verbose`: the runtime that answered, the subtool's internal name, the
+/// guidance items (their claim is `summary`, their counts the reply's own,
+/// their caveats `missingness`, their action `next`), and the embedding
+/// state (`search_mode` and `missingness` say when it limits a search).
+const VERBOSE_DETAIL_FIELDS: [&str; 4] =
+    ["_runtime", "called_subtool", "guidance", "embedding_health"];
+
+/// The envelope below `verbose`: no `VERBOSE_DETAIL_FIELDS`, and `_repo`
+/// names only the repository (`db_path` and how the root was found are
+/// diagnosis).
+fn trim_envelope(entries: &mut Vec<(String, Value)>) {
+    entries.retain(|(key, _)| !VERBOSE_DETAIL_FIELDS.contains(&key.as_str()));
+    for (key, value) in entries.iter_mut() {
+        if key == "_repo"
+            && let Some(repo) = value.as_object_mut()
+        {
+            repo.retain(|field, _| field == "repo_root");
+        }
+    }
 }
 
 /// What every Tier 1 reply says what to call next with, before `next`; they
@@ -209,6 +235,7 @@ fn seal_reply(entries: &mut Vec<(String, Value)>, verbose: bool, error: bool) {
         entries.retain(|(key, _)| key != "answerability");
     }
     if !verbose {
+        trim_envelope(entries);
         entries.retain(|(key, _)| !NEXT_STEP_FIELDS.contains(&key.as_str()));
         for (key, value) in entries.iter_mut() {
             if key == "exactness"

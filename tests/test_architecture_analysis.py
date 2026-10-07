@@ -86,6 +86,8 @@ def test_architecture_analysis_routes_every_mode(repo: Path) -> None:
             repo_root=str(repo),
             community_name="zz-none" if mode == "community" else None,
             artifact_scope="all",
+            # verbose keeps the subtool's name, which the agent's envelope drops.
+            detail_level="verbose",
         )
 
         assert result["mode"] == mode
@@ -102,7 +104,7 @@ def test_architecture_analysis_sap_violations_preserves_exclusion_explanation(
     )
 
     assert result["status"] == "ok"
-    assert result["called_subtool"] == "detect_sap_violations_func"
+    assert "called_subtool" not in result
     assert result["excluded_scope_categories"] == ["test-scope", "fixture-scope"]
     assert "suppresses test and fixture scopes" in result["summary"]
 
@@ -153,7 +155,7 @@ def test_architecture_analysis_community_requires_selector(repo: Path) -> None:
 
     assert result["status"] == "error"
     assert result["mode"] == "community"
-    assert result["called_subtool"] is None
+    assert "called_subtool" not in result
     assert "community_id or community_name" in result["summary"]
 
 

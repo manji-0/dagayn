@@ -64,7 +64,8 @@ def _embedding_context_lines(
             "BGE-M3 llama.cpp sidecar.",
             "",
             "- MCP search defaults to hybrid retrieval when matching embeddings exist.",
-            "- Read `search_mode`, `embedding_health.requested_text_mode`, and "
+            "- Read `search_mode`, `embedding_health.requested_text_mode` (at "
+            '`detail_level="verbose"`), and '
             '(at `detail_level="standard"`) per-result `source` before judging '
             "search quality.",
             "- Routine graph refreshes with `build_or_update_graph_tool` for parser, "
@@ -86,7 +87,8 @@ def _embedding_context_lines(
             f"(`--mode local-embedding-llama --preset {preset}`).",
             "",
             "- MCP search defaults to hybrid retrieval when matching embeddings exist.",
-            "- Read `search_mode`, `embedding_health.requested_text_mode`, and "
+            "- Read `search_mode`, `embedding_health.requested_text_mode` (at "
+            '`detail_level="verbose"`), and '
             '(at `detail_level="standard"`) per-result `source` before judging '
             "search quality.",
             "- Routine graph refreshes with `build_or_update_graph_tool` for parser, "
@@ -107,7 +109,8 @@ def _embedding_context_lines(
             f"Installed with remote embeddings (`--mode remote-embedding --provider {provider}`).",
             "",
             "- MCP search defaults to the configured provider when matching embeddings exist.",
-            "- Read `search_mode`, `embedding_health.requested_text_mode`, and "
+            "- Read `search_mode`, `embedding_health.requested_text_mode` (at "
+            '`detail_level="verbose"`), and '
             '(at `detail_level="standard"`) per-result `source` before judging '
             "search quality.",
             "- `build_or_update_graph_tool()` refreshes graph and FTS data; run "

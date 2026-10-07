@@ -380,7 +380,7 @@ def test_semantic_search_works_under_native_backend(tmp_path, monkeypatch):
     finally:
         store.close()
 
-    result = semantic_search_nodes(query="used", repo_root=str(repo))
+    result = semantic_search_nodes(query="used", repo_root=str(repo), detail_level="verbose")
 
     assert result["status"] == "ok", result
     assert result["embedding_health"]["status"] != "unknown"

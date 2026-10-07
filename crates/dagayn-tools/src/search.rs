@@ -610,7 +610,8 @@ pub(crate) fn semantic_search(
     let limit = limit.min(MAX_LIMIT);
     let minimal = match arguments.get("detail_level") {
         None => false,
-        Some(Value::String(level)) if level == "standard" => false,
+        // `verbose` is `standard` plus the detail `call` keeps to it.
+        Some(Value::String(level)) if level == "standard" || level == "verbose" => false,
         Some(Value::String(level)) if level == "minimal" => true,
         Some(_) => return None,
     };

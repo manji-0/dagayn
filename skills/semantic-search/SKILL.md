@@ -50,7 +50,8 @@ the selected embedding mode so agents can avoid stale or wasteful search advice.
    - `exactness.exact_match_count` says how many hits match the query as a
      `name` / `qualified_name` exactly; `ambiguity:
      "multiple_exact_matches"` means you must pick one.
-   - `embedding_health.requested_text_mode` shows how the query was routed:
+   - `embedding_health.requested_text_mode` (with `detail_level="verbose"`)
+     shows how the query was routed:
      `narrative` for process-pattern prose (calls, reads, writes, loops),
      `material` otherwise.
 3. **Hand off the best hit to graph tools**:
@@ -95,7 +96,7 @@ session refresh embeds.
 ## Troubleshooting
 
 - Don't rebuild embeddings to find a precise identifier; `fts_only` handles it.
-- `provider_mismatch` / `missing_vectors` in `embedding_health`: no vectors for
+- `provider_mismatch` / `missing_vectors` in `embedding_health` (`verbose`): no vectors for
   this provider and text mode. Refresh only if the task needs fuzzy recall.
 - A sidecar that won't start: check the server binary (`auto` /
   `llama-server`), the port, and the timeout before touching graph data.

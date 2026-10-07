@@ -330,4 +330,4 @@ class TestSemanticSearchMinimalLocators:
         assert item["line_end"] == 18
         assert "signature" not in item
         assert result["next"][0]["args"]["pattern"] == "source_of"
-        assert "source_of" in result["guidance"][0]["action"]
+        assert "guidance" not in result

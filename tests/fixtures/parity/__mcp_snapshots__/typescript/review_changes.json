@@ -1,10 +1,7 @@
 {
   "_repo": {
-    "db_path": "<VOLATILE>",
-    "repo_root": "<REPO>",
-    "source": "explicit"
+    "repo_root": "<REPO>"
   },
-  "_runtime": "<VOLATILE>",
   "affected_flow_count": 8,
   "affected_flows": [
     {
@@ -320,7 +317,6 @@
     }
   ],
   "base": "HEAD",
-  "called_subtool": "detect_changes_func",
   "change_entity_summary": {
     "base": "HEAD",
     "edges": {

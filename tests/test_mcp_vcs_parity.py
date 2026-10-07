@@ -169,7 +169,8 @@ def test_a_jj_workspace_is_auto_detected_in_rust_as_python_does(jj_workspace: Pa
     the workspace (not the main checkout above it), as find_repo_root does."""
     inside = jj_workspace / "sub"
     inside.mkdir()
-    arguments = {"pattern": "callers_of", "target": "app.py::helper"}
+    # `full` keeps how the root was found.
+    arguments = {"pattern": "callers_of", "target": "app.py::helper", "detail_level": "full"}
     rust, python, stderr = _call_both(None, "query_graph_tool", arguments, cwd=inside)
     assert "answered query_graph_tool in Rust" in stderr
     assert rust["structuredContent"] == python["structuredContent"]

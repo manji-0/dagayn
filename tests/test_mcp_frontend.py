@@ -567,7 +567,8 @@ def test_an_omitted_repo_root_is_auto_detected_as_python_does(
         var: ",".join(str(places[name]) for name in value.split(","))
         for var, value in hints.items()
     }
-    arguments = {"pattern": "callers_of", "target": "app.py::helper"}
+    # `full` keeps the diagnosis `_repo` carries.
+    arguments = {"pattern": "callers_of", "target": "app.py::helper", "detail_level": "full"}
     rust, python, stderr = _call_both(None, "query_graph_tool", arguments, cwd=places[where], **env)
     assert (NATIVE_TRACE in stderr) is native
     assert rust["structuredContent"] == python["structuredContent"]
@@ -648,7 +649,7 @@ def test_a_graph_under_crg_data_dir_is_answered_in_rust(tmp_path: Path) -> None:
     )
     assert not (root / ".dagayn").exists()
     (data_dir,) = shared.iterdir()
-    arguments = {"pattern": "callers_of", "target": "app.py::helper"}
+    arguments = {"pattern": "callers_of", "target": "app.py::helper", "detail_level": "full"}
     rust, python, stderr = _call_both(root, "query_graph_tool", arguments, **env)
     assert NATIVE_TRACE in stderr
     assert rust["structuredContent"] == python["structuredContent"]
@@ -935,11 +936,14 @@ def _session_both(
             )
             result = session.read()["result"]
             content = result.get("structuredContent")
-            if isinstance(content, dict) and "_runtime" in content:
+            if isinstance(content, dict):
+                # The text is the same object; nested key order is not part
+                # of the contract (serde_json sorts it, Python does not).
                 assert json.loads(result["content"][0]["text"]) == content
-                assert content["_runtime"]["pid"] == session.proc.pid
-                content["_runtime"]["pid"] = 0
-                del result["content"]  # the same, pid included
+                del result["content"]
+                if "_runtime" in content:
+                    assert content["_runtime"]["pid"] == session.proc.pid
+                    content["_runtime"]["pid"] = 0
             results.append(result)
         status, _, stderr = session.close()
         assert status == 0
@@ -1572,7 +1576,7 @@ def test_search_with_stored_vectors_answers_in_rust_as_python_does(git_repo: Pat
     try:
         search = "semantic_search_nodes_tool"
         calls: list[tuple[str, dict[str, Any]]] = [
-            (search, {"query": "something that assists"}),
+            (search, {"query": "something that assists", "detail_level": "verbose"}),
             (search, {"query": "helper"}),
             (search, {"query": "main", "detail_level": "minimal"}),
             (search, {"query": "helper", "kind": "Function", "limit": 1}),

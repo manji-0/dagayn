@@ -275,8 +275,9 @@ Tool responses use a calibrated guidance contract. Compatibility fields such as
 `status` and `summary` remain, every reply lists the calls to make next in
 `next` (with their arguments), while
 architecture, flow, refactor, search, and query responses can also include
-`guidance` and `missingness` (the graph-wide `answerability` summary comes from
-`get_minimal_context_tool`, or `detail_level="verbose"`). Guidance items carry `claim`,
+`missingness` (the graph-wide `answerability` summary comes from
+`get_minimal_context_tool`; `guidance` and diagnosis such as `_runtime` come
+with `detail_level="verbose"`). Guidance items carry `claim`,
 `evidence`, `confidence`, `missingness`, `action`, `reason_codes`, and `counts`
 so agents can treat graph output as evidence-ranked leads rather than verdicts.
 `review_tool(mode="changes")` answers with `findings` instead: each is one

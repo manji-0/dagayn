@@ -64,6 +64,11 @@ The reply contract of `query_graph_tool`, `semantic_search_nodes_tool`,
   `detail_level="verbose"` (`"full"` for `query_graph_tool`), named in
   `deprecated_fields`, for one release. `get_minimal_context_tool` no
   longer returns `recommended_action` or `next_tool_suggestions`.
+- Below `verbose` a reply leaves out what is diagnosis or restatement:
+  `_runtime`, `called_subtool`, `guidance` (its claim is `summary`, its
+  caveats `missingness`, its action `next`), and search's
+  `embedding_health` (`search_mode` and `missingness` say when embeddings
+  limit a search); `_repo` names only `repo_root`.
 </section>
 
 <section name="trust">

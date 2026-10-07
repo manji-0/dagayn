@@ -264,8 +264,8 @@ returns the nearest entry points reaching a symbol with one call chain each,
 computed at query time; its stored-flow modes (`list`, `get`) report a CALLS
 reachable set (not an ordered execution path), disclose truncation via
 `truncated` / `truncation_reason`, and remain for one release.
-Tool responses also include `_runtime` metadata (`version`, `pid`, `python`,
-and `package_root`) so you can spot when a long-lived MCP server is still
+Tool responses at `detail_level="verbose"` also include `_runtime` metadata
+(`version`, `pid`, `python`, and `package_root`) so you can spot when a long-lived MCP server is still
 serving an older dagayn process than a direct `dagayn tool ...` CLI check.
 Restart `dagayn serve` after local edits or upgrades before comparing MCP and
 CLI results as the same implementation.
@@ -275,8 +275,8 @@ CLI results as the same implementation.
 `next` lists the calls to make, with their arguments; the earlier next-step
 fields (`_hints`, `next_action`, `next_tool_suggestions`, `next_drill_downs`)
 moved to `detail_level="verbose"` for one release, as `refactor_tool`'s
-per-suggestion `work_pack` and `execution_plan` did. New consumers should read
-`next`, `guidance`, and `missingness` first, then fall back to the older raw
+per-suggestion `work_pack` and `execution_plan` did; `guidance` is
+`verbose`-only too. New consumers should read `next` and `missingness` first, then fall back to the older raw
 sections only when a drill-down needs more detail.
 
 `review_tool(mode="changes")` is the exception: it answers with `findings`.

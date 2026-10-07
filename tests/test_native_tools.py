@@ -65,13 +65,13 @@ def test_suggested_questions_answer_through_rust(repo: Path) -> None:
 def test_flow_tool_answers_through_rust(repo: Path) -> None:
     listed = flow_func(mode="list", repo_root=str(repo))
     assert listed["status"] == "ok"
-    assert listed["called_subtool"] == "list_flows"
+    assert "called_subtool" not in listed
     assert listed["flows"], listed["summary"]
     flow_id = listed["flows"][0]["id"]
 
     got = flow_func(mode="get", flow_id=flow_id, include_source=True, repo_root=str(repo))
     assert got["status"] == "ok"
-    assert got["called_subtool"] == "get_flow"
+    assert "called_subtool" not in got
     assert got["flow"]["id"] == flow_id
     assert any("source" in step for step in got["flow"]["steps"])
 
@@ -460,7 +460,7 @@ def test_review_changes_answers_through_rust(reviewed_repo: Path) -> None:
     result = review_func(mode="changes", base="HEAD", repo_root=str(reviewed_repo))
 
     assert result["status"] == "ok", result["summary"]
-    assert result["called_subtool"] == "detect_changes_func"
+    assert "called_subtool" not in result
     assert result["change_file_source_counts"]["unstaged"] == 1
     by_kind = {finding["kind"]: finding for finding in result["findings"]}
     # The changed function has a direct test, and an authored contract doc
@@ -495,7 +495,7 @@ def test_review_context_answers_through_rust(reviewed_repo: Path) -> None:
     )
 
     assert result["status"] == "ok", result["summary"]
-    assert result["called_subtool"] == "get_review_context"
+    assert "called_subtool" not in result
     assert result["test_gaps"] == 0
     assert result["key_entities"]
     assert all(not entity.startswith("/") for entity in result["key_entities"])

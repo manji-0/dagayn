@@ -1,54 +1,13 @@
 {
   "_repo": {
-    "db_path": "<VOLATILE>",
-    "repo_root": "<REPO>",
-    "source": "explicit"
+    "repo_root": "<REPO>"
   },
   "confidence": "medium",
-  "embedding_health": {
-    "auto_resolved_provider": null,
-    "matching_vector_count": 0,
-    "provider_counts": {},
-    "requested_model": null,
-    "requested_provider": null,
-    "requested_text_mode": "material",
-    "resolved_provider": null,
-    "resolved_provider_key": null,
-    "status": "provider_unavailable"
-  },
   "exactness": {
     "ambiguity": null,
     "exact_match_count": 0,
     "source_arm": "fts_only"
   },
-  "guidance": [
-    {
-      "action": "query_graph_tool pattern=\"source_of\" -- fetch the chosen node's live span",
-      "claim": "Hybrid search returned 3 candidate(s) for 'output'.",
-      "confidence": "medium",
-      "counts": {
-        "result_count": 3
-      },
-      "evidence": [
-        {
-          "query": "output",
-          "result_count": 3,
-          "search_mode": "fts_only",
-          "type": "computed"
-        }
-      ],
-      "missingness": [
-        {
-          "claim_effect": "semantic ranking may be keyword-only",
-          "reason_code": "missing_embeddings",
-          "severity": "medium"
-        }
-      ],
-      "reason_codes": [
-        "hybrid_search"
-      ]
-    }
-  ],
   "missingness": [
     {
       "claim_effect": "claims should be treated as graph-limited until this is resolved",

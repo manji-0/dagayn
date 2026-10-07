@@ -1,12 +1,8 @@
 {
   "_repo": {
-    "db_path": "<VOLATILE>",
-    "repo_root": "<REPO>",
-    "source": "explicit"
+    "repo_root": "<REPO>"
   },
-  "_runtime": "<VOLATILE>",
   "bridge_transitions": [],
-  "called_subtool": "get_impact_radius",
   "changed_files": [
     "models.py"
   ],
@@ -184,7 +180,6 @@
       "target": "services.py::get_email"
     }
   ],
-  "guidance": [],
   "impacted_files": [
     "services.py",
     "main.py"

@@ -1,11 +1,7 @@
 {
   "_repo": {
-    "db_path": "<VOLATILE>",
-    "repo_root": "<REPO>",
-    "source": "explicit"
+    "repo_root": "<REPO>"
   },
-  "_runtime": "<VOLATILE>",
-  "called_subtool": "list_flows",
   "deprecation": "mode=\"list\" and mode=\"get\" read stored flows and are removed after one release; use mode=\"entry_points\" (with or without target).",
   "flow_coverage": {
     "coverage_guarantee": false,
@@ -100,34 +96,6 @@
       "truncated": false,
       "truncation_reason": null,
       "updated_at": "<VOLATILE>"
-    }
-  ],
-  "guidance": [
-    {
-      "action": "flow_tool mode=\"get\" -- inspect a specific reachable set",
-      "claim": "Returned 5 ranked reachable-set flow(s) from stored flow extraction.",
-      "confidence": "medium",
-      "counts": {
-        "returned_flow_count": 5
-      },
-      "evidence": [
-        {
-          "limit": 50,
-          "returned_flow_count": 5,
-          "sort_by": "criticality",
-          "type": "computed"
-        }
-      ],
-      "missingness": [
-        {
-          "claim_effect": "flow ranking is not a coverage guarantee",
-          "reason_code": "flow_criticality_is_ranking_signal",
-          "severity": "low"
-        }
-      ],
-      "reason_codes": [
-        "stored_flow_extraction"
-      ]
     }
   ],
   "missingness": [
