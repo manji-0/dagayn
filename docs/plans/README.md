@@ -4,6 +4,7 @@
 
 This directory stores design notes and implementation plans that are more detailed than the top-level roadmap.
 
+- `AGENT-WORKFLOW-TARGET.md` — the workflow an agent follows across the default tools (orient, locate, read, trace, judge, confirm), the response contract that carries it (one `next`, per-level budgets, discriminating caveats, ambiguity retries), the measured seams, and the eval that gates them
 - `ANALYSIS-TOOL-STRATEGY.md` — plan for a smaller, workflow-oriented analysis tool surface
 - `ARCHITECTURE-TOOL-TARGET.md` — what `architecture_analysis_tool` is for: the measured noise in today's modes, the declared-unit map plus findings target contract, the finding kinds, and the eval that gates them
 - `FLOW-TOOL-TARGET.md` — what `flow_tool` is for: the measured noise in the stored reachable sets, the entry-points-for-a-symbol target contract, and the eval that gates it
