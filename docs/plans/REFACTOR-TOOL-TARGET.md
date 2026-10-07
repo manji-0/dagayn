@@ -16,8 +16,8 @@ are closures inside tests, and every remove candidate is a test fixture.
 question; `suggest` does not. This note defines the target contract, the
 evidence behind it, and the order of work.
 
-Status: accepted ([decisions](#decisions-2026-10-07)); step 1 of the
-[order of work](#order-of-work) is done.
+Status: accepted ([decisions](#decisions-2026-10-07)); steps 1–2 of the
+[order of work](#order-of-work) are done.
 
 ## Target contract
 
@@ -178,7 +178,7 @@ Considered and not proposed:
   `work_packs`, and `counts_by_type` for one release.
 - `rename` keeps its contract and adds a per-file summary: `files` with an
   edit count each, plus the first 20 edits. The full list stays under
-  `refactor_id` for `apply_refactor_tool`, and `detail_level="full"`
+  `refactor_id` for `apply_refactor_tool`, and `detail_level="verbose"`
   returns it inline.
 
 ## Evaluation
@@ -205,8 +205,20 @@ fixtures:
    `dagayn/tools/refactor_tools.py`) and failed with "Input should be a
    valid string"; it now defaults to `suggest`, like the MCP wrapper and
    Rust.
-2. Bound the output: per-kind templates once, `_hints` deduplicated,
-   `detail_level` honoured, `rename` summarized by file.
+2. **Done:** bound the output. `detail_level` reaches the tool;
+   below `verbose`, each suggestion type's plan is stated once in `plans`,
+   the guidance drops the evidence `suggestions` already carry, function
+   splits drop `concern_separation`, and `_hints` no longer repeats a step.
+   A rename preview lists 20 edits and per-file counts. On this repository:
+
+   | Call | Before (chars) | After (chars) |
+   |---|---|---|
+   | `suggest`, default (`standard`, 50) | 221,027 | 70,712 |
+   | `suggest`, `minimal`, 10 | 51,513 | 14,550 |
+   | `rename` `node_text` | 91,264 | 7,881 |
+
+   The `suggest` numbers stay large because the suggestions themselves are
+   the problem: steps 4–5 replace them.
 3. Eval harness with the negative and positive cases above.
 4. `unused_symbol` from the `dead_code` record, fixtures left out; drop
    the community-based move.
