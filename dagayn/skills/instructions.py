@@ -13,6 +13,7 @@ from pathlib import Path
 from ..atomic_write import write_text_atomic
 from .platforms import logger, normalize_platform_target
 from .trust import TRUST_TIERS_BLOCK
+from .workflow import WORKFLOW_BLOCK
 
 _CLAUDE_MD_SECTION_MARKER = "<!-- dagayn MCP tools -->"
 _MARKDOWN_POLICY_MARKER = "<!-- dagayn markdown policy -->"
@@ -95,29 +96,20 @@ supply the span.
 
 ### Workflow
 
-1. Start with `get_minimal_context_tool(task=...)`: it reports `sync.state`
-   and the next tool to call.
-2. Review: `review_tool(mode="changes")`, and read `findings` before any
-   drill-down; an empty list means nothing beyond the diff needs checking.
-3. Explore: `semantic_search_nodes_tool` finds a node (code or a Markdown
-   section); `query_graph_tool` traces it (callers_of, callees_of,
-   importers_of, tests_for, docs_for, source_of). Pass `depth` to
-   callers_of/importers_of for a transitive chain, and stop when
-   `next_action` says the set is closed.
-4. Architecture: `architecture_analysis_tool(mode="overview",
-   detail_level="minimal")`; read `units` / `unit_edges` (the declared
-   crates, packages, and modules and how they depend on each other) and
-   `findings`; an empty list means nothing structural to act on
-   (`architecture-analysis` skill).
-5. Refactor: `refactor_tool(mode="suggest")`, then preview renames with
-   `refactor_tool(mode="rename")`; apply with `apply_refactor_tool` in the
-   same `dagayn serve` session.
+{WORKFLOW_BLOCK}
+
+Per task: a review starts at `review_tool(mode="changes")` (read `findings`
+before any drill-down); a bug or a feature at `semantic_search_nodes_tool`;
+structure at `architecture_analysis_tool` (`units`, `unit_edges`,
+`findings`); a rename at `refactor_tool(mode="rename")`, applied with
+`apply_refactor_tool` in the same `dagayn serve` session. Pass `depth` to
+callers_of/importers_of for a transitive chain.
 
 ### Default tools
 
 | Tool | Use when |
 | ------ | ---------- |
-| `get_minimal_context_tool` | Start here: freshness, risk, next tools |
+| `get_minimal_context_tool` | Start here: freshness and the first calls |
 | `ensure_graph_tool` | Graph empty or behind HEAD; bootstrap without embeddings |
 | `review_tool` | Change review: what to check that the diff does not show |
 | `query_graph_tool` | Callers, callees, imports, tests, linked docs, live source spans |

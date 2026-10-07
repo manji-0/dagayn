@@ -3116,6 +3116,40 @@ def test_skill_trust_tiers_match_the_canonical_block():
     assert TRUST_TIERS_BLOCK in _instructions_module._CLAUDE_MD_SECTION
 
 
+def test_skill_workflow_matches_the_canonical_block():
+    """The phases and the reply contract are written once
+    (``dagayn/skills/workflow.py``): the skills, the installed instructions,
+    and the reference's ``workflow`` section carry the same text."""
+    from dagayn.skills.skill_files import _resolve_source_skills_dir
+    from dagayn.skills.workflow import WORKFLOW, WORKFLOW_BLOCK, WORKFLOW_END, WORKFLOW_START
+    from dagayn.tools.docs import get_docs_section
+
+    source = _resolve_source_skills_dir()
+    assert source is not None
+    carriers = []
+    for skill in sorted(source.iterdir()):
+        text = (skill / "SKILL.md").read_text()
+        if WORKFLOW_START not in text:
+            continue
+        carriers.append(skill.name)
+        start = text.index(WORKFLOW_START)
+        end = text.index(WORKFLOW_END) + len(WORKFLOW_END)
+        assert text[start:end] == WORKFLOW_BLOCK, skill.name
+    assert {
+        "architecture-analysis",
+        "debug-issue",
+        "explore-codebase",
+        "implement-feature",
+        "refactor-safely",
+        "review-changes",
+        "review-delta",
+    } <= set(carriers)
+    assert WORKFLOW_BLOCK in _instructions_module._CLAUDE_MD_SECTION
+    repo = Path(__file__).resolve().parent.parent
+    section = get_docs_section("workflow", repo_root=str(repo), max_chars=20000)["content"]
+    assert WORKFLOW in section
+
+
 def test_trust_tiers_name_only_visible_fields():
     """Agents can only act on fields the tools return: orientation reports
     ``sync.state`` (freshness codes stay out of the tiers), and

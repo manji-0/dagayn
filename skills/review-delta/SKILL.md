@@ -54,6 +54,32 @@ has the compact workflow if you want it in context.
 - **Blast radius**: impacted files and functions.
 - **Docs**: linked docs to update, or explicit deferrals.
 
+## Following replies
+
+<!-- dagayn workflow -->
+Orient → locate → read → trace → judge → confirm. Enter at the phase the task
+needs, and close the loop after an edit with `review_tool`.
+
+1. **Orient**: `get_minimal_context_tool(task=...)` reports `sync.state` and
+   the first calls for the task.
+2. **Locate**: `semantic_search_nodes_tool` turns a description into a
+   `qualified_name`.
+3. **Read**: `query_graph_tool(pattern="source_of")` returns the live span.
+4. **Trace**: `query_graph_tool` (`callers_of`, `callees_of`, `tests_for`,
+   `docs_for`) and `flow_tool(mode="entry_points")`.
+5. **Judge**: `review_tool`, `architecture_analysis_tool`, or
+   `refactor_tool` answer with `findings`; an empty list means nothing to act
+   on.
+6. **Confirm**: `source_of` on each finding's place, a test, or a
+   reproduction.
+
+Every reply ends with `next`: at most three calls with complete arguments and
+a `why`. Follow it unless the task points elsewhere; `[]` means the answer is
+complete. `status="ambiguous"` puts one retry per candidate in `next`, and
+`missingness` lists only the gaps that limit that reply. Full contract:
+`get_docs_section_tool(section_name="workflow")`.
+<!-- /dagayn workflow -->
+
 ## Evidence
 
 Rank results with the Highest / Medium / Low trust tiers in the installed

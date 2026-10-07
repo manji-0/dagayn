@@ -248,13 +248,16 @@ mcp = FastMCP(
         "dagayn is a knowledge graph of this repository: code, Markdown docs, "
         "and Terraform are nodes, linked by calls, imports, tests, and doc "
         "contracts. Start every task with get_minimal_context_tool(task=...): "
-        "it reports graph freshness (sync.state) and the next tool to call. "
+        "it reports graph freshness (sync.state) and the first calls to make. "
+        "Every reply ends with next: at most three calls with complete "
+        "arguments and a why; follow it unless the task points elsewhere. "
         'Review changes with review_tool(mode="changes"); trace relationships '
         "with query_graph_tool before grepping; read a located node with "
         'query_graph_tool(pattern="source_of") instead of the whole file. '
         "Graph reach is not correctness: confirm a claim with source_of or a "
-        'reproduction. get_docs_section_tool(section_name="trust") ranks '
-        "which results to state as fact."
+        'reproduction. get_docs_section_tool(section_name="workflow") has the '
+        'phases; get_docs_section_tool(section_name="trust") ranks which '
+        "results to state as fact."
     ),
 )
 
@@ -567,7 +570,7 @@ def get_docs_section_tool(
 ) -> ToolPayload:
     """Get one section of dagayn's LLM-oriented reference.
 
-    Sections: usage, trust (how much each kind of graph answer proves),
+    Sections: usage, workflow, trust (what each graph answer proves),
     review-delta, review-pr, commands, legal, watch, embeddings, languages,
     troubleshooting. Read the relevant one before answering a question about
     dagayn itself.

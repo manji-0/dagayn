@@ -140,29 +140,42 @@ supply the span.
 
 ### Workflow
 
-1. Start with `get_minimal_context_tool(task=...)`: it reports `sync.state`
-   and the next tool to call.
-2. Review: `review_tool(mode="changes")`, and read `findings` before any
-   drill-down; an empty list means nothing beyond the diff needs checking.
-3. Explore: `semantic_search_nodes_tool` finds a node (code or a Markdown
-   section); `query_graph_tool` traces it (callers_of, callees_of,
-   importers_of, tests_for, docs_for, source_of). Pass `depth` to
-   callers_of/importers_of for a transitive chain, and stop when
-   `next_action` says the set is closed.
-4. Architecture: `architecture_analysis_tool(mode="overview",
-   detail_level="minimal")`; read `units` / `unit_edges` (the declared
-   crates, packages, and modules and how they depend on each other) and
-   `findings`; an empty list means nothing structural to act on
-   (`architecture-analysis` skill).
-5. Refactor: `refactor_tool(mode="suggest")`, then preview renames with
-   `refactor_tool(mode="rename")`; apply with `apply_refactor_tool` in the
-   same `dagayn serve` session.
+<!-- dagayn workflow -->
+Orient → locate → read → trace → judge → confirm. Enter at the phase the task
+needs, and close the loop after an edit with `review_tool`.
+
+1. **Orient**: `get_minimal_context_tool(task=...)` reports `sync.state` and
+   the first calls for the task.
+2. **Locate**: `semantic_search_nodes_tool` turns a description into a
+   `qualified_name`.
+3. **Read**: `query_graph_tool(pattern="source_of")` returns the live span.
+4. **Trace**: `query_graph_tool` (`callers_of`, `callees_of`, `tests_for`,
+   `docs_for`) and `flow_tool(mode="entry_points")`.
+5. **Judge**: `review_tool`, `architecture_analysis_tool`, or
+   `refactor_tool` answer with `findings`; an empty list means nothing to act
+   on.
+6. **Confirm**: `source_of` on each finding's place, a test, or a
+   reproduction.
+
+Every reply ends with `next`: at most three calls with complete arguments and
+a `why`. Follow it unless the task points elsewhere; `[]` means the answer is
+complete. `status="ambiguous"` puts one retry per candidate in `next`, and
+`missingness` lists only the gaps that limit that reply. Full contract:
+`get_docs_section_tool(section_name="workflow")`.
+<!-- /dagayn workflow -->
+
+Per task: a review starts at `review_tool(mode="changes")` (read `findings`
+before any drill-down); a bug or a feature at `semantic_search_nodes_tool`;
+structure at `architecture_analysis_tool` (`units`, `unit_edges`,
+`findings`); a rename at `refactor_tool(mode="rename")`, applied with
+`apply_refactor_tool` in the same `dagayn serve` session. Pass `depth` to
+callers_of/importers_of for a transitive chain.
 
 ### Default tools
 
 | Tool | Use when |
 | ------ | ---------- |
-| `get_minimal_context_tool` | Start here: freshness, risk, next tools |
+| `get_minimal_context_tool` | Start here: freshness and the first calls |
 | `ensure_graph_tool` | Graph empty or behind HEAD; bootstrap without embeddings |
 | `review_tool` | Change review: what to check that the diff does not show |
 | `query_graph_tool` | Callers, callees, imports, tests, linked docs, live source spans |
