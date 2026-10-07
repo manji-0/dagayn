@@ -17,7 +17,7 @@ The question agents bring to it, "where is this code entered from?", is
 one it cannot ask. This note defines the target contract, the evidence
 behind it, and the order of work.
 
-Status: accepted ([decisions](#decisions-2026-10-07)); steps 1–3 of the
+Status: accepted ([decisions](#decisions-2026-10-07)); steps 1–4 of the
 [order of work](#order-of-work) are done.
 
 ## Target contract
@@ -201,7 +201,7 @@ changed function: which entry points the change reaches.
 
 - The target contract above goes ahead: `flow_tool` answers which entry
   points reach a symbol; the eval gates it before the stored flows go.
-- Wiki and visualization switch to entry points per unit in step 4. No
+- Wiki and visualization switch to entry points per unit in step 5. No
   known consumer depends on the per-community "Execution Flows" section;
   the section keeps its heading for one release so links to it resolve.
 
@@ -243,9 +243,20 @@ eval also shows the mode needs no stored flows.
    (`crates/dagayn-tools/src/entry_points.rs`), reusing the flow trace's
    entry-point rules and edge set; methods without a static caller are
    labelled `dispatched_method`, not dropped.
-4. `review_tool(mode="affected_flows")` and the skills move to it; `get`,
-   criticality, `top_flows`, and `flow_snapshots` are deprecated for one
-   release, then removed with the flow trace.
+4. **Done:** `review_tool(mode="affected_flows")` runs the search from
+   every changed function (the functions whose lines the diff touches, or
+   every function of a file without a diff range) and returns
+   `entry_points`; the stored flows that contain them move behind
+   `detail_level="verbose"`, listed in `deprecated_fields`.
+   `get_minimal_context_tool` no longer names `top_flows` or
+   `flows_affected`: they were names without a file, ranked by size, and
+   the tool has no verbose level to keep them behind. The debug, explore,
+   implement-feature, and review skills, the MCP prompts, the agent
+   instructions, and the next-step hints point at `entry_points`.
+5. `list` without a target lists entry points per unit and kind; wiki and
+   visualization switch to it. Then `get`, criticality, `flow_snapshots`,
+   the `missing_flows` answerability penalty, and the flow trace in the
+   full post-process go, after one release with `list` and `get` kept.
 
 ## Touch points
 
