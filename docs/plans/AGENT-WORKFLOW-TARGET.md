@@ -59,7 +59,9 @@ Consequences of that sentence:
   `recommended_action`, `next_tool_suggestions`, `next_action`,
   `exactness.next_action`, `guidance[].action`, `next_drill_downs`, and
   `_hints.next_steps`, which move behind `detail_level="verbose"` for one
-  release, listed in `deprecated_fields`. An empty `next` means the answer
+  release, listed in `deprecated_fields` (step 4 of the
+  [order of work](#order-of-work) names the two of them whose fate is
+  still a decision). An empty `next` means the answer
   is complete.
 - **A budget per level, for every mode.** `minimal` fits in 8K characters
   (about 2K tokens) and `standard` in 32K, for any input; what does not fit
@@ -166,16 +168,21 @@ related node(s)" with `counts.result_count: 13`.
 
 ## Evaluation
 
-`eval/run_workflow_eval.py`, gated in CI by `tests/test_workflow_eval.py`
-with floors in `eval/workflow_thresholds.yaml`, on the fixtures the other
-evals already build.
+Two gates. The first runs in CI today; the other two are the pending
+half of step 6 and will take the form of the other evals
+(`eval/run_workflow_eval.py`, gated by `tests/test_workflow_eval.py`,
+floors in `eval/workflow_thresholds.yaml`) when they are built.
 
-- **Contract check**: every Tier 1 tool, every mode, every
-  `detail_level`, on each fixture and on a large synthetic diff. Fails on
-  a reply over budget, a reply without `next`, a `next` item whose `args`
-  the tool's schema rejects, or a `summary` count that differs from
-  `result_count`.
-- **Follow-the-next traces**: fixed tasks (find the caller that breaks
+- **Contract check** (in CI):
+  `crates/dagayn-tools/tests/tools.rs::every_reply_names_calls_that_answer_and_fits_its_budget`.
+  26 calls across the six tools, their modes, and their levels, on a
+  fixture with a 120-file change. Fails on a reply over its level's
+  budget, a reply without `next` or with more than three calls, a call
+  without a `why`, or a call (but a shell command) that answers with an
+  error, an ambiguity, or a missing node: making each call is what shows
+  its `args` complete and its targets real. Counts that disagree are
+  held by `query_graph_counts_one_row_per_node_everywhere`.
+- **Follow-the-next traces** (pending): fixed tasks (find the caller that breaks
   after a signature change; find the entry point of a CLI command; review
   a diff with a dangling reference; resolve an ambiguous name), each run
   by following `next[0]` from `get_minimal_context_tool(task=...)` for at
@@ -183,7 +190,7 @@ evals already build.
   is reached, calls to reach it, the largest reply, ambiguity retries.
   Each task gates on being reached; the call and size counts gate at the
   baseline the first run records.
-- **Discrimination**: on a fresh fixture graph no `missingness` item of
+- **Discrimination** (pending): on a fresh fixture graph no `missingness` item of
   severity medium or above appears; on a stale or partial one the
   expected items do.
 
