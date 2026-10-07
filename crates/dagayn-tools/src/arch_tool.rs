@@ -470,8 +470,17 @@ fn with_unit_map(
     if let Some(scope) = rest.get("artifact_scope") {
         out = out.put("artifact_scope", scope.clone());
     }
-    if let Some(missingness) = rest.get("missingness") {
-        out = out.put("missingness", missingness.clone());
+    // The map reads no community: the community report's gaps stay with it.
+    if let Some(Value::Array(missingness)) = rest.get("missingness") {
+        let kept: Vec<&Value> = missingness
+            .iter()
+            .filter(|item| {
+                !item["reason_code"]
+                    .as_str()
+                    .is_some_and(crate::answerability::is_derived_structure_code)
+            })
+            .collect();
+        out = out.put("missingness", json!(kept));
     }
     let mut next_steps = Vec::new();
     if !findings.is_empty() {

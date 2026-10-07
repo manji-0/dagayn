@@ -274,7 +274,8 @@ same control.
 Tool responses use a calibrated guidance contract. Compatibility fields such as
 `status`, `summary`, `_hints`, and `next_tool_suggestions` remain, while
 architecture, flow, refactor, search, and query responses can also include
-`guidance`, `answerability`, and `missingness`. Guidance items carry `claim`,
+`guidance` and `missingness` (the graph-wide `answerability` summary comes from
+`get_minimal_context_tool`, or `detail_level="verbose"`). Guidance items carry `claim`,
 `evidence`, `confidence`, `missingness`, `action`, `reason_codes`, and `counts`
 so agents can treat graph output as evidence-ranked leads rather than verdicts.
 `review_tool(mode="changes")` answers with `findings` instead: each is one
@@ -285,8 +286,8 @@ nothing beyond the diff needs checking.
 Use `detail_level="minimal"` for the top recommendations and
 `detail_level="standard"` for the full supporting sections.
 `query_graph_tool` zero-result and not-found responses include
-`zero_result_reason`, `next_action`, `result_count`, `results`,
-`answerability`, and `missingness`; treat absence as graph-limited until source
+`zero_result_reason`, `next_action`, `result_count`, `results`, and
+`missingness`; treat absence as graph-limited until source
 or tests confirm it. Documentation bridge results label evidence as `authored`,
 `extracted`, or `heuristic_reachable` so Markdown traceability is not confused
 with a verified contract.

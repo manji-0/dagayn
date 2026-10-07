@@ -107,9 +107,102 @@ pub struct Payload {
     pub value: Value,
 }
 
+impl Payload {
+    /// The payload without the top-level `key`, its other keys in order.
+    fn without(self, key: &str) -> Self {
+        let Some(Value::Object(mut value)) = Some(self.value) else {
+            unreachable!("a payload is an object");
+        };
+        if value.remove(key).is_none() {
+            return Self {
+                text: self.text,
+                value: Value::Object(value),
+            };
+        }
+        let entries: Vec<(String, Box<serde_json::value::RawValue>)> =
+            match serde_json::from_str::<OrderedEntries>(&self.text) {
+                Ok(OrderedEntries(entries)) => entries,
+                Err(_) => {
+                    return Self {
+                        text: Value::Object(value.clone()).to_string(),
+                        value: Value::Object(value),
+                    };
+                }
+            };
+        let mut text = String::from("{");
+        for (name, item) in entries.iter().filter(|(name, _)| name != key) {
+            if text.len() > 1 {
+                text.push(',');
+            }
+            text.push_str(&json!(name).to_string());
+            text.push(':');
+            text.push_str(item.get());
+        }
+        text.push('}');
+        Self {
+            text,
+            value: Value::Object(value),
+        }
+    }
+}
+
+/// A JSON object's entries in document order, each value kept as raw text.
+struct OrderedEntries(Vec<(String, Box<serde_json::value::RawValue>)>);
+
+impl<'de> serde::Deserialize<'de> for OrderedEntries {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Entries;
+        impl<'de> serde::de::Visitor<'de> for Entries {
+            type Value = OrderedEntries;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a JSON object")
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<OrderedEntries, A::Error> {
+                let mut entries = Vec::new();
+                while let Some(entry) = map.next_entry()? {
+                    entries.push(entry);
+                }
+                Ok(OrderedEntries(entries))
+            }
+        }
+        deserializer.deserialize_map(Entries)
+    }
+}
+
+/// The tools whose replies carry the graph's `answerability` only at
+/// `detail_level="verbose"` (or `"full"`), and never on an error: graph-wide
+/// health is `get_minimal_context_tool`'s to report, and each reply keeps
+/// the `missingness` that applies to it
+/// (docs/plans/AGENT-WORKFLOW-TARGET.md#target-contract).
+const SUMMARY_AT_VERBOSE_ONLY: [&str; 6] = [
+    "query_graph_tool",
+    "semantic_search_nodes_tool",
+    "review_tool",
+    "flow_tool",
+    "architecture_analysis_tool",
+    "refactor_tool",
+];
+
 /// Answer `name(arguments)`, or `None` to leave it to the Python server.
 pub fn call(context: &Context, name: &str, arguments: &Value) -> Option<Payload> {
     let arguments = arguments.as_object()?;
+    let payload = answer(context, name, arguments)?;
+    let verbose = matches!(
+        arguments.get("detail_level").and_then(Value::as_str),
+        Some("verbose" | "full")
+    );
+    if !SUMMARY_AT_VERBOSE_ONLY.contains(&name)
+        || (verbose && payload.value.get("status") != Some(&json!("error")))
+    {
+        return Some(payload);
+    }
+    Some(payload.without("answerability"))
+}
+
+fn answer(context: &Context, name: &str, arguments: &Map<String, Value>) -> Option<Payload> {
     match name {
         "list_graph_stats_tool" => stats::list_graph_stats(context, arguments),
         "get_docs_section_tool" => docs::get_docs_section(context, arguments),

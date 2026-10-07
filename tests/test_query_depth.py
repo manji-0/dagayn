@@ -182,7 +182,7 @@ def test_standard_folds_edges_into_rows(store):
     assert len(full["results"]) == 2
     assert len(full["edges"]) == 2
     assert "counts" in full["answerability"]
-    assert set(standard["answerability"]) <= {"status", "score", "reason_codes"}
+    assert "answerability" not in standard
 
 
 def test_minimal_returns_every_row_that_fits(store):

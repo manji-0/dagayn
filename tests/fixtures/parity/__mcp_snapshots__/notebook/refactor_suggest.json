@@ -22,38 +22,6 @@
     "repo_root": "<REPO>",
     "source": "explicit"
   },
-  "answerability": {
-    "answerability": [
-      0,
-      1,
-      0,
-      1,
-      0.0
-    ],
-    "counts": {
-      "communities": 1,
-      "current_head_sha": "59482a5d55dfb989b595cd778294de8619a2ed84",
-      "flows": 0,
-      "graph_head_sha": "59482a5d55dfb989b595cd778294de8619a2ed84",
-      "reportable_cross_artifact_edges": 1,
-      "reportable_unresolved_cross_artifact_edges": 0,
-      "stale_flow_memberships": 0,
-      "test_edges": 0,
-      "unassigned_nodes": 0,
-      "worktree_dirty": false
-    },
-    "parse": [
-      1,
-      1,
-      true
-    ],
-    "reason_codes": [
-      "missing_flows",
-      "missing_test_edges"
-    ],
-    "score": 0.75,
-    "status": "ok"
-  },
   "findings": [],
   "findings_omitted": {},
   "missingness": [

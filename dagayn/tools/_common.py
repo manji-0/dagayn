@@ -772,6 +772,18 @@ def attach_answerability(
     return payload
 
 
+def summary_at_verbose_only(payload: ToolPayload, detail_level: str | None) -> ToolPayload:
+    """Drop the graph's ``answerability`` below ``detail_level="verbose"``
+    (or ``"full"``) and from every error, as ``dagayn_tools::call`` does for the
+    Tier 1 analysis tools: graph-wide health is ``get_minimal_context_tool``'s
+    to report, and each reply keeps its own ``missingness``
+    (docs/plans/AGENT-WORKFLOW-TARGET.md#target-contract)."""
+    if detail_level in ("verbose", "full") and payload.get("status") != "error":
+        return payload
+    payload.pop("answerability", None)
+    return payload
+
+
 #: Reason codes about communities and stored flows, which only answers read
 #: from them carry as missingness (docs/plans/AGENT-WORKFLOW-TARGET.md#caveats).
 DERIVED_STRUCTURE_CODES = frozenset(

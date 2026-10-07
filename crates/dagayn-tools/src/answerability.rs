@@ -17,6 +17,11 @@ const DERIVED_STRUCTURE_CODES: [&str; 5] = [
     "stale_derived_structures",
 ];
 
+/// Whether `code` is about communities or stored flows.
+pub(crate) fn is_derived_structure_code(code: &str) -> bool {
+    DERIVED_STRUCTURE_CODES.contains(&code)
+}
+
 pub(crate) struct Answerability {
     pub status: &'static str,
     pub score: f64,
@@ -199,7 +204,7 @@ impl Answerability {
     /// structure: the codes about communities and stored flows say nothing
     /// about it (docs/plans/AGENT-WORKFLOW-TARGET.md#caveats).
     pub(crate) fn missingness(&self) -> Vec<Value> {
-        self.missingness_where(|code| !DERIVED_STRUCTURE_CODES.contains(&code))
+        self.missingness_where(|code| !is_derived_structure_code(code))
     }
 
     /// `missingness_from_answerability` for an answer read from communities

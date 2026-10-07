@@ -274,8 +274,8 @@ CLI results as the same implementation.
 
 Existing fields such as `summary`, `_hints`, and `next_tool_suggestions`
 remain available; `refactor_tool`'s per-suggestion `work_pack` and
-`execution_plan` moved to `detail_level="verbose"`. New consumers should read `guidance`,
-`answerability`, and `missingness` first, then fall back to the older raw
+`execution_plan` moved to `detail_level="verbose"`. New consumers should read `guidance`
+and `missingness` first, then fall back to the older raw
 sections only when a drill-down needs more detail.
 
 `review_tool(mode="changes")` is the exception: it answers with `findings`.
@@ -284,8 +284,8 @@ Its score-first fields (`analysis_summary`, `recommended_tests`,
 `review_priorities`, `test_gaps`, ...) appear only at
 `detail_level="verbose"`, listed in `deprecated_fields`, for one release.
 Dispatcher error paths and graph-limited not-found paths still carry
-`answerability` and `missingness`, computed for the requested `repo_root` when
-one is supplied.
+`missingness`, computed for the requested `repo_root` when one is supplied;
+the graph-wide `answerability` summary is `get_minimal_context_tool`'s.
 
 Before:
 
@@ -326,7 +326,7 @@ if result.get("zero_result_reason"):
 relationship results and missing targets. Missing targets return
 `status="not_found"`, `result_count=0`, `results=[]`,
 `zero_result_reason="target_not_found_in_graph"`, `next_action`, and
-`answerability` / `missingness`; do not treat that as proof the symbol cannot
+`missingness`; do not treat that as proof the symbol cannot
 exist outside the current graph.
 
 After a search or relationship hit, fetch one node's live span rather than

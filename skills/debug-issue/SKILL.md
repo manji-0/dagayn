@@ -84,7 +84,7 @@ effect from a reproduction; keep them apart in a claim. Full rules:
 - Doc links carry `evidence_type`: `authored` contracts beat `extracted`
   explanations; `heuristic_reachable` needs source confirmation.
 - If a query returns nothing, read `zero_result_reason`, `next_action`,
-  `answerability`, and `missingness` before ruling a path out. Unresolved
+  and `missingness` before ruling a path out. Unresolved
   (`LOW`) calls can hide the real callee; where SCIP indexers are installed,
   `dagayn build --scip` settles them (settled edges carry `resolved_by: "scip"`).
 - Pass `detail_level="minimal"` to tools that take it; use `"standard"` on

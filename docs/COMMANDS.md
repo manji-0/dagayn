@@ -674,8 +674,7 @@ row per related node; for `callers_of`, `callees_of`, `inheritors_of`, and
 `importers_of`, the edge lines are folded into the row as `lines` with the
 edge's `confidence_tier`, and rows drop `id`, `language`, default
 `parent_name` / `is_test`, and a `file_path` already in `qualified_name`.
-It trims `answerability` to `status`, `score`, and `reason_codes` and omits
-`edges` and `_hints`. `minimal` keeps fewer row fields, drops `guidance` and
+It omits `answerability`, `edges`, and `_hints`. `minimal` keeps fewer row fields, drops `guidance` and
 `description`, and returns every row that fits a 4,000-token budget. `full`
 returns the earlier `standard` shape: one row per edge, the `edges` list, full
 `answerability`, and `_hints`.
@@ -757,7 +756,7 @@ bug.
 Every detail level also carries `base` (the base actually used),
 `changed_file_count`, `changed_files`, `change_file_source_counts`,
 `change_entity_summary`, `affected_flow_count`, `unmapped_changed_files`,
-`next_drill_downs`, a compact `answerability`, and `missingness`. `standard`
+`next_drill_downs`, and `missingness`. `standard`
 (the default) adds `changed_functions` and `affected_flows`; a flow there keeps
 its summary and `changed_steps` (only the steps the change touches), and
 `mode="affected_flows"` returns the full steps. Output is bounded by size, not
@@ -798,12 +797,17 @@ Markdown code-span candidates are excluded from these answerability counts
 because post-processing treats them as prose vocabulary unless they resolve
 uniquely to a non-Markdown symbol.
 
-Most dispatcher responses now include `answerability` and `missingness` blocks,
-including error and not-found paths. `answerability.status` and `score` describe
-how much graph evidence is available for the requested `repo_root`;
-`reason_codes` call out partial graphs, missing flows, missing communities,
-missing test edges, unresolved cross-artifact edges, missing embeddings, and
-truncation-sensitive output. A zero-result response should be read as "not
+Responses of `query_graph_tool`, `semantic_search_nodes_tool`, `review_tool`,
+`flow_tool`, `architecture_analysis_tool`, and `refactor_tool` include a
+`missingness` list, including error and not-found paths: the gaps that limit
+that answer (a graph of another commit, uncommitted edits, missing test edges,
+unresolved cross-artifact edges, missing embeddings, truncated output). Gaps in
+communities and stored flows (`missing_flows`, `missing_communities`,
+`stale_derived_structures`) appear only on answers read from them. The
+graph-wide `answerability` summary (`status`, `score`, `reason_codes`, counts)
+is `get_minimal_context_tool`'s `graph_health`; the six tools add it only at
+`detail_level="verbose"` (`"full"` for `query_graph_tool`) and never on an
+error. A zero-result response should be read as "not
 found in the current graph" unless the surrounding source review confirms
 absence.
 
@@ -882,8 +886,8 @@ lead. Mixed docs/code hits are labelled so a Markdown body hit is not confused
 with a code symbol hit.
 For `query_graph_tool`, missing targets use the same consumer contract as empty
 relationship results: `status="not_found"`, `result_count=0`, `results=[]`,
-`zero_result_reason="target_not_found_in_graph"`, `next_action`,
-`answerability`, and `missingness`.
+`zero_result_reason="target_not_found_in_graph"`, `next_action`, and
+`missingness`.
 A bare target name resolves to its node when exactly one node carries that exact
 name (`resolution="exact_name"`, with `original_target`), even when fuzzy search
 ranks look-alike names higher; several exact-name matches return

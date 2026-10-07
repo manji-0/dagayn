@@ -22,38 +22,6 @@
     "repo_root": "<REPO>",
     "source": "explicit"
   },
-  "answerability": {
-    "answerability": [
-      0,
-      4,
-      0,
-      0,
-      0.0
-    ],
-    "counts": {
-      "communities": 4,
-      "current_head_sha": "f465fe4883a4751337c705228d7938180b3c0723",
-      "flows": 0,
-      "graph_head_sha": "f465fe4883a4751337c705228d7938180b3c0723",
-      "reportable_cross_artifact_edges": 0,
-      "reportable_unresolved_cross_artifact_edges": 0,
-      "stale_flow_memberships": 0,
-      "test_edges": 0,
-      "unassigned_nodes": 0,
-      "worktree_dirty": false
-    },
-    "parse": [
-      2,
-      1,
-      true
-    ],
-    "reason_codes": [
-      "missing_flows",
-      "missing_test_edges"
-    ],
-    "score": 0.75,
-    "status": "ok"
-  },
   "caveats": [
     "Dead-code results are graph-backed candidates; verify dynamic dispatch, plugin registration, reflection, and generated entry points before deleting."
   ],

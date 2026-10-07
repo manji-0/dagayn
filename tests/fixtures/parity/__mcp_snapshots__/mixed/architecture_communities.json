@@ -23,38 +23,6 @@
     "source": "explicit"
   },
   "_runtime": "<VOLATILE>",
-  "answerability": {
-    "answerability": [
-      0,
-      3,
-      0,
-      2,
-      0.0
-    ],
-    "counts": {
-      "communities": 3,
-      "current_head_sha": "dd58eaddda2960904306906d2f281865ecbcd8b6",
-      "flows": 0,
-      "graph_head_sha": "dd58eaddda2960904306906d2f281865ecbcd8b6",
-      "reportable_cross_artifact_edges": 2,
-      "reportable_unresolved_cross_artifact_edges": 0,
-      "stale_flow_memberships": 0,
-      "test_edges": 0,
-      "unassigned_nodes": 0,
-      "worktree_dirty": false
-    },
-    "parse": [
-      3,
-      3,
-      true
-    ],
-    "reason_codes": [
-      "missing_flows",
-      "missing_test_edges"
-    ],
-    "score": 0.75,
-    "status": "ok"
-  },
   "called_subtool": "list_communities_func",
   "communities": [
     {

@@ -4,14 +4,6 @@
     "repo_root": "<REPO>",
     "source": "explicit"
   },
-  "answerability": {
-    "reason_codes": [
-      "missing_test_edges",
-      "stale_derived_structures"
-    ],
-    "score": 0.75,
-    "status": "ok"
-  },
   "confidence": "high",
   "exact_match_count": 1,
   "guidance": [

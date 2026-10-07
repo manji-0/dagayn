@@ -21,16 +21,6 @@
   "missingness": [
     {
       "claim_effect": "claims should be treated as graph-limited until this is resolved",
-      "reason_code": "missing_flows",
-      "severity": "medium"
-    },
-    {
-      "claim_effect": "claims should be treated as graph-limited until this is resolved",
-      "reason_code": "missing_communities",
-      "severity": "medium"
-    },
-    {
-      "claim_effect": "claims should be treated as graph-limited until this is resolved",
       "reason_code": "missing_test_edges",
       "severity": "medium"
     }

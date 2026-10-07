@@ -4,13 +4,6 @@
     "repo_root": "<REPO>",
     "source": "explicit"
   },
-  "answerability": {
-    "reason_codes": [
-      "stale_derived_structures"
-    ],
-    "score": 0.85,
-    "status": "ok"
-  },
   "confidence": "high",
   "exact_match_count": 1,
   "guidance": [

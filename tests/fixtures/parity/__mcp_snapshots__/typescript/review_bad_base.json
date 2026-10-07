@@ -5,37 +5,6 @@
     "source": "explicit"
   },
   "_runtime": "<VOLATILE>",
-  "answerability": {
-    "answerability": [
-      21,
-      22,
-      9,
-      1,
-      0.0
-    ],
-    "counts": {
-      "communities": 22,
-      "current_head_sha": "dc8bde1d637c34a4ec226e96b822c101bd049ddb",
-      "flows": 21,
-      "graph_head_sha": "dc8bde1d637c34a4ec226e96b822c101bd049ddb",
-      "reportable_cross_artifact_edges": 1,
-      "reportable_unresolved_cross_artifact_edges": 0,
-      "stale_flow_memberships": 0,
-      "test_edges": 9,
-      "unassigned_nodes": 27,
-      "worktree_dirty": false
-    },
-    "parse": [
-      36,
-      2,
-      true
-    ],
-    "reason_codes": [
-      "stale_derived_structures"
-    ],
-    "score": 0.85,
-    "status": "ok"
-  },
   "base": "HEAD~1",
   "called_subtool": "detect_changes_func",
   "diff_parse_status": "base_unresolved",

@@ -136,10 +136,10 @@ def test_a_jj_workspace_is_answered_in_rust_as_python_does(jj_workspace: Path, c
         sync = rust[0]["structuredContent"]["sync"]
         assert sync == {"state": expected[0], "status": expected[1], "vcs": "jj"}
     reads = rust[len(context) : len(context) + len(READS)]
-    # traverse_graph_tool carries no answerability.
+    # traverse_graph_tool carries no missingness; the freshness codes reach
+    # the others' missingness, the graph-wide summary only verbose replies.
     for result in reads[:3]:
-        answerability = result["structuredContent"]["answerability"]
-        codes = answerability["reason_codes"]
+        codes = [item["reason_code"] for item in result["structuredContent"]["missingness"]]
         assert ("graph_describes_another_commit" in codes) is (change == "committed"), codes
         assert ("uncommitted_changes_may_be_unindexed" in codes) is (
             change in {"dirty", "indexed"}
@@ -207,7 +207,7 @@ def test_a_stale_jj_workspace_is_answered_in_rust_as_python_does(jj_workspace: P
     assert "jj workspace update-stale" in listing["error"]
     assert listing["missingness"][0]["reason_code"] == "unexpected_tool_failure"
     for result in rust[:3]:
-        codes = result["structuredContent"]["answerability"]["reason_codes"]
+        codes = [item["reason_code"] for item in result["structuredContent"]["missingness"]]
         assert "graph_describes_another_commit" not in codes, codes
         assert "uncommitted_changes_may_be_unindexed" not in codes, codes
     assert rust[len(READS)]["structuredContent"]["status"] == "error"

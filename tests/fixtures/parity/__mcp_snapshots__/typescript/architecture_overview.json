@@ -18,13 +18,7 @@
   "artifact_scope": "code",
   "called_subtool": "get_architecture_overview_func",
   "findings": [],
-  "missingness": [
-    {
-      "claim_effect": "claims should be treated as graph-limited until this is resolved",
-      "reason_code": "stale_derived_structures",
-      "severity": "medium"
-    }
-  ],
+  "missingness": [],
   "mode": "overview",
   "status": "ok",
   "summary": "1 unit(s), 0 dependency pair(s) between them. No structural findings.",

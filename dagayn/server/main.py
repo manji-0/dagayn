@@ -25,7 +25,7 @@ from ..prompts import (
     pre_merge_check_prompt,
     review_changes_prompt,
 )
-from ..tools._common import ToolPayload
+from ..tools._common import ToolPayload, summary_at_verbose_only
 from .tool_allowlist import _resolve_tool_allow_list
 
 type ComponentPayload = dict[str, object]
@@ -456,13 +456,14 @@ def query_graph_tool(
     ``MEDIUM`` edges are inferred, and ``LOW`` edges, a file-level ``tests_for``
     of 0, and ``truncated`` / ``ambiguous`` results are hypotheses.
     """
-    return _tool("query:query_graph")(
+    payload = _tool("query:query_graph")(
         pattern=pattern,
         target=target,
         repo_root=_resolve_repo_root(repo_root),
         detail_level=detail_level,
         depth=depth,
     )
+    return summary_at_verbose_only(payload, detail_level)
 
 
 @mcp.tool()
@@ -493,7 +494,7 @@ def semantic_search_nodes_tool(
         provider: "openai", "google", or "minimax"; omit for the server default.
         detail_level: "standard" (default) or "minimal".
     """
-    return _tool("query:semantic_search_nodes")(
+    payload = _tool("query:semantic_search_nodes")(
         query=query,
         kind=kind,
         limit=limit,
@@ -502,6 +503,7 @@ def semantic_search_nodes_tool(
         provider=_resolve_embedding_provider(provider),
         detail_level=detail_level,
     )
+    return summary_at_verbose_only(payload, detail_level)
 
 
 @mcp.tool()
@@ -679,7 +681,7 @@ def architecture_analysis_tool(
             "infra_dataflow" (+ infra references), "artifact_trace"
             (+ cross-artifact bridges).
     """
-    return _tool("architecture_analysis:architecture_analysis_func")(
+    payload = _tool("architecture_analysis:architecture_analysis_func")(
         mode=mode,
         detail_level=detail_level,
         top_n=top_n,
@@ -699,6 +701,7 @@ def architecture_analysis_tool(
         dependency_profile=dependency_profile,
         repo_root=_resolve_repo_root(repo_root),
     )
+    return summary_at_verbose_only(payload, detail_level)
 
 
 @mcp.tool()
@@ -740,7 +743,7 @@ async def review_tool(
         max_nodes: (impact, context) Node cap. Default: 50.
         max_lines_per_file: (context) Lines per file. Default: 200.
     """
-    return await asyncio.to_thread(
+    payload = await asyncio.to_thread(
         _tool("review_dispatcher:review_func"),
         mode=mode,
         base=base,
@@ -752,6 +755,7 @@ async def review_tool(
         repo_root=_resolve_repo_root(repo_root),
         detail_level=detail_level,
     )
+    return summary_at_verbose_only(payload, detail_level)
 
 
 @mcp.tool()
@@ -783,7 +787,7 @@ def flow_tool(
         include_source: (get) Add member source snippets.
         target: (entry_points) Symbol; omit to list them per unit.
     """
-    return _tool("flow_dispatcher:flow_func")(
+    payload = _tool("flow_dispatcher:flow_func")(
         mode=mode,
         sort_by=sort_by,
         limit=limit,
@@ -795,6 +799,7 @@ def flow_tool(
         target=target,
         repo_root=_resolve_repo_root(repo_root),
     )
+    return summary_at_verbose_only(payload, detail_level)
 
 
 @mcp.tool()
@@ -829,7 +834,7 @@ def refactor_tool(
         detail_level: "verbose" adds each suggestion's plan and all rename
             edits (else: plans per type, 20 edits, per-file counts).
     """
-    return _tool("refactor_tools:refactor_func")(
+    payload = _tool("refactor_tools:refactor_func")(
         mode=mode,
         old_name=old_name,
         new_name=new_name,
@@ -839,6 +844,7 @@ def refactor_tool(
         detail_level=detail_level,
         repo_root=_resolve_repo_root(repo_root),
     )
+    return summary_at_verbose_only(payload, detail_level)
 
 
 @mcp.tool()

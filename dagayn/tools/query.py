@@ -30,6 +30,7 @@ from ._common import (
     make_response,
     missingness_from_answerability,
     recover_corrupt_graph,
+    summary_at_verbose_only,
 )
 from ._native import native_tool
 from .query_graph_support import exactness_action, result_evidence_type
@@ -377,7 +378,7 @@ def semantic_search_nodes(
             hint_input = {"status": "ok", "summary": summary} if minimal else result
             hints = generate_hints("semantic_search_nodes", hint_input, get_session())
         result["_hints"] = hints
-        return result
+        return summary_at_verbose_only(result, detail_level)
     return scope.error
 
 

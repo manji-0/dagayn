@@ -567,7 +567,8 @@ class TestTools:
         assert any(
             item["reason_code"] == "target_not_found_in_graph" for item in result["missingness"]
         )
-        assert "answerability" in result
+        # Graph-wide health is get_minimal_context_tool's to report.
+        assert "answerability" not in result
 
     def test_query_graph_standard_results_are_budgeted(self):
         target_qn = "/repo/auth.py::AuthService.login"

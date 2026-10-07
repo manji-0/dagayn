@@ -106,7 +106,7 @@ effect from a reproduction; keep them apart in a claim. Full rules:
   contracts, explanatory roles are usually `extracted`, and
   `heuristic_reachable` stays tentative. Cite the role and the query used.
 - Before claiming something is absent, read `zero_result_reason`,
-  `next_action`, `answerability`, and `missingness`; report `truncated` /
+  `next_action`, and `missingness`; report `truncated` /
   `total` when a result is incomplete. Unresolved (`LOW`) calls can hide
   callers — `dagayn build --scip` settles them where SCIP indexers exist.
 - Function concern profiles (`concern_separation`, the

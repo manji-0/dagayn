@@ -15,39 +15,6 @@
     "source": "explicit"
   },
   "_runtime": "<VOLATILE>",
-  "answerability": {
-    "answerability": [
-      0,
-      1,
-      0,
-      2,
-      0.0
-    ],
-    "counts": {
-      "communities": 1,
-      "current_head_sha": "4ac51207fce09149d59ef618f91828654525eff6",
-      "flows": 0,
-      "graph_head_sha": "4ac51207fce09149d59ef618f91828654525eff6",
-      "reportable_cross_artifact_edges": 2,
-      "reportable_unresolved_cross_artifact_edges": 0,
-      "stale_flow_memberships": 0,
-      "test_edges": 0,
-      "unassigned_nodes": 1,
-      "worktree_dirty": false
-    },
-    "parse": [
-      6,
-      3,
-      true
-    ],
-    "reason_codes": [
-      "missing_flows",
-      "missing_test_edges",
-      "stale_derived_structures"
-    ],
-    "score": 0.6,
-    "status": "degraded"
-  },
   "called_subtool": "list_flows",
   "deprecation": "mode=\"list\" and mode=\"get\" read stored flows and are removed after one release; use mode=\"entry_points\" (with or without target).",
   "flow_coverage": {

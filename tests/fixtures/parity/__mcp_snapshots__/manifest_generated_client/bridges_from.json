@@ -4,15 +4,6 @@
     "repo_root": "<REPO>",
     "source": "explicit"
   },
-  "answerability": {
-    "reason_codes": [
-      "missing_flows",
-      "missing_test_edges",
-      "stale_derived_structures"
-    ],
-    "score": 0.6,
-    "status": "degraded"
-  },
   "confidence": "low",
   "exact_match_count": 1,
   "guidance": [

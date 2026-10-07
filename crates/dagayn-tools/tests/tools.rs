@@ -465,10 +465,15 @@ fn query_graph_answers_callers_and_callees_of_exact_targets() {
     assert!(callers["results"][0].get("file_path").is_none());
     assert_eq!(callers["guidance"][0]["counts"]["result_count"], 1);
     assert_eq!(callers["results_complete"], true);
-    assert_eq!(
-        callers["answerability"].as_object().map(|map| map.len()),
-        Some(3)
+    // Graph-wide health is get_minimal_context_tool's; detail_level="full" keeps it.
+    assert!(callers.get("answerability").is_none());
+    assert!(callers["missingness"].is_array());
+    let full = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": "app.py::helper", "detail_level": "full"}),
     );
+    assert!(full["answerability"]["counts"].is_object());
 
     let minimal = answer(
         &context,
@@ -1337,7 +1342,8 @@ fn architecture_metrics_follow_the_requested_view() {
     assert_eq!(adp["called_subtool"], "detect_adp_violations_func");
     assert_eq!(adp["count"], 1);
     assert_eq!(adp["violations"][0]["nodes"], json!(["<root>", "pkg"]));
-    assert!(adp["answerability"].is_object());
+    assert!(adp.get("answerability").is_none());
+    assert!(adp["missingness"].is_array());
     let sdp = arch(json!({"mode": "sdp_metrics", "granularity": "file", "top_n": 1}));
     assert_eq!(sdp["metrics"].as_array().map(Vec::len), Some(1));
     let violations = arch(json!({"mode": "sdp_violations", "min_delta": 0}));
@@ -1397,7 +1403,7 @@ fn architecture_metrics_follow_the_requested_view() {
     );
     let communities = arch(json!({"mode": "communities", "detail_level": "standard"}));
     assert_eq!(communities["called_subtool"], "list_communities_func");
-    assert!(communities["answerability"].is_object());
+    assert!(communities.get("answerability").is_none());
     let first = communities["communities"][0]["id"].clone();
     let community =
         arch(json!({"mode": "community", "community_id": first, "include_members": true}));

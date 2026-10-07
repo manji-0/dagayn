@@ -63,7 +63,7 @@ dagayn instructions (full rules: `get_docs_section_tool(section_name="trust")`).
 reading: update them (see the "Docs update
 after code change" steps in review-changes) or list them as deferred. Before
 claiming something is missing, read `zero_result_reason`, `next_action`,
-`answerability`, and `missingness`, and narrow truncated results first.
+and `missingness`, and narrow truncated results first.
 
 ## CLI fallback
 

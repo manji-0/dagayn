@@ -26,38 +26,6 @@
     "source": "explicit"
   },
   "_runtime": "<VOLATILE>",
-  "answerability": {
-    "answerability": [
-      1,
-      2,
-      0,
-      0,
-      0.0
-    ],
-    "counts": {
-      "communities": 2,
-      "current_head_sha": "23cba2c11ebc1e87d236f6c1276afadf3f6ee5fb",
-      "flows": 1,
-      "graph_head_sha": "23cba2c11ebc1e87d236f6c1276afadf3f6ee5fb",
-      "reportable_cross_artifact_edges": 0,
-      "reportable_unresolved_cross_artifact_edges": 0,
-      "stale_flow_memberships": 0,
-      "test_edges": 0,
-      "unassigned_nodes": 1,
-      "worktree_dirty": false
-    },
-    "parse": [
-      3,
-      1,
-      true
-    ],
-    "reason_codes": [
-      "missing_test_edges",
-      "stale_derived_structures"
-    ],
-    "score": 0.75,
-    "status": "ok"
-  },
   "bridge_transitions": [],
   "called_subtool": "get_impact_radius",
   "changed_files": [
