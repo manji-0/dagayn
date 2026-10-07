@@ -450,6 +450,30 @@ fn minimal_context_never_queues_outside_a_repository() {
 }
 
 #[test]
+fn query_graph_counts_one_row_per_node_everywhere() {
+    let repo = Repo::new("query-counts", false);
+    repo.write(
+        "twice.py",
+        "from app import helper\n\n\ndef twice():\n    helper()\n    return helper()\n",
+    );
+    repo.build();
+    let context = repo.context();
+    let callers = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": "app.py::helper"}),
+    );
+    // main and twice, though twice calls it from two lines.
+    assert_eq!(callers["result_count"], 2, "{}", callers["results"]);
+    assert_eq!(callers["guidance"][0]["counts"]["result_count"], 2);
+    assert!(
+        callers["summary"]
+            .as_str()
+            .is_some_and(|summary| summary.starts_with("Found 2 "))
+    );
+}
+
+#[test]
 fn an_ambiguous_target_names_its_retries() {
     let repo = Repo::new("ambiguous", false);
     repo.write("lib.py", "def helper():\n    pass\n");

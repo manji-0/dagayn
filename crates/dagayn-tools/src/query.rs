@@ -1546,13 +1546,19 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
             &format!("Found {} ", rows.len()),
             1,
         );
+        let rows_len = rows.len();
         payload = payload
             .put("summary", summary)
-            .put("result_count", rows.len())
+            .put("result_count", rows_len)
             .put("answerability", answerability.compact())
             .put("results", json!(rows));
         if !minimal {
-            payload = payload.put("guidance", guidance);
+            // One count per reply: the rows, after `merge` folded the edges
+            // of one node into one row.
+            payload = payload.put(
+                "guidance",
+                self::guidance(pattern, target, rows_len, exact_count),
+            );
         }
         budget = if minimal { 4000 } else { 8000 };
     }
