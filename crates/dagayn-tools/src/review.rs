@@ -54,12 +54,31 @@ const CAVEAT_EXAMPLES: usize = 3;
 const MAX_LINES_PER_FILE_CEILING: i64 = 2000;
 /// The lists `get_review_context` halves to fit its budget, highest
 /// priority first.
-const CONTEXT_PRIORITIES: [&str; 5] = [
+/// The path lists of `change_file_sources`, which a long diff repeats,
+/// highest priority first.
+const SOURCE_LISTS: [&str; 6] = [
+    "change_file_sources.files",
+    "change_file_sources.base_diff",
+    "change_file_sources.worktree",
+    "change_file_sources.staged",
+    "change_file_sources.unstaged",
+    "change_file_sources.untracked",
+];
+const CONTEXT_PRIORITIES: [&str; 13] = [
     "context.changed_files",
     "context.impacted_files",
     "context.graph.changed_nodes",
     "context.graph.impacted_nodes",
     "context.graph.edges",
+    // Paths a long diff repeats, which go before the graph does.
+    "context.unmatched_changed_files",
+    "context.source_snippets_omitted",
+    "context.change_file_sources.untracked",
+    "context.change_file_sources.unstaged",
+    "context.change_file_sources.staged",
+    "context.change_file_sources.worktree",
+    "context.change_file_sources.base_diff",
+    "context.change_file_sources.files",
 ];
 /// Fields `detail_level="verbose"` still carries from the score-first
 /// contract, for one release.
@@ -492,7 +511,11 @@ impl Review<'_> {
             )
             .put("missingness", json!(missingness))
             .apply_output_budget(
-                CHANGES_BUDGET,
+                if request.detail_level == "minimal" {
+                    crate::MINIMAL_BUDGET
+                } else {
+                    CHANGES_BUDGET
+                },
                 &[
                     "analysis_summary.recommended_tests",
                     "analysis_summary.affected_flow_rankings",
@@ -504,6 +527,10 @@ impl Review<'_> {
                     "test_gaps",
                     "changed_functions",
                     "changed_edges",
+                    // Counted in `changed_file_count`; a long diff's paths
+                    // go first.
+                    "unmapped_changed_files",
+                    "changed_files",
                 ],
             );
         let hints = findings_hints(&findings);
@@ -666,7 +693,8 @@ impl Review<'_> {
                             "review_tool mode=\"affected_flows\"",
                             "review_tool mode=\"impact\"",
                         ]),
-                    ),
+                    )
+                    .apply_output_budget(crate::MINIMAL_BUDGET, &SOURCE_LISTS),
             );
         }
 
@@ -906,9 +934,22 @@ impl Review<'_> {
                 .put("affected_flows", Value::Array(flows))
                 .put("deprecated_fields", json!(["affected_flows", "total"]));
         }
+        let budget = if request.detail_level == "minimal" {
+            crate::MINIMAL_BUDGET
+        } else {
+            crate::STANDARD_BUDGET
+        };
+        // Highest priority first: the paths go before the entry points do.
+        let mut priorities = vec!["entry_points", "changed_files"];
+        priorities.extend(SOURCE_LISTS);
         let out = out
             .put("answerability", self.answerability.full())
             .put("missingness", json!(missingness));
+        let out = if request.detail_level == "verbose" {
+            out
+        } else {
+            out.apply_output_budget(budget, &priorities)
+        };
         let hints = self.hints("get_affected_flows", &out.value());
         Some(Ok(out.put("_hints", hints)))
     }
@@ -1088,7 +1129,8 @@ impl Review<'_> {
                     .put("truncated", radius.truncated)
                     .put("answerability", self.answerability.full())
                     .put("missingness", json!(impact_missingness))
-                    .put("guidance", json!(guidance)),
+                    .put("guidance", json!(guidance))
+                    .apply_output_budget(crate::MINIMAL_BUDGET, &["unmatched_changed_files"]),
             );
         }
         let out = Ordered::default()

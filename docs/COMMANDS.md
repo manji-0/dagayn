@@ -675,7 +675,7 @@ row per related node; for `callers_of`, `callees_of`, `inheritors_of`, and
 edge's `confidence_tier`, and rows drop `id`, `language`, default
 `parent_name` / `is_test`, and a `file_path` already in `qualified_name`.
 It omits `answerability`, `edges`, and `_hints`. `minimal` keeps fewer row fields, drops `guidance` and
-`description`, and returns every row that fits a 4,000-token budget. `full`
+`description`, and returns every row that fits a 2,000-token budget. `full`
 returns the earlier `standard` shape: one row per edge, the `edges` list, full
 `answerability`, and `_hints`.
 

@@ -2106,3 +2106,184 @@ fn postprocess_reruns_the_steps_asked_for() {
     assert!(dagayn_tools::writes_graph("run_postprocess_tool"));
     assert!(!dagayn_tools::writes_graph("query_graph_tool"));
 }
+
+/// docs/plans/AGENT-WORKFLOW-TARGET.md#evaluation, the contract check: every
+/// Tier 1 reply carries `next`, at most three calls; every call a reply names
+/// (but a shell command) is answered without an error, an ambiguity, or a
+/// missing node; and every reply fits its level's budget.
+#[test]
+fn every_reply_names_calls_that_answer_and_fits_its_budget() {
+    let repo = Repo::new("contract", true);
+    // Long paths, as a real tree's are: lists of them must not outgrow a level.
+    let module = |i: usize| format!("pkg/a_rather_long_package_name/and_a_subpackage/mod_{i}.py");
+    for i in 0..120 {
+        repo.write(
+            &module(i),
+            &format!("from app import helper\n\n\ndef run_{i}():\n    return helper()\n"),
+        );
+    }
+    repo.write(".gitignore", ".dagayn/\n");
+    for args in [
+        &["add", "-A"][..],
+        &["commit", "-q", "--no-gpg-sign", "-m", "pkg"],
+    ] {
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(&repo.0)
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@example.invalid")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@example.invalid")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .output()
+            .expect("git");
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+    }
+    // An uncommitted change to every module: many findings, one review.
+    for i in 0..120 {
+        repo.write(
+            &module(i),
+            &format!(
+                "from app import helper\n\n\ndef run_{i}(flag=False):\n    return helper() if flag else None\n"
+            ),
+        );
+    }
+    repo.build();
+    let context = Context {
+        runtime: Some(json!({})),
+        ..repo.context()
+    };
+    let cases: Vec<(&str, Value)> = vec![
+        (
+            "get_minimal_context_tool",
+            json!({"task": "review my change"}),
+        ),
+        (
+            "get_minimal_context_tool",
+            json!({"task": "debug why helper fails"}),
+        ),
+        (
+            "get_minimal_context_tool",
+            json!({"task": "explain the architecture"}),
+        ),
+        (
+            "get_minimal_context_tool",
+            json!({"task": "refactor helper"}),
+        ),
+        ("get_minimal_context_tool", json!({"task": "helper"})),
+        ("semantic_search_nodes_tool", json!({"query": "helper"})),
+        (
+            "semantic_search_nodes_tool",
+            json!({"query": "app", "detail_level": "minimal"}),
+        ),
+        (
+            "query_graph_tool",
+            json!({"pattern": "source_of", "target": "app.py::helper"}),
+        ),
+        (
+            "query_graph_tool",
+            json!({"pattern": "callers_of", "target": "app.py::helper"}),
+        ),
+        (
+            "query_graph_tool",
+            json!({"pattern": "callers_of", "target": "app.py::helper", "detail_level": "minimal"}),
+        ),
+        (
+            "query_graph_tool",
+            json!({"pattern": "tests_for", "target": "app.py::main"}),
+        ),
+        (
+            "query_graph_tool",
+            json!({"pattern": "importers_of", "target": "app.py"}),
+        ),
+        (
+            "query_graph_tool",
+            json!({"pattern": "file_summary", "target": "app.py"}),
+        ),
+        (
+            "query_graph_tool",
+            json!({"pattern": "callers_of", "target": "no_such_symbol"}),
+        ),
+        (
+            "flow_tool",
+            json!({"mode": "entry_points", "target": "app.py::helper"}),
+        ),
+        ("review_tool", json!({"mode": "changes"})),
+        (
+            "review_tool",
+            json!({"mode": "changes", "detail_level": "minimal"}),
+        ),
+        ("review_tool", json!({"mode": "impact"})),
+        (
+            "review_tool",
+            json!({"mode": "impact", "detail_level": "minimal"}),
+        ),
+        ("review_tool", json!({"mode": "context"})),
+        (
+            "review_tool",
+            json!({"mode": "context", "detail_level": "minimal"}),
+        ),
+        ("review_tool", json!({"mode": "affected_flows"})),
+        ("architecture_analysis_tool", json!({})),
+        (
+            "architecture_analysis_tool",
+            json!({"detail_level": "standard"}),
+        ),
+        ("refactor_tool", json!({})),
+        ("refactor_tool", json!({"detail_level": "minimal"})),
+    ];
+    let mut failures = Vec::new();
+    let mut followed = 0;
+    for (tool, arguments) in &cases {
+        let Some(payload) = call(&context, tool, arguments) else {
+            failures.push(format!("{tool} {arguments}: not answered"));
+            continue;
+        };
+        let budget = match arguments["detail_level"].as_str() {
+            Some("minimal") => 8_000,
+            // get_minimal_context_tool has no level; it is held to minimal.
+            _ if *tool == "get_minimal_context_tool" => 8_000,
+            _ => 32_000,
+        };
+        if payload.text.len() > budget {
+            failures.push(format!(
+                "{tool} {arguments}: {} characters, budget {budget}",
+                payload.text.len()
+            ));
+        }
+        let Some(next) = payload.value["next"].as_array() else {
+            failures.push(format!("{tool} {arguments}: no next"));
+            continue;
+        };
+        if next.len() > 3 {
+            failures.push(format!("{tool} {arguments}: {} calls in next", next.len()));
+        }
+        for step in next {
+            let (Some(name), Some(args)) = (step["tool"].as_str(), step.get("args")) else {
+                failures.push(format!("{tool} {arguments}: malformed {step}"));
+                continue;
+            };
+            if step["why"].as_str().is_none_or(str::is_empty) {
+                failures.push(format!("{tool} {arguments}: {step} says no why"));
+            }
+            if name == "shell" {
+                continue;
+            }
+            followed += 1;
+            match call(&context, name, args) {
+                None => failures.push(format!("{tool} {arguments} -> {name} {args}: not answered")),
+                Some(reply) => {
+                    let status = reply.value["status"].as_str().unwrap_or("");
+                    if matches!(status, "error" | "ambiguous" | "not_found") {
+                        failures.push(format!(
+                            "{tool} {arguments} -> {name} {args}: {status} {}",
+                            reply.value["summary"]
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    assert!(followed >= 10, "only {followed} calls followed");
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

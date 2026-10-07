@@ -362,9 +362,15 @@ fn suggest(
         .put("findings", Value::Array(findings))
         .put("findings_omitted", Value::Object(omitted));
     if detail_level != "verbose" {
+        let budget = if detail_level == "minimal" {
+            crate::MINIMAL_BUDGET
+        } else {
+            crate::STANDARD_BUDGET
+        };
         return Some(
             out.put("answerability", answerability.full())
-                .put("missingness", json!(missingness)),
+                .put("missingness", json!(missingness))
+                .apply_output_budget(budget, &["findings"]),
         );
     }
 

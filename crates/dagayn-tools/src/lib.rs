@@ -217,6 +217,13 @@ const SUMMARY_AT_VERBOSE_ONLY: [&str; 6] = [
     "refactor_tool",
 ];
 
+/// The output budgets of docs/plans/AGENT-WORKFLOW-TARGET.md#decisions-2026-10-07
+/// (8K characters at `minimal`, 32K at `standard`) in `apply_output_budget`
+/// tokens of four characters, less 250 for what a reply adds after trimming
+/// (`next`, `missingness`, `_hints`, `_repo`).
+pub(crate) const MINIMAL_BUDGET: usize = 1750;
+pub(crate) const STANDARD_BUDGET: usize = 7750;
+
 /// Answer `name(arguments)`, or `None` to leave it to the Python server.
 pub fn call(context: &Context, name: &str, arguments: &Value) -> Option<Payload> {
     let arguments = arguments.as_object()?;

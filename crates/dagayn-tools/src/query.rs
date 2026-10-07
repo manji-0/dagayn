@@ -1569,7 +1569,11 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
                 self::guidance(pattern, target, rows_len, exact_count),
             );
         }
-        budget = if minimal { 4000 } else { 8000 };
+        budget = if minimal {
+            crate::MINIMAL_BUDGET
+        } else {
+            crate::STANDARD_BUDGET
+        };
     }
     payload = payload.apply_output_budget(budget, &["results", "edges"]);
     let results_complete = !payload
