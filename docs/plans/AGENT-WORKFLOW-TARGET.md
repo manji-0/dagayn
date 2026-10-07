@@ -24,8 +24,8 @@ ambiguous name costs a round trip with no hint of how to retry. This note
 defines the workflow, the response contract that carries it, the evidence,
 and the order of work.
 
-Status: accepted ([decisions](#decisions-2026-10-07)); step 1 and half
-of step 2 of the [order of work](#order-of-work) are done.
+Status: accepted ([decisions](#decisions-2026-10-07)); steps 1–2 of the
+[order of work](#order-of-work) are done.
 
 ## Target contract
 
@@ -219,8 +219,21 @@ evals already build.
      `flow_tool` `list` / `get`); `graph_health.reason_codes` still
      reports them. In the MCP snapshots 69 items went, nothing else
      changed.
-   - `answerability` moves to `get_minimal_context_tool` and
-     `verbose`.
+   - **Done:** `answerability` leaves the six Tier 1 analysis tools
+     below `detail_level="verbose"` (`"full"` for `query_graph_tool`) and
+     every error; `get_minimal_context_tool` keeps it as `graph_health`.
+     One filter in `dagayn_tools::call` and its Python twin
+     `summary_at_verbose_only` (the MCP wrappers and the Python search)
+     do it, so no tool body changed. The overview's unit map no longer
+     copies the community report's derived-structure gaps. In the
+     snapshots 75 files lost only `answerability` and derived-structure
+     items. On this repository (compact characters, `minimal`): search
+     5,073 → 3,630, `callers_of` 4,368 (it had a compact block already),
+     architecture overview 7,046 → 5,143.
+   - Found while measuring: `review_tool(mode="changes")` at `minimal`
+     is 20,888 characters with `base=HEAD~3` once the diff spans 75
+     snapshot files; its budget is 32K at every level. The contract check
+     in step 6 holds it to 8K.
 3. Ambiguity: candidates ordered non-test first, `next` with one call
    per candidate, in `query_graph_tool` and `flow_tool`, sharing one
    resolver.
