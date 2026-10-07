@@ -24,8 +24,8 @@ ambiguous name costs a round trip with no hint of how to retry. This note
 defines the workflow, the response contract that carries it, the evidence,
 and the order of work.
 
-Status: accepted ([decisions](#decisions-2026-10-07)); step 1 of the
-[order of work](#order-of-work) is done.
+Status: accepted ([decisions](#decisions-2026-10-07)); step 1 and half
+of step 2 of the [order of work](#order-of-work) are done.
 
 ## Target contract
 
@@ -208,11 +208,19 @@ evals already build.
    step 6. The halving is blunt (`context` keeps 4 of 954 changed nodes
    and one clipped file): which nodes are worth the budget is a question
    for step 4's `next`, which can point at them instead.
-2. Recalibrate the caveats: `stale_derived_structures` fires only on
-   stale flow memberships or on code nodes left out of a community run
-   that should have covered them; `answerability` moves to
-   `get_minimal_context_tool` and `verbose`; other tools keep the
-   `missingness` items that apply to them.
+2. Recalibrate the caveats.
+   - **Done:** the 2,718 unassigned nodes are real: all of them sit in
+     files changed since the last full post-process, which an
+     incremental update does not re-cluster. The code is right; its
+     audience was wrong. `missing_flows`, `missing_communities`, their
+     `_table` variants, and `stale_derived_structures` are `missingness`
+     only on answers read from communities or stored flows (the legacy
+     community and analysis modes of `architecture_analysis_tool`, and
+     `flow_tool` `list` / `get`); `graph_health.reason_codes` still
+     reports them. In the MCP snapshots 69 items went, nothing else
+     changed.
+   - `answerability` moves to `get_minimal_context_tool` and
+     `verbose`.
 3. Ambiguity: candidates ordered non-test first, `next` with one call
    per candidate, in `query_graph_tool` and `flow_tool`, sharing one
    resolver.
