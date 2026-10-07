@@ -24,8 +24,8 @@ ambiguous name costs a round trip with no hint of how to retry. This note
 defines the workflow, the response contract that carries it, the evidence,
 and the order of work.
 
-Status: accepted ([decisions](#decisions-2026-10-07)); no step of the
-[order of work](#order-of-work) is done yet.
+Status: accepted ([decisions](#decisions-2026-10-07)); step 1 of the
+[order of work](#order-of-work) is done.
 
 ## Target contract
 
@@ -156,7 +156,10 @@ related node(s)" with `counts.result_count: 13`.
 - The seven old next-step fields stay behind `detail_level="verbose"`,
   listed in `deprecated_fields`, for one release, as the review and flow
   fields did.
-- Budgets: `minimal` 8K characters, `standard` 32K; `verbose` has none.
+- Budgets: `minimal` 8K characters, `standard` 32K, counted on compact
+  JSON as the MCP transport sends it; `verbose` is outside the contract.
+  A tool may keep a cap of its own at `verbose` (`impact` keeps its 32K:
+  without it one call on this repository was 1.5M characters).
 - An ambiguous target is not answered per candidate: the reply names
   the retries in `next` and runs nothing.
 
@@ -185,9 +188,26 @@ evals already build.
 
 ## Order of work
 
-1. Budget the drill-downs: `review_tool` `impact` and `context` honour
-   `detail_level`, cap source text, and fold per-bridge caveats into one
-   counted item. Contract check (size only) in CI.
+1. **Done:** budget the drill-downs. `impact` folds its low-confidence
+   bridges into one `missingness` item with a `count` and three
+   `examples` (the full list stays in `low_confidence_bridges`, which the
+   budget trims). `context` caps source at 16K bytes below `verbose`
+   (120K at `verbose`, as before) and halves its nested lists
+   (`context.graph.edges` first) until the reply fits; the output budget
+   now reads `a.b.c` paths and merges into an existing `_truncation`.
+   On this repository with `base=HEAD~3` (compact characters):
+
+   | Call | Before | After |
+   |---|---|---|
+   | `impact`, `minimal` | 302,203 | 6,423 |
+   | `impact`, `standard` | 304,048 | 23,775 |
+   | `context`, `standard` | 479,434 | 32,202 |
+
+   `tests/tools.rs::review_context_fits_its_budget_below_verbose` holds
+   `context` to the budget; the contract check over every mode moves to
+   step 6. The halving is blunt (`context` keeps 4 of 954 changed nodes
+   and one clipped file): which nodes are worth the budget is a question
+   for step 4's `next`, which can point at them instead.
 2. Recalibrate the caveats: `stale_derived_structures` fires only on
    stale flow memberships or on code nodes left out of a community run
    that should have covered them; `answerability` moves to
