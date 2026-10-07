@@ -1,0 +1,100 @@
+description: A short function changed in twelve commits is churn, not a split candidate.
+negative: true
+files:
+  app/__init__.py: ''
+  app/engine.py: |
+    def dispatch(event, state):
+        return [event, state]
+  app/main.py: |
+    from app.engine import dispatch
+    from app.part0 import part0
+    from app.part1 import part1
+    from app.part2 import part2
+    from app.part3 import part3
+    from app.part4 import part4
+    from app.part5 import part5
+    from app.part6 import part6
+    from app.part7 import part7
+    from app.part8 import part8
+    from app.part9 import part9
+
+
+    def main():
+        dispatch({}, {})
+        part0()
+        part1()
+        part2()
+        part3()
+        part4()
+        part5()
+        part6()
+        part7()
+        part8()
+        part9()
+  app/part0.py: |
+    def part0():
+        return 0
+  app/part1.py: |
+    def part1():
+        return 1
+  app/part2.py: |
+    def part2():
+        return 2
+  app/part3.py: |
+    def part3():
+        return 3
+  app/part4.py: |
+    def part4():
+        return 4
+  app/part5.py: |
+    def part5():
+        return 5
+  app/part6.py: |
+    def part6():
+        return 6
+  app/part7.py: |
+    def part7():
+        return 7
+  app/part8.py: |
+    def part8():
+        return 8
+  app/part9.py: |
+    def part9():
+        return 9
+commits:
+- app/engine.py: |
+    def dispatch(event, state):
+        return [event, state, 1]
+- app/engine.py: |
+    def dispatch(event, state):
+        return [event, state, 2]
+- app/engine.py: |
+    def dispatch(event, state):
+        return [event, state, 3]
+- app/engine.py: |
+    def dispatch(event, state):
+        return [event, state, 4]
+- app/engine.py: |
+    def dispatch(event, state):
+        return [event, state, 5]
+- app/engine.py: |
+    def dispatch(event, state):
+        return [event, state, 6]
+- app/engine.py: |
+    def dispatch(event, state):
+        return [event, state, 7]
+- app/engine.py: |
+    def dispatch(event, state):
+        return [event, state, 8]
+- app/engine.py: |
+    def dispatch(event, state):
+        return [event, state, 9]
+- app/engine.py: |
+    def dispatch(event, state):
+        return [event, state, 10]
+- app/engine.py: |
+    def dispatch(event, state):
+        return [event, state, 11]
+- app/engine.py: |
+    def dispatch(event, state):
+        return [event, state, 12]

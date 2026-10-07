@@ -1,0 +1,11 @@
+description: 'The only unreferenced function is a sample under tests/fixtures: a test input, not dead
+  code.'
+negative: true
+files:
+  app/__init__.py: ''
+  app/main.py: |
+    def main():
+        return 1
+  tests/fixtures/sample.py: |
+    def unused_sample():
+        return 2

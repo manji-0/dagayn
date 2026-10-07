@@ -1,0 +1,19 @@
+description: A private helper nothing refers to, next to a used one.
+files:
+  app/__init__.py: ''
+  app/util.py: |
+    def slug(text):
+        return text.lower()
+
+
+    def _legacy_format(text):
+        return text.upper()
+  app/main.py: |
+    from app.util import slug
+
+
+    def main():
+        return slug('A')
+expected_findings:
+- kind: unused_symbol
+  target: app/util.py::_legacy_format

@@ -1,0 +1,13 @@
+description: A helper only tests call is used, not dead.
+negative: true
+files:
+  app/__init__.py: ''
+  app/math.py: |
+    def double(x):
+        return x * 2
+  tests/test_math.py: |
+    from app.math import double
+
+
+    def test_double():
+        assert double(2) == 4

@@ -1,0 +1,22 @@
+description: A private Rust function nothing calls, in a crate whose public function is used.
+files:
+  Cargo.toml: |
+    [package]
+    name = "calc"
+    version = "0.1.0"
+    edition = "2021"
+  src/main.rs: |
+    fn main() {
+        println!("{}", double(2));
+    }
+
+    fn double(x: i32) -> i32 {
+        x * 2
+    }
+
+    fn stale_triple(x: i32) -> i32 {
+        x * 3
+    }
+expected_findings:
+- kind: unused_symbol
+  target: src/main.rs::stale_triple

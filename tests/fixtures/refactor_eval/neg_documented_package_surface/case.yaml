@@ -1,0 +1,28 @@
+description: The same surface function with a docstring.
+negative: true
+files:
+  corelib/__init__.py: ''
+  corelib/parse.py: |
+    def parse_line(line):
+        """Split a line into fields."""
+        return line.split(',')
+  app/__init__.py: ''
+  app/read.py: |
+    from corelib.parse import parse_line
+
+
+    def read_one(line):
+        return parse_line(line)
+  app/count.py: |
+    from corelib.parse import parse_line
+
+
+    def count_fields(line):
+        return len(parse_line(line))
+  app/main.py: |
+    from app.count import count_fields
+    from app.read import read_one
+
+
+    def main():
+        return read_one('a,b'), count_fields('a')

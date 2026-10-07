@@ -1,0 +1,856 @@
+description: A long, branchy function changed in twelve commits, while every other file changed once.
+files:
+  app/__init__.py: ''
+  app/engine.py: |
+    def dispatch(event, state):
+        result = []
+        if event.get('kind') == 'k0':
+            result.append(state.get('v0', 0))
+            state['seen0'] = True
+            result.append(0 * 2)
+        if event.get('kind') == 'k1':
+            result.append(state.get('v1', 1))
+            state['seen1'] = True
+            result.append(1 * 2)
+        if event.get('kind') == 'k2':
+            result.append(state.get('v2', 2))
+            state['seen2'] = True
+            result.append(2 * 2)
+        if event.get('kind') == 'k3':
+            result.append(state.get('v3', 3))
+            state['seen3'] = True
+            result.append(3 * 2)
+        if event.get('kind') == 'k4':
+            result.append(state.get('v4', 4))
+            state['seen4'] = True
+            result.append(4 * 2)
+        if event.get('kind') == 'k5':
+            result.append(state.get('v5', 5))
+            state['seen5'] = True
+            result.append(5 * 2)
+        if event.get('kind') == 'k6':
+            result.append(state.get('v6', 6))
+            state['seen6'] = True
+            result.append(6 * 2)
+        if event.get('kind') == 'k7':
+            result.append(state.get('v7', 7))
+            state['seen7'] = True
+            result.append(7 * 2)
+        if event.get('kind') == 'k8':
+            result.append(state.get('v8', 8))
+            state['seen8'] = True
+            result.append(8 * 2)
+        if event.get('kind') == 'k9':
+            result.append(state.get('v9', 9))
+            state['seen9'] = True
+            result.append(9 * 2)
+        if event.get('kind') == 'k10':
+            result.append(state.get('v10', 10))
+            state['seen10'] = True
+            result.append(10 * 2)
+        if event.get('kind') == 'k11':
+            result.append(state.get('v11', 11))
+            state['seen11'] = True
+            result.append(11 * 2)
+        if event.get('kind') == 'k12':
+            result.append(state.get('v12', 12))
+            state['seen12'] = True
+            result.append(12 * 2)
+        if event.get('kind') == 'k13':
+            result.append(state.get('v13', 13))
+            state['seen13'] = True
+            result.append(13 * 2)
+        result.append(0)
+        return result
+  app/main.py: |
+    from app.engine import dispatch
+    from app.part0 import part0
+    from app.part1 import part1
+    from app.part2 import part2
+    from app.part3 import part3
+    from app.part4 import part4
+    from app.part5 import part5
+    from app.part6 import part6
+    from app.part7 import part7
+    from app.part8 import part8
+    from app.part9 import part9
+
+
+    def main():
+        dispatch({}, {})
+        part0()
+        part1()
+        part2()
+        part3()
+        part4()
+        part5()
+        part6()
+        part7()
+        part8()
+        part9()
+  app/part0.py: |
+    def part0():
+        return 0
+  app/part1.py: |
+    def part1():
+        return 1
+  app/part2.py: |
+    def part2():
+        return 2
+  app/part3.py: |
+    def part3():
+        return 3
+  app/part4.py: |
+    def part4():
+        return 4
+  app/part5.py: |
+    def part5():
+        return 5
+  app/part6.py: |
+    def part6():
+        return 6
+  app/part7.py: |
+    def part7():
+        return 7
+  app/part8.py: |
+    def part8():
+        return 8
+  app/part9.py: |
+    def part9():
+        return 9
+commits:
+- app/engine.py: |
+    def dispatch(event, state):
+        result = []
+        if event.get('kind') == 'k0':
+            result.append(state.get('v0', 0))
+            state['seen0'] = True
+            result.append(0 * 2)
+        if event.get('kind') == 'k1':
+            result.append(state.get('v1', 1))
+            state['seen1'] = True
+            result.append(1 * 2)
+        if event.get('kind') == 'k2':
+            result.append(state.get('v2', 2))
+            state['seen2'] = True
+            result.append(2 * 2)
+        if event.get('kind') == 'k3':
+            result.append(state.get('v3', 3))
+            state['seen3'] = True
+            result.append(3 * 2)
+        if event.get('kind') == 'k4':
+            result.append(state.get('v4', 4))
+            state['seen4'] = True
+            result.append(4 * 2)
+        if event.get('kind') == 'k5':
+            result.append(state.get('v5', 5))
+            state['seen5'] = True
+            result.append(5 * 2)
+        if event.get('kind') == 'k6':
+            result.append(state.get('v6', 6))
+            state['seen6'] = True
+            result.append(6 * 2)
+        if event.get('kind') == 'k7':
+            result.append(state.get('v7', 7))
+            state['seen7'] = True
+            result.append(7 * 2)
+        if event.get('kind') == 'k8':
+            result.append(state.get('v8', 8))
+            state['seen8'] = True
+            result.append(8 * 2)
+        if event.get('kind') == 'k9':
+            result.append(state.get('v9', 9))
+            state['seen9'] = True
+            result.append(9 * 2)
+        if event.get('kind') == 'k10':
+            result.append(state.get('v10', 10))
+            state['seen10'] = True
+            result.append(10 * 2)
+        if event.get('kind') == 'k11':
+            result.append(state.get('v11', 11))
+            state['seen11'] = True
+            result.append(11 * 2)
+        if event.get('kind') == 'k12':
+            result.append(state.get('v12', 12))
+            state['seen12'] = True
+            result.append(12 * 2)
+        if event.get('kind') == 'k13':
+            result.append(state.get('v13', 13))
+            state['seen13'] = True
+            result.append(13 * 2)
+        result.append(1)
+        return result
+- app/engine.py: |
+    def dispatch(event, state):
+        result = []
+        if event.get('kind') == 'k0':
+            result.append(state.get('v0', 0))
+            state['seen0'] = True
+            result.append(0 * 2)
+        if event.get('kind') == 'k1':
+            result.append(state.get('v1', 1))
+            state['seen1'] = True
+            result.append(1 * 2)
+        if event.get('kind') == 'k2':
+            result.append(state.get('v2', 2))
+            state['seen2'] = True
+            result.append(2 * 2)
+        if event.get('kind') == 'k3':
+            result.append(state.get('v3', 3))
+            state['seen3'] = True
+            result.append(3 * 2)
+        if event.get('kind') == 'k4':
+            result.append(state.get('v4', 4))
+            state['seen4'] = True
+            result.append(4 * 2)
+        if event.get('kind') == 'k5':
+            result.append(state.get('v5', 5))
+            state['seen5'] = True
+            result.append(5 * 2)
+        if event.get('kind') == 'k6':
+            result.append(state.get('v6', 6))
+            state['seen6'] = True
+            result.append(6 * 2)
+        if event.get('kind') == 'k7':
+            result.append(state.get('v7', 7))
+            state['seen7'] = True
+            result.append(7 * 2)
+        if event.get('kind') == 'k8':
+            result.append(state.get('v8', 8))
+            state['seen8'] = True
+            result.append(8 * 2)
+        if event.get('kind') == 'k9':
+            result.append(state.get('v9', 9))
+            state['seen9'] = True
+            result.append(9 * 2)
+        if event.get('kind') == 'k10':
+            result.append(state.get('v10', 10))
+            state['seen10'] = True
+            result.append(10 * 2)
+        if event.get('kind') == 'k11':
+            result.append(state.get('v11', 11))
+            state['seen11'] = True
+            result.append(11 * 2)
+        if event.get('kind') == 'k12':
+            result.append(state.get('v12', 12))
+            state['seen12'] = True
+            result.append(12 * 2)
+        if event.get('kind') == 'k13':
+            result.append(state.get('v13', 13))
+            state['seen13'] = True
+            result.append(13 * 2)
+        result.append(2)
+        return result
+- app/engine.py: |
+    def dispatch(event, state):
+        result = []
+        if event.get('kind') == 'k0':
+            result.append(state.get('v0', 0))
+            state['seen0'] = True
+            result.append(0 * 2)
+        if event.get('kind') == 'k1':
+            result.append(state.get('v1', 1))
+            state['seen1'] = True
+            result.append(1 * 2)
+        if event.get('kind') == 'k2':
+            result.append(state.get('v2', 2))
+            state['seen2'] = True
+            result.append(2 * 2)
+        if event.get('kind') == 'k3':
+            result.append(state.get('v3', 3))
+            state['seen3'] = True
+            result.append(3 * 2)
+        if event.get('kind') == 'k4':
+            result.append(state.get('v4', 4))
+            state['seen4'] = True
+            result.append(4 * 2)
+        if event.get('kind') == 'k5':
+            result.append(state.get('v5', 5))
+            state['seen5'] = True
+            result.append(5 * 2)
+        if event.get('kind') == 'k6':
+            result.append(state.get('v6', 6))
+            state['seen6'] = True
+            result.append(6 * 2)
+        if event.get('kind') == 'k7':
+            result.append(state.get('v7', 7))
+            state['seen7'] = True
+            result.append(7 * 2)
+        if event.get('kind') == 'k8':
+            result.append(state.get('v8', 8))
+            state['seen8'] = True
+            result.append(8 * 2)
+        if event.get('kind') == 'k9':
+            result.append(state.get('v9', 9))
+            state['seen9'] = True
+            result.append(9 * 2)
+        if event.get('kind') == 'k10':
+            result.append(state.get('v10', 10))
+            state['seen10'] = True
+            result.append(10 * 2)
+        if event.get('kind') == 'k11':
+            result.append(state.get('v11', 11))
+            state['seen11'] = True
+            result.append(11 * 2)
+        if event.get('kind') == 'k12':
+            result.append(state.get('v12', 12))
+            state['seen12'] = True
+            result.append(12 * 2)
+        if event.get('kind') == 'k13':
+            result.append(state.get('v13', 13))
+            state['seen13'] = True
+            result.append(13 * 2)
+        result.append(3)
+        return result
+- app/engine.py: |
+    def dispatch(event, state):
+        result = []
+        if event.get('kind') == 'k0':
+            result.append(state.get('v0', 0))
+            state['seen0'] = True
+            result.append(0 * 2)
+        if event.get('kind') == 'k1':
+            result.append(state.get('v1', 1))
+            state['seen1'] = True
+            result.append(1 * 2)
+        if event.get('kind') == 'k2':
+            result.append(state.get('v2', 2))
+            state['seen2'] = True
+            result.append(2 * 2)
+        if event.get('kind') == 'k3':
+            result.append(state.get('v3', 3))
+            state['seen3'] = True
+            result.append(3 * 2)
+        if event.get('kind') == 'k4':
+            result.append(state.get('v4', 4))
+            state['seen4'] = True
+            result.append(4 * 2)
+        if event.get('kind') == 'k5':
+            result.append(state.get('v5', 5))
+            state['seen5'] = True
+            result.append(5 * 2)
+        if event.get('kind') == 'k6':
+            result.append(state.get('v6', 6))
+            state['seen6'] = True
+            result.append(6 * 2)
+        if event.get('kind') == 'k7':
+            result.append(state.get('v7', 7))
+            state['seen7'] = True
+            result.append(7 * 2)
+        if event.get('kind') == 'k8':
+            result.append(state.get('v8', 8))
+            state['seen8'] = True
+            result.append(8 * 2)
+        if event.get('kind') == 'k9':
+            result.append(state.get('v9', 9))
+            state['seen9'] = True
+            result.append(9 * 2)
+        if event.get('kind') == 'k10':
+            result.append(state.get('v10', 10))
+            state['seen10'] = True
+            result.append(10 * 2)
+        if event.get('kind') == 'k11':
+            result.append(state.get('v11', 11))
+            state['seen11'] = True
+            result.append(11 * 2)
+        if event.get('kind') == 'k12':
+            result.append(state.get('v12', 12))
+            state['seen12'] = True
+            result.append(12 * 2)
+        if event.get('kind') == 'k13':
+            result.append(state.get('v13', 13))
+            state['seen13'] = True
+            result.append(13 * 2)
+        result.append(4)
+        return result
+- app/engine.py: |
+    def dispatch(event, state):
+        result = []
+        if event.get('kind') == 'k0':
+            result.append(state.get('v0', 0))
+            state['seen0'] = True
+            result.append(0 * 2)
+        if event.get('kind') == 'k1':
+            result.append(state.get('v1', 1))
+            state['seen1'] = True
+            result.append(1 * 2)
+        if event.get('kind') == 'k2':
+            result.append(state.get('v2', 2))
+            state['seen2'] = True
+            result.append(2 * 2)
+        if event.get('kind') == 'k3':
+            result.append(state.get('v3', 3))
+            state['seen3'] = True
+            result.append(3 * 2)
+        if event.get('kind') == 'k4':
+            result.append(state.get('v4', 4))
+            state['seen4'] = True
+            result.append(4 * 2)
+        if event.get('kind') == 'k5':
+            result.append(state.get('v5', 5))
+            state['seen5'] = True
+            result.append(5 * 2)
+        if event.get('kind') == 'k6':
+            result.append(state.get('v6', 6))
+            state['seen6'] = True
+            result.append(6 * 2)
+        if event.get('kind') == 'k7':
+            result.append(state.get('v7', 7))
+            state['seen7'] = True
+            result.append(7 * 2)
+        if event.get('kind') == 'k8':
+            result.append(state.get('v8', 8))
+            state['seen8'] = True
+            result.append(8 * 2)
+        if event.get('kind') == 'k9':
+            result.append(state.get('v9', 9))
+            state['seen9'] = True
+            result.append(9 * 2)
+        if event.get('kind') == 'k10':
+            result.append(state.get('v10', 10))
+            state['seen10'] = True
+            result.append(10 * 2)
+        if event.get('kind') == 'k11':
+            result.append(state.get('v11', 11))
+            state['seen11'] = True
+            result.append(11 * 2)
+        if event.get('kind') == 'k12':
+            result.append(state.get('v12', 12))
+            state['seen12'] = True
+            result.append(12 * 2)
+        if event.get('kind') == 'k13':
+            result.append(state.get('v13', 13))
+            state['seen13'] = True
+            result.append(13 * 2)
+        result.append(5)
+        return result
+- app/engine.py: |
+    def dispatch(event, state):
+        result = []
+        if event.get('kind') == 'k0':
+            result.append(state.get('v0', 0))
+            state['seen0'] = True
+            result.append(0 * 2)
+        if event.get('kind') == 'k1':
+            result.append(state.get('v1', 1))
+            state['seen1'] = True
+            result.append(1 * 2)
+        if event.get('kind') == 'k2':
+            result.append(state.get('v2', 2))
+            state['seen2'] = True
+            result.append(2 * 2)
+        if event.get('kind') == 'k3':
+            result.append(state.get('v3', 3))
+            state['seen3'] = True
+            result.append(3 * 2)
+        if event.get('kind') == 'k4':
+            result.append(state.get('v4', 4))
+            state['seen4'] = True
+            result.append(4 * 2)
+        if event.get('kind') == 'k5':
+            result.append(state.get('v5', 5))
+            state['seen5'] = True
+            result.append(5 * 2)
+        if event.get('kind') == 'k6':
+            result.append(state.get('v6', 6))
+            state['seen6'] = True
+            result.append(6 * 2)
+        if event.get('kind') == 'k7':
+            result.append(state.get('v7', 7))
+            state['seen7'] = True
+            result.append(7 * 2)
+        if event.get('kind') == 'k8':
+            result.append(state.get('v8', 8))
+            state['seen8'] = True
+            result.append(8 * 2)
+        if event.get('kind') == 'k9':
+            result.append(state.get('v9', 9))
+            state['seen9'] = True
+            result.append(9 * 2)
+        if event.get('kind') == 'k10':
+            result.append(state.get('v10', 10))
+            state['seen10'] = True
+            result.append(10 * 2)
+        if event.get('kind') == 'k11':
+            result.append(state.get('v11', 11))
+            state['seen11'] = True
+            result.append(11 * 2)
+        if event.get('kind') == 'k12':
+            result.append(state.get('v12', 12))
+            state['seen12'] = True
+            result.append(12 * 2)
+        if event.get('kind') == 'k13':
+            result.append(state.get('v13', 13))
+            state['seen13'] = True
+            result.append(13 * 2)
+        result.append(6)
+        return result
+- app/engine.py: |
+    def dispatch(event, state):
+        result = []
+        if event.get('kind') == 'k0':
+            result.append(state.get('v0', 0))
+            state['seen0'] = True
+            result.append(0 * 2)
+        if event.get('kind') == 'k1':
+            result.append(state.get('v1', 1))
+            state['seen1'] = True
+            result.append(1 * 2)
+        if event.get('kind') == 'k2':
+            result.append(state.get('v2', 2))
+            state['seen2'] = True
+            result.append(2 * 2)
+        if event.get('kind') == 'k3':
+            result.append(state.get('v3', 3))
+            state['seen3'] = True
+            result.append(3 * 2)
+        if event.get('kind') == 'k4':
+            result.append(state.get('v4', 4))
+            state['seen4'] = True
+            result.append(4 * 2)
+        if event.get('kind') == 'k5':
+            result.append(state.get('v5', 5))
+            state['seen5'] = True
+            result.append(5 * 2)
+        if event.get('kind') == 'k6':
+            result.append(state.get('v6', 6))
+            state['seen6'] = True
+            result.append(6 * 2)
+        if event.get('kind') == 'k7':
+            result.append(state.get('v7', 7))
+            state['seen7'] = True
+            result.append(7 * 2)
+        if event.get('kind') == 'k8':
+            result.append(state.get('v8', 8))
+            state['seen8'] = True
+            result.append(8 * 2)
+        if event.get('kind') == 'k9':
+            result.append(state.get('v9', 9))
+            state['seen9'] = True
+            result.append(9 * 2)
+        if event.get('kind') == 'k10':
+            result.append(state.get('v10', 10))
+            state['seen10'] = True
+            result.append(10 * 2)
+        if event.get('kind') == 'k11':
+            result.append(state.get('v11', 11))
+            state['seen11'] = True
+            result.append(11 * 2)
+        if event.get('kind') == 'k12':
+            result.append(state.get('v12', 12))
+            state['seen12'] = True
+            result.append(12 * 2)
+        if event.get('kind') == 'k13':
+            result.append(state.get('v13', 13))
+            state['seen13'] = True
+            result.append(13 * 2)
+        result.append(7)
+        return result
+- app/engine.py: |
+    def dispatch(event, state):
+        result = []
+        if event.get('kind') == 'k0':
+            result.append(state.get('v0', 0))
+            state['seen0'] = True
+            result.append(0 * 2)
+        if event.get('kind') == 'k1':
+            result.append(state.get('v1', 1))
+            state['seen1'] = True
+            result.append(1 * 2)
+        if event.get('kind') == 'k2':
+            result.append(state.get('v2', 2))
+            state['seen2'] = True
+            result.append(2 * 2)
+        if event.get('kind') == 'k3':
+            result.append(state.get('v3', 3))
+            state['seen3'] = True
+            result.append(3 * 2)
+        if event.get('kind') == 'k4':
+            result.append(state.get('v4', 4))
+            state['seen4'] = True
+            result.append(4 * 2)
+        if event.get('kind') == 'k5':
+            result.append(state.get('v5', 5))
+            state['seen5'] = True
+            result.append(5 * 2)
+        if event.get('kind') == 'k6':
+            result.append(state.get('v6', 6))
+            state['seen6'] = True
+            result.append(6 * 2)
+        if event.get('kind') == 'k7':
+            result.append(state.get('v7', 7))
+            state['seen7'] = True
+            result.append(7 * 2)
+        if event.get('kind') == 'k8':
+            result.append(state.get('v8', 8))
+            state['seen8'] = True
+            result.append(8 * 2)
+        if event.get('kind') == 'k9':
+            result.append(state.get('v9', 9))
+            state['seen9'] = True
+            result.append(9 * 2)
+        if event.get('kind') == 'k10':
+            result.append(state.get('v10', 10))
+            state['seen10'] = True
+            result.append(10 * 2)
+        if event.get('kind') == 'k11':
+            result.append(state.get('v11', 11))
+            state['seen11'] = True
+            result.append(11 * 2)
+        if event.get('kind') == 'k12':
+            result.append(state.get('v12', 12))
+            state['seen12'] = True
+            result.append(12 * 2)
+        if event.get('kind') == 'k13':
+            result.append(state.get('v13', 13))
+            state['seen13'] = True
+            result.append(13 * 2)
+        result.append(8)
+        return result
+- app/engine.py: |
+    def dispatch(event, state):
+        result = []
+        if event.get('kind') == 'k0':
+            result.append(state.get('v0', 0))
+            state['seen0'] = True
+            result.append(0 * 2)
+        if event.get('kind') == 'k1':
+            result.append(state.get('v1', 1))
+            state['seen1'] = True
+            result.append(1 * 2)
+        if event.get('kind') == 'k2':
+            result.append(state.get('v2', 2))
+            state['seen2'] = True
+            result.append(2 * 2)
+        if event.get('kind') == 'k3':
+            result.append(state.get('v3', 3))
+            state['seen3'] = True
+            result.append(3 * 2)
+        if event.get('kind') == 'k4':
+            result.append(state.get('v4', 4))
+            state['seen4'] = True
+            result.append(4 * 2)
+        if event.get('kind') == 'k5':
+            result.append(state.get('v5', 5))
+            state['seen5'] = True
+            result.append(5 * 2)
+        if event.get('kind') == 'k6':
+            result.append(state.get('v6', 6))
+            state['seen6'] = True
+            result.append(6 * 2)
+        if event.get('kind') == 'k7':
+            result.append(state.get('v7', 7))
+            state['seen7'] = True
+            result.append(7 * 2)
+        if event.get('kind') == 'k8':
+            result.append(state.get('v8', 8))
+            state['seen8'] = True
+            result.append(8 * 2)
+        if event.get('kind') == 'k9':
+            result.append(state.get('v9', 9))
+            state['seen9'] = True
+            result.append(9 * 2)
+        if event.get('kind') == 'k10':
+            result.append(state.get('v10', 10))
+            state['seen10'] = True
+            result.append(10 * 2)
+        if event.get('kind') == 'k11':
+            result.append(state.get('v11', 11))
+            state['seen11'] = True
+            result.append(11 * 2)
+        if event.get('kind') == 'k12':
+            result.append(state.get('v12', 12))
+            state['seen12'] = True
+            result.append(12 * 2)
+        if event.get('kind') == 'k13':
+            result.append(state.get('v13', 13))
+            state['seen13'] = True
+            result.append(13 * 2)
+        result.append(9)
+        return result
+- app/engine.py: |
+    def dispatch(event, state):
+        result = []
+        if event.get('kind') == 'k0':
+            result.append(state.get('v0', 0))
+            state['seen0'] = True
+            result.append(0 * 2)
+        if event.get('kind') == 'k1':
+            result.append(state.get('v1', 1))
+            state['seen1'] = True
+            result.append(1 * 2)
+        if event.get('kind') == 'k2':
+            result.append(state.get('v2', 2))
+            state['seen2'] = True
+            result.append(2 * 2)
+        if event.get('kind') == 'k3':
+            result.append(state.get('v3', 3))
+            state['seen3'] = True
+            result.append(3 * 2)
+        if event.get('kind') == 'k4':
+            result.append(state.get('v4', 4))
+            state['seen4'] = True
+            result.append(4 * 2)
+        if event.get('kind') == 'k5':
+            result.append(state.get('v5', 5))
+            state['seen5'] = True
+            result.append(5 * 2)
+        if event.get('kind') == 'k6':
+            result.append(state.get('v6', 6))
+            state['seen6'] = True
+            result.append(6 * 2)
+        if event.get('kind') == 'k7':
+            result.append(state.get('v7', 7))
+            state['seen7'] = True
+            result.append(7 * 2)
+        if event.get('kind') == 'k8':
+            result.append(state.get('v8', 8))
+            state['seen8'] = True
+            result.append(8 * 2)
+        if event.get('kind') == 'k9':
+            result.append(state.get('v9', 9))
+            state['seen9'] = True
+            result.append(9 * 2)
+        if event.get('kind') == 'k10':
+            result.append(state.get('v10', 10))
+            state['seen10'] = True
+            result.append(10 * 2)
+        if event.get('kind') == 'k11':
+            result.append(state.get('v11', 11))
+            state['seen11'] = True
+            result.append(11 * 2)
+        if event.get('kind') == 'k12':
+            result.append(state.get('v12', 12))
+            state['seen12'] = True
+            result.append(12 * 2)
+        if event.get('kind') == 'k13':
+            result.append(state.get('v13', 13))
+            state['seen13'] = True
+            result.append(13 * 2)
+        result.append(10)
+        return result
+- app/engine.py: |
+    def dispatch(event, state):
+        result = []
+        if event.get('kind') == 'k0':
+            result.append(state.get('v0', 0))
+            state['seen0'] = True
+            result.append(0 * 2)
+        if event.get('kind') == 'k1':
+            result.append(state.get('v1', 1))
+            state['seen1'] = True
+            result.append(1 * 2)
+        if event.get('kind') == 'k2':
+            result.append(state.get('v2', 2))
+            state['seen2'] = True
+            result.append(2 * 2)
+        if event.get('kind') == 'k3':
+            result.append(state.get('v3', 3))
+            state['seen3'] = True
+            result.append(3 * 2)
+        if event.get('kind') == 'k4':
+            result.append(state.get('v4', 4))
+            state['seen4'] = True
+            result.append(4 * 2)
+        if event.get('kind') == 'k5':
+            result.append(state.get('v5', 5))
+            state['seen5'] = True
+            result.append(5 * 2)
+        if event.get('kind') == 'k6':
+            result.append(state.get('v6', 6))
+            state['seen6'] = True
+            result.append(6 * 2)
+        if event.get('kind') == 'k7':
+            result.append(state.get('v7', 7))
+            state['seen7'] = True
+            result.append(7 * 2)
+        if event.get('kind') == 'k8':
+            result.append(state.get('v8', 8))
+            state['seen8'] = True
+            result.append(8 * 2)
+        if event.get('kind') == 'k9':
+            result.append(state.get('v9', 9))
+            state['seen9'] = True
+            result.append(9 * 2)
+        if event.get('kind') == 'k10':
+            result.append(state.get('v10', 10))
+            state['seen10'] = True
+            result.append(10 * 2)
+        if event.get('kind') == 'k11':
+            result.append(state.get('v11', 11))
+            state['seen11'] = True
+            result.append(11 * 2)
+        if event.get('kind') == 'k12':
+            result.append(state.get('v12', 12))
+            state['seen12'] = True
+            result.append(12 * 2)
+        if event.get('kind') == 'k13':
+            result.append(state.get('v13', 13))
+            state['seen13'] = True
+            result.append(13 * 2)
+        result.append(11)
+        return result
+- app/engine.py: |
+    def dispatch(event, state):
+        result = []
+        if event.get('kind') == 'k0':
+            result.append(state.get('v0', 0))
+            state['seen0'] = True
+            result.append(0 * 2)
+        if event.get('kind') == 'k1':
+            result.append(state.get('v1', 1))
+            state['seen1'] = True
+            result.append(1 * 2)
+        if event.get('kind') == 'k2':
+            result.append(state.get('v2', 2))
+            state['seen2'] = True
+            result.append(2 * 2)
+        if event.get('kind') == 'k3':
+            result.append(state.get('v3', 3))
+            state['seen3'] = True
+            result.append(3 * 2)
+        if event.get('kind') == 'k4':
+            result.append(state.get('v4', 4))
+            state['seen4'] = True
+            result.append(4 * 2)
+        if event.get('kind') == 'k5':
+            result.append(state.get('v5', 5))
+            state['seen5'] = True
+            result.append(5 * 2)
+        if event.get('kind') == 'k6':
+            result.append(state.get('v6', 6))
+            state['seen6'] = True
+            result.append(6 * 2)
+        if event.get('kind') == 'k7':
+            result.append(state.get('v7', 7))
+            state['seen7'] = True
+            result.append(7 * 2)
+        if event.get('kind') == 'k8':
+            result.append(state.get('v8', 8))
+            state['seen8'] = True
+            result.append(8 * 2)
+        if event.get('kind') == 'k9':
+            result.append(state.get('v9', 9))
+            state['seen9'] = True
+            result.append(9 * 2)
+        if event.get('kind') == 'k10':
+            result.append(state.get('v10', 10))
+            state['seen10'] = True
+            result.append(10 * 2)
+        if event.get('kind') == 'k11':
+            result.append(state.get('v11', 11))
+            state['seen11'] = True
+            result.append(11 * 2)
+        if event.get('kind') == 'k12':
+            result.append(state.get('v12', 12))
+            state['seen12'] = True
+            result.append(12 * 2)
+        if event.get('kind') == 'k13':
+            result.append(state.get('v13', 13))
+            state['seen13'] = True
+            result.append(13 * 2)
+        result.append(12)
+        return result
+expected_findings:
+- kind: complex_hotspot
+  target: app/engine.py::dispatch

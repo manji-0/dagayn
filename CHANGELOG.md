@@ -24,6 +24,11 @@ All notable changes to `dagayn` are documented here.
   when it calls the repository's own code.
 - The store's `entry_points_json()` returns every entry point with its
   kind; the visualization export adds it as `entry_points`.
+- `eval/run_refactor_eval.py` scores `refactor_tool(mode="suggest")`
+  findings (`unused_symbol`, `complex_hotspot`, `undocumented_surface`) on
+  9 fixture cases, including cases with a commit history. The kinds do not
+  exist yet, so the gate is not in CI; see
+  `docs/plans/REFACTOR-TOOL-TARGET.md#baseline`.
 - `eval/run_flow_eval.py` scores the entry points on 13 fixture cases per
   entry kind and checks every chain hop against the built graph; CI gates
   it like the review and architecture evals.
