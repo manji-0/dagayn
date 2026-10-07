@@ -24,8 +24,9 @@ ambiguous name costs a round trip with no hint of how to retry. This note
 defines the workflow, the response contract that carries it, the evidence,
 and the order of work.
 
-Status: accepted ([decisions](#decisions-2026-10-07)); steps 1–3 and 5
-of the [order of work](#order-of-work) are done.
+Status: accepted ([decisions](#decisions-2026-10-07)); steps 1–3 and 5,
+the additive half of step 4, and the contract check of step 6 are done
+(see the [order of work](#order-of-work)).
 
 ## Target contract
 
@@ -246,16 +247,54 @@ evals already build.
    to make, one per `make_response`. The two resolvers stay separate:
    `query_graph_tool` falls back to fuzzy hits when no name matches,
    which `flow_tool` should not.
-4. `next`: one builder in `crates/dagayn-tools/src/hints.rs`; every Tier 1
-   tool returns it; the old fields go behind `verbose` with
-   `deprecated_fields`. `get_minimal_context_tool` fills `args` from the
-   task (a search query for a symptom, `base` for a review).
+4. `next`.
+   - **Done:** every Tier 1 reply has `next`
+     (`crates/dagayn-tools/src/next.rs`; `[]` where nothing follows, added
+     in `dagayn_tools::call` and `summary_at_verbose_only`).
+     `get_minimal_context_tool` starts the workflow (`ensure_graph_tool`
+     first on an empty or drifted graph; a review, the search for the
+     task's text, the overview, or refactor findings); search reads its
+     first hits (a file's `file_summary`); `query_graph_tool` reads what
+     it found, or who calls a span it read; `flow_tool` reads the entry
+     points; review, architecture, and refactor make their first findings
+     runnable (a `tests_to_run` command as `{"tool": "shell"}`). The
+     Python search builds the same list. Arguments at their defaults are
+     left out.
+   - The old fields go behind `verbose` with `deprecated_fields`.
+     Two amendments to the contract above, for the decision before this
+     half: `guidance[].action` stays, as each guidance item's own
+     description (the remediation plan's item contract requires it, and
+     `next` is the list to run); and `_hints` either goes behind
+     `verbose` whole, since its `warnings` repeat `missingness` codes and
+     its `related` is nearly always empty, or stays with its
+     `next_steps` dropped.
 5. **Done:** counts. Below `full`, `query_graph_tool` folds a node's
    edges into one row, and `guidance` counted the edges before the fold:
    `callers_of make_response` said 11 rows and 13 nodes. `guidance` now
    counts the rows; `full`, which lists one row per edge, still counts
    edges, consistently with its own `result_count`.
-6. Eval: follow-the-next traces and the discrimination check, gated.
+6. Eval.
+   - **Done:** the contract check,
+     `tests/tools.rs::every_reply_names_calls_that_answer_and_fits_its_budget`:
+     26 calls across the six tools and their levels on a fixture with a
+     120-file change, each reply held to its budget and to at most three
+     `next` calls, and every call it names (but a shell command) made and
+     required to answer without an error, an ambiguity, or a missing
+     node. It found five replies over budget, all from lists of paths a
+     long diff repeats (`changed_files`, `unmapped_changed_files`,
+     `change_file_sources`, `source_snippets_omitted`), and two levels
+     with no budget at all (`context` and `affected_flows` below
+     `verbose`). The paths are now trimmed first; `minimal` and
+     `standard` share `MINIMAL_BUDGET` / `STANDARD_BUDGET`, 250 tokens
+     under 8K and 32K characters for what a reply adds after trimming;
+     `query_graph_tool` at `minimal` went from 16K to 8K. On this
+     repository with `base=HEAD~3` every reply fits (`changes` at
+     `minimal` 18,291 → 7,209, `context` 47,770 → 30,906), and all 21
+     calls the replies name answered `ok`.
+   - The follow-the-next traces and the discrimination check, gated.
+   - Not covered: a Python-side dispatcher error reached through
+     `dagayn tool` (not MCP) still carries `answerability`; the contract
+     is the MCP surface's.
 7. One source of truth: a `workflow` section in
    `docs/LLM-OPTIMIZED-REFERENCE.md`; skills, instruction files, and MCP
    server instructions derive from it, with a drift test.
