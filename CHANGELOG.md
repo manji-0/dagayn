@@ -17,12 +17,30 @@ All notable changes to `dagayn` are documented here.
   only when nothing calls it. FastMCP-style `@mcp.prompt` and
   `@mcp.resource` decorators count as framework entry points, for the
   stored flow trace too. See `docs/plans/FLOW-TOOL-TARGET.md`.
+- `flow_tool(mode="entry_points")` without a `target` lists the
+  repository's entry points per declared unit (crate, package, module),
+  counted by kind, with the first `limit` of each unit. A file counts as a
+  `module_level` entry only in a language whose top level runs and only
+  when it calls the repository's own code.
+- The store's `entry_points_json()` returns every entry point with its
+  kind; the visualization export adds it as `entry_points`.
 - `eval/run_flow_eval.py` scores the entry points on 13 fixture cases per
   entry kind and checks every chain hop against the built graph; CI gates
   it like the review and architecture evals.
 
+### Deprecated
+
+- `flow_tool(mode="list")` and `mode="get"` read stored flows and are
+  removed after one release, with criticality, `flow_snapshots`, the
+  visualization export's `flows`, and the flow trace in the full
+  post-process. Their replies carry a `deprecation` notice; use
+  `mode="entry_points"`.
+
 ### Changed
 
+- The wiki's "Execution Flows" section lists the entry points among a
+  community's members instead of the stored flows that pass through it;
+  the heading stays for one release so links resolve.
 - `review_tool(mode="affected_flows")` answers with `entry_points`: the
   nearest entry points that reach the changed functions (the functions
   whose lines the diff touches), each with one call chain, plus

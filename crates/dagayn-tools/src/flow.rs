@@ -28,6 +28,9 @@ const DECLARED: &[&str] = &[
     "repo_root",
 ];
 const SORT_KEYS: &[&str] = &["criticality", "depth", "node_count", "file_count", "name"];
+/// What `list` and `get` say about themselves until they go
+/// (docs/plans/FLOW-TOOL-TARGET.md#order-of-work).
+const DEPRECATION: &str = "mode=\"list\" and mode=\"get\" read stored flows and are removed after one release; use mode=\"entry_points\" (with or without target).";
 /// `get_flow`'s per-step source cap, in characters, and its budget.
 const SOURCE_MAX_CHARS: usize = 2000;
 const FLOW_BUDGET: usize = 8000;
@@ -68,15 +71,6 @@ pub(crate) fn flow(context: &Context, arguments: &Map<String, Value>) -> Option<
             "Value error, mode=\"get\" requires flow_id or flow_name.",
         );
     }
-    if mode == "entry_points" && target.is_none_or(str::is_empty) {
-        // `FlowEntryPointsRequest.target`.
-        return crate::dispatcher_error(
-            context,
-            &root,
-            &mode,
-            "Value error, mode=\"entry_points\" requires target.",
-        );
-    }
     let runtime = context.runtime.clone()?;
     let graph = open_graph(&root)?;
     let answerability = graph.answerability()?;
@@ -90,15 +84,24 @@ pub(crate) fn flow(context: &Context, arguments: &Map<String, Value>) -> Option<
             kind,
             &detail_level,
         )?;
-        ("list_flows", out)
+        ("list_flows", out.put("deprecation", DEPRECATION))
     } else if mode == "entry_points" {
-        let out = crate::entry_points::entry_points(
-            &graph.store,
-            &answerability,
-            target.unwrap_or_default(),
-            limit,
-            &detail_level,
-        )?;
+        let out = match target.filter(|t| !t.is_empty()) {
+            Some(target) => crate::entry_points::entry_points(
+                &graph.store,
+                &answerability,
+                target,
+                limit,
+                &detail_level,
+            )?,
+            None => crate::entry_points::entry_point_map(
+                &graph.store,
+                &root,
+                &answerability,
+                limit,
+                &detail_level,
+            )?,
+        };
         ("entry_points", out)
     } else {
         let out = get_flow(
@@ -110,7 +113,7 @@ pub(crate) fn flow(context: &Context, arguments: &Map<String, Value>) -> Option<
             include_source,
             &detail_level,
         )?;
-        ("get_flow", out)
+        ("get_flow", out.put("deprecation", DEPRECATION))
     };
     Some(seal_dispatch(
         out,

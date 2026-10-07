@@ -850,6 +850,9 @@ a symbol: the nearest `main`, framework handler, FFI export, conventionally
 named entry, uncalled function, or method only a trait or framework calls
 (`dispatched_method`) on each path, with one shortest call chain each. It is
 computed at query time and needs no stored flows; test code is never walked.
+Without `target` it lists the repository's entry points per declared unit,
+counted by kind. `mode="list"` and `mode="get"` read stored flows and are
+deprecated.
 
 `refactor_tool(mode="suggest")` returns graph-backed remove, move, split, and
 document candidates. They are leads (structure, not correctness): confirm them

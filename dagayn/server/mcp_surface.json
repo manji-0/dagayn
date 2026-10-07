@@ -1008,7 +1008,7 @@
        }
       ],
       "default": null,
-      "description": "(entry_points) Node name or qualified name."
+      "description": "(entry_points) Symbol; omit to list them per unit."
      },
      "repo_root": {
       "anyOf": [

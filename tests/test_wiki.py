@@ -185,6 +185,22 @@ class TestWiki:
         assert "## Execution Flows" in page
         assert "## Dependencies" in page
 
+    def test_community_page_lists_entry_points_among_members(self):
+        """The Execution Flows section lists members that start execution."""
+        self._seed_communities()
+        from dagayn.communities import get_communities
+
+        community = get_communities(self.store)[0]
+        member = community["members"][0]
+        page = _generate_community_page(self.store, community, entry_kinds={member: "main"})
+        section = page.split("## Execution Flows", 1)[1].split("## Dependencies", 1)[0]
+        assert f"(main) `{member}`" in section
+
+        empty = _generate_community_page(self.store, community, entry_kinds={})
+        assert "No entry points among this community's members." in empty
+        unknown = _generate_community_page(self.store, community)
+        assert "Entry point data not available." in unknown
+
     def test_generate_wiki_includes_architecture_metrics(self, monkeypatch):
         """Community pages include package-level ADP/SDP/SAP summaries."""
         for file_path in [

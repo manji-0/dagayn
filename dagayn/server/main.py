@@ -781,7 +781,7 @@ def flow_tool(
         flow_id: (get) Flow id from ``list``; wins over flow_name.
         flow_name: (get) Partial name match.
         include_source: (get) Add member source snippets.
-        target: (entry_points) Node name or qualified name.
+        target: (entry_points) Symbol; omit to list them per unit.
     """
     return _tool("flow_dispatcher:flow_func")(
         mode=mode,

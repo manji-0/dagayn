@@ -1267,11 +1267,15 @@ fn flow_tool_finds_the_entry_points_that_reach_a_target() {
         json!({"mode": "entry_points", "target": "nowhere"}),
     );
     assert_eq!(missing["status"], "not_found");
-    let unnamed = answer(&context, "flow_tool", json!({"mode": "entry_points"}));
+    // Without a target: the repository's entry points per unit.
+    let listed = answer(&context, "flow_tool", json!({"mode": "entry_points"}));
+    assert_eq!(listed["entry_point_count"], 1);
+    assert_eq!(listed["kinds"], json!({"main": 1}));
     assert_eq!(
-        unnamed["error"],
-        "Value error, mode=\"entry_points\" requires target."
+        listed["units"][0]["entry_points"][0]["entry_point"],
+        "app.py::main"
     );
+    assert_eq!(listed["units"][0]["entry_points_omitted"], 0);
 }
 
 #[test]

@@ -686,15 +686,10 @@ class FlowGetRequest(_FlowRequestBase):
 
 class FlowEntryPointsRequest(_FlowRequestBase):
     mode: Literal["entry_points"]
+    # None lists the repository's entry points per unit.
     target: str | None = None
     limit: int = 10
     detail_level: FlowDetailLevel = "standard"
-
-    @model_validator(mode="after")
-    def require_target(self) -> FlowEntryPointsRequest:
-        if not self.target:
-            raise ValueError('mode="entry_points" requires target.')
-        return self
 
 
 FlowRequest = Annotated[

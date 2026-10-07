@@ -201,6 +201,16 @@ def test_export_includes_flows(store_with_data):
     assert isinstance(data["flows"], list)
 
 
+def test_export_includes_entry_points(store_with_data):
+    """Export data lists where execution starts, with each entry's kind."""
+    from dagayn.visualization import export_graph_data
+
+    data = export_graph_data(store_with_data)
+    assert isinstance(data["entry_points"], list)
+    for row in data["entry_points"]:
+        assert set(row) == {"qualified_name", "kind", "file_path", "line_start"}
+
+
 def test_export_includes_communities(store_with_data):
     """Export data should include a 'communities' key (list, possibly empty)."""
     from dagayn.visualization import export_graph_data

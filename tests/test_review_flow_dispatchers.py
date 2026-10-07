@@ -169,10 +169,19 @@ def test_flow_routes_modes(monkeypatch) -> None:
     )
 
 
-def test_flow_entry_points_requires_target() -> None:
-    result = flow_dispatcher.flow_func(mode="entry_points")
-    assert result["status"] == "error"
-    assert result["error"] == 'Value error, mode="entry_points" requires target.'
+def test_flow_entry_points_without_target_lists_the_repository(monkeypatch) -> None:
+    calls: list[dict] = []
+
+    class _Store:
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(flow_dispatcher, "_get_store", lambda root: (_Store(), Path("/repo")))
+    monkeypatch.setattr(
+        flow_dispatcher, "native_tool", lambda name, **kwargs: calls.append(kwargs) or {}
+    )
+    flow_dispatcher.flow_func(mode="entry_points", repo_root="/repo")
+    assert calls[0]["target"] is None
 
 
 def test_flow_get_requires_selector() -> None:

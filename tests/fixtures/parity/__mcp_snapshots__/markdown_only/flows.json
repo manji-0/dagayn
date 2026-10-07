@@ -48,6 +48,7 @@
     "status": "ok"
   },
   "called_subtool": "list_flows",
+  "deprecation": "mode=\"list\" and mode=\"get\" read stored flows and are removed after one release; use mode=\"entry_points\" (with or without target).",
   "flow_coverage": {
     "coverage_guarantee": false,
     "kind_filter": null,

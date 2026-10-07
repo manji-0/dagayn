@@ -625,6 +625,29 @@ pub fn suggest_refactorings_json(store: &GraphStore) -> Option<String> {
     suggestions::suggest_refactorings(store).map(|all| Value::Array(all).to_string())
 }
 
+/// Every entry point of the repository's production code, as JSON rows of
+/// `qualified_name`, `kind`, `file_path`, and `line_start`, in listing order
+/// (docs/plans/FLOW-TOOL-TARGET.md#modes); `None` when the graph cannot be
+/// read.
+pub fn entry_points_json(store: &GraphStore) -> Option<String> {
+    entry_points::all_entry_points(store).map(|found| {
+        Value::Array(
+            found
+                .iter()
+                .map(|(node, kind)| {
+                    serde_json::json!({
+                        "qualified_name": node.qualified_name,
+                        "kind": kind,
+                        "file_path": node.file_path,
+                        "line_start": node.line_start,
+                    })
+                })
+                .collect(),
+        )
+        .to_string()
+    })
+}
+
 /// The graph's dead-code candidates before the repository check, as JSON:
 /// for testing the graph heuristics only.
 pub fn graph_dead_code_candidates_json(

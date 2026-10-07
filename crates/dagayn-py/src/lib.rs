@@ -649,6 +649,15 @@ impl PyGraphStore {
         )
     }
 
+    /// Every entry point of the repository's production code, for the wiki
+    /// and the visualization export.
+    fn entry_points_json(&self) -> PyResult<String> {
+        self.report_json(
+            dagayn_tools::entry_points_json,
+            "entry points could not read the graph",
+        )
+    }
+
     /// The graph's candidates before the repository check (tests only).
     #[pyo3(signature = (kind = None, file_pattern = None))]
     fn graph_dead_code_candidates_json(

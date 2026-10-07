@@ -9,9 +9,10 @@
 //! entry point on each path, so `main -> handle -> target` reports `handle`.
 
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 
 use dagayn_graph::{GraphNode, GraphStore, has_framework_decorator, is_conventional_entry_point};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use crate::Ordered;
 use crate::answerability::Answerability;
@@ -19,11 +20,17 @@ use crate::findings::is_production_code;
 use crate::query::node_dict;
 use crate::review::guidance_actions_to_hints;
 use crate::review_summary::guidance_item;
+use crate::units::UnitIndex;
 
 /// Hops followed from the target, as the flow trace's `DEFAULT_MAX_DEPTH`.
 const MAX_DEPTH: usize = 15;
 /// Callers visited before the search stops and reports `truncated`.
 const MAX_VISITED: usize = 10_000;
+/// Languages whose files run no code at load time: a call attributed to
+/// such a file comes from a constant or a macro, not a script.
+const NO_TOP_LEVEL_CODE: &[&str] = &[
+    "rust", "go", "java", "kotlin", "c", "cpp", "csharp", "swift", "scala", "dart", "zig", "objc",
+];
 /// Name matches offered when a bare name is ambiguous.
 const MAX_CANDIDATES: usize = 5;
 
@@ -37,7 +44,8 @@ struct Entry {
 /// `has_callers` counts every caller in the graph, tests included.
 fn entry_kind(node: &GraphNode, has_callers: bool) -> Option<&'static str> {
     if node.kind == "File" {
-        return (!has_callers).then_some("module_level");
+        let runs = !NO_TOP_LEVEL_CODE.contains(&node.language.as_str());
+        return (runs && !has_callers).then_some("module_level");
     }
     if matches!(node.name.as_str(), "main" | "__main__") {
         return Some("main");
@@ -346,4 +354,158 @@ pub(crate) fn entry_points_reaching(
         found.reached,
         found.truncated,
     ))
+}
+
+/// Entry kinds in the order a listing shows them: the ones a person starts
+/// first.
+const KIND_ORDER: [&str; 7] = [
+    "main",
+    "framework_handler",
+    "ffi_export",
+    "named_entry",
+    "module_level",
+    "dispatched_method",
+    "uncalled",
+];
+
+/// An entry point and its kind.
+type Found = (GraphNode, &'static str);
+
+/// Every entry point of the repository's production code with its kind.
+/// A file counts (`module_level`) only when its top-level code calls
+/// something.
+pub(crate) fn all_entry_points(store: &GraphStore) -> Option<Vec<Found>> {
+    let (calls_out, _) = store.get_flow_edge_data().ok()?;
+    let called: HashSet<&str> = calls_out.values().flatten().map(String::as_str).collect();
+    let nodes = store.get_all_nodes_filtered(false).ok()?;
+    let known: HashSet<&str> = nodes.iter().map(|n| n.qualified_name.as_str()).collect();
+    let mut found: Vec<Found> = Vec::new();
+    for node in nodes.iter() {
+        // A module's top level counts when it calls the repository's own
+        // code, not only a library (`logging.getLogger`).
+        let calls = calls_out
+            .get(&node.qualified_name)
+            .is_some_and(|c| c.iter().any(|callee| known.contains(callee.as_str())));
+        let eligible = match node.kind.as_str() {
+            "Function" => true,
+            "File" => calls,
+            _ => false,
+        };
+        if !eligible || !is_production_code(node, &node.file_path) {
+            continue;
+        }
+        let has_callers = called.contains(node.qualified_name.as_str());
+        if let Some(kind) = entry_kind(node, has_callers) {
+            found.push((node.clone(), kind));
+        }
+    }
+    let rank = |kind: &str| {
+        KIND_ORDER
+            .iter()
+            .position(|k| *k == kind)
+            .unwrap_or(KIND_ORDER.len())
+    };
+    found.sort_by(|(a, ak), (b, bk)| {
+        (rank(ak), &a.qualified_name).cmp(&(rank(bk), &b.qualified_name))
+    });
+    Some(found)
+}
+
+/// `flow_tool(mode="entry_points")` without a target: the repository's
+/// entry points per declared unit, counted by kind, the first `limit` of
+/// each unit listed.
+pub(crate) fn entry_point_map(
+    store: &GraphStore,
+    root: &Path,
+    answerability: &Answerability,
+    limit: i64,
+    detail_level: &str,
+) -> Option<Ordered> {
+    let found = all_entry_points(store)?;
+    let keep = usize::try_from(limit.max(0)).unwrap_or(usize::MAX);
+    let files: Vec<String> = found
+        .iter()
+        .map(|(node, _)| node.file_path.clone())
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    let index = UnitIndex::discover(root, files.iter().map(String::as_str));
+    // Unit index -> entries, `None` for code no manifest or directory claims.
+    let mut by_unit: Vec<(Option<usize>, Vec<&Found>)> = Vec::new();
+    for entry in &found {
+        let unit = index.unit_of(&entry.0.file_path);
+        match by_unit.iter_mut().find(|(u, _)| *u == unit) {
+            Some((_, list)) => list.push(entry),
+            None => by_unit.push((unit, vec![entry])),
+        }
+    }
+    by_unit.sort_by(|(a, al), (b, bl)| bl.len().cmp(&al.len()).then(a.cmp(b)));
+    let count_kinds = |entries: &[&Found]| -> Map<String, Value> {
+        let mut counts: Map<String, Value> = Map::new();
+        for kind in KIND_ORDER {
+            let n = entries.iter().filter(|(_, k)| *k == kind).count();
+            if n > 0 {
+                counts.insert(kind.to_string(), json!(n));
+            }
+        }
+        counts
+    };
+    let all: Vec<&Found> = found.iter().collect();
+    let units: Vec<Value> = by_unit
+        .iter()
+        .map(|(unit, entries)| {
+            let unit = unit.and_then(|i| index.units.get(i));
+            let listed: Vec<Value> = entries
+                .iter()
+                .take(keep)
+                .map(|(node, kind)| {
+                    let mut out = json!({"entry_point": node.qualified_name, "kind": kind});
+                    if detail_level != "minimal" {
+                        out["file"] = json!(node.file_path);
+                        out["line"] = json!(node.line_start);
+                    }
+                    out
+                })
+                .collect();
+            json!({
+                "unit": unit.map_or("(no unit)", |u| u.name.as_str()),
+                "unit_kind": unit.map(|u| u.kind),
+                "entry_point_count": entries.len(),
+                "kinds": count_kinds(entries),
+                "entry_points": listed,
+                "entry_points_omitted": entries.len().saturating_sub(keep),
+            })
+        })
+        .collect();
+    let total = found.len();
+    let summary = format!("{total} entry point(s) in {} unit(s).", units.len());
+    let mut missingness = answerability.missingness();
+    let caveat = json!({
+        "reason_code": "static_calls_only",
+        "severity": "low",
+        "claim_effect": "a function reached only through dynamic dispatch, reflection, or a framework the graph cannot see is listed as uncalled or dispatched_method",
+    });
+    missingness.push(caveat.clone());
+    let guidance = vec![guidance_item(
+        summary.clone(),
+        json!({"type": "computed", "entry_point_count": total, "unit_count": units.len()}),
+        "medium",
+        vec![caveat],
+        "flow_tool mode=\"entry_points\" target=<symbol> -- see which of these reach a symbol",
+        vec![json!("query_time_entry_point_scan")],
+        json!({"entry_point_count": total}),
+    )];
+    let hints = guidance_actions_to_hints(&guidance);
+    Some(
+        Ordered::default()
+            .put("status", "ok")
+            .put("summary", summary)
+            .put("entry_point_count", total)
+            .put("kinds", Value::Object(count_kinds(&all)))
+            .put("units", Value::Array(units))
+            .put("answerability", answerability.full())
+            .put("missingness", json!(missingness))
+            .put("guidance", Value::Array(guidance))
+            .put("_hints", hints),
+    )
 }

@@ -6,6 +6,7 @@ providing a navigable documentation wiki for the codebase architecture.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import sqlite3
@@ -16,7 +17,6 @@ from typing import Any
 from ._scope import build_node_scope_maps
 from .architecture import compute_sdp_metrics, find_adp_violations, find_sdp_violations
 from .communities import CommunityRecord, get_communities
-from .flows import FlowRecord, get_flows
 from .graph import GraphStore, _sanitize_name
 from .sap import compute_sap_metrics
 
@@ -212,11 +212,12 @@ def _generate_community_page(
     store: GraphStore,
     community: CommunityRecord,
     metrics_context: WikiPayload | None = None,
+    entry_kinds: dict[str, str] | None = None,
 ) -> str:
     """Build markdown content for a single community.
 
     Includes: heading, overview (size, cohesion, language), members table
-    (top 50), reachable-set flows through the community, and dependencies.
+    (top 50), the entry points among its members, and dependencies.
 
     Args:
         store: The graph store.
@@ -285,47 +286,27 @@ def _generate_community_page(
         lines.append("No members found.")
     lines.append("")
 
-    # Reachable-set flows through community
+    # Entry points among the community's members. The heading keeps its
+    # name for one release so links to it resolve
+    # (docs/plans/FLOW-TOOL-TARGET.md#decisions-2026-10-07).
     lines.append("## Execution Flows")
     lines.append("")
     lines.append(
-        "Each listed flow is the CALLS reachable set from an entry point "
-        "(BFS visit order), not a runtime call sequence."
+        "Entry points among this community's members: where execution starts. "
+        'Use `flow_tool(mode="entry_points", target=...)` for what each reaches.'
     )
     lines.append("")
     member_set = set(member_qns)
-    try:
-        all_flows = get_flows(store, sort_by="criticality", limit=200)
-        flow_qns_by_id = store.get_flow_qualified_names_for_flows(
-            [int(flow["id"]) for flow in all_flows]
-        )
-        community_flows: list[FlowRecord] = []
-        for flow in all_flows:
-            # Check if this flow passes through any community member
-            flow_qns = flow_qns_by_id.get(int(flow["id"]), set())
-            if flow_qns & member_set:
-                community_flows.append(flow)
-
-        if community_flows:
-            for flow in community_flows[:10]:
-                flow_name = _sanitize_name(flow.get("name", "unnamed"))
-                criticality = flow.get("criticality", 0.0)
-                depth = flow.get("depth", 0)
-                truncated_note = ""
-                if flow.get("truncated"):
-                    reason = flow.get("truncation_reason") or "unspecified"
-                    truncated_note = f", truncated:{reason}"
-                lines.append(
-                    f"- **{flow_name}** (criticality: {criticality:.2f}, "
-                    f"depth: {depth}{truncated_note})"
-                )
-            if len(community_flows) > 10:
-                lines.append(f"- *... and {len(community_flows) - 10} more flows.*")
-        else:
-            lines.append("No reachable-set flows pass through this community.")
-    except sqlite3.OperationalError as exc:
-        logger.debug("wiki: flows table unavailable: %s", exc)
-        lines.append("Reachable-set flow data not available.")
+    if entry_kinds is None:
+        lines.append("Entry point data not available.")
+    else:
+        entries = [(qn, entry_kinds[qn]) for qn in sorted(member_set) if qn in entry_kinds]
+        for qn, kind in entries[:10]:
+            lines.append(f"- **{_sanitize_name(qn.rsplit('::', 1)[-1])}** ({kind}) `{qn}`")
+        if len(entries) > 10:
+            lines.append(f"- *... and {len(entries) - 10} more entry points.*")
+        if not entries:
+            lines.append("No entry points among this community's members.")
     lines.append("")
 
     # Dependencies (cross-community edges)
@@ -386,6 +367,16 @@ def _write_if_changed(path: Path, content: str, force: bool, *, force_updates: b
     return "pages_updated" if existed and (force_updates or not force) else "pages_generated"
 
 
+def _entry_point_kinds(store: GraphStore) -> dict[str, str] | None:
+    """Qualified name -> entry kind for every entry point; None if unreadable."""
+    try:
+        rows = json.loads(store.entry_points_json())
+    except (RuntimeError, AttributeError, ValueError) as exc:
+        logger.debug("wiki: entry points unavailable: %s", exc)
+        return None
+    return {str(row["qualified_name"]): str(row["kind"]) for row in rows}
+
+
 def generate_wiki(
     store: GraphStore,
     wiki_dir: str | Path,
@@ -413,6 +404,7 @@ def generate_wiki(
 
     page_entries: list[tuple[str, str, int]] = []  # (slug, name, size)
     metrics_context = _build_architecture_metrics_context(store)
+    entry_kinds = _entry_point_kinds(store)
 
     # Track slugs we've already used in THIS run so two communities that
     # slugify to the same filename don't overwrite each other (#222 follow-up).
@@ -435,7 +427,9 @@ def generate_wiki(
         filename = f"{slug}.md"
         filepath = wiki_path / filename
 
-        content = _generate_community_page(store, comm, metrics_context=metrics_context)
+        content = _generate_community_page(
+            store, comm, metrics_context=metrics_context, entry_kinds=entry_kinds
+        )
 
         counts[_write_if_changed(filepath, content, force, force_updates=True)] += 1
         page_entries.append((slug, name, comm["size"]))
