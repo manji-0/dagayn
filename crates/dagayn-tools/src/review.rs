@@ -46,7 +46,21 @@ const CHANGES_BUDGET: usize = 8000;
 const CONTEXT_BUDGET: usize = 8000;
 const MAX_GRAPH_ENTRIES: usize = 300;
 const MAX_SNIPPET_BYTES: usize = 120_000;
+/// The source cap below `verbose`, so source and graph fit `CONTEXT_BUDGET`
+/// together (docs/plans/AGENT-WORKFLOW-TARGET.md#target-contract).
+const STANDARD_SNIPPET_BYTES: usize = 16_000;
+/// Low-confidence bridges a folded caveat names as examples.
+const CAVEAT_EXAMPLES: usize = 3;
 const MAX_LINES_PER_FILE_CEILING: i64 = 2000;
+/// The lists `get_review_context` halves to fit its budget, highest
+/// priority first.
+const CONTEXT_PRIORITIES: [&str; 5] = [
+    "context.changed_files",
+    "context.impacted_files",
+    "context.graph.changed_nodes",
+    "context.graph.impacted_nodes",
+    "context.graph.edges",
+];
 /// Fields `detail_level="verbose"` still carries from the score-first
 /// contract, for one release.
 /// Entry points `affected_flows` lists before counting the rest.
@@ -762,14 +776,22 @@ impl Review<'_> {
             guidance,
         ]
         .join("\n");
+        let verbose = request.detail_level == "verbose";
+        let snippet_bytes = if verbose {
+            MAX_SNIPPET_BYTES
+        } else {
+            STANDARD_SNIPPET_BYTES
+        };
         let mut payload = Ordered::default()
             .put("status", "ok")
             .put("summary", summary)
             .put("context", context.value())
             .put("answerability", self.answerability.full())
-            .put("missingness", json!(missingness))
-            .apply_output_budget(CONTEXT_BUDGET, &["impacted_files", "changed_files"]);
-        payload = budget_source_snippets(payload, &snippets);
+            .put("missingness", json!(missingness));
+        payload = budget_source_snippets(payload, &snippets, snippet_bytes);
+        if !verbose {
+            payload = payload.apply_output_budget(CONTEXT_BUDGET, &CONTEXT_PRIORITIES);
+        }
         if !graph_truncation.is_empty() {
             payload = payload.set("truncated", json!(true));
             let mut merged = payload
@@ -777,7 +799,15 @@ impl Review<'_> {
                 .and_then(Value::as_object)
                 .cloned()
                 .unwrap_or_default();
-            merged.extend(graph_truncation);
+            // A list the budget halved after the cap keeps the budget's count
+            // and the total from before the cap.
+            for (field, record) in graph_truncation {
+                let record = match merged.remove(&format!("context.graph.{field}")) {
+                    Some(budgeted) => json!({"kept": budgeted["kept"], "total": record["total"]}),
+                    None => record,
+                };
+                merged.insert(field, record);
+            }
             payload = payload.set("_truncation", Value::Object(merged));
         }
         Some(payload)
@@ -971,7 +1001,9 @@ impl Review<'_> {
         let summary = summary.join("\n");
 
         let mut impact_missingness = missingness;
-        impact_missingness.extend(caveats.iter().cloned());
+        if !caveats.is_empty() {
+            impact_missingness.push(folded_caveats(caveats));
+        }
         if !unmatched.is_empty() {
             impact_missingness.push(json!({
                 "reason_code": "changed_files_not_in_graph",
@@ -1017,10 +1049,9 @@ impl Review<'_> {
                 "evidence": [{
                     "type": "extracted",
                     "caveat_count": caveats.len(),
-                    "examples": &caveats[..caveats.len().min(3)],
                 }],
                 "confidence": "low",
-                "missingness": &caveats[..caveats.len().min(5)],
+                "missingness": [folded_caveats(caveats)],
                 "action": "query_graph_tool pattern=\"docs_for\" -- verify before treating as impact",
                 "reason_codes": ["low_confidence_cross_artifact_bridge"],
                 "counts": {"low_confidence_bridge_count": caveats.len()},
@@ -1082,6 +1113,25 @@ impl Review<'_> {
             ],
         ))
     }
+}
+
+/// One missingness item for every low-confidence bridge: they share a
+/// reason and an effect, so the count and a few examples say all of it
+/// (docs/plans/AGENT-WORKFLOW-TARGET.md#caveats).
+fn folded_caveats(caveats: &[Value]) -> Value {
+    let examples: Vec<Value> = caveats
+        .iter()
+        .take(CAVEAT_EXAMPLES)
+        .map(|caveat| caveat.get("bridge").cloned().unwrap_or(Value::Null))
+        .collect();
+    json!({
+        "reason_code": "low_confidence_cross_artifact_bridge",
+        "severity": "medium",
+        "claim_effect":
+            "bridges are visible as caveats only; do not treat the other side as confirmed impact",
+        "count": caveats.len(),
+        "examples": examples,
+    })
 }
 
 /// The one-line summary: what changed, and the findings by kind, or that
@@ -1476,9 +1526,13 @@ fn review_guidance_text(
     parts.join("\n")
 }
 
-/// `_budget_source_snippets`: keep source until `MAX_SNIPPET_BYTES`, clipping
+/// `_budget_source_snippets`: keep source until `max_bytes`, clipping
 /// only a first file that is over on its own.
-fn budget_source_snippets(payload: Ordered, snippets: &[(String, String)]) -> Ordered {
+fn budget_source_snippets(
+    payload: Ordered,
+    snippets: &[(String, String)],
+    max_bytes: usize,
+) -> Ordered {
     if snippets.is_empty() {
         return payload;
     }
@@ -1487,7 +1541,7 @@ fn budget_source_snippets(payload: Ordered, snippets: &[(String, String)]) -> Or
     for (path, text) in snippets {
         let mut body = text.clone();
         let mut size = body.len();
-        let remaining = MAX_SNIPPET_BYTES.saturating_sub(used);
+        let remaining = max_bytes.saturating_sub(used);
         if remaining == 0 {
             dropped.push(path.clone());
             continue;
@@ -1547,6 +1601,25 @@ fn budget_source_snippets(payload: Ordered, snippets: &[(String, String)]) -> Or
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn caveats_fold_into_one_counted_item() {
+        let caveats: Vec<Value> = (0..600)
+            .map(|i| {
+                json!({
+                    "reason_code": "low_confidence_cross_artifact_bridge",
+                    "bridge": {"source": format!("README.{i}.md::usage"), "target": "app.py::helper"},
+                })
+            })
+            .collect();
+        let folded = folded_caveats(&caveats);
+        assert_eq!(folded["count"], 600);
+        assert_eq!(
+            folded["examples"].as_array().map(Vec::len),
+            Some(CAVEAT_EXAMPLES)
+        );
+        assert_eq!(folded["examples"][0]["source"], "README.0.md::usage");
+    }
 
     #[test]
     fn hints_follow_the_findings_once_each() {

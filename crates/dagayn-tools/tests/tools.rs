@@ -1141,6 +1141,44 @@ fn review_context_reads_contained_sources_and_caps_long_files() {
 }
 
 #[test]
+fn review_context_fits_its_budget_below_verbose() {
+    let repo = Repo::new("context-budget", true);
+    let callers: String = (0..400)
+        .map(|i| format!("def caller_{i}():\n    return helper()\n\n\n"))
+        .collect();
+    repo.write("many.py", &format!("from app import helper\n\n\n{callers}"));
+    repo.build();
+    let context = Context {
+        runtime: Some(json!({})),
+        ..repo.context()
+    };
+    let arguments = |level: &str| {
+        json!({
+            "mode": "context",
+            "changed_files": ["app.py", "many.py"],
+            "max_lines_per_file": 2000,
+            "detail_level": level,
+        })
+    };
+    let text = |level: &str| {
+        call(&context, "review_tool", &arguments(level))
+            .expect("answered")
+            .text
+    };
+
+    // docs/plans/AGENT-WORKFLOW-TARGET.md#target-contract: 32K at standard.
+    let standard = text("standard");
+    assert!(standard.len() <= 33_000, "{} characters", standard.len());
+    let payload: Value = serde_json::from_str(&standard).expect("json");
+    assert_eq!(payload["truncated"], true);
+    let snippets = &payload["_truncation"]["source_snippets"];
+    assert_eq!(snippets["total"], 2, "{snippets}");
+
+    // verbose keeps the source the budget clips.
+    assert!(text("verbose").len() > standard.len());
+}
+
+#[test]
 fn flow_tool_lists_and_reads_stored_flows() {
     let repo = Repo::new("flows", true);
     repo.build();

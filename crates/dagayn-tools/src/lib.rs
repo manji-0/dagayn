@@ -259,7 +259,7 @@ impl Ordered {
         }
         let mut truncation = Vec::new();
         for field in priorities.iter().rev() {
-            // `_get_path`: `parent.key` names a list inside a top-level object.
+            // `_get_path`: `parent.key.key` names a list nested in a top-level object.
             let (top, nested) = match field.split_once('.') {
                 Some((top, key)) => (top, Some(key)),
                 None => (*field, None),
@@ -286,7 +286,12 @@ impl Ordered {
             }
         }
         if !truncation.is_empty() {
-            let record: Map<String, Value> = truncation.into_iter().collect();
+            let mut record = self
+                .get("_truncation")
+                .and_then(Value::as_object)
+                .cloned()
+                .unwrap_or_default();
+            record.extend(truncation);
             self = self.set("_truncation", Value::Object(record));
         } else if over(&self) {
             self = self.set("truncated", json!(true));
@@ -345,10 +350,10 @@ impl Ordered {
 
 /// The list at `entry` (or at its `nested` key), as `_get_path` finds it.
 fn list_at<'a>(entry: &'a mut Value, nested: Option<&str>) -> Option<&'a mut Vec<Value>> {
-    let target = match nested {
-        Some(key) => entry.as_object_mut()?.get_mut(key)?,
-        None => entry,
-    };
+    let mut target = entry;
+    for key in nested.into_iter().flat_map(|path| path.split('.')) {
+        target = target.as_object_mut()?.get_mut(key)?;
+    }
     target.as_array_mut()
 }
 
