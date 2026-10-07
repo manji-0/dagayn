@@ -24,9 +24,8 @@ ambiguous name costs a round trip with no hint of how to retry. This note
 defines the workflow, the response contract that carries it, the evidence,
 and the order of work.
 
-Status: accepted ([decisions](#decisions-2026-10-07)); steps 1–5 and 7,
-and the contract check of step 6, are done (see the
-[order of work](#order-of-work)).
+Status: accepted ([decisions](#decisions-2026-10-07)); steps 1–7 are
+done; step 8 waits one release (see the [order of work](#order-of-work)).
 
 ## Target contract
 
@@ -174,13 +173,10 @@ related node(s)" with `counts.result_count: 13`.
 
 ## Evaluation
 
-Two gates. The first runs in CI today; the other two are the pending
-half of step 6 and will take the form of the other evals
-(`eval/run_workflow_eval.py`, gated by `tests/test_workflow_eval.py`,
-floors in `eval/workflow_thresholds.yaml`) when they are built.
+Three gates, all in `crates/dagayn-tools/tests/tools.rs`, run in CI on
+fixtures the tests build.
 
-- **Contract check** (in CI):
-  `crates/dagayn-tools/tests/tools.rs::every_reply_names_calls_that_answer_and_fits_its_budget`.
+- **Contract check**: `every_reply_names_calls_that_answer_and_fits_its_budget`.
   26 calls across the six tools, their modes, and their levels, on a
   fixture with a 120-file change. Fails on a reply over its level's
   budget, a reply without `next` or with more than three calls, a call
@@ -188,17 +184,17 @@ floors in `eval/workflow_thresholds.yaml`) when they are built.
   error, an ambiguity, or a missing node: making each call is what shows
   its `args` complete and its targets real. Counts that disagree are
   held by `query_graph_counts_one_row_per_node_everywhere`.
-- **Follow-the-next traces** (pending): fixed tasks (find the caller that breaks
-  after a signature change; find the entry point of a CLI command; review
-  a diff with a dangling reference; resolve an ambiguous name), each run
-  by following `next[0]` from `get_minimal_context_tool(task=...)` for at
-  most 6 calls. Reported per task: whether the expected node or finding
-  is reached, calls to reach it, the largest reply, ambiguity retries.
-  Each task gates on being reached; the call and size counts gate at the
-  baseline the first run records.
-- **Discrimination** (pending): on a fresh fixture graph no `missingness` item of
-  severity medium or above appears; on a stale or partial one the
-  expected items do.
+- **Follow-the-next traces**: `following_next_reaches_the_answer`. From
+  the first call of a task, following `next[0]` (but a shell command)
+  must reach the answer within six calls: a symptom ("debug why main
+  fails") reaches `callers_of app.py::main`; an ambiguous name answers
+  on its first retry; a review of an untested addition reaches the
+  `untested_change` finding. Call counts and sizes are not gated beyond
+  the six-call limit and the contract check's budgets.
+- **Discrimination**: `a_fresh_graph_raises_no_caveats`. On a graph that
+  matches its commit, no reply of the six tools carries a medium or high
+  caveat about the graph (staleness, derived structures, another commit,
+  unindexed edits, an older extractor, unresolved bridges).
 
 ## Order of work
 
@@ -312,7 +308,17 @@ floors in `eval/workflow_thresholds.yaml`) when they are built.
      repository with `base=HEAD~3` every reply fits (`changes` at
      `minimal` 18,291 → 7,209, `context` 47,770 → 30,906), and all 21
      calls the replies name answered `ok`.
-   - The follow-the-next traces and the discrimination check, gated.
+   - **Done:** the follow-the-next traces and the discrimination check
+     (see [Evaluation](#evaluation)), as tests beside the contract check
+     rather than a separate harness: they need no thresholds file, since
+     each task either reaches its answer or fails. The first run of the
+     traces failed: `get_minimal_context_tool` searched for the whole
+     task, and search requires a query's most selective word, so "debug
+     why main fails" searched for "fails" and found nothing. The search
+     call now drops the words that route the task and the words that say
+     how to work (`why`, `fails`, `please`), searching for "main". The
+     discrimination check passed on its first run, which step 2 had
+     made true.
    - Not covered: a Python-side dispatcher error reached through
      `dagayn tool` (not MCP) still carries `answerability`; the contract
      is the MCP surface's.
