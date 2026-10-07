@@ -17,8 +17,8 @@ The question agents bring to it, "where is this code entered from?", is
 one it cannot ask. This note defines the target contract, the evidence
 behind it, and the order of work.
 
-Status: accepted ([decisions](#decisions-2026-10-07)); steps 1–4 of the
-[order of work](#order-of-work) are done.
+Status: accepted ([decisions](#decisions-2026-10-07)); steps 1–5 of the
+[order of work](#order-of-work) are done; step 6 waits one release.
 
 ## Target contract
 
@@ -165,7 +165,7 @@ every chain hop is a graph edge, and the output is 3.2–3.8K characters.
 | Mode | Returns |
 |---|---|
 | `entry_points` with `target` | the nearest entry points that reach the target, 10 by default: `entry_point`, `kind`, `chain` (qualified names in call order), `hops`, and in `standard` `file` and `line`; `entry_points_omitted`, `reached_callers`, `truncated` |
-| `list` without a target (step 4) | entry points grouped by unit and kind, with counts; no members, no score |
+| `entry_points` without `target` | the repository's entry points per declared unit: `unit`, `unit_kind`, `entry_point_count`, `kinds` (count per kind), the first `limit` `entry_points` (`entry_point`, `kind`, and in `standard` `file` and `line`), `entry_points_omitted`; and `kinds` and `entry_point_count` overall |
 | `get` | deprecated: one stored flow, `detail_level` honoured (`minimal` drops `steps` and `path`), for one release |
 
 Entry kinds, from the first rule that holds:
@@ -201,7 +201,7 @@ changed function: which entry points the change reaches.
 
 - The target contract above goes ahead: `flow_tool` answers which entry
   points reach a symbol; the eval gates it before the stored flows go.
-- Wiki and visualization switch to entry points per unit in step 5. No
+- Wiki and visualization switch to entry points in step 5. No
   known consumer depends on the per-community "Execution Flows" section;
   the section keeps its heading for one release so links to it resolve.
 
@@ -254,10 +254,21 @@ eval also shows the mode needs no stored flows.
    the tool has no verbose level to keep them behind. The debug, explore,
    implement-feature, and review skills, the MCP prompts, the agent
    instructions, and the next-step hints point at `entry_points`.
-5. `list` without a target lists entry points per unit and kind; wiki and
-   visualization switch to it. Then `get`, criticality, `flow_snapshots`,
-   the `missing_flows` answerability penalty, and the flow trace in the
-   full post-process go, after one release with `list` and `get` kept.
+5. **Done:** `entry_points` without a target lists the repository's entry
+   points per declared unit, counted by kind, the first `limit` of each
+   unit listed (a new form of the same mode, so `list` keeps its contract
+   for the release it has left). A file counts as `module_level` only in a
+   language whose top level runs and only when it calls the repository's
+   own code: on this repository that took the listing from 799 to 695
+   entry points (39 `module_level` instead of 142, which counted every
+   `logger = logging.getLogger(...)`). The wiki's "Execution Flows" section
+   lists the entry points among a community's members, and the
+   visualization export adds `entry_points` next to `flows`; both read the
+   store's `entry_points_json()`. `list` and `get` replies carry a
+   `deprecation` notice.
+6. After one release: remove `list`, `get`, criticality, `flow_snapshots`,
+   the export's `flows`, the `missing_flows` answerability penalty, and the
+   flow trace in the full post-process.
 
 ## Touch points
 
