@@ -1359,5 +1359,6 @@ fn java_call_origin(call: tree_sitter::Node<'_>, source: &[u8]) -> Option<CallOr
         name: java_call_name(call, source)?,
         line: call.start_position().row as i64 + 1,
         unwrap: false,
+        element: false,
     })
 }

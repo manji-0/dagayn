@@ -523,6 +523,7 @@ fn zig_emit_suffix_calls(
                             name,
                             line,
                             unwrap: false,
+                            element: false,
                         },
                         None,
                     ));
@@ -569,6 +570,7 @@ fn zig_emit_suffix_calls(
                                 name: from.get("call")?.as_str()?.to_string(),
                                 line: from.get("line")?.as_i64()?,
                                 unwrap: from.get("unwrap")?.as_bool()?,
+                                element: false,
                             })
                         });
                     match marked {
@@ -590,6 +592,7 @@ fn zig_emit_suffix_calls(
                             name: field,
                             line,
                             unwrap: false,
+                            element: false,
                         },
                         from,
                     ));
@@ -921,6 +924,7 @@ fn zig_bind_var_decl(node: tree_sitter::Node<'_>, context: &ZigParseContext<'_>)
                 name: call,
                 line: last.start_position().row as i64 + 1,
                 unwrap,
+                element: false,
             },
         ),
         None => bindings.forget_foreign(&name),

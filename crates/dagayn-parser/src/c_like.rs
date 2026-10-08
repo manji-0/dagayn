@@ -2368,6 +2368,7 @@ fn c_call_origin(
             name: c_call_name(expression, context.source)?.trim().to_string(),
             line: expression.start_position().row as i64 + 1,
             unwrap: false,
+            element: false,
         }),
         "identifier" => context
             .bindings

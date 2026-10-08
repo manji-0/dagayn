@@ -986,6 +986,7 @@ fn go_call_origin(
                 name,
                 line: value.start_position().row as i64 + 1,
                 unwrap: false,
+                element: false,
             })
         }
         "parenthesized_expression" => {

@@ -1452,6 +1452,7 @@ fn python_call_origin(expression: &Expr, context: &PythonParseContext<'_>) -> Op
                 name,
                 line: context.line(call),
                 unwrap: false,
+                element: false,
             })
         }
         Expr::Name(name) => context

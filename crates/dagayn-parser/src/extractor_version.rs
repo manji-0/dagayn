@@ -195,8 +195,12 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // its `IMPLEMENTS` edge and members with `impl_target`.
         // 21: `dagayn:` directives in `//` and `///` comments create edges,
         // `tests` among them (docs/plans/TEST-REACH-TARGET.md).
+        // 22: a closure over the elements of what a call returned records
+        // the call (`receiver_from.element`); a method passed as a value
+        // (`.map(Type::m)`) and a `let`-bound closure passed by name are
+        // REFERENCES; `value.field.method()` in a macro is typed by the field.
         extractor: "rust",
-        version: 21,
+        version: 22,
         languages: &["rust"],
     },
     ExtractorVersion {

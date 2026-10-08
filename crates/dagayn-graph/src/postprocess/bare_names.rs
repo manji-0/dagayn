@@ -489,15 +489,34 @@ fn bind_bare_call_targets(
             continue;
         }
         let resolution = match (receiver_type.as_deref(), module_file.as_deref()) {
-            (_, Some(module_file)) => resolve_in_module(&candidates, module_file, import_targets),
-            (Some(receiver_type), None) => resolve_type_receiver(
-                &candidates,
-                &target_qualified,
-                receiver_type,
-                &src_file,
-                import_targets,
-                visibility,
-            ),
+            // A method of a known type (`.map(Dep::finding)`), in the
+            // type's module file when the path named it.
+            (Some(receiver_type), module_file) => {
+                let in_module: Vec<String> = module_file
+                    .map(|file| {
+                        candidates
+                            .iter()
+                            .filter(|qn| node_file_from_qualified(qn, "") == file)
+                            .cloned()
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                resolve_type_receiver(
+                    if in_module.is_empty() {
+                        &candidates
+                    } else {
+                        &in_module
+                    },
+                    &target_qualified,
+                    receiver_type,
+                    &src_file,
+                    import_targets,
+                    visibility,
+                )
+            }
+            (None, Some(module_file)) => {
+                resolve_in_module(&candidates, module_file, import_targets)
+            }
             (None, None) => resolve_via_imports(&candidates, &src_file, import_targets, visibility),
         };
         let Some((qualified, confidence, tier)) = resolution else {

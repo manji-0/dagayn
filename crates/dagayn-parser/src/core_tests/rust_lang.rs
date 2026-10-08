@@ -624,3 +624,63 @@ fn dispatches_by_name() {
     assert_eq!(tests.extra["bridge_kind"], "test");
     assert_eq!(tests.line, 5);
 }
+
+#[test]
+fn calls_through_closures_values_and_macro_fields_have_edges() {
+    let source = br#"
+pub(super) struct Directive {
+    pub kind: Kind,
+}
+pub(super) enum Kind { A }
+impl Kind {
+    fn role(self) -> &'static str { "a" }
+}
+pub struct Dep { x: i64 }
+impl Dep {
+    pub(crate) fn finding(&self) -> i64 { self.x }
+    pub(crate) fn introduced(&self) -> bool { true }
+}
+fn in_macro(directive: &Directive) {
+    println!("{}", directive.kind.role());
+}
+fn make() -> Vec<Dep> { Vec::new() }
+fn run() -> Vec<i64> {
+    make().iter().filter(|dep| dep.introduced()).map(Dep::finding).collect()
+}
+fn other() -> Vec<i64> {
+    make().iter().map(crate::model::Other::score).collect()
+}
+fn mentions(text: &str) -> bool {
+    let word = |c: char| c.is_alphanumeric();
+    text.chars().next().is_some_and(word)
+}
+"#;
+    let (_, edges) = parse_rust("src/x.rs", source);
+    let edge = |kind: &str, source: &str, target: &str| {
+        edges
+            .iter()
+            .find(|edge| edge.kind == kind && edge.source == source && edge.target == target)
+    };
+    // A field's declared type types the receiver inside a macro too.
+    assert!(edge("CALLS", "src/x.rs::in_macro", "src/x.rs::Kind.role").is_some());
+    // A closure over the elements of what `make` returned: resolution takes
+    // `Dep` out of `Vec<Dep>`.
+    let introduced = edge("CALLS", "src/x.rs::run", "introduced").expect("introduced");
+    assert_eq!(
+        introduced.extra["receiver_from"],
+        serde_json::json!({"call": "make", "line": 19, "unwrap": false, "element": true})
+    );
+    // Functions passed as values.
+    assert!(edge("REFERENCES", "src/x.rs::run", "src/x.rs::Dep.finding").is_some());
+    let score = edge("REFERENCES", "src/x.rs::other", "score").expect("score");
+    assert_eq!(score.extra["value_reference"], true);
+    assert_eq!(score.extra["receiver_type"], "Other");
+    assert!(
+        edge(
+            "REFERENCES",
+            "src/x.rs::mentions",
+            "src/x.rs::mentions.word"
+        )
+        .is_some()
+    );
+}

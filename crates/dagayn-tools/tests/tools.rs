@@ -2699,3 +2699,54 @@ fn unstable_dependencies_are_found_where_they_are_introduced() {
     let overview = answer(&context, "architecture_analysis_tool", json!({}));
     assert_eq!(unstable(&overview).len(), 1, "{}", overview["findings"]);
 }
+
+/// Calls the Rust call graph used to miss, resolved across files: a method
+/// on a closure parameter over the elements of what another file's
+/// function returns, and methods passed as values (docs/plans/TEST-REACH-TARGET.md#remaining-gaps).
+#[test]
+fn closures_over_returned_elements_and_method_values_reach_their_targets() {
+    let repo = Repo::new("rust-gaps", false);
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("src/lib.rs", "pub mod model;\npub mod run;\n");
+    repo.write(
+        "src/model.rs",
+        "pub struct Dep {\n    x: i64,\n}\n\nimpl Dep {\n    pub fn introduced(&self) -> bool {\n        self.x > 0\n    }\n\n    pub fn finding(&self) -> i64 {\n        self.x\n    }\n}\n\npub fn make() -> Vec<Dep> {\n    Vec::new()\n}\n",
+    );
+    repo.write(
+        "src/run.rs",
+        "use crate::model::{make, Dep};\n\npub fn run() -> Vec<i64> {\n    make().iter().filter(|dep| dep.introduced()).map(Dep::finding).collect()\n}\n\npub fn other() -> Vec<i64> {\n    make().iter().map(crate::model::Dep::finding).collect()\n}\n",
+    );
+    repo.build();
+    let store = GraphStore::open(db_path_for_build(&repo.0).expect("db")).expect("store");
+    let (_, incoming) = store
+        .get_edges_by_endpoints(&[
+            "src/model.rs::Dep.introduced".to_string(),
+            "src/model.rs::Dep.finding".to_string(),
+        ])
+        .expect("edges");
+    let into = |target: &str| -> Vec<(String, String)> {
+        let mut found: Vec<(String, String)> = incoming
+            .get(target)
+            .into_iter()
+            .flatten()
+            .filter(|edge| edge.kind != "CONTAINS")
+            .map(|edge| (edge.kind.clone(), edge.source_qualified.clone()))
+            .collect();
+        found.sort();
+        found
+    };
+    assert_eq!(
+        into("src/model.rs::Dep.introduced"),
+        [("CALLS".to_string(), "src/run.rs::run".to_string())]
+    );
+    assert_eq!(
+        into("src/model.rs::Dep.finding"),
+        [
+            ("REFERENCES".to_string(), "src/run.rs::other".to_string()),
+            ("REFERENCES".to_string(), "src/run.rs::run".to_string()),
+        ]
+    );
+}

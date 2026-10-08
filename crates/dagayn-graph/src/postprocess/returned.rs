@@ -636,6 +636,19 @@ fn parse_type(text: &str) -> Option<(String, Vec<String>)> {
     }
 }
 
+/// Collections whose elements a closure over their iterator receives: the
+/// element is their first type argument.
+const ELEMENT_CONTAINERS: &[&str] = &[
+    "BTreeSet",
+    "BinaryHeap",
+    "HashSet",
+    "IndexSet",
+    "LinkedList",
+    "Option",
+    "Vec",
+    "VecDeque",
+];
+
 /// Wrappers a call's result is taken out of when it is unwrapped (Rust `?`
 /// / `.unwrap()`, `await`, Swift `try` / `!`).
 const UNWRAPPED_WRAPPERS: &[&str] = &[
@@ -1011,7 +1024,7 @@ fn resolve_type(
 /// What the function `function` returns, unwrapped from its `Result` /
 /// `Option` / `Promise` / `Task` / `Future` when the call was (`?`,
 /// `.unwrap()`, `await`, `try`).
-fn returned_by(graph: &Graph, function: &str, unwrap: bool) -> Option<Returned> {
+fn returned_by(graph: &Graph, function: &str, unwrap: bool, element: bool) -> Option<Returned> {
     let (return_type, owner) = graph.returns.get(function)?;
     let file = function.split_once("::").map(|(file, _)| file)?;
     let family = language_family(file)?;
@@ -1019,6 +1032,19 @@ fn returned_by(graph: &Graph, function: &str, unwrap: bool) -> Option<Returned> 
     let last = |base: &str| base.rsplit(['.', ':']).next().unwrap_or(base).to_string();
     if unwrap && UNWRAPPED_WRAPPERS.contains(&last(&base).as_str()) {
         (base, arguments) = parse_type(arguments.first()?)?;
+    }
+    // An element of what it returned (`f().iter().filter(|x| x.m())`).
+    if element {
+        if let Some(inner) = base
+            .strip_prefix('[')
+            .and_then(|rest| rest.strip_suffix(']'))
+        {
+            (base, arguments) = parse_type(inner)?;
+        } else if ELEMENT_CONTAINERS.contains(&last(&base).as_str()) {
+            (base, arguments) = parse_type(arguments.first()?)?;
+        } else {
+            return None;
+        }
     }
     drop(arguments);
     resolve_type(graph, &base, file, family, owner.as_deref())
@@ -1152,6 +1178,7 @@ pub(crate) fn resolve_returned_receivers(
                 continue;
             };
             let unwrap = origin.get("unwrap").and_then(Value::as_bool) == Some(true);
+            let element = origin.get("element").and_then(Value::as_bool) == Some(true);
             let Some((inner_target, inner_extra)) =
                 origin_call(tx, id, &source, &file, line, name, &graph.nodes)?
             else {
@@ -1162,7 +1189,11 @@ pub(crate) fn resolve_returned_receivers(
             // code writes: observed-method inference does not learn from it.
             let mut by_table = false;
             let returned = if graph.nodes.contains(&inner_target) {
-                returned_by(graph, &inner_target, unwrap)
+                returned_by(graph, &inner_target, unwrap, element)
+            } else if element {
+                // An element of what a package returned: its type is not
+                // in the tables.
+                None
             } else if family == "rust"
                 && inner_extra.get("external").and_then(Value::as_bool) == Some(true)
                 && (!unwrap || !graph.visible(family, &method, &file, import_targets))

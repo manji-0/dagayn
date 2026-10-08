@@ -1016,6 +1016,7 @@ fn csharp_call_origin(expression: tree_sitter::Node<'_>, source: &[u8]) -> Optio
             name: csharp_call_name(expression, source)?,
             line: expression.start_position().row as i64 + 1,
             unwrap: false,
+            element: false,
         }),
         "await_expression" => {
             let mut origin = csharp_call_origin(expression.named_child(0)?, source)?;

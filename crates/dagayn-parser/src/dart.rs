@@ -672,6 +672,7 @@ fn dart_call_value(
         name: target.clone(),
         line,
         unwrap: false,
+        element: false,
     };
     DartValue::Call(origin, constructs.then_some(target))
 }

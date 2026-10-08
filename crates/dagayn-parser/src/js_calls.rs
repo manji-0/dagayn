@@ -567,6 +567,7 @@ fn javascript_call_origin(
                 name: javascript_call_name(expression, context.source)?,
                 line: expression.start_position().row as i64 + 1,
                 unwrap: false,
+                element: false,
             })
         }
         "identifier" => context

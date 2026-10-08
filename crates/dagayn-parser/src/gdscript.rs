@@ -565,6 +565,7 @@ fn gdscript_call_origin(
         name,
         line: call.start_position().row as i64 + 1,
         unwrap: false,
+        element: false,
     })
 }
 

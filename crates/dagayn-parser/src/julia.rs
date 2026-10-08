@@ -556,6 +556,7 @@ fn julia_bind_assignment(node: tree_sitter::Node<'_>, context: &JuliaParseContex
                 name: julia_call_name(value, context.source)?,
                 line: value.start_position().row as i64 + 1,
                 unwrap: false,
+                element: false,
             })
         });
     let mut bindings = context.bindings.borrow_mut();

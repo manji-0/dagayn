@@ -65,6 +65,7 @@ pub(super) fn parse_rust_with_parser(
             defined_names: &defined_names,
             declared_types: &declared_types,
             bindings: RefCell::new(MemberCallBindings::with_types(type_names)),
+            closures: RefCell::new(HashSet::new()),
             component_bindings: rust_uses_component_bindings(source),
         };
         rust_note_qualified_types(qualified_types, &context);
@@ -176,6 +177,7 @@ fn rust_walk_children(
     };
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
+        let mut closure_element: Option<(String, CallOrigin)> = None;
         match child.kind() {
             "mod_item" if child.child_by_field_name("body").is_some() => {
                 if let Some(name) = rust_identifier_child(child, context.source) {
@@ -393,6 +395,7 @@ fn rust_walk_children(
                     && let Some((name, closure)) = rust_closure_binding(child, context.source) =>
             {
                 let qualified = qualify(&context.file_path, &name, owner());
+                context.closures.borrow_mut().insert(qualified.clone());
                 nodes.push(ParsedNode {
                     kind: crate::core::types::NodeKind::Function,
                     name: name.clone(),
@@ -423,6 +426,7 @@ fn rust_walk_children(
             }
             "use_declaration" => rust_emit_use(child, context, edges),
             "call_expression" | "macro_invocation" => {
+                closure_element = rust_closure_element(child, context);
                 let bound = rust_bound_member_target(child, context);
                 // `x.m()` on a receiver whose type is unknown must not bind to
                 // some other type's `m` by name.
@@ -506,16 +510,139 @@ fn rust_walk_children(
             }
             _ => {}
         }
-        rust_walk_children(
-            child,
-            context,
-            enclosing_class,
-            enclosing_func,
-            nodes,
-            edges,
-        );
+        match closure_element.take() {
+            // The closure's parameter is an element of what the receiver's
+            // call returned, inside this call only.
+            Some((parameter, origin)) => {
+                let saved = context.bindings.borrow().snapshot();
+                context
+                    .bindings
+                    .borrow_mut()
+                    .bind_returned(parameter, origin);
+                rust_walk_children(
+                    child,
+                    context,
+                    enclosing_class,
+                    enclosing_func,
+                    nodes,
+                    edges,
+                );
+                context.bindings.borrow_mut().restore(saved);
+            }
+            None => rust_walk_children(
+                child,
+                context,
+                enclosing_class,
+                enclosing_func,
+                nodes,
+                edges,
+            ),
+        }
         rust_bind_let(child, context);
     }
+}
+
+/// Methods that hand each element of their receiver to a closure argument
+/// (an iterator's, a collection's, or an `Option`'s).
+const RUST_CLOSURE_ADAPTERS: &[&str] = &[
+    "all",
+    "and_then",
+    "any",
+    "filter",
+    "filter_map",
+    "find",
+    "find_map",
+    "flat_map",
+    "for_each",
+    "inspect",
+    "is_none_or",
+    "is_some_and",
+    "map",
+    "map_or",
+    "map_or_else",
+    "map_while",
+    "max_by_key",
+    "min_by_key",
+    "partition",
+    "position",
+    "retain",
+    "skip_while",
+    "sort_by_key",
+    "take_while",
+    "try_for_each",
+];
+
+/// Methods whose result yields the same elements as their receiver.
+const RUST_ELEMENT_PRESERVING: &[&str] = &[
+    "by_ref",
+    "cloned",
+    "copied",
+    "drain",
+    "filter",
+    "fuse",
+    "inspect",
+    "into_iter",
+    "iter",
+    "iter_mut",
+    "peekable",
+    "rev",
+    "skip",
+    "skip_while",
+    "take",
+    "take_while",
+];
+
+/// `f(..).iter().filter(|x| x.m())`: the closure's parameter and the call
+/// whose result's elements it receives (`f`, marked `element`), when the
+/// receiver chain reaches a call through methods that keep the elements.
+fn rust_closure_element(
+    call: tree_sitter::Node<'_>,
+    context: &RustParseContext<'_>,
+) -> Option<(String, CallOrigin)> {
+    let source = context.source;
+    let function = call.child_by_field_name("function")?;
+    if function.kind() != "field_expression" {
+        return None;
+    }
+    let method = node_text(function.child_by_field_name("field")?, source);
+    if !RUST_CLOSURE_ADAPTERS.contains(&method.as_str()) {
+        return None;
+    }
+    let arguments = call.child_by_field_name("arguments")?;
+    let mut cursor = arguments.walk();
+    let closure = arguments
+        .named_children(&mut cursor)
+        .find(|argument| argument.kind() == "closure_expression")?;
+    let parameters = closure.child_by_field_name("parameters")?;
+    let mut cursor = parameters.walk();
+    let named: Vec<_> = parameters.named_children(&mut cursor).collect();
+    let [parameter] = named.as_slice() else {
+        return None;
+    };
+    // `|x|` or `|&x|`; a typed parameter names its own type.
+    let parameter = match parameter.kind() {
+        "identifier" => *parameter,
+        "reference_pattern" => parameter
+            .named_child(0)
+            .filter(|inner| inner.kind() == "identifier")?,
+        _ => return None,
+    };
+    let mut receiver = function.child_by_field_name("value")?;
+    while receiver.kind() == "call_expression"
+        && let Some(inner) = receiver.child_by_field_name("function")
+        && inner.kind() == "field_expression"
+        && inner.child_by_field_name("field").is_some_and(|field| {
+            RUST_ELEMENT_PRESERVING.contains(&node_text(field, source).as_str())
+        })
+    {
+        receiver = inner.child_by_field_name("value")?;
+    }
+    let mut origin = rust_call_origin(receiver, context)?;
+    if origin.element {
+        return None;
+    }
+    origin.element = true;
+    Some((node_text(parameter, source), origin))
 }
 
 struct RustParseContext<'a> {
@@ -540,6 +667,9 @@ struct RustParseContext<'a> {
     /// Types (structs, enums, traits, aliases) the file declares.
     declared_types: &'a HashSet<String>,
     bindings: RefCell<MemberCallBindings>,
+    /// Closures bound by `let` in a function body, by qualified name
+    /// (`run.call`): a closure passed by name is a reference to it.
+    closures: RefCell<HashSet<String>>,
     /// The file generates WebAssembly component bindings
     /// (`wit_bindgen::generate!`, `wasmtime::component::bindgen!`,
     /// cargo-component's `bindings` module).
@@ -1569,6 +1699,7 @@ fn rust_token_call_origin(
         name: node_text(*name, source),
         line: name.start_position().row as i64 + 1,
         unwrap: false,
+        element: false,
     })
 }
 
@@ -1663,11 +1794,36 @@ fn rust_emit_token_tree_calls(
                 .filter(|receiver| matches!(receiver.kind(), "identifier" | "self"))
                 .map(|receiver| node_text(*receiver, source));
             let bindings = context.bindings.borrow();
-            match receiver.as_deref().and_then(|receiver| {
-                bindings.resolve_member(receiver, &method).or_else(|| {
-                    bindings
-                        .foreign_type(receiver)
-                        .map(|ty| format!("{ty}::{method}"))
+            // `value.field.method(..)`: the type the struct declares the
+            // field with, as outside a macro.
+            let field_type = receiver.as_deref().and_then(|field| {
+                let text = |at: usize| tokens.get(at).map(|token| node_text(*token, source));
+                if text(start.checked_sub(3)?).as_deref() != Some(".") {
+                    return None;
+                }
+                let value = tokens.get(start.checked_sub(4)?)?;
+                if !matches!(value.kind(), "identifier" | "self")
+                    || start
+                        .checked_sub(5)
+                        .is_some_and(|at| text(at).as_deref() == Some("."))
+                {
+                    return None;
+                }
+                let value = node_text(*value, source);
+                let owner = bindings
+                    .bound_type(&value)
+                    .filter(|ty| !ty.contains("::"))
+                    .or_else(|| bindings.foreign_type(&value))?;
+                let owner = owner.rsplit(['.', ':']).next().unwrap_or(owner);
+                context.struct_fields.get(owner)?.get(field).cloned()
+            });
+            match field_type.map(|ty| format!("{ty}::{method}")).or_else(|| {
+                receiver.as_deref().and_then(|receiver| {
+                    bindings.resolve_member(receiver, &method).or_else(|| {
+                        bindings
+                            .foreign_type(receiver)
+                            .map(|ty| format!("{ty}::{method}"))
+                    })
                 })
             }) {
                 Some(bound) => (bound, json!({"bound_receiver": true})),
@@ -1986,6 +2142,7 @@ fn rust_call_origin(
                 name,
                 line: expression.start_position().row as i64 + 1,
                 unwrap: false,
+                element: false,
             })
         }
         "identifier" => context
@@ -2035,20 +2192,42 @@ fn rust_emit_argument_references(
         .unwrap_or_else(|| file_path.to_string());
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
+        let line = child.start_position().row as i64 + 1;
+        if child.kind() == "scoped_identifier" {
+            if let Some(edge) =
+                rust_method_reference(child, context, enclosing_class, &caller, line)
+            {
+                edges.push(edge);
+            }
+            continue;
+        }
         if child.kind() != "identifier" {
             continue;
         }
         let name = node_text(child, context.source);
-        if should_skip_value_reference(&name)
-            || context
-                .locals
-                .borrow()
-                .iter()
-                .any(|scope| scope.contains(&name))
-        {
+        if should_skip_value_reference(&name) {
             continue;
         }
-        let line = child.start_position().row as i64 + 1;
+        if context
+            .locals
+            .borrow()
+            .iter()
+            .any(|scope| scope.contains(&name))
+        {
+            // A closure the body bound by `let` (`.is_some_and(word)`).
+            let scope = enclosing_func.map(|func| rust_scope_join(enclosing_class, func));
+            let closure = qualify(file_path, &name, scope.as_deref());
+            if context.closures.borrow().contains(&closure) {
+                edges.push(ParsedEdge::new(
+                    crate::core::types::EdgeKind::References,
+                    caller.clone(),
+                    closure,
+                    file_path.clone(),
+                    line,
+                ));
+            }
+            continue;
+        }
         if context.free_functions.contains(&name) {
             edges.push(ParsedEdge::new(
                 crate::core::types::EdgeKind::References,
@@ -2083,6 +2262,69 @@ fn rust_emit_argument_references(
             extra,
         });
     }
+}
+
+/// A method passed as a value (`.map(Dep::finding)`,
+/// `.map(crate::stability::Dep::finding)`, `.map(Self::finding)`): a
+/// REFERENCES to it. A type this file declares names its node; another is
+/// left for resolution across files, by the method's name and the type
+/// (`receiver_type`), in the type's module file when the path resolves.
+fn rust_method_reference(
+    path: tree_sitter::Node<'_>,
+    context: &RustParseContext<'_>,
+    enclosing_class: Option<&str>,
+    caller: &str,
+    line: i64,
+) -> Option<ParsedEdge> {
+    let source = context.source;
+    let segments: Vec<String> = node_text(path, source)
+        .split("::")
+        .map(|segment| segment.trim().to_string())
+        .collect();
+    let [.., owner, method] = segments.as_slice() else {
+        return None;
+    };
+    if !method.starts_with(|c: char| c.is_ascii_lowercase())
+        || !owner.starts_with(|c: char| c.is_ascii_uppercase())
+    {
+        return None;
+    }
+    let owner = if owner == "Self" {
+        enclosing_class?.rsplit('.').next()?.to_string()
+    } else {
+        owner.clone()
+    };
+    let file_path = &context.file_path;
+    if segments.len() == 2 && context.declared_types.contains(&owner) {
+        return Some(ParsedEdge::new(
+            crate::core::types::EdgeKind::References,
+            caller.to_string(),
+            qualify(file_path, method, Some(&owner)),
+            file_path.clone(),
+            line,
+        ));
+    }
+    let mut extra = json!({"value_reference": true, "receiver_type": owner});
+    let type_path = &segments[..segments.len() - 1];
+    if let Some(resolved) = context.scope.and_then(|scope| scope.resolve(type_path))
+        && resolved.rest.len() == 1
+    {
+        extra["module_file"] = json!(resolved.file);
+    } else if type_path.len() == 1
+        && let Some(full) = context.uses.borrow().get(&owner).cloned()
+        && let Some(resolved) = context.scope.and_then(|scope| scope.resolve(&full))
+        && resolved.rest.len() == 1
+    {
+        extra["module_file"] = json!(resolved.file);
+    }
+    Some(ParsedEdge {
+        kind: crate::core::types::EdgeKind::References,
+        source: caller.to_string(),
+        target: method.clone(),
+        file_path: file_path.clone(),
+        line,
+        extra,
+    })
 }
 
 /// Names a function body binds: parameters, `let` / `if let` / `while let` /

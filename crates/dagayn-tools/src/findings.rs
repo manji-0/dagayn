@@ -378,7 +378,8 @@ pub(crate) fn untested_changes(inputs: &Inputs) -> Option<Vec<Value>> {
 }
 
 /// Whether a test calls `qn` directly, through TESTED_BY, or through
-/// callers up to [`CALLER_TEST_DEPTH`] hops.
+/// callers (or functions it is passed to as a value) up to
+/// [`CALLER_TEST_DEPTH`] hops.
 fn reached_by_test(inputs: &Inputs, qn: &str) -> Option<bool> {
     let mut frontier = vec![qn.to_string()];
     let mut seen: HashSet<String> = frontier.iter().cloned().collect();
@@ -394,7 +395,11 @@ fn reached_by_test(inputs: &Inputs, qn: &str) -> Option<bool> {
         let (_, incoming) = inputs.store.get_edges_by_endpoints(&frontier).ok()?;
         let mut next = Vec::new();
         for edge in incoming.values().flatten() {
-            if edge.kind != "CALLS" || !seen.insert(edge.source_qualified.clone()) {
+            // A function passed as a value (`.map(Type::method)`) is called
+            // by what it is passed to; a type reference is not a call.
+            let calls = edge.kind == "CALLS"
+                || (edge.kind == "REFERENCES" && edge.extra.get("relationship_role").is_none());
+            if !calls || !seen.insert(edge.source_qualified.clone()) {
                 continue;
             }
             if let Some(caller) = inputs.store.get_node(&edge.source_qualified).ok()? {

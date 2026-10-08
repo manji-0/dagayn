@@ -11,8 +11,9 @@ functions that call into it as untested, though
 `tests/tools.rs::unstable_dependencies_are_found_where_they_are_introduced`
 runs them. Should the judgement change, and how?
 
-Status: the declaration is shipped ([decisions](#decisions-2026-10-08));
-dispatch-aware reach is the follow-up.
+Status: the declaration and the call-graph fixes are shipped
+([decisions](#decisions-2026-10-08)); dispatch-aware reach is the
+follow-up.
 
 ## Evidence
 
@@ -70,15 +71,35 @@ tool name as a string literal, and `CALLS` edges carry no argument text.
 
 ## Remaining gaps
 
-The functions still reported have no caller in the graph at all; these are
-gaps of the Rust call graph, not of test reach:
+<!-- derived-from #result -->
 
-- A method called through a closure parameter
-  (`.filter(|dependency| dependency.introduced_by(...))`): the receiver's
-  type is not inferred, and the call stays `introduced_by`, unresolved.
-- A function passed as a value (`.map(UnstableDependency::finding)`,
-  `.is_some_and(word)`): no edge.
-- A method called on a field (`self.directive_kind.relationship_role()`).
+The functions still reported after the declaration had no caller in the
+graph at all: three gaps of the Rust call graph, closed by the extractor's
+version 22 and resolution.
+
+- **A method on a closure parameter over a call's elements**
+  (`unstable_dependencies(..).iter().filter(|d| d.introduced_by(..))`):
+  the parameter is bound to the elements of what the call returned
+  (`receiver_from.element`, through `iter`, `filter`, and the other
+  methods that keep the elements), and resolution takes the `T` out of a
+  `Vec<T>`, `HashSet<T>`, `Option<T>`, ... in the declared return type. A
+  call of a package is left alone: its element types are not in the tables.
+- **A function passed as a value**: `.map(Type::method)` (also
+  `crate::m::Type::method` and `Self::method`) is a REFERENCES to the
+  method, resolved as a typed call is (`receiver_type`, in the type's
+  module file); a `let`-bound closure passed by name (`.is_some_and(word)`)
+  is one to its node. `untested_change` follows these references as calls;
+  type references are not.
+- **A method on a field inside a macro**
+  (`json!({.. directive.directive_kind.relationship_role() ..})`): the
+  field's declared type types the receiver, as outside a macro.
+
+On this repository: 119 fewer unresolved method calls, 45 more resolved
+value references, and 6 of 975 element-bound calls resolved (the rest
+come from calls of the standard library, left as they were). Every
+function the review had still called untested now has a caller.
+`tests/tools.rs::closures_over_returned_elements_and_method_values_reach_their_targets`
+holds the resolution across files.
 
 ## Follow-up: dispatch-aware reach
 
@@ -93,8 +114,11 @@ declaration is the way to state it.
 
 - Parser: `crates/dagayn-parser/src/documentation_directives.rs` (the
   `tests` kind; a directive opens its comment), `rust_lang/mod.rs` (Rust
-  comment directives), `extractor_version.rs` (markdown 2, python 12,
-  rust 21, csharp 8, terraform 2).
+  comment directives, closure elements, method values, macro fields),
+  `member_calls.rs` (`CallOrigin.element`), `extractor_version.rs`
+  (markdown 2, python 12, rust 22, csharp 8, terraform 2).
+- Resolution: `crates/dagayn-graph/src/postprocess/returned.rs` (element
+  types), `bare_names.rs` (typed value references).
 - Graph: `crates/dagayn-graph/src/communities.rs`
   (`get_test_targets_for_source`).
 - Tools: `crates/dagayn-tools/src/coverage.rs` (`tests_for`).

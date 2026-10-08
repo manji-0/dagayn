@@ -31,12 +31,21 @@ pub(super) struct CallOrigin {
     pub(super) name: String,
     pub(super) line: i64,
     pub(super) unwrap: bool,
+    /// The receiver is an element of what the call returned (`f().iter()
+    /// .filter(|x| x.m())`): resolution takes the `T` out of a `Vec<T>`,
+    /// `HashSet<T>`, `Option<T>`, ... after any unwrap.
+    pub(super) element: bool,
 }
 
 impl CallOrigin {
     /// The `receiver_from` metadata of a member call on this result.
     pub(super) fn to_json(&self) -> serde_json::Value {
-        serde_json::json!({"call": self.name, "line": self.line, "unwrap": self.unwrap})
+        let mut json =
+            serde_json::json!({"call": self.name, "line": self.line, "unwrap": self.unwrap});
+        if self.element {
+            json["element"] = serde_json::json!(true);
+        }
+        json
     }
 }
 

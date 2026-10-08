@@ -677,6 +677,7 @@ fn swift_call_origin(
                 name,
                 line: value.start_position().row as i64 + 1,
                 unwrap,
+                element: false,
             })
         }
         "try_expression" => {
