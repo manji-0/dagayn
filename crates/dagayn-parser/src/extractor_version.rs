@@ -140,8 +140,11 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // a function nested in the caller or a method of its class; a call
         // on a module of this repository imported anywhere in the file
         // (`module.run()`) records the module's file (`module_file`).
+        // 14: a nested function as a list element, a dict value, the value
+        // of an attribute or item assignment, or a returned name is a
+        // REFERENCES too.
         extractor: "python",
-        version: 13,
+        version: 14,
         languages: &["python", "notebook"],
     },
     ExtractorVersion {

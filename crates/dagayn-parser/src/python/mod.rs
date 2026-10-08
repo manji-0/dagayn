@@ -282,7 +282,7 @@ impl<'ast> SourceOrderVisitor<'ast> for PythonWalker<'_, '_> {
                     if item.key.is_some()
                         && let Expr::Name(name) = &item.value
                     {
-                        self.emit_reference_if_known(name);
+                        self.emit_value_reference(name);
                     }
                     if let Some(key) = &item.key {
                         self.visit_expr(key);
@@ -293,14 +293,14 @@ impl<'ast> SourceOrderVisitor<'ast> for PythonWalker<'_, '_> {
             // `{key: handler for key in keys}`
             Expr::DictComp(comprehension) => {
                 if let Expr::Name(name) = &*comprehension.value {
-                    self.emit_reference_if_known(name);
+                    self.emit_value_reference(name);
                 }
                 walk_expr(self, expr);
             }
             Expr::List(list) if matches!(list.ctx, ExprContext::Load) => {
                 for element in &list.elts {
                     if let Expr::Name(name) = element {
-                        self.emit_reference_if_known(name);
+                        self.emit_value_reference(name);
                     }
                 }
                 walk_expr(self, expr);
@@ -393,6 +393,15 @@ impl PythonWalker<'_, '_> {
                 assign.value.as_deref(),
                 assign.range,
             ),
+            // `return wrapped`: a nested function handed to the caller.
+            Stmt::Return(ast::StmtReturn {
+                value: Some(value), ..
+            }) if matches!(&**value, Expr::Name(_)) => {
+                if let Expr::Name(name) = &**value {
+                    self.emit_value_reference(name);
+                }
+                walk_stmt(self, stmt);
+            }
             Stmt::AugAssign(assign) => {
                 walk_stmt(self, stmt);
                 python_bind_assignment(&assign.target, None, Some(&assign.value), self.context);
@@ -728,7 +737,7 @@ impl PythonWalker<'_, '_> {
         if matches!(target, Expr::Attribute(_) | Expr::Subscript(_))
             && let Some(Expr::Name(name)) = value
         {
-            self.emit_reference_if_known(name);
+            self.emit_value_reference(name);
         }
         self.visit_expr(target);
         if let Some(annotation) = annotation {

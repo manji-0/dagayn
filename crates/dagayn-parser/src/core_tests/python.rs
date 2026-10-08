@@ -1074,3 +1074,54 @@ fn calls_on_a_module_imported_in_a_function_record_its_file() {
     );
     let _ = std::fs::remove_dir_all(&repo_root);
 }
+
+#[test]
+fn nested_functions_used_as_values_are_references() {
+    // dagayn: tests crates/dagayn-parser/src/python/mod.rs::PythonWalker.visit_expr
+    // dagayn: tests crates/dagayn-parser/src/python/mod.rs::PythonWalker.visit_statement
+    // dagayn: tests crates/dagayn-parser/src/python/mod.rs::PythonWalker.visit_assignment
+    let source = br#"def run(store):
+    def first():
+        return 1
+
+    def second():
+        return 2
+
+    def third():
+        return 3
+
+    count = 0
+    scenarios = [first, count]
+    table = {"second": second}
+    store.close = third
+    return scenarios, table
+
+
+def decorate(impl):
+    def wrapped():
+        return impl()
+
+    return wrapped
+"#;
+    let (_, edges) = parse_python("app.py", source);
+    let references: Vec<(&str, &str)> = edges
+        .iter()
+        .filter(|edge| edge.kind == "REFERENCES")
+        .map(|edge| (edge.source.as_str(), edge.target.as_str()))
+        .collect();
+    for (source, target) in [
+        ("app.py::run", "app.py::run.first"),
+        ("app.py::run", "app.py::run.second"),
+        ("app.py::run", "app.py::run.third"),
+        ("app.py::decorate", "app.py::decorate.wrapped"),
+    ] {
+        assert!(references.contains(&(source, target)), "{references:?}");
+    }
+    // `count` is a variable, not a function: no reference.
+    assert!(
+        !references
+            .iter()
+            .any(|(_, target)| target.ends_with(".count")),
+        "{references:?}"
+    );
+}
