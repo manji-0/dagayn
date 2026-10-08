@@ -2798,7 +2798,7 @@ fn importing_a_module_reaches_what_its_import_runs() {
     let repo = Repo::new("import-reach", true);
     let specs = |value: i64| {
         format!(
-            "class Spec:\n    def __init__(self):\n        self.value = {value}\n\n    def grow(self):\n        self.value += {value}\n\n\ndef unused():\n    return {value}\n\n\nDEFAULT = Spec()\n"
+            "class Spec:\n    def __init__(self):\n        self.value = {value}\n\n    def grow(self):\n        self.value += {value}\n\n\nclass Store:\n    def __init__(self):\n        self.items = [{value}]\n\n\ndef make_store():\n    return Store()\n\n\ndef unused():\n    return {value}\n\n\nDEFAULT = Spec()\nSTORE = make_store()\n"
         )
     };
     let lazy = |value: i64| format!("def __getattr__(name):\n    return {value}\n");
@@ -2828,8 +2828,9 @@ fn importing_a_module_reaches_what_its_import_runs() {
         .filter_map(Value::as_str)
         .collect();
     untested.sort_unstable();
-    // Importing `specs` builds `DEFAULT` (`Spec.__init__`); an attribute of
-    // `lazy` runs its `__getattr__`. Nothing calls `grow` or `unused`.
+    // Importing `specs` builds `DEFAULT` (`Spec.__init__`) and, through
+    // `make_store`, `STORE` (`Store.__init__`); an attribute of `lazy` runs
+    // its `__getattr__`. Nothing calls `grow` or `unused`.
     assert_eq!(
         untested,
         ["specs.py::Spec.grow", "specs.py::unused"],

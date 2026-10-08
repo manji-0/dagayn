@@ -7,9 +7,10 @@
 # values (python 14): 0.753, 0.697, 0.952. Imports that run a module-level
 # instance's methods or a module's `__getattr__`: 0.797, 0.697, 0.952.
 # Aliased imports and conditional values (python 15): 0.819, 0.697, 0.952.
+# Module-level calls that build the instance: 0.846, 0.691, 0.951.
 # The floors sit just under the
 # current values; raise them as the call graph improves.
 floors:
-  untested_precision: 0.79
+  untested_precision: 0.82
   untested_recall: 0.67
   tested_precision: 0.93

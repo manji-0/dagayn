@@ -407,8 +407,11 @@ pub(crate) fn nearest_test(
     };
     let mut frontier = vec![qn.to_string()];
     let mut seen: HashSet<String> = frontier.iter().cloned().collect();
-    // Modules whose import runs what the walk is after.
+    // Modules whose import runs what the walk is after, and the callers
+    // that run an implicit method through the class (`_make_store()`
+    // returning `Store()`).
     let mut imported: HashSet<String> = HashSet::new();
+    let mut implicit: HashSet<String> = HashSet::new();
     for depth in 0..=limit {
         for current in &frontier {
             if let Some(test) = direct_tests(store, current)?.into_iter().next() {
@@ -440,6 +443,7 @@ pub(crate) fn nearest_test(
         for (target, edges) in &incoming {
             let of_class = classes.contains(target);
             let module = imported.contains(target);
+            let carries = of_class || module || implicit.contains(target);
             for edge in edges {
                 let calls = edge.kind == "CALLS"
                     || (module && edge.kind == "IMPORTS_FROM")
@@ -454,8 +458,12 @@ pub(crate) fn nearest_test(
                     }
                     // A class built at a module's top level (`SPEC =
                     // GrammarSpec(..)`), or a module imported for one.
-                    if (of_class || module) && is_python_module(&caller.qualified_name) {
-                        imported.insert(caller.qualified_name.clone());
+                    if carries {
+                        if is_python_module(&caller.qualified_name) {
+                            imported.insert(caller.qualified_name.clone());
+                        } else {
+                            implicit.insert(caller.qualified_name.clone());
+                        }
                     }
                     next.push(caller.qualified_name);
                 }

@@ -182,6 +182,47 @@ REFERENCES) was measured and rejected: tested precision stayed 0.950 and
 4 more functions were wrongly called untested (untested precision 0.642). `tests/tools.rs::a_test_that_uses_a_class_reaches_the_methods_the_runtime_calls`
 holds the method reach.
 
+## Code that runs without a caller
+
+<!-- derived-from #python-call-graph -->
+
+The functions that ran but had no caller in the graph, closed one
+mechanism at a time and measured after each:
+
+| Step | Untested precision | Recall | Tested precision |
+|---|---|---|---|
+| Before (python 13) | 0.656 | 0.697 | 0.950 |
+| A nested function in a list or dict, assigned to an attribute, or returned (python 14) | 0.753 | 0.697 | 0.952 |
+| Imports that run a module-level instance's methods or a package's `__getattr__` | 0.797 | 0.697 | 0.952 |
+| `from m import f as g`, and both branches of `x = f if c else g` (python 15) | 0.819 | 0.697 | 0.952 |
+| A module-level call of a function that builds the instance (`STORE = make_store()`) | 0.846 | 0.691 | 0.951 |
+
+- **What a module's import runs.** `nearest_test` follows IMPORTS_FROM
+  into a Python module only when the walk reached it through an implicit
+  method: the module builds the class's instance at its top level, calls a
+  function that builds it, or defines the `__getattr__` / `__dir__` being
+  walked. Following imports into every module that runs code at its top
+  level was measured and rejected: untested precision 0.897, but recall
+  fell to 0.549 (26 right untested answers lost with 29 wrong ones).
+- **The cost of the last step** is one right answer:
+  `_SharedPendingRefactors.__iter__` runs on iteration, which no test does,
+  but the class step counts every dunder method of a class in use.
+  `WorkerLock.__exit__` is the same limit.
+
+Left after these (3 functions that ran with no caller):
+
+- **Calls through a base class**: `provider.embed()` on a receiver typed
+  only as `EmbeddingProvider` runs `_TokenHashEmbeddingProvider.embed`.
+  Reaching overrides from a call of the base method needs the receiver's
+  declared type and an override edge; an eval case is a base class with
+  two subclasses and a test that builds one.
+- **Nested pydantic models**: `GuidanceEvidence.normalize_type` is a
+  validator of a model used only as a field type of another model, which
+  the class step does not follow (a field annotation is a type reference).
+
+`tests/tools.rs::importing_a_module_reaches_what_its_import_runs` holds
+the import steps.
+
 ## Follow-up: dispatch-aware reach
 
 Record string-literal arguments on `CALLS` edges and the string patterns of
@@ -196,9 +237,9 @@ declaration is the way to state it.
 - Parser: `crates/dagayn-parser/src/documentation_directives.rs` (the
   `tests` kind; a directive opens its comment), `rust_lang/mod.rs` (Rust
   comment directives, closure elements, method values, macro fields),
-  `member_calls.rs` (`CallOrigin.element`), `python/mod.rs` (argument
-  and tuple references, `module_file`), `extractor_version.rs`
-  (markdown 2, python 13, rust 22, csharp 8, terraform 2).
+  `member_calls.rs` (`CallOrigin.element`), `python/mod.rs` (functions
+  as values, `module_file`, aliased imports), `extractor_version.rs`
+  (markdown 2, python 15, rust 22, csharp 8, terraform 2).
 - Resolution: `crates/dagayn-graph/src/postprocess/returned.rs` (element
   types), `bare_names.rs` (typed value references).
 - Graph: `crates/dagayn-graph/src/communities.rs`
