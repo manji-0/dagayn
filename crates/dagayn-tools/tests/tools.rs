@@ -2839,6 +2839,67 @@ fn importing_a_module_reaches_what_its_import_runs() {
 }
 
 #[test]
+fn a_rust_test_any_number_of_hops_away_counts_and_a_python_one_does_not() {
+    // dagayn: tests crates/dagayn-tools/src/review.rs::review
+    // dagayn: tests crates/dagayn-tools/src/findings.rs::caller_test_depth
+    // dagayn: tests crates/dagayn-tools/src/findings.rs::untested_changes
+    let repo = Repo::new("deep-chains", true);
+    // `f0` calls `f1` ... `f6`; the test of `f0` is six hops from `f6`.
+    let rust = |value: i64| {
+        let mut source: String = (0..6)
+            .map(|i| format!("pub fn f{i}() -> i64 {{\n    f{}()\n}}\n\n", i + 1))
+            .collect();
+        source.push_str(&format!("pub fn f6() -> i64 {{\n    {value}\n}}\n\n#[cfg(test)]\nmod tests {{\n    #[test]\n    fn chain() {{\n        assert!(super::f0() > 0);\n    }}\n}}\n"));
+        source
+    };
+    let python = |value: i64| {
+        let mut source: String = (0..6)
+            .map(|i| format!("def f{i}():\n    return f{}()\n\n\n", i + 1))
+            .collect();
+        source.push_str(&format!("def f6():\n    return {value}\n"));
+        source
+    };
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("src/lib.rs", &rust(1));
+    repo.write("chain.py", &python(1));
+    repo.write(
+        "test_chain.py",
+        "from chain import f0\n\n\ndef test_chain():\n    assert f0()\n",
+    );
+    commit_all(&repo, "chains");
+    repo.build();
+    repo.write("src/lib.rs", &rust(2));
+    repo.write("chain.py", &python(2));
+    commit_all(&repo, "edit");
+    repo.build();
+    let context = Context {
+        runtime: Some(json!({})),
+        ..repo.context()
+    };
+    let changes = answer(&context, "review_tool", json!({}));
+    let untested: Vec<&Value> = changes["findings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|f| f["kind"] == "untested_change")
+        .collect();
+    assert_eq!(untested.len(), 1, "{changes}");
+    assert_eq!(untested[0]["targets"], json!(["chain.py::f6"]), "{changes}");
+    assert_eq!(untested[0]["evidence"][1]["caller_depth"], 4, "{changes}");
+    let reach = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "tests_for", "target": "src/lib.rs::f6"}),
+    );
+    assert_eq!(reach["test_reach"]["hops"], 6, "{reach}");
+    assert_eq!(reach["test_reach"]["counts_as_tested"], true, "{reach}");
+    assert_eq!(reach["test_reach"]["hop_limit"], Value::Null, "{reach}");
+}
+
+#[test]
 fn importing_a_module_reaches_its_top_level_calls_only() {
     // dagayn: tests crates/dagayn-tools/src/review.rs::review
     // dagayn: tests crates/dagayn-tools/src/findings.rs::nearest_test

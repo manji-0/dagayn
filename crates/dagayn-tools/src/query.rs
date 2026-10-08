@@ -1142,13 +1142,14 @@ fn run_pattern(
                 crate::coverage::infer_tests_for_node(store, &mut state, node, 25, "medium")?;
             // The nearest test as `untested_change` counts it, a little past
             // the limit it trusts, so a test just beyond it shows.
-            let limit = crate::findings::CALLER_TEST_DEPTH;
+            let limit = crate::findings::caller_test_depth(&node.language);
+            let search = limit.map_or(usize::MAX, |limit| limit + 4);
             found.test_reach = Some(
-                match crate::findings::nearest_test(store, root, &node.qualified_name, limit + 4)? {
+                match crate::findings::nearest_test(store, root, &node.qualified_name, search)? {
                     Some((hops, test)) => json!({
                         "nearest_test": test,
                         "hops": hops,
-                        "counts_as_tested": hops <= limit,
+                        "counts_as_tested": limit.is_none_or(|limit| hops <= limit),
                         "hop_limit": limit,
                     }),
                     None => json!({

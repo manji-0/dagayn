@@ -23,6 +23,14 @@ const MAX_LISTED: usize = 10;
 /// Caller hops `untested_change` walks looking for a test.
 pub(crate) const CALLER_TEST_DEPTH: usize = 4;
 
+/// The caller hops a test may be from a function of `language` and count:
+/// none for Rust, whose call chains run deep (a test 5–12 hops away ran in
+/// 94% of the cases, docs/plans/TEST-REACH-TARGET.md#rust), and
+/// [`CALLER_TEST_DEPTH`] elsewhere, where a deeper test barely occurs.
+pub(crate) fn caller_test_depth(language: &str) -> Option<usize> {
+    (language != "rust").then_some(CALLER_TEST_DEPTH)
+}
+
 /// Doc-to-code roles that state a contract (`implemented_by`), and the
 /// code-to-doc ones (`implements_contract`, ...).
 const CONTRACT_ROLES_FROM_DOC: &[&str] = &["implemented_by"];
@@ -339,8 +347,8 @@ fn listed<'a>(names: impl Iterator<Item = &'a str>) -> Vec<&'a str> {
 }
 
 /// `untested_change`: changed production functions with no direct test and
-/// no test among their callers up to [`CALLER_TEST_DEPTH`] hops, one finding
-/// per file.
+/// no test among their callers within [`caller_test_depth`], one finding per
+/// file.
 pub(crate) fn untested_changes(inputs: &Inputs) -> Option<Vec<Value>> {
     let mut by_file: BTreeMap<String, Vec<&GraphNode>> = BTreeMap::new();
     for node in inputs.changed_nodes {
@@ -348,7 +356,7 @@ pub(crate) fn untested_changes(inputs: &Inputs) -> Option<Vec<Value>> {
         if node.kind != "Function" || !is_production_code(node, &rel) {
             continue;
         }
-        if reached_by_test(inputs, &node.qualified_name)? {
+        if reached_by_test(inputs, node)? {
             continue;
         }
         by_file.entry(rel).or_default().push(node);
@@ -369,7 +377,7 @@ pub(crate) fn untested_changes(inputs: &Inputs) -> Option<Vec<Value>> {
                     ),
                     "targets": listed(nodes.iter().map(|node| node.qualified_name.as_str())),
                     "function_count": nodes.len(),
-                    "evidence": [{"edge": "TESTED_BY", "count": 0}, {"edge": "CALLS", "caller_depth": CALLER_TEST_DEPTH, "tests_found": 0}],
+                    "evidence": [{"edge": "TESTED_BY", "count": 0}, {"edge": "CALLS", "caller_depth": caller_test_depth(&nodes[0].language), "tests_found": 0}],
                     "action": "Add a test, or confirm an existing one covers them.",
                 })
             })
@@ -377,11 +385,12 @@ pub(crate) fn untested_changes(inputs: &Inputs) -> Option<Vec<Value>> {
     )
 }
 
-/// Whether a test calls `qn` directly, through TESTED_BY, or through
-/// callers (or functions it is passed to as a value) up to
-/// [`CALLER_TEST_DEPTH`] hops.
-fn reached_by_test(inputs: &Inputs, qn: &str) -> Option<bool> {
-    Some(nearest_test(inputs.store, inputs.root, qn, CALLER_TEST_DEPTH)?.is_some())
+/// Whether a test calls `node` directly, through TESTED_BY, or through
+/// callers (or functions it is passed to as a value) within
+/// [`caller_test_depth`].
+fn reached_by_test(inputs: &Inputs, node: &GraphNode) -> Option<bool> {
+    let limit = caller_test_depth(&node.language).unwrap_or(usize::MAX);
+    Some(nearest_test(inputs.store, inputs.root, &node.qualified_name, limit)?.is_some())
 }
 
 /// What `untested_change` decides from: the nearest test of `qn` within

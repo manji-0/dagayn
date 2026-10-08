@@ -159,6 +159,15 @@ jobs:
         run: >
           cargo llvm-cov --workspace --summary-only
           --ignore-filename-regex 'dagayn-py/' --fail-under-lines 82
+      - name: Gate untested_change on Rust against the coverage
+        # Writes the same run's coverage per function, builds this
+        # repository's graph, and asks tests_for's test_reach of every Rust
+        # production function (docs/plans/TEST-REACH-TARGET.md#rust).
+        run: |
+          cargo llvm-cov report --json --output-path rust-coverage.json --ignore-filename-regex 'dagayn-py/'
+          uv run python -m dagayn.vendor_grammars
+          uv run dagayn build
+          uv run python eval/run_test_reach_eval.py --coverage rust-coverage.json --gate --thresholds eval/test_reach_rust_thresholds.yaml
       - name: Standalone Rust CLI against the Python one
         # The Rust `dagayn build` and `update` must write the graph the Python
         # CLI writes; the server under test stays the Python one.

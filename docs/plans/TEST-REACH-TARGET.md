@@ -178,6 +178,15 @@ deepest Rust test path is 12):
   overrides from the base method's callers measured net zero. A dispatch
   rule is not worth its cost in either language here.
 
+Applied: `caller_test_depth` lifts the limit for Rust and keeps 4 hops
+elsewhere (Python measured 0.874 / 0.674 / 0.949 with no limit, too close
+to its recall floor of 0.67 to trade). `test_reach.hop_limit` is `null` for
+Rust. CI's Rust job writes the coverage of its `cargo llvm-cov` run per
+function (`cargo llvm-cov report --json`) and gates it with
+`eval/test_reach_rust_thresholds.yaml`: untested precision 0.387, recall
+0.233, tested precision 0.943 on 3,199 functions. `untested_core` in the
+architecture overview still walks 4 hops in every language.
+
 ## Python call graph
 
 <!-- derived-from #evaluation -->

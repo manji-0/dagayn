@@ -1,0 +1,11 @@
+# Gate for untested_change's judgement of Rust functions against the
+# coverage of `cargo llvm-cov` (docs/plans/TEST-REACH-TARGET.md#rust).
+# Baseline of 2026-10-08 with the 4-hop limit: untested precision 0.122,
+# recall 0.381, tested precision 0.945. With no hop limit for Rust: 0.387,
+# 0.233, 0.943. llvm-cov counts what binaries the tests spawn ran, which the
+# call graph does not cross, so the floors sit a little further under the
+# current values than Python's.
+floors:
+  untested_precision: 0.35
+  untested_recall: 0.20
+  tested_precision: 0.92

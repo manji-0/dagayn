@@ -61,7 +61,8 @@ The reply contract of `query_graph_tool`, `semantic_search_nodes_tool`,
   (`"full"` for `query_graph_tool`).
 - `query_graph_tool(pattern="tests_for")` carries `test_reach`: the nearest
   test as `review_tool`'s `untested_change` counts it (`hops`,
-  `nearest_test`, `counts_as_tested` within `hop_limit`). No test there
+  `nearest_test`, `counts_as_tested` within `hop_limit`, which is `null`,
+  no limit, for Rust). No test there
   means no path in the graph, which a test run may still cover.
 - The earlier next-step fields (`next_action`, `exactness.next_action`,
   `next_drill_downs`, `next_tool_suggestions`, `_hints`) appear only at

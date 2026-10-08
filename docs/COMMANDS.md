@@ -746,7 +746,8 @@ an `action`. Kinds:
   units' afferent and efferent counts and instability, the sites, and the
   SAP abstractness and distance of the unit depended on where SAP applies.
 - `untested_change`: changed production functions with no test reaching them,
-  directly or through callers up to 4 hops. A dunder method or a property or
+  directly or through callers (up to 4 hops; any number for Rust, whose
+  call chains run deep). A dunder method or a property or
   validator counts as called wherever its class is, and a Python module that
   builds the instance at its top level (or defines the `__getattr__`), or
   calls the function at its top level outside any branch, loop, `except`
