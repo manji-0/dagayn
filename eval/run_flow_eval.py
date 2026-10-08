@@ -280,9 +280,11 @@ def run_case(
             )
         if payload is None or payload.get("status") != "ok":
             raise RuntimeError(f"flow_tool answered {payload and payload.get('summary')!r}")
-        db_path = (payload.get("_repo") or {}).get("db_path")
-        if not db_path:
-            raise RuntimeError("flow_tool did not report _repo.db_path; chains cannot be checked")
+        # Replies name only `repo_root` below verbose; the graph this harness
+        # built sits in the repository's data directory.
+        db_path = (payload.get("_repo") or {}).get("db_path") or repo / ".dagayn" / "graph.db"
+        if not Path(db_path).is_file():
+            raise RuntimeError(f"no graph at {db_path}; chains cannot be checked")
         edges = graph_edges(str(db_path))
     except (RuntimeError, CaseError, subprocess.TimeoutExpired, OSError, sqlite3.Error) as exc:
         row["error"] = str(exc)
