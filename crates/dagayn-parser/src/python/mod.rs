@@ -153,13 +153,18 @@ fn extract_python_documentation_directives(
     }
 }
 
+/// `from <module> import <name> [as <bound>]`: bound name -> (module, name
+/// in the module).
+type ImportMap = HashMap<String, (String, String)>;
+
 struct PythonParseContext<'a> {
     src: &'a PySource<'a>,
     /// The parse recovered from syntax errors.
     recovered: bool,
     file_path: FilePath,
     repo_root: Option<&'a Path>,
-    import_map: &'a HashMap<String, String>,
+    /// Top-level `from` imports.
+    import_map: &'a ImportMap,
     top_level_defined_names: &'a HashSet<String>,
     protocol_names: &'a HashSet<String>,
     /// Local names bound by an import anywhere in the file, including the
@@ -739,6 +744,14 @@ impl PythonWalker<'_, '_> {
         {
             self.emit_value_reference(name);
         }
+        // `render = full if wide else short`: either branch may run.
+        if let Some(Expr::If(choice)) = value {
+            for branch in [&*choice.body, &*choice.orelse] {
+                if let Expr::Name(name) = branch {
+                    self.emit_value_reference(name);
+                }
+            }
+        }
         self.visit_expr(target);
         if let Some(annotation) = annotation {
             self.visit_annotation(annotation);
@@ -910,10 +923,10 @@ fn python_resolve_reference_target(name: &str, context: &PythonParseContext<'_>)
     if context.top_level_defined_names.contains(name) {
         return Some(qualify(&context.file_path, name, None));
     }
-    let module = context.import_map.get(name)?;
+    let (module, original) = context.import_map.get(name)?;
     Some(
         python_resolve_module_to_file(module, &context.file_path, context.repo_root)
-            .map(|resolved| qualify(&resolved, name, None))
+            .map(|resolved| qualify(&resolved, original, None))
             .unwrap_or_else(|| name.to_string()),
     )
 }
@@ -941,7 +954,7 @@ fn python_skip_value_reference_name(name: &str) -> bool {
 fn collect_python_file_scope(
     body: &[Stmt],
     src: &PySource<'_>,
-) -> (HashMap<String, String>, HashSet<String>, HashSet<String>) {
+) -> (ImportMap, HashSet<String>, HashSet<String>) {
     let mut import_map = HashMap::new();
     let mut defined_names = HashSet::new();
     let mut protocol_names = HashSet::new();
@@ -973,7 +986,7 @@ fn collect_python_file_scope(
                 }
                 for alias in python_import_from_names(import) {
                     let bound = alias.asname.as_ref().unwrap_or(&alias.name);
-                    import_map.insert(bound.to_string(), module.clone());
+                    import_map.insert(bound.to_string(), (module.clone(), alias.name.to_string()));
                 }
             }
             _ => {}
@@ -1819,9 +1832,9 @@ fn python_resolve_imported_call_target(
     if context.top_level_defined_names.contains(call_name) {
         return None;
     }
-    let module = context.import_map.get(call_name)?;
+    let (module, original) = context.import_map.get(call_name)?;
     let resolved = python_resolve_module_to_file(module, &context.file_path, context.repo_root)?;
-    Some(qualify(&resolved, call_name, None))
+    Some(qualify(&resolved, original, None))
 }
 
 fn add_python_tested_by_edges(

@@ -1125,3 +1125,64 @@ def decorate(impl):
         "{references:?}"
     );
 }
+
+#[test]
+fn aliased_imports_and_conditional_values_name_their_functions() {
+    // dagayn: tests crates/dagayn-parser/src/python/mod.rs::collect_python_file_scope
+    // dagayn: tests crates/dagayn-parser/src/python/mod.rs::python_resolve_imported_call_target
+    // dagayn: tests crates/dagayn-parser/src/python/mod.rs::PythonWalker.visit_assignment
+    let mut repo_root = std::env::temp_dir();
+    repo_root.push(format!(
+        "dagayn-parser-python-alias-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    let _ = std::fs::remove_dir_all(&repo_root);
+    std::fs::create_dir_all(repo_root.join("pkg")).unwrap();
+    std::fs::write(repo_root.join("pkg/__init__.py"), b"").unwrap();
+    std::fs::write(
+        repo_root.join("pkg/errors.py"),
+        b"def dispatch_error(message):\n    return message\n",
+    )
+    .unwrap();
+
+    let source = br#"from .errors import dispatch_error as _error
+
+
+def full():
+    return 1
+
+
+def short():
+    return 2
+
+
+def handle(wide):
+    render = full if wide else short
+    return _error(render())
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_, edges) = parser.parse_file_in_repo(Some(&repo_root), "pkg/app.py", source);
+    let pairs: Vec<(&str, &str, &str)> = edges
+        .iter()
+        .map(|edge| {
+            (
+                edge.kind.as_str(),
+                edge.source.as_str(),
+                edge.target.as_str(),
+            )
+        })
+        .collect();
+    for expected in [
+        (
+            "CALLS",
+            "pkg/app.py::handle",
+            "pkg/errors.py::dispatch_error",
+        ),
+        ("REFERENCES", "pkg/app.py::handle", "pkg/app.py::full"),
+        ("REFERENCES", "pkg/app.py::handle", "pkg/app.py::short"),
+    ] {
+        assert!(pairs.contains(&expected), "{expected:?} in {pairs:?}");
+    }
+    let _ = std::fs::remove_dir_all(&repo_root);
+}

@@ -5,9 +5,11 @@
 # Python call-graph fixes of the same day: 0.656, 0.697, 0.950 (recall traded
 # 21 right untested claims for 132 fewer wrong ones). Nested functions as
 # values (python 14): 0.753, 0.697, 0.952. Imports that run a module-level
-# instance's methods or a module's `__getattr__`: 0.797, 0.697, 0.952. The floors sit just under the
+# instance's methods or a module's `__getattr__`: 0.797, 0.697, 0.952.
+# Aliased imports and conditional values (python 15): 0.819, 0.697, 0.952.
+# The floors sit just under the
 # current values; raise them as the call graph improves.
 floors:
-  untested_precision: 0.77
+  untested_precision: 0.79
   untested_recall: 0.67
   tested_precision: 0.93

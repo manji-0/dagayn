@@ -143,8 +143,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 14: a nested function as a list element, a dict value, the value
         // of an attribute or item assignment, or a returned name is a
         // REFERENCES too.
+        // 15: a call or reference through `from m import f as g` names `f`
+        // in `m`; both branches of `x = f if c else g` are REFERENCES.
         extractor: "python",
-        version: 14,
+        version: 15,
         languages: &["python", "notebook"],
     },
     ExtractorVersion {
