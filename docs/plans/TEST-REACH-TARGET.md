@@ -135,6 +135,48 @@ called from a table (`{"dfs": _scenario_dfs}`, a command registry). Coverage
 counts only the pytest process, so code a test runs through the `dagayn`
 command counts as not run: the untested precision is if anything high.
 
+## Python call graph
+
+<!-- derived-from #evaluation -->
+
+The wrong `no_callers` above, closed where the graph can see the call:
+
+- **Functions passed as values** (extractor python 13): an argument
+  (`run_guarded(args, dispatch)`, `Thread(target=self._loop)`) or a tuple
+  element (`[("dfs", _dfs)]`) is a REFERENCES, also to a function nested
+  in the caller or a method of its class, kept only if the file defines it
+  (`self.store` is an attribute).
+- **A module imported in a function** (`from pkg import helper` in a test
+  body, then `helper.run()`): the call records the module's file
+  (`module_file`), so resolution finds `run` there.
+- **Methods the runtime calls**: `nearest_test` treats a dunder method
+  (`__init__`, `__enter__`) and a method decorated `@property`,
+  `@cached_property`, `@field_validator`, ... (or its `setter`) as called
+  wherever its class is: the walk goes on from the class's callers and
+  referrers. A plain method is not reached by constructing its class.
+
+| Metric | Baseline | After |
+|---|---|---|
+| called untested | 339 | 186 |
+| untested precision | 0.422 | 0.656 |
+| untested recall | 0.817 | 0.697 |
+| tested precision | 0.965 | 0.950 |
+
+| Why called untested | Ran (wrong) | Did not run |
+|---|---|---|
+| `no_callers` | 28 | 68 |
+| `no_test_path` | 33 | 52 |
+| `beyond_limit` | 3 | 2 |
+
+132 fewer wrong untested claims cost 21 right ones: code a test reaches
+in the graph but the pytest run never executed. The likely source of the
+tested-precision drop is the class step taking every REFERENCES to the
+class, type annotations and base classes included (a test that only
+annotates a parameter as `Box` reaches `Box.__init__`); restricting it to
+calls and value references is the next knob. The two changes were
+measured together. `tests/tools.rs::a_test_that_uses_a_class_reaches_the_methods_the_runtime_calls`
+holds the method reach.
+
 ## Follow-up: dispatch-aware reach
 
 Record string-literal arguments on `CALLS` edges and the string patterns of
@@ -149,8 +191,9 @@ declaration is the way to state it.
 - Parser: `crates/dagayn-parser/src/documentation_directives.rs` (the
   `tests` kind; a directive opens its comment), `rust_lang/mod.rs` (Rust
   comment directives, closure elements, method values, macro fields),
-  `member_calls.rs` (`CallOrigin.element`), `extractor_version.rs`
-  (markdown 2, python 12, rust 22, csharp 8, terraform 2).
+  `member_calls.rs` (`CallOrigin.element`), `python/mod.rs` (argument
+  and tuple references, `module_file`), `extractor_version.rs`
+  (markdown 2, python 13, rust 22, csharp 8, terraform 2).
 - Resolution: `crates/dagayn-graph/src/postprocess/returned.rs` (element
   types), `bare_names.rs` (typed value references).
 - Graph: `crates/dagayn-graph/src/communities.rs`

@@ -746,7 +746,8 @@ an `action`. Kinds:
   units' afferent and efferent counts and instability, the sites, and the
   SAP abstractness and distance of the unit depended on where SAP applies.
 - `untested_change`: changed production functions with no test reaching them,
-  directly or through callers up to 4 hops. One finding per file; tests,
+  directly or through callers up to 4 hops. A dunder method or a property or
+  validator counts as called wherever its class is. One finding per file; tests,
   `build.rs`, `examples/`, benches, fixtures, and generated code are excluded.
 - `tests_to_run`: direct tests of the changed code, and changed tests. One
   finding per test file (Rust unit tests: one per crate), with a `command`.

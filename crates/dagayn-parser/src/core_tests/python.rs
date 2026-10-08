@@ -969,6 +969,10 @@ fn python_same_code_ignores_comments_and_layout() {
 
 #[test]
 fn functions_passed_as_arguments_are_references() {
+    // dagayn: tests crates/dagayn-parser/src/python/mod.rs::PythonWalker.visit_expr
+    // dagayn: tests crates/dagayn-parser/src/python/mod.rs::PythonWalker.emit_argument_references
+    // dagayn: tests crates/dagayn-parser/src/python/mod.rs::PythonWalker.emit_value_reference
+    // dagayn: tests crates/dagayn-parser/src/python/mod.rs::python_keep_checked_references
     let source = br#"import threading
 
 
@@ -1030,4 +1034,43 @@ class Daemon:
             .iter()
             .all(|edge| edge.extra.get("checked_local").is_none())
     );
+}
+
+#[test]
+fn calls_on_a_module_imported_in_a_function_record_its_file() {
+    // dagayn: tests crates/dagayn-parser/src/python/mod.rs::PythonWalker.emit_call
+    let mut repo_root = std::env::temp_dir();
+    repo_root.push(format!(
+        "dagayn-parser-python-module-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    let _ = std::fs::remove_dir_all(&repo_root);
+    std::fs::create_dir_all(repo_root.join("pkg")).unwrap();
+    std::fs::write(repo_root.join("pkg/__init__.py"), b"").unwrap();
+    std::fs::write(
+        repo_root.join("pkg/helper.py"),
+        b"def run():\n    return 1\n",
+    )
+    .unwrap();
+
+    let source = br#"def test_run():
+    from pkg import helper
+
+    assert helper.run() == 1
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_, edges) = parser.parse_file_in_repo(Some(&repo_root), "tests/test_app.py", source);
+    let call = edges
+        .iter()
+        .find(|edge| edge.kind == "CALLS" && edge.target.ends_with("run"))
+        .expect("call to helper.run");
+    assert_eq!(
+        call.extra
+            .get("module_file")
+            .and_then(|value| value.as_str()),
+        Some("pkg/helper.py"),
+        "{call:?}"
+    );
+    let _ = std::fs::remove_dir_all(&repo_root);
 }
