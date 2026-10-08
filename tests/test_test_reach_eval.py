@@ -56,6 +56,58 @@ def test_population_counts_a_body_line_not_the_def_line(tmp_path: Path):
     assert sorted(rows) == [("pkg/a.py::loaded", False, 0), ("pkg/a.py::ran", True, 1)]
 
 
+def test_rust_population_reads_each_function_s_own_coverage_records(tmp_path: Path):
+    db = tmp_path / "graph.db"
+    with sqlite3.connect(db) as conn:
+        conn.executescript(
+            "CREATE TABLE nodes (qualified_name TEXT, kind TEXT, is_test INT, language TEXT,"
+            " file_path TEXT, line_start INT, line_end INT);"
+            "CREATE TABLE edges (kind TEXT, target_qualified TEXT, extra TEXT);"
+        )
+        conn.executemany(
+            "INSERT INTO nodes VALUES (?, 'Function', 0, 'rust', ?, ?, ?)",
+            [
+                ("crates/c/src/a.rs::generic", "crates/c/src/a.rs", 1, 3),
+                ("crates/c/src/a.rs::unused", "crates/c/src/a.rs", 5, 6),
+                ("crates/c/src/a.rs::outer", "crates/c/src/a.rs", 8, 12),
+                ("crates/c/src/a.rs::unmeasured", "crates/c/src/a.rs", 14, 15),
+                ("crates/c/src/a.rs::tests.helper", "crates/c/src/a.rs", 20, 21),
+                ("crates/c/src/tests.rs::helper", "crates/c/src/tests.rs", 1, 2),
+            ],
+        )
+    source = str(harness.ROOT / "crates/c/src/a.rs")
+    tests = str(harness.ROOT / "crates/c/src/tests.rs")
+
+    def record(line: int, count: int, filename: str = source) -> dict:
+        return {"count": count, "filenames": [filename], "regions": [[line, 1, line, 9, count, 0]]}
+
+    coverage = {
+        "type": "llvm.coverage.json.export",
+        "data": [
+            {
+                "functions": [
+                    # Two instantiations of a generic, one of them run.
+                    record(1, 0),
+                    record(1, 3),
+                    # Recorded although nothing calls it.
+                    record(5, 0),
+                    # A closure that ran inside a function that did not.
+                    record(8, 0),
+                    record(10, 2),
+                    record(20, 1),
+                    record(1, 1, tests),
+                ]
+            }
+        ],
+    }
+    rows = harness.population(db, coverage)
+    assert sorted(rows) == [
+        ("crates/c/src/a.rs::generic", True, 0),
+        ("crates/c/src/a.rs::outer", False, 0),
+        ("crates/c/src/a.rs::unused", False, 0),
+    ]
+
+
 def test_gate_reports_each_metric_below_its_floor():
     result = {"untested_precision": 0.3, "tested_precision": 0.99, "untested_recall": None}
     floors = {

@@ -19,15 +19,22 @@ Reported:
   calls or references it), ``no_test_path`` (callers, but no test within
   the limit), or ``beyond_limit`` (a test a few hops past it).
 
-Coverage counts only what ran in the pytest process: code a test runs in a
+The language follows the report. A pytest-cov report measures Python and
+counts only what ran in the pytest process: code a test runs in a
 subprocess (the ``dagayn`` command) counts as not run, so the precision of
-``untested`` is if anything overstated.
+``untested`` is if anything overstated. A ``cargo llvm-cov --json`` export
+measures Rust and counts what binaries the tests spawn ran too, which the
+call graph does not cross, so there it is if anything understated.
 
 Usage::
 
     uv run pytest --cov=dagayn --cov-report=json:coverage.json
     uv run dagayn build
     uv run python eval/run_test_reach_eval.py --coverage coverage.json --gate
+
+    cargo llvm-cov --workspace --ignore-filename-regex 'dagayn-py/' \
+        --json --output-path rust-coverage.json
+    uv run python eval/run_test_reach_eval.py --coverage rust-coverage.json
 """
 
 from __future__ import annotations
@@ -62,19 +69,26 @@ def is_test_path(path: str) -> bool:
     )
 
 
+def _incoming(conn: sqlite3.Connection) -> Counter[str]:
+    return Counter(
+        target
+        for (target,) in conn.execute(
+            "SELECT target_qualified FROM edges WHERE kind = 'CALLS' "
+            "OR (kind = 'REFERENCES' AND json_extract(extra, '$.relationship_role') IS NULL)"
+        )
+    )
+
+
 def population(db_path: Path, coverage: dict[str, Any]) -> list[tuple[str, bool, int]]:
-    """``(qualified_name, covered, incoming)`` of each Python production
-    function the coverage report measures."""
+    """``(qualified_name, covered, incoming)`` of each production function
+    the coverage report measures: Python for a pytest-cov report, Rust for a
+    ``cargo llvm-cov --json`` export."""
+    if coverage.get("type") == "llvm.coverage.json.export":
+        return rust_population(db_path, coverage)
     files = coverage["files"]
     rows = []
     with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
-        incoming = Counter(
-            target
-            for (target,) in conn.execute(
-                "SELECT target_qualified FROM edges WHERE kind = 'CALLS' "
-                "OR (kind = 'REFERENCES' AND json_extract(extra, '$.relationship_role') IS NULL)"
-            )
-        )
+        incoming = _incoming(conn)
         nodes = conn.execute(
             "SELECT qualified_name, file_path, line_start, line_end FROM nodes "
             "WHERE kind = 'Function' AND is_test = 0 AND language = 'python'"
@@ -90,6 +104,60 @@ def population(db_path: Path, coverage: dict[str, Any]) -> list[tuple[str, bool,
         if not body:
             continue
         covered = any(line in executed for line in body)
+        rows.append((qualified_name, covered, incoming[qualified_name]))
+    return rows
+
+
+def is_rust_test_code(qualified_name: str, file_path: str) -> bool:
+    """A test, or a helper of one: under a test directory, a `*_tests`
+    module directory, a `tests.rs` module, or a `mod tests`."""
+    parts = file_path.split("/")
+    return (
+        is_test_path(file_path)
+        or parts[-1] == "tests.rs"
+        or any(part.endswith("_tests") for part in parts[:-1])
+        or "::tests." in qualified_name
+        or ".tests." in qualified_name
+    )
+
+
+def rust_population(db_path: Path, coverage: dict[str, Any]) -> list[tuple[str, bool, int]]:
+    """Rust functions against an llvm-cov export. A function's own coverage
+    records (one per generic instantiation; an unused function is recorded
+    with count 0) are those whose first region starts first within its
+    span; closures and nested functions start later. It ran when any of
+    them has a count."""
+    starts: dict[str, list[tuple[int, int]]] = {}
+    for function in coverage["data"][0]["functions"]:
+        region = function["regions"][0]
+        path = Path(function["filenames"][region[5]])
+        try:
+            relative = path.relative_to(ROOT).as_posix()
+        except ValueError:
+            continue
+        starts.setdefault(relative, []).append((region[0], function["count"]))
+    rows = []
+    with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
+        incoming = _incoming(conn)
+        nodes = conn.execute(
+            "SELECT qualified_name, file_path, line_start, line_end FROM nodes "
+            "WHERE kind = 'Function' AND is_test = 0 AND language = 'rust'"
+        ).fetchall()
+    for qualified_name, file_path, line_start, line_end in nodes:
+        relative = (
+            Path(file_path).relative_to(ROOT).as_posix() if file_path.startswith("/") else file_path
+        )
+        if is_rust_test_code(qualified_name, relative) or relative.startswith("crates/dagayn-py/"):
+            continue
+        inside = [
+            (line, count)
+            for line, count in starts.get(relative, ())
+            if line_start <= line <= line_end
+        ]
+        if not inside:
+            continue
+        first = min(line for line, _ in inside)
+        covered = any(count > 0 for line, count in inside if line == first)
         rows.append((qualified_name, covered, incoming[qualified_name]))
     return rows
 
@@ -177,7 +245,12 @@ def format_report(result: dict[str, Any]) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--coverage", type=Path, required=True, help="pytest-cov JSON report")
+    parser.add_argument(
+        "--coverage",
+        type=Path,
+        required=True,
+        help="pytest-cov JSON report, or a cargo llvm-cov JSON export",
+    )
     parser.add_argument("--db", type=Path, default=ROOT / ".dagayn" / "graph.db")
     parser.add_argument("--jobs", type=int, default=8)
     parser.add_argument("--json", action="store_true")

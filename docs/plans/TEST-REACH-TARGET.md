@@ -135,6 +135,49 @@ called from a table (`{"dfs": _scenario_dfs}`, a command registry). Coverage
 counts only the pytest process, so code a test runs through the `dagayn`
 command counts as not run: the untested precision is if anything high.
 
+### Rust
+
+<!-- derived-from #evaluation -->
+
+The same harness reads a `cargo llvm-cov --json` export (CI's Rust job runs
+`cargo llvm-cov` already, with `--summary-only`). A function's own records
+are those whose first region starts first within its span: one per generic
+instantiation, an unused function with count 0, a closure separate. llvm-cov
+counts what the binaries the tests spawn ran, which the call graph does not
+cross, so here the untested precision is if anything low. Report only, no
+gate yet.
+
+Baseline (2026-10-08, 3,211 production functions; tests, `mod tests`,
+`tests.rs`, `*_tests/` and `dagayn-py` excluded). The hop columns come from
+a one-off run with the reported search widened past its usual 8 hops (the
+deepest Rust test path is 12):
+
+| Hop limit | Called untested | Untested precision | Untested recall | Tested precision |
+|---|---|---|---|---|
+| 4 (today) | 697 | 0.122 | 0.381 | 0.945 |
+| 8 | 185 | 0.292 | 0.242 | 0.944 |
+| none | 137 | 0.387 | 0.238 | 0.945 |
+| Python, 4 (today) | 140 | 0.864 | 0.691 | 0.952 |
+| Python, none | 135 | 0.874 | 0.674 | 0.949 |
+
+- **Depth is the lever in Rust, not in Python.** Rust's call chains are
+  deep (the `answer` → tool → findings → store path of an integration
+  test): 612 of the 697 functions called untested ran, 481 of them with a
+  test 5–12 hops away. Among the Rust functions a test reaches in 1–4 hops,
+  6.6% did not run; 5–8 hops, 6%. Hop count barely separates run from not
+  run, while having no path at all does (39% did not run).
+- **What no limit still misses**: 138 of the 223 functions that did not run
+  are 1–4 hops from a test, a branch the test does not take. The call graph
+  cannot see that; the recall ceiling here is branch-level.
+- **Calls through a trait are a small part.** Of the functions with no path
+  (84 ran, 53 did not), methods of a standard trait (`Drop`, `Deserialize`,
+  `visit_map`, `fmt`) are about 16 that ran, called by the standard library
+  or serde, which no dispatch rule reaches; methods of the repository's
+  traits (`Backend`, `Native`) about 5. In Python, the only overridden
+  methods are the 25 of the `EmbeddingProvider` hierarchy, and reaching
+  overrides from the base method's callers measured net zero. A dispatch
+  rule is not worth its cost in either language here.
+
 ## Python call graph
 
 <!-- derived-from #evaluation -->
