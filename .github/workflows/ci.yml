@@ -90,7 +90,18 @@ jobs:
       - name: Install dependencies (frozen)
         # Builds the editable extension with the `dev-fast` profile
         # (`[tool.uv]` in pyproject.toml), not the fat-LTO release profile.
-        run: uv sync --frozen --extra dev
+        # `eval` brings matplotlib, without which export_svg's tests skip.
+        run: uv sync --frozen --extra dev --extra eval
+      - name: Install jj
+        # Without jj the jj workspace tests skip, and the functions only they
+        # run count as unexecuted in the untested_change gate below.
+        run: |
+          curl -fsSL -o jj.tar.gz https://github.com/jj-vcs/jj/releases/download/v0.41.0/jj-v0.41.0-x86_64-unknown-linux-musl.tar.gz
+          echo "42181a80d316ac157874c817c9945e104275114fb461d99e06e2312502f08f99  jj.tar.gz" | sha256sum -c -
+          mkdir -p "$HOME/.local/bin"
+          tar xzf jj.tar.gz -C "$HOME/.local/bin" ./jj
+          rm jj.tar.gz
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Prefetch pinned grammars
         run: uv run python -m dagayn.vendor_grammars
       - name: Run tests with coverage

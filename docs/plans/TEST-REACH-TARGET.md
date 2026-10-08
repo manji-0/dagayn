@@ -114,6 +114,13 @@ graph, and the harness asks `query_graph_tool(pattern="tests_for")`'s
 `test_reach` (the code path `untested_change` uses) of every Python
 production function. Floors in `eval/test_reach_thresholds.yaml`.
 
+The ground truth depends on what the test run can run: a test that skips
+leaves the functions only it reaches unexecuted, which lowers untested
+recall and tested precision without any change to the graph. Without jj
+and matplotlib, five functions (`export_svg`, `_jj_diff_files`, three in
+`jj_workspace.py`) went unexecuted and recall fell from 0.691 to 0.672,
+so CI's test job installs both, jj pinned to the release used locally.
+
 Baseline (2026-10-08, 1,256 functions, 339 called untested):
 
 | Metric | Value |
