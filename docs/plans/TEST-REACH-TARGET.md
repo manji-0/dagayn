@@ -169,12 +169,17 @@ The wrong `no_callers` above, closed where the graph can see the call:
 | `beyond_limit` | 3 | 2 |
 
 132 fewer wrong untested claims cost 21 right ones: code a test reaches
-in the graph but the pytest run never executed. The likely source of the
-tested-precision drop is the class step taking every REFERENCES to the
-class, type annotations and base classes included (a test that only
-annotates a parameter as `Box` reaches `Box.__init__`); restricting it to
-calls and value references is the next knob. The two changes were
-measured together. `tests/tools.rs::a_test_that_uses_a_class_reaches_the_methods_the_runtime_calls`
+in the graph but the pytest run never executed. The two changes were
+measured together.
+
+Of the 53 functions now called tested that did not run, 9 come through
+the class step and the rest through ordinary calls and the new argument
+references (`initializer=_init_worker`, `signal(.., _handle_sigterm)`,
+`Timer(.., _expire)`): the graph path is real, but the test mocks the
+call or takes another branch. Not a parsing error, and not one a reach
+rule can tell apart. Taking only CALLS into the class step (no
+REFERENCES) was measured and rejected: tested precision stayed 0.950 and
+4 more functions were wrongly called untested (untested precision 0.642). `tests/tools.rs::a_test_that_uses_a_class_reaches_the_methods_the_runtime_calls`
 holds the method reach.
 
 ## Follow-up: dispatch-aware reach
