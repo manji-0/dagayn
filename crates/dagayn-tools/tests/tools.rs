@@ -2755,7 +2755,7 @@ fn closures_over_returned_elements_and_method_values_reach_their_targets() {
 fn a_test_that_uses_a_class_reaches_the_methods_the_runtime_calls() {
     // dagayn: tests crates/dagayn-tools/src/review.rs::review
     // dagayn: tests crates/dagayn-tools/src/findings.rs::nearest_test
-    // dagayn: tests crates/dagayn-tools/src/findings.rs::implicit_method_class
+    // dagayn: tests crates/dagayn-tools/src/findings.rs::implicit_caller
     let repo = Repo::new("implicit-methods", true);
     let models = |value: i64| {
         format!(
@@ -2788,4 +2788,51 @@ fn a_test_that_uses_a_class_reaches_the_methods_the_runtime_calls() {
     // Constructing `Box` calls `__init__`; reading `size` calls the
     // property. Nothing calls `grow`.
     assert_eq!(untested, ["models.py::Box.grow"], "{changes}");
+}
+
+#[test]
+fn importing_a_module_reaches_what_its_import_runs() {
+    // dagayn: tests crates/dagayn-tools/src/review.rs::review
+    // dagayn: tests crates/dagayn-tools/src/findings.rs::nearest_test
+    // dagayn: tests crates/dagayn-tools/src/findings.rs::implicit_caller
+    let repo = Repo::new("import-reach", true);
+    let specs = |value: i64| {
+        format!(
+            "class Spec:\n    def __init__(self):\n        self.value = {value}\n\n    def grow(self):\n        self.value += {value}\n\n\ndef unused():\n    return {value}\n\n\nDEFAULT = Spec()\n"
+        )
+    };
+    let lazy = |value: i64| format!("def __getattr__(name):\n    return {value}\n");
+    repo.write("specs.py", &specs(1));
+    repo.write("lazy/__init__.py", &lazy(1));
+    repo.write(
+        "test_specs.py",
+        "import specs\nimport lazy\n\n\ndef test_default():\n    assert specs.DEFAULT and lazy.anything\n",
+    );
+    commit_all(&repo, "specs");
+    repo.build();
+    repo.write("specs.py", &specs(2));
+    repo.write("lazy/__init__.py", &lazy(2));
+    commit_all(&repo, "edit");
+    repo.build();
+    let context = Context {
+        runtime: Some(json!({})),
+        ..repo.context()
+    };
+    let changes = answer(&context, "review_tool", json!({}));
+    let mut untested: Vec<&str> = changes["findings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|f| f["kind"] == "untested_change")
+        .flat_map(|f| f["targets"].as_array().into_iter().flatten())
+        .filter_map(Value::as_str)
+        .collect();
+    untested.sort_unstable();
+    // Importing `specs` builds `DEFAULT` (`Spec.__init__`); an attribute of
+    // `lazy` runs its `__getattr__`. Nothing calls `grow` or `unused`.
+    assert_eq!(
+        untested,
+        ["specs.py::Spec.grow", "specs.py::unused"],
+        "{changes}"
+    );
 }

@@ -389,7 +389,9 @@ fn reached_by_test(inputs: &Inputs, qn: &str) -> Option<bool> {
 /// (TESTED_BY, or a `dagayn: tests` declaration); hop `n` a test among the
 /// callers `n` calls up, or a direct test of one `n - 1` up. A function
 /// passed as a value is called by what it is passed to; a type reference is
-/// not a call.
+/// not a call. A module-level instance's implicit methods and a module's
+/// `__getattr__` run once the module is imported, so there the module is
+/// called by the files that import it.
 pub(crate) fn nearest_test(
     store: &GraphStore,
     root: &Path,
@@ -405,6 +407,8 @@ pub(crate) fn nearest_test(
     };
     let mut frontier = vec![qn.to_string()];
     let mut seen: HashSet<String> = frontier.iter().cloned().collect();
+    // Modules whose import runs what the walk is after.
+    let mut imported: HashSet<String> = HashSet::new();
     for depth in 0..=limit {
         for current in &frontier {
             if let Some(test) = direct_tests(store, current)?.into_iter().next() {
@@ -415,13 +419,17 @@ pub(crate) fn nearest_test(
             break;
         }
         // A method the runtime calls (a constructor's `__init__`, a
-        // property, a validator) is called wherever its class is used.
+        // property, a validator) is called wherever its class is used; a
+        // module's `__getattr__` wherever the module is.
         let mut classes: Vec<String> = Vec::new();
         for current in &frontier {
-            if let Some(class) = implicit_method_class(store, current)?
+            if let Some(class) = implicit_caller(store, current)?
                 && !frontier.contains(&class)
                 && !classes.contains(&class)
             {
+                if is_python_module(&class) {
+                    imported.insert(class.clone());
+                }
                 classes.push(class);
             }
         }
@@ -431,8 +439,10 @@ pub(crate) fn nearest_test(
         let mut next = Vec::new();
         for (target, edges) in &incoming {
             let of_class = classes.contains(target);
+            let module = imported.contains(target);
             for edge in edges {
                 let calls = edge.kind == "CALLS"
+                    || (module && edge.kind == "IMPORTS_FROM")
                     || (edge.kind == "REFERENCES"
                         && (of_class || edge.extra.get("relationship_role").is_none()));
                 if !calls || !seen.insert(edge.source_qualified.clone()) {
@@ -441,6 +451,11 @@ pub(crate) fn nearest_test(
                 if let Some(caller) = store.get_node(&edge.source_qualified).ok()? {
                     if is_test_node(&caller, &relative(&caller.file_path)) {
                         return Some(Some((depth + 1, caller.qualified_name)));
+                    }
+                    // A class built at a module's top level (`SPEC =
+                    // GrammarSpec(..)`), or a module imported for one.
+                    if (of_class || module) && is_python_module(&caller.qualified_name) {
+                        imported.insert(caller.qualified_name.clone());
                     }
                     next.push(caller.qualified_name);
                 }
@@ -467,15 +482,29 @@ const IMPLICIT_DECORATORS: &[&str] = &[
     "validator",
 ];
 
-/// The class whose use calls `qn` without naming it: a dunder method
-/// (`__init__` on construction, `__enter__` in a `with`) or a property or
-/// validator (`@property`, `@field_validator`) of a class.
-fn implicit_method_class(store: &GraphStore, qn: &str) -> Option<Option<String>> {
+/// A Python module's file node (`pkg/mod.py`, no `::`).
+fn is_python_module(qn: &str) -> bool {
+    !qn.contains("::") && (qn.ends_with(".py") || qn.ends_with(".pyi"))
+}
+
+/// What calls `qn` without naming it: the class whose use runs a dunder
+/// method (`__init__` on construction, `__enter__` in a `with`) or a
+/// property or validator (`@property`, `@field_validator`), or the module
+/// whose attribute lookup runs its `__getattr__` / `__dir__` (PEP 562).
+fn implicit_caller(store: &GraphStore, qn: &str) -> Option<Option<String>> {
     let Some(node) = store.get_node(qn).ok()? else {
         return Some(None);
     };
     let Some(parent) = node.parent_name.as_deref() else {
-        return Some(None);
+        let module = qn.split_once("::").map(|(file, _)| file);
+        return Some(
+            module
+                .filter(|file| {
+                    matches!(node.name.as_str(), "__getattr__" | "__dir__")
+                        && is_python_module(file)
+                })
+                .map(str::to_string),
+        );
     };
     let dunder = node.name.len() > 4 && node.name.starts_with("__") && node.name.ends_with("__");
     let decorated = node.extra["decorators"]

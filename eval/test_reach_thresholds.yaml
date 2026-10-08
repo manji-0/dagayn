@@ -4,9 +4,10 @@
 # untested precision 0.422, recall 0.817, tested precision 0.965. After the
 # Python call-graph fixes of the same day: 0.656, 0.697, 0.950 (recall traded
 # 21 right untested claims for 132 fewer wrong ones). Nested functions as
-# values (python 14): 0.753, 0.697, 0.952. The floors sit just under the
+# values (python 14): 0.753, 0.697, 0.952. Imports that run a module-level
+# instance's methods or a module's `__getattr__`: 0.797, 0.697, 0.952. The floors sit just under the
 # current values; raise them as the call graph improves.
 floors:
-  untested_precision: 0.73
+  untested_precision: 0.77
   untested_recall: 0.67
   tested_precision: 0.93
