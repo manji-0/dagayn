@@ -266,7 +266,14 @@ eval also shows the mode needs no stored flows.
    visualization export adds `entry_points` next to `flows`; both read the
    store's `entry_points_json()`. `list` and `get` replies carry a
    `deprecation` notice.
-6. After one release: remove `list`, `get`, criticality, `flow_snapshots`,
+6. **Done (2026-10-08):** the hop limit goes. The search keeps a visited
+   set, so it ends without one; the limit of 15 hops cut 194 of this
+   repository's 5,255 production functions (3.7%, parser code deep in
+   recursive walks), and without it no search is cut, the longest chain is
+   21 hops, no search visits more than 840 callers, and the 5,255 searches
+   take the same 138 s. The 10,000-caller guard stays, and
+   `truncated_search` now means only that.
+7. After one release: remove `list`, `get`, criticality, `flow_snapshots`,
    the export's `flows`, the `missing_flows` answerability penalty, and the
    flow trace in the full post-process.
 

@@ -22,9 +22,10 @@ use crate::review::guidance_actions_to_hints;
 use crate::review_summary::guidance_item;
 use crate::units::UnitIndex;
 
-/// Hops followed from the target, as the flow trace's `DEFAULT_MAX_DEPTH`.
-const MAX_DEPTH: usize = 15;
-/// Callers visited before the search stops and reports `truncated`.
+/// Callers visited before the search stops and reports `truncated`. There
+/// is no hop limit: the search keeps a visited set, so it ends; on this
+/// repository the longest chain is 21 hops and no search visits more than
+/// 840 callers (docs/plans/FLOW-TOOL-TARGET.md#order-of-work).
 const MAX_VISITED: usize = 10_000;
 /// Languages whose files run no code at load time: a call attributed to
 /// such a file comes from a constant or a macro, not a script.
@@ -151,10 +152,6 @@ fn search(store: &GraphStore, targets: &[GraphNode]) -> Option<Search> {
                 if depth > 0 {
                     continue;
                 }
-            }
-            if depth == MAX_DEPTH {
-                truncated |= has_callers;
-                continue;
             }
             for caller in callers.get(qn).into_iter().flatten() {
                 if !next.contains_key(*caller) && seen.insert(caller) {
@@ -305,7 +302,7 @@ pub(crate) fn entry_points(
         caveats.push(json!({
             "reason_code": "truncated_search",
             "severity": "medium",
-            "claim_effect": format!("the search stopped at {MAX_DEPTH} hops or {MAX_VISITED} callers; farther entry points are not listed"),
+            "claim_effect": format!("the search stopped after {MAX_VISITED} callers; farther entry points are not listed"),
         }));
     }
     missingness.extend(caveats.iter().cloned());
