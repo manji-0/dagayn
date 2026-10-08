@@ -60,6 +60,12 @@
   "status": "ok",
   "summary": "Found 2 result(s) for tests_for('src/functions.ts::decl')",
   "target": "src/functions.ts::decl",
+  "test_reach": {
+    "counts_as_tested": true,
+    "hop_limit": 4,
+    "hops": 0,
+    "nearest_test": "src/__tests__/calls.test.ts::it:decl works@L6"
+  },
   "unresolved_count": 0,
   "unresolved_targets": [],
   "zero_result_reason": null

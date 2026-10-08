@@ -786,6 +786,8 @@ struct Found {
     unresolved: Vec<String>,
     reachability: Option<Value>,
     source: Option<SourceCoverage>,
+    /// `tests_for`: what `review_tool`'s `untested_change` decides from.
+    test_reach: Option<Value>,
 }
 
 impl Found {
@@ -1138,6 +1140,25 @@ fn run_pattern(
             let mut state = crate::coverage::ScanState::build(store)?;
             found.rows =
                 crate::coverage::infer_tests_for_node(store, &mut state, node, 25, "medium")?;
+            // The nearest test as `untested_change` counts it, a little past
+            // the limit it trusts, so a test just beyond it shows.
+            let limit = crate::findings::CALLER_TEST_DEPTH;
+            found.test_reach = Some(
+                match crate::findings::nearest_test(store, root, &node.qualified_name, limit + 4)? {
+                    Some((hops, test)) => json!({
+                        "nearest_test": test,
+                        "hops": hops,
+                        "counts_as_tested": hops <= limit,
+                        "hop_limit": limit,
+                    }),
+                    None => json!({
+                        "nearest_test": null,
+                        "hops": null,
+                        "counts_as_tested": false,
+                        "hop_limit": limit,
+                    }),
+                },
+            );
             found.edges = edges_of(true)?
                 .iter()
                 .filter(|e| e.kind == "TESTED_BY")
@@ -1611,6 +1632,9 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
         calls.truncate(crate::next::MAX_NEXT);
     }
     payload = payload.replace("next", next);
+    if let Some(reach) = found.test_reach.clone() {
+        payload = payload.put("test_reach", reach);
+    }
     let mut missingness = answerability.missingness();
     // `_attach_source_of_coverage`.
     if let Some(coverage) = found.source

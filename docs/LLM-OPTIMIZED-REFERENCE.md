@@ -59,6 +59,10 @@ The reply contract of `query_graph_tool`, `semantic_search_nodes_tool`,
   graph-wide `answerability` summary is `get_minimal_context_tool`'s
   `graph_health`; the six tools add it only at `detail_level="verbose"`
   (`"full"` for `query_graph_tool`).
+- `query_graph_tool(pattern="tests_for")` carries `test_reach`: the nearest
+  test as `review_tool`'s `untested_change` counts it (`hops`,
+  `nearest_test`, `counts_as_tested` within `hop_limit`). No test there
+  means no path in the graph, which a test run may still cover.
 - The earlier next-step fields (`next_action`, `exactness.next_action`,
   `next_drill_downs`, `next_tool_suggestions`, `_hints`) appear only at
   `detail_level="verbose"` (`"full"` for `query_graph_tool`), named in

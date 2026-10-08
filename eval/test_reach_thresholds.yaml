@@ -1,0 +1,9 @@
+# Gate for untested_change's judgement against real coverage
+# (docs/plans/TEST-REACH-TARGET.md#evaluation). `run_test_reach_eval.py --gate`
+# exits non-zero when a metric drops below its floor. The floors sit just
+# under the baseline of 2026-10-08 (untested precision 0.422, recall 0.817,
+# tested precision 0.965); raise them as the call graph improves.
+floors:
+  untested_precision: 0.40
+  untested_recall: 0.78
+  tested_precision: 0.95

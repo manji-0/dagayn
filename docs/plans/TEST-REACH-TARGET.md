@@ -101,6 +101,40 @@ function the review had still called untested now has a caller.
 `tests/tools.rs::closures_over_returned_elements_and_method_values_reach_their_targets`
 holds the resolution across files.
 
+## Evaluation
+
+<!-- derived-from #target-contract -->
+
+Depth is not the lever: against the coverage of a test run, functions with
+a test five to eight hops away barely exist (one of 1,256 Python production
+functions), while the ones with no path to a test at all ran in more than
+half the cases. `eval/run_test_reach_eval.py` measures that and gates it in
+CI: the pytest run writes `coverage.json`, the job builds this repository's
+graph, and the harness asks `query_graph_tool(pattern="tests_for")`'s
+`test_reach` (the code path `untested_change` uses) of every Python
+production function. Floors in `eval/test_reach_thresholds.yaml`.
+
+Baseline (2026-10-08, 1,256 functions, 339 called untested):
+
+| Metric | Value |
+|---|---|
+| untested precision (called untested and did not run) | 0.422 |
+| untested recall (did not run and called untested) | 0.817 |
+| tested precision (called tested and ran) | 0.965 |
+
+| Why called untested | Ran (wrong) | Did not run |
+|---|---|---|
+| `no_callers`: nothing in the graph calls or references it | 107 | 88 |
+| `no_test_path`: callers, but no test within 4 hops | 88 | 55 |
+| `beyond_limit`: a test 5–8 hops away | 1 | 0 |
+
+The wrong `no_callers` are calls the Python graph misses: a constructor
+call that does not reach `__init__`, properties, framework callbacks
+(pydantic validators, `__getattr__`, `with`'s `__enter__`), and functions
+called from a table (`{"dfs": _scenario_dfs}`, a command registry). Coverage
+counts only the pytest process, so code a test runs through the `dagayn`
+command counts as not run: the untested precision is if anything high.
+
 ## Follow-up: dispatch-aware reach
 
 Record string-literal arguments on `CALLS` edges and the string patterns of
@@ -121,7 +155,11 @@ declaration is the way to state it.
   types), `bare_names.rs` (typed value references).
 - Graph: `crates/dagayn-graph/src/communities.rs`
   (`get_test_targets_for_source`).
-- Tools: `crates/dagayn-tools/src/coverage.rs` (`tests_for`).
+- Tools: `crates/dagayn-tools/src/coverage.rs` (`tests_for`),
+  `findings.rs` (`nearest_test`, shared by `untested_change` and
+  `tests_for`'s `test_reach`), `query.rs`.
+- Eval: `eval/run_test_reach_eval.py`, `eval/test_reach_thresholds.yaml`,
+  `tests/test_test_reach_eval.py`, and the CI step.
 - Tests: `core_tests/rust_lang.rs`, `dagayn-graph` `tests/analysis.rs`,
   and the declarations in `crates/dagayn-tools/tests/tools.rs`.
 - Docs: the writing-markdown-document skill's directive table.

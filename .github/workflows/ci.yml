@@ -94,7 +94,14 @@ jobs:
       - name: Prefetch pinned grammars
         run: uv run python -m dagayn.vendor_grammars
       - name: Run tests with coverage
-        run: uv run pytest --tb=short -q -n auto --dist loadfile --cov --cov-report=term-missing --cov-fail-under=80
+        run: uv run pytest --tb=short -q -n auto --dist loadfile --cov --cov-report=term-missing --cov-report=json:coverage.json --cov-fail-under=80
+      - name: Gate untested_change against the test run's coverage
+        # Builds this repository's graph and asks tests_for's test_reach of
+        # every Python production function (docs/plans/TEST-REACH-TARGET.md);
+        # fails when untested_change's precision or recall drops below its floor.
+        run: |
+          uv run dagayn build
+          DAGAYN_TEST_REACH_EVAL=1 DAGAYN_COVERAGE_JSON=coverage.json uv run pytest -q -s tests/test_test_reach_eval.py
       - name: Gate review_tool findings on the eval set
         # Builds a graph per case (docs/plans/REVIEW-TOOL-TARGET.md); fails
         # when a finding kind drops below its precision or recall floor.

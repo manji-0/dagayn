@@ -21,7 +21,7 @@ use crate::query::cross_artifact_role;
 /// Symbols a grouped finding lists by name; the rest are counted.
 const MAX_LISTED: usize = 10;
 /// Caller hops `untested_change` walks looking for a test.
-const CALLER_TEST_DEPTH: usize = 4;
+pub(crate) const CALLER_TEST_DEPTH: usize = 4;
 
 /// Doc-to-code roles that state a contract (`implemented_by`), and the
 /// code-to-doc ones (`implements_contract`, ...).
@@ -381,30 +381,50 @@ pub(crate) fn untested_changes(inputs: &Inputs) -> Option<Vec<Value>> {
 /// callers (or functions it is passed to as a value) up to
 /// [`CALLER_TEST_DEPTH`] hops.
 fn reached_by_test(inputs: &Inputs, qn: &str) -> Option<bool> {
+    Some(nearest_test(inputs.store, inputs.root, qn, CALLER_TEST_DEPTH)?.is_some())
+}
+
+/// What `untested_change` decides from: the nearest test of `qn` within
+/// `limit` hops, and how many hops away it is. Hop 0 is a direct test
+/// (TESTED_BY, or a `dagayn: tests` declaration); hop `n` a test among the
+/// callers `n` calls up, or a direct test of one `n - 1` up. A function
+/// passed as a value is called by what it is passed to; a type reference is
+/// not a call.
+pub(crate) fn nearest_test(
+    store: &GraphStore,
+    root: &Path,
+    qn: &str,
+    limit: usize,
+) -> Option<Option<(usize, String)>> {
+    let relative = |file_path: &str| {
+        Path::new(file_path)
+            .strip_prefix(root)
+            .unwrap_or(Path::new(file_path))
+            .to_string_lossy()
+            .into_owned()
+    };
     let mut frontier = vec![qn.to_string()];
     let mut seen: HashSet<String> = frontier.iter().cloned().collect();
-    for depth in 0..=CALLER_TEST_DEPTH {
+    for depth in 0..=limit {
         for current in &frontier {
-            if !direct_tests(inputs.store, current)?.is_empty() {
-                return Some(true);
+            if let Some(test) = direct_tests(store, current)?.into_iter().next() {
+                return Some(Some((depth, test.qualified_name)));
             }
         }
-        if depth == CALLER_TEST_DEPTH {
+        if depth == limit {
             break;
         }
-        let (_, incoming) = inputs.store.get_edges_by_endpoints(&frontier).ok()?;
+        let (_, incoming) = store.get_edges_by_endpoints(&frontier).ok()?;
         let mut next = Vec::new();
         for edge in incoming.values().flatten() {
-            // A function passed as a value (`.map(Type::method)`) is called
-            // by what it is passed to; a type reference is not a call.
             let calls = edge.kind == "CALLS"
                 || (edge.kind == "REFERENCES" && edge.extra.get("relationship_role").is_none());
             if !calls || !seen.insert(edge.source_qualified.clone()) {
                 continue;
             }
-            if let Some(caller) = inputs.store.get_node(&edge.source_qualified).ok()? {
-                if is_test_node(&caller, &inputs.relative(&caller.file_path)) {
-                    return Some(true);
+            if let Some(caller) = store.get_node(&edge.source_qualified).ok()? {
+                if is_test_node(&caller, &relative(&caller.file_path)) {
+                    return Some(Some((depth + 1, caller.qualified_name)));
                 }
                 next.push(caller.qualified_name);
             }
@@ -414,7 +434,7 @@ fn reached_by_test(inputs: &Inputs, qn: &str) -> Option<bool> {
         }
         frontier = next;
     }
-    Some(false)
+    Some(None)
 }
 
 /// `contract_doc_not_updated`: authored contract docs linked to changed
