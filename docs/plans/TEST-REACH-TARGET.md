@@ -186,6 +186,11 @@ function (`cargo llvm-cov report --json`) and gates it with
 `eval/test_reach_rust_thresholds.yaml`: untested precision 0.387, recall
 0.233, tested precision 0.943 on 3,199 functions. `untested_core` in the
 architecture overview still walks 4 hops in every language.
+The walk keeps no visit cap (unlike `flow_tool`'s entry points, which stop
+at 10,000): it ends at the nearest test, its `seen` set bounds it, and the
+deepest Rust path here is 12 hops; asking it of all 3,199 Rust functions
+takes 49 s on 8 workers, against 20 s for Python's 1,256 (with the
+harness's graph and process start-up in both).
 
 ## Python call graph
 
