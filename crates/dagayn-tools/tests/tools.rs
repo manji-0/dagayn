@@ -2482,3 +2482,153 @@ fn a_fresh_graph_raises_no_caveats() {
     }
     assert!(noisy.is_empty(), "{}", noisy.join("\n"));
 }
+
+/// `git add -A && git commit` in `repo`.
+fn commit_all(repo: &Repo, message: &str) {
+    for args in [
+        &["add", "-A"][..],
+        &["commit", "-q", "--no-gpg-sign", "-m", message],
+    ] {
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(&repo.0)
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@example.invalid")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@example.invalid")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .output()
+            .expect("git");
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+    }
+}
+
+/// A Cargo workspace in layers: `kernel` (used by `feature` and `app`),
+/// `feature`, `app`, and `plugins`, which depends on two leaf crates.
+fn layered_workspace(repo: &Repo) {
+    let crate_manifest = |name: &str, deps: &[&str]| {
+        let mut text =
+            format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n");
+        if !deps.is_empty() {
+            text.push_str("\n[dependencies]\n");
+            for dep in deps {
+                text.push_str(&format!("{dep} = {{ path = \"../{dep}\" }}\n"));
+            }
+        }
+        text
+    };
+    repo.write(".gitignore", ".dagayn/\n");
+    repo.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"kernel\", \"feature\", \"app\", \"plugins\", \"extras\", \"thirdparty\"]\n",
+    );
+    for (name, deps) in [
+        ("kernel", &[][..]),
+        ("feature", &["kernel"][..]),
+        ("app", &["feature", "kernel"][..]),
+        ("plugins", &["extras", "thirdparty"][..]),
+        ("extras", &[][..]),
+        ("thirdparty", &[][..]),
+    ] {
+        repo.write(&format!("{name}/Cargo.toml"), &crate_manifest(name, deps));
+    }
+    repo.write("kernel/src/lib.rs", "pub fn base() -> i64 {\n    1\n}\n");
+    repo.write(
+        "feature/src/lib.rs",
+        "use kernel::base;\n\npub fn feature() -> i64 {\n    base() + 1\n}\n",
+    );
+    repo.write(
+        "app/src/lib.rs",
+        "use feature::feature;\nuse kernel::base;\n\npub fn run() -> i64 {\n    feature() + base()\n}\n",
+    );
+    repo.write(
+        "plugins/src/lib.rs",
+        "use extras::extra;\nuse thirdparty::vendored;\n\npub fn plugin() -> i64 {\n    extra() + vendored()\n}\n",
+    );
+    repo.write("extras/src/lib.rs", "pub fn extra() -> i64 {\n    2\n}\n");
+    repo.write(
+        "thirdparty/src/lib.rs",
+        "pub fn vendored() -> i64 {\n    3\n}\n",
+    );
+}
+
+/// docs/plans/STABILITY-FINDING-TARGET.md: the overview names every unit
+/// that depends on a less stable one; a review names the ones the change
+/// introduced, and not a dependency that predates it.
+#[test]
+fn unstable_dependencies_are_found_where_they_are_introduced() {
+    let repo = Repo::new("stability", true);
+    layered_workspace(&repo);
+    commit_all(&repo, "layers");
+    repo.build();
+    let context = Context {
+        runtime: Some(json!({})),
+        ..repo.context()
+    };
+    let unstable = |reply: &Value| -> Vec<Value> {
+        reply["findings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|finding| finding["kind"] == "unstable_dependency")
+            .cloned()
+            .collect()
+    };
+
+    // Layered as SDP asks: nothing to report.
+    let overview = answer(&context, "architecture_analysis_tool", json!({}));
+    assert!(unstable(&overview).is_empty(), "{}", overview["findings"]);
+
+    // An unstable crate starting to use another is no finding either.
+    repo.write(
+        "app/src/lib.rs",
+        "use feature::feature;\nuse kernel::base;\nuse plugins::plugin;\n\npub fn run() -> i64 {\n    feature() + base() + plugin()\n}\n",
+    );
+    repo.build();
+    let review = answer(&context, "review_tool", json!({"base": "HEAD"}));
+    assert!(unstable(&review).is_empty(), "{}", review["findings"]);
+    commit_all(&repo, "app uses plugins");
+
+    // The stable kernel starts using plugins: the review and the overview
+    // both name it, at the import.
+    repo.write(
+        "kernel/src/lib.rs",
+        "use plugins::plugin;\n\npub fn base() -> i64 {\n    1 + plugin()\n}\n",
+    );
+    repo.build();
+    let review = answer(&context, "review_tool", json!({"base": "HEAD"}));
+    let found = unstable(&review);
+    assert_eq!(found.len(), 1, "{}", review["findings"]);
+    let finding = &found[0];
+    assert_eq!(finding["targets"], json!(["kernel", "plugins"]));
+    assert_eq!(finding["file"], "kernel/src/lib.rs");
+    assert_eq!(finding["line"], 1);
+    let evidence = &finding["evidence"];
+    assert!(
+        evidence["target"]["instability"].as_f64() > evidence["source"]["instability"].as_f64(),
+        "{evidence}"
+    );
+    assert!(evidence["delta"].as_f64() > Some(0.1), "{evidence}");
+    assert!(
+        review["next"].as_array().is_some_and(|next| next
+            .iter()
+            .any(|call| call["args"]["target"] == "kernel/src/lib.rs")),
+        "{}",
+        review["next"]
+    );
+    let overview = answer(&context, "architecture_analysis_tool", json!({}));
+    assert_eq!(unstable(&overview).len(), 1, "{}", overview["findings"]);
+
+    // Once committed, editing another line of kernel does not introduce it
+    // again; the overview still reports it.
+    commit_all(&repo, "kernel uses plugins");
+    repo.write(
+        "kernel/src/lib.rs",
+        "use plugins::plugin;\n\npub fn base() -> i64 {\n    2 + plugin()\n}\n",
+    );
+    repo.build();
+    let review = answer(&context, "review_tool", json!({"base": "HEAD"}));
+    assert!(unstable(&review).is_empty(), "{}", review["findings"]);
+    let overview = answer(&context, "architecture_analysis_tool", json!({}));
+    assert_eq!(unstable(&overview).len(), 1, "{}", overview["findings"]);
+}
