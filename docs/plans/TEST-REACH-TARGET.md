@@ -240,7 +240,7 @@ differently:
 | REFERENCES (a value in a table) | 11 | 16 | Nothing static |
 
 - **Calls.** The 3 that ran are statements at the top level
-  (`METRIC_SPECS = _registry()`, `_PENDING = _make_store()`, and
+  (`METRIC_SPECS = _registry()`, `_pending_refactors = _make_store()`, and
   `_retrieval_specs` under `_registry`). Of the 5 that did not run, three
   are `main()` under `if __name__ == "__main__":` or in `__main__.py`
   (which no module imports), and two are `@mcp.tool()` on
@@ -269,6 +269,10 @@ base-class gap above; and `_ReadLockBoundStore.close`, a proxy
 
 `tests/tools.rs::importing_a_module_reaches_its_top_level_calls_only`
 holds the import-time step.
+
+The import walk follows every IMPORTS_FROM into a module, including an
+import under `if TYPE_CHECKING:` (`import_scope: type_checking`, python
+11), which never runs; excluding those is a separate step.
 
 ## Follow-up: dispatch-aware reach
 
