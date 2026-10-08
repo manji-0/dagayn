@@ -2837,3 +2837,51 @@ fn importing_a_module_reaches_what_its_import_runs() {
         "{changes}"
     );
 }
+
+#[test]
+fn importing_a_module_reaches_its_top_level_calls_only() {
+    // dagayn: tests crates/dagayn-tools/src/review.rs::review
+    // dagayn: tests crates/dagayn-tools/src/findings.rs::nearest_test
+    // dagayn: tests crates/dagayn-tools/src/findings.rs::runs_on_import
+    let repo = Repo::new("import-time-calls", true);
+    let tables = |value: i64| {
+        format!(
+            "def build_table():\n    return [{value}]\n\n\ndef helper():\n    return {value}\n\n\ndef fallback():\n    return {value}\n\n\ndef main():\n    return {value}\n\n\nTABLE = build_table()\nHANDLERS = {{\"a\": lambda: helper()}}\ntry:\n    import json\nexcept ImportError:\n    fallback()\n\nif __name__ == \"__main__\":\n    main()\n"
+        )
+    };
+    repo.write("tables.py", &tables(1));
+    repo.write(
+        "test_tables.py",
+        "import tables\n\n\ndef test_table():\n    assert tables.TABLE\n",
+    );
+    commit_all(&repo, "tables");
+    repo.build();
+    repo.write("tables.py", &tables(2));
+    commit_all(&repo, "edit");
+    repo.build();
+    let context = Context {
+        runtime: Some(json!({})),
+        ..repo.context()
+    };
+    let changes = answer(&context, "review_tool", json!({}));
+    let mut untested: Vec<&str> = changes["findings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|f| f["kind"] == "untested_change")
+        .flat_map(|f| f["targets"].as_array().into_iter().flatten())
+        .filter_map(Value::as_str)
+        .collect();
+    untested.sort_unstable();
+    // Importing `tables` runs `build_table()`; a lambda's body, an `except`
+    // handler, and the `__main__` block do not run on import.
+    assert_eq!(
+        untested,
+        [
+            "tables.py::fallback",
+            "tables.py::helper",
+            "tables.py::main"
+        ],
+        "{changes}"
+    );
+}

@@ -1186,3 +1186,49 @@ def handle(wide):
     }
     let _ = std::fs::remove_dir_all(&repo_root);
 }
+
+#[test]
+fn python_top_level_calls_record_that_they_run_on_import() {
+    // dagayn: tests crates/dagayn-parser/src/python/mod.rs::PythonWalker.emit_call
+    // dagayn: tests crates/dagayn-parser/src/python/mod.rs::PythonWalker.visit_statement
+    let source = br#"def build():
+    return []
+
+
+def helper():
+    return 1
+
+
+TABLE = build()
+HANDLERS = {"a": lambda: helper()}
+try:
+    load()
+except ImportError:
+    fallback()
+finally:
+    close()
+for name in TABLE:
+    each(name)
+if __name__ == "__main__":
+    main()
+
+
+def run():
+    build()
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_, edges) = parser.parse_file("tables.py", source);
+    let mut import_time: Vec<&str> = edges
+        .iter()
+        .filter(|edge| edge.kind.as_str() == "CALLS" && edge.extra["import_time"] == true)
+        .map(|edge| edge.target.as_str())
+        .collect();
+    import_time.sort_unstable();
+    // A lambda's body, an `except` handler, a loop, an `if`, and a function
+    // body do not run on import; a `try` body and `finally` do.
+    assert_eq!(
+        import_time,
+        ["close", "load", "tables.py::build"],
+        "{edges:?}"
+    );
+}

@@ -145,8 +145,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // REFERENCES too.
         // 15: a call or reference through `from m import f as g` names `f`
         // in `m`; both branches of `x = f if c else g` are REFERENCES.
+        // 16: a call at a module's top level, outside any branch, loop,
+        // `except` handler, or lambda, records `import_time`.
         extractor: "python",
-        version: 15,
+        version: 16,
         languages: &["python", "notebook"],
     },
     ExtractorVersion {

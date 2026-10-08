@@ -122,6 +122,7 @@ fn parse_python_module_tree(
         scopes: Vec::new(),
         function_depth: 0,
         type_checking_depth: 0,
+        deferred_depth: 0,
         nodes: &mut nodes,
         edges: &mut edges,
     };
@@ -225,6 +226,9 @@ struct PythonWalker<'w, 'a> {
     /// How many `if TYPE_CHECKING:` bodies enclose it; an import inside one
     /// never runs.
     type_checking_depth: u32,
+    /// How many branches, loops, `except` handlers, and lambdas enclose
+    /// it; a module-level call inside one may not run on import.
+    deferred_depth: u32,
     nodes: &'w mut Vec<ParsedNode>,
     edges: &'w mut Vec<ParsedEdge>,
 }
@@ -280,6 +284,7 @@ impl<'ast> SourceOrderVisitor<'ast> for PythonWalker<'_, '_> {
                 self.emit_call(call);
                 walk_expr(self, expr);
             }
+            Expr::Lambda(_) => self.deferred(|walker| walk_expr(walker, expr)),
             Expr::Dict(dict) => {
                 // `{"key": handler}`: a value naming a function or class of
                 // this file or an import is a reference to it.
@@ -391,6 +396,20 @@ impl PythonWalker<'_, '_> {
                     self.visit_body(&clause.body);
                 }
             }
+            Stmt::If(_) | Stmt::For(_) | Stmt::While(_) | Stmt::Match(_) => {
+                self.deferred(|walker| walk_stmt(walker, stmt));
+            }
+            // The `try` body and `finally` run; a handler and `else` may not.
+            Stmt::Try(attempt) => {
+                self.visit_body(&attempt.body);
+                self.deferred(|walker| {
+                    for handler in &attempt.handlers {
+                        walker.visit_except_handler(handler);
+                    }
+                    walker.visit_body(&attempt.orelse);
+                });
+                self.visit_body(&attempt.finalbody);
+            }
             Stmt::Assign(assign) => self.visit_assign(assign),
             Stmt::AnnAssign(assign) => self.visit_assignment(
                 &assign.target,
@@ -414,6 +433,12 @@ impl PythonWalker<'_, '_> {
             _ => walk_stmt(self, stmt),
         }
     }
+    fn deferred(&mut self, walk: impl FnOnce(&mut Self)) {
+        self.deferred_depth += 1;
+        walk(self);
+        self.deferred_depth -= 1;
+    }
+
     fn caller(&self) -> String {
         self.enclosing_qualified
             .clone()
@@ -680,6 +705,11 @@ impl PythonWalker<'_, '_> {
                 python_resolve_module_to_file(module, &context.file_path, context.repo_root)
         {
             extra["module_file"] = json!(file);
+        }
+        // A call at the module's top level, outside any branch, loop, or
+        // lambda, runs whenever the module is imported.
+        if self.enclosing_qualified.is_none() && self.deferred_depth == 0 {
+            extra["import_time"] = json!(true);
         }
         let line = context.line(call);
         self.edges.push(ParsedEdge {

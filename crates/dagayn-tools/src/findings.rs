@@ -389,9 +389,10 @@ fn reached_by_test(inputs: &Inputs, qn: &str) -> Option<bool> {
 /// (TESTED_BY, or a `dagayn: tests` declaration); hop `n` a test among the
 /// callers `n` calls up, or a direct test of one `n - 1` up. A function
 /// passed as a value is called by what it is passed to; a type reference is
-/// not a call. A module-level instance's implicit methods and a module's
-/// `__getattr__` run once the module is imported, so there the module is
-/// called by the files that import it.
+/// not a call. A module-level instance's implicit methods, a module's
+/// `__getattr__`, and a call at a module's top level (`import_time`) run
+/// once the module is imported, so there the module is called by the files
+/// that import it.
 pub(crate) fn nearest_test(
     store: &GraphStore,
     root: &Path,
@@ -458,7 +459,7 @@ pub(crate) fn nearest_test(
                     }
                     // A class built at a module's top level (`SPEC =
                     // GrammarSpec(..)`), or a module imported for one.
-                    if carries {
+                    if carries || runs_on_import(edge) {
                         if is_python_module(&caller.qualified_name) {
                             imported.insert(caller.qualified_name.clone());
                         } else {
@@ -489,6 +490,15 @@ const IMPLICIT_DECORATORS: &[&str] = &[
     "root_validator",
     "validator",
 ];
+
+/// A call at a module's top level that runs on import (`TABLE =
+/// _registry()`), resolved by name, not guessed from a method name on a
+/// receiver of unknown type.
+fn runs_on_import(edge: &GraphEdge) -> bool {
+    edge.kind == "CALLS"
+        && edge.extra.get("import_time").and_then(Value::as_bool) == Some(true)
+        && edge.extra.get("receiver_unknown").is_none()
+}
 
 /// A Python module's file node (`pkg/mod.py`, no `::`).
 fn is_python_module(qn: &str) -> bool {

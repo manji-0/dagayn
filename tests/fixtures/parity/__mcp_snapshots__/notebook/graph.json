@@ -1,8 +1,8 @@
 {
 "edges":[
-{"confidence":1.0,"confidence_tier":"EXTRACTED","extra":{},"file_path":"analysis.ipynb","kind":"CALLS","line":10,"source":"analysis.ipynb","target":"analysis.ipynb::load_data"},
-{"confidence":1.0,"confidence_tier":"EXTRACTED","extra":{},"file_path":"analysis.ipynb","kind":"CALLS","line":11,"source":"analysis.ipynb","target":"analysis.ipynb::process"},
-{"confidence":0.6,"confidence_tier":"MEDIUM","extra":{"confidence":0.6,"confidence_tier":"MEDIUM","external":true,"external_package":"builtins","external_symbol":"print","stdlib":true},"file_path":"analysis.ipynb","kind":"CALLS","line":12,"source":"analysis.ipynb","target":"builtins"},
+{"confidence":1.0,"confidence_tier":"EXTRACTED","extra":{"import_time":true},"file_path":"analysis.ipynb","kind":"CALLS","line":10,"source":"analysis.ipynb","target":"analysis.ipynb::load_data"},
+{"confidence":1.0,"confidence_tier":"EXTRACTED","extra":{"import_time":true},"file_path":"analysis.ipynb","kind":"CALLS","line":11,"source":"analysis.ipynb","target":"analysis.ipynb::process"},
+{"confidence":0.6,"confidence_tier":"MEDIUM","extra":{"confidence":0.6,"confidence_tier":"MEDIUM","external":true,"external_package":"builtins","external_symbol":"print","import_time":true,"stdlib":true},"file_path":"analysis.ipynb","kind":"CALLS","line":12,"source":"analysis.ipynb","target":"builtins"},
 {"confidence":0.6,"confidence_tier":"MEDIUM","extra":{"confidence":0.6,"confidence_tier":"MEDIUM","external":true,"external_package":"builtins","external_symbol":"open","stdlib":true},"file_path":"analysis.ipynb","kind":"CALLS","line":2,"source":"analysis.ipynb::load_data","target":"builtins"},
 {"confidence":0.2,"confidence_tier":"LOW","extra":{"receiver_unknown":true},"file_path":"analysis.ipynb","kind":"CALLS","line":3,"source":"analysis.ipynb::load_data","target":"readlines"},
 {"confidence":0.6,"confidence_tier":"MEDIUM","extra":{"confidence":0.6,"confidence_tier":"MEDIUM","external":true,"external_package":"builtins","external_symbol":"strip","receiver_unknown":true,"stdlib":true},"file_path":"analysis.ipynb","kind":"CALLS","line":7,"source":"analysis.ipynb::process","target":"builtins"},

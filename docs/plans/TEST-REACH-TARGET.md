@@ -196,6 +196,7 @@ mechanism at a time and measured after each:
 | Imports that run a module-level instance's methods or a package's `__getattr__` | 0.797 | 0.697 | 0.952 |
 | `from m import f as g`, and both branches of `x = f if c else g` (python 15) | 0.819 | 0.697 | 0.952 |
 | A module-level call of a function that builds the instance (`STORE = make_store()`) | 0.846 | 0.691 | 0.951 |
+| A call at a module's top level, outside any branch, loop, `except` handler, or lambda (`TABLE = _registry()`, python 16) | 0.864 | 0.691 | 0.952 |
 
 - **What a module's import runs.** `nearest_test` follows IMPORTS_FROM
   into a Python module only when the walk reached it through an implicit
@@ -222,6 +223,52 @@ Left after these (3 functions that ran with no caller):
 
 `tests/tools.rs::importing_a_module_reaches_what_its_import_runs` holds
 the import steps.
+
+## Callers but no test path
+
+<!-- derived-from #code-that-runs-without-a-caller -->
+
+The functions that ran and have callers, but no test within the limit (17
+after the steps above), almost all had a module's top level as their only
+caller. Among every production function whose only callers are module
+top levels and that no test reached (35), the two edge kinds split
+differently:
+
+| Module-level edge | Ran | Did not run | What tells them apart |
+|---|---|---|---|
+| CALLS | 3 | 5 | Whether the call runs on import |
+| REFERENCES (a value in a table) | 11 | 16 | Nothing static |
+
+- **Calls.** The 3 that ran are statements at the top level
+  (`METRIC_SPECS = _registry()`, `_PENDING = _make_store()`, and
+  `_retrieval_specs` under `_registry`). Of the 5 that did not run, three
+  are `main()` under `if __name__ == "__main__":` or in `__main__.py`
+  (which no module imports), and two are `@mcp.tool()` on
+  `_FallbackFastMCP`, a class bound only in an `except ImportError:`
+  handler that the parser matched by method name on a receiver of unknown
+  type. The parser (python 16) marks a top-level call outside any branch,
+  loop, `except` handler, or lambda `import_time`; `nearest_test` follows
+  IMPORTS_FROM into the module of such a call when it was resolved by name,
+  not guessed on an unknown receiver (`receiver_unknown`). All three
+  right answers were kept.
+- **Table entries are left untested, on purpose.** `INDEXERS` in
+  `scip_overlay.py` holds eleven `Indexer(arguments=_x_arguments)`
+  entries; ten ran and `_python_arguments`, the same shape, did not. The
+  CLI handler table, `_scenario_*` tables, and `queue_worker`'s
+  `_execute_*` entries did not run either. Which entry a table's reader
+  calls depends on data, so following the module's imports from a table
+  entry is the rejected wide rule again.
+
+Left (14): the ten `_x_arguments` entries; `_zed_settings_path`, called in
+a lambda of the platform table; `with_dispatch_metadata`, called through a
+module-level `partial(with_dispatch_metadata, ..)` alias (a call of the
+alias could resolve to the function it wraps); `_vectorize`, under the
+base-class gap above; and `_ReadLockBoundStore.close`, a proxy
+`wrap_store_close_to_unbind` returns as the `_CloseableStore` protocol, so
+`store.close()` is a call through the protocol (the same gap).
+
+`tests/tools.rs::importing_a_module_reaches_its_top_level_calls_only`
+holds the import-time step.
 
 ## Follow-up: dispatch-aware reach
 
