@@ -574,3 +574,53 @@ impl Tr for Remote {}
     assert_eq!(member_target("parse").as_deref(), Some("generic"));
     assert_eq!(member_target("tr").as_deref(), Some("external"));
 }
+
+#[test]
+fn a_test_declares_what_it_exercises_in_a_comment() {
+    let source = br#"//! Mentions `dagayn: tests src/x.rs::example` in prose: no edge.
+
+#[test]
+fn dispatches_by_name() {
+    // dagayn: tests crates/tools/src/review.rs::review
+    /// dagayn: implements docs/spec.md#Review
+    run("review_tool");
+    // a note that says dagayn: tests src/y.rs::other is no directive
+    let fixture = "
+    // dagayn: implements docs/fixture.md#Inside
+    ";
+}
+"#;
+    let (_, edges) = parse_rust("tests/tools.rs", source);
+    let directives: Vec<(&str, &str, &str)> = edges
+        .iter()
+        .filter(|edge| edge.kind == "CROSS_ARTIFACT")
+        .map(|edge| {
+            (
+                edge.source.as_str(),
+                edge.target.as_str(),
+                edge.extra["relationship_role"].as_str().unwrap_or(""),
+            )
+        })
+        .collect();
+    assert_eq!(
+        directives,
+        [
+            (
+                "tests/tools.rs::dispatches_by_name",
+                "crates/tools/src/review.rs::review",
+                "tests"
+            ),
+            (
+                "tests/tools.rs::dispatches_by_name",
+                "docs/spec.md::review",
+                "implements_contract"
+            ),
+        ]
+    );
+    let tests = edges
+        .iter()
+        .find(|edge| edge.extra["relationship_role"] == "tests")
+        .expect("tests edge");
+    assert_eq!(tests.extra["bridge_kind"], "test");
+    assert_eq!(tests.line, 5);
+}

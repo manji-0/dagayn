@@ -22,6 +22,9 @@ pub(super) enum DocumentationDirectiveKind {
     DiscussesArtifact,
     RaisesIssueFor,
     DescribesSymbol,
+    /// A test declares the code it exercises, for a path the call graph
+    /// cannot follow (docs/plans/TEST-REACH-TARGET.md).
+    Tests,
 }
 
 impl DocumentationDirectiveKind {
@@ -36,6 +39,7 @@ impl DocumentationDirectiveKind {
             "discusses" | "discusses-artifact" => Some(Self::DiscussesArtifact),
             "raises-issue-for" => Some(Self::RaisesIssueFor),
             "describes" | "describes-symbol" => Some(Self::DescribesSymbol),
+            "tests" => Some(Self::Tests),
             _ => None,
         }
     }
@@ -51,6 +55,14 @@ impl DocumentationDirectiveKind {
             Self::DiscussesArtifact => "discusses-artifact",
             Self::RaisesIssueFor => "raises-issue-for",
             Self::DescribesSymbol => "describes-symbol",
+            Self::Tests => "tests",
+        }
+    }
+
+    fn bridge_kind(self) -> &'static str {
+        match self {
+            Self::Tests => "test",
+            _ => "documentation",
         }
     }
 
@@ -65,6 +77,7 @@ impl DocumentationDirectiveKind {
             Self::DiscussesArtifact => "discusses_artifact",
             Self::RaisesIssueFor => "raises_issue_for",
             Self::DescribesSymbol => "describes_symbol",
+            Self::Tests => "tests",
         }
     }
 }
@@ -109,7 +122,16 @@ pub(super) fn extract_line_comment_dagayn_directives(
         else {
             continue;
         };
-        if let Some(directive) = parse_dagayn_directive(comment.trim_start(), index as i64 + 1) {
+        // A directive opens its comment; one mentioned inside prose
+        // (`` `dagayn: tests <target>` ``) is an example, not an edge.
+        let comment = comment.trim_start();
+        if !comment
+            .get(..7)
+            .is_some_and(|head| head.eq_ignore_ascii_case("dagayn:"))
+        {
+            continue;
+        }
+        if let Some(directive) = parse_dagayn_directive(comment, index as i64 + 1) {
             directives.push(directive);
         }
     }
@@ -304,7 +326,7 @@ fn documentation_directive_extra(
 ) -> Value {
     let mut extra = json!({
         "relationship_role": directive.directive_kind.relationship_role(),
-        "bridge_kind": "documentation",
+        "bridge_kind": directive.directive_kind.bridge_kind(),
         "evidence_kind": evidence_kind,
         "evidence_source": "dagayn_directive",
         "source_language": source_language,

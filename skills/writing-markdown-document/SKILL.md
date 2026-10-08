@@ -86,10 +86,11 @@ exist.
 | Code comment | `# dagayn: explained-by docs/auth-runbook.md#Refresh Failures` | `explained_by` | The code points to rationale. |
 | Code comment | `# dagayn: has-runbook docs/infra-runbook.md#Graph Store Bucket` | `has_runbook` | The code points to an operational runbook. |
 | Code comment | `# dagayn: problem-described-by docs/audits/auth.md#Stale Cache` | `problem_described_by` | The code points to an audit or known issue. |
+| Test comment | `// dagayn: tests crates/app/src/router.rs::dispatch` | `tests` | A test reaches code through a dispatch the call graph cannot follow (a tool or route picked by name); `tests_for`, `untested_change`, and `tests_to_run` count it. |
 
 All kinds: `implemented-by`, `implements`, `explained-by`, `has-runbook`,
 `problem-described-by`, `discussed-by`, `discusses` (or `discusses-artifact`),
-`raises-issue-for`, `describes` (or `describes-symbol`).
+`raises-issue-for`, `describes` (or `describes-symbol`), `tests`.
 
 Targets:
 - Markdown → code: a concrete `path::symbol` node (e.g.
@@ -102,8 +103,10 @@ Targets:
   slugified (`docs/auth-spec.md#Token Refresh` → `docs/auth-spec.md::token-refresh`).
   From code, a bare `#Heading` would point at the code file.
 - Code-side directives are read from Python `#` comments, Terraform `#` / `//`,
-  and C# `//` / `///` comments, attached to the enclosing node or one within
-  the next 3 lines.
+  C# `//` / `///`, and Rust `//` / `///` / `//!` comments (Rust: comment
+  nodes only, so a directive inside a string literal is text), attached to
+  the enclosing node or one within the next 3 lines. A directive opens its
+  comment; one mentioned inside prose is no edge.
 - Author one direction per fact; query tools show the inverse, and duplicate
   inverse edges go stale on incremental updates.
 

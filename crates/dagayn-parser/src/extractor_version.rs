@@ -25,8 +25,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
     ExtractorVersion {
         // 1: a `dagayn:` directive inside a code span or fence is an example
         // and creates no edge.
+        // 2: a `dagayn: tests` directive creates an edge
+        // (docs/plans/TEST-REACH-TARGET.md).
         extractor: "markdown",
-        version: 1,
+        version: 2,
         languages: &["markdown"],
     },
     ExtractorVersion {
@@ -131,8 +133,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // and spans end at the last statement, not at trailing comments.
         // 11: IMPORTS_FROM inside a function body or an `if TYPE_CHECKING:`
         // body record `import_scope` (`function` / `type_checking`).
+        // 12: a `dagayn: tests` directive creates an edge
+        // (docs/plans/TEST-REACH-TARGET.md).
         extractor: "python",
-        version: 11,
+        version: 12,
         languages: &["python", "notebook"],
     },
     ExtractorVersion {
@@ -189,8 +193,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // `pub type` in extern blocks.
         // 20: an `impl` for a type parameter or a type of another crate marks
         // its `IMPLEMENTS` edge and members with `impl_target`.
+        // 21: `dagayn:` directives in `//` and `///` comments create edges,
+        // `tests` among them (docs/plans/TEST-REACH-TARGET.md).
         extractor: "rust",
-        version: 20,
+        version: 21,
         languages: &["rust"],
     },
     ExtractorVersion {
@@ -291,8 +297,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 7: a local grammar patch (vendor/grammar-patches/csharp) parses
         // `#if` around a binary operand (`a\n#if X\n&& b\n#endif`) and around
         // initializer elements.
+        // 8: a `dagayn: tests` directive creates an edge
+        // (docs/plans/TEST-REACH-TARGET.md).
         extractor: "csharp",
-        version: 7,
+        version: 8,
         languages: &["csharp"],
     },
     ExtractorVersion {
@@ -402,8 +410,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 1: `import` / `moved` / `removed` blocks emit resolved REFERENCES
         // tagged with `terraform_kind`, not an IMPORTS_FROM to the provider's
         // import id or an edge between raw addresses.
+        // 2: a `dagayn: tests` directive creates an edge
+        // (docs/plans/TEST-REACH-TARGET.md).
         extractor: "terraform",
-        version: 1,
+        version: 2,
         languages: &["terraform"],
     },
     ExtractorVersion {

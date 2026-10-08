@@ -508,3 +508,62 @@ fn analysis_question_rows_read_nodes_edges_communities_and_persisted_scores() {
     }));
     let _ = std::fs::remove_file(path);
 }
+
+#[test]
+fn a_declared_test_counts_among_a_symbols_tests() {
+    let path = temp_db("declared-tests");
+    let mut store = GraphStore::open(&path).expect("open graph store");
+    let node = |kind: &str, name: &str, file: &str, is_test: bool| NodeInput {
+        kind: kind.to_string(),
+        name: name.to_string(),
+        file_path: file.to_string(),
+        line_start: 1,
+        line_end: 4,
+        language: "python".to_string(),
+        parent_name: None,
+        params: None,
+        return_type: None,
+        modifiers: None,
+        is_test,
+        extra: Value::Object(Default::default()),
+    };
+    let directive = |role: &str, target: &str| EdgeInput {
+        kind: "CROSS_ARTIFACT".to_string(),
+        source: "test_app.py::test_by_name".to_string(),
+        target: target.to_string(),
+        file_path: "test_app.py".to_string(),
+        line: 2,
+        extra: serde_json::json!({"relationship_role": role}),
+    };
+    store
+        .store_file_batch(&[(
+            "test_app.py".to_string(),
+            vec![
+                node("Function", "dispatch", "app.py", false),
+                node("Function", "documented", "app.py", false),
+                node("Test", "test_by_name", "test_app.py", true),
+            ],
+            vec![
+                directive("tests", "app.py::dispatch"),
+                directive("implements_contract", "app.py::documented"),
+            ],
+            "hash".to_string(),
+            0,
+        )])
+        .unwrap();
+    assert_eq!(
+        store
+            .get_test_targets_for_source("app.py::dispatch")
+            .unwrap(),
+        vec!["test_app.py::test_by_name".to_string()]
+    );
+    // Only `tests` declares a test; other directives link docs.
+    assert!(
+        store
+            .get_test_targets_for_source("app.py::documented")
+            .unwrap()
+            .is_empty()
+    );
+    let found = store.get_transitive_tests("app.py::dispatch", 0).unwrap();
+    assert_eq!(found[0]["qualified_name"], "test_app.py::test_by_name");
+}

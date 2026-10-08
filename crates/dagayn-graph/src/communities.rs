@@ -342,9 +342,16 @@ impl GraphStore {
         &self,
         source_qualified: &str,
     ) -> Result<Vec<String>> {
+        // A test can also declare what it exercises (`dagayn: tests <target>`)
+        // where the call graph cannot follow it: a `CROSS_ARTIFACT` edge from
+        // the test, role `tests` (docs/plans/TEST-REACH-TARGET.md).
         let mut stmt = self.conn.prepare(
             "SELECT target_qualified FROM edges \
-             WHERE source_qualified = ? AND kind = 'TESTED_BY'",
+             WHERE source_qualified = ?1 AND kind = 'TESTED_BY' \
+             UNION ALL \
+             SELECT source_qualified FROM edges \
+             WHERE target_qualified = ?1 AND kind = 'CROSS_ARTIFACT' \
+               AND json_extract(extra, '$.relationship_role') = 'tests'",
         )?;
         let rows = stmt.query_map([source_qualified], |row| row.get::<_, String>(0))?;
         rows.collect::<std::result::Result<Vec<_>, _>>()

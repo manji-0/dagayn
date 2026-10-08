@@ -512,6 +512,33 @@ pub(crate) fn infer_tests_for_node(
             results.insert(test.qualified_name.clone(), (100, row));
         }
     }
+    // Tests that declare what they exercise (`dagayn: tests`), where the call
+    // graph cannot follow them (docs/plans/TEST-REACH-TARGET.md).
+    let (_, incoming) = store
+        .get_edges_by_endpoints(std::slice::from_ref(&target.qualified_name))
+        .ok()?;
+    let declared: Vec<String> = incoming
+        .values()
+        .flatten()
+        .filter(|edge| {
+            edge.kind == "CROSS_ARTIFACT"
+                && edge
+                    .extra
+                    .get("relationship_role")
+                    .and_then(|role| role.as_str())
+                    == Some("tests")
+        })
+        .map(|edge| edge.source_qualified.clone())
+        .collect();
+    if !declared.is_empty() {
+        let nodes = store.get_nodes_by_qualified_names(&declared).ok()?;
+        for qn in &declared {
+            if let Some(test) = nodes.get(qn) {
+                let row = coverage_row(test, "high", vec!["dagayn: tests directive"], "authored");
+                results.insert(test.qualified_name.clone(), (100, row));
+            }
+        }
+    }
 
     let target_info = Target::new(target)?;
     let early_exit = limit <= 1 && min_rank <= rank("medium");

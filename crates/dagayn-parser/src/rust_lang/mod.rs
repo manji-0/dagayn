@@ -6,6 +6,10 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde_json::json;
 
+use super::documentation_directives::{
+    DocumentationDirective, extract_line_comment_dagayn_directives, nearest_documentation_source,
+    push_documentation_directive_edge,
+};
 use super::member_calls::{CallOrigin, MemberCallBindings};
 use super::stdlib::rust::{
     is_rust_prelude_function, is_rust_prelude_type, is_rust_std_macro, rust_std_crate,
@@ -102,10 +106,54 @@ pub(super) fn parse_rust_with_parser(
             &context.uses.borrow(),
         );
         add_tested_by_edges(&nodes, &mut edges);
+        extract_rust_dagayn_directives(root, &file_path, source, &nodes, &mut edges);
         return (nodes, edges);
     }
 
     (nodes, edges)
+}
+
+/// `dagayn:` directives in `//`, `///`, and `//!` comments, each from the
+/// item it sits in or right above. Only comment nodes count: a directive
+/// inside a string literal (a test fixture) is text, not an edge.
+fn extract_rust_dagayn_directives(
+    root: tree_sitter::Node<'_>,
+    file_path: &FilePath,
+    source: &[u8],
+    nodes: &[ParsedNode],
+    edges: &mut Vec<ParsedEdge>,
+) {
+    if !contains_bytes(source, b"dagayn:") {
+        return;
+    }
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "line_comment" {
+            let text = node_text(node, source);
+            if text.contains("dagayn:") {
+                let line = node.start_position().row as i64 + 1;
+                for directive in
+                    extract_line_comment_dagayn_directives(&text, &["///", "//!", "//"])
+                {
+                    let directive = DocumentationDirective { line, ..directive };
+                    let item = nearest_documentation_source(file_path, nodes, line);
+                    push_documentation_directive_edge(
+                        edges,
+                        item,
+                        file_path,
+                        "rust",
+                        &directive,
+                        "comment_directive",
+                    );
+                }
+            }
+            continue;
+        }
+        // In document order: the last child is popped last.
+        let mut cursor = node.walk();
+        let children: Vec<_> = node.children(&mut cursor).collect();
+        stack.extend(children.into_iter().rev());
+    }
 }
 
 fn rust_walk_children(

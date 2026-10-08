@@ -95,6 +95,9 @@ impl Drop for Repo {
     }
 }
 
+// Each test that calls a tool by name declares the function that tool
+// dispatches to (`dagayn: tests`): `dagayn_tools::call` picks it by the
+// name, which the call graph cannot follow (docs/plans/TEST-REACH-TARGET.md).
 fn answer(context: &Context, name: &str, arguments: Value) -> Value {
     let payload = call(context, name, &arguments)
         .unwrap_or_else(|| panic!("{name} {arguments} was not answered"));
@@ -109,6 +112,7 @@ fn declines(context: &Context, name: &str, arguments: Value) -> bool {
 
 #[test]
 fn stats_count_the_graph_and_report_the_repository() {
+    // dagayn: tests crates/dagayn-tools/src/stats.rs::list_graph_stats
     let repo = Repo::new("stats", false);
     repo.build();
     let stats = answer(&repo.context(), "list_graph_stats_tool", json!({}));
@@ -135,6 +139,8 @@ fn stats_count_the_graph_and_report_the_repository() {
 
 #[test]
 fn suggestions_follow_the_tool_surface() {
+    // dagayn: tests crates/dagayn-tools/src/flow.rs::flow
+    // dagayn: tests crates/dagayn-tools/src/stats.rs::list_graph_stats
     let repo = Repo::new("surface", false);
     repo.build();
     let mut context = repo.context();
@@ -148,6 +154,7 @@ fn suggestions_follow_the_tool_surface() {
 
 #[test]
 fn docs_sections_come_from_the_repository_and_are_truncated_by_characters() {
+    // dagayn: tests crates/dagayn-tools/src/docs.rs::get_docs_section
     let repo = Repo::new("docs", false);
     repo.build();
     let context = repo.context();
@@ -188,6 +195,7 @@ fn docs_sections_come_from_the_repository_and_are_truncated_by_characters() {
 
 #[test]
 fn minimal_context_routes_the_task_and_reports_health() {
+    // dagayn: tests crates/dagayn-tools/src/context.rs::get_minimal_context
     let repo = Repo::new("context", true);
     repo.build();
     let context = repo.context();
@@ -299,6 +307,8 @@ fn queued_tasks(repo: &Repo) -> Vec<(i64, String, i64, String)> {
 
 #[test]
 fn minimal_context_queues_a_prepare_for_an_unbuilt_graph() {
+    // dagayn: tests crates/dagayn-tools/src/context.rs::get_minimal_context
+    // dagayn: tests crates/dagayn-tools/src/ensure.rs::ensure_graph
     let repo = Repo::new("unbuilt", true);
     // Python creates a missing graph; this tool only reads one.
     assert!(declines(
@@ -361,6 +371,8 @@ fn minimal_context_queues_a_prepare_for_an_unbuilt_graph() {
 
 #[test]
 fn minimal_context_reports_and_repairs_commit_drift() {
+    // dagayn: tests crates/dagayn-tools/src/context.rs::get_minimal_context
+    // dagayn: tests crates/dagayn-tools/src/ensure.rs::ensure_graph
     let repo = Repo::new("drift", true);
     repo.build();
     repo.write("app.py", "def main():\n    return 2\n");
@@ -417,6 +429,7 @@ fn minimal_context_reports_and_repairs_commit_drift() {
 
 #[test]
 fn minimal_context_queues_missing_local_embeddings() {
+    // dagayn: tests crates/dagayn-tools/src/context.rs::get_minimal_context
     let repo = Repo::new("embed", true);
     repo.build();
     let mut context = auto_preparing(&repo);
@@ -437,6 +450,7 @@ fn minimal_context_queues_missing_local_embeddings() {
 
 #[test]
 fn minimal_context_never_queues_outside_a_repository() {
+    // dagayn: tests crates/dagayn-tools/src/context.rs::get_minimal_context
     let repo = Repo::new("novcs", false);
     std::fs::remove_dir_all(repo.0.join(".git")).expect("unmark");
     GraphStore::open(db_path_for_build(&repo.0).expect("db path")).expect("empty graph");
@@ -455,6 +469,7 @@ fn minimal_context_never_queues_outside_a_repository() {
 
 #[test]
 fn query_graph_counts_one_row_per_node_everywhere() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
     let repo = Repo::new("query-counts", false);
     repo.write(
         "twice.py",
@@ -489,6 +504,8 @@ fn query_graph_counts_one_row_per_node_everywhere() {
 
 #[test]
 fn an_ambiguous_target_names_its_retries() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/flow.rs::flow
     let repo = Repo::new("ambiguous", false);
     repo.write("lib.py", "def helper():\n    pass\n");
     repo.build();
@@ -530,6 +547,8 @@ fn an_ambiguous_target_names_its_retries() {
 
 #[test]
 fn query_graph_answers_callers_and_callees_of_exact_targets() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/search.rs::semantic_search
     let repo = Repo::new("query", false);
     repo.build();
     let context = repo.context();
@@ -672,6 +691,7 @@ fn query_graph_answers_callers_and_callees_of_exact_targets() {
 
 #[test]
 fn query_graph_answers_trimmed_unread_and_dotted_targets() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
     let repo = Repo::new("query-gaps", false);
     let many: String = (0..400)
         .map(|i| format!("def function_with_a_long_name_{i:03}():\n    pass\n\n\n"))
@@ -743,6 +763,7 @@ fn query_graph_answers_trimmed_unread_and_dotted_targets() {
 
 #[test]
 fn a_missing_or_foreign_graph_goes_to_python() {
+    // dagayn: tests crates/dagayn-tools/src/stats.rs::list_graph_stats
     let repo = Repo::new("nograph", false);
     let context = repo.context();
     assert!(declines(&context, "list_graph_stats_tool", json!({})));
@@ -761,6 +782,7 @@ fn a_missing_or_foreign_graph_goes_to_python() {
 
 #[test]
 fn search_without_embeddings_ranks_fts_hits() {
+    // dagayn: tests crates/dagayn-tools/src/search.rs::semantic_search
     let repo = Repo::new("search", false);
     repo.build();
     let context = repo.context();
@@ -819,6 +841,7 @@ fn search_without_embeddings_ranks_fts_hits() {
 
 #[test]
 fn review_answers_affected_flows_from_the_worktree_and_explicit_files() {
+    // dagayn: tests crates/dagayn-tools/src/review.rs::review
     let repo = Repo::new("review", true);
     repo.build();
     let context = Context {
@@ -896,6 +919,7 @@ fn review_answers_affected_flows_from_the_worktree_and_explicit_files() {
 
 #[test]
 fn review_leaves_other_modes_and_unknowns_to_python() {
+    // dagayn: tests crates/dagayn-tools/src/review.rs::review
     let repo = Repo::new("review-declines", true);
     repo.build();
     let context = Context {
@@ -929,6 +953,7 @@ fn review_leaves_other_modes_and_unknowns_to_python() {
 
 #[test]
 fn review_impact_reports_the_blast_radius_and_trims_like_python() {
+    // dagayn: tests crates/dagayn-tools/src/review.rs::review
     let repo = Repo::new("impact", true);
     let callers: String = (0..400)
         .map(|i| format!("def caller_{i}():\n    return helper()\n\n\n"))
@@ -995,6 +1020,8 @@ fn review_impact_reports_the_blast_radius_and_trims_like_python() {
 
 #[test]
 fn review_changes_scores_the_diff_against_base() {
+    // dagayn: tests crates/dagayn-tools/src/review.rs::review
+    // dagayn: tests crates/dagayn-tools/src/context.rs::get_minimal_context
     let repo = Repo::new("changes", true);
     repo.build();
     repo.write(
@@ -1209,6 +1236,7 @@ fn review_changes_scores_the_diff_against_base() {
 
 #[test]
 fn review_context_reads_contained_sources_and_caps_long_files() {
+    // dagayn: tests crates/dagayn-tools/src/review.rs::review
     let repo = Repo::new("context", true);
     repo.build();
     let context = Context {
@@ -1255,6 +1283,7 @@ fn review_context_reads_contained_sources_and_caps_long_files() {
 
 #[test]
 fn review_context_fits_its_budget_below_verbose() {
+    // dagayn: tests crates/dagayn-tools/src/review.rs::review
     let repo = Repo::new("context-budget", true);
     let callers: String = (0..400)
         .map(|i| format!("def caller_{i}():\n    return helper()\n\n\n"))
@@ -1293,6 +1322,7 @@ fn review_context_fits_its_budget_below_verbose() {
 
 #[test]
 fn flow_tool_lists_and_reads_stored_flows() {
+    // dagayn: tests crates/dagayn-tools/src/flow.rs::flow
     let repo = Repo::new("flows", true);
     repo.build();
     let context = Context {
@@ -1375,6 +1405,7 @@ fn flow_tool_lists_and_reads_stored_flows() {
 
 #[test]
 fn flow_tool_finds_the_entry_points_that_reach_a_target() {
+    // dagayn: tests crates/dagayn-tools/src/flow.rs::flow
     let repo = Repo::new("entry", true);
     repo.build();
     let context = Context {
@@ -1428,6 +1459,8 @@ fn flow_tool_finds_the_entry_points_that_reach_a_target() {
 
 #[test]
 fn architecture_metrics_follow_the_requested_view() {
+    // dagayn: tests crates/dagayn-tools/src/arch_tool.rs::architecture
+    // dagayn: tests crates/dagayn-tools/src/refactor.rs::refactor
     let repo = Repo::new("arch", true);
     repo.write(
         "pkg/core.py",
@@ -1542,6 +1575,7 @@ fn architecture_metrics_follow_the_requested_view() {
 
 #[test]
 fn refactor_finds_dead_code_and_suggests() {
+    // dagayn: tests crates/dagayn-tools/src/refactor.rs::refactor
     let repo = Repo::new("refactor", true);
     repo.write("unused.py", "def orphan():\n    return 1\n");
     repo.build();
@@ -1647,6 +1681,10 @@ fn refactor_finds_dead_code_and_suggests() {
 
 #[test]
 fn ensure_graph_answers_only_when_there_is_nothing_to_prepare() {
+    // dagayn: tests crates/dagayn-tools/src/ensure.rs::ensure_graph
+    // dagayn: tests crates/dagayn-tools/src/context.rs::get_minimal_context
+    // dagayn: tests crates/dagayn-tools/src/review.rs::review
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
     let repo = Repo::new("ensure", true);
     assert!(declines(&repo.context(), "ensure_graph_tool", json!({})));
     repo.build();
@@ -1689,6 +1727,7 @@ fn ensure_graph_answers_only_when_there_is_nothing_to_prepare() {
 
 #[test]
 fn ensure_graph_leaves_a_tree_outside_git_to_python() {
+    // dagayn: tests crates/dagayn-tools/src/ensure.rs::ensure_graph
     let repo = Repo::new("ensure-nogit", false);
     repo.build();
     // The graph alone marks the project root.
@@ -1698,6 +1737,7 @@ fn ensure_graph_leaves_a_tree_outside_git_to_python() {
 
 #[test]
 fn large_functions_rank_by_line_count() {
+    // dagayn: tests crates/dagayn-tools/src/large.rs::find_large_functions
     let repo = Repo::new("large", true);
     repo.write(
         "big.py",
@@ -1731,6 +1771,7 @@ fn large_functions_rank_by_line_count() {
 
 #[test]
 fn traversal_walks_from_the_best_keyword_match() {
+    // dagayn: tests crates/dagayn-tools/src/traverse.rs::traverse_graph
     let repo = Repo::new("traverse", true);
     repo.build();
     let context = repo.context();
@@ -1776,6 +1817,7 @@ fn traversal_walks_from_the_best_keyword_match() {
 
 #[test]
 fn suggested_questions_come_high_priority_first() {
+    // dagayn: tests crates/dagayn-tools/src/questions.rs::suggested_questions
     let repo = Repo::new("questions", true);
     repo.build();
     let context = repo.context();
@@ -1794,6 +1836,7 @@ fn suggested_questions_come_high_priority_first() {
 
 #[test]
 fn wiki_pages_are_read_by_slug_or_exact_name() {
+    // dagayn: tests crates/dagayn-tools/src/docs.rs::get_wiki_page
     let repo = Repo::new("wiki", true);
     repo.build();
     repo.write(".dagayn/wiki/auth-flow.md", "# Auth\r\nline\r");
@@ -1865,6 +1908,8 @@ fn wiki_pages_are_read_by_slug_or_exact_name() {
 
 #[test]
 fn a_rename_preview_is_applied_or_shown_as_a_diff() {
+    // dagayn: tests crates/dagayn-tools/src/refactor.rs::refactor
+    // dagayn: tests crates/dagayn-tools/src/apply.rs::apply_refactor
     let repo = Repo::new("apply", true);
     repo.build();
     let context = repo.context();
@@ -2049,6 +2094,8 @@ fn fake_embedding_server(vector: [f32; 4]) -> u16 {
 
 #[test]
 fn search_ranks_stored_vectors_against_the_sidecar_query() {
+    // dagayn: tests crates/dagayn-tools/src/search.rs::semantic_search
+    // dagayn: tests crates/dagayn-tools/src/traverse.rs::traverse_graph
     let repo = Repo::new("vectors", true);
     repo.build();
     let port = fake_embedding_server([0.0, 1.0, 0.0, 0.0]);
@@ -2121,6 +2168,8 @@ fn search_ranks_stored_vectors_against_the_sidecar_query() {
 
 #[test]
 fn postprocess_reruns_the_steps_asked_for() {
+    // dagayn: tests crates/dagayn-tools/src/postprocess.rs::run_postprocess
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
     let repo = Repo::new("postprocess", true);
     repo.build();
     let context = repo.context();
@@ -2159,6 +2208,13 @@ fn postprocess_reruns_the_steps_asked_for() {
 /// missing node; and every reply fits its level's budget.
 #[test]
 fn every_reply_names_calls_that_answer_and_fits_its_budget() {
+    // dagayn: tests crates/dagayn-tools/src/context.rs::get_minimal_context
+    // dagayn: tests crates/dagayn-tools/src/search.rs::semantic_search
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/flow.rs::flow
+    // dagayn: tests crates/dagayn-tools/src/review.rs::review
+    // dagayn: tests crates/dagayn-tools/src/arch_tool.rs::architecture
+    // dagayn: tests crates/dagayn-tools/src/refactor.rs::refactor
     let repo = Repo::new("contract", true);
     // Long paths, as a real tree's are: lists of them must not outgrow a level.
     let module = |i: usize| format!("pkg/a_rather_long_package_name/and_a_subpackage/mod_{i}.py");
@@ -2364,6 +2420,9 @@ fn follow_next(
 /// answer within six calls.
 #[test]
 fn following_next_reaches_the_answer() {
+    // dagayn: tests crates/dagayn-tools/src/context.rs::get_minimal_context
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/review.rs::review
     let repo = Repo::new("traces", true);
     repo.write(".gitignore", ".dagayn/\n");
     repo.write("lib.py", "def helper():\n    return 2\n");
@@ -2441,6 +2500,12 @@ fn following_next_reaches_the_answer() {
 /// caveat about the graph.
 #[test]
 fn a_fresh_graph_raises_no_caveats() {
+    // dagayn: tests crates/dagayn-tools/src/search.rs::semantic_search
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/flow.rs::flow
+    // dagayn: tests crates/dagayn-tools/src/review.rs::review
+    // dagayn: tests crates/dagayn-tools/src/arch_tool.rs::architecture
+    // dagayn: tests crates/dagayn-tools/src/refactor.rs::refactor
     let repo = Repo::new("fresh", true);
     repo.build();
     let context = Context {
@@ -2557,6 +2622,8 @@ fn layered_workspace(repo: &Repo) {
 /// introduced, and not a dependency that predates it.
 #[test]
 fn unstable_dependencies_are_found_where_they_are_introduced() {
+    // dagayn: tests crates/dagayn-tools/src/arch_tool.rs::architecture
+    // dagayn: tests crates/dagayn-tools/src/review.rs::review
     let repo = Repo::new("stability", true);
     layered_workspace(&repo);
     commit_all(&repo, "layers");
