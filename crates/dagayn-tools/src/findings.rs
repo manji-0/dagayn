@@ -414,19 +414,36 @@ pub(crate) fn nearest_test(
         if depth == limit {
             break;
         }
-        let (_, incoming) = store.get_edges_by_endpoints(&frontier).ok()?;
-        let mut next = Vec::new();
-        for edge in incoming.values().flatten() {
-            let calls = edge.kind == "CALLS"
-                || (edge.kind == "REFERENCES" && edge.extra.get("relationship_role").is_none());
-            if !calls || !seen.insert(edge.source_qualified.clone()) {
-                continue;
+        // A method the runtime calls (a constructor's `__init__`, a
+        // property, a validator) is called wherever its class is used.
+        let mut classes: Vec<String> = Vec::new();
+        for current in &frontier {
+            if let Some(class) = implicit_method_class(store, current)?
+                && !frontier.contains(&class)
+                && !classes.contains(&class)
+            {
+                classes.push(class);
             }
-            if let Some(caller) = store.get_node(&edge.source_qualified).ok()? {
-                if is_test_node(&caller, &relative(&caller.file_path)) {
-                    return Some(Some((depth + 1, caller.qualified_name)));
+        }
+        let mut targets = frontier.clone();
+        targets.extend(classes.iter().cloned());
+        let (_, incoming) = store.get_edges_by_endpoints(&targets).ok()?;
+        let mut next = Vec::new();
+        for (target, edges) in &incoming {
+            let of_class = classes.contains(target);
+            for edge in edges {
+                let calls = edge.kind == "CALLS"
+                    || (edge.kind == "REFERENCES"
+                        && (of_class || edge.extra.get("relationship_role").is_none()));
+                if !calls || !seen.insert(edge.source_qualified.clone()) {
+                    continue;
                 }
-                next.push(caller.qualified_name);
+                if let Some(caller) = store.get_node(&edge.source_qualified).ok()? {
+                    if is_test_node(&caller, &relative(&caller.file_path)) {
+                        return Some(Some((depth + 1, caller.qualified_name)));
+                    }
+                    next.push(caller.qualified_name);
+                }
             }
         }
         if next.is_empty() {
@@ -435,6 +452,53 @@ pub(crate) fn nearest_test(
         frontier = next;
     }
     Some(None)
+}
+
+/// Decorators whose methods the runtime calls on an instance's use.
+const IMPLICIT_DECORATORS: &[&str] = &[
+    "cached_property",
+    "computed_field",
+    "field_serializer",
+    "field_validator",
+    "model_serializer",
+    "model_validator",
+    "property",
+    "root_validator",
+    "validator",
+];
+
+/// The class whose use calls `qn` without naming it: a dunder method
+/// (`__init__` on construction, `__enter__` in a `with`) or a property or
+/// validator (`@property`, `@field_validator`) of a class.
+fn implicit_method_class(store: &GraphStore, qn: &str) -> Option<Option<String>> {
+    let Some(node) = store.get_node(qn).ok()? else {
+        return Some(None);
+    };
+    let Some(parent) = node.parent_name.as_deref() else {
+        return Some(None);
+    };
+    let dunder = node.name.len() > 4 && node.name.starts_with("__") && node.name.ends_with("__");
+    let decorated = node.extra["decorators"]
+        .as_array()
+        .is_some_and(|decorators| {
+            decorators
+                .iter()
+                .filter_map(Value::as_str)
+                .any(|decorator| {
+                    let last = decorator.rsplit('.').next().unwrap_or(decorator);
+                    IMPLICIT_DECORATORS.contains(&last)
+                        || matches!(last, "setter" | "getter" | "deleter")
+                })
+        });
+    if !dunder && !decorated {
+        return Some(None);
+    }
+    let class = format!("{}::{parent}", qn.split_once("::")?.0);
+    let is_class = store
+        .get_node(&class)
+        .ok()?
+        .is_some_and(|node| node.kind == "Class");
+    Some(is_class.then_some(class))
 }
 
 /// `contract_doc_not_updated`: authored contract docs linked to changed
