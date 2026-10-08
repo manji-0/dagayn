@@ -126,6 +126,7 @@ fn parse_python_module_tree(
         edges: &mut edges,
     };
     walker.visit_body(body);
+    python_keep_checked_references(file_path, &nodes, &mut edges);
     python_emit_lazy_exports(body, &context, &mut edges);
     extract_python_documentation_directives(file_path, src.text(), &nodes, &mut edges);
     let edges = resolve_python_call_targets(&nodes, edges, file_path);
@@ -300,6 +301,15 @@ impl<'ast> SourceOrderVisitor<'ast> for PythonWalker<'_, '_> {
                 for element in &list.elts {
                     if let Expr::Name(name) = element {
                         self.emit_reference_if_known(name);
+                    }
+                }
+                walk_expr(self, expr);
+            }
+            // `[("dfs", _dfs), ...]`, `handlers = (on_a, on_b)`.
+            Expr::Tuple(tuple) if matches!(tuple.ctx, ExprContext::Load) => {
+                for element in &tuple.elts {
+                    if let Expr::Name(name) = element {
+                        self.emit_value_reference(name);
                     }
                 }
                 walk_expr(self, expr);
@@ -610,6 +620,7 @@ impl PythonWalker<'_, '_> {
 
     fn emit_call(&mut self, call: &ast::ExprCall) {
         let context = self.context;
+        self.emit_argument_references(call);
         let Some(call_name) = python_call_name(&call.func) else {
             return;
         };
@@ -645,6 +656,17 @@ impl PythonWalker<'_, '_> {
                 },
             },
         };
+        // `module.f(..)` with `module` a module of this repository imported
+        // anywhere in the file (`from pkg import module` in a test body):
+        // resolution looks for `f` in that module's file.
+        if !target.contains("::")
+            && let Some(receiver) = extra.get("receiver").and_then(Value::as_str)
+            && let Some(module) = context.import_aliases.get(receiver)
+            && let Some(file) =
+                python_resolve_module_to_file(module, &context.file_path, context.repo_root)
+        {
+            extra["module_file"] = json!(file);
+        }
         let line = context.line(call);
         self.edges.push(ParsedEdge {
             kind: crate::core::types::EdgeKind::Calls,
@@ -755,6 +777,70 @@ impl PythonWalker<'_, '_> {
         self.enclosing_qualified = outer;
     }
 
+    /// Functions passed as arguments (`run_guarded(args, dispatch)`,
+    /// `Thread(target=self._loop)`): references to them. A function nested
+    /// in the enclosing one and a method of the enclosing class are kept
+    /// only if the file defines them ([`python_keep_checked_references`]).
+    fn emit_argument_references(&mut self, call: &ast::ExprCall) {
+        let context = self.context;
+        let values = call
+            .arguments
+            .args
+            .iter()
+            .chain(call.arguments.keywords.iter().map(|keyword| &keyword.value));
+        for value in values {
+            let target = match value {
+                Expr::Name(name) => {
+                    self.emit_value_reference(name);
+                    continue;
+                }
+                Expr::Attribute(attribute)
+                    if matches!(&*attribute.value, Expr::Name(owner)
+                        if matches!(owner.id.as_str(), "self" | "cls")) =>
+                {
+                    let Some(class) = &self.enclosing_class else {
+                        continue;
+                    };
+                    qualify(&context.file_path, attribute.attr.as_str(), Some(class))
+                }
+                _ => continue,
+            };
+            self.edges.push(ParsedEdge {
+                kind: crate::core::types::EdgeKind::References,
+                source: self.caller(),
+                target,
+                file_path: context.file_path.clone(),
+                line: context.line(value),
+                extra: json!({"checked_local": true}),
+            });
+        }
+    }
+
+    /// A name used as a value: a function or class of the file or an
+    /// import, or a function nested in the enclosing one (kept only if the
+    /// file defines it).
+    fn emit_value_reference(&mut self, name: &ast::ExprName) {
+        let context = self.context;
+        if python_resolve_reference_target(name.id.as_str(), context).is_some() {
+            self.emit_reference_if_known(name);
+            return;
+        }
+        let Some(scope) = &self.enclosing_qualified else {
+            return;
+        };
+        if python_skip_value_reference_name(name.id.as_str()) {
+            return;
+        }
+        self.edges.push(ParsedEdge {
+            kind: crate::core::types::EdgeKind::References,
+            source: self.caller(),
+            target: format!("{scope}.{}", name.id),
+            file_path: context.file_path.clone(),
+            line: context.line(name),
+            extra: json!({"checked_local": true}),
+        });
+    }
+
     fn emit_reference_if_known(&mut self, name: &ast::ExprName) {
         let context = self.context;
         let Some(target) = python_resolve_reference_target(name.id.as_str(), context) else {
@@ -768,6 +854,29 @@ impl PythonWalker<'_, '_> {
             context.line(name),
         ));
     }
+}
+
+/// Drops the argument references whose nested function or method the file
+/// does not define (`self.store` is an attribute, not a method).
+fn python_keep_checked_references(
+    file_path: &str,
+    nodes: &[ParsedNode],
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let defined: HashSet<String> = nodes
+        .iter()
+        .filter(|node| node.kind == "Function")
+        .map(|node| qualify(file_path, &node.name, node.parent_name.as_deref()))
+        .collect();
+    edges.retain_mut(|edge| {
+        if edge.extra.get("checked_local").is_none() {
+            return true;
+        }
+        if let Some(extra) = edge.extra.as_object_mut() {
+            extra.remove("checked_local");
+        }
+        defined.contains(&edge.target)
+    });
 }
 
 /// Parent path (relative to the file) of the innermost enclosing class or

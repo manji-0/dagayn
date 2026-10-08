@@ -135,8 +135,13 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // body record `import_scope` (`function` / `type_checking`).
         // 12: a `dagayn: tests` directive creates an edge
         // (docs/plans/TEST-REACH-TARGET.md).
+        // 13: a function passed as an argument (`run(args, dispatch)`,
+        // `Thread(target=self._loop)`) or in a tuple is a REFERENCES, also to
+        // a function nested in the caller or a method of its class; a call
+        // on a module of this repository imported anywhere in the file
+        // (`module.run()`) records the module's file (`module_file`).
         extractor: "python",
-        version: 12,
+        version: 13,
         languages: &["python", "notebook"],
     },
     ExtractorVersion {

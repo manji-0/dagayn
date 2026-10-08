@@ -966,3 +966,68 @@ fn python_same_code_ignores_comments_and_layout() {
     let reworded = documented.replace("Join and count.", "Join, then count.");
     assert_eq!(python_same_code(documented, &reworded), Some(true));
 }
+
+#[test]
+fn functions_passed_as_arguments_are_references() {
+    let source = br#"import threading
+
+
+def run_guarded(args, action):
+    return action()
+
+
+def main(args):
+    def dispatch():
+        return 1
+
+    def other():
+        return 2
+
+    for _, action in [("other", other)]:
+        action()
+    return run_guarded(args, dispatch)
+
+
+class Daemon:
+    def __init__(self):
+        self.store = None
+
+    def start(self):
+        threading.Thread(target=self._loop, daemon=True).start()
+        print(self.store)
+        consume(self.store)
+
+    def _loop(self):
+        pass
+"#;
+    let (_, edges) = parse_python("app.py", source);
+    let references: Vec<(&str, &str)> = edges
+        .iter()
+        .filter(|edge| edge.kind == "REFERENCES")
+        .map(|edge| (edge.source.as_str(), edge.target.as_str()))
+        .collect();
+    assert!(
+        references.contains(&("app.py::main", "app.py::main.dispatch")),
+        "{references:?}"
+    );
+    assert!(
+        references.contains(&("app.py::main", "app.py::main.other")),
+        "{references:?}"
+    );
+    assert!(
+        references.contains(&("app.py::Daemon.start", "app.py::Daemon._loop")),
+        "{references:?}"
+    );
+    // `self.store` is an attribute, not a method: no reference.
+    assert!(
+        !references
+            .iter()
+            .any(|(_, target)| target.ends_with("Daemon.store")),
+        "{references:?}"
+    );
+    assert!(
+        edges
+            .iter()
+            .all(|edge| edge.extra.get("checked_local").is_none())
+    );
+}
