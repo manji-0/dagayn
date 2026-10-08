@@ -39,6 +39,8 @@ def test_test_paths_follow_the_finding():
 
 
 def test_population_counts_a_body_line_not_the_def_line(tmp_path: Path):
+    # dagayn: tests eval/run_test_reach_eval.py::population
+    # dagayn: tests eval/run_test_reach_eval.py::_incoming
     db = tmp_path / "graph.db"
     with sqlite3.connect(db) as conn:
         conn.executescript(
@@ -57,6 +59,8 @@ def test_population_counts_a_body_line_not_the_def_line(tmp_path: Path):
 
 
 def test_rust_population_reads_each_function_s_own_coverage_records(tmp_path: Path):
+    # dagayn: tests eval/run_test_reach_eval.py::rust_population
+    # dagayn: tests eval/run_test_reach_eval.py::is_rust_test_code
     db = tmp_path / "graph.db"
     with sqlite3.connect(db) as conn:
         conn.executescript(
