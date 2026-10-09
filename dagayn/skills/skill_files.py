@@ -521,6 +521,8 @@ def install_qoder_skills(
                 )
                 logger.info("Installed Qoder skill: %s", skill_dir.name)
                 installed_count += 1
+    for name in _RETIRED_SKILLS:
+        _remove_dagayn_skill(qoder_skills_dir / name, name)
 
     if installed_count > 0:
         logger.info("Installed %d skill(s) to %s", installed_count, qoder_skills_dir)

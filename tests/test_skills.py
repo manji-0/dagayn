@@ -795,6 +795,24 @@ class TestInstallQoderSkills:
 
         assert target.read_text(encoding="utf-8") == "fresh"
 
+    def test_reinstall_removes_retired_qoder_skills_only(self, tmp_path):
+        source = tmp_path / "skills" / "sample"
+        source.mkdir(parents=True)
+        (source / "SKILL.md").write_text("fresh", encoding="utf-8")
+        qoder = tmp_path / ".qoder" / "skills"
+        (qoder / "semantic-search").mkdir(parents=True)
+        (qoder / "semantic-search" / "SKILL.md").write_text(
+            "---\nname: semantic-search\ndescription: old\n---\nold body\n"
+        )
+        # Same name, not dagayn's frontmatter: the user's.
+        (qoder / "install-dagayn").mkdir()
+        (qoder / "install-dagayn" / "SKILL.md").write_text("# my own notes\n")
+
+        install_qoder_skills(tmp_path)
+
+        assert not (qoder / "semantic-search").exists()
+        assert (qoder / "install-dagayn" / "SKILL.md").read_text() == "# my own notes\n"
+
     def test_reinstall_replaces_managed_qoder_skill_directory(self, tmp_path):
         skills_dir = tmp_path / "skills" / "sample"
         skills_dir.mkdir(parents=True)
