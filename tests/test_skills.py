@@ -62,13 +62,11 @@ EXPECTED_SKILLS = [
     "debug-issue",
     "explore-codebase",
     "implement-feature",
-    "install-dagayn",
     "reading-markdown-document",
     "refactor-safely",
     "review-changes",
     "review-delta",
     "review-pr",
-    "semantic-search",
     "worktree-sync",
     "writing-markdown-document",
 ]
@@ -141,16 +139,10 @@ class TestGenerateSkills:
         assert (skills_dir / "reading-markdown-document" / "SKILL.md").is_file()
 
     def test_operational_skills_cover_3_0_surfaces(self, tmp_path):
-        """Install target should cover setup, embeddings, wiki, and cross-repo work."""
+        """Install target should cover cross-repo work."""
         skills_dir = generate_skills(tmp_path)
-        install = (skills_dir / "install-dagayn" / "SKILL.md").read_text()
-        semantic = (skills_dir / "semantic-search" / "SKILL.md").read_text()
         cross_repo = (skills_dir / "cross-repo-workflows" / "SKILL.md").read_text()
 
-        assert "dagayn install --platform codex" in install
-        assert "--no-instructions" in install
-        assert "embed_graph_tool" in semantic
-        assert 'search_mode="hybrid"' in semantic
         assert "cross_repo_search_tool" in cross_repo
         assert "dagayn daemon" in cross_repo
 
@@ -158,7 +150,6 @@ class TestGenerateSkills:
         skills_dir = generate_skills(tmp_path)
         worktree = (skills_dir / "worktree-sync" / "SKILL.md").read_text()
         feature = (skills_dir / "implement-feature" / "SKILL.md").read_text()
-        install = (skills_dir / "install-dagayn" / "SKILL.md").read_text()
         review = (skills_dir / "review-changes" / "SKILL.md").read_text()
 
         assert "dagayn session prepare" in worktree
@@ -167,38 +158,31 @@ class TestGenerateSkills:
         assert "ensure_graph_tool" in feature
         assert "extension points" in feature
         assert 'review_tool(mode="changes")' in feature
-        assert "Worktree bootstrap" in install
         assert "Docs update after code change" in review
         assert "writing-markdown-document" in review
 
     def test_search_skills_are_mode_neutral_without_install_context(self, tmp_path):
         skills_dir = generate_skills(tmp_path)
-        semantic = (skills_dir / "semantic-search" / "SKILL.md").read_text()
         explore = (skills_dir / "explore-codebase" / "SKILL.md").read_text()
         build = (skills_dir / "build-graph" / "SKILL.md").read_text()
         writing = (skills_dir / "writing-markdown-document" / "SKILL.md").read_text()
 
-        assert "mode-neutral" in semantic
         assert "mode-neutral" in explore
         assert "mode-neutral" in build
         assert "mode-neutral" in writing
-        assert "<!-- dagayn skill embedding context -->" in semantic
-        assert "<!-- /dagayn skill embedding context -->" in semantic
+        assert "<!-- dagayn skill embedding context -->" in build
+        assert "<!-- /dagayn skill embedding context -->" in build
 
     def test_exploration_skills_encode_search_to_traversal_ladder(self, tmp_path):
         """Agents should learn search -> relationship query -> bounded traversal."""
         skills_dir = generate_skills(tmp_path)
         explore = (skills_dir / "explore-codebase" / "SKILL.md").read_text()
-        semantic = (skills_dir / "semantic-search" / "SKILL.md").read_text()
         debug = (skills_dir / "debug-issue" / "SKILL.md").read_text()
 
         assert "## Decision Model" in explore
         assert "Unknown entity, fuzzy concept" in explore
         assert "Known entity plus a specific relationship" in explore
         assert "Neighborhood exploration: use `traverse_graph_tool` only after" in explore
-        assert "Treat semantic search as start-node discovery, not final proof" in semantic
-        assert "Hand off the best hit to graph tools" in semantic
-        assert 'query_graph_tool(pattern="source_of")' in semantic
         assert "Prefer relationship queries over raw traversal" in debug
         assert 'query_graph_tool(pattern="source_of")' in debug
 
@@ -209,7 +193,6 @@ class TestGenerateSkills:
             "explore-codebase.md",
             "debug-issue.md",
             "implement-feature.md",
-            "semantic-search.md",
             "review-changes.md",
             "review-delta.md",
             "review-pr.md",
@@ -233,20 +216,17 @@ class TestGenerateSkills:
             tmp_path,
             embedding_mode="local-embedding",
         )
-        semantic = (skills_dir / "semantic-search" / "SKILL.md").read_text()
         debug = (skills_dir / "debug-issue" / "SKILL.md").read_text()
         build = (skills_dir / "build-graph" / "SKILL.md").read_text()
         writing = (skills_dir / "writing-markdown-document" / "SKILL.md").read_text()
         review_pr = (skills_dir / "review-pr" / "SKILL.md").read_text()
 
-        assert "--mode local-embedding" in semantic
-        assert "BGE-M3" in semantic
-        assert 'local_embedding="none"' in semantic
-        assert "embedding-enabled full rebuild" in semantic
-        assert "`search_mode`, `embedding_health.requested_text_mode`" in semantic
-        assert "rerank_intent" not in semantic
-        assert "Process-pattern prose should use narrative embeddings" in semantic
-        assert "mode-neutral" not in semantic
+        assert "BGE-M3" in build
+        assert "embedding-enabled full rebuild" in build
+        assert "`search_mode`, `embedding_health.requested_text_mode`" in build
+        assert "rerank_intent" not in build
+        assert "Process-pattern prose should use narrative embeddings" in build
+        assert "mode-neutral" not in build
         assert "--mode local-embedding" in debug
         assert "--mode local-embedding" in build
         assert 'local_embedding="none"' in build
@@ -263,26 +243,22 @@ class TestGenerateSkills:
             embedding_mode="local-embedding-llama",
             embedding_preset="low",
         )
-        semantic = (skills_dir / "semantic-search" / "SKILL.md").read_text()
         build = (skills_dir / "build-graph" / "SKILL.md").read_text()
 
-        assert "--mode local-embedding-llama --preset low" in semantic
-        assert "managed Qwen3" in semantic
-        assert "`search_mode`, `embedding_health.requested_text_mode`" in semantic
-        assert "rerank_intent" not in semantic
+        assert "--mode local-embedding-llama --preset low" in build
+        assert "managed Qwen3" in build
+        assert "`search_mode`, `embedding_health.requested_text_mode`" in build
+        assert "rerank_intent" not in build
         assert 'local_embedding="none"' in build
         assert "server sidecar mode" in build
 
     def test_generate_skills_renders_fts_context(self, tmp_path):
         skills_dir = generate_skills(tmp_path, embedding_mode="fts-only")
-        semantic = (skills_dir / "semantic-search" / "SKILL.md").read_text()
         cross_repo = (skills_dir / "cross-repo-workflows" / "SKILL.md").read_text()
         build = (skills_dir / "build-graph" / "SKILL.md").read_text()
 
-        assert "FTS-only mode" in semantic
-        assert "Do not rebuild embeddings" in semantic
-        assert "`keyword_fallback` means neither FTS nor vectors matched" in semantic
-        assert "FTS index is absent" not in semantic
+        assert "`keyword_fallback` means neither FTS nor vectors matched" in build
+        assert "FTS index is absent" not in build
         assert "keyword/FTS search" in cross_repo
         assert "FTS-only mode" in build
         assert "Do not rebuild embeddings" in build
@@ -293,14 +269,14 @@ class TestGenerateSkills:
             embedding_mode="remote-embedding",
             embedding_provider="openai",
         )
-        semantic = (skills_dir / "semantic-search" / "SKILL.md").read_text()
+        build = (skills_dir / "build-graph" / "SKILL.md").read_text()
         cross_repo = (skills_dir / "cross-repo-workflows" / "SKILL.md").read_text()
         review_pr = (skills_dir / "review-pr" / "SKILL.md").read_text()
 
-        assert "--mode remote-embedding --provider openai" in semantic
-        assert "`search_mode`, `embedding_health.requested_text_mode`" in semantic
-        assert "rerank_intent" not in semantic
-        assert 'embed_graph_tool(provider="openai")' in semantic
+        assert "--mode remote-embedding --provider openai" in build
+        assert "`search_mode`, `embedding_health.requested_text_mode`" in build
+        assert "rerank_intent" not in build
+        assert 'embed_graph_tool(provider="openai")' in build
         assert "remote embedding calls" in cross_repo
         assert "--mode remote-embedding --provider openai" in review_pr
 
@@ -529,7 +505,7 @@ class TestInstallGlobalSkills:
     def test_renders_embedding_context(self, tmp_path):
         with patch("pathlib.Path.home", return_value=tmp_path):
             install_global_skills(embedding_mode="local-embedding")
-        target = tmp_path / ".claude" / "skills" / "semantic-search" / "SKILL.md"
+        target = tmp_path / ".claude" / "skills" / "build-graph" / "SKILL.md"
         content = target.read_text()
         assert "--mode local-embedding" in content
         assert "BGE-M3" in content
@@ -732,11 +708,11 @@ class TestInstallTreeSkills:
         with patch("pathlib.Path.home", return_value=tmp_path):
             result = install_codex_skills(embedding_mode="local-embedding")
 
-        target = result / "semantic-search" / "SKILL.md"
+        target = result / "build-graph" / "SKILL.md"
         content = target.read_text()
         assert "--mode local-embedding" in content
         assert "BGE-M3" in content
-        assert "explicitly doing embedding-quality" in content
+        assert "explicit embedding-quality" in content
 
     def test_tree_skill_install_is_idempotent(self, tmp_path):
         with patch("pathlib.Path.home", return_value=tmp_path):
@@ -785,10 +761,10 @@ class TestInstallTreeSkills:
 
 class TestInstallQoderSkills:
     def test_renders_embedding_context(self, tmp_path):
-        skills_dir = tmp_path / "skills" / "semantic-search"
+        skills_dir = tmp_path / "skills" / "build-graph"
         skills_dir.mkdir(parents=True)
         (skills_dir / "SKILL.md").write_text(
-            "---\nname: semantic-search\ndescription: x\n---\n\n"
+            "---\nname: build-graph\ndescription: x\n---\n\n"
             "<!-- dagayn skill embedding context -->\n"
             "stale\n"
             "<!-- /dagayn skill embedding context -->\n",
@@ -802,7 +778,7 @@ class TestInstallQoderSkills:
         )
 
         assert result is not None
-        content = (result / "semantic-search" / "SKILL.md").read_text()
+        content = (result / "build-graph" / "SKILL.md").read_text()
         assert "--mode remote-embedding --provider google" in content
         assert 'embed_graph_tool(provider="google")' in content
 

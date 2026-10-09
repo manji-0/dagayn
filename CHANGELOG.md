@@ -2,6 +2,16 @@
 
 All notable changes to `dagayn` are documented here.
 
+## Unreleased
+
+### Removed
+
+- The `install-dagayn` and `semantic-search` skills. An agent that has
+  dagayn's skills already has dagayn installed, and the search tool's reply
+  says how it ranked; the install-specific search guidance now lives in
+  `build-graph`, and `get_docs_section_tool(section_name="embeddings")` has
+  the embedding modes. `dagayn install` removes the copies it left behind.
+
 ## 9.0.0 — 2026-10-09
 
 The default replies of the six Tier 1 tools change shape: they end with

@@ -20,7 +20,7 @@ from .platforms import logger
 
 # Skills earlier dagayn versions installed and no longer ship: an upgrade
 # removes the copies it left behind.
-_RETIRED_SKILLS = ("wiki-research",)
+_RETIRED_SKILLS = ("wiki-research", "install-dagayn", "semantic-search")
 
 _SKILL_EMBEDDING_CONTEXT_START = "<!-- dagayn skill embedding context -->"
 _SKILL_EMBEDDING_CONTEXT_END = "<!-- /dagayn skill embedding context -->"
@@ -147,7 +147,7 @@ def _embedding_context_lines(
 # Skills that carry the full install-specific search guidance; every other
 # skill gets the two-line summary from ``_embedding_summary_lines`` so the
 # same paragraph is not loaded with each skill.
-_FULL_EMBEDDING_CONTEXT_SKILLS = frozenset({"semantic-search", "build-graph"})
+_FULL_EMBEDDING_CONTEXT_SKILLS = frozenset({"build-graph"})
 
 
 def _embedding_summary_lines(
@@ -156,7 +156,7 @@ def _embedding_summary_lines(
     embedding_provider: str | None = None,
 ) -> list[str]:
     """Return the short install-specific search note for non-search skills."""
-    details = "The semantic-search skill has the full search guidance."
+    details = "The build-graph skill has the full search guidance."
     if embedding_mode == "local-embedding":
         body = (
             "Installed with local embeddings (`--mode local-embedding`, managed BGE-M3 "

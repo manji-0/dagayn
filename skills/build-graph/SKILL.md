@@ -50,6 +50,8 @@ the selected embedding mode so graph builds refresh the right retrieval indexes.
      `local_embedding` on `build_or_update_graph_tool` may inherit that mode and
      trigger a large embedding refresh. Pass `local_embedding="bge-m3"` only
      when the task needs fresh embeddings, and say why first.
+   - Vectors only, without a graph rebuild: `embed_graph_tool` (advanced).
+     `get_docs_section_tool(section_name="embeddings")` has the modes.
 3. **Report** from the build result rather than reading the database: files
    parsed, nodes, edges, `errors`, and any SCIP `hint:` or warning lines. Use
    `dagayn status` or `list_graph_stats_tool` (advanced) for languages.
