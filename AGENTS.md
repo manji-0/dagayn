@@ -17,8 +17,7 @@ This repository ships `dagayn`, a fork of `code-review-graph` with extra emphasi
 - treat graph analysis as evidence-ranked leads: cite thresholds, counts,
   reason codes, truncation state, `answerability`, and `missingness` when
   drawing conclusions
-- rank trust with the tiers under "How to judge analysis output" below
-  (full rules: `get_docs_section_tool(section_name="trust")`); reach,
+- rank trust with `get_docs_section_tool(section_name="trust")`; reach,
   correctness, and user-visible effect are separate claims
 - treat `query_graph_tool` zero-result and not-found responses as graph-limited:
   read `zero_result_reason`, `next`, and missingness before concluding
@@ -170,54 +169,6 @@ structure at `architecture_analysis_tool` (`units`, `unit_edges`,
 `findings`); a rename at `refactor_tool(mode="rename")`, applied with
 `apply_refactor_tool` in the same `dagayn serve` session. Pass `depth` to
 callers_of/importers_of for a transitive chain.
-
-### Default tools
-
-| Tool | Use when |
-| ------ | ---------- |
-| `get_minimal_context_tool` | Start here: freshness and the first calls |
-| `ensure_graph_tool` | Graph empty or behind HEAD; bootstrap without embeddings |
-| `review_tool` | Change review: what to check that the diff does not show |
-| `query_graph_tool` | Callers, callees, imports, tests, linked docs, live source spans |
-| `semantic_search_nodes_tool` | Find code or doc sections by name, keyword, or meaning |
-| `flow_tool` | Entry points that reach a symbol, with the call chain |
-| `architecture_analysis_tool` | Map of declared units and structural findings |
-| `refactor_tool` | Refactor suggestions, dead code, rename previews |
-| `get_docs_section_tool` | dagayn reference sections, e.g. `trust` |
-
-Drill-down tools: `review_tool(mode="impact" | "affected_flows" |
-"context")` and `architecture_analysis_tool(mode=...)`. `dagayn serve --tools
-all` (or `CRG_TOOLS`) exposes the advanced and maintenance tools.
-
-### How to judge analysis output
-
-<!-- dagayn trust tiers -->
-Reach comes from the graph, correctness from `source_of`, and user-visible
-effect from a reproduction; keep them apart in a claim. Full rules:
-`get_docs_section_tool(section_name="trust")`.
-
-- **Highest** — on a current graph (`sync.state` is `commit_synced` or
-  `worktree_ahead`): `HIGH` and `EXTRACTED` edges, whether the parser or a
-  SCIP index (`resolved_by: "scip"`) settled them; `source_of` spans;
-  authored doc contracts (`implemented_by` / `implements_contract` links whose
-  target exists — `evidence_type=authored` alone is on every Markdown result).
-- **Medium** — structure, not correctness: `MEDIUM` (inferred) edges,
-  `reason_codes`, blast radius, flows, communities, metrics, suggestions,
-  explanatory doc links, and search hits.
-- **Low** — a hypothesis until `source_of` or a reproduction confirms it:
-  `LOW` edges, `heuristic_reachable` doc links whatever their edge confidence,
-  a file-level `tests_for` of 0, `truncated` or `ambiguous` results, and
-  answers about files changed since the graph was built (`sync.state`
-  `commit_drift` or `worktree_behind`).
-<!-- /dagayn trust tiers -->
-
-- Cite the counts, thresholds, reason codes, and `truncated`/`total` fields
-  behind a recommendation; narrow a truncated result with `top_n`,
-  `detail_level`, or a targeted query before concluding.
-- Check `query_graph_tool(pattern="tests_for")` before calling code
-  untested; a file-level zero is Low trust, not proof.
-- Before a refactor, check public APIs, dynamic dispatch, generated code,
-  and framework entry points.
 
 <!-- dagayn markdown policy -->
 ## Markdown documentation policy: declare dependencies via directive comments

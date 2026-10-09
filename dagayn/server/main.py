@@ -402,10 +402,6 @@ async def get_minimal_context_tool(
     finding kind they raise. An empty or HEAD-drifted graph queues a
     background refresh and returns at once; call ``ensure_graph_tool`` to wait.
 
-    Trust: on ``commit_drift`` / ``worktree_behind`` answers about changed files
-    are hypotheses; finding counts, community, and flow hints point where to
-    look, not at a confirmed bug.
-
     Args:
         task: What you are doing (e.g. "review PR #42", "debug login timeout").
         changed_files: Explicit changed files. Auto-detected if omitted.
@@ -455,10 +451,6 @@ def query_graph_tool(
     ``results_complete`` is false when the output budget cut rows. An import
     edge is a file's own import statement: ``from pkg import sub`` points at the
     submodule, and ``import a.b`` does not count ``a/__init__.py``.
-
-    Trust: ``HIGH`` / ``EXTRACTED`` edges and ``source_of`` spans are firm,
-    ``MEDIUM`` edges are inferred, and ``LOW`` edges, a file-level ``tests_for``
-    of 0, and ``truncated`` / ``ambiguous`` results are hypotheses.
     """
     payload = _tool("query:query_graph")(
         pattern=pattern,
@@ -485,9 +477,6 @@ def semantic_search_nodes_tool(
     Hybrid search: FTS over names and doc text, plus embeddings when the server
     has them (``--local-embedding`` or a remote provider); FTS alone otherwise.
     Markdown sections are searchable too.
-
-    Trust: hits are discovery, not proof; read the chosen node's ``source_of``
-    before asserting behavior.
 
     Args:
         query: Name, keyword, or natural-language description.
@@ -672,9 +661,6 @@ def architecture_analysis_tool(
     post-processing). Deprecated, removed next release: hubs, bridges,
     knowledge_gaps, surprising_connections, adp_violations.
 
-    Trust: a finding is a claim to confirm at its location before stating it;
-    metrics are structure leads, so cite their counts and thresholds.
-
     Args:
         granularity: (adp, sdp) "package" (declared units; default) or "file".
         scope_kind: (sap) "package" (declared units; default), "directory",
@@ -734,9 +720,6 @@ async def review_tool(
     Modes: changes (findings), context (source snippets), impact (blast
     radius, ``max_depth`` hops), affected_flows (flows the change touches).
     ``detail_level="verbose"`` adds the deprecated score-first fields.
-
-    Trust: findings rest on graph edges and a base-side re-parse; confirm one
-    with ``source_of`` or a reproduction before calling it a bug.
 
     Args:
         base: Git ref to diff against, plus staged, unstaged, and untracked
@@ -830,10 +813,6 @@ def refactor_tool(
     - rename: preview renaming ``old_name`` to ``new_name``. Returns edits and a
       ``refactor_id`` (valid 10 min) for ``apply_refactor_tool`` in the same
       ``dagayn serve`` session (advanced surface: ``dagayn serve --tools all``).
-
-    Trust: suggestions and dead-code hits are leads; public APIs, dynamic
-    dispatch, and entry points often have no static caller, so verify with
-    ``source_of`` before removing or moving.
 
     Args:
         limit: (dead_code, suggest) Maximum results; see ``total``.

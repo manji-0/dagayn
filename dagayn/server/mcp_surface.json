@@ -241,7 +241,7 @@
      "tags": []
     }
    },
-   "description": "Get compact context for any task. Call this first.\n\nReturns ``sync.state``, ``graph_health`` (with ``reason_codes``), top\ncommunities, ``next`` (the task's first calls, with arguments), and,\nwhen there are changes, ``changes``: how many of each ``review_tool``\nfinding kind they raise. An empty or HEAD-drifted graph queues a\nbackground refresh and returns at once; call ``ensure_graph_tool`` to wait.\n\nTrust: on ``commit_drift`` / ``worktree_behind`` answers about changed files\nare hypotheses; finding counts, community, and flow hints point where to\nlook, not at a confirmed bug.",
+   "description": "Get compact context for any task. Call this first.\n\nReturns ``sync.state``, ``graph_health`` (with ``reason_codes``), top\ncommunities, ``next`` (the task's first calls, with arguments), and,\nwhen there are changes, ``changes``: how many of each ``review_tool``\nfinding kind they raise. An empty or HEAD-drifted graph queues a\nbackground refresh and returns at once; call ``ensure_graph_tool`` to wait.",
    "inputSchema": {
     "properties": {
      "task": {
@@ -357,7 +357,7 @@
      "tags": []
     }
    },
-   "description": "Find nodes by name, keyword, or meaning when the exact symbol is unknown.\n\nHybrid search: FTS over names and doc text, plus embeddings when the server\nhas them (``--local-embedding`` or a remote provider); FTS alone otherwise.\nMarkdown sections are searchable too.\n\nTrust: hits are discovery, not proof; read the chosen node's ``source_of``\nbefore asserting behavior.",
+   "description": "Find nodes by name, keyword, or meaning when the exact symbol is unknown.\n\nHybrid search: FTS over names and doc text, plus embeddings when the server\nhas them (``--local-embedding`` or a remote provider); FTS alone otherwise.\nMarkdown sections are searchable too.",
    "inputSchema": {
     "properties": {
      "query": {
@@ -638,7 +638,7 @@
      "tags": []
     }
    },
-   "description": "Map the repository's units and report structural findings.\n\n``overview`` returns ``units`` (the crates, packages, and modules the\nmanifests declare), ``unit_edges`` (the dependencies between two units;\n``declared`` when a manifest lists one), and\n``findings``: ``import_cycle`` (with the imports to cut),\n``unstable_dependency``, ``untested_core``, ``broken_doc_link``. An empty\n``findings`` list means nothing structural to act on.\n``detail_level=\"standard\"`` adds each unit's ``surface``.\n\nMetric modes, per declared unit: sdp_metrics and sdp_violations (a unit\ndepending on a less stable one by more than ``min_delta``); sap_metrics and\nsap_violations (abstractness vs instability; farther than ``min_distance``\nfrom the main sequence). communities / community: graph clusters (need full\npost-processing). Deprecated, removed next release: hubs, bridges,\nknowledge_gaps, surprising_connections, adp_violations.\n\nTrust: a finding is a claim to confirm at its location before stating it;\nmetrics are structure leads, so cite their counts and thresholds.",
+   "description": "Map the repository's units and report structural findings.\n\n``overview`` returns ``units`` (the crates, packages, and modules the\nmanifests declare), ``unit_edges`` (the dependencies between two units;\n``declared`` when a manifest lists one), and\n``findings``: ``import_cycle`` (with the imports to cut),\n``unstable_dependency``, ``untested_core``, ``broken_doc_link``. An empty\n``findings`` list means nothing structural to act on.\n``detail_level=\"standard\"`` adds each unit's ``surface``.\n\nMetric modes, per declared unit: sdp_metrics and sdp_violations (a unit\ndepending on a less stable one by more than ``min_delta``); sap_metrics and\nsap_violations (abstractness vs instability; farther than ``min_distance``\nfrom the main sequence). communities / community: graph clusters (need full\npost-processing). Deprecated, removed next release: hubs, bridges,\nknowledge_gaps, surprising_connections, adp_violations.",
    "inputSchema": {
     "properties": {
      "mode": {
@@ -810,7 +810,7 @@
      "tags": []
     }
    },
-   "description": "Review a change set: what to check that the diff does not show.\n\nStart with ``changes`` and read ``findings``: each names a place to look,\nthe graph facts behind it, and an action. Kinds: dangling_reference\n(a removed symbol still referenced), unchanged_caller (new required\nparameter, callers not edited), contract_doc_not_updated, bridge_touched\n(one side of a manifest/Terraform/FFI bridge), unstable_dependency,\nuntested_change, tests_to_run (with a command). An empty list means\nnothing beyond the diff.\n\nModes: changes (findings), context (source snippets), impact (blast\nradius, ``max_depth`` hops), affected_flows (flows the change touches).\n``detail_level=\"verbose\"`` adds the deprecated score-first fields.\n\nTrust: findings rest on graph edges and a base-side re-parse; confirm one\nwith ``source_of`` or a reproduction before calling it a bug.",
+   "description": "Review a change set: what to check that the diff does not show.\n\nStart with ``changes`` and read ``findings``: each names a place to look,\nthe graph facts behind it, and an action. Kinds: dangling_reference\n(a removed symbol still referenced), unchanged_caller (new required\nparameter, callers not edited), contract_doc_not_updated, bridge_touched\n(one side of a manifest/Terraform/FFI bridge), unstable_dependency,\nuntested_change, tests_to_run (with a command). An empty list means\nnothing beyond the diff.\n\nModes: changes (findings), context (source snippets), impact (blast\nradius, ``max_depth`` hops), affected_flows (flows the change touches).\n``detail_level=\"verbose\"`` adds the deprecated score-first fields.",
    "inputSchema": {
     "properties": {
      "mode": {
@@ -1038,7 +1038,7 @@
      "tags": []
     }
    },
-   "description": "Plan refactors from the graph: suggestions, dead code, rename previews.\n\nModes:\n- suggest (default): ``findings``; \"verbose\" adds the old leads.\n- dead_code: functions/classes nothing refers to: no caller, test,\n  importer, entry point, registration, FFI export, override, or other\n  mention of the name. Candidates that may still be used are counted in\n  ``suppressed`` (filter with ``kind``, ``file_pattern``).\n- rename: preview renaming ``old_name`` to ``new_name``. Returns edits and a\n  ``refactor_id`` (valid 10 min) for ``apply_refactor_tool`` in the same\n  ``dagayn serve`` session (advanced surface: ``dagayn serve --tools all``).\n\nTrust: suggestions and dead-code hits are leads; public APIs, dynamic\ndispatch, and entry points often have no static caller, so verify with\n``source_of`` before removing or moving.",
+   "description": "Plan refactors from the graph: suggestions, dead code, rename previews.\n\nModes:\n- suggest (default): ``findings``; \"verbose\" adds the old leads.\n- dead_code: functions/classes nothing refers to: no caller, test,\n  importer, entry point, registration, FFI export, override, or other\n  mention of the name. Candidates that may still be used are counted in\n  ``suppressed`` (filter with ``kind``, ``file_pattern``).\n- rename: preview renaming ``old_name`` to ``new_name``. Returns edits and a\n  ``refactor_id`` (valid 10 min) for ``apply_refactor_tool`` in the same\n  ``dagayn serve`` session (advanced surface: ``dagayn serve --tools all``).",
    "inputSchema": {
     "properties": {
      "mode": {

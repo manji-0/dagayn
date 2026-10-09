@@ -333,9 +333,13 @@ fixtures the tests build.
    `workflow` section of `docs/LLM-OPTIMIZED-REFERENCE.md` (with the reply
    contract: arguments, budgets, `missingness`, the deprecated fields),
    the installed instructions (`_CLAUDE_MD_SECTION`, refreshed in
-   `AGENTS.md` and `GEMINI.md`), and seven skills carry it verbatim, and
-   `tests/test_skills.py::test_skill_workflow_matches_the_canonical_block`
-   fails when a copy drifts. The MCP server instructions name `next` and
+   `AGENTS.md` and `GEMINI.md`) carry it verbatim, and
+   `tests/test_skills.py::test_workflow_is_written_once` fails when a copy
+   drifts. Skills carry no copy (2026-10-10): the instructions load it in
+   every session, so a copy in a skill was read twice. The instructions
+   dropped the tool table, which restated the tool descriptions, and the
+   trust tiers, which skills carry where a judgment is made and
+   `get_docs_section_tool(section_name="trust")` has in full. The MCP server instructions name `next` and
    the `workflow` section in two sentences, inside the default
    descriptions' 8,500-character budget.
 8. After one release: remove the next-step fields `verbose` still

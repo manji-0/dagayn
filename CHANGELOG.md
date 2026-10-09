@@ -12,6 +12,16 @@ All notable changes to `dagayn` are documented here.
   `build-graph`, and `get_docs_section_tool(section_name="embeddings")` has
   the embedding modes. `dagayn install` removes the copies it left behind.
 
+### Changed
+
+- The installed instructions (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, and
+  the other platforms' files) drop the default-tools table and the trust
+  tiers: the tool descriptions say what each tool does, and
+  `get_docs_section_tool(section_name="trust")` ranks the evidence. Skills
+  no longer repeat the workflow the instructions already carry, and the
+  tool descriptions drop their `Trust:` paragraphs. Together about 4K
+  characters less in every session, and 1.2K less per skill read.
+
 ## 9.0.0 — 2026-10-09
 
 The default replies of the six Tier 1 tools change shape: they end with

@@ -12,7 +12,6 @@ from pathlib import Path
 
 from ..atomic_write import write_text_atomic
 from .platforms import logger, normalize_platform_target
-from .trust import TRUST_TIERS_BLOCK
 from .workflow import WORKFLOW_BLOCK
 
 _CLAUDE_MD_SECTION_MARKER = "<!-- dagayn MCP tools -->"
@@ -104,36 +103,6 @@ structure at `architecture_analysis_tool` (`units`, `unit_edges`,
 `findings`); a rename at `refactor_tool(mode="rename")`, applied with
 `apply_refactor_tool` in the same `dagayn serve` session. Pass `depth` to
 callers_of/importers_of for a transitive chain.
-
-### Default tools
-
-| Tool | Use when |
-| ------ | ---------- |
-| `get_minimal_context_tool` | Start here: freshness and the first calls |
-| `ensure_graph_tool` | Graph empty or behind HEAD; bootstrap without embeddings |
-| `review_tool` | Change review: what to check that the diff does not show |
-| `query_graph_tool` | Callers, callees, imports, tests, linked docs, live source spans |
-| `semantic_search_nodes_tool` | Find code or doc sections by name, keyword, or meaning |
-| `flow_tool` | Entry points that reach a symbol, with the call chain |
-| `architecture_analysis_tool` | Map of declared units and structural findings |
-| `refactor_tool` | Refactor suggestions, dead code, rename previews |
-| `get_docs_section_tool` | dagayn reference sections, e.g. `trust` |
-
-Drill-down tools: `review_tool(mode="impact" | "affected_flows" |
-"context")` and `architecture_analysis_tool(mode=...)`. `dagayn serve --tools
-all` (or `CRG_TOOLS`) exposes the advanced and maintenance tools.
-
-### How to judge analysis output
-
-{TRUST_TIERS_BLOCK}
-
-- Cite the counts, thresholds, reason codes, and `truncated`/`total` fields
-  behind a recommendation; narrow a truncated result with `top_n`,
-  `detail_level`, or a targeted query before concluding.
-- Check `query_graph_tool(pattern="tests_for")` before calling code
-  untested; a file-level zero is Low trust, not proof.
-- Before a refactor, check public APIs, dynamic dispatch, generated code,
-  and framework entry points.
 """
 
 

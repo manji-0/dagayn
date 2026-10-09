@@ -1473,9 +1473,9 @@ class TestInjectClaudeMd:
         assert _CLAUDE_MD_SECTION_MARKER in content
         assert "MCP Tools" in content
         assert "get_minimal_context_tool" in content
-        assert "How to judge analysis output" in content
+        assert "<!-- dagayn workflow -->" in content
+        assert "How to judge analysis output" not in content
         assert "truncated" in content
-        assert "--tools" in content
         assert "--tool-profile" not in content
         assert "read `findings`" in content
         assert "unit_edges" in content
@@ -1780,13 +1780,11 @@ class TestInjectPlatformInstructionsFiltering:
             inject_platform_instructions(tmp_path, target="codex")
 
         content = (tmp_path / ".codex" / "AGENTS.md").read_text()
-        assert "--tools" in content
         assert "--tool-profile" not in content
         assert "read `findings`" in content
         assert "unit_edges" in content
         assert "architecture_health" not in content
         assert "architecture_analysis_tool" in content
-        assert "Drill-down tools" in content
 
     def test_policy_injected_when_only_mcp_section_exists(self, tmp_path):
         """Existing file with only the MCP section gets the policy section on re-run."""
@@ -3107,37 +3105,21 @@ def test_skill_trust_tiers_match_the_canonical_block():
         end = text.index(TRUST_TIERS_END) + len(TRUST_TIERS_END)
         assert text[start:end] == TRUST_TIERS_BLOCK, skill.name
     assert {"review-changes", "explore-codebase", "debug-issue"} <= set(carriers)
-    assert TRUST_TIERS_BLOCK in _instructions_module._CLAUDE_MD_SECTION
 
 
-def test_skill_workflow_matches_the_canonical_block():
+def test_workflow_is_written_once():
     """The phases and the reply contract are written once
-    (``dagayn/skills/workflow.py``): the skills, the installed instructions,
-    and the reference's ``workflow`` section carry the same text."""
+    (``dagayn/skills/workflow.py``): the installed instructions and the
+    reference's ``workflow`` section carry the same text. Skills carry none:
+    the instructions already load it in every session."""
     from dagayn.skills.skill_files import _resolve_source_skills_dir
-    from dagayn.skills.workflow import WORKFLOW, WORKFLOW_BLOCK, WORKFLOW_END, WORKFLOW_START
+    from dagayn.skills.workflow import WORKFLOW, WORKFLOW_BLOCK, WORKFLOW_START
     from dagayn.tools.docs import get_docs_section
 
     source = _resolve_source_skills_dir()
     assert source is not None
-    carriers = []
     for skill in sorted(source.iterdir()):
-        text = (skill / "SKILL.md").read_text()
-        if WORKFLOW_START not in text:
-            continue
-        carriers.append(skill.name)
-        start = text.index(WORKFLOW_START)
-        end = text.index(WORKFLOW_END) + len(WORKFLOW_END)
-        assert text[start:end] == WORKFLOW_BLOCK, skill.name
-    assert {
-        "architecture-analysis",
-        "debug-issue",
-        "explore-codebase",
-        "implement-feature",
-        "refactor-safely",
-        "review-changes",
-        "review-delta",
-    } <= set(carriers)
+        assert WORKFLOW_START not in (skill / "SKILL.md").read_text(), skill.name
     assert WORKFLOW_BLOCK in _instructions_module._CLAUDE_MD_SECTION
     repo = Path(__file__).resolve().parent.parent
     section = get_docs_section("workflow", repo_root=str(repo), max_chars=20000)["content"]
