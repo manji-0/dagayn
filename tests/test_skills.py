@@ -3148,6 +3148,9 @@ def test_skill_workflow_matches_the_canonical_block():
     repo = Path(__file__).resolve().parent.parent
     section = get_docs_section("workflow", repo_root=str(repo), max_chars=20000)["content"]
     assert WORKFLOW in section
+    # The installed instructions this repository checks in.
+    for name in ("AGENTS.md", "GEMINI.md", ".cursorrules"):
+        assert WORKFLOW_BLOCK in (repo / name).read_text(), name
 
 
 def test_trust_tiers_name_only_visible_fields():
