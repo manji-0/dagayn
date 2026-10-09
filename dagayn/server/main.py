@@ -611,11 +611,6 @@ def architecture_analysis_tool(
         "overview",
         "communities",
         "community",
-        "hubs",
-        "bridges",
-        "knowledge_gaps",
-        "surprising_connections",
-        "adp_violations",
         "sdp_metrics",
         "sdp_violations",
         "sap_metrics",
@@ -631,8 +626,6 @@ def architecture_analysis_tool(
     granularity: Literal["file", "package"] = "package",
     scope_kind: Literal["file", "package", "directory"] = "package",
     unit_filter: Optional[list[str]] = None,
-    min_cycle_size: int = 2,
-    max_cycle_length: int = 10,
     min_delta: float = 0.1,
     min_distance: float = 0.5,
     repo_root: Optional[str] = None,
@@ -658,16 +651,15 @@ def architecture_analysis_tool(
     depending on a less stable one by more than ``min_delta``); sap_metrics and
     sap_violations (abstractness vs instability; farther than ``min_distance``
     from the main sequence). communities / community: graph clusters (need full
-    post-processing). Deprecated, removed next release: hubs, bridges,
-    knowledge_gaps, surprising_connections, adp_violations.
+    post-processing).
 
     Args:
-        granularity: (adp, sdp) "package" (declared units; default) or "file".
+        granularity: (sdp) "package" (declared units; default) or "file".
         scope_kind: (sap) "package" (declared units; default), "directory",
             or "file".
         unit_filter: (sap_metrics) Scope-key prefixes to keep.
         artifact_scope: "code" (default), "docs" (Markdown), or "all".
-        dependency_profile: (adp, sdp, sap) Edges counted: "strict_static"
+        dependency_profile: (sdp, sap) Edges counted: "strict_static"
             (imports, inheritance; default), "implementation" (+ calls),
             "infra_dataflow" (+ infra references), "artifact_trace"
             (+ cross-artifact bridges).
@@ -685,8 +677,6 @@ def architecture_analysis_tool(
         scope_kind=scope_kind,
         unit_filter=unit_filter,
         artifact_scope=artifact_scope,
-        min_cycle_size=min_cycle_size,
-        max_cycle_length=max_cycle_length,
         min_delta=min_delta,
         min_distance=min_distance,
         dependency_profile=dependency_profile,

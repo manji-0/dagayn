@@ -49,9 +49,7 @@ mode only when the user asks for one by name.
    `implementations_of` from a Markdown section. These are traceability links,
    not architectural coupling.
 
-`hubs`, `bridges`, `knowledge_gaps`, `surprising_connections`, and
-`adp_violations` are deprecated and answer with a `deprecated` note naming
-their replacement; do not start from them. `communities` / `community` are
+`communities` / `community` are
 graph clusters for an explicit clustering question and need full
 post-processing (`dagayn postprocess`).
 

@@ -1476,14 +1476,18 @@ fn architecture_metrics_follow_the_requested_view() {
         ..repo.context()
     };
     let arch = |arguments: Value| answer(&context, "architecture_analysis_tool", arguments);
-    let adp = arch(json!({"mode": "adp_violations"}));
-    assert!(adp.get("called_subtool").is_none());
-    assert_eq!(adp["count"], 1);
-    assert_eq!(adp["violations"][0]["nodes"], json!(["<root>", "pkg"]));
-    assert!(adp.get("answerability").is_none());
-    assert!(adp["missingness"].is_array());
     let sdp = arch(json!({"mode": "sdp_metrics", "granularity": "file", "top_n": 1}));
+    assert!(sdp.get("called_subtool").is_none());
+    assert!(sdp.get("answerability").is_none());
+    assert!(sdp.get("_hints").is_none());
     assert_eq!(sdp["metrics"].as_array().map(Vec::len), Some(1));
+    // verbose keeps the earlier next-step fields for one release, named.
+    let sdp = arch(json!({"mode": "sdp_metrics", "detail_level": "verbose"}));
+    assert!(
+        sdp["deprecated_fields"]
+            .as_array()
+            .is_some_and(|fields| fields.contains(&json!("_hints")))
+    );
     let violations = arch(json!({"mode": "sdp_violations", "min_delta": 0}));
     assert!(
         violations["summary"]
@@ -1506,30 +1510,6 @@ fn architecture_metrics_follow_the_requested_view() {
             .as_str()
             .is_some_and(|s| s.contains("min_distance=1.5e+16)"))
     );
-    let hubs = arch(json!({"mode": "hubs", "artifact_scope": "all"}));
-    assert!(hubs.get("called_subtool").is_none());
-    assert!(hubs["hub_nodes"].as_array().is_some_and(|h| !h.is_empty()));
-    assert_eq!(hubs["include_tests"], true);
-    let bridges = arch(json!({"mode": "bridges", "top_n": 1}));
-    assert!(
-        bridges["bridge_nodes"]
-            .as_array()
-            .is_some_and(|b| b.len() <= 1)
-    );
-    let gaps = arch(json!({"mode": "knowledge_gaps"}));
-    assert!(gaps["gaps"]["_meta"]["thresholds"].is_object());
-    assert!(gaps.get("_hints").is_none());
-    // verbose keeps the earlier next-step fields for one release, named.
-    let gaps = arch(json!({"mode": "knowledge_gaps", "detail_level": "verbose"}));
-    assert_eq!(gaps["_hints"]["next_steps"][0]["tool"], "refactor_tool");
-    assert!(
-        gaps["deprecated_fields"]
-            .as_array()
-            .is_some_and(|fields| fields.contains(&json!("_hints")))
-    );
-    let surprising = arch(json!({"mode": "surprising_connections", "artifact_scope": "all"}));
-    assert!(surprising["surprising_connections"].is_array());
-    assert_eq!(hubs["deprecated"]["removal"], "next release");
     let overview = arch(json!({}));
     assert!(overview.get("called_subtool").is_none());
     assert!(overview["units"].is_array());
@@ -1563,7 +1543,10 @@ fn architecture_metrics_follow_the_requested_view() {
         "Value error, mode=\"community\" requires community_id or community_name."
     );
     for arguments in [
-        json!({"mode": "adp_violations", "dependency_profile": "bogus"}),
+        json!({"mode": "sdp_metrics", "dependency_profile": "bogus"}),
+        // Removed in favour of the overview's map and findings.
+        json!({"mode": "hubs"}),
+        json!({"mode": "adp_violations"}),
         json!({"mode": "sap_metrics", "unit_filter": "pkg"}),
     ] {
         assert!(

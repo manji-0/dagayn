@@ -22,11 +22,6 @@ SUBTOOLS: dict[str, str] = {
     "overview": "get_architecture_overview_func",
     "communities": "list_communities_func",
     "community": "get_community_func",
-    "hubs": "get_hub_nodes_func",
-    "bridges": "get_bridge_nodes_func",
-    "knowledge_gaps": "get_knowledge_gaps_func",
-    "surprising_connections": "get_surprising_connections_func",
-    "adp_violations": "detect_adp_violations_func",
     "sdp_metrics": "compute_sdp_metrics_func",
     "sdp_violations": "detect_sdp_violations_func",
     "sap_metrics": "compute_sap_metrics_func",
@@ -131,25 +126,6 @@ def test_architecture_analysis_rejects_unknown_dependency_profile(repo: Path) ->
         )
 
 
-def test_architecture_analysis_code_scope_excludes_tests_from_structural_modes(
-    repo: Path,
-) -> None:
-    for mode in ("hubs", "bridges", "knowledge_gaps", "surprising_connections"):
-        code = architecture_analysis.architecture_analysis_func(
-            mode=cast(ArchitectureAnalysisMode, mode),
-            repo_root=str(repo),
-            artifact_scope="code",
-        )
-        everything = architecture_analysis.architecture_analysis_func(
-            mode=cast(ArchitectureAnalysisMode, mode),
-            repo_root=str(repo),
-            artifact_scope="all",
-        )
-
-        assert code["include_tests"] is False, mode
-        assert everything["include_tests"] is True, mode
-
-
 def test_architecture_analysis_community_requires_selector(repo: Path) -> None:
     result = architecture_analysis.architecture_analysis_func(mode="community", repo_root=str(repo))
 
@@ -199,20 +175,6 @@ def layered_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
         )
     subprocess.run([DAGAYN, "build", "--repo", root], check=True, capture_output=True)
     return root
-
-
-def test_adp_violations_truncated_suggests_listing_every_cycle(layered_repo: Path) -> None:
-    result = architecture_analysis.architecture_analysis_func(
-        mode="adp_violations", repo_root=str(layered_repo), top_n=2, detail_level="verbose"
-    )
-
-    assert result["truncated"] is True
-    assert len(result["violations"]) == 2
-    total = result["count"]
-    assert total >= 3
-    assert result["next_tool_suggestions"][0] == (
-        f'architecture_analysis_tool mode="adp_violations" top_n={total} -- list every cycle'
-    )
 
 
 def test_sdp_violations_truncate_to_top_n(layered_repo: Path) -> None:

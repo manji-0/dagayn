@@ -103,43 +103,6 @@ def register_commands(sub: argparse._SubParsersAction) -> CommandRegistry:
         help="Export format: graphml, mermaid-c4, cypher, obsidian, or svg",
     )
 
-    # detect-adp
-    adp_cmd = sub.add_parser("detect-adp", help="Detect cyclic dependencies (ADP violations)")
-    adp_cmd.add_argument(
-        "--granularity",
-        choices=["package", "file"],
-        default="package",
-        help=(
-            "Aggregation level: 'package' (declared unit: crate, package, module) "
-            "or 'file' (default: package)"
-        ),
-    )
-    adp_cmd.add_argument(
-        "--artifact-scope",
-        choices=["code", "docs", "all"],
-        default="code",
-        help="Analyze code, docs, or the legacy mixed graph (default: code)",
-    )
-    adp_cmd.add_argument(
-        "--min-cycle-size", type=int, default=2, help="Minimum cycle length (default: 2)"
-    )
-    adp_cmd.add_argument(
-        "--max-cycle-length", type=int, default=10, help="Upper bound on cycle length (default: 10)"
-    )
-    adp_cmd.add_argument(
-        "--format",
-        choices=["json", "text"],
-        default="json",
-        help="Output format (default: json)",
-    )
-    adp_cmd.add_argument(
-        "--top-n",
-        type=int,
-        default=None,
-        help="Number of violations to list (default: all)",
-    )
-    adp_cmd.add_argument("--repo", default=None, help="Repository root (auto-detected)")
-
     # sdp-metrics
     sdp_metrics_cmd = sub.add_parser(
         "sdp-metrics", help="Compute instability scores per module (SDP)"
@@ -290,7 +253,6 @@ def register_commands(sub: argparse._SubParsersAction) -> CommandRegistry:
         "watch": watch_cmd,
         "status": status_cmd,
         "visualize": vis_cmd,
-        "detect-adp": adp_cmd,
         "sdp-metrics": sdp_metrics_cmd,
         "detect-sdp": detect_sdp_cmd,
         "sap-metrics": sap_metrics_cmd,
@@ -299,7 +261,7 @@ def register_commands(sub: argparse._SubParsersAction) -> CommandRegistry:
 
 
 def handle(args: argparse.Namespace) -> None:
-    """Dispatch build/update/postprocess/watch/status/visualize/detect-adp/sdp/sap commands."""
+    """Dispatch build/update/postprocess/watch/status/visualize/sdp/sap commands."""
     from .build_handlers import execute_build_command
 
     execute_build_command(args)

@@ -232,11 +232,11 @@ Considered and not proposed:
 | Mode | Fate |
 |---|---|
 | `overview` | returns `units`, `unit_edges`, `surface`, `findings`; the current `architecture_health` block moves behind `detail_level="verbose"` for one release |
-| `adp_violations` | replaced by `import_cycle`; kept for one release, listed in `deprecated_fields` |
+| `adp_violations` | replaced by `import_cycle`; removed after 9.0.0, with `dagayn detect-adp` |
 | `sdp_metrics`, `sdp_violations`, `sap_metrics`, `sap_violations` | kept as metric modes, units switched to declared units |
-| `hubs`, `bridges` | replaced by `surface`; kept for one release |
-| `knowledge_gaps` | split: `untested_hotspots` → `untested_core`, `isolated_nodes` → `refactor_tool(mode="suggest")`; community gaps dropped |
-| `surprising_connections` | dropped after one release |
+| `hubs`, `bridges` | replaced by `surface`; removed after 9.0.0 |
+| `knowledge_gaps` | split: `untested_hotspots` → `untested_core`, `isolated_nodes` → `refactor_tool(mode="suggest")`; community gaps dropped; removed after 9.0.0 |
+| `surprising_connections` | removed after 9.0.0 |
 | `communities`, `community` | kept as an advanced drill-down; no longer part of `overview` |
 | `get_suggested_questions_tool` | dropped after one release; its signals are the findings above |
 

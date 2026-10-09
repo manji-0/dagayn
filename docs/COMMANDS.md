@@ -332,8 +332,7 @@ architecture metrics filtered to the scopes represented by that community.
 <!-- derived-from ./USAGE.md -->
 
 These CLI commands answer with the matching `architecture_analysis_tool`
-mode (`adp_violations`, `sdp_metrics`, `sdp_violations`, `sap_metrics`,
-`sap_violations`), so the CLI and MCP clients see the same scopes and
+mode (`sdp_metrics`, `sdp_violations`, `sap_metrics`, `sap_violations`), so the CLI and MCP clients see the same scopes and
 numbers. `--format json` prints the MCP answer without the fields meant for
 an agent (`_hints`, `next_tool_suggestions`, `_runtime`, `_repo`). A
 `package` is a declared unit (Cargo crate, npm package, Go module, Python
@@ -344,18 +343,6 @@ scopes under `--scope-kind directory`. They default to
 design metrics; pass `--artifact-scope docs` or `--artifact-scope all` for
 documentation or legacy mixed-graph analysis.
 
-- `dagayn detect-adp` — Detect cyclic dependencies (Acyclic Dependencies
-  Principle violations). Reports cycles with length and severity. Deprecated
-  with the `adp_violations` mode it reads, and removed with it after one
-  release; the overview's `import_cycle` findings replace it
-  (`dagayn tool architecture_analysis_tool --arg 'mode="overview"'`). It warns
-  on stderr.
-  - `--granularity {package,file}` (default `package`)
-  - `--artifact-scope {code,docs,all}` (default `code`)
-  - `--min-cycle-size N` (default 2)
-  - `--max-cycle-length N` (default 10)
-  - `--top-n N` (default: every cycle)
-  - `--format {json,text}` (default `json`)
 - `dagayn sdp-metrics` — Compute per-scope instability (Stable Dependencies
   Principle) scores. Returns `instability`, `Ca`, and `Ce` per scope, sorted,
   limited by `--top-n`.
@@ -698,7 +685,7 @@ dagayn serve
 dagayn serve --tools query_graph_tool,semantic_search_nodes_tool
 dagayn serve --tools all
 dagayn tool architecture_analysis_tool --arg mode='"overview"'
-dagayn tool architecture_analysis_tool --arg mode='"adp_violations"' --arg artifact_scope='"docs"'
+dagayn tool architecture_analysis_tool --arg mode='"sdp_violations"' --arg artifact_scope='"docs"'
 dagayn serve --local-embedding
 dagayn serve --local-embedding --mode llama-qwen3
 dagayn serve --remote-embedding openai
@@ -914,25 +901,6 @@ With `depth` above 1, `reachability` reports whether the transitive set is
 closed (`state="complete"`: no other node is reachable over graph edges), cut
 off by the row limit or output budget, or stopped at `depth` with nodes still
 ahead; in the last case `next` starts with the same call at `depth=6`.
-
-`architecture_analysis_tool(mode="knowledge_gaps", top_n=20)` returns bounded
-structural weakness categories with explicit thresholds and raw counts.
-Untested-hotspot candidates are ranked against the repository's observed
-production-node degree distribution rather than a fixed language-specific size
-rule; scoped runs still use each scoped code node's full graph degree for this
-hotspot ranking so documentation and test relationships can contribute to
-impact without being returned as code findings. In `artifact_scope="code"`,
-structural modes exclude test-like nodes by default and report low-signal
-findings separately under
-`classified_noise_counts` / `classified_noise_examples`, including public API
-candidates, conventional entry points, Rust `#[cfg(test)]` nodes,
-implementation-block containers, and small single-file clusters. Single-file
-community findings include `internal_edges`, `external_edges`,
-`external_degree`, `cohesion`, and `external_edge_ratio`; large one-file
-communities with enough external graph connectivity are classified as
-`integrated_single_file_component` noise instead of being returned as knowledge
-gaps. The returned category order favors review value: `untested_hotspots`,
-`single_file_communities`, `isolated_nodes`, then `thin_communities`.
 
 ## MCP prompts
 

@@ -11,6 +11,13 @@ All notable changes to `dagayn` are documented here.
   says how it ranked; the install-specific search guidance now lives in
   `build-graph`, and `get_docs_section_tool(section_name="embeddings")` has
   the embedding modes. `dagayn install` removes the copies it left behind.
+- **Breaking:** `architecture_analysis_tool`'s `hubs`, `bridges`,
+  `knowledge_gaps`, `surprising_connections`, and `adp_violations` modes,
+  their `min_cycle_size` and `max_cycle_length` arguments, and
+  `dagayn detect-adp`, deprecated in 8.0.0. The overview replaces them: each
+  unit's `surface` for hubs and bridges, `untested_core` and
+  `refactor_tool(mode="suggest")` for knowledge gaps, `unit_edges` for
+  surprising connections, and `import_cycle` for ADP cycles.
 
 ### Changed
 

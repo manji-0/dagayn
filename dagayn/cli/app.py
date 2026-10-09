@@ -27,7 +27,6 @@ _BUILD_COMMANDS = frozenset(
         "watch",
         "status",
         "visualize",
-        "detect-adp",
         "sdp-metrics",
         "detect-sdp",
         "sap-metrics",

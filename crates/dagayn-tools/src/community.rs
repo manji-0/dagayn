@@ -481,7 +481,7 @@ fn architecture_health(
             json!({"type": "computed", "metric": "degree", "examples": first3(&hubs)}),
             "medium",
             vec![json!({"reason_code": "hub_score_is_degree_rank", "severity": "low", "claim_effect": "high degree is a lead, not proof of bad design"})],
-            "architecture_analysis_tool mode=\"hubs\" -- inspect high-degree nodes",
+            "query_graph_tool pattern=\"callers_of\" -- inspect a high-degree node",
             vec![json!("hub_nodes")],
             json!({"hub_nodes": hubs.len()}),
         ));
@@ -492,7 +492,7 @@ fn architecture_health(
             json!({"type": "computed", "metric": "betweenness", "examples": first3(&bridges)}),
             "medium",
             vec![json!({"reason_code": "bridge_score_is_betweenness_rank", "severity": "low", "claim_effect": "high betweenness is a lead, not proof of bad design"})],
-            "architecture_analysis_tool mode=\"bridges\" -- inspect chokepoints; query_graph_tool pattern=\"docs_for\" -- follow nearby contracts",
+            "query_graph_tool pattern=\"docs_for\" -- follow nearby contracts",
             vec![json!("bridge_nodes")],
             json!({"bridge_nodes": bridges.len()}),
         ));
@@ -590,11 +590,6 @@ fn architecture_health(
         "drill_downs": {
             "communities": drill("communities", None),
             "coupling": drill("overview", None),
-            "hubs": drill("hubs", None),
-            "bridges": drill("bridges", None),
-            "knowledge_gaps": drill("knowledge_gaps", None),
-            "surprising_connections": drill("surprising_connections", None),
-            "adp": drill("adp_violations", a),
             "sdp": drill("sdp_violations", a),
             "sap": drill("sap_violations", a),
         },

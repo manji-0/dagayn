@@ -35,7 +35,6 @@ def repo(tmp_path: Path) -> Path:
             partial(architecture_analysis_func, mode=mode)
             for mode in (
                 "overview",
-                "adp_violations",
                 "sdp_metrics",
                 "sdp_violations",
                 "sap_metrics",

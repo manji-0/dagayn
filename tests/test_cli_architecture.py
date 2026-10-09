@@ -1,5 +1,5 @@
-"""``dagayn detect-adp`` and the other ADP/SDP/SAP commands answer with
-``architecture_analysis_tool``, so they scope by the same declared units."""
+"""The SDP/SAP commands answer with ``architecture_analysis_tool``, so they
+scope by the same declared units."""
 
 from __future__ import annotations
 
@@ -60,7 +60,6 @@ def _mcp(repo: Path, mode: str, **arguments: Any) -> dict[str, Any]:
 @pytest.mark.parametrize(
     ("command", "mode", "arguments"),
     [
-        ("detect-adp", "adp_violations", {"top_n": 2**31 - 1}),
         ("sdp-metrics", "sdp_metrics", {"top_n": 30}),
         ("detect-sdp", "sdp_violations", {"top_n": 2**31 - 1}),
         ("sap-metrics", "sap_metrics", {"top_n": 30}),
@@ -76,37 +75,13 @@ def test_cli_json_is_the_mcp_answer(
     assert not AGENT_ONLY_FIELDS & out.keys()
 
 
-def test_detect_adp_scopes_packages_by_declared_unit(repo: Path) -> None:
-    # By directory, `pkg` and `pkg/sub` would form a cycle.
-    out = json.loads(_cli(repo, "detect-adp").stdout)
+def test_detect_adp_is_gone(repo: Path) -> None:
+    # Import cycles are the overview's `import_cycle` findings.
+    result = subprocess.run(
+        [DAGAYN, "detect-adp", "--repo", str(repo)], capture_output=True, text=True
+    )
 
-    assert out["granularity"] == "package"
-    assert out["count"] == 0
-
-
-def test_detect_adp_top_n_truncates_the_listing(repo: Path) -> None:
-    every = json.loads(_cli(repo, "detect-adp", "--granularity", "file").stdout)
-    text = _cli(
-        repo, "detect-adp", "--granularity", "file", "--top-n", "1", "--format", "text"
-    ).stdout
-
-    assert every["count"] == 2
-    assert len(every["violations"]) == 2
-    assert "ADP violations (2 cycles, file-level" in text
-    assert "... 1 more (raise --top-n to list them)" in text
-
-
-def test_detect_adp_warns_that_it_is_deprecated(repo: Path) -> None:
-    result = _cli(repo, "detect-adp", "--format", "text")
-
-    assert "detect-adp is deprecated" in result.stderr
-    assert "dagayn tool architecture_analysis_tool" in result.stderr
-    assert result.stdout.strip() == "No ADP violations found."
-
-
-def test_sdp_and_sap_commands_do_not_warn(repo: Path) -> None:
-    for command in ("sdp-metrics", "detect-sdp", "sap-metrics", "detect-sap"):
-        assert "deprecated" not in _cli(repo, command, "--format", "text").stderr
+    assert result.returncode != 0
 
 
 def test_sap_scope_kind_directory_keeps_directory_scopes(repo: Path) -> None:

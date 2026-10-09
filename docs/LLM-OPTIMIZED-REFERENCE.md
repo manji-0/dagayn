@@ -179,7 +179,7 @@ Important CLI commands:
 - `dagayn tool`
 - `dagayn visualize`
 - `dagayn serve`
-- `dagayn detect-adp` / `dagayn sdp-metrics` / `dagayn detect-sdp`
+- `dagayn sdp-metrics` / `dagayn detect-sdp`
 - `dagayn sap-metrics` / `dagayn detect-sap`
 - `dagayn profile`
 - `dagayn register` / `dagayn repos` / `dagayn daemon`

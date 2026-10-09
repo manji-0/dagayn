@@ -71,9 +71,6 @@ dagayn serve
 
 ## How to judge dagayn analysis
 
-- Hub scores are degree-based; bridge scores are betweenness-based.
-- Knowledge-gap hotspots are based on repository-relative degree thresholds and
-  explicit test/documentation exclusions.
 - Architecture analysis modes should expose their metric formulas or reason
   codes; use them as **Medium** review leads, not automatic edit approval.
 - Call edges with `resolved_by: "scip"` at `HIGH`/`EXTRACTED` are **Highest**

@@ -1305,19 +1305,12 @@ def test_architecture_metrics_answer_in_rust_as_python_does(git_repo: Path) -> N
     )
     arch = "architecture_analysis_tool"
     calls: list[tuple[str, dict[str, Any]]] = [
-        (arch, {"mode": "adp_violations"}),
-        (arch, {"mode": "adp_violations", "granularity": "file", "top_n": 0}),
         (arch, {"mode": "sdp_metrics", "granularity": "file"}),
         (arch, {"mode": "sdp_violations", "min_delta": 0}),
         (arch, {"mode": "sdp_violations", "dependency_profile": "implementation"}),
         (arch, {"mode": "sap_metrics", "detail_level": "verbose"}),
         (arch, {"mode": "sap_metrics", "scope_kind": "file", "unit_filter": ["pkg"]}),
         (arch, {"mode": "sap_violations", "min_distance": 0.1, "artifact_scope": "all"}),
-        (arch, {"mode": "hubs"}),
-        (arch, {"mode": "bridges", "artifact_scope": "all", "top_n": 2}),
-        (arch, {"mode": "knowledge_gaps"}),
-        (arch, {"mode": "knowledge_gaps", "artifact_scope": "docs", "top_n": 0}),
-        (arch, {"mode": "surprising_connections", "artifact_scope": "all"}),
         (arch, {}),
         (arch, {"mode": "overview", "detail_level": "verbose", "top_n": 1}),
         (arch, {"mode": "communities", "detail_level": "standard", "sort_by": "name"}),
@@ -1330,7 +1323,7 @@ def test_architecture_metrics_answer_in_rust_as_python_does(git_repo: Path) -> N
     rust, python, stderr = _session_both(git_repo, calls)
     assert stderr.count(ARCHITECTURE_TRACE) == len(calls)
     assert rust == python
-    assert rust[0]["structuredContent"]["count"] == 1
+    assert rust[0]["structuredContent"]["metrics"]
 
 
 REFACTOR_TRACE = "answered refactor_tool in Rust"

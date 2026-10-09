@@ -570,52 +570,12 @@ def _architecture_mode(
         artifact_scope=args.artifact_scope,
         **arguments,
     )
-    deprecated = payload.get("deprecated")
-    if deprecated:
-        print(
-            f"warning: {args.command} is deprecated (removal: {deprecated['removal']}); "
-            f"its replacement is {deprecated['replacement']}: "
-            "dagayn tool architecture_analysis_tool --arg 'mode=\"overview\"'",
-            file=sys.stderr,
-        )
     return {key: value for key, value in payload.items() if key not in _AGENT_ONLY_FIELDS}
 
 
 def _scope_label(payload: dict[str, Any], key: str) -> str:
     level = payload.get(key, "")
     return "declared-unit" if level == "package" else f"{level}-level"
-
-
-def handle_detect_adp_command(
-    args: argparse.Namespace,
-    repo_root: Path,
-    _store: Any,
-    _db_path: Path,
-) -> None:
-    payload = _architecture_mode(
-        args,
-        repo_root,
-        "adp_violations",
-        granularity=args.granularity,
-        min_cycle_size=args.min_cycle_size,
-        max_cycle_length=args.max_cycle_length,
-        top_n=_ALL if args.top_n is None else args.top_n,
-    )
-    if args.format != "text":
-        _print_json(**payload)
-        return
-    violations = payload["violations"]
-    if not violations:
-        print("No ADP violations found.")
-        return
-    print(
-        f"ADP violations ({payload['count']} cycles, {_scope_label(payload, 'granularity')}, "
-        f"artifact_scope={args.artifact_scope}):"
-    )
-    for violation in violations:
-        nodes = " -> ".join(violation["nodes"]) + f" -> {violation['nodes'][0]}"
-        print(f"  [{violation['length']}-cycle, severity={violation['severity']}] {nodes}")
-    _print_truncation(payload, len(violations), payload["count"])
 
 
 def handle_sdp_metrics_command(
@@ -765,7 +725,6 @@ _STORE_COMMAND_HANDLERS = {
     "status": handle_status_command,
     "watch": handle_watch_command,
     "visualize": handle_visualize_command,
-    "detect-adp": handle_detect_adp_command,
     "sdp-metrics": handle_sdp_metrics_command,
     "detect-sdp": handle_detect_sdp_command,
     "sap-metrics": handle_sap_metrics_command,
@@ -774,7 +733,7 @@ _STORE_COMMAND_HANDLERS = {
 
 
 def execute_build_command(args: argparse.Namespace) -> None:
-    """Dispatch build/update/postprocess/watch/status/visualize/detect-adp/sdp/sap commands."""
+    """Dispatch build/update/postprocess/watch/status/visualize/sdp/sap commands."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
     if args.command == "postprocess":

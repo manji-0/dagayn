@@ -62,7 +62,6 @@ def _print_banner() -> None:
     {g}visualize{r}   Export graph artifacts
     {g}wiki{r}        Generate markdown wiki from communities
     {g}detect-changes{r} Analyze change impact {d}(risk-scored review){r}
-    {g}detect-adp{r}    Detect cyclic dependencies {d}(ADP violations){r}
     {g}sdp-metrics{r}   Compute instability scores {d}(SDP metrics){r}
     {g}detect-sdp{r}    Detect stability-direction violations {d}(SDP){r}
     {g}sap-metrics{r}  Compute abstractness/instability/distance {d}(SAP metrics){r}

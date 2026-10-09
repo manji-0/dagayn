@@ -638,7 +638,7 @@
      "tags": []
     }
    },
-   "description": "Map the repository's units and report structural findings.\n\n``overview`` returns ``units`` (the crates, packages, and modules the\nmanifests declare), ``unit_edges`` (the dependencies between two units;\n``declared`` when a manifest lists one), and\n``findings``: ``import_cycle`` (with the imports to cut),\n``unstable_dependency``, ``untested_core``, ``broken_doc_link``. An empty\n``findings`` list means nothing structural to act on.\n``detail_level=\"standard\"`` adds each unit's ``surface``.\n\nMetric modes, per declared unit: sdp_metrics and sdp_violations (a unit\ndepending on a less stable one by more than ``min_delta``); sap_metrics and\nsap_violations (abstractness vs instability; farther than ``min_distance``\nfrom the main sequence). communities / community: graph clusters (need full\npost-processing). Deprecated, removed next release: hubs, bridges,\nknowledge_gaps, surprising_connections, adp_violations.",
+   "description": "Map the repository's units and report structural findings.\n\n``overview`` returns ``units`` (the crates, packages, and modules the\nmanifests declare), ``unit_edges`` (the dependencies between two units;\n``declared`` when a manifest lists one), and\n``findings``: ``import_cycle`` (with the imports to cut),\n``unstable_dependency``, ``untested_core``, ``broken_doc_link``. An empty\n``findings`` list means nothing structural to act on.\n``detail_level=\"standard\"`` adds each unit's ``surface``.\n\nMetric modes, per declared unit: sdp_metrics and sdp_violations (a unit\ndepending on a less stable one by more than ``min_delta``); sap_metrics and\nsap_violations (abstractness vs instability; farther than ``min_distance``\nfrom the main sequence). communities / community: graph clusters (need full\npost-processing).",
    "inputSchema": {
     "properties": {
      "mode": {
@@ -647,11 +647,6 @@
        "overview",
        "communities",
        "community",
-       "hubs",
-       "bridges",
-       "knowledge_gaps",
-       "surprising_connections",
-       "adp_violations",
        "sdp_metrics",
        "sdp_violations",
        "sap_metrics",
@@ -718,7 +713,7 @@
        "package"
       ],
       "type": "string",
-      "description": "(adp, sdp) \"package\" (declared units; default) or \"file\"."
+      "description": "(sdp) \"package\" (declared units; default) or \"file\"."
      },
      "scope_kind": {
       "default": "package",
@@ -744,14 +739,6 @@
       ],
       "default": null,
       "description": "(sap_metrics) Scope-key prefixes to keep."
-     },
-     "min_cycle_size": {
-      "default": 2,
-      "type": "integer"
-     },
-     "max_cycle_length": {
-      "default": 10,
-      "type": "integer"
      },
      "min_delta": {
       "default": 0.1,
@@ -791,7 +778,7 @@
        "artifact_trace"
       ],
       "type": "string",
-      "description": "(adp, sdp, sap) Edges counted: \"strict_static\"\n(imports, inheritance; default), \"implementation\" (+ calls),\n\"infra_dataflow\" (+ infra references), \"artifact_trace\"\n(+ cross-artifact bridges)."
+      "description": "(sdp, sap) Edges counted: \"strict_static\"\n(imports, inheritance; default), \"implementation\" (+ calls),\n\"infra_dataflow\" (+ infra references), \"artifact_trace\"\n(+ cross-artifact bridges)."
      }
     },
     "type": "object",
