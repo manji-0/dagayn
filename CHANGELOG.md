@@ -2,9 +2,52 @@
 
 All notable changes to `dagayn` are documented here.
 
-## Unreleased
+## 9.0.0 — 2026-10-09
+
+The default replies of the six Tier 1 tools change shape: they end with
+`next`, and the earlier next-step and diagnostic fields move to
+`detail_level="verbose"` for one release. The Python, Rust, Markdown, C#,
+and Terraform extractor versions move (python 16, rust 22, markdown 2,
+csharp 8, terraform 2), so the first update after upgrading re-parses those
+files; no manual rebuild is needed.
 
 ### Added
+
+- Every reply of `get_minimal_context_tool`, `semantic_search_nodes_tool`,
+  `query_graph_tool`, `review_tool`, `flow_tool`, `architecture_analysis_tool`,
+  and `refactor_tool` ends with `next`: at most three calls with complete
+  arguments and a `why`, or `[]` when the answer is complete.
+  `get_minimal_context_tool` starts the task's workflow (syncing the graph
+  first when it must), a search reads its first hits, a query reads what it
+  found, and review, architecture, and refactor make their first findings
+  runnable. A transitive query stopped at its depth and a rename preview say
+  in `next` what only the older fields said. A test follows `next` from 26
+  calls on a fixture and holds each reply to its budget.
+- An ambiguous target in `query_graph_tool` or
+  `flow_tool(mode="entry_points")` answers with `status="ambiguous"` and one
+  retry per candidate in `next`, production code first.
+- `unstable_dependency` finding: `architecture_analysis_tool(mode="overview")`
+  lists every declared unit that depends on a less stable one, and
+  `review_tool` lists the ones the change introduces. Each names the imports
+  behind the dependency, both units' afferent and efferent counts and
+  instability, and the SAP position of the unit depended on where SAP
+  applies. Gated in CI at precision and recall 1.00 on five review and three
+  overview cases.
+- A test can declare the code it exercises when the call graph cannot follow
+  the dispatch (a tool picked by name): `// dagayn: tests <path>::<symbol>`,
+  in any language whose comments dagayn reads, makes it a direct test for
+  the graph's test lookup,
+  `tests_for`, `untested_change`, and `tests_to_run`. Rust comments now carry
+  `dagayn:` directives, and a directive must open its comment.
+- `query_graph_tool(pattern="tests_for")` answers with `test_reach`: the
+  `nearest_test` as `untested_change` counts it, `hops`, `counts_as_tested`,
+  and the language's `hop_limit` (`null` for Rust, 4 elsewhere).
+- `eval/run_test_reach_eval.py` scores `untested_change` against a test run's
+  coverage (a pytest-cov JSON report or a `cargo llvm-cov --json` export).
+  CI gates Python (untested precision 0.864, recall 0.691, tested precision
+  0.952 here) and Rust (0.387, 0.237, 0.944). The Rust untested precision is
+  low: of the Rust functions called untested, most ran, through dispatch the
+  graph cannot see, so read a Rust `untested_change` as a hint.
 
 - `flow_tool(mode="entry_points", target=...)` answers which entry points
   reach a symbol, each with one shortest call chain: `main`, framework
@@ -26,8 +69,8 @@ All notable changes to `dagayn` are documented here.
   kind; the visualization export adds it as `entry_points`.
 - `eval/run_refactor_eval.py` scores `refactor_tool(mode="suggest")`
   findings (`unused_symbol`, `complex_hotspot`, `undocumented_surface`) on
-  9 fixture cases, including cases with a commit history. The kinds do not
-  exist yet, so the gate is not in CI; see
+  9 fixture cases, including cases with a commit history; CI gates it like
+  the review and architecture evals. See
   `docs/plans/REFACTOR-TOOL-TARGET.md#baseline`.
 - `eval/run_flow_eval.py` scores the entry points on 13 fixture cases per
   entry kind and checks every chain hop against the built graph; CI gates
@@ -40,8 +83,69 @@ All notable changes to `dagayn` are documented here.
   visualization export's `flows`, and the flow trace in the full
   post-process. Their replies carry a `deprecation` notice; use
   `mode="entry_points"`.
+- `_hints`, `next_action`, `exactness.next_action`, `next_drill_downs`, and
+  `next_tool_suggestions` are removed from the Tier 1 tools after one
+  release; until then they are returned only at `detail_level="verbose"` and
+  listed in `deprecated_fields`. Read `next` instead.
 
 ### Changed
+
+- **Breaking:** below `detail_level="verbose"` the Tier 1 tools no longer
+  return `_hints`, `next_action`, `exactness.next_action`,
+  `next_drill_downs`, or `next_tool_suggestions` (see Deprecated), nor
+  `_runtime`, `called_subtool`, `guidance`, or search's `embedding_health`;
+  `_repo` names only `repo_root`. `get_minimal_context_tool` always replies
+  this way and drops `recommended_action` and `next_tool_suggestions`.
+  Search at `minimal` went from 3,569 to 2,075 characters on this
+  repository.
+- **Breaking:** `answerability` (the graph-wide health) is returned only by
+  `get_minimal_context_tool`; the other Tier 1 tools return it at
+  `detail_level="verbose"` (`"full"` for `query_graph_tool`) and never on an
+  error. Each reply keeps the `missingness` that limits it, and
+  `missing_flows`, `missing_communities`, and `stale_derived_structures`
+  appear only on answers that read communities or stored flows; they used to
+  fire on every reply of a graph matching HEAD.
+- `minimal` and `standard` replies fit one budget each (8K and 32K
+  characters). `review_tool(mode="impact")` folds its low-confidence bridges
+  into one counted `missingness` item (302K to 6K characters at `minimal`
+  here), `mode="context"` caps source at 16K bytes and halves its nested
+  graph lists until the reply fits (479K to 32K at `standard`), and
+  `query_graph_tool` at `minimal` drops from 16K to 8K.
+- `get_minimal_context_tool` searches for the task's words less the routing
+  words and the ones that say how to work; it used to search for the whole
+  task sentence, which matched nothing.
+- The agent workflow (orient, locate, read, trace, judge, confirm, and the
+  `next` rule) is written once in `dagayn/skills/workflow.py`; the LLM
+  reference, the installed instructions, `AGENTS.md`, `GEMINI.md`, and seven
+  skills carry it verbatim, and a test fails when a copy drifts.
+- `flow_tool(mode="entry_points")` searches without a hop limit. The limit of
+  15 cut 194 of this repository's 5,255 production functions; the longest
+  chain is 21 hops and the searches take the same time. The 10,000-caller
+  guard stays.
+- `untested_change` reaches more of the tests that run the code:
+  - a dunder method, property, or validator counts as called wherever its
+    class is used;
+  - importing a module reaches its module-level instances' implicit methods,
+    a package's `__getattr__` / `__dir__`, instances a module-level call
+    builds, and calls at the module's top level outside any branch, loop,
+    `except` handler, or lambda (marked `import_time` by the parser);
+  - a Rust test counts at any number of hops (`test_reach.hop_limit` is
+    `null`); other languages keep 4. Rust call chains run deep: among the
+    functions a test reached 5-12 hops away, most ran.
+  On the test-reach eval, Python untested precision went from 0.42 to 0.86
+  at recall 0.69 (from 0.82), and Rust's from 0.12 to 0.39.
+- The Python call graph records a function passed as an argument
+  (`Thread(target=self._loop)`), listed in a tuple, list, or dict, assigned
+  to an attribute, returned, or chosen in a conditional expression as a
+  REFERENCES edge; `from m import f as g` then `g()` calls `f` in `m`; and a
+  call on a repository module imported anywhere in the file resolves to it.
+- The Rust call graph resolves a closure over the elements a call returned
+  (`Vec<T>`, `Option<T>`, ...), a method passed as a value
+  (`.map(Type::method)`) as a typed REFERENCES, a let-bound closure passed by
+  name, and `value.field.method()` inside a macro through the field's type.
+  On this repository 119 fewer method calls stay unresolved.
+- `review_tool` at `minimal` and `standard` no longer computes the
+  score-first summary only `verbose` shows (1.93 s to 1.72 s here).
 
 - The wiki's "Execution Flows" section lists the entry points among a
   community's members instead of the stored flows that pass through it;
@@ -99,6 +203,9 @@ All notable changes to `dagayn` are documented here.
 - `dagayn tool refactor_tool` with no arguments runs `mode="suggest"`, as
   the MCP tool does, instead of failing with "Input should be a valid
   string" from the rename default.
+- `query_graph_tool`'s guidance counts the rows it returns: below
+  `detail_level="full"`, `callers_of` folds a node's edges into one row, and
+  the count used to be of edges (11 results said to be 13 related nodes).
 
 ## 8.0.0 — 2026-10-07
 
