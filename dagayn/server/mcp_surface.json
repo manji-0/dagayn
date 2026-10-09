@@ -329,7 +329,7 @@
      "detail_level": {
       "default": "standard",
       "type": "string",
-      "description": "\"standard\" (default) lists every related node; \"minimal\"\ntrims fields and guidance; \"full\" adds per-edge rows and hits the\noutput budget sooner."
+      "description": "\"standard\" (default) lists every related node; \"minimal\"\ntrims row fields; \"full\" adds per-edge rows and guidance and hits\nthe output budget sooner."
      },
      "depth": {
       "default": 1,

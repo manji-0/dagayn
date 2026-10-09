@@ -446,8 +446,8 @@ def query_graph_tool(
         pattern: One of the patterns above.
         target: Node name, qualified name, or file path.
         detail_level: "standard" (default) lists every related node; "minimal"
-            trims fields and guidance; "full" adds per-edge rows and hits the
-            output budget sooner.
+            trims row fields; "full" adds per-edge rows and guidance and hits
+            the output budget sooner.
         depth: (callers_of, importers_of) Hops to follow, 1-6. Default: 1. Pass 6
             for "directly or indirectly"; ``reachability.state`` says when the set is
             closed.
