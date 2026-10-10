@@ -6,14 +6,11 @@ from pydantic import TypeAdapter, ValidationError
 from dagayn.contracts.state_types import (
     AnswerabilitySummary,
     ChangeEdgeRecord,
-    ChangeFlowRecord,
     ChangeNodeRecord,
     EmbeddingCoverageStatus,
-    FlowGetRequest,
     GuidanceItem,
     MissingnessItem,
     RefactorRenameRequest,
-    format_validation_error,
     parse_flow_request,
     parse_refactor_request,
     parse_review_request,
@@ -28,23 +25,10 @@ from dagayn.contracts.state_types import (
 )
 
 
-def test_flow_get_request_requires_selector() -> None:
-    with pytest.raises(ValidationError) as exc_info:
+def test_flow_request_accepts_only_entry_points() -> None:
+    assert parse_flow_request(target="run").mode == "entry_points"
+    with pytest.raises(ValidationError):
         parse_flow_request(mode="get")
-
-    assert 'mode="get" requires flow_id or flow_name.' in format_validation_error(exc_info.value)
-
-
-def test_flow_get_request_ignores_list_only_fields() -> None:
-    request = parse_flow_request(
-        mode="get",
-        flow_id=4,
-        sort_by="depth",
-        limit=5,
-    )
-
-    assert isinstance(request, FlowGetRequest)
-    assert request.flow_id == 4
 
 
 def test_review_request_accepts_all_modes() -> None:
@@ -121,14 +105,10 @@ def test_change_records_keep_typed_fields_and_extensions() -> None:
     edge = TypeAdapter(ChangeEdgeRecord).validate_python(
         {"source": "pkg::run", "target": "pkg::load", "change_status": "added"}
     )
-    flow = TypeAdapter(ChangeFlowRecord).validate_python(
-        {"name": "main", "steps": [{"name": "run", "qualified_name": "pkg::run", "node_id": 1}]}
-    )
 
     assert dict(node)["payload"] == "forward-compatible"
     assert node["risk_score"] == 0.8
     assert edge["change_status"] == "added"
-    assert flow["steps"][0]["node_id"] == 1
     with pytest.raises(ValidationError):
         TypeAdapter(ChangeEdgeRecord).validate_python({"change_status": "renamed"})
 

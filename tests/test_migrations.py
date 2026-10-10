@@ -84,19 +84,10 @@ class TestMigrations:
         columns = [row[1] if isinstance(row, tuple) else row["name"] for row in cursor]
         assert "target_name" in columns
 
-    def test_flow_kind_and_truncation_columns_exist_after_migration(self):
-        """The flows table records reachable-set kind and truncation disclosure."""
-        cursor = store_conn(self.store).execute("PRAGMA table_info(flows)")
-        columns = [row[1] if isinstance(row, tuple) else row["name"] for row in cursor]
-        assert "kind" in columns
-        assert "truncated" in columns
-        assert "truncation_reason" in columns
-
-    def test_flows_table_exists_after_migration(self):
-        """The flows and flow_memberships tables should exist after migration."""
+    def test_flow_tables_are_dropped_after_migration(self):
+        """v18 drops the stored flows."""
         tables = _get_table_names(store_conn(self.store))
-        assert "flows" in tables
-        assert "flow_memberships" in tables
+        assert not {"flows", "flow_memberships", "flow_snapshots"} & tables
 
     def test_communities_table_exists_after_migration(self):
         """The communities table should exist and nodes should have community_id."""
@@ -116,7 +107,7 @@ class TestMigrations:
         """v6 summary tables should exist after migration."""
         tables = _get_table_names(store_conn(self.store))
         assert "community_summaries" in tables
-        assert "flow_snapshots" in tables
+        assert "flow_snapshots" not in tables
         assert "risk_index" in tables
 
     def test_v7_compound_edge_indexes_exist(self):

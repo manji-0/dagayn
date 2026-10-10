@@ -38,70 +38,10 @@ impl GraphStore {
         Ok(keys)
     }
 
-    pub(crate) fn changed_nodes_by_files(
-        &self,
-        changed_files: &[String],
-    ) -> Result<Vec<GraphNode>> {
-        let mut out = Vec::new();
-        let mut seen = HashSet::new();
-        let nodes_by_file = self.get_nodes_by_files(changed_files)?;
-        for file_path in changed_files {
-            if let Some(nodes) = nodes_by_file.get(file_path) {
-                for node in nodes {
-                    if seen.insert(node.qualified_name.clone()) {
-                        out.push(node.clone());
-                    }
-                }
-            }
-        }
-        Ok(out)
-    }
-
-    pub(crate) fn changed_nodes_by_ranges(
-        &self,
-        changed_ranges: &ChangedRanges,
-    ) -> Result<Vec<GraphNode>> {
-        let mut out = Vec::new();
-        let mut seen = HashSet::new();
-        let file_paths = changed_ranges.keys().cloned().collect::<Vec<_>>();
-        let nodes_by_file = self.get_nodes_by_files(&file_paths)?;
-        for (file_path, ranges) in changed_ranges {
-            let mut nodes = nodes_by_file.get(file_path).cloned().unwrap_or_default();
-            if nodes.is_empty() {
-                let matched_paths = self.get_files_matching(file_path)?;
-                let matched_nodes = self.get_nodes_by_files(&matched_paths)?;
-                for matched_path in matched_paths {
-                    if let Some(found) = matched_nodes.get(&matched_path) {
-                        nodes.extend(found.iter().cloned());
-                    }
-                }
-            }
-            for node in nodes {
-                if seen.contains(&node.qualified_name) {
-                    continue;
-                }
-                if ranges
-                    .iter()
-                    .any(|(start, end)| node.line_start <= *end && node.line_end >= *start)
-                    && seen.insert(node.qualified_name.clone())
-                {
-                    out.push(node);
-                }
-            }
-        }
-        Ok(out)
-    }
-
     /// A changed node's review-priority score (the retired Python
     /// `compute_risk_score`), with its inputs prefetched.
     pub fn compute_change_risk_score(&self, inputs: ChangeRiskInputs<'_>) -> Result<f64> {
         let mut score = 0.0_f64;
-
-        if inputs.flow_criticalities.is_empty() {
-            score += (inputs.flow_count as f64 * 0.05).min(0.25);
-        } else {
-            score += inputs.flow_criticalities.iter().sum::<f64>().min(0.25);
-        }
 
         let caller_edges = inputs
             .inbound_edges

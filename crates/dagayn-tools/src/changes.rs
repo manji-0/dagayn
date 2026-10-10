@@ -1,9 +1,8 @@
 //! The change analysis behind `detect_changes_func` (`review_tool
 //! mode="changes"`) and `get_minimal_context`, ported from the retired
 //! `dagayn/changes.py`: diff ranges against `base`, renames, node
-//! attribution, the base revision's entities, review-priority scores, test
-//! gaps, and affected flows, in the field order that module's
-//! `ChangeAnalysisResult` gave them.
+//! attribution, the base revision's entities, and review-priority scores,
+//! in the field order that module's `ChangeAnalysisResult` gave them.
 //!
 //! A git checkout diffs `base` against the working tree; a jj workspace
 //! diffs it (rebased onto `@-` when `HEAD`-relative) against the snapshot
@@ -718,17 +717,6 @@ pub(crate) fn analyze_changes_with(
         .iter()
         .map(|node| node.qualified_name.clone())
         .collect();
-    let crit = store.get_flow_criticalities_for_nodes(&ids).ok()?;
-    let needing: Vec<i64> = crit
-        .iter()
-        .filter(|(_, values)| values.is_empty())
-        .map(|(id, _)| *id)
-        .collect();
-    let counts = if needing.is_empty() {
-        HashMap::new()
-    } else {
-        store.count_flow_memberships_for_nodes(&needing).ok()?
-    };
     let communities = store.get_community_ids_by_node_ids(&ids).ok()?;
     let (outbound, inbound) = store.get_edges_by_endpoints(&qns).ok()?;
     let mut relevant: Vec<&GraphEdge> = Vec::new();
@@ -775,8 +763,6 @@ pub(crate) fn analyze_changes_with(
                     .get(&node.qualified_name)
                     .map(Vec::as_slice)
                     .unwrap_or(&[]),
-                flow_criticalities: crit.get(&node.id).map(Vec::as_slice).unwrap_or(&[]),
-                flow_count: counts.get(&node.id).copied().unwrap_or(0),
                 node_community_id: communities.get(&node.id).copied().flatten(),
                 caller_community_ids: &caller_communities,
                 transitive_test_count: transitive,
@@ -793,17 +779,6 @@ pub(crate) fn analyze_changes_with(
         }
         node_risks.push(record);
     }
-    let changed_names: HashSet<&str> = changed_nodes
-        .iter()
-        .map(|node| node.qualified_name.as_str())
-        .collect();
-    let affected: Vec<Value> = store
-        .get_affected_flows_annotated(&abs_files)
-        .ok()?
-        .into_iter()
-        .map(|flow| compact_flow(flow, &changed_names))
-        .collect();
-
     let changed_edges: Vec<Value> = relevant
         .iter()
         .map(|edge| {
@@ -841,43 +816,8 @@ pub(crate) fn analyze_changes_with(
             "attribution",
             json!({"stale_line_range_files": stale_rel, "reason_codes": reason_codes}),
         ),
-        ("affected_flows", Value::Array(affected)),
     ];
     Some(Analysis { fields })
-}
-
-/// Steps of a flow a change review keeps: the ones the change touches.
-const CHANGED_STEPS_KEPT: usize = 5;
-
-/// A flow as a change review reports it: its summary fields and the steps
-/// the change touches, without the full `steps`, `path`, and `members`
-/// (`review_tool(mode="affected_flows")` keeps those). A 512-node flow was
-/// otherwise about 130K characters of mostly unchanged steps.
-fn compact_flow(flow: Value, changed: &HashSet<&str>) -> Value {
-    let Value::Object(mut map) = flow else {
-        return flow;
-    };
-    let steps = map.remove("steps");
-    map.remove("path");
-    map.remove("members");
-    let touched: Vec<Value> = steps
-        .as_ref()
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter(|step| {
-            step["qualified_name"]
-                .as_str()
-                .is_some_and(|name| changed.contains(name))
-        })
-        .cloned()
-        .collect();
-    map.insert("changed_step_count".to_string(), json!(touched.len()));
-    map.insert(
-        "changed_steps".to_string(),
-        Value::Array(touched.into_iter().take(CHANGED_STEPS_KEPT).collect()),
-    );
-    Value::Object(map)
 }
 
 #[cfg(test)]

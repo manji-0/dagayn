@@ -203,8 +203,6 @@ def _print_postprocess_summary(result: Mapping[str, Any]) -> None:
         print(f"Signatures: {result['signatures_computed']} nodes")
     if result.get("fts_indexed"):
         print(f"FTS indexed: {result['fts_indexed']} nodes")
-    if result.get("flows_detected") is not None:
-        print(f"Flows: {result['flows_detected']}")
     if result.get("communities_detected") is not None:
         print(f"Communities: {result['communities_detected']}")
 
@@ -243,14 +241,11 @@ def handle_postprocess_command(args: argparse.Namespace) -> None:
     from ...tools.build import run_postprocess
 
     result = run_postprocess(
-        flows=not getattr(args, "no_flows", False),
         communities=not getattr(args, "no_communities", False),
         fts=not getattr(args, "no_fts", False),
         repo_root=str(repo_root),
     )
     parts = []
-    if result.get("flows_detected"):
-        parts.append(f"{result['flows_detected']} flows")
     if result.get("communities_detected"):
         parts.append(f"{result['communities_detected']} communities")
     if result.get("fts_indexed"):

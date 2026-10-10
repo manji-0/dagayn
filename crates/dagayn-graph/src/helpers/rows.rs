@@ -85,35 +85,6 @@ pub(crate) fn edge_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<GraphEd
     })
 }
 
-#[derive(Serialize)]
-struct GraphNodeJson {
-    id: i64,
-    kind: String,
-    name: String,
-    qualified_name: String,
-    file_path: String,
-    line_start: i64,
-    line_end: i64,
-    language: String,
-    parent_name: Option<String>,
-    is_test: bool,
-}
-
-pub(crate) fn node_to_value(node: &GraphNode) -> Value {
-    json!(GraphNodeJson {
-        id: node.id,
-        kind: node.kind.clone(),
-        name: sanitize_name(&node.name),
-        qualified_name: sanitize_name(&node.qualified_name),
-        file_path: node.file_path.clone(),
-        line_start: node.line_start,
-        line_end: node.line_end,
-        language: node.language.clone(),
-        parent_name: node.parent_name.as_deref().map(sanitize_name),
-        is_test: node.is_test,
-    })
-}
-
 pub(crate) fn parse_json_column(raw: Option<String>) -> serde_json::Result<Value> {
     match raw {
         Some(raw) if !raw.is_empty() => serde_json::from_str(&raw),

@@ -8,7 +8,6 @@
   "confidence": "high",
   "graph_health": {
     "answerability": [
-      0,
       1,
       0,
       0,
@@ -20,10 +19,9 @@
       true
     ],
     "reason_codes": [
-      "missing_flows",
       "missing_test_edges"
     ],
-    "score": 0.75,
+    "score": 0.9,
     "status": "ok"
   },
   "next": [

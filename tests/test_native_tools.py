@@ -55,26 +55,15 @@ def test_find_large_functions_answers_through_rust(repo: Path) -> None:
 
 
 def test_flow_tool_answers_through_rust(repo: Path) -> None:
-    listed = flow_func(mode="list", repo_root=str(repo))
+    listed = flow_func(repo_root=str(repo))
     assert listed["status"] == "ok"
     assert "called_subtool" not in listed
-    assert listed["flows"], listed["summary"]
-    flow_id = listed["flows"][0]["id"]
-
-    got = flow_func(mode="get", flow_id=flow_id, include_source=True, repo_root=str(repo))
-    assert got["status"] == "ok"
-    assert "called_subtool" not in got
-    assert got["flow"]["id"] == flow_id
-    assert any("source" in step for step in got["flow"]["steps"])
-
-    missing = flow_func(mode="get", flow_name="no_such_flow", repo_root=str(repo))
-    assert missing["status"] == "not_found"
+    assert "flows" not in listed
 
 
 def test_flow_tool_rejects_an_invalid_request_before_rust(repo: Path) -> None:
-    result = flow_func(mode="get", repo_root=str(repo))
+    result = flow_func(mode="get", repo_root=str(repo))  # type: ignore[arg-type]
     assert result["status"] == "error"
-    assert "flow_id or flow_name" in result["summary"]
 
 
 def _reference(repo: Path) -> None:

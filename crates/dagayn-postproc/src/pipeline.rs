@@ -2,13 +2,10 @@
 
 use dagayn_graph::{GraphError, GraphStore, Result};
 use serde::Serialize;
-use serde_json::Value;
 
 use crate::communities::{
     detect_communities, detect_communities_from, incremental_detect_communities,
 };
-
-const DEFAULT_FLOW_MAX_DEPTH: i64 = 15;
 
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct PostprocessResult {
@@ -44,8 +41,6 @@ pub struct PostprocessResult {
     pub manifest_bridges_nodes: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub native_bindings_resolved: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub flows_detected: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub communities_detected: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -187,26 +182,6 @@ pub fn run_post_processing_json(
         result.native_bindings_resolved = Some(count);
     }
 
-    if let Some(count) = record_step(
-        &mut result.warnings,
-        "Flow detection",
-        || match changed_files {
-            Some(files) if !files.is_empty() => {
-                store.incremental_trace_flows(files, DEFAULT_FLOW_MAX_DEPTH)
-            }
-            _ => store
-                .rebuild_flows_json(DEFAULT_FLOW_MAX_DEPTH, false)
-                .map(|raw| {
-                    serde_json::from_str::<Value>(&raw)
-                        .ok()
-                        .and_then(|payload| payload.get("count").and_then(Value::as_i64))
-                        .unwrap_or(0)
-                }),
-        },
-    ) {
-        result.flows_detected = Some(count);
-    }
-
     let incremental = matches!(changed_files, Some(files) if !files.is_empty());
     let loaded = if incremental {
         None
@@ -330,7 +305,7 @@ mod tests {
         let payload: serde_json::Value = serde_json::from_str(&raw).unwrap();
 
         assert!(payload.get("signatures_computed").is_some());
-        assert!(payload.get("flows_detected").is_some());
+        assert!(payload.get("flows_detected").is_none());
         assert!(payload.get("communities_detected").is_some());
         assert!(payload.get("hub_scores_persisted").is_some());
     }

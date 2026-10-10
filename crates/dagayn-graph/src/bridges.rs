@@ -108,54 +108,6 @@ pub fn bridge_transition_value(edge: &GraphEdge) -> Value {
     })
 }
 
-/// `annotate_flow_steps_with_bridges`: mark the steps a reportable
-/// CROSS_ARTIFACT edge between two path nodes arrives at (the last such edge
-/// per target wins).
-pub(crate) fn annotate_flow_steps_with_bridges(steps: &[Value], edges: &[GraphEdge]) -> Vec<Value> {
-    let path_qns: HashSet<&str> = steps
-        .iter()
-        .filter_map(|step| step.get("qualified_name").and_then(Value::as_str))
-        .collect();
-    let mut arrivals: HashMap<&str, Value> = HashMap::new();
-    for edge in edges {
-        if !is_reportable_bridge(edge)
-            || !path_qns.contains(edge.source_qualified.as_str())
-            || !path_qns.contains(edge.target_qualified.as_str())
-        {
-            continue;
-        }
-        arrivals.insert(&edge.target_qualified, bridge_transition_value(edge));
-    }
-    steps
-        .iter()
-        .enumerate()
-        .map(|(index, step)| {
-            let mut item = step.clone();
-            let Some(object) = item.as_object_mut() else {
-                return item;
-            };
-            let qualified_name = object
-                .get("qualified_name")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string();
-            if index == 0 {
-                object.entry("step_kind").or_insert_with(|| json!("entry"));
-            } else if let Some(transition) = arrivals.get(qualified_name.as_str()) {
-                object.insert("step_kind".to_string(), json!("bridge"));
-                object.insert("transition".to_string(), transition.clone());
-                object.insert("is_bridge_step".to_string(), json!(true));
-            } else {
-                object.entry("step_kind").or_insert_with(|| json!("call"));
-                object
-                    .entry("is_bridge_step")
-                    .or_insert_with(|| json!(false));
-            }
-            item
-        })
-        .collect()
-}
-
 /// Missingness item for a low-confidence bridge (caveat, not hard claim).
 pub(crate) fn low_confidence_bridge_missingness(edge: &GraphEdge) -> Value {
     let meta = bridge_transition_value(edge);
@@ -333,33 +285,5 @@ mod tests {
         );
         assert_eq!(caveats[0]["bridge"]["target"], "app.py::other");
         assert_eq!(caveats[1]["bridge"]["target"], "app.py::third");
-    }
-
-    #[test]
-    fn flow_steps_mark_reportable_bridge_arrivals_only() {
-        let steps = vec![
-            json!({"qualified_name": "README.md", "step_kind": "doc"}),
-            json!({"qualified_name": "app.py::entry"}),
-            json!({"qualified_name": "app.py::other"}),
-            json!({"qualified_name": "app.py::plain", "is_bridge_step": "kept"}),
-        ];
-        let edges = vec![
-            bridge(ConfidenceTier::High, "app.py::entry", json!({})),
-            bridge(ConfidenceTier::Low, "app.py::other", json!({})),
-            bridge(ConfidenceTier::High, "elsewhere.py::x", json!({})),
-        ];
-        let annotated = annotate_flow_steps_with_bridges(&steps, &edges);
-        // The first step keeps a kind it already has, and gets no flag.
-        assert_eq!(
-            annotated[0],
-            json!({"qualified_name": "README.md", "step_kind": "doc"})
-        );
-        assert_eq!(annotated[1]["step_kind"], "bridge");
-        assert_eq!(annotated[1]["is_bridge_step"], true);
-        assert_eq!(annotated[1]["transition"]["claim_strength"], "hard");
-        assert_eq!(annotated[2]["step_kind"], "call");
-        assert_eq!(annotated[2]["is_bridge_step"], false);
-        assert_eq!(annotated[3]["is_bridge_step"], "kept");
-        assert!(annotate_flow_steps_with_bridges(&[], &edges).is_empty());
     }
 }

@@ -348,7 +348,6 @@ def test_handle_prints_build_postprocess_result_without_rerunning(tmp_path, monk
             "total_edges": 7,
             "errors": [],
             "fts_indexed": 11,
-            "flows_detected": 2,
             "communities_detected": 4,
         }
 
@@ -365,7 +364,7 @@ def test_handle_prints_build_postprocess_result_without_rerunning(tmp_path, monk
     out = capsys.readouterr().out
     assert "Full build: 3 files, 5 nodes, 7 edges (postprocess=full)" in out
     assert "FTS indexed: 11 nodes" in out
-    assert "Flows: 2" in out
+    assert "Flows:" not in out
     assert "Communities: 4" in out
 
 

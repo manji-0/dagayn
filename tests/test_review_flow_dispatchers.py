@@ -31,19 +31,8 @@ def test_review_wrapper_exposes_typed_dispatch_args() -> None:
 def test_flow_wrapper_exposes_typed_dispatch_args() -> None:
     params = inspect.signature(crg_main.flow_tool).parameters
 
-    for name in (
-        "mode",
-        "sort_by",
-        "limit",
-        "kind",
-        "detail_level",
-        "flow_id",
-        "flow_name",
-        "include_source",
-    ):
-        assert name in params
-    assert params["mode"].default == "list"
-    assert params["sort_by"].default == "criticality"
+    assert list(params) == ["mode", "limit", "detail_level", "target", "repo_root"]
+    assert params["mode"].default == "entry_points"
 
 
 def test_review_hands_every_mode_to_rust(monkeypatch) -> None:
@@ -117,47 +106,10 @@ def test_flow_routes_modes(monkeypatch) -> None:
     monkeypatch.setattr(flow_dispatcher, "_get_store", fake_get_store)
     monkeypatch.setattr(flow_dispatcher, "native_tool", fake_native)
 
-    flow_dispatcher.flow_func(
-        mode="list",
-        sort_by="depth",
-        limit=5,
-        kind="Function",
-        detail_level="minimal",
-        repo_root="/repo",
-    )
-    flow_dispatcher.flow_func(
-        mode="get",
-        flow_id=7,
-        include_source=True,
-        repo_root="/repo",
-    )
     flow_dispatcher.flow_func(mode="entry_points", target="helper", repo_root="/repo")
 
-    assert opened == ["/repo", "/repo", "/repo"]
+    assert opened == ["/repo"]
     assert calls[0] == (
-        "flow_tool",
-        {
-            "mode": "list",
-            "repo_root": "/repo",
-            "sort_by": "depth",
-            "limit": 5,
-            "kind": "Function",
-            "detail_level": "minimal",
-        },
-    )
-    assert calls[1] == (
-        "flow_tool",
-        {
-            "mode": "get",
-            "repo_root": "/repo",
-            "flow_id": 7,
-            "flow_name": None,
-            "include_source": True,
-            "detail_level": "standard",
-        },
-    )
-    # entry_points defaults to 10 results, not list's 50.
-    assert calls[2] == (
         "flow_tool",
         {
             "mode": "entry_points",
@@ -184,12 +136,11 @@ def test_flow_entry_points_without_target_lists_the_repository(monkeypatch) -> N
     assert calls[0]["target"] is None
 
 
-def test_flow_get_requires_selector() -> None:
-    result = flow_dispatcher.flow_func(mode="get")
+def test_flow_rejects_the_stored_flow_modes() -> None:
+    result = flow_dispatcher.flow_func(mode="list")  # type: ignore[arg-type]
 
     assert result["status"] == "error"
-    assert result["mode"] == "get"
-    assert "flow_id or flow_name" in result["summary"]
+    assert result["mode"] == "list"
     assert "answerability" in result
 
 
@@ -209,7 +160,7 @@ def test_dispatcher_error_paths_use_requested_repo_root(monkeypatch) -> None:
     monkeypatch.setattr(_dispatch, "attach_answerability", fake_attach("review"))
     review = review_dispatcher.review_func(mode=cast(ReviewMode, "unknown"), repo_root="/repo")
     monkeypatch.setattr(_dispatch, "attach_answerability", fake_attach("flow"))
-    flow = flow_dispatcher.flow_func(mode="get", repo_root="/repo")
+    flow = flow_dispatcher.flow_func(mode="list", repo_root="/repo")  # type: ignore[arg-type]
 
     assert review["answerability"]["repo_root"] == "/repo"
     assert flow["answerability"]["repo_root"] == "/repo"
@@ -286,10 +237,10 @@ def test_flow_dispatcher_routes_store_errors_into_its_envelope(monkeypatch) -> N
 
     monkeypatch.setattr(flow_dispatcher, "_get_store", _boom)
 
-    result = flow_dispatcher.flow_func(mode="get", flow_name="nope", repo_root="/repo")
+    result = flow_dispatcher.flow_func(target="nope", repo_root="/repo")
 
     assert result["status"] == "error"
-    assert result["mode"] == "get"
-    assert result["called_subtool"] == "get_flow"
+    assert result["mode"] == "entry_points"
+    assert result["called_subtool"] == "entry_points"
     assert result["error"] == "graph unavailable"
     assert result["missingness"][0]["reason_code"] == "tool_runtime_error"

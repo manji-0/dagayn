@@ -9,7 +9,7 @@ use serde_json::value::RawValue;
 use serde_json::{Value, json};
 use thiserror::Error;
 
-const LATEST_VERSION: i64 = 17;
+const LATEST_VERSION: i64 = 18;
 const MAX_INSERT_PARAMS: usize = 30_000;
 const NODE_INSERT_PARAM_COUNT: usize = 16;
 const EDGE_INSERT_PARAM_COUNT: usize = 10;
@@ -191,7 +191,7 @@ pub(crate) fn identifier_matches_keywords(texts: &[&str], keywords: &[&str]) -> 
     })
 }
 
-/// Security-keyword check shared by change risk and flow criticality.
+/// Security-keyword check for change risk.
 pub(crate) fn is_security_sensitive_identifier(name: &str, qualified_name: &str) -> bool {
     identifier_matches_keywords(&[name, qualified_name], SECURITY_KEYWORDS)
 }
@@ -443,14 +443,11 @@ impl ConfidenceTier {
 }
 
 pub type EdgeEndpointMap = HashMap<String, Vec<GraphEdge>>;
-type ChangedRanges = HashMap<String, Vec<(i64, i64)>>;
 
 /// `compute_change_risk_score`'s prefetched inputs for one changed node.
 pub struct ChangeRiskInputs<'a> {
     pub node: &'a GraphNode,
     pub inbound_edges: &'a [GraphEdge],
-    pub flow_criticalities: &'a [f64],
-    pub flow_count: i64,
     pub node_community_id: Option<i64>,
     pub caller_community_ids: &'a HashMap<String, Option<i64>>,
     pub transitive_test_count: i64,
@@ -464,28 +461,6 @@ pub struct GraphStats {
     pub languages: Box<[String]>,
     pub files_count: i64,
     pub last_updated: Option<String>,
-}
-
-fn default_flow_kind() -> String {
-    "reachable_set".to_string()
-}
-
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct FlowInput {
-    pub name: String,
-    pub entry_point_id: i64,
-    pub depth: i64,
-    pub node_count: i64,
-    pub file_count: i64,
-    pub criticality: f64,
-    #[serde(default)]
-    pub path: Box<[i64]>,
-    #[serde(default = "default_flow_kind")]
-    pub kind: String,
-    #[serde(default)]
-    pub truncated: bool,
-    #[serde(default)]
-    pub truncation_reason: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -628,8 +603,6 @@ pub use flow_trace::{has_framework_decorator, is_conventional_entry_point};
 mod flows;
 mod fts_sync;
 mod helpers;
-mod impact;
-mod impact_flows;
 mod impact_radius;
 mod impact_support;
 mod japanese_fts;
@@ -649,7 +622,6 @@ mod search_query;
 mod subgraph;
 mod summaries;
 mod summary_communities;
-mod summary_flows;
 mod summary_risk;
 mod upserts;
 mod write;

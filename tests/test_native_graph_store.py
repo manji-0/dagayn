@@ -7,7 +7,6 @@ These tests pin the answers instead. See: #153
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -103,31 +102,6 @@ def pairs_by_key(grouped) -> dict[str, list[tuple[str, str]]]:
 
 def qns(nodes) -> list[str]:
     return [n.qualified_name for n in nodes]
-
-
-def store_one_flow(store) -> None:
-    """Persist a single two-node flow through `entry -> middle`."""
-    from dagayn.flows import store_flows
-
-    entry, middle = store.get_node(ENTRY), store.get_node(MIDDLE)
-    store_flows(
-        store,
-        [
-            {
-                "name": "entry flow",
-                "entry_point_id": entry.id,
-                "depth": 1,
-                "node_count": 2,
-                "file_count": 1,
-                "criticality": 0.5,
-                "path": [entry.id, middle.id],
-                "kind": "reachable_set",
-                "truncated": False,
-                "truncation_reason": None,
-            }
-        ],
-    )
-    store.commit()
 
 
 class TestEdgeQueries:
@@ -301,7 +275,7 @@ class TestSubgraphAndImpact:
             assert result["total_impacted"] == 0
 
 
-class TestCommunitiesAndFlows:
+class TestCommunities:
     def test_communities_list(self, store):
         from dagayn.communities import store_communities
 
@@ -322,12 +296,6 @@ class TestCommunitiesAndFlows:
         )
         store.commit()
         assert [row["name"] for row in store.get_communities_list()] == ["app"]
-
-    def test_flow_lookups_with_stored_flows(self, store):
-        store_one_flow(store)
-        flow_ids = [flow["id"] for flow in json.loads(store.get_flows_json("criticality", 10))]
-        assert len(flow_ids) == 1
-        assert store.get_flow_qualified_names_for_flows(flow_ids) == {flow_ids[0]: {ENTRY, MIDDLE}}
 
 
 class TestMaintenance:
@@ -350,12 +318,10 @@ class TestMaintenance:
 
     def test_prune_orphaned_graph_structures(self, store):
         assert store.prune_orphaned_graph_structures() == {}
-        store_one_flow(store)
-        # Dropping the file deletes the nodes the flow path points at. It also
-        # drops their memberships, so only the now-empty flow is left to prune.
+        # Dropping a file with no derived rows leaves nothing to prune.
         store.remove_files_data(["app.py"])
         store.commit()
-        assert store.prune_orphaned_graph_structures() == {"flows": 1}
+        assert store.prune_orphaned_graph_structures() == {}
 
 
 def test_semantic_search_works_under_native_backend(tmp_path, monkeypatch):

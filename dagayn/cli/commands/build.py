@@ -24,7 +24,7 @@ def register_commands(sub: argparse._SubParsersAction) -> CommandRegistry:
     build_cmd.add_argument(
         "--skip-flows",
         action="store_true",
-        help="Skip flow/community detection (signatures + FTS only)",
+        help="Skip community detection (signatures + FTS only)",
     )
     build_cmd.add_argument(
         "--skip-postprocess",
@@ -53,7 +53,7 @@ def register_commands(sub: argparse._SubParsersAction) -> CommandRegistry:
     update_cmd.add_argument(
         "--skip-flows",
         action="store_true",
-        help="Skip flow/community detection (signatures + FTS only)",
+        help="Skip community detection (signatures + FTS only)",
     )
     update_cmd.add_argument(
         "--skip-postprocess",
@@ -75,10 +75,9 @@ def register_commands(sub: argparse._SubParsersAction) -> CommandRegistry:
     # postprocess
     pp_cmd = sub.add_parser(
         "postprocess",
-        help="Run post-processing on existing graph (flows, communities, FTS)",
+        help="Run post-processing on existing graph (communities, FTS)",
     )
     pp_cmd.add_argument("--repo", default=None, help="Repository root (auto-detected)")
-    pp_cmd.add_argument("--no-flows", action="store_true", help="Skip flow detection")
     pp_cmd.add_argument("--no-communities", action="store_true", help="Skip community detection")
     pp_cmd.add_argument("--no-fts", action="store_true", help="Skip FTS rebuild")
 

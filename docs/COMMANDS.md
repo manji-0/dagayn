@@ -729,12 +729,10 @@ bug.
 
 Every detail level also carries `base` (the base actually used),
 `changed_file_count`, `changed_files`, `change_file_source_counts`,
-`change_entity_summary`, `affected_flow_count`, `unmapped_changed_files`,
-`next`, and `missingness`. `standard`
-(the default) adds `changed_functions` and `affected_flows`; a flow there keeps
-its summary and `changed_steps` (only the steps the change touches), and
-`mode="affected_flows"` returns the full steps. Output is bounded by size, not
-only by item count.
+`change_entity_summary`, `unmapped_changed_files`, `next`, and
+`missingness`. `standard` (the default) adds `changed_functions`;
+`mode="affected_flows"` lists the entry points that reach the change. Output
+is bounded by size, not only by item count.
 
 `detail_level="verbose"` adds `symbol_delta` (what the change added,
 removed, or renamed against `base`) and `change_file_sources`.
@@ -772,8 +770,8 @@ Responses of `query_graph_tool`, `semantic_search_nodes_tool`, `review_tool`,
 `missingness` list, including error and not-found paths: the gaps that limit
 that answer (a graph of another commit, uncommitted edits, missing test edges,
 unresolved cross-artifact edges, missing embeddings, truncated output). Gaps in
-communities and stored flows (`missing_flows`, `missing_communities`,
-`stale_derived_structures`) appear only on answers read from them. The
+communities (`missing_communities`, `stale_derived_structures`) appear only
+on answers read from them. The
 graph-wide `answerability` summary (`status`, `score`, `reason_codes`, counts)
 is `get_minimal_context_tool`'s `graph_health`; the six tools add it only at
 `detail_level="verbose"` (`"full"` for `query_graph_tool`) and never on an
@@ -812,16 +810,14 @@ Migration note for dagayn 3.0: v2 split architecture MCP/CLI tools such as
 
 Review and execution-flow drill-downs are also dispatcher-based in v3. Use
 `review_tool(mode="changes"|"context"|"affected_flows"|"impact")` and
-`flow_tool(mode="list"|"get")` instead of the v2 split MCP/CLI tools.
+`flow_tool` instead of the v2 split MCP/CLI tools.
 
 `flow_tool(mode="entry_points", target=...)` answers which entry points reach
 a symbol: the nearest `main`, framework handler, FFI export, conventionally
 named entry, uncalled function, or method only a trait or framework calls
 (`dispatched_method`) on each path, with one shortest call chain each. It is
-computed at query time and needs no stored flows; test code is never walked.
-Without `target` it lists the repository's entry points per declared unit,
-counted by kind. `mode="list"` and `mode="get"` read stored flows and are
-deprecated.
+computed at query time; test code is never walked. Without `target` it lists
+the repository's entry points per declared unit, counted by kind.
 
 `refactor_tool(mode="suggest")` answers with `findings`, refactors worth doing,
 10 per kind with the rest in `findings_omitted`: `unused_symbol` (the verified

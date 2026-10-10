@@ -35,8 +35,8 @@ the selected embedding mode so bug searches balance semantic recall with speed.
 4. **Find the entry point**: `flow_tool(mode="entry_points",
    target=<suspect>)` returns the nearest entry points that reach it (`main`,
    framework handlers, FFI exports, uncalled functions, trait-dispatched
-   methods), each with one shortest call `chain` to read in order. It needs no
-   stored flows and never walks test code. `dispatched_method` means a trait,
+   methods), each with one shortest call `chain` to read in order. It never
+   walks test code. `dispatched_method` means a trait,
    interface, or framework calls it, which the graph cannot see; an empty list
    means only tests (or dynamic calls) reach the suspect.
 5. **Check recent changes**: `review_tool(mode="changes",

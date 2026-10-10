@@ -1,7 +1,7 @@
 """Traversal and impact query-performance benchmark.
 
-Measures wall time for ``traverse_graph``, ``get_impact_radius``, and
-``get_affected_flows`` at several depths / changed-file counts. Embedding
+Measures wall time for ``traverse_graph`` and ``get_impact_radius`` at
+several depths. Embedding
 search is intentionally omitted — use ``embedding_materials``.
 """
 
@@ -30,7 +30,6 @@ def _first_file(store: Any) -> str:
 
 def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[BenchmarkPayload]:
     """Run query-performance scenarios against an already-built graph."""
-    from dagayn.flows import get_affected_flows
     from dagayn.tools.query import traverse_graph_func
 
     repeat = int(config.get("query_repeat", 3))
@@ -86,16 +85,6 @@ def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[Benchmark
                 f"get_impact_radius_depth_{depth}",
                 lambda d=depth: impact_fn([first_file], max_depth=d),
                 depth=depth,
-            )
-
-    if first_file:
-        files = [first_file]
-        for count in (1, 5, 20):
-            changed = files * count
-            record(
-                f"get_affected_flows_{count}_files",
-                lambda paths=changed: get_affected_flows(store, paths),
-                changed_file_count=count,
             )
 
     results.append(

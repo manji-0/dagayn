@@ -70,7 +70,6 @@ class SQLCounter:
 _BASELINES: dict[str, int] = {
     "list_communities": 5,
     "traverse_graph_depth_3": 50,
-    "get_affected_flows_5_files": 30,
     "single_hop_dependents": 10,
 }
 
@@ -110,18 +109,6 @@ def _scenario_traverse_graph(_store: Any, config: BenchmarkPayload) -> int:
     return c.count
 
 
-def _scenario_affected_flows(store: Any, config: BenchmarkPayload) -> int:
-    from dagayn.flows import get_affected_flows
-
-    sample_files = [
-        n.file_path for n in store.get_all_nodes(exclude_files=False)[:5] if n.file_path
-    ]
-    sample_files = list(dict.fromkeys(sample_files))[:5]
-    with SQLCounter(store._conn) as c:
-        get_affected_flows(store, sample_files)
-    return c.count
-
-
 def _scenario_single_hop_dependents(store: Any, _config: BenchmarkPayload) -> int:
     from dagayn.incremental_build import _single_hop_dependents
 
@@ -137,7 +124,6 @@ def _scenario_single_hop_dependents(store: Any, _config: BenchmarkPayload) -> in
 _SCENARIOS: dict[str, Callable[[Any, BenchmarkPayload], int]] = {
     "list_communities": _scenario_list_communities,
     "traverse_graph_depth_3": _scenario_traverse_graph,
-    "get_affected_flows_5_files": _scenario_affected_flows,
     "single_hop_dependents": _scenario_single_hop_dependents,
 }
 

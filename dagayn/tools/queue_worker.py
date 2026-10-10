@@ -238,7 +238,7 @@ def _execute_prepare(task: dict[str, Any], repo_root: Path) -> str | None:
 
 
 def _execute_postprocess(task: dict[str, Any], repo_root: Path) -> str | None:
-    """Run flows/communities/FTS post-processing."""
+    """Run communities/FTS post-processing."""
     from ..hook_guard import start_budget_watchdog
 
     watchdog = start_budget_watchdog(DEFAULT_POSTPROCESS_BUDGET_SECONDS, label="queue postprocess")

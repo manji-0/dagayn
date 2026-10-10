@@ -409,10 +409,6 @@ impl Review<'_> {
         let stale_files = analysis.get("attribution")["stale_line_range_files"]
             .as_array()
             .cloned();
-        let flow_count = analysis
-            .get("affected_flows")
-            .as_array()
-            .map_or(0, Vec::len);
         let mut out = Ordered::default()
             .put("status", "ok")
             .put("summary", summary_text)
@@ -430,19 +426,16 @@ impl Review<'_> {
                 "change_entity_summary",
                 analysis.get("change_entity_summary").clone(),
             )
-            .put("affected_flow_count", flow_count)
             .put(
                 "unmapped_changed_files",
                 analysis.get("unmapped_changed_files").clone(),
             );
         out = match request.detail_level {
             "minimal" => out,
-            "standard" => out
-                .put(
-                    "changed_functions",
-                    analysis.get("changed_functions").clone(),
-                )
-                .put("affected_flows", analysis.get("affected_flows").clone()),
+            "standard" => out.put(
+                "changed_functions",
+                analysis.get("changed_functions").clone(),
+            ),
             // `verbose`: every analysis field, and what changed at `base`.
             _ => {
                 let mut full = out
@@ -485,7 +478,6 @@ impl Review<'_> {
                     CHANGES_BUDGET
                 },
                 &[
-                    "affected_flows",
                     "changed_functions",
                     // Counted in `changed_file_count`; a long diff's paths
                     // go first.
@@ -865,7 +857,7 @@ impl Review<'_> {
                 "claim_effect": "the entry-point search stopped early; farther entry points are not listed",
             }));
         }
-        let mut out = Ordered::default()
+        let out = Ordered::default()
             .put("status", "ok")
             .put(
                 "summary",
@@ -883,17 +875,6 @@ impl Review<'_> {
             .put("entry_points_omitted", omitted)
             .put("reached_callers", reached)
             .put("truncated", truncated);
-        if request.detail_level == "verbose" {
-            let absolute: Vec<String> = changed_files
-                .iter()
-                .map(|file| absolute_path(self.root(), file))
-                .collect();
-            let flows = self.store().get_affected_flows_annotated(&absolute).ok()?;
-            out = out
-                .put("total", flows.len())
-                .put("affected_flows", Value::Array(flows))
-                .put("deprecated_fields", json!(["affected_flows", "total"]));
-        }
         let budget = if request.detail_level == "minimal" {
             crate::MINIMAL_BUDGET
         } else {

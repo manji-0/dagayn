@@ -614,7 +614,6 @@ def graph_answerability_summary(
         return int(row[0] if row else 0)
 
     try:
-        flow_count = _count("SELECT COUNT(*) FROM flows", failure_code="missing_flows_table")
         community_count = _count(
             "SELECT COUNT(*) FROM communities",
             failure_code="missing_communities_table",
@@ -648,11 +647,6 @@ def graph_answerability_summary(
             else 0.0
         )
 
-        stale_flow_membership_count = _count(
-            "SELECT COUNT(*) FROM flow_memberships fm "
-            "WHERE NOT EXISTS (SELECT 1 FROM nodes n WHERE n.id = fm.node_id)",
-            failure_code="missing_flow_memberships_table",
-        )
         unassigned_node_count = _count(
             "SELECT COUNT(*) FROM nodes n "
             "WHERE n.community_id IS NULL AND n.kind != 'File' "
@@ -668,9 +662,6 @@ def graph_answerability_summary(
         if stats.total_nodes == 0 or stats.files_count == 0:
             reason_codes.append("empty_graph")
             score = 0.0
-        if flow_count == 0:
-            reason_codes.append("missing_flows")
-            score -= 0.15
         if community_count == 0:
             reason_codes.append("missing_communities")
             score -= 0.15
@@ -683,7 +674,7 @@ def graph_answerability_summary(
         if not stats.last_updated:
             reason_codes.append("missing_last_updated")
             score -= 0.1
-        if stale_flow_membership_count > 0 or unassigned_node_count > 0:
+        if unassigned_node_count > 0:
             reason_codes.append("stale_derived_structures")
             score -= 0.15
         freshness_codes, freshness_counts = _freshness_reason_codes(store, freshness)
@@ -703,21 +694,18 @@ def graph_answerability_summary(
             "reason_codes": reason_codes,
             "parse": [stats.files_count, len(stats.languages), bool(stats.last_updated)],
             "answerability": [
-                flow_count,
                 community_count,
                 test_edge_count,
                 reportable_cross_artifact_count,
                 round(unresolved_ratio, 4),
             ],
             "counts": {
-                "flows": flow_count,
                 "communities": community_count,
                 "test_edges": test_edge_count,
                 "reportable_cross_artifact_edges": reportable_cross_artifact_count,
                 "reportable_unresolved_cross_artifact_edges": (
                     reportable_unresolved_cross_artifact_count
                 ),
-                "stale_flow_memberships": stale_flow_membership_count,
                 "unassigned_nodes": unassigned_node_count,
                 **freshness_counts,
             },
@@ -830,13 +818,11 @@ def summary_at_verbose_only(payload: ToolPayload, detail_level: str | None) -> T
     return payload
 
 
-#: Reason codes about communities and stored flows, which only answers read
-#: from them carry as missingness (docs/plans/AGENT-WORKFLOW-TARGET.md#caveats).
+#: Reason codes about communities, which only answers read from them carry
+#: as missingness (docs/plans/AGENT-WORKFLOW-TARGET.md#caveats).
 DERIVED_STRUCTURE_CODES = frozenset(
     {
-        "missing_flows",
         "missing_communities",
-        "missing_flows_table",
         "missing_communities_table",
         "stale_derived_structures",
     }
@@ -851,18 +837,16 @@ def missingness_from_answerability(
     """Convert answerability reason codes into response-level missingness items.
 
     The codes in :data:`DERIVED_STRUCTURE_CODES` are left out unless
-    ``with_derived`` says the answer was read from communities or stored flows.
+    ``with_derived`` says the answer was read from communities.
     """
     severity_by_code = {
         "empty_graph": "high",
-        "missing_flows": "medium",
         "missing_communities": "medium",
         "missing_test_edges": "medium",
         "many_unresolved_cross_artifact_edges": "medium",
         "missing_last_updated": "low",
         "no_sqlite_connection": "high",
         "missing_graph_stats": "medium",
-        "missing_flows_table": "medium",
         "missing_communities_table": "medium",
         "missing_cross_artifact_edge_metadata": "medium",
         "missing_cross_artifact_edges": "medium",

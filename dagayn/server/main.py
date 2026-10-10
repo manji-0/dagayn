@@ -336,7 +336,7 @@ async def ensure_graph_tool(
 ) -> ToolPayload:
     """Ensure the graph exists and matches HEAD before analysis.
 
-    Builds an empty graph (minimal post-processing: no flows or communities) and
+    Builds an empty graph (minimal post-processing: no communities) and
     refreshes one that describes another commit. Uncommitted edits are left to
     the edit hooks unless ``force=True``. Full rebuilds: ``dagayn build``.
 
@@ -362,25 +362,22 @@ async def ensure_graph_tool(
 
 @mcp.tool()
 async def run_postprocess_tool(
-    flows: bool = True,
     communities: bool = True,
     fts: bool = True,
     repo_root: Optional[str] = None,
 ) -> ToolPayload:
-    """Run post-processing on existing graph (flows, communities, FTS index).
+    """Run post-processing on existing graph (communities, FTS index).
 
     Use after building with postprocess="none" or "minimal", or to re-run
     expensive steps independently. Signatures are always computed.
 
     Args:
-        flows: Run flow detection. Default: True.
         communities: Run community detection. Default: True.
         fts: Rebuild FTS index. Default: True.
         repo_root: Repository root path. Auto-detected if omitted.
     """
     return await asyncio.to_thread(
         _tool("build:run_postprocess"),
-        flows=flows,
         communities=communities,
         fts=fts,
         repo_root=_resolve_repo_root(repo_root),
@@ -708,7 +705,8 @@ async def review_tool(
     nothing beyond the diff.
 
     Modes: changes (findings), context (source snippets), impact (blast
-    radius, ``max_depth`` hops), affected_flows (flows the change touches).
+    radius, ``max_depth`` hops), affected_flows (entry points that reach the
+    change).
 
     Args:
         base: Git ref to diff against, plus staged, unstaged, and untracked
@@ -738,42 +736,26 @@ async def review_tool(
 
 @mcp.tool()
 def flow_tool(
-    mode: Literal["list", "get", "entry_points"] = "list",
-    sort_by: Literal["criticality", "depth", "node_count", "file_count", "name"] = "criticality",
+    mode: Literal["entry_points"] = "entry_points",
     limit: Optional[int] = None,
-    kind: Optional[str] = None,
     detail_level: Literal["minimal", "standard"] = "standard",
-    flow_id: Optional[int] = None,
-    flow_name: Optional[str] = None,
-    include_source: bool = False,
     target: Optional[str] = None,
     repo_root: Optional[str] = None,
 ) -> ToolPayload:
-    """Find where code is entered from, or list and inspect stored flows.
+    """Find where code is entered from.
 
     ``entry_points``: the nearest entry points (main, handlers, FFI exports,
     uncalled functions, trait-dispatched methods) reaching ``target``, each
-    with one shortest call chain; needs no stored flows. ``list``/``get``
-    read the flows a full build stores: reachable sets, not call sequences.
+    with one shortest call chain.
 
     Args:
-        limit: Maximum results. Default: 50 flows (list), 10 entry points
-            (entry_points).
-        kind: (list) Entry-point kind filter, e.g. "Function" or "Test".
-        flow_id: (get) Flow id from ``list``; wins over flow_name.
-        flow_name: (get) Partial name match.
-        include_source: (get) Add member source snippets.
-        target: (entry_points) Symbol; omit to list them per unit.
+        limit: Maximum entry points. Default: 10.
+        target: Symbol; omit to list the entry points per unit.
     """
     payload = _tool("flow_dispatcher:flow_func")(
         mode=mode,
-        sort_by=sort_by,
         limit=limit,
-        kind=kind,
         detail_level=detail_level,
-        flow_id=flow_id,
-        flow_name=flow_name,
-        include_source=include_source,
         target=target,
         repo_root=_resolve_repo_root(repo_root),
     )
@@ -999,7 +981,7 @@ def review_changes(base: str = "") -> list[str]:
 
 @mcp.prompt()
 def architecture_map() -> list[str]:
-    """Architecture documentation using communities, flows, and Mermaid diagrams.
+    """Architecture documentation using the unit map, entry points, and Mermaid diagrams.
 
     Generates a comprehensive architecture map with module summaries and coupling warnings.
     """
@@ -1008,7 +990,7 @@ def architecture_map() -> list[str]:
 
 @mcp.prompt()
 def debug_issue(description: str = "") -> list[str]:
-    """Guided debugging using search, flow tracing, and recent changes.
+    """Guided debugging using search, entry points, and recent changes.
 
     Systematic debugging workflow that traces execution paths and identifies root causes.
 
@@ -1020,7 +1002,7 @@ def debug_issue(description: str = "") -> list[str]:
 
 @mcp.prompt()
 def onboard_developer() -> list[str]:
-    """New developer orientation using stats, architecture, and critical flows.
+    """New developer orientation using stats, architecture, and entry points.
 
     Creates an onboarding guide covering codebase structure, key modules, and patterns.
     """

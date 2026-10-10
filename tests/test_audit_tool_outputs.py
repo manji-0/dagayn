@@ -57,7 +57,7 @@ def test_flow_tool_runtime_error_has_missingness(monkeypatch) -> None:
 
     monkeypatch.setattr(flow_dispatcher, "_get_store", _boom)
 
-    result = flow_dispatcher.flow_func(mode="list", repo_root="/repo")
+    result = flow_dispatcher.flow_func(repo_root="/repo")
 
     assert result["status"] == "error"
     assert result["error"] == "graph unavailable"

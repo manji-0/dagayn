@@ -7,7 +7,7 @@
 1. file discovery and language detection
 2. parser extraction into nodes and edges
 3. SQLite persistence
-4. optional post-processing for flows, communities, and search indexes
+4. optional post-processing for communities and search indexes
 5. query-time analysis for reviews, search, and refactors
 
 ## Parsing model
@@ -46,12 +46,11 @@ core keeps a stricter in-memory form so the type says what the value is:
   schema labels (`File`, `Type`, `DocBody`, `IMPLEMENTS`, …). The store
   boundary converts with `as_str()`.
 - A sequence that is never grown after construction is `Box<[T]>`, not
-  `Vec<T>`. Flow paths, community member lists, graph-stat language lists, and
+  `Vec<T>`. Call adjacency, community member lists, graph-stat language lists, and
   Brandes adjacency are frozen slices: 16 bytes instead of 24, and no spare
   capacity pretending the list is still a builder.
-- A value that two indexes need is shared, not cloned. Flow tracing keeps one
-  `Arc<GraphNode>` per node and two maps (`qualified_name`, `id`) that point
-  at it. Parser nodes and edges from one file share one `FilePath` (`Arc<str>`);
+- A value that two indexes need is shared, not cloned. Entry-point detection
+  keeps one `Arc<GraphNode>` per node in its `qualified_name` map. Parser nodes and edges from one file share one `FilePath` (`Arc<str>`);
   clone is an Arc bump. The SQLite / Python boundary still stores a plain
   string.
 
@@ -71,7 +70,7 @@ They keep the stable import paths. The graph engine is Rust-only:
 `from dagayn.graph import GraphStore` is `dagayn._core.GraphStore`.
 
 `DAGAYN_BACKEND=python` is rejected. Hybrid search ranking and manifest-bridge
-extraction stay in Python; FTS rebuild, flows, communities, and post-process
+extraction stay in Python; FTS rebuild, entry points, communities, and post-process
 steps run in the native store.
 
 The Rust graph backend owns storage, parse/store, post-processing, and query
@@ -93,7 +92,6 @@ Optional post-processing layers add:
   the type is declared in another file ([SCHEMA.md](./SCHEMA.md#edges))
 
 - communities
-- execution flows (CALLS reachable sets from entry points; `path` / `steps` are BFS visit order, not a call sequence; truncation is disclosed)
 - search indexes (FTS5 virtual table `nodes_fts`, always available after `build`)
 - embedding store (the `embeddings` table inside `.dagayn/graph.db`, populated by `embed_graph_tool` or `--local-embedding`)
 - persisted centrality tables (`hub_scores`, `bridge_scores`) used by architecture analysis after post-processing

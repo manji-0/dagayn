@@ -8,11 +8,9 @@ from pathlib import Path
 import pytest
 
 from dagayn.contracts.cross_artifact import (
-    annotate_flow_steps_with_bridges,
     is_low_confidence_bridge,
     is_reportable_bridge,
 )
-from dagayn.flows import _hydrate_flow_rows, get_affected_flows, store_flows, trace_flows
 from dagayn.graph import GraphStore
 from dagayn.parser._base.types import EdgeInfo, NodeInfo
 from tests.store_sql import store_conn
@@ -190,135 +188,6 @@ class TestCrossArtifactImpact:
             ] == [(cli_qn, "MEDIUM")]
         finally:
             store.close()
-
-
-class TestCrossArtifactFlows:
-    def test_flow_trace_crosses_reportable_bridge_and_marks_steps(self, bridge_store):
-        store, paths = bridge_store
-        store.upsert_node(
-            NodeInfo(
-                kind="Function",
-                name="main",
-                file_path=paths["wrapper"],
-                line_start=20,
-                line_end=30,
-                language="python",
-            )
-        )
-        main_qn = f"{paths['wrapper']}::main"
-        store.upsert_edge(
-            EdgeInfo(
-                kind="CALLS",
-                source=main_qn,
-                target=paths["wrapper_qn"],
-                file_path=paths["wrapper"],
-                line=21,
-            )
-        )
-        store.commit()
-
-        flows = trace_flows(store)
-        assert flows
-        count = store_flows(store, flows)
-        assert count >= 1
-
-        rows = store_conn(store).execute("SELECT * FROM flows").fetchall()
-        hydrated = _hydrate_flow_rows(store, rows)
-        bridge_flows = [
-            flow
-            for flow in hydrated
-            if any(step.get("qualified_name") == paths["native_qn"] for step in flow["steps"])
-        ]
-        assert bridge_flows, "expected a flow that reaches the bridge target"
-        bridge_steps = [
-            step for flow in bridge_flows for step in flow["steps"] if step.get("is_bridge_step")
-        ]
-        assert bridge_steps
-        assert all(step.get("step_kind") == "bridge" for step in bridge_steps)
-        assert all(
-            step.get("transition", {}).get("kind") == "CROSS_ARTIFACT" for step in bridge_steps
-        )
-
-    def test_get_affected_flows_annotates_bridge_steps(self, bridge_store):
-        """Rust get_affected_flows_json path must hydrate bridge annotations."""
-        store, paths = bridge_store
-        store.upsert_node(
-            NodeInfo(
-                kind="Function",
-                name="main",
-                file_path=paths["wrapper"],
-                line_start=20,
-                line_end=30,
-                language="python",
-            )
-        )
-        main_qn = f"{paths['wrapper']}::main"
-        store.upsert_edge(
-            EdgeInfo(
-                kind="CALLS",
-                source=main_qn,
-                target=paths["wrapper_qn"],
-                file_path=paths["wrapper"],
-                line=21,
-            )
-        )
-        store.commit()
-        flows = trace_flows(store)
-        assert store_flows(store, flows) >= 1
-
-        # Simulate native store: JSON without bridge annotations.
-        import json
-
-        rows = store_conn(store).execute("SELECT * FROM flows").fetchall()
-        bare = _hydrate_flow_rows(store, rows)
-        for flow in bare:
-            for step in flow["steps"]:
-                step.pop("step_kind", None)
-                step.pop("transition", None)
-                step.pop("is_bridge_step", None)
-            flow.pop("bridge_step_count", None)
-
-        store.get_affected_flows_json = lambda _files: json.dumps(bare)
-
-        result = get_affected_flows(store, [paths["wrapper"]])
-        bridge_flows = [
-            flow
-            for flow in result["affected_flows"]
-            if any(step.get("qualified_name") == paths["native_qn"] for step in flow["steps"])
-        ]
-        assert bridge_flows, "expected affected flow reaching bridge target"
-        for flow in bridge_flows:
-            assert flow.get("bridge_step_count", 0) >= 1
-            bridge_steps = [step for step in flow["steps"] if step.get("is_bridge_step")]
-            assert bridge_steps
-            assert all(step.get("step_kind") == "bridge" for step in bridge_steps)
-            assert all(
-                step.get("transition", {}).get("kind") == "CROSS_ARTIFACT" for step in bridge_steps
-            )
-
-    def test_annotate_flow_steps_marks_bridge_arrival(self):
-        steps = [
-            {"qualified_name": "a.py::main", "name": "main"},
-            {"qualified_name": "a.py::launch", "name": "launch"},
-            {"qualified_name": "b.py::native", "name": "native"},
-        ]
-        annotated = annotate_flow_steps_with_bridges(
-            steps,
-            [
-                _EdgeView(
-                    _bridge(
-                        source="a.py::launch",
-                        target="b.py::native",
-                        file_path="a.py",
-                        tier="HIGH",
-                    )
-                )
-            ],
-        )
-        assert annotated[0]["step_kind"] == "entry"
-        assert annotated[2]["step_kind"] == "bridge"
-        assert annotated[2]["is_bridge_step"] is True
-        assert annotated[2]["transition"]["bridge_kind"] == "subprocess"
 
 
 class TestCrossArtifactImpactNetworkX:

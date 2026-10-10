@@ -7,7 +7,6 @@
     "answerability": [
       0,
       0,
-      0,
       2,
       0.0
     ],
@@ -17,12 +16,11 @@
       true
     ],
     "reason_codes": [
-      "missing_flows",
       "missing_communities",
       "missing_test_edges"
     ],
-    "score": 0.6,
-    "status": "degraded"
+    "score": 0.75,
+    "status": "ok"
   },
   "next": [
     {

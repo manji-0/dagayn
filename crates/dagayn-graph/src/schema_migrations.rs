@@ -260,6 +260,17 @@ impl GraphStore {
         Ok(())
     }
 
+    /// v18: stored flows are gone (entry points are computed on demand), so
+    /// their tables go too.
+    pub(crate) fn migrate_v18(&self) -> Result<()> {
+        self.conn.execute_batch(
+            "DROP TABLE IF EXISTS flow_snapshots; \
+             DROP TABLE IF EXISTS flow_memberships; \
+             DROP TABLE IF EXISTS flows;",
+        )?;
+        Ok(())
+    }
+
     pub(crate) fn ensure_edge_target_name_column(&self) -> Result<()> {
         if !has_column(&self.conn, "edges", "target_name")? {
             self.conn.execute(

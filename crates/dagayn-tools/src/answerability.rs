@@ -7,17 +7,15 @@ use serde_json::{Map, Value, json};
 
 use crate::suggestions::round_to;
 
-/// Reason codes about communities and stored flows, which only the answers
-/// read from them carry as missingness.
-const DERIVED_STRUCTURE_CODES: [&str; 5] = [
-    "missing_flows",
+/// Reason codes about communities, which only the answers read from them
+/// carry as missingness.
+const DERIVED_STRUCTURE_CODES: [&str; 3] = [
     "missing_communities",
-    "missing_flows_table",
     "missing_communities_table",
     "stale_derived_structures",
 ];
 
-/// Whether `code` is about communities or stored flows.
+/// Whether `code` is about communities.
 pub(crate) fn is_derived_structure_code(code: &str) -> bool {
     DERIVED_STRUCTURE_CODES.contains(&code)
 }
@@ -85,10 +83,6 @@ impl Answerability {
             reason_codes.push("empty_graph");
             score = 0.0;
         }
-        if counts.flows == 0 {
-            reason_codes.push("missing_flows");
-            score -= 0.15;
-        }
         if counts.communities == 0 {
             reason_codes.push("missing_communities");
             score -= 0.15;
@@ -105,7 +99,7 @@ impl Answerability {
             reason_codes.push("missing_last_updated");
             score -= 0.1;
         }
-        if counts.stale_flow_memberships > 0 || counts.unassigned_nodes > 0 {
+        if counts.unassigned_nodes > 0 {
             reason_codes.push("stale_derived_structures");
             score -= 0.15;
         }
@@ -138,7 +132,6 @@ impl Answerability {
             "empty"
         };
         let mut all_counts = Map::new();
-        all_counts.insert("flows".into(), json!(counts.flows));
         all_counts.insert("communities".into(), json!(counts.communities));
         all_counts.insert("test_edges".into(), json!(test_edges));
         all_counts.insert(
@@ -149,10 +142,6 @@ impl Answerability {
             "reportable_unresolved_cross_artifact_edges".into(),
             json!(reportable_unresolved),
         );
-        all_counts.insert(
-            "stale_flow_memberships".into(),
-            json!(counts.stale_flow_memberships),
-        );
         all_counts.insert("unassigned_nodes".into(), json!(counts.unassigned_nodes));
         all_counts.extend(freshness_counts);
         Self {
@@ -161,7 +150,6 @@ impl Answerability {
             reason_codes,
             parse: json!([stats.files_count, stats.languages.len(), last_updated]),
             answerability: json!([
-                counts.flows,
                 counts.communities,
                 test_edges,
                 reportable_cross,
@@ -201,14 +189,14 @@ impl Answerability {
     }
 
     /// `missingness_from_answerability` for an answer that reads no derived
-    /// structure: the codes about communities and stored flows say nothing
+    /// structure: the codes about communities say nothing
     /// about it (docs/plans/AGENT-WORKFLOW-TARGET.md#caveats).
     pub(crate) fn missingness(&self) -> Vec<Value> {
         self.missingness_where(|code| !is_derived_structure_code(code))
     }
 
-    /// `missingness_from_answerability` for an answer read from communities
-    /// or stored flows: every code.
+    /// `missingness_from_answerability` for an answer read from communities:
+    /// every code.
     pub(crate) fn missingness_with_derived(&self) -> Vec<Value> {
         self.missingness_where(|_| true)
     }
@@ -234,12 +222,10 @@ fn severity(code: &str) -> &'static str {
         | "no_sqlite_connection"
         | "graph_describes_another_commit"
         | "graph_built_by_older_extractor" => "high",
-        "missing_flows"
-        | "missing_communities"
+        "missing_communities"
         | "missing_test_edges"
         | "many_unresolved_cross_artifact_edges"
         | "missing_graph_stats"
-        | "missing_flows_table"
         | "missing_communities_table"
         | "missing_cross_artifact_edge_metadata"
         | "missing_cross_artifact_edges"

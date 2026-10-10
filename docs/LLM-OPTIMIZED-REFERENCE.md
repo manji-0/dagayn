@@ -55,7 +55,7 @@ The reply contract of `query_graph_tool`, `semantic_search_nodes_tool`,
   call before concluding from a trimmed list.
 - `missingness` names the gaps that limit this reply (another commit,
   uncommitted edits, a truncated search, an ambiguous target). Gaps in
-  communities and stored flows appear only on answers read from them. The
+  communities appear only on answers read from them. The
   graph-wide `answerability` summary is `get_minimal_context_tool`'s
   `graph_health`; the six tools add it only at `detail_level="verbose"`
   (`"full"` for `query_graph_tool`).

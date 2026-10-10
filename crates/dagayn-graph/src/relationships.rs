@@ -21,68 +21,6 @@ impl GraphStore {
             .map_err(Into::into)
     }
 
-    pub fn count_flow_memberships_for_nodes(&self, node_ids: &[i64]) -> Result<HashMap<i64, i64>> {
-        let mut out = node_ids
-            .iter()
-            .map(|node_id| (*node_id, 0))
-            .collect::<HashMap<_, _>>();
-        if node_ids.is_empty() {
-            return Ok(out);
-        }
-
-        for chunk in node_ids.chunks(450) {
-            let placeholders = std::iter::repeat_n("?", chunk.len())
-                .collect::<Vec<_>>()
-                .join(",");
-            let sql = format!(
-                "SELECT node_id, COUNT(*) FROM flow_memberships \
-                 WHERE node_id IN ({placeholders}) GROUP BY node_id"
-            );
-            let mut stmt = self.conn.prepare(&sql)?;
-            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
-                <(i64, i64)>::try_from(row)
-            })?;
-            for row in rows {
-                let (node_id, count) = row?;
-                out.insert(node_id, count);
-            }
-        }
-        Ok(out)
-    }
-
-    pub fn get_flow_criticalities_for_nodes(
-        &self,
-        node_ids: &[i64],
-    ) -> Result<HashMap<i64, Vec<f64>>> {
-        let mut out = node_ids
-            .iter()
-            .map(|node_id| (*node_id, Vec::new()))
-            .collect::<HashMap<_, _>>();
-        if node_ids.is_empty() {
-            return Ok(out);
-        }
-
-        for chunk in node_ids.chunks(450) {
-            let placeholders = std::iter::repeat_n("?", chunk.len())
-                .collect::<Vec<_>>()
-                .join(",");
-            let sql = format!(
-                "SELECT fm.node_id, f.criticality FROM flows f \
-                 JOIN flow_memberships fm ON fm.flow_id = f.id \
-                 WHERE fm.node_id IN ({placeholders})"
-            );
-            let mut stmt = self.conn.prepare(&sql)?;
-            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
-                <(i64, f64)>::try_from(row)
-            })?;
-            for row in rows {
-                let (node_id, criticality) = row?;
-                out.entry(node_id).or_default().push(criticality);
-            }
-        }
-        Ok(out)
-    }
-
     pub fn get_community_ids_by_node_ids(
         &self,
         node_ids: &[i64],

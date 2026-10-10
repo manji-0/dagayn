@@ -888,16 +888,8 @@ fn review_answers_affected_flows_from_the_worktree_and_explicit_files() {
         "review_tool",
         json!({"mode": "affected_flows", "detail_level": "verbose"}),
     );
-    assert_eq!(verbose["total"], 1);
-    let flow = &verbose["affected_flows"][0];
-    assert_eq!(flow["steps"][0]["step_kind"], "entry");
-    assert_eq!(flow["bridge_step_count"], 0);
-    assert_eq!(flow["missing_step_count"], 0);
-    assert_eq!(
-        verbose["deprecated_fields"],
-        json!(["affected_flows", "total", "_hints"])
-    );
-
+    assert_eq!(verbose["entry_points"], auto["entry_points"]);
+    assert!(verbose.get("affected_flows").is_none() && verbose.get("total").is_none());
     let none = answer(
         &context,
         "review_tool",
@@ -1305,7 +1297,7 @@ fn review_context_fits_its_budget_below_verbose() {
 }
 
 #[test]
-fn flow_tool_lists_and_reads_stored_flows() {
+fn flow_tool_answers_entry_points_and_declines_stored_flow_modes() {
     // dagayn: tests crates/dagayn-tools/src/flow.rs::flow
     let repo = Repo::new("flows", true);
     repo.build();
@@ -1313,72 +1305,19 @@ fn flow_tool_lists_and_reads_stored_flows() {
         runtime: Some(json!({})),
         ..repo.context()
     };
-    let listed = answer(&context, "flow_tool", json!({}));
-    assert!(listed.get("called_subtool").is_none());
-    let flows = listed["flows"].as_array().expect("flows");
-    assert!(!flows.is_empty());
-    assert_eq!(flows[0]["missing_node_count"], 0);
-    for key in ["path", "members", "files"] {
-        assert!(flows[0].get(key).is_none(), "{key}");
-    }
-    assert!(listed.get("_hints").is_none());
-    let id = flows[0]["id"].clone();
-    let minimal = answer(&context, "flow_tool", json!({"detail_level": "minimal"}));
-    assert_eq!(minimal["flows"][0]["entry_point"], flows[0]["entry_point"]);
-
-    let got = answer(
-        &context,
-        "flow_tool",
-        json!({"mode": "get", "flow_id": id, "include_source": true}),
-    );
-    assert!(got.get("called_subtool").is_none());
-    assert_eq!(got["status"], "ok");
-    let steps = got["flow"]["steps"].as_array().expect("steps");
-    assert_eq!(steps[0]["step_kind"], "entry");
-    assert!(
-        steps[0]["source"]
-            .as_str()
-            .is_some_and(|s| s.starts_with("1: def "))
-    );
-    let trimmed = answer(
-        &context,
-        "flow_tool",
-        json!({"mode": "get", "flow_id": id, "detail_level": "minimal"}),
-    );
-    let flow = &trimmed["flow"];
-    assert!(flow.get("path").is_none() && flow.get("members").is_none());
-    assert_eq!(flow["steps_omitted"], 0);
+    let map = answer(&context, "flow_tool", json!({}));
+    assert_eq!(map["status"], "ok");
+    assert!(map.get("called_subtool").is_none());
+    assert!(map.get("flows").is_none());
     assert_eq!(
-        flow["steps"][0]["qualified_name"],
-        steps[0]["qualified_name"]
+        answer(&context, "flow_tool", json!({"mode": "entry_points"})),
+        map
     );
-    assert_eq!(flow["steps"][0]["line_start"], steps[0]["line_start"]);
-    assert!(flow["steps"][0].get("step_kind").is_none());
-
-    let missing = answer(
-        &context,
-        "flow_tool",
-        json!({"mode": "get", "flow_id": 999}),
-    );
-    assert_eq!(missing["status"], "not_found");
-    assert!(missing.get("_hints").is_none());
-
     for arguments in [
-        json!({"mode": "get"}),
-        json!({"mode": "get", "flow_name": ""}),
-    ] {
-        let reply = answer(&context, "flow_tool", arguments.clone());
-        assert_eq!(reply["status"], "error", "{arguments}");
-        assert_eq!(reply["called_subtool"], Value::Null, "{arguments}");
-        assert_eq!(
-            reply["error"],
-            "Value error, mode=\"get\" requires flow_id or flow_name."
-        );
-        assert!(reply["missingness"].is_array());
-    }
-    for arguments in [
-        json!({"sort_by": "bogus"}),
-        json!({"flow_id": true, "mode": "get"}),
+        json!({"mode": "list"}),
+        json!({"mode": "get", "flow_id": 1}),
+        json!({"sort_by": "criticality"}),
+        json!({"flow_name": "main"}),
     ] {
         assert!(
             declines(&context, "flow_tool", arguments.clone()),
@@ -2120,7 +2059,7 @@ fn postprocess_reruns_the_steps_asked_for() {
     assert_eq!(all["summary"], "Post-processing complete.");
     assert_eq!(all["signatures_updated"], true);
     assert!(all["fts_indexed"].as_i64().expect("fts") > 0, "{all}");
-    assert!(all.get("flows_detected").is_some() && all.get("communities_detected").is_some());
+    assert!(all.get("flows_detected").is_none() && all.get("communities_detected").is_some());
     assert_eq!(all["warnings"], json!([]));
     assert_eq!(
         answer(&context, "run_postprocess_tool", json!({})),
@@ -2130,10 +2069,14 @@ fn postprocess_reruns_the_steps_asked_for() {
     let only = answer(
         &context,
         "run_postprocess_tool",
-        json!({"flows": false, "fts": false}),
+        json!({"communities": false, "fts": false}),
     );
-    assert!(only.get("fts_indexed").is_none() && only.get("flows_detected").is_none());
-    assert!(only.get("communities_detected").is_some());
+    assert!(only.get("fts_indexed").is_none() && only.get("communities_detected").is_none());
+    assert!(declines(
+        &context,
+        "run_postprocess_tool",
+        json!({"flows": false})
+    ));
 
     // A graph another writer holds is Python's to wait for.
     let db = db_path_for_build(&repo.0).expect("db");

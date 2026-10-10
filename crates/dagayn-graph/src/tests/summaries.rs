@@ -105,35 +105,6 @@ fn computes_summary_tables() {
         .conn
         .execute("UPDATE nodes SET community_id = ?", [community_id])
         .unwrap();
-    let login_id: i64 = store
-        .conn
-        .query_row(
-            "SELECT id FROM nodes WHERE qualified_name = 'auth.py::login'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    let token_id: i64 = store
-        .conn
-        .query_row(
-            "SELECT id FROM nodes WHERE qualified_name = 'auth.py::check_token'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    store
-        .conn
-        .execute(
-            "INSERT INTO flows \
-                 (name, entry_point_id, depth, node_count, file_count, criticality, path_json) \
-                 VALUES ('auth flow', ?, 2, 2, 1, 0.5, ?)",
-            params![
-                login_id,
-                serde_json::to_string(&vec![login_id, token_id]).unwrap()
-            ],
-        )
-        .unwrap();
-
     store.compute_summaries().unwrap();
 
     let community_row: (String, i64, String) = store
@@ -148,15 +119,6 @@ fn computes_summary_tables() {
     assert_eq!(community_row.1, 3);
     let key_symbols: Vec<String> = serde_json::from_str(&community_row.2).unwrap();
     assert_eq!(key_symbols[0], "login");
-
-    let flow_path: String = store
-        .conn
-        .query_row("SELECT critical_path FROM flow_snapshots", [], |row| {
-            row.get(0)
-        })
-        .unwrap();
-    let flow_path: Vec<String> = serde_json::from_str(&flow_path).unwrap();
-    assert_eq!(flow_path, vec!["auth.py::login", "auth.py::check_token"]);
 
     let risk_row: (String, i64, String, i64, f64) = store
         .conn

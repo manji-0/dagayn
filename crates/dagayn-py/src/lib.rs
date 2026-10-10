@@ -225,20 +225,6 @@ impl PyGraphStore {
         graph_nodes_to_py_vec(py, nodes)
     }
 
-    fn get_flow_qualified_names_for_flows(
-        &self,
-        py: Python<'_>,
-        flow_ids: Vec<i64>,
-    ) -> PyResult<Py<PyAny>> {
-        let flow_qns =
-            self.with_store(|store| store.get_flow_qualified_names_for_flows(&flow_ids))?;
-        let out = PyDict::new(py);
-        for (flow_id, qualified_names) in flow_qns {
-            out.set_item(flow_id, PySet::new(py, qualified_names)?)?;
-        }
-        Ok(out.unbind().into_any())
-    }
-
     fn get_all_community_member_qns(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let members = self.with_store(|store| store.get_all_community_member_qns())?;
         Ok(members.into_py_dict(py)?.unbind().into_any())
@@ -538,48 +524,9 @@ impl PyGraphStore {
         self.with_store_mut(|store| store.compute_summaries())
     }
 
-    fn store_flows_json(&self, flows_json: &str) -> PyResult<i64> {
-        self.with_store_mut(|store| store.store_flows_json(flows_json))
-    }
-
-    fn insert_flows_json(&self, flows_json: &str) -> PyResult<i64> {
-        self.with_store_mut(|store| store.insert_flows_json(flows_json))
-    }
-
-    #[pyo3(signature = (sort_by = "criticality", limit = 50))]
-    fn get_flows_json(&self, sort_by: &str, limit: i64) -> PyResult<String> {
-        self.with_store(|store| store.get_flows_json(sort_by, limit))
-    }
-
-    fn get_flow_by_id_json(&self, flow_id: i64) -> PyResult<Option<String>> {
-        self.with_store(|store| store.get_flow_by_id_json(flow_id))
-    }
-
-    fn get_affected_flows_json(&self, changed_files: Vec<String>) -> PyResult<String> {
-        self.with_store(|store| store.get_affected_flows_json(&changed_files))
-    }
-
-    fn delete_affected_flows(&self, changed_files: Vec<String>) -> PyResult<Vec<i64>> {
-        self.with_store_mut(|store| store.delete_affected_flows(&changed_files))
-    }
-
     #[pyo3(signature = (include_tests = false))]
     fn detect_entry_points_json(&self, include_tests: bool) -> PyResult<String> {
         self.with_store(|store| store.detect_entry_points_json(include_tests))
-    }
-
-    #[pyo3(signature = (max_depth = 15, include_tests = false))]
-    fn rebuild_flows_json(&self, max_depth: i64, include_tests: bool) -> PyResult<String> {
-        self.with_store_mut(|store| store.rebuild_flows_json(max_depth, include_tests))
-    }
-
-    #[pyo3(signature = (changed_files, max_depth = 15))]
-    fn incremental_trace_flows_json(
-        &self,
-        changed_files: Vec<String>,
-        max_depth: i64,
-    ) -> PyResult<String> {
-        self.with_store_mut(|store| store.incremental_trace_flows_json(&changed_files, max_depth))
     }
 
     fn store_communities_json(&self, communities_json: &str) -> PyResult<i64> {

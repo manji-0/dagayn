@@ -192,13 +192,12 @@ def test_cpp_include_resolution(tmp_path):
     )
 
 
-def test_export_includes_flows(store_with_data):
-    """Export data should include a 'flows' key (list, possibly empty)."""
+def test_export_has_no_stored_flows(store_with_data):
+    """Stored flows are gone; the export lists entry points instead."""
     from dagayn.visualization import export_graph_data
 
     data = export_graph_data(store_with_data)
-    assert "flows" in data
-    assert isinstance(data["flows"], list)
+    assert "flows" not in data
 
 
 def test_export_includes_entry_points(store_with_data):

@@ -128,7 +128,6 @@ def _aggregate_community(data: VisualizationPayload) -> VisualizationPayload:
         "edges": super_edges,
         "stats": data["stats"],
         "entry_points": data.get("entry_points", []),
-        "flows": data.get("flows", []),
         "communities": communities,
         "mode": "community",
         "community_details": {str(k): v for k, v in community_details.items()},
@@ -222,7 +221,6 @@ def _aggregate_file(data: VisualizationPayload) -> VisualizationPayload:
         "edges": file_edges,
         "stats": data["stats"],
         "entry_points": data.get("entry_points", []),
-        "flows": data.get("flows", []),
         "communities": data.get("communities", []),
         "mode": "file",
     }

@@ -1,4 +1,4 @@
-"""Flow completeness benchmark: evaluates entry point detection and flow tracing."""
+"""Flow completeness benchmark: evaluates entry point detection."""
 
 from __future__ import annotations
 
@@ -16,15 +16,9 @@ type BenchmarkPayload = dict[str, BenchmarkValue]
 
 def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[BenchmarkPayload]:
     """Run flow completeness benchmark."""
-    from dagayn.flows import store_flows, trace_flows
+    from dagayn.flows import detect_entry_points
 
-    flows = trace_flows(store)
-    count = store_flows(store, flows)
-
-    # Get detected entry point names
-    detected_entries = []
-    for flow in flows:
-        detected_entries.append(str(flow.get("entry_point") or flow.get("name", "")))
+    detected_entries = [node.qualified_name for node in detect_entry_points(store)]
 
     known_entries = config.get("entry_points", [])
     matcher = IdentifierMatcher.from_config(config)
@@ -47,7 +41,6 @@ def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[Benchmark
     if known and detected_entries:
         hit_at_1 = int(any(matcher.matches(detected_entries[0], ep) for ep in known))
 
-    depths = [f.get("depth", 0) for f in flows]
     if not known:
         recall = None
         status = "skipped"
@@ -64,8 +57,5 @@ def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[Benchmark
             "detected_entry_points": found,
             "recall": recall,
             "hit_at_1": hit_at_1,
-            "detected_flows": count,
-            "avg_flow_depth": round(sum(depths) / max(len(depths), 1), 1),
-            "max_flow_depth": max(depths, default=0),
         }
     ]

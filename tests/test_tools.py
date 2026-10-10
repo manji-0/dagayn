@@ -893,7 +893,7 @@ class TestFlowTools:
     """Tests for flow-related MCP tool functions."""
 
     def setup_method(self):
-        """Set up a temp dir with .git and .dagayn, seed data, build flows."""
+        """Set up a temp dir with .git and .dagayn and seed data."""
         self.tmp_dir = tempfile.mkdtemp()
         # Resolve symlinks (macOS /var -> /private/var) so paths match
         # what _validate_repo_root returns via Path.resolve().
@@ -906,7 +906,6 @@ class TestFlowTools:
         db_path = str(self.root / ".dagayn" / "graph.db")
         self.store = GraphStore(db_path)
         self._seed_data()
-        self._build_flows()
 
     def teardown_method(self):
         self.store.close()
@@ -1003,63 +1002,14 @@ class TestFlowTools:
         )
         self.store.commit()
 
-    def _build_flows(self):
-        """Trace and store flows."""
-        from dagayn.flows import store_flows, trace_flows
-
-        flows = trace_flows(self.store)
-        store_flows(self.store, flows)
-
-    def test_list_flows_returns_ok(self):
-        result = flow_func(mode="list", repo_root=str(self.root))
+    def test_flow_tool_lists_entry_points_by_default(self):
+        result = flow_func(repo_root=str(self.root))
         assert result["status"] == "ok"
-        assert "flows" in result
-        assert len(result["flows"]) >= 1
+        assert "flows" not in result
 
-    def test_list_flows_summary(self):
-        result = flow_func(mode="list", repo_root=str(self.root))
-        assert "Found" in result["summary"]
-        assert "reachable-set flow" in result["summary"]
-
-    def test_list_flows_sort_by_depth(self):
-        result = flow_func(mode="list", repo_root=str(self.root), sort_by="depth")
-        assert result["status"] == "ok"
-
-    def test_list_flows_limit(self):
-        result = flow_func(mode="list", repo_root=str(self.root), limit=1)
-        assert result["status"] == "ok"
-        assert len(result["flows"]) <= 1
-
-    def test_list_flows_kind_filter(self):
-        result = flow_func(mode="list", repo_root=str(self.root), kind="Function")
-        assert result["status"] == "ok"
-        # All returned flows should have Function entry points
-        for f in result["flows"]:
-            ep_id = f["entry_point_id"]
-            row = (
-                store_conn(self.store)
-                .execute("SELECT kind FROM nodes WHERE id = ?", (ep_id,))
-                .fetchone()
-            )
-            assert row["kind"] == "Function"
-
-    def test_list_flows_kind_filter_no_match(self):
-        result = flow_func(mode="list", repo_root=str(self.root), kind="Class")
-        assert result["status"] == "ok"
-        assert len(result["flows"]) == 0
-
-    def test_get_flow_by_id(self):
-        # First list to get a flow ID
-        flows_result = flow_func(mode="list", repo_root=str(self.root))
-        assert len(flows_result["flows"]) >= 1
-        fid = flows_result["flows"][0]["id"]
-
-        result = flow_func(mode="get", flow_id=fid, repo_root=str(self.root))
-        assert result["status"] == "ok"
-        assert "flow" in result
-        assert result["flow"]["id"] == fid
-        assert "steps" in result["flow"]
-        assert len(result["flow"]["steps"]) >= 2
+    def test_flow_tool_rejects_the_stored_flow_modes(self):
+        result = flow_func(mode="list", repo_root=str(self.root))  # type: ignore[arg-type]
+        assert result["status"] == "error"
 
     def test_traverse_graph_dfs_fetches_lazily(self, monkeypatch):
         from dagayn.tools import query as query_module
@@ -1112,108 +1062,6 @@ class TestFlowTools:
             "unresolved_targets": [],
         }
 
-    def test_get_flow_by_name(self):
-        result = flow_func(mode="get", flow_name="handle_request", repo_root=str(self.root))
-        assert result["status"] == "ok"
-        assert "handle_request" in result["flow"]["name"]
-
-    def test_get_flow_not_found(self):
-        result = flow_func(mode="get", flow_id=99999, repo_root=str(self.root))
-        assert result["status"] == "not_found"
-
-    def test_get_flow_name_not_found(self):
-        result = flow_func(mode="get", flow_name="nonexistent_xyz", repo_root=str(self.root))
-        assert result["status"] == "not_found"
-
-    def test_get_flow_include_source(self):
-        # Create actual source files so include_source can read them
-        app_py = self.root / "app.py"
-        app_py.write_text("# app\n" * 9 + "def handle_request():\n" + "    pass\n" * 15 + "\n")
-
-        flows_result = flow_func(mode="list", repo_root=str(self.root))
-        fid = flows_result["flows"][0]["id"]
-
-        result = flow_func(mode="get", flow_id=fid, include_source=True, repo_root=str(self.root))
-        assert result["status"] == "ok"
-        # At least one step should have source (the app.py one)
-        steps_with_source = [s for s in result["flow"]["steps"] if "source" in s]
-        assert len(steps_with_source) >= 1
-
-    def test_get_flow_summary_format(self):
-        flows_result = flow_func(mode="list", repo_root=str(self.root))
-        fid = flows_result["flows"][0]["id"]
-        result = flow_func(mode="get", flow_id=fid, repo_root=str(self.root))
-        assert "members" in result["summary"]
-        assert "depth" in result["summary"]
-        assert "criticality" in result["summary"]
-        assert result["flow"]["kind"] == "reachable_set"
-        assert result["flow"]["truncated"] is False
-
-    def test_get_flow_degrades_when_stored_steps_are_missing(self):
-        from dagayn.flows import get_flow_by_id
-
-        # The tool reads the graph before this test's store edits it, and
-        # again after (each read through a fresh Python-side cache check).
-        flow_id = flow_func(mode="list", repo_root=str(self.root))["flows"][0]["id"]
-        flow = get_flow_by_id(self.store, flow_id)
-        raw_path = (flow or {}).get("path") or []
-        path_ids = [node_id for node_id in raw_path if isinstance(node_id, int)]
-        assert len(path_ids) >= 2
-
-        nodes = self.store.get_nodes_by_ids(path_ids)
-        stale_files = []
-        for node_id in path_ids[1:]:
-            node = nodes.get(node_id)
-            if node is None or not node.file_path or node.file_path in stale_files:
-                continue
-            stale_files.append(node.file_path)
-        self.store.remove_files_data(stale_files)
-        self.store.commit()
-
-        result = flow_func(mode="get", flow_id=flow_id, repo_root=str(self.root))
-
-        assert result["status"] == "degraded"
-        assert result["flow"]["node_count"] == len(path_ids)
-        assert result["flow"]["resolved_step_count"] == 1
-        assert result["flow"]["missing_step_count"] == len(path_ids) - 1
-        assert len(result["flow"]["steps"]) == 1
-        assert result["flow_coverage"]["stored_node_count"] == len(path_ids)
-        assert result["flow_coverage"]["resolved_step_count"] == 1
-        assert result["flow_coverage"]["missing_step_count"] == len(path_ids) - 1
-        assert any(item.get("reason_code") == "stale_flow" for item in result["missingness"])
-        assert "missing" in result["summary"]
-
-    def test_get_flow_degrades_when_truncated(self):
-        from dagayn.flows import get_flows, rebuild_stored_flows
-
-        rebuild_stored_flows(self.store, max_depth=1)
-
-        flow_id = get_flows(self.store, limit=1)[0]["id"]
-        result = flow_func(mode="get", flow_id=flow_id, repo_root=str(self.root))
-
-        assert result["status"] == "degraded"
-        assert result["flow"]["kind"] == "reachable_set"
-        assert result["flow"]["truncated"] is True
-        assert result["flow"]["truncation_reason"] == "max_depth"
-        assert result["flow_coverage"]["truncated"] is True
-        assert result["flow_coverage"]["truncation_reason"] == "max_depth"
-        assert any(item.get("reason_code") == "truncated_flow" for item in result["missingness"])
-        assert "truncated:max_depth" in result["summary"]
-
-    def test_list_flows_discloses_truncated(self):
-        from dagayn.flows import rebuild_stored_flows
-
-        rebuild_stored_flows(self.store, max_depth=1)
-
-        result = flow_func(mode="list", repo_root=str(self.root), detail_level="minimal")
-
-        assert result["status"] == "ok"
-        assert "truncated" in result["summary"]
-        assert result["flow_coverage"]["truncated_count"] >= 1
-        assert any(item.get("reason_code") == "truncated_flow" for item in result["missingness"])
-        assert result["flows"][0]["kind"] == "reachable_set"
-        assert result["flows"][0]["truncated"] is True
-
     def test_get_affected_flows_with_changed_file(self):
         result = review_func(
             mode="affected_flows", changed_files=["auth.py"], repo_root=str(self.root)
@@ -1224,17 +1072,15 @@ class TestFlowTools:
         assert any(e.endswith("::handle_request") for e in entries)
         assert "affected_flows" not in result
 
-    def test_get_affected_flows_verbose_keeps_the_stored_flows(self):
+    def test_get_affected_flows_verbose_has_no_stored_flows(self):
         result = review_func(
             mode="affected_flows",
             changed_files=["auth.py"],
             detail_level="verbose",
             repo_root=str(self.root),
         )
-        assert result["total"] >= 1
-        flow_names = [f["name"] for f in result["affected_flows"]]
-        assert any("handle_request" in n for n in flow_names)
-        assert result["deprecated_fields"] == ["affected_flows", "total", "_hints"]
+        assert result["entry_points"]
+        assert "affected_flows" not in result and "total" not in result
 
     def test_get_affected_flows_no_changed_files(self):
         result = review_func(mode="affected_flows", changed_files=[], repo_root=str(self.root))
@@ -1648,8 +1494,8 @@ class TestBuildPostprocess:
         )
         assert result["status"] == "ok"
         assert result.get("postprocess_level") == "full"
-        # Full postprocess should have flows and communities
-        assert "flows_detected" in result
+        # Full postprocess detects communities; flows are no longer stored.
+        assert "flows_detected" not in result
         assert "communities_detected" in result
 
     def test_local_embedding_runs_after_build(self, monkeypatch):
@@ -1870,7 +1716,6 @@ class TestBuildPostprocess:
         lock.__exit__ = MagicMock(return_value=False)
         with patch("dagayn.tools.build.graph_write_lock", return_value=lock) as locked:
             result = run_postprocess(
-                flows=False,
                 communities=False,
                 fts=False,
                 repo_root=str(self.root),
@@ -2643,52 +2488,6 @@ class TestGetMinimalContext:
         assert "risk" not in result
         assert result["changes"] == {"state": "unresolved", "files": 1, "findings": {}}
         assert "Changes: 1 file(s); base HEAD~1 does not resolve." in result["summary"]
-
-    def test_reports_no_stored_flow_names(self):
-        from dagayn.tools.context import get_minimal_context
-
-        store = GraphStore(str(self.root / ".dagayn" / "graph.db"))
-        conn = store_conn(store)
-        conn.execute("DELETE FROM flows")
-        conn.execute(
-            """
-            INSERT INTO flows (
-                name, entry_point_id, depth, node_count, file_count, criticality, path_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                "search-flow",
-                1,
-                2,
-                3,
-                1,
-                0.9,
-                "[]",
-                "login-flow",
-                2,
-                2,
-                2,
-                1,
-                0.8,
-                "[]",
-                "checkout-flow",
-                1,
-                1,
-                1,
-                1,
-                0.7,
-                "[]",
-            ),
-        )
-        conn.commit()
-        conn.close()
-
-        result = get_minimal_context(task="explore codebase", repo_root=str(self.root))
-
-        # Stored flows rank reachable sets by size; flow_tool mode="entry_points"
-        # answers where code is entered from, so the context names none.
-        assert "top_flows" not in result
-        assert "flows_affected" not in result
 
     def test_uses_dedicated_store_connection(self, monkeypatch):
         from dagayn.tools import context as context_module

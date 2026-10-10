@@ -25,9 +25,6 @@
 ["index","idx_edges_source_kind","CREATE INDEX idx_edges_source_kind ON edges(source_qualified, kind)"],
 ["index","idx_edges_target_kind","CREATE INDEX idx_edges_target_kind ON edges(target_qualified, kind)"],
 ["index","idx_edges_target_name_kind","CREATE INDEX idx_edges_target_name_kind ON edges(target_name, kind)"],
-["index","idx_flow_memberships_node","CREATE INDEX idx_flow_memberships_node ON flow_memberships(node_id)"],
-["index","idx_flows_criticality","CREATE INDEX idx_flows_criticality ON flows(criticality DESC)"],
-["index","idx_flows_entry","CREATE INDEX idx_flows_entry ON flows(entry_point_id)"],
 ["index","idx_hub_scores_total_degree","CREATE INDEX idx_hub_scores_total_degree ON hub_scores(total_degree DESC)"],
 ["index","idx_nodes_community","CREATE INDEX idx_nodes_community ON nodes(community_id)"],
 ["index","idx_nodes_file","CREATE INDEX idx_nodes_file ON nodes(file_path)"],
@@ -36,7 +33,6 @@
 ["index","idx_risk_index_score","CREATE INDEX idx_risk_index_score ON risk_index(risk_score DESC)"],
 ["index","sqlite_autoindex_bridge_scores_1",null],
 ["index","sqlite_autoindex_embeddings_1",null],
-["index","sqlite_autoindex_flow_memberships_1",null],
 ["index","sqlite_autoindex_hub_scores_1",null],
 ["index","sqlite_autoindex_metadata_1",null],
 ["index","sqlite_autoindex_nodes_1",null],
@@ -46,9 +42,6 @@
 ["table","edges","CREATE TABLE edges (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    kind TEXT NOT NULL,\n    source_qualified TEXT NOT NULL,\n    target_qualified TEXT NOT NULL,\n    target_name TEXT NOT NULL DEFAULT '',\n    file_path TEXT NOT NULL,\n    line INTEGER DEFAULT 0,\n    extra TEXT DEFAULT '{}',\n    confidence REAL DEFAULT 1.0,\n    confidence_tier TEXT DEFAULT 'EXTRACTED',\n    updated_at REAL NOT NULL\n)"],
 ["table","embeddings","CREATE TABLE embeddings (\n    qualified_name TEXT NOT NULL,\n    vector BLOB NOT NULL,\n    text_hash TEXT NOT NULL,\n    provider TEXT NOT NULL DEFAULT 'unknown',\n    PRIMARY KEY (qualified_name, provider)\n)"],
 ["table","embeddings_generation","CREATE TABLE embeddings_generation (\n    id INTEGER PRIMARY KEY CHECK (id = 1),\n    epoch TEXT NOT NULL,\n    generation INTEGER NOT NULL\n)"],
-["table","flow_memberships","CREATE TABLE flow_memberships (\n                flow_id INTEGER NOT NULL,\n                node_id INTEGER NOT NULL,\n                position INTEGER NOT NULL,\n                PRIMARY KEY (flow_id, node_id)\n            )"],
-["table","flow_snapshots","CREATE TABLE flow_snapshots (\n                flow_id INTEGER PRIMARY KEY,\n                name TEXT NOT NULL,\n                entry_point TEXT NOT NULL,\n                critical_path TEXT DEFAULT '[]',\n                criticality REAL DEFAULT 0.0,\n                node_count INTEGER DEFAULT 0,\n                file_count INTEGER DEFAULT 0,\n                FOREIGN KEY (flow_id) REFERENCES flows(id)\n            )"],
-["table","flows","CREATE TABLE flows (\n                id INTEGER PRIMARY KEY AUTOINCREMENT,\n                name TEXT NOT NULL,\n                entry_point_id INTEGER NOT NULL,\n                depth INTEGER NOT NULL,\n                node_count INTEGER NOT NULL,\n                file_count INTEGER NOT NULL,\n                criticality REAL NOT NULL DEFAULT 0.0,\n                path_json TEXT NOT NULL,\n                created_at TEXT NOT NULL DEFAULT (datetime('now')),\n                updated_at TEXT NOT NULL DEFAULT (datetime('now'))\n            , kind TEXT NOT NULL DEFAULT 'reachable_set', truncated INTEGER NOT NULL DEFAULT 0, truncation_reason TEXT)"],
 ["table","hub_scores","CREATE TABLE hub_scores (\n    qualified_name TEXT PRIMARY KEY,\n    name TEXT NOT NULL,\n    kind TEXT NOT NULL,\n    file_path TEXT NOT NULL,\n    in_degree INTEGER NOT NULL,\n    out_degree INTEGER NOT NULL,\n    total_degree INTEGER NOT NULL,\n    community_id INTEGER,\n    computed_at REAL NOT NULL\n)"],
 ["table","metadata","CREATE TABLE metadata (\n    key TEXT PRIMARY KEY,\n    value TEXT NOT NULL\n)"],
 ["table","nodes","CREATE TABLE nodes (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    kind TEXT NOT NULL,\n    name TEXT NOT NULL,\n    qualified_name TEXT NOT NULL UNIQUE,\n    file_path TEXT NOT NULL,\n    line_start INTEGER,\n    line_end INTEGER,\n    language TEXT,\n    parent_name TEXT,\n    params TEXT,\n    return_type TEXT,\n    modifiers TEXT,\n    is_test INTEGER DEFAULT 0,\n    file_hash TEXT,\n    mtime_ns INTEGER DEFAULT 0,\n    extra TEXT DEFAULT '{}',\n    updated_at REAL NOT NULL\n, signature TEXT, community_id INTEGER)"],
@@ -64,5 +57,5 @@
 ["trigger","embeddings_generation_insert","CREATE TRIGGER embeddings_generation_insert AFTER INSERT ON embeddings\nBEGIN\n    UPDATE embeddings_generation SET generation = generation + 1 WHERE id = 1;\nEND"],
 ["trigger","embeddings_generation_update","CREATE TRIGGER embeddings_generation_update AFTER UPDATE ON embeddings\nBEGIN\n    UPDATE embeddings_generation SET generation = generation + 1 WHERE id = 1;\nEND"]
 ],
-"schema_version":17
+"schema_version":18
 }

@@ -167,7 +167,7 @@ class TestRepoRootResolution:
 
 
 class TestIncrementalPostprocess:
-    def test_full_postprocess_after_a_commit_traces_the_changed_files(self, repo):
+    def test_full_postprocess_after_a_commit_reads_the_changed_files(self, repo):
         first = build_or_update_graph(full_rebuild=True, repo_root=str(repo))
         assert first["status"] == "ok"
 
@@ -182,7 +182,7 @@ class TestIncrementalPostprocess:
         assert result["status"] == "ok"
         assert result["build_type"] == "incremental"
         assert "cli.py" in result["changed_files"]
-        assert "flows_detected" in result
+        assert "flows_detected" not in result
         assert "communities_detected" in result
         assert result.get("summaries_computed") is True
         assert _graph_metadata(repo, "postprocess_level") == "full"
@@ -246,7 +246,6 @@ class TestPostprocessFailuresAreWarnings:
         assert "FTS index rebuild failed: fts5 missing" in caplog.text
         assert "fts_indexed" not in result
         # The failed FTS step was rolled back and the later steps still wrote.
-        assert result["flows_detected"] >= 1
         assert result["communities_detected"] >= 1
         assert _graph_metadata(repo, "last_postprocessed_at")
 
@@ -271,7 +270,6 @@ class TestRunPostprocess:
         assert result["summary"] == "Post-processing complete."
         assert result["signatures_updated"] is True
         assert result["fts_indexed"] >= 3  # greet, main, and the file nodes
-        assert result["flows_detected"] >= 1  # main -> greet
         assert result["communities_detected"] >= 1
         assert not result.get("warnings")
         assert _graph_metadata(repo, "last_postprocessed_at")
@@ -279,10 +277,9 @@ class TestRunPostprocess:
     def test_skipped_steps_leave_their_tables_alone(self, repo):
         build_or_update_graph(full_rebuild=True, repo_root=str(repo), postprocess="none")
 
-        result = run_postprocess(flows=False, communities=False, repo_root=str(repo))
+        result = run_postprocess(communities=False, repo_root=str(repo))
 
         assert result["fts_indexed"] >= 3
-        assert "flows_detected" not in result
         assert "communities_detected" not in result
 
 

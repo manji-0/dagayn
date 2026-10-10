@@ -323,28 +323,6 @@ def _warn(warnings: list[str], label: str, e: BaseException) -> None:
     warnings.append(f"{label} failed: {type(e).__name__}: {e}")
 
 
-def _detect_flows(
-    store: Any,
-    post_result: Any,
-    warnings: list[str],
-    incremental: bool,
-    changed_files: list[str] | None,
-) -> None:
-    """Trace flows incrementally for *changed_files*, or rebuild them all."""
-    try:
-        if incremental:
-            from dagayn.flows import incremental_trace_flows
-
-            count = incremental_trace_flows(store, changed_files or [])
-        else:
-            from dagayn.flows import rebuild_stored_flows
-
-            count = rebuild_stored_flows(store)
-        post_result.flows_detected = count
-    except (sqlite3.OperationalError, RuntimeError, ImportError) as e:
-        _warn(warnings, "Flow detection", e)
-
-
 def _detect_communities(
     store: Any,
     post_result: Any,
@@ -434,8 +412,8 @@ def _run_postprocess(
     """Run post-build steps based on *postprocess* level.
 
     ``minimal`` runs signatures, FTS, the edge resolvers, centrality, and the
-    orphan prune. ``full`` adds flows, communities, and the summary tables,
-    traced incrementally for *changed_files* unless *full_rebuild*.
+    orphan prune. ``full`` adds communities and the summary tables, detected
+    incrementally for *changed_files* unless *full_rebuild*.
 
     Returns a list of warning strings (empty on success).
     """
@@ -515,9 +493,8 @@ def _run_postprocess(
         _warn(warnings, "Native binding resolution", e)
 
     if postprocess != "minimal":
-        # -- Expensive: flows + communities + summaries (only for "full") --
+        # -- Expensive: communities + summaries (only for "full") --
         incremental = not full_rebuild
-        _detect_flows(store, post_result, warnings, incremental, changed_files)
         _detect_communities(
             store,
             post_result,
@@ -547,8 +524,8 @@ def _run_postprocess(
     warnings.extend(_prune_orphaned_structures(store, build_result))
 
     # Recorded on every non-none level: leaving the previous run's
-    # ``postprocess_level`` in place made a graph whose flows had just been
-    # pruned still advertise itself as fully post-processed.
+    # ``postprocess_level`` in place made a graph whose communities had just
+    # been pruned still advertise itself as fully post-processed.
     _record_postprocess_level(store, postprocess)
     return warnings
 
@@ -563,7 +540,7 @@ def _record_postprocess_level(store: Any, postprocess: str) -> None:
 
 
 def _compute_summaries(store: Any) -> None:
-    """Populate community_summaries, flow_snapshots, and risk_index tables."""
+    """Populate the community_summaries and risk_index tables."""
     store.compute_summaries()
 
 
@@ -599,7 +576,7 @@ def build_or_update_graph(
         extra_files: Files to re-index in addition to the git diff, for
             content drift the diff cannot see (see ``incremental_update``).
         postprocess: Post-processing level after build:
-            ``"full"`` (default) — signatures, FTS, flows, communities.
+            ``"full"`` (default) — signatures, FTS, communities.
             ``"minimal"`` — signatures + FTS only (fast, keeps search working).
             ``"none"`` — skip all post-processing (raw parse only).
         recurse_submodules: If True, include files from git submodules
@@ -740,7 +717,7 @@ def build_or_update_graph(
                     f"Dependents also updated: {build_result.dependent_files}."
                 )
 
-        # Pass changed_files for incremental flow/community detection.
+        # Pass changed_files for incremental community detection.
         changed = build_result.changed_files if not full_rebuild else None
         scip_warnings: list[str] = []
         if scip and full_rebuild and not no_changes:
@@ -864,19 +841,17 @@ def run_embedding_pass(
 
 
 def run_postprocess(
-    flows: bool = True,
     communities: bool = True,
     fts: bool = True,
     repo_root: str | None = None,
 ) -> BuildPayload:
     """Run post-processing steps on an existing graph.
 
-    Useful for running expensive steps (flows, communities) separately
+    Useful for running expensive steps (communities) separately
     from the build, or for re-running after the graph has been updated
     with ``postprocess="none"``.
 
     Args:
-        flows: Run flow detection. Default: True.
         communities: Run community detection. Default: True.
         fts: Rebuild FTS index. Default: True.
         repo_root: Repository root path. Auto-detected if omitted.
@@ -884,7 +859,7 @@ def run_postprocess(
     Returns:
         Summary of what was computed.
     """
-    # Postprocess writes to flows / communities / FTS — bypass the
+    # Postprocess writes to communities / FTS — bypass the
     # read-only store cache for the duration of this call.
     _evict_store_cache()
     root_path = _resolve_write_root(repo_root)
@@ -922,16 +897,6 @@ def run_postprocess(
             except (sqlite3.OperationalError, ImportError) as e:
                 store.rollback()
                 _warn(warnings, "FTS index rebuild", e)
-
-        if flows:
-            try:
-                from dagayn.flows import rebuild_stored_flows
-
-                count = rebuild_stored_flows(store)
-                result.postprocess.flows_detected = count
-            except (sqlite3.OperationalError, ImportError) as e:
-                store.rollback()
-                _warn(warnings, "Flow detection", e)
 
         if communities:
             try:

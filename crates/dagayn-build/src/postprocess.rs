@@ -15,16 +15,15 @@ use serde_json::{Map, Value, json};
 use crate::local_time::local_timestamp;
 
 const MIN_COMMUNITY_SIZE: i64 = 2;
-const FLOW_MAX_DEPTH: i64 = 15;
 /// A changed file with one of these names can change manifest bridges.
 const MANIFEST_FILENAMES: [&str; 3] = ["pyproject.toml", "package.json", "openapitools.json"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PostprocessLevel {
-    /// Signatures, FTS, edge resolution, flows, communities, summaries.
+    /// Signatures, FTS, edge resolution, communities, summaries.
     Full,
-    /// Signatures, FTS, and edge resolution; flows and communities are left
-    /// as they were (`--skip-flows`).
+    /// Signatures, FTS, and edge resolution; communities are left as they
+    /// were.
     Minimal,
     /// Raw parse only.
     None,
@@ -67,12 +66,11 @@ impl PostprocessOutcome {
 
 /// Post-process after a full rebuild.
 /// `run_postprocess` (`run_postprocess_tool`): signatures, then the FTS
-/// index, flows, and communities as requested, and `last_postprocessed_at`.
+/// index and communities as requested, and `last_postprocessed_at`.
 /// The counters in `build_result_payload`'s order; any step's failure is an
 /// error, where Python would roll back and warn.
 pub fn rerun_postprocess(
     store: &mut GraphStore,
-    flows: bool,
     communities: bool,
     fts: bool,
 ) -> Result<Vec<(&'static str, Value)>, GraphError> {
@@ -81,14 +79,6 @@ pub fn rerun_postprocess(
     out.push(("signatures_updated", json!(true)));
     if fts {
         out.push(("fts_indexed", json!(store.rebuild_fts_index()?)));
-    }
-    if flows {
-        let raw = store.rebuild_flows_json(FLOW_MAX_DEPTH, false)?;
-        let count = serde_json::from_str::<Value>(&raw)?
-            .get("count")
-            .and_then(Value::as_i64)
-            .unwrap_or(0);
-        out.push(("flows_detected", json!(count)));
     }
     if communities {
         let detected = dagayn_postproc::detect_communities_json(store, MIN_COMMUNITY_SIZE)?;
@@ -144,11 +134,6 @@ pub(crate) fn after_update(
         }
         PostprocessLevel::Full => {
             minimal_steps(repo_root, store, recurse_submodules, changed, &mut outcome);
-            if let Some(count) = outcome.step("Flow detection", || {
-                store.incremental_trace_flows(changed_files, FLOW_MAX_DEPTH)
-            }) {
-                outcome.set("flows_detected", count);
-            }
             let pre_affected = (pre_affected_communities != 0).then_some(pre_affected_communities);
             if let Some(count) = outcome.step("Community detection", || {
                 dagayn_postproc::incremental_detect_communities(
@@ -170,7 +155,7 @@ pub(crate) fn after_update(
 }
 
 /// The full level after a full rebuild, as Python drives it for the native
-/// store: the minimal steps, every flow and community from scratch, summaries,
+/// store: the minimal steps, every community from scratch, summaries,
 /// then centrality and the orphan sweep.
 fn full_after_rebuild(
     repo_root: &Path,
@@ -179,15 +164,6 @@ fn full_after_rebuild(
 ) -> Result<PostprocessOutcome, GraphError> {
     let mut outcome = PostprocessOutcome::default();
     minimal_steps(repo_root, store, recurse_submodules, None, &mut outcome);
-    if let Some(count) = outcome.step("Flow detection", || {
-        let raw = store.rebuild_flows_json(FLOW_MAX_DEPTH, false)?;
-        Ok(serde_json::from_str::<Value>(&raw)?
-            .get("count")
-            .and_then(Value::as_i64)
-            .unwrap_or(0))
-    }) {
-        outcome.set("flows_detected", count);
-    }
     if let Some(count) = outcome.step("Community detection", || {
         let detected = dagayn_postproc::detect_communities_json(store, MIN_COMMUNITY_SIZE)?;
         store.store_communities_json(&detected)

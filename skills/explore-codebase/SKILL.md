@@ -38,9 +38,7 @@ the selected embedding mode so exploration chooses the right search strategy.
   `architecture_analysis_tool(mode="overview")` before metric drill-downs.
 - Where code is entered from: `flow_tool(mode="entry_points", target=...)`
   lists the nearest entry points reaching a symbol, each with one call
-  `chain` in call order. `flow_tool(mode="list")` / `"get"` read stored
-  reachable sets (BFS visit order, not a call sequence) and remain for one
-  release.
+  `chain` in call order.
 - Neighborhood exploration: use `traverse_graph_tool` only after choosing a
   concrete start node, only when a specific relationship query would be too
   narrow, and only when the advanced MCP surface (or `dagayn tool`) exposes it.

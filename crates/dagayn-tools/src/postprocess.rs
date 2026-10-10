@@ -1,5 +1,5 @@
 //! `run_postprocess_tool` (`dagayn.tools.build.run_postprocess`): signatures,
-//! the FTS index, flows, and communities on an existing graph.
+//! the FTS index and communities on an existing graph.
 
 use serde_json::{Map, Value, json};
 
@@ -18,15 +18,13 @@ pub(crate) fn run_postprocess(
     context: &Context,
     arguments: &Map<String, Value>,
 ) -> Option<Payload> {
-    let args = crate::Args::new(arguments, &["flows", "communities", "fts", "repo_root"])?;
-    let flows = flag(arguments, "flows")?;
+    let args = crate::Args::new(arguments, &["communities", "fts", "repo_root"])?;
     let communities = flag(arguments, "communities")?;
     let fts = flag(arguments, "fts")?;
     let root = resolve_repo(context, args.optional_string("repo_root")?)?;
     let mut graph = open_graph_for_write(&root)?;
     // A failed step leaves the call to Python, which reruns every step.
-    let counters =
-        dagayn_build::rerun_postprocess(&mut graph.store, flows, communities, fts).ok()?;
+    let counters = dagayn_build::rerun_postprocess(&mut graph.store, communities, fts).ok()?;
     let mut out = Ordered::default()
         .put("status", "ok")
         .put("summary", "Post-processing complete.");

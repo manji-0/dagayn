@@ -47,8 +47,7 @@ retrieval setup.
    on a less stable one), `untested_change`, and `tests_to_run` (with a
    `command`). Each kind keeps 10; `findings_omitted` counts the rest. An empty
    list means nothing beyond the diff needs checking. The default
-   `detail_level="standard"` adds `changed_functions` and `affected_flows`;
-   `"minimal"` drops them.
+   `detail_level="standard"` adds `changed_functions`; `"minimal"` drops it.
 5. **Read only the parts the findings name**: `review_tool(mode="context",
    base="<merge-base>")` for change-set snippets; for one `qualified_name`,
    `query_graph_tool(pattern="source_of")`. Open a whole file only when that

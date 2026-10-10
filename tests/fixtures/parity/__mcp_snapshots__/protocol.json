@@ -118,11 +118,11 @@
     },
     "prompt_architecture_map": {
       "result": {
-        "description": "Architecture documentation using communities, flows, and Mermaid diagrams.\n\nGenerates a comprehensive architecture map with module summaries and coupling warnings.",
+        "description": "Architecture documentation using the unit map, entry points, and Mermaid diagrams.\n\nGenerates a comprehensive architecture map with module summaries and coupling warnings.",
         "messages": [
           {
             "content": {
-              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Architecture Mapping Workflow\n1. Call `get_minimal_context_tool(task=\"map architecture\")`.\n2. Call `architecture_analysis_tool(mode=\"overview\", detail_level=\"standard\")` for the declared units, the dependencies between them, and each unit's most used symbols.\n3. For a unit's most used symbols, call `flow_tool(mode=\"entry_points\", target=<symbol>, detail_level=\"minimal\")` to show where it is entered from.\n4. Report the overview's `findings` (import cycles, untested core code, broken doc links) next to the diagram.\n5. Produce a concise Mermaid diagram showing units as boxes, `unit_edges` as arrows, and key flows.",
+              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, entry points, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Architecture Mapping Workflow\n1. Call `get_minimal_context_tool(task=\"map architecture\")`.\n2. Call `architecture_analysis_tool(mode=\"overview\", detail_level=\"standard\")` for the declared units, the dependencies between them, and each unit's most used symbols.\n3. For a unit's most used symbols, call `flow_tool(mode=\"entry_points\", target=<symbol>, detail_level=\"minimal\")` to show where it is entered from.\n4. Report the overview's `findings` (import cycles, untested core code, broken doc links) next to the diagram.\n5. Produce a concise Mermaid diagram showing units as boxes, `unit_edges` as arrows, and the entry points found in step 3.",
               "type": "text"
             },
             "role": "user"
@@ -132,11 +132,11 @@
     },
     "prompt_debug_issue": {
       "result": {
-        "description": "Guided debugging using search, flow tracing, and recent changes.\n\nSystematic debugging workflow that traces execution paths and identifies root causes.",
+        "description": "Guided debugging using search, entry points, and recent changes.\n\nSystematic debugging workflow that traces execution paths and identifies root causes.",
         "messages": [
           {
             "content": {
-              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Debug Workflow\n1. Call `get_minimal_context_tool(task=\"debug: flaky login\")`.\n2. Call `semantic_search_nodes_tool(query=<keywords from description>, detail_level=\"minimal\", limit=5)`.\n3. For the top 1-2 results, call `query_graph_tool(pattern=\"callers_of\", target=<name>, detail_level=\"minimal\")`.\n4. To see how execution reaches the suspect: call `flow_tool(mode=\"entry_points\", target=<name>, detail_level=\"minimal\")` and read each entry point's call chain.\n5. Only call `review_tool(mode=\"context\")` or `review_tool(mode=\"impact\")` if you need to trace the blast radius of a specific change.",
+              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, entry points, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Debug Workflow\n1. Call `get_minimal_context_tool(task=\"debug: flaky login\")`.\n2. Call `semantic_search_nodes_tool(query=<keywords from description>, detail_level=\"minimal\", limit=5)`.\n3. For the top 1-2 results, call `query_graph_tool(pattern=\"callers_of\", target=<name>, detail_level=\"minimal\")`.\n4. To see how execution reaches the suspect: call `flow_tool(mode=\"entry_points\", target=<name>, detail_level=\"minimal\")` and read each entry point's call chain.\n5. Only call `review_tool(mode=\"context\")` or `review_tool(mode=\"impact\")` if you need to trace the blast radius of a specific change.",
               "type": "text"
             },
             "role": "user"
@@ -146,11 +146,11 @@
     },
     "prompt_onboard_developer": {
       "result": {
-        "description": "New developer orientation using stats, architecture, and critical flows.\n\nCreates an onboarding guide covering codebase structure, key modules, and patterns.",
+        "description": "New developer orientation using stats, architecture, and entry points.\n\nCreates an onboarding guide covering codebase structure, key modules, and patterns.",
         "messages": [
           {
             "content": {
-              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Onboarding Workflow\n1. Call `get_minimal_context_tool(task=\"onboard developer\")`.\n2. Call `architecture_analysis_tool(mode=\"overview\", detail_level=\"minimal\")` for the 30-second mental model: present `units` as a table of names, kinds, and sizes, and `unit_edges` as who depends on whom.\n3. Mention the overview's `findings`, if any, as known rough edges.\n4. For the symbols the developer will touch first, call `flow_tool(mode=\"entry_points\", target=<symbol>, detail_level=\"minimal\")` to show which commands or handlers reach them.\n5. Only drill into a specific unit or symbol if the developer asks.",
+              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, entry points, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Onboarding Workflow\n1. Call `get_minimal_context_tool(task=\"onboard developer\")`.\n2. Call `architecture_analysis_tool(mode=\"overview\", detail_level=\"minimal\")` for the 30-second mental model: present `units` as a table of names, kinds, and sizes, and `unit_edges` as who depends on whom.\n3. Mention the overview's `findings`, if any, as known rough edges.\n4. For the symbols the developer will touch first, call `flow_tool(mode=\"entry_points\", target=<symbol>, detail_level=\"minimal\")` to show which commands or handlers reach them.\n5. Only drill into a specific unit or symbol if the developer asks.",
               "type": "text"
             },
             "role": "user"
@@ -164,7 +164,7 @@
         "messages": [
           {
             "content": {
-              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Pre-Merge Check Workflow\n1. Call `get_minimal_context_tool(task=\"pre-merge check\")`.\n2. Call `review_tool(mode=\"changes\", detail_level=\"minimal\")` and read `findings` and `findings_omitted`. An empty list means nothing beyond the diff needs checking.\n3. For each dangling_reference or unchanged_caller finding: open its sites with `query_graph_tool(pattern=\"source_of\", target=<site>)`; a site still using the old name or signature is a NO-GO.\n4. For each untested_change finding: call `query_graph_tool(pattern=\"tests_for\", target=<each untested function>, detail_level=\"minimal\")` for up to 3 functions.\n5. Run the `command` of each tests_to_run finding; check each contract_doc_not_updated and bridge_touched finding.\n6. Call `refactor_tool(mode=\"dead_code\")` to check for newly dead code.\n7. Output: GO/NO-GO recommendation with 1-sentence justification + list of required follow-ups.",
+              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, entry points, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Pre-Merge Check Workflow\n1. Call `get_minimal_context_tool(task=\"pre-merge check\")`.\n2. Call `review_tool(mode=\"changes\", detail_level=\"minimal\")` and read `findings` and `findings_omitted`. An empty list means nothing beyond the diff needs checking.\n3. For each dangling_reference or unchanged_caller finding: open its sites with `query_graph_tool(pattern=\"source_of\", target=<site>)`; a site still using the old name or signature is a NO-GO.\n4. For each untested_change finding: call `query_graph_tool(pattern=\"tests_for\", target=<each untested function>, detail_level=\"minimal\")` for up to 3 functions.\n5. Run the `command` of each tests_to_run finding; check each contract_doc_not_updated and bridge_touched finding.\n6. Call `refactor_tool(mode=\"dead_code\")` to check for newly dead code.\n7. Output: GO/NO-GO recommendation with 1-sentence justification + list of required follow-ups.",
               "type": "text"
             },
             "role": "user"
@@ -178,7 +178,7 @@
         "messages": [
           {
             "content": {
-              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Review Workflow\n1. Call `get_minimal_context_tool(task=\"review changes\")`.\n2. Call `review_tool(mode=\"changes\", detail_level=\"minimal\")` and read `findings`: what to check that the diff does not show. An empty list means nothing beyond the diff needs checking: report the summary and stop.\n3. For each finding:\n   a. dangling_reference or unchanged_caller: open each listed site with `query_graph_tool(pattern=\"source_of\", target=<site>)`.\n   b. contract_doc_not_updated or bridge_touched: read the doc section or the other side of the bridge with `source_of`.\n   c. untested_change: confirm with `query_graph_tool(pattern=\"tests_for\", target=<function>, detail_level=\"minimal\")`.\n   d. tests_to_run: run its `command`.\n4. Call `review_tool(mode=\"affected_flows\", detail_level=\"minimal\")` only if you need the entry points that reach the change.\n5. Summarize: what changed, each confirmed finding with its action, and the tests to run.\n\nDo NOT call review_tool(mode=\"context\") unless you need source code snippets for a specific function.",
+              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, entry points, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Review Workflow\n1. Call `get_minimal_context_tool(task=\"review changes\")`.\n2. Call `review_tool(mode=\"changes\", detail_level=\"minimal\")` and read `findings`: what to check that the diff does not show. An empty list means nothing beyond the diff needs checking: report the summary and stop.\n3. For each finding:\n   a. dangling_reference or unchanged_caller: open each listed site with `query_graph_tool(pattern=\"source_of\", target=<site>)`.\n   b. contract_doc_not_updated or bridge_touched: read the doc section or the other side of the bridge with `source_of`.\n   c. untested_change: confirm with `query_graph_tool(pattern=\"tests_for\", target=<function>, detail_level=\"minimal\")`.\n   d. tests_to_run: run its `command`.\n4. Call `review_tool(mode=\"affected_flows\", detail_level=\"minimal\")` only if you need the entry points that reach the change.\n5. Summarize: what changed, each confirmed finding with its action, and the tests to run.\n\nDo NOT call review_tool(mode=\"context\") unless you need source code snippets for a specific function.",
               "type": "text"
             },
             "role": "user"
@@ -192,7 +192,7 @@
         "messages": [
           {
             "content": {
-              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Review Workflow\n1. Call `get_minimal_context_tool(task=\"review changes against main\")`.\n2. Call `review_tool(mode=\"changes\", base=\"main\", detail_level=\"minimal\")` and read `findings`: what to check that the diff does not show. An empty list means nothing beyond the diff needs checking: report the summary and stop.\n3. For each finding:\n   a. dangling_reference or unchanged_caller: open each listed site with `query_graph_tool(pattern=\"source_of\", target=<site>)`.\n   b. contract_doc_not_updated or bridge_touched: read the doc section or the other side of the bridge with `source_of`.\n   c. untested_change: confirm with `query_graph_tool(pattern=\"tests_for\", target=<function>, detail_level=\"minimal\")`.\n   d. tests_to_run: run its `command`.\n4. Call `review_tool(mode=\"affected_flows\", base=\"main\", detail_level=\"minimal\")` only if you need the entry points that reach the change.\n5. Summarize: what changed, each confirmed finding with its action, and the tests to run.\n\nDo NOT call review_tool(mode=\"context\") unless you need source code snippets for a specific function.",
+              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, entry points, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Review Workflow\n1. Call `get_minimal_context_tool(task=\"review changes against main\")`.\n2. Call `review_tool(mode=\"changes\", base=\"main\", detail_level=\"minimal\")` and read `findings`: what to check that the diff does not show. An empty list means nothing beyond the diff needs checking: report the summary and stop.\n3. For each finding:\n   a. dangling_reference or unchanged_caller: open each listed site with `query_graph_tool(pattern=\"source_of\", target=<site>)`.\n   b. contract_doc_not_updated or bridge_touched: read the doc section or the other side of the bridge with `source_of`.\n   c. untested_change: confirm with `query_graph_tool(pattern=\"tests_for\", target=<function>, detail_level=\"minimal\")`.\n   d. tests_to_run: run its `command`.\n4. Call `review_tool(mode=\"affected_flows\", base=\"main\", detail_level=\"minimal\")` only if you need the entry points that reach the change.\n5. Summarize: what changed, each confirmed finding with its action, and the tests to run.\n\nDo NOT call review_tool(mode=\"context\") unless you need source code snippets for a specific function.",
               "type": "text"
             },
             "role": "user"
@@ -232,7 +232,7 @@
               }
             },
             "arguments": [],
-            "description": "Architecture documentation using communities, flows, and Mermaid diagrams.\n\nGenerates a comprehensive architecture map with module summaries and coupling warnings.",
+            "description": "Architecture documentation using the unit map, entry points, and Mermaid diagrams.\n\nGenerates a comprehensive architecture map with module summaries and coupling warnings.",
             "name": "architecture_map"
           },
           {
@@ -248,7 +248,7 @@
                 "required": false
               }
             ],
-            "description": "Guided debugging using search, flow tracing, and recent changes.\n\nSystematic debugging workflow that traces execution paths and identifies root causes.",
+            "description": "Guided debugging using search, entry points, and recent changes.\n\nSystematic debugging workflow that traces execution paths and identifies root causes.",
             "name": "debug_issue"
           },
           {
@@ -258,7 +258,7 @@
               }
             },
             "arguments": [],
-            "description": "New developer orientation using stats, architecture, and critical flows.\n\nCreates an onboarding guide covering codebase structure, key modules, and patterns.",
+            "description": "New developer orientation using stats, architecture, and entry points.\n\nCreates an onboarding guide covering codebase structure, key modules, and patterns.",
             "name": "onboard_developer"
           },
           {
@@ -407,7 +407,7 @@
                 "tags": []
               }
             },
-            "description": "Ensure the graph exists and matches HEAD before analysis.\n\nBuilds an empty graph (minimal post-processing: no flows or communities) and\nrefreshes one that describes another commit. Uncommitted edits are left to\nthe edit hooks unless ``force=True``. Full rebuilds: ``dagayn build``.",
+            "description": "Ensure the graph exists and matches HEAD before analysis.\n\nBuilds an empty graph (minimal post-processing: no communities) and\nrefreshes one that describes another commit. Uncommitted edits are left to\nthe edit hooks unless ``force=True``. Full rebuilds: ``dagayn build``.",
             "inputSchema": {
               "additionalProperties": false,
               "properties": {
@@ -443,18 +443,13 @@
                 "tags": []
               }
             },
-            "description": "Run post-processing on existing graph (flows, communities, FTS index).\n\nUse after building with postprocess=\"none\" or \"minimal\", or to re-run\nexpensive steps independently. Signatures are always computed.",
+            "description": "Run post-processing on existing graph (communities, FTS index).\n\nUse after building with postprocess=\"none\" or \"minimal\", or to re-run\nexpensive steps independently. Signatures are always computed.",
             "inputSchema": {
               "additionalProperties": false,
               "properties": {
                 "communities": {
                   "default": true,
                   "description": "Run community detection. Default: True.",
-                  "type": "boolean"
-                },
-                "flows": {
-                  "default": true,
-                  "description": "Run flow detection. Default: True.",
                   "type": "boolean"
                 },
                 "fts": {
@@ -1046,7 +1041,7 @@
                 "tags": []
               }
             },
-            "description": "Review a change set: what to check that the diff does not show.\n\nStart with ``changes`` and read ``findings``: each names a place to look,\nthe graph facts behind it, and an action. Kinds: dangling_reference\n(a removed symbol still referenced), unchanged_caller (new required\nparameter, callers not edited), contract_doc_not_updated, bridge_touched\n(one side of a manifest/Terraform/FFI bridge), unstable_dependency,\nuntested_change, tests_to_run (with a command). An empty list means\nnothing beyond the diff.\n\nModes: changes (findings), context (source snippets), impact (blast\nradius, ``max_depth`` hops), affected_flows (flows the change touches).",
+            "description": "Review a change set: what to check that the diff does not show.\n\nStart with ``changes`` and read ``findings``: each names a place to look,\nthe graph facts behind it, and an action. Kinds: dangling_reference\n(a removed symbol still referenced), unchanged_caller (new required\nparameter, callers not edited), contract_doc_not_updated, bridge_touched\n(one side of a manifest/Terraform/FFI bridge), unstable_dependency,\nuntested_change, tests_to_run (with a command). An empty list means\nnothing beyond the diff.\n\nModes: changes (findings), context (source snippets), impact (blast\nradius, ``max_depth`` hops), affected_flows (entry points that reach the\nchange).",
             "inputSchema": {
               "additionalProperties": false,
               "properties": {
@@ -1150,7 +1145,7 @@
                 "tags": []
               }
             },
-            "description": "Find where code is entered from, or list and inspect stored flows.\n\n``entry_points``: the nearest entry points (main, handlers, FFI exports,\nuncalled functions, trait-dispatched methods) reaching ``target``, each\nwith one shortest call chain; needs no stored flows. ``list``/``get``\nread the flows a full build stores: reachable sets, not call sequences.",
+            "description": "Find where code is entered from.\n\n``entry_points``: the nearest entry points (main, handlers, FFI exports,\nuncalled functions, trait-dispatched methods) reaching ``target``, each\nwith one shortest call chain.",
             "inputSchema": {
               "additionalProperties": false,
               "properties": {
@@ -1162,47 +1157,6 @@
                   ],
                   "type": "string"
                 },
-                "flow_id": {
-                  "anyOf": [
-                    {
-                      "type": "integer"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "(get) Flow id from ``list``; wins over flow_name."
-                },
-                "flow_name": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "(get) Partial name match."
-                },
-                "include_source": {
-                  "default": false,
-                  "description": "(get) Add member source snippets.",
-                  "type": "boolean"
-                },
-                "kind": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "(list) Entry-point kind filter, e.g. \"Function\" or \"Test\"."
-                },
                 "limit": {
                   "anyOf": [
                     {
@@ -1213,15 +1167,11 @@
                     }
                   ],
                   "default": null,
-                  "description": "Maximum results. Default: 50 flows (list), 10 entry points\n(entry_points)."
+                  "description": "Maximum entry points. Default: 10."
                 },
                 "mode": {
-                  "default": "list",
-                  "enum": [
-                    "list",
-                    "get",
-                    "entry_points"
-                  ],
+                  "const": "entry_points",
+                  "default": "entry_points",
                   "type": "string"
                 },
                 "repo_root": {
@@ -1235,17 +1185,6 @@
                   ],
                   "default": null
                 },
-                "sort_by": {
-                  "default": "criticality",
-                  "enum": [
-                    "criticality",
-                    "depth",
-                    "node_count",
-                    "file_count",
-                    "name"
-                  ],
-                  "type": "string"
-                },
                 "target": {
                   "anyOf": [
                     {
@@ -1256,7 +1195,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "(entry_points) Symbol; omit to list them per unit."
+                  "description": "Symbol; omit to list the entry points per unit."
                 }
               },
               "type": "object"
@@ -1786,11 +1725,11 @@
     },
     "prompt_architecture_map": {
       "result": {
-        "description": "Architecture documentation using communities, flows, and Mermaid diagrams.\n\nGenerates a comprehensive architecture map with module summaries and coupling warnings.",
+        "description": "Architecture documentation using the unit map, entry points, and Mermaid diagrams.\n\nGenerates a comprehensive architecture map with module summaries and coupling warnings.",
         "messages": [
           {
             "content": {
-              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Architecture Mapping Workflow\n1. Call `get_minimal_context_tool(task=\"map architecture\")`.\n2. Call `architecture_analysis_tool(mode=\"overview\", detail_level=\"standard\")` for the declared units, the dependencies between them, and each unit's most used symbols.\n3. For a unit's most used symbols, call `flow_tool(mode=\"entry_points\", target=<symbol>, detail_level=\"minimal\")` to show where it is entered from.\n4. Report the overview's `findings` (import cycles, untested core code, broken doc links) next to the diagram.\n5. Produce a concise Mermaid diagram showing units as boxes, `unit_edges` as arrows, and key flows.",
+              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, entry points, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Architecture Mapping Workflow\n1. Call `get_minimal_context_tool(task=\"map architecture\")`.\n2. Call `architecture_analysis_tool(mode=\"overview\", detail_level=\"standard\")` for the declared units, the dependencies between them, and each unit's most used symbols.\n3. For a unit's most used symbols, call `flow_tool(mode=\"entry_points\", target=<symbol>, detail_level=\"minimal\")` to show where it is entered from.\n4. Report the overview's `findings` (import cycles, untested core code, broken doc links) next to the diagram.\n5. Produce a concise Mermaid diagram showing units as boxes, `unit_edges` as arrows, and the entry points found in step 3.",
               "type": "text"
             },
             "role": "user"
@@ -1800,11 +1739,11 @@
     },
     "prompt_debug_issue": {
       "result": {
-        "description": "Guided debugging using search, flow tracing, and recent changes.\n\nSystematic debugging workflow that traces execution paths and identifies root causes.",
+        "description": "Guided debugging using search, entry points, and recent changes.\n\nSystematic debugging workflow that traces execution paths and identifies root causes.",
         "messages": [
           {
             "content": {
-              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Debug Workflow\n1. Call `get_minimal_context_tool(task=\"debug: flaky login\")`.\n2. Call `semantic_search_nodes_tool(query=<keywords from description>, detail_level=\"minimal\", limit=5)`.\n3. For the top 1-2 results, call `query_graph_tool(pattern=\"callers_of\", target=<name>, detail_level=\"minimal\")`.\n4. To see how execution reaches the suspect: call `flow_tool(mode=\"entry_points\", target=<name>, detail_level=\"minimal\")` and read each entry point's call chain.\n5. Only call `review_tool(mode=\"context\")` or `review_tool(mode=\"impact\")` if you need to trace the blast radius of a specific change.",
+              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, entry points, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Debug Workflow\n1. Call `get_minimal_context_tool(task=\"debug: flaky login\")`.\n2. Call `semantic_search_nodes_tool(query=<keywords from description>, detail_level=\"minimal\", limit=5)`.\n3. For the top 1-2 results, call `query_graph_tool(pattern=\"callers_of\", target=<name>, detail_level=\"minimal\")`.\n4. To see how execution reaches the suspect: call `flow_tool(mode=\"entry_points\", target=<name>, detail_level=\"minimal\")` and read each entry point's call chain.\n5. Only call `review_tool(mode=\"context\")` or `review_tool(mode=\"impact\")` if you need to trace the blast radius of a specific change.",
               "type": "text"
             },
             "role": "user"
@@ -1814,11 +1753,11 @@
     },
     "prompt_onboard_developer": {
       "result": {
-        "description": "New developer orientation using stats, architecture, and critical flows.\n\nCreates an onboarding guide covering codebase structure, key modules, and patterns.",
+        "description": "New developer orientation using stats, architecture, and entry points.\n\nCreates an onboarding guide covering codebase structure, key modules, and patterns.",
         "messages": [
           {
             "content": {
-              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Onboarding Workflow\n1. Call `get_minimal_context_tool(task=\"onboard developer\")`.\n2. Call `architecture_analysis_tool(mode=\"overview\", detail_level=\"minimal\")` for the 30-second mental model: present `units` as a table of names, kinds, and sizes, and `unit_edges` as who depends on whom.\n3. Mention the overview's `findings`, if any, as known rough edges.\n4. For the symbols the developer will touch first, call `flow_tool(mode=\"entry_points\", target=<symbol>, detail_level=\"minimal\")` to show which commands or handlers reach them.\n5. Only drill into a specific unit or symbol if the developer asks.",
+              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, entry points, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Onboarding Workflow\n1. Call `get_minimal_context_tool(task=\"onboard developer\")`.\n2. Call `architecture_analysis_tool(mode=\"overview\", detail_level=\"minimal\")` for the 30-second mental model: present `units` as a table of names, kinds, and sizes, and `unit_edges` as who depends on whom.\n3. Mention the overview's `findings`, if any, as known rough edges.\n4. For the symbols the developer will touch first, call `flow_tool(mode=\"entry_points\", target=<symbol>, detail_level=\"minimal\")` to show which commands or handlers reach them.\n5. Only drill into a specific unit or symbol if the developer asks.",
               "type": "text"
             },
             "role": "user"
@@ -1832,7 +1771,7 @@
         "messages": [
           {
             "content": {
-              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Pre-Merge Check Workflow\n1. Call `get_minimal_context_tool(task=\"pre-merge check\")`.\n2. Call `review_tool(mode=\"changes\", detail_level=\"minimal\")` and read `findings` and `findings_omitted`. An empty list means nothing beyond the diff needs checking.\n3. For each dangling_reference or unchanged_caller finding: open its sites with `query_graph_tool(pattern=\"source_of\", target=<site>)`; a site still using the old name or signature is a NO-GO.\n4. For each untested_change finding: call `query_graph_tool(pattern=\"tests_for\", target=<each untested function>, detail_level=\"minimal\")` for up to 3 functions.\n5. Run the `command` of each tests_to_run finding; check each contract_doc_not_updated and bridge_touched finding.\n6. Call `refactor_tool(mode=\"dead_code\")` to check for newly dead code.\n7. Output: GO/NO-GO recommendation with 1-sentence justification + list of required follow-ups.",
+              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, entry points, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Pre-Merge Check Workflow\n1. Call `get_minimal_context_tool(task=\"pre-merge check\")`.\n2. Call `review_tool(mode=\"changes\", detail_level=\"minimal\")` and read `findings` and `findings_omitted`. An empty list means nothing beyond the diff needs checking.\n3. For each dangling_reference or unchanged_caller finding: open its sites with `query_graph_tool(pattern=\"source_of\", target=<site>)`; a site still using the old name or signature is a NO-GO.\n4. For each untested_change finding: call `query_graph_tool(pattern=\"tests_for\", target=<each untested function>, detail_level=\"minimal\")` for up to 3 functions.\n5. Run the `command` of each tests_to_run finding; check each contract_doc_not_updated and bridge_touched finding.\n6. Call `refactor_tool(mode=\"dead_code\")` to check for newly dead code.\n7. Output: GO/NO-GO recommendation with 1-sentence justification + list of required follow-ups.",
               "type": "text"
             },
             "role": "user"
@@ -1846,7 +1785,7 @@
         "messages": [
           {
             "content": {
-              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Review Workflow\n1. Call `get_minimal_context_tool(task=\"review changes\")`.\n2. Call `review_tool(mode=\"changes\", detail_level=\"minimal\")` and read `findings`: what to check that the diff does not show. An empty list means nothing beyond the diff needs checking: report the summary and stop.\n3. For each finding:\n   a. dangling_reference or unchanged_caller: open each listed site with `query_graph_tool(pattern=\"source_of\", target=<site>)`.\n   b. contract_doc_not_updated or bridge_touched: read the doc section or the other side of the bridge with `source_of`.\n   c. untested_change: confirm with `query_graph_tool(pattern=\"tests_for\", target=<function>, detail_level=\"minimal\")`.\n   d. tests_to_run: run its `command`.\n4. Call `review_tool(mode=\"affected_flows\", detail_level=\"minimal\")` only if you need the entry points that reach the change.\n5. Summarize: what changed, each confirmed finding with its action, and the tests to run.\n\nDo NOT call review_tool(mode=\"context\") unless you need source code snippets for a specific function.",
+              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, entry points, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Review Workflow\n1. Call `get_minimal_context_tool(task=\"review changes\")`.\n2. Call `review_tool(mode=\"changes\", detail_level=\"minimal\")` and read `findings`: what to check that the diff does not show. An empty list means nothing beyond the diff needs checking: report the summary and stop.\n3. For each finding:\n   a. dangling_reference or unchanged_caller: open each listed site with `query_graph_tool(pattern=\"source_of\", target=<site>)`.\n   b. contract_doc_not_updated or bridge_touched: read the doc section or the other side of the bridge with `source_of`.\n   c. untested_change: confirm with `query_graph_tool(pattern=\"tests_for\", target=<function>, detail_level=\"minimal\")`.\n   d. tests_to_run: run its `command`.\n4. Call `review_tool(mode=\"affected_flows\", detail_level=\"minimal\")` only if you need the entry points that reach the change.\n5. Summarize: what changed, each confirmed finding with its action, and the tests to run.\n\nDo NOT call review_tool(mode=\"context\") unless you need source code snippets for a specific function.",
               "type": "text"
             },
             "role": "user"
@@ -1860,7 +1799,7 @@
         "messages": [
           {
             "content": {
-              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, flows, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Review Workflow\n1. Call `get_minimal_context_tool(task=\"review changes against main\")`.\n2. Call `review_tool(mode=\"changes\", base=\"main\", detail_level=\"minimal\")` and read `findings`: what to check that the diff does not show. An empty list means nothing beyond the diff needs checking: report the summary and stop.\n3. For each finding:\n   a. dangling_reference or unchanged_caller: open each listed site with `query_graph_tool(pattern=\"source_of\", target=<site>)`.\n   b. contract_doc_not_updated or bridge_touched: read the doc section or the other side of the bridge with `source_of`.\n   c. untested_change: confirm with `query_graph_tool(pattern=\"tests_for\", target=<function>, detail_level=\"minimal\")`.\n   d. tests_to_run: run its `command`.\n4. Call `review_tool(mode=\"affected_flows\", base=\"main\", detail_level=\"minimal\")` only if you need the entry points that reach the change.\n5. Summarize: what changed, each confirmed finding with its action, and the tests to run.\n\nDo NOT call review_tool(mode=\"context\") unless you need source code snippets for a specific function.",
+              "text": "## Rules for Token-Efficient Graph Usage\n1. ALWAYS call `get_minimal_context_tool` first with a task description.\n2. Start with `detail_level=\"minimal\"` where a tool offers it; escalate to `\"standard\"` only for the entities that need deeper inspection, or when you need a complete list.\n3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad architecture_analysis drill-downs.\n4. Graph reach is not correctness: treat reason codes, blast radius, entry points, and search hits as leads, and confirm a claim with `query_graph_tool(pattern=\"source_of\")` or a reproduction before stating it.\n\n## Review Workflow\n1. Call `get_minimal_context_tool(task=\"review changes against main\")`.\n2. Call `review_tool(mode=\"changes\", base=\"main\", detail_level=\"minimal\")` and read `findings`: what to check that the diff does not show. An empty list means nothing beyond the diff needs checking: report the summary and stop.\n3. For each finding:\n   a. dangling_reference or unchanged_caller: open each listed site with `query_graph_tool(pattern=\"source_of\", target=<site>)`.\n   b. contract_doc_not_updated or bridge_touched: read the doc section or the other side of the bridge with `source_of`.\n   c. untested_change: confirm with `query_graph_tool(pattern=\"tests_for\", target=<function>, detail_level=\"minimal\")`.\n   d. tests_to_run: run its `command`.\n4. Call `review_tool(mode=\"affected_flows\", base=\"main\", detail_level=\"minimal\")` only if you need the entry points that reach the change.\n5. Summarize: what changed, each confirmed finding with its action, and the tests to run.\n\nDo NOT call review_tool(mode=\"context\") unless you need source code snippets for a specific function.",
               "type": "text"
             },
             "role": "user"
@@ -1900,7 +1839,7 @@
               }
             },
             "arguments": [],
-            "description": "Architecture documentation using communities, flows, and Mermaid diagrams.\n\nGenerates a comprehensive architecture map with module summaries and coupling warnings.",
+            "description": "Architecture documentation using the unit map, entry points, and Mermaid diagrams.\n\nGenerates a comprehensive architecture map with module summaries and coupling warnings.",
             "name": "architecture_map"
           },
           {
@@ -1916,7 +1855,7 @@
                 "required": false
               }
             ],
-            "description": "Guided debugging using search, flow tracing, and recent changes.\n\nSystematic debugging workflow that traces execution paths and identifies root causes.",
+            "description": "Guided debugging using search, entry points, and recent changes.\n\nSystematic debugging workflow that traces execution paths and identifies root causes.",
             "name": "debug_issue"
           },
           {
@@ -1926,7 +1865,7 @@
               }
             },
             "arguments": [],
-            "description": "New developer orientation using stats, architecture, and critical flows.\n\nCreates an onboarding guide covering codebase structure, key modules, and patterns.",
+            "description": "New developer orientation using stats, architecture, and entry points.\n\nCreates an onboarding guide covering codebase structure, key modules, and patterns.",
             "name": "onboard_developer"
           },
           {
@@ -1967,7 +1906,7 @@
                 "tags": []
               }
             },
-            "description": "Ensure the graph exists and matches HEAD before analysis.\n\nBuilds an empty graph (minimal post-processing: no flows or communities) and\nrefreshes one that describes another commit. Uncommitted edits are left to\nthe edit hooks unless ``force=True``. Full rebuilds: ``dagayn build``.",
+            "description": "Ensure the graph exists and matches HEAD before analysis.\n\nBuilds an empty graph (minimal post-processing: no communities) and\nrefreshes one that describes another commit. Uncommitted edits are left to\nthe edit hooks unless ``force=True``. Full rebuilds: ``dagayn build``.",
             "inputSchema": {
               "additionalProperties": false,
               "properties": {
@@ -2405,7 +2344,7 @@
                 "tags": []
               }
             },
-            "description": "Review a change set: what to check that the diff does not show.\n\nStart with ``changes`` and read ``findings``: each names a place to look,\nthe graph facts behind it, and an action. Kinds: dangling_reference\n(a removed symbol still referenced), unchanged_caller (new required\nparameter, callers not edited), contract_doc_not_updated, bridge_touched\n(one side of a manifest/Terraform/FFI bridge), unstable_dependency,\nuntested_change, tests_to_run (with a command). An empty list means\nnothing beyond the diff.\n\nModes: changes (findings), context (source snippets), impact (blast\nradius, ``max_depth`` hops), affected_flows (flows the change touches).",
+            "description": "Review a change set: what to check that the diff does not show.\n\nStart with ``changes`` and read ``findings``: each names a place to look,\nthe graph facts behind it, and an action. Kinds: dangling_reference\n(a removed symbol still referenced), unchanged_caller (new required\nparameter, callers not edited), contract_doc_not_updated, bridge_touched\n(one side of a manifest/Terraform/FFI bridge), unstable_dependency,\nuntested_change, tests_to_run (with a command). An empty list means\nnothing beyond the diff.\n\nModes: changes (findings), context (source snippets), impact (blast\nradius, ``max_depth`` hops), affected_flows (entry points that reach the\nchange).",
             "inputSchema": {
               "additionalProperties": false,
               "properties": {
@@ -2509,7 +2448,7 @@
                 "tags": []
               }
             },
-            "description": "Find where code is entered from, or list and inspect stored flows.\n\n``entry_points``: the nearest entry points (main, handlers, FFI exports,\nuncalled functions, trait-dispatched methods) reaching ``target``, each\nwith one shortest call chain; needs no stored flows. ``list``/``get``\nread the flows a full build stores: reachable sets, not call sequences.",
+            "description": "Find where code is entered from.\n\n``entry_points``: the nearest entry points (main, handlers, FFI exports,\nuncalled functions, trait-dispatched methods) reaching ``target``, each\nwith one shortest call chain.",
             "inputSchema": {
               "additionalProperties": false,
               "properties": {
@@ -2521,47 +2460,6 @@
                   ],
                   "type": "string"
                 },
-                "flow_id": {
-                  "anyOf": [
-                    {
-                      "type": "integer"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "(get) Flow id from ``list``; wins over flow_name."
-                },
-                "flow_name": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "(get) Partial name match."
-                },
-                "include_source": {
-                  "default": false,
-                  "description": "(get) Add member source snippets.",
-                  "type": "boolean"
-                },
-                "kind": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "(list) Entry-point kind filter, e.g. \"Function\" or \"Test\"."
-                },
                 "limit": {
                   "anyOf": [
                     {
@@ -2572,15 +2470,11 @@
                     }
                   ],
                   "default": null,
-                  "description": "Maximum results. Default: 50 flows (list), 10 entry points\n(entry_points)."
+                  "description": "Maximum entry points. Default: 10."
                 },
                 "mode": {
-                  "default": "list",
-                  "enum": [
-                    "list",
-                    "get",
-                    "entry_points"
-                  ],
+                  "const": "entry_points",
+                  "default": "entry_points",
                   "type": "string"
                 },
                 "repo_root": {
@@ -2594,17 +2488,6 @@
                   ],
                   "default": null
                 },
-                "sort_by": {
-                  "default": "criticality",
-                  "enum": [
-                    "criticality",
-                    "depth",
-                    "node_count",
-                    "file_count",
-                    "name"
-                  ],
-                  "type": "string"
-                },
                 "target": {
                   "anyOf": [
                     {
@@ -2615,7 +2498,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "(entry_points) Symbol; omit to list them per unit."
+                  "description": "Symbol; omit to list the entry points per unit."
                 }
               },
               "type": "object"

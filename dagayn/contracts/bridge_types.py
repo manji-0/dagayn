@@ -25,17 +25,3 @@ class BridgeMissingnessRecord(TypedDict, total=False):
     severity: str
     claim_effect: str
     bridge: BridgeTransitionRecord
-
-
-class FlowStepRecord(TypedDict, total=False):
-    node_id: int
-    name: str
-    kind: str
-    file: str
-    line_start: int
-    line_end: int
-    qualified_name: str
-    step_kind: str
-    transition: BridgeTransitionRecord
-    is_bridge_step: bool
-    source: str

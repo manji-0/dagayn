@@ -193,7 +193,7 @@ def test_functions_without_tests_are_untested_changes(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Affected flows and review-priority scores
+# Review-priority scores
 # ---------------------------------------------------------------------------
 
 ROUTES = "from services import service\n\n\ndef handler():\n    return service()\n"
@@ -213,17 +213,7 @@ def services_change(tmp_path: Path) -> dict[str, Any]:
     return _review(root)
 
 
-def test_a_change_inside_a_flow_lists_the_flow(services_change: dict[str, Any]) -> None:
-    flows = services_change["affected_flows"]
-    assert [flow["name"] for flow in flows] == ["handler"]
-    assert [step["qualified_name"] for step in flows[0]["changed_steps"]] == [
-        "services.py::service"
-    ]
-    assert flows[0]["changed_steps"][0]["file"] == "services.py"
-    assert services_change["affected_flow_count"] == 1
-
-
-def test_review_priority_scores_weigh_flows_and_security_names(
+def test_review_priority_scores_weigh_callers_and_security_names(
     services_change: dict[str, Any],
 ) -> None:
     scores = _scores(services_change)
@@ -232,7 +222,7 @@ def test_review_priority_scores_weigh_flows_and_security_names(
     # ``design`` adds nothing, ``signature`` adds the 0.20 security weight.
     assert scores["verify_auth_token"] > scores["process_data"]
     assert scores["verify_signature"] == pytest.approx(scores["design_doc"] + 0.20)
-    # Flow membership raises the score.
+    # A caller (``handler``) raises the score.
     assert scores["service"] > scores["process_data"]
 
 

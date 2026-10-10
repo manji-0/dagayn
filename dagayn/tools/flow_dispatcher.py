@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from functools import partial
-from typing import Literal, cast, overload
+from typing import Literal, cast
 
 from pydantic import ValidationError
 
@@ -23,78 +23,22 @@ logger = logging.getLogger(__name__)
 _with_dispatch_metadata = partial(with_dispatch_metadata, summary_label="Flow", hints_tool="flow")
 
 
-@overload
 def flow_func(
-    mode: Literal["list"] = "list",
-    sort_by: Literal["criticality", "depth", "node_count", "file_count", "name"] = "criticality",
-    limit: int = 50,
-    kind: str | None = None,
-    detail_level: Literal["minimal", "standard"] = "standard",
-    flow_id: None = None,
-    flow_name: None = None,
-    include_source: bool = False,
-    target: None = None,
-    repo_root: str | None = None,
-) -> ToolPayload: ...
-
-
-@overload
-def flow_func(
-    mode: Literal["get"],
-    sort_by: Literal["criticality", "depth", "node_count", "file_count", "name"] = "criticality",
-    limit: int = 50,
-    kind: str | None = None,
-    detail_level: Literal["minimal", "standard"] = "standard",
-    flow_id: int | None = None,
-    flow_name: str | None = None,
-    include_source: bool = False,
-    target: str | None = None,
-    repo_root: str | None = None,
-) -> ToolPayload: ...
-
-
-@overload
-def flow_func(
-    mode: Literal["entry_points"],
-    sort_by: Literal["criticality", "depth", "node_count", "file_count", "name"] = "criticality",
-    limit: int = 10,
-    kind: None = None,
-    detail_level: Literal["minimal", "standard"] = "standard",
-    flow_id: None = None,
-    flow_name: None = None,
-    include_source: bool = False,
-    target: str | None = None,
-    repo_root: str | None = None,
-) -> ToolPayload: ...
-
-
-def flow_func(
-    mode: FlowMode = "list",
-    sort_by: Literal["criticality", "depth", "node_count", "file_count", "name"] = "criticality",
+    mode: FlowMode = "entry_points",
     limit: int | None = None,
-    kind: str | None = None,
     detail_level: Literal["minimal", "standard"] = "standard",
-    flow_id: int | None = None,
-    flow_name: str | None = None,
-    include_source: bool = False,
     target: str | None = None,
     repo_root: str | None = None,
 ) -> ToolPayload:
-    """Run execution-flow analysis by dispatching to the requested internal mode.
+    """The entry points that reach ``target``, or every entry point per unit.
 
-    ``limit`` defaults per mode: 50 flows for ``list``, 10 entry points for
-    ``entry_points``.
+    ``limit`` defaults to 10 entry points.
     """
     try:
         request = parse_flow_request(
             mode=mode,
-            sort_by=sort_by,
             **({} if limit is None else {"limit": limit}),
-            kind=kind,
             detail_level=detail_level,
-            flow_id=flow_id,
-            flow_name=flow_name,
-            include_source=include_source,
             target=target,
             repo_root=repo_root,
         )
@@ -103,36 +47,21 @@ def flow_func(
 
     # The validated (coerced) request goes to Rust, which declines arguments
     # pydantic would have coerced or rejected.
-    if request.mode == "list":
-        subtool = "list_flows"
-        arguments: dict[str, object] = {
-            "sort_by": request.sort_by,
-            "limit": request.limit,
-            "kind": request.kind,
-            "detail_level": request.detail_level,
-        }
-    elif request.mode == "entry_points":
-        subtool = "entry_points"
-        arguments = {
-            "target": request.target,
-            "limit": request.limit,
-            "detail_level": request.detail_level,
-        }
-    else:
-        subtool = "get_flow"
-        arguments = {
-            "flow_id": request.flow_id,
-            "flow_name": request.flow_name,
-            "include_source": request.include_source,
-            "detail_level": request.detail_level,
-        }
+    subtool = "entry_points"
     with ToolStoreScope(logger=logger, context=subtool) as scope:
         # Resolves the repository and creates, migrates, or waits for the
         # graph; the Rust tool reads it.
         scope.track(_get_store(request.repo_root))
         return cast(
             ToolPayload,
-            native_tool("flow_tool", mode=request.mode, repo_root=request.repo_root, **arguments),
+            native_tool(
+                "flow_tool",
+                mode=request.mode,
+                repo_root=request.repo_root,
+                target=request.target,
+                limit=request.limit,
+                detail_level=request.detail_level,
+            ),
         )
     return _with_dispatch_metadata(
         scope.error,

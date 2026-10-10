@@ -99,9 +99,8 @@ def export_graph_data(store: GraphStore) -> VisualizationPayload:
     """Export all graph nodes and edges as a JSON-serializable dict.
 
     Returns ``{"nodes": [...], "edges": [...], "stats": {...},
-    "entry_points": [...], "flows": [...], "communities": [...]}``.
-    ``flows`` (stored reachable sets) stays for one release; ``entry_points``
-    lists where execution starts (docs/plans/FLOW-TOOL-TARGET.md).
+    "entry_points": [...], "communities": [...]}``. ``entry_points`` lists
+    where execution starts (docs/plans/FLOW-TOOL-TARGET.md).
     """
     nodes = []
     seen_qn: set[str] = set()
@@ -148,15 +147,6 @@ def export_graph_data(store: GraphStore) -> VisualizationPayload:
 
     stats = store.get_stats()
 
-    # Include flows (graceful fallback if table doesn't exist)
-    try:
-        from dagayn.flows import get_flows
-
-        flows = get_flows(store, limit=100)
-    except (ImportError, sqlite3.OperationalError) as exc:
-        logger.debug("flows unavailable for export: %s", exc)
-        flows = []
-
     try:
         entry_points = json.loads(store.entry_points_json())
     except (RuntimeError, AttributeError, ValueError) as exc:
@@ -177,6 +167,5 @@ def export_graph_data(store: GraphStore) -> VisualizationPayload:
         "edges": edges,
         "stats": asdict(stats),
         "entry_points": entry_points,
-        "flows": flows,
         "communities": communities,
     }

@@ -162,12 +162,6 @@ class TestRunPostProcessing:
         names = {h["name"] for h in hits}
         assert "handle" in names
 
-    def test_detects_flows(self):
-        result = run_post_processing(self.store)
-
-        assert result.flows_detected is not None
-        assert result.flows_detected >= 0
-
     def test_detects_communities(self):
         result = run_post_processing(self.store)
 

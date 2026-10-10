@@ -42,6 +42,30 @@ All notable changes to `dagayn` are documented here.
   graph-wide `answerability`. The hub, bridge, knowledge-gap,
   surprising-connection, and ADP-cycle analyses behind it go too.
   `mode="communities"` and `mode="community"` are unchanged.
+- **Breaking:** stored flows, deprecated in 9.0.0. `flow_tool` answers
+  `mode="entry_points"` only, and it is the default; `sort_by`, `kind`,
+  `flow_id`, `flow_name`, and `include_source` go with `mode="list"` and
+  `mode="get"`. The full post-process no longer traces flows, so
+  `flows_detected`, criticality, `flow_snapshots`, the visualization
+  export's `flows`, `run_postprocess_tool`'s `flows` argument, and
+  `dagayn postprocess --no-flows` are gone. Schema version 18 drops the
+  `flows`, `flow_memberships`, and `flow_snapshots` tables the first time a
+  graph is opened; nothing needs rebuilding. `dagayn update --skip-flows`
+  still works and skips community detection, so installed hooks keep
+  running.
+- **Breaking:** `review_tool(mode="changes")` no longer returns
+  `affected_flows` or `affected_flow_count`, and each changed function's
+  `risk_score` no longer weighs flow membership.
+  `review_tool(mode="affected_flows")` lists the entry points that reach the
+  change, and its verbose `affected_flows` and `total` are gone.
+- **Breaking:** `graph_health.answerability` is `[communities, test_edges,
+  reportable_cross_artifact_edges, unresolved_cross_artifact_ratio]`, and the
+  `missing_flows`, `missing_flows_table`, and `stale_flow_memberships`
+  reason codes and counts are gone; a graph without stored flows no longer
+  loses 0.15 of its score.
+- `dagayn eval --benchmark flow_completeness` scores the detected entry
+  points directly, and the `query_performance` and `nplusone_count`
+  benchmarks drop their stored-flow scenarios.
 
 ### Changed
 

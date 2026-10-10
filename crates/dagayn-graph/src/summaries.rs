@@ -6,10 +6,6 @@ impl GraphStore {
             Ok(()) | Err(GraphError::Sqlite(_)) => {}
             Err(err) => return Err(err),
         }
-        match self.compute_flow_snapshots() {
-            Ok(()) | Err(GraphError::Sqlite(_)) => {}
-            Err(err) => return Err(err),
-        }
         match self.compute_risk_index() {
             Ok(()) | Err(GraphError::Sqlite(_)) => {}
             Err(err) => return Err(err),

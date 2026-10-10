@@ -722,7 +722,7 @@ def test_a_modern_session_is_answered_in_rust_as_python_does(git_repo: Path) -> 
             "tools/call",
             {"name": "query_graph_tool", "arguments": {"pattern": "nope", "target": "x"}},
         ),
-        ("tools/call", {"name": "flow_tool", "arguments": {"mode": "get"}}),
+        ("tools/call", {"name": "flow_tool", "arguments": {"target": "app.py::helper"}}),
     ]
     rust, stderr = _modern_session(git_repo, requests)
     python, _ = _modern_session(git_repo, requests, DAGAYN_PYTHON_CLI="1")
@@ -1247,7 +1247,7 @@ FLOW_TRACE = "answered flow_tool in Rust"
 @pytest.mark.parametrize("stale", [False, True])
 def test_flow_tool_answers_in_rust_as_python_does(git_repo: Path, stale: bool) -> None:
     if stale:
-        # The stored flow keeps member ids the update replaces.
+        # The entry points follow the graph the update rewrote.
         (git_repo / "app.py").write_text("def main():\n    return 1\n")
         subprocess.run(
             [DAGAYN, "update", "--skip-flows", "--repo", git_repo],
@@ -1258,22 +1258,14 @@ def test_flow_tool_answers_in_rust_as_python_does(git_repo: Path, stale: bool) -
     flow = "flow_tool"
     calls: list[tuple[str, dict[str, Any]]] = [
         (flow, {}),
-        (flow, {"sort_by": "name", "detail_level": "minimal"}),
-        (flow, {"kind": "Function", "limit": 1}),
-        (flow, {"kind": "Nope"}),
-        (flow, {"mode": "get", "flow_id": 1}),
-        (flow, {"mode": "get", "flow_id": 1, "include_source": True}),
-        (flow, {"mode": "get", "flow_name": "MAI"}),
-        (flow, {"mode": "get", "flow_id": 999}),
-        # The request validation error.
-        (flow, {"mode": "get"}),
-        (flow, {"mode": "get", "flow_name": ""}),
+        (flow, {"detail_level": "minimal"}),
+        (flow, {"mode": "entry_points", "target": "app.py::helper"}),
+        (flow, {"target": "helper", "limit": 1}),
+        (flow, {"target": "nope"}),
     ]
     rust, python, stderr = _session_both(git_repo, calls)
     assert stderr.count(FLOW_TRACE) == len(calls)
     assert rust == python
-    if stale:
-        assert rust[4]["structuredContent"]["status"] == "degraded"
 
 
 ARCHITECTURE_TRACE = "answered architecture_analysis_tool in Rust"
@@ -1604,7 +1596,7 @@ def test_prompts_answer_from_the_recorded_replies_as_python_does(repo: Path) -> 
 def test_postprocess_answers_in_rust_as_python_does(git_repo: Path) -> None:
     calls: list[tuple[str, dict[str, Any]]] = [
         ("run_postprocess_tool", {}),
-        ("run_postprocess_tool", {"flows": False, "fts": False}),
+        ("run_postprocess_tool", {"communities": False, "fts": False}),
     ]
     rust, python, stderr = _session_both(git_repo, calls)
     assert stderr.count("answered run_postprocess_tool in Rust") == len(calls)

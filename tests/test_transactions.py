@@ -7,7 +7,6 @@ from typing import cast
 import pytest
 
 from dagayn.communities import CommunityRecord, store_communities
-from dagayn.flows import store_flows
 from dagayn.graph import GraphStore
 from dagayn.parser import NodeInfo
 from tests.store_sql import store_conn
@@ -41,20 +40,4 @@ class TestTransactionRobustness:
         communities = [{"name": "comm1", "size": 1, "members": ["node1"]}]
         store_communities(store, cast(list[CommunityRecord], communities))
         count = store_conn(store).execute("SELECT count(*) FROM communities").fetchone()[0]
-        assert count == 1
-
-    def test_atomic_flow_storage(self, store):
-        flows = [
-            {
-                "name": "flow1",
-                "entry_point_id": 1,
-                "depth": 1,
-                "node_count": 1,
-                "file_count": 1,
-                "criticality": 0.5,
-                "path": [1],
-            }
-        ]
-        store_flows(store, flows)
-        count = store_conn(store).execute("SELECT count(*) FROM flows").fetchone()[0]
         assert count == 1

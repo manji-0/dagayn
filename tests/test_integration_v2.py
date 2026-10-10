@@ -1,6 +1,6 @@
 """Comprehensive end-to-end integration test for the v2 pipeline.
 
-Exercises: flows, communities, FTS search,
+Exercises: communities, FTS search,
 find_dead_code, generate_hints, review_changes_prompt,
 generate_wiki, and the Registry API.
 """
@@ -12,13 +12,6 @@ from dagayn.communities import (
     detect_communities,
     get_communities,
     store_communities,
-)
-from dagayn.flows import (
-    get_affected_flows,
-    get_flow_by_id,
-    get_flows,
-    store_flows,
-    trace_flows,
 )
 from dagayn.graph import GraphStore
 from dagayn.hints import generate_hints, get_session, reset_session
@@ -335,24 +328,6 @@ class TestV2Integration:
         assert stats.total_nodes >= 12, f"Expected >= 12 nodes, got {stats.total_nodes}"
         assert stats.total_edges >= 10, f"Expected >= 10 edges, got {stats.total_edges}"
 
-        # ---- Step 2: trace_flows + store_flows ----
-        flows = trace_flows(self.store)
-        assert isinstance(flows, list)
-        assert len(flows) > 0, "Should detect at least one flow"
-
-        flow_count = store_flows(self.store, flows)
-        assert flow_count == len(flows)
-
-        # Verify retrieval
-        stored = get_flows(self.store, limit=50)
-        assert len(stored) > 0
-
-        # Verify single flow retrieval
-        first_flow = stored[0]
-        detail = get_flow_by_id(self.store, first_flow["id"])
-        assert detail is not None
-        assert "steps" in detail
-
         # ---- Step 3: detect_communities + store_communities ----
         communities = detect_communities(self.store)
         assert isinstance(communities, list)
@@ -463,36 +438,18 @@ class TestV2Integration:
             assert registry.unregister("myproj") is True
             assert registry.list_repos() == []
 
-    def test_affected_flows_with_changed_files(self):
-        """get_affected_flows should identify flows touching changed files."""
-        # Must have flows stored first
-        flows = trace_flows(self.store)
-        store_flows(self.store, flows)
-
-        affected = get_affected_flows(self.store, changed_files=["auth.py"])
-        assert "affected_flows" in affected
-        assert "total" in affected
-        # auth.py contains login/logout/verify_token -- flows through them
-        # should be detected
-        assert affected["total"] >= 0  # May be 0 if no flow touches auth.py
-
     def test_pipeline_idempotent(self):
         """Running the pipeline twice yields consistent results."""
         # First run
-        flows1 = trace_flows(self.store)
-        store_flows(self.store, flows1)
         comms1 = detect_communities(self.store)
         store_communities(self.store, comms1)
         fts1 = rebuild_fts_index(self.store)
 
         # Second run (should overwrite cleanly)
-        flows2 = trace_flows(self.store)
-        store_flows(self.store, flows2)
         comms2 = detect_communities(self.store)
         store_communities(self.store, comms2)
         fts2 = rebuild_fts_index(self.store)
 
-        assert len(flows1) == len(flows2)
         assert len(comms1) == len(comms2)
         assert fts1 == fts2
 

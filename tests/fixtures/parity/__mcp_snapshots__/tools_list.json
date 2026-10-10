@@ -111,14 +111,9 @@
       "flow_tool": {
         "params": {
           "detail_level": "string",
-          "flow_id": "integer",
-          "flow_name": "string",
-          "include_source": "boolean",
-          "kind": "string",
           "limit": "integer",
           "mode": "string",
           "repo_root": "string",
-          "sort_by": "string",
           "target": "string"
         },
         "required": []
@@ -211,7 +206,6 @@
       "run_postprocess_tool": {
         "params": {
           "communities": "boolean",
-          "flows": "boolean",
           "fts": "boolean",
           "repo_root": "string"
         },
@@ -302,14 +296,9 @@
       "flow_tool": {
         "params": {
           "detail_level": "string",
-          "flow_id": "integer",
-          "flow_name": "string",
-          "include_source": "boolean",
-          "kind": "string",
           "limit": "integer",
           "mode": "string",
           "repo_root": "string",
-          "sort_by": "string",
           "target": "string"
         },
         "required": []

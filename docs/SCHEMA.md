@@ -141,7 +141,6 @@ The metadata table tracks graph-level state such as build timing, VCS informatio
 Post-processing may populate additional tables for:
 
 - communities
-- flow memberships
 - full-text search
 - embeddings
 

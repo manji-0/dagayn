@@ -297,7 +297,7 @@ def _registry() -> dict[tuple[str, str], MetricSpec]:
             description="Architecture-profile entry-point recall.",
         )
     )
-    for metric in ("detected_flows", "avg_flow_depth", "max_flow_depth", "detected_entry_points"):
+    for metric in ("detected_entry_points",):
         specs.append(
             _spec(
                 "flow_completeness",

@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any, cast
 
-from .bridge_types import BridgeMissingnessRecord, BridgeTransitionRecord, FlowStepRecord
+from .bridge_types import BridgeMissingnessRecord, BridgeTransitionRecord
 
 # Tiers safe to treat as hard structural claims in impact/flow traversal.
 REPORTABLE_CONFIDENCE_TIERS: frozenset[str] = frozenset({"EXACT", "HIGH", "EXTRACTED"})
@@ -156,49 +156,6 @@ def low_confidence_bridge_missingness(edge: Any) -> BridgeMissingnessRecord:
             "confidence_tier": meta.get("confidence_tier"),
         },
     }
-
-
-def annotate_flow_steps_with_bridges(
-    steps: Sequence[Mapping[str, object]],
-    edges: Sequence[object],
-) -> list[FlowStepRecord]:
-    """Mark flow steps that arrive via CROSS_ARTIFACT edges among path nodes.
-
-    The stored flow path is BFS discovery order, so consecutive steps are not
-    necessarily parent/child. Arrival is inferred from reportable
-    CROSS_ARTIFACT edges whose endpoints are both in the path.
-    """
-    if not steps:
-        return []
-
-    path_qns = {
-        step.get("qualified_name") for step in steps if isinstance(step.get("qualified_name"), str)
-    }
-    arrivals: dict[str, BridgeTransitionRecord] = {}
-    for edge in edges:
-        if not is_reportable_bridge(edge):
-            continue
-        src = str(getattr(edge, "source_qualified", ""))
-        tgt = str(getattr(edge, "target_qualified", ""))
-        if src not in path_qns or tgt not in path_qns:
-            continue
-        arrivals[tgt] = bridge_transition_dict(edge)
-
-    annotated: list[FlowStepRecord] = []
-    for index, step in enumerate(steps):
-        item = cast(FlowStepRecord, dict(step))
-        qn = str(item.get("qualified_name") or "")
-        if index == 0:
-            item.setdefault("step_kind", "entry")
-        elif qn in arrivals:
-            item["step_kind"] = "bridge"
-            item["transition"] = arrivals[qn]
-            item["is_bridge_step"] = True
-        else:
-            item.setdefault("step_kind", "call")
-            item.setdefault("is_bridge_step", False)
-        annotated.append(item)
-    return annotated
 
 
 def collect_bridge_transitions(

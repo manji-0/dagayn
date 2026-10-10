@@ -10,9 +10,10 @@ fn creates_current_schema() {
     assert!(table_exists(&store.conn, "bridge_scores").unwrap());
     assert!(has_column(&store.conn, "edges", "confidence_tier").unwrap());
     assert!(has_column(&store.conn, "edges", "target_name").unwrap());
-    assert!(has_column(&store.conn, "flows", "kind").unwrap());
-    assert!(has_column(&store.conn, "flows", "truncated").unwrap());
-    assert!(has_column(&store.conn, "flows", "truncation_reason").unwrap());
+    // v18 dropped the stored flows.
+    for table in ["flows", "flow_memberships", "flow_snapshots"] {
+        assert!(!table_exists(&store.conn, table).unwrap(), "{table}");
+    }
     let _ = std::fs::remove_file(path);
 }
 

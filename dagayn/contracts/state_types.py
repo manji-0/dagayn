@@ -12,11 +12,9 @@ from pydantic import (
     TypeAdapter,
     ValidationError,
     field_validator,
-    model_validator,
 )
 
 from . import _python314_compat  # noqa: F401
-from .bridge_types import FlowStepRecord
 
 ConfidenceTier: TypeAlias = Literal["EXACT", "EXTRACTED", "HIGH", "MEDIUM", "LOW", "UNKNOWN"]
 
@@ -72,36 +70,6 @@ class ChangeEdgeRecord(_OpenTypedDict, total=False):
     change_status: Literal["existing", "added", "unknown"]
 
 
-ChangeFlowStep: TypeAlias = FlowStepRecord
-
-
-class ChangeFlowRecord(_OpenTypedDict, total=False):
-    id: int
-    name: str
-    entry_point_id: int
-    depth: int
-    node_count: int
-    file_count: int
-    criticality: float
-    path: list[int]
-    nodes: list[ChangeNodeRecord]
-    steps: list[ChangeFlowStep]
-    resolved_step_count: int
-    missing_step_count: int
-    bridge_step_count: int
-    created_at: str | None
-    updated_at: str | None
-    kind: str
-    truncated: bool
-    truncation_reason: str | None
-    members: list[int]
-
-
-class AffectedFlowsResult(TypedDict):
-    affected_flows: list[ChangeFlowRecord]
-    total: int
-
-
 EmbeddingStatusCode: TypeAlias = Literal[
     "not_indexed",
     "unavailable",
@@ -142,10 +110,9 @@ GraphSyncLegacyStatus: TypeAlias = Literal[
 
 TraversalMode: TypeAlias = Literal["bfs", "dfs"]
 RefactorMode: TypeAlias = Literal["rename", "dead_code", "suggest"]
-FlowMode: TypeAlias = Literal["list", "get", "entry_points"]
+FlowMode: TypeAlias = Literal["entry_points"]
 ReviewMode: TypeAlias = Literal["changes", "context", "affected_flows", "impact"]
 
-FlowSortBy: TypeAlias = Literal["criticality", "depth", "node_count", "file_count", "name"]
 FlowDetailLevel: TypeAlias = Literal["minimal", "standard"]
 ReviewDetailLevel: TypeAlias = Literal["minimal", "standard", "verbose"]
 ArchitectureAnalysisMode: TypeAlias = Literal[
@@ -448,7 +415,6 @@ class PostprocessResult(BaseModel):
     bridge_scores_persisted: int | None = None
     hub_scores_code_persisted: int | None = None
     bridge_scores_code_persisted: int | None = None
-    flows_detected: int | None = None
     communities_detected: int | None = None
     warnings: list[str] = Field(default_factory=list)
 
@@ -657,47 +623,17 @@ class _FlowRequestBase(BaseModel):
     repo_root: str | None = None
 
 
-class FlowListRequest(_FlowRequestBase):
-    mode: Literal["list"] = "list"
-    sort_by: FlowSortBy = "criticality"
-    limit: int = 50
-    kind: str | None = None
-    detail_level: FlowDetailLevel = "standard"
-
-
-class FlowGetRequest(_FlowRequestBase):
-    mode: Literal["get"]
-    flow_id: int | None = None
-    flow_name: str | None = None
-    include_source: bool = False
-    detail_level: FlowDetailLevel = "standard"
-
-    @model_validator(mode="after")
-    def require_selector(self) -> FlowGetRequest:
-        if self.flow_id is None and not self.flow_name:
-            raise ValueError('mode="get" requires flow_id or flow_name.')
-        return self
-
-
 class FlowEntryPointsRequest(_FlowRequestBase):
-    mode: Literal["entry_points"]
+    mode: Literal["entry_points"] = "entry_points"
     # None lists the repository's entry points per unit.
     target: str | None = None
     limit: int = 10
     detail_level: FlowDetailLevel = "standard"
 
 
-FlowRequest = Annotated[
-    FlowListRequest | FlowGetRequest | FlowEntryPointsRequest, Field(discriminator="mode")
-]
-_FLOW_REQUEST_ADAPTER = TypeAdapter(FlowRequest)
-
-
-def parse_flow_request(
-    **payload: Any,
-) -> FlowListRequest | FlowGetRequest | FlowEntryPointsRequest:
+def parse_flow_request(**payload: Any) -> FlowEntryPointsRequest:
     """Validate flow dispatcher input."""
-    return _FLOW_REQUEST_ADAPTER.validate_python(payload)
+    return FlowEntryPointsRequest.model_validate(payload)
 
 
 class _ReviewRequestBase(BaseModel):

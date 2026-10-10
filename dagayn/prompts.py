@@ -4,9 +4,9 @@ Provides 5 pre-built prompt workflows, all starting from
 get_minimal_context_tool and preferring detail_level="minimal" first.
 
 1. review_changes   - pre-commit review using review_tool
-2. architecture_map - architecture docs using the unit map, flows, Mermaid
-3. debug_issue      - guided debugging using search, flow tracing
-4. onboard_developer - new dev orientation using architecture and flows
+2. architecture_map - architecture docs using the unit map, entry points, Mermaid
+3. debug_issue      - guided debugging using search, entry points
+4. onboard_developer - new dev orientation using architecture and entry points
 5. pre_merge_check  - PR readiness from review findings, tests, dead code
 """
 
@@ -29,7 +29,7 @@ _TOKEN_EFFICIENCY_PREAMBLE = (  # nosec B105 — prompt template, not a password
 need a complete list.
 3. Prefer targeted queries (query_graph_tool with a specific symbol) over broad \
 architecture_analysis drill-downs.
-4. Graph reach is not correctness: treat reason codes, blast radius, flows, and \
+4. Graph reach is not correctness: treat reason codes, blast radius, entry points, and \
 search hits as leads, and confirm a claim with \
 `query_graph_tool(pattern="source_of")` or a reproduction before stating it.
 """
@@ -94,7 +94,7 @@ def architecture_map_prompt() -> list[PromptMessage]:
                 "4. Report the overview's `findings` (import cycles, untested core "
                 "code, broken doc links) next to the diagram.\n"
                 "5. Produce a concise Mermaid diagram showing units as boxes, "
-                "`unit_edges` as arrows, and key flows."
+                "`unit_edges` as arrows, and the entry points found in step 3."
             ),
         }
     ]
