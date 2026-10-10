@@ -1138,22 +1138,10 @@ def test_verbose_review_with_sources_answers_in_rust_as_python_does(
     rust, python, stderr = _session_both(git_repo, calls)
     assert stderr.count(REVIEW_TRACE) == len(calls)
     assert rust == python
-    verbose = rust[0]["structuredContent"]["analysis_summary"]
-    assert any(
-        contract["supplemental_test_density_evaluated"]
-        for contract in verbose["stability_contracts"]
-    ), verbose["stability_contracts"]
-    (contract,) = verbose["stability_contracts"]
-    assert contract["observed_heuristic_test_density"] > 0, contract
-    assert contract["observed_transitive_test_density"] > 0, contract
-    docs = verbose["documentation_update_candidates"]
-    assert any(doc["evidence_level"] == "heuristic_reachable" for doc in docs), docs
     sourced = rust[1]["structuredContent"]["changed_functions"]
     assert any("source" in function for function in sourced), sourced
-    # Standard detail carries the findings, not the score-first summary.
-    standard = rust[2]["structuredContent"]
-    assert "analysis_summary" not in standard
-    assert isinstance(standard["findings"], list)
+    assert "analysis_summary" not in rust[0]["structuredContent"]
+    assert isinstance(rust[2]["structuredContent"]["findings"], list)
 
 
 @pytest.mark.parametrize("dirty", [False, True])

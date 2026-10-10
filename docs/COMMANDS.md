@@ -238,36 +238,10 @@ parse/write vs postprocess, report `nodes_per_second` / `edges_per_second` /
 peak RSS / incremental changed-node/sec, and attach query + MCP p95. Do not
 mix embedding generation into these numbers.
 
-`dagayn eval --benchmark guidance_precision` measures precision@k for
-review-guidance outputs such as recommended tests, documentation update
-candidates, refactor suggestions, calibrated `guidance` items, stable-contract
-warnings, architecture leads, answerability warnings, and guidance field
-coverage. Configure cases with `guidance_precision_cases` in an eval YAML file.
-It reads review output at `detail_level="verbose"`, the only level that still
-carries the deprecated score-first fields, and goes when they do. The
-`findings` contract has its own gate: `eval/run_review_eval.py` scores each
-finding kind on the `tests/fixtures/review_eval` cases, and CI fails when a kind
+The review `findings` contract has its own gate: `eval/run_review_eval.py`
+scores each finding kind on the `tests/fixtures/review_eval` cases, and CI fails when a kind
 drops below its precision or recall floor in `eval/review_thresholds.yaml`
 (0.8; `DAGAYN_REVIEW_EVAL=1 uv run pytest -q tests/test_review_eval.py`).
-
-```yaml
-guidance_precision_cases:
-  - name: review-guidance-contract
-    kind: guidance_items
-    changed_files: ["dagayn/tools/review_dispatcher.py"]
-    expected: ["test_gaps", "documentation_update_candidates"]
-    k: 3
-  - name: answerability-warning
-    kind: answerability_warnings
-    changed_files: ["dagayn/tools/query.py"]
-    expected: ["missing_test_edges"]
-    k: 5
-  - name: field-coverage
-    kind: guidance_field_coverage
-    changed_files: ["dagayn/tools/review_dispatcher.py"]
-    expected: ["1.0"]
-    k: 1
-```
 
 `dagayn eval --report` generates a semantic evaluation report by default. The
 report separates capability scores, efficiency/cost metrics, gates,
@@ -762,13 +736,8 @@ its summary and `changed_steps` (only the steps the change touches), and
 `mode="affected_flows"` returns the full steps. Output is bounded by size, not
 only by item count.
 
-`detail_level="verbose"` adds the deprecated score-first fields of the earlier
-contract: `analysis_summary` (with `risk_level`, `reason_codes`, `guidance`,
-recommended tests, documentation candidates, and `stability_contracts`),
-`risk_score`, `review_priority_score`, `score_semantics`, `review_priorities`,
-`test_gaps`, `test_gap_evidence`, and `changed_edges`, plus `symbol_delta`,
-`change_file_sources`, and `deprecated_fields`, which names them. They stay for
-one release and then go; do not build new consumers on them.
+`detail_level="verbose"` adds `symbol_delta` (what the change added,
+removed, or renamed against `base`) and `change_file_sources`.
 
 With no `base`, a checkout whose tracked files have staged or unstaged edits is
 reviewed against `HEAD` (the work in progress); a clean one against `HEAD~1`

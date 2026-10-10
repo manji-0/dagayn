@@ -454,15 +454,6 @@ def test_review_changes_answers_through_rust(reviewed_repo: Path) -> None:
     assert "untested_change" not in by_kind
     assert "contract_doc_not_updated" in result["summary"]
 
-    verbose = review_func(
-        mode="changes", base="HEAD", repo_root=str(reviewed_repo), detail_level="verbose"
-    )
-    summary = verbose["analysis_summary"]
-    assert summary["risk_level"] in {"low", "medium", "high"}
-    assert summary["changed_node_count"] >= 1
-    contract = summary["stability_contracts"][0]
-    assert contract["scope_key"] == "core"
-
 
 def test_review_context_answers_through_rust(reviewed_repo: Path) -> None:
     """TESTED_BY runs production -> test: the tested change is no gap, and

@@ -171,7 +171,7 @@ def test_stale_indexed_line_ranges_degrade_to_the_whole_file(tmp_path: Path) -> 
 # ---------------------------------------------------------------------------
 
 
-def test_functions_without_tests_are_test_gaps(tmp_path: Path) -> None:
+def test_functions_without_tests_are_untested_changes(tmp_path: Path) -> None:
     app = (
         "def untested_a():\n    return 1\n\n\ndef untested_b():\n    return 2\n\n\n"
         "def tested_c():\n    return 3\n"
@@ -188,32 +188,8 @@ def test_functions_without_tests_are_test_gaps(tmp_path: Path) -> None:
     result = _review(root)
 
     assert _names(result) == {"untested_a", "untested_b", "tested_c"}
-    assert {gap["name"] for gap in result["test_gaps"]} == {"untested_a", "untested_b"}
-    assert {gap["coverage_confidence"] for gap in result["test_gaps"]} == {"none"}
     untested = next(f for f in result["findings"] if f["kind"] == "untested_change")
     assert sorted(untested["targets"]) == ["app.py::untested_a", "app.py::untested_b"]
-
-
-def test_a_test_named_for_the_function_suppresses_the_gap(tmp_path: Path) -> None:
-    """Naming heuristics (a test module and class named for the target) count
-    as coverage even with no TESTED_BY edge."""
-    root = _repo(
-        tmp_path,
-        {
-            "pkg/context.py": "def get_minimal_context():\n    return {}\n",
-            "tests/test_context.py": (
-                "class TestGetMinimalContext:\n    def test_shape(self):\n        assert True\n"
-            ),
-        },
-    )
-    _write(root, {"pkg/context.py": "def get_minimal_context():\n    return {'a': 1}\n"})
-
-    result = _review(root)
-
-    assert _names(result) == {"get_minimal_context"}
-    assert result["test_gaps"] == []
-    assert result["test_gap_evidence"]["heuristic_suppression_enabled"] is True
-    assert result["test_gap_evidence"]["heuristic_truncated"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -258,9 +234,6 @@ def test_review_priority_scores_weigh_flows_and_security_names(
     assert scores["verify_signature"] == pytest.approx(scores["design_doc"] + 0.20)
     # Flow membership raises the score.
     assert scores["service"] > scores["process_data"]
-    priorities = [p["risk_score"] for p in services_change["review_priorities"]]
-    assert priorities == sorted(priorities, reverse=True)
-    assert services_change["risk_score"] == max(scores.values())
 
 
 def test_review_priority_scores_weigh_callers(tmp_path: Path) -> None:

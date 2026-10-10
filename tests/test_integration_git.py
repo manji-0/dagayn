@@ -155,9 +155,6 @@ def test_review_changes_real_git_marks_added_and_existing_nodes(git_repo: Path) 
     assert result["change_entity_summary"]["base"] == "HEAD~1"
     assert result["change_entity_summary"]["nodes"]["existing"] >= 1
     assert result["change_entity_summary"]["nodes"]["added"] >= 1
-    edge_status = {edge["target"]: edge["change_status"] for edge in result["changed_edges"]}
-    assert edge_status["hello.py::greet"] == "existing"
-    assert edge_status["hello.py::farewell"] == "added"
 
 
 # ------------------------------------------------------------------

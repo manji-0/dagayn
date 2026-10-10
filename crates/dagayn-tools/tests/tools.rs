@@ -1104,45 +1104,36 @@ fn review_changes_scores_the_diff_against_base() {
     assert!(minimal.get("review_priorities").is_none());
     assert_eq!(minimal["findings"], changes["findings"]);
 
-    // verbose keeps the score-first fields for one release.
+    // verbose adds what changed at base, and the score-first fields are gone.
     let verbose_changes = answer(
         &context,
         "review_tool",
         json!({"mode": "changes", "detail_level": "verbose"}),
     );
-    assert_eq!(verbose_changes["diff_parse_status"], "ok");
+    for gone in [
+        "risk_score",
+        "review_priority_score",
+        "score_semantics",
+        "review_priorities",
+        "test_gaps",
+        "test_gap_evidence",
+        "changed_edges",
+        "analysis_summary",
+    ] {
+        assert!(verbose_changes.get(gone).is_none(), "{gone}");
+    }
     assert_eq!(
-        verbose_changes["next_drill_downs"]["flows"]["mode"],
-        "affected_flows"
+        verbose_changes["changed_functions"],
+        changes["changed_functions"]
     );
-    let deprecated = verbose_changes["deprecated_fields"]
-        .as_array()
-        .expect("deprecated_fields");
-    assert!(deprecated.contains(&json!("risk_score")), "{deprecated:?}");
-    assert!(
-        deprecated.contains(&json!("next_drill_downs")),
-        "{deprecated:?}"
-    );
-    assert!(deprecated.contains(&json!("_hints")), "{deprecated:?}");
     // verbose keeps the diagnosis the agent's envelope leaves out.
     assert_eq!(verbose_changes["called_subtool"], "detect_changes_func");
     assert!(verbose_changes["_runtime"].is_object());
     assert!(verbose_changes["_repo"]["db_path"].is_string());
     assert!(
-        verbose_changes["analysis_summary"]["reason_codes"]
-            .as_array()
-            .is_some()
-    );
-    assert!(verbose_changes["review_priorities"].as_array().is_some());
-    assert!(
         verbose_changes["symbol_delta"]["removed"]
             .as_array()
             .is_some()
-    );
-    assert!(
-        verbose_changes["deprecated_fields"]
-            .as_array()
-            .is_some_and(|f| f.contains(&json!("analysis_summary")))
     );
 
     let none = answer(&context, "review_tool", json!({"changed_files": []}));
@@ -1175,13 +1166,6 @@ fn review_changes_scores_the_diff_against_base() {
         let source = function["source"].as_str().unwrap();
         let first = format!("{}: ", function["line_start"]);
         assert!(source.starts_with(&first), "{source}");
-    }
-    let verbose = answer(&context, "review_tool", json!({"detail_level": "verbose"}));
-    for contract in verbose["analysis_summary"]["stability_contracts"]
-        .as_array()
-        .unwrap()
-    {
-        assert_eq!(contract["supplemental_test_density_evaluated"], true);
     }
 
     // No HEAD~5 to diff against: the unresolved base is reported, without

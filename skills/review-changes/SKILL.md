@@ -31,9 +31,7 @@ it, which tests cover it, and which docs are linked to it. Read the
    `sites`, and an `action`. An empty list (summary "Nothing beyond the diff
    needs checking.") means the diff is the whole review. `findings_omitted`
    counts what each kind's cap of 10 left out. `detail_level="standard"` adds
-   `changed_functions` and `affected_flows`; the score-first fields
-   (`analysis_summary`, `risk_level`, ...) are deprecated and only in
-   `"verbose"`.
+   `changed_functions` and `affected_flows`.
 3. **Work through the findings**, each with its own check:
    - `dangling_reference` / `unchanged_caller`: open each listed site with
      `query_graph_tool(pattern="source_of")`; a site still using the old name

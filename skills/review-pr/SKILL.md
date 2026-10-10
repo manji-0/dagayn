@@ -48,9 +48,7 @@ retrieval setup.
    `command`). Each kind keeps 10; `findings_omitted` counts the rest. An empty
    list means nothing beyond the diff needs checking. The default
    `detail_level="standard"` adds `changed_functions` and `affected_flows`;
-   `"minimal"` drops them. The score-first fields (`analysis_summary`,
-   `risk_level`, `review_priorities`, ...) are deprecated and only in
-   `"verbose"`.
+   `"minimal"` drops them.
 5. **Read only the parts the findings name**: `review_tool(mode="context",
    base="<merge-base>")` for change-set snippets; for one `qualified_name`,
    `query_graph_tool(pattern="source_of")`. Open a whole file only when that

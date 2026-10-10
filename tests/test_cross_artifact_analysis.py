@@ -15,7 +15,6 @@ from dagayn.contracts.cross_artifact import (
 from dagayn.flows import _hydrate_flow_rows, get_affected_flows, store_flows, trace_flows
 from dagayn.graph import GraphStore
 from dagayn.parser._base.types import EdgeInfo, NodeInfo
-from dagayn.tools.review_dispatcher import review_func
 from tests.store_sql import store_conn
 
 
@@ -351,76 +350,6 @@ def _git_init(root: Path) -> None:
     git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
     subprocess.run([*git, "init", "-q"], cwd=root, check=True)
     subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "i"], cwd=root, check=True)
-
-
-class TestCrossArtifactReviewGuidance:
-    def test_review_guidance_recommends_docs_for_and_bridge_followups(self, bridge_store):
-        store, paths = bridge_store
-        root = paths["root"]
-        _git_init(root)
-
-        result = review_func(
-            mode="changes",
-            base="HEAD",
-            changed_files=["wrapper.py"],
-            repo_root=str(root),
-            detail_level="verbose",
-        )
-
-        assert result["status"] == "ok", result
-        summary = result["analysis_summary"]
-        proximity = summary["cross_artifact_proximity"]
-        assert proximity["counts"]["reportable"] >= 1
-        assert proximity["counts"]["low_confidence"] >= 1
-        assert proximity["reportable_bridges"]
-        assert any("docs_for" in item for item in proximity["follow_ups"])
-        assert any("implementations_of" in item for item in proximity["follow_ups"])
-        assert "cross_artifact_proximity" in summary["reason_codes"]
-        assert "low_confidence_cross_artifact_bridge" in summary["reason_codes"]
-        guidance_actions = [str(item.get("action")) for item in summary["guidance"]]
-        assert any("docs_for" in action for action in guidance_actions)
-        assert any("implementations_of" in action for action in guidance_actions)
-
-    def test_review_guidance_flags_a_lone_low_confidence_bridge(self, tmp_path):
-        """With no reportable bridge, the caveat is the guidance item."""
-        (tmp_path / ".dagayn").mkdir()
-        store = GraphStore(str(tmp_path / ".dagayn" / "graph.db"))
-        try:
-            wrapper = str(tmp_path / "wrapper.py")
-            wrapper_qn = _add_func(store, "launch", wrapper)
-            cli_qn = _add_func(store, "cli_main", str(tmp_path / "cli.py"))
-            store.upsert_edge(
-                _bridge(
-                    source=wrapper_qn,
-                    target=cli_qn,
-                    file_path=wrapper,
-                    tier="MEDIUM",
-                    confidence=0.4,
-                )
-            )
-            store.commit()
-            _git_init(tmp_path)
-
-            result = review_func(
-                mode="changes",
-                base="HEAD",
-                changed_files=["wrapper.py"],
-                repo_root=str(tmp_path),
-                detail_level="verbose",
-            )
-        finally:
-            store.close()
-
-        summary = result["analysis_summary"]
-        assert summary["cross_artifact_proximity"]["counts"] == {
-            "reportable": 0,
-            "low_confidence": 1,
-        }
-        assert any(
-            item["reason_codes"] == ["low_confidence_cross_artifact_bridge"]
-            and item["confidence"] == "low"
-            for item in summary["guidance"]
-        ), summary["guidance"]
 
 
 class TestCrossArtifactHelpers:

@@ -311,34 +311,6 @@ def _registry() -> dict[tuple[str, str], MetricSpec]:
             )
         )
 
-    for metric in ("precision_at_k", "recall", "f1"):
-        specs.append(
-            _spec(
-                "guidance_precision",
-                metric,
-                MetricFamily.GUIDANCE,
-                MetricRole.SCORE,
-                OracleType.EXPLICIT,
-                Construct.AGENT_GUIDANCE_ACTIONABILITY,
-                AggregationPolicy.MEAN,
-                MetricDirection.HIGHER_IS_BETTER,
-                valid_for_headline=True,
-            )
-        )
-    specs.append(
-        _spec(
-            "guidance_precision",
-            "field_coverage",
-            MetricFamily.GUIDANCE,
-            MetricRole.SCORE,
-            OracleType.NONE,
-            Construct.SCHEMA_COMPLETENESS,
-            AggregationPolicy.MEAN,
-            MetricDirection.HIGHER_IS_BETTER,
-            valid_for_headline=False,
-        )
-    )
-
     for metric in ("build_total_ms", "median_build_total_ms", "best_build_total_ms"):
         specs.append(
             _spec(

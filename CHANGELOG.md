@@ -26,6 +26,14 @@ All notable changes to `dagayn` are documented here.
   `total`, `truncated`, and `counts_by_type`, deprecated in 9.0.0; verbose
   is the findings without the output budget. `limit` applies to `dead_code`
   alone.
+- **Breaking:** `review_tool(mode="changes")` at `detail_level="verbose"` no
+  longer returns the score-first fields deprecated in 8.0.0
+  (`analysis_summary`, `risk_score`, `review_priority_score`,
+  `score_semantics`, `review_priorities`, `test_gaps`, `test_gap_evidence`,
+  `changed_edges`) or `next_drill_downs`, and no longer computes them: the
+  blast-radius summary and the test-gap scan are gone. Each changed
+  function keeps its `risk_score`. `dagayn eval --benchmark
+  guidance_precision`, which scored those fields, goes with them.
 
 ### Changed
 

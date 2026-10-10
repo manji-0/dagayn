@@ -143,27 +143,10 @@ def _review_profile(rows: list[EvalPayload]) -> ProfileSummary:
     explicit_components = {
         "impact_f1": _mean(_explicit_metric_values(rows, "impact_accuracy", "f1")),
         "impact_recall": _mean(_explicit_metric_values(rows, "impact_accuracy", "recall")),
-        "guidance_precision": _mean(
-            _explicit_metric_values(rows, "guidance_precision", "precision_at_k")
-        ),
-        "guidance_f1": _mean(_explicit_metric_values(rows, "guidance_precision", "f1")),
     }
     summary.components = {
         key: value for key, value in explicit_components.items() if value is not None
     }
-    field_coverage = _mean(
-        [
-            value
-            for row in _eligible_rows(rows)
-            if row.get("benchmark") == "guidance_precision"
-            for value in [_to_float(row.get("field_coverage"))]
-            if value is not None
-        ]
-    )
-    if field_coverage is not None:
-        summary.components["field_coverage"] = field_coverage
-        summary.notes.append("field_coverage is reported separately from core correctness.")
-
     proxy_rows = [
         row
         for row in rows
@@ -176,27 +159,22 @@ def _review_profile(rows: list[EvalPayload]) -> ProfileSummary:
     scoring_components = {
         key: value
         for key, value in summary.components.items()
-        if key in {"impact_f1", "impact_recall", "guidance_precision", "guidance_f1"}
+        if key in {"impact_f1", "impact_recall"}
     }
     if not scoring_components:
         summary.status = "insufficient_oracle"
-        summary.notes.append("No explicit impact or guidance oracle rows found.")
+        summary.notes.append("No explicit impact oracle rows found.")
         return summary
 
     impact_recall = scoring_components.get("impact_recall")
     if impact_recall is not None and impact_recall < 0.6:
         summary.gates["impact_recall"] = f"fail ({impact_recall} < 0.6)"
-    guidance_precision = scoring_components.get("guidance_precision")
-    if guidance_precision is not None and guidance_precision < 0.5:
-        summary.gates["guidance_precision"] = f"fail ({guidance_precision} < 0.5)"
 
     score = _weighted_mean(
         scoring_components,
         {
             "impact_f1": 0.45,
             "impact_recall": 0.25,
-            "guidance_precision": 0.20,
-            "guidance_f1": 0.10,
         },
     )
     summary.score = score

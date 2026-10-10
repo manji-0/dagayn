@@ -18,11 +18,8 @@ use dagayn_build::{is_safe_git_ref, jj, svn};
 use dagayn_graph::{ChangeRiskInputs, GraphEdge, GraphNode, GraphStore};
 use serde_json::{Map, Value, json};
 
-use crate::coverage::{ScanState, has_coverage_evidence, splitlines};
-use crate::query::{edge_dict, node_dict, sanitize};
-
-/// `SUPPLEMENTAL_TEST_DENSITY_NODE_LIMIT`.
-pub(crate) const HEURISTIC_GAP_NODE_LIMIT: usize = 10;
+use crate::coverage::splitlines;
+use crate::query::{edge_dict, node_dict};
 
 /// Changed line ranges per repo-relative path, in path order.
 pub(crate) type Ranges = BTreeMap<String, Vec<(i64, i64)>>;
@@ -796,11 +793,6 @@ pub(crate) fn analyze_changes_with(
         }
         node_risks.push(record);
     }
-    let overall = node_risks
-        .iter()
-        .filter_map(|record| record["risk_score"].as_f64())
-        .fold(0.0_f64, f64::max);
-
     let changed_names: HashSet<&str> = changed_nodes
         .iter()
         .map(|node| node.qualified_name.as_str())
@@ -811,42 +803,6 @@ pub(crate) fn analyze_changes_with(
         .into_iter()
         .map(|flow| compact_flow(flow, &changed_names))
         .collect();
-
-    // Test gaps.
-    let eligible = |node: &GraphNode| !node.is_test && node.language != "markdown";
-    let mut scan = if funcs.iter().any(|node| eligible(node)) {
-        Some(ScanState::build(store)?)
-    } else {
-        None
-    };
-    let mut test_gaps = Vec::new();
-    let (mut checks, mut eligible_count) = (0_usize, 0_usize);
-    for node in funcs.iter().filter(|node| eligible(node)) {
-        eligible_count += 1;
-        let direct = outbound
-            .get(&node.qualified_name)
-            .is_some_and(|edges| edges.iter().any(|edge| edge.kind == "TESTED_BY"));
-        let can_check = checks < HEURISTIC_GAP_NODE_LIMIT;
-        let mut heuristic = false;
-        if can_check {
-            checks += 1;
-            let state = scan.as_mut()?;
-            heuristic = has_coverage_evidence(store, state, node, 2, &HashSet::new())?;
-        }
-        if !direct && !heuristic {
-            test_gaps.push(json!({
-                "name": sanitize(&node.name),
-                "qualified_name": sanitize(&node.qualified_name),
-                "file": node.file_path,
-                "kind": node.kind,
-                "language": node.language,
-                "line_start": node.line_start,
-                "line_end": node.line_end,
-                "change_status": status_of(base_qns.contains(&node.qualified_name)),
-                "coverage_confidence": if can_check { "none" } else { "unchecked" },
-            }));
-        }
-    }
 
     let changed_edges: Vec<Value> = relevant
         .iter()
@@ -871,80 +827,13 @@ pub(crate) fn analyze_changes_with(
     let node_counts = tally(&node_risks);
     let edge_counts = tally(&changed_edges);
 
-    let mut priorities = node_risks.clone();
-    priorities.sort_by(|left, right| {
-        let score = |record: &Value| record["risk_score"].as_f64().unwrap_or(0.0);
-        score(right)
-            .partial_cmp(&score(left))
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    priorities.truncate(10);
-
     let stale_rel: Vec<String> = stale.iter().map(|path| repo_relative(path, root)).collect();
-    let mut summary = vec![
-        format!("Analyzed {} changed file(s):", abs_files.len()),
-        format!("  - {} changed function(s)/class(es)", funcs.len()),
-        format!(
-            "    - nodes: {} existing, {} added",
-            node_counts["existing"], node_counts["added"]
-        ),
-        format!(
-            "    - edges: {} existing, {} added",
-            edge_counts["existing"], edge_counts["added"]
-        ),
-        format!("  - {} affected flow(s)", affected.len()),
-        format!("  - {} test gap(s)", test_gaps.len()),
-        format!("  - Review priority score: {overall:.2}"),
-    ];
-    if !test_gaps.is_empty() {
-        let names: Vec<&str> = test_gaps
-            .iter()
-            .take(5)
-            .filter_map(|gap| gap["name"].as_str())
-            .collect();
-        summary.push(format!("  - Untested: {}", names.join(", ")));
-    }
-    if !unmapped.is_empty() {
-        summary.push(format!(
-            "  - Unmapped changed files: {} ({})",
-            unmapped.len(),
-            unmapped
-                .iter()
-                .take(5)
-                .cloned()
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
-    }
-    if !stale_rel.is_empty() {
-        summary.push(format!(
-            "  - Stale graph line ranges (file-granular fallback): {}",
-            stale_rel
-                .iter()
-                .take(5)
-                .cloned()
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
-    }
-
     let mut entity_summary = Map::new();
     entity_summary.insert("nodes".into(), node_counts);
     entity_summary.insert("edges".into(), edge_counts);
     entity_summary.insert("base".into(), json!(base));
     let fields = vec![
-        ("summary", json!(summary.join("\n"))),
-        ("risk_score", json!(overall)),
-        ("review_priority_score", json!(overall)),
-        (
-            "score_semantics",
-            json!({
-                "risk_score": "legacy alias for review_priority_score",
-                "review_priority_score": "review triage ranking that combines flows, callers, tests, security keywords, and community crossing; not a changeability score",
-            }),
-        ),
         ("changed_functions", Value::Array(node_risks)),
-        ("changed_edges", Value::Array(changed_edges)),
         ("change_entity_summary", Value::Object(entity_summary)),
         ("diff_parse_status", json!("ok")),
         ("unmapped_changed_files", json!(unmapped)),
@@ -953,18 +842,6 @@ pub(crate) fn analyze_changes_with(
             json!({"stale_line_range_files": stale_rel, "reason_codes": reason_codes}),
         ),
         ("affected_flows", Value::Array(affected)),
-        ("test_gaps", Value::Array(test_gaps)),
-        (
-            "test_gap_evidence",
-            json!({
-                "direct_tested_by_edges": true,
-                "heuristic_suppression_enabled": true,
-                "heuristic_checked_node_count": checks,
-                "heuristic_eligible_node_count": eligible_count,
-                "heuristic_truncated": checks < eligible_count,
-            }),
-        ),
-        ("review_priorities", Value::Array(priorities)),
     ];
     Some(Analysis { fields })
 }

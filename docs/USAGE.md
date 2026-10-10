@@ -274,16 +274,12 @@ CLI results as the same implementation.
 
 `next` lists the calls to make, with their arguments; the earlier next-step
 fields (`_hints`, `next_action`, `next_tool_suggestions`, `next_drill_downs`)
-moved to `detail_level="verbose"` for one release, as `refactor_tool`'s
-per-suggestion `work_pack` and `execution_plan` did; `guidance` is
+moved to `detail_level="verbose"` for one release; `guidance` is
 `verbose`-only too. New consumers should read `next` and `missingness` first, then fall back to the older raw
 sections only when a drill-down needs more detail.
 
-`review_tool(mode="changes")` is the exception: it answers with `findings`.
-Its score-first fields (`analysis_summary`, `recommended_tests`,
-`documentation_update_candidates`, `stability_contracts`, `risk_score`,
-`review_priorities`, `test_gaps`, ...) appear only at
-`detail_level="verbose"`, listed in `deprecated_fields`, for one release.
+`review_tool(mode="changes")` and `refactor_tool(mode="suggest")` answer
+with `findings`; their earlier score-first and size-based fields are gone.
 Dispatcher error paths and graph-limited not-found paths still carry
 `missingness`, computed for the requested `repo_root` when one is supplied;
 the graph-wide `answerability` summary is `get_minimal_context_tool`'s.

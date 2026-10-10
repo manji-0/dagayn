@@ -587,44 +587,6 @@ pub(crate) fn infer_tests_for_node(
     )
 }
 
-/// `has_coverage_evidence`: direct or credible heuristic test evidence, or
-/// (for a `_private` helper) such evidence on a caller, up to two levels.
-pub(crate) fn has_coverage_evidence(
-    store: &GraphStore,
-    state: &mut ScanState,
-    target: &GraphNode,
-    caller_depth: i64,
-    seen: &HashSet<String>,
-) -> Option<bool> {
-    if !infer_tests_for_node(store, state, target, 1, "medium")?.is_empty() {
-        return Some(true);
-    }
-    if caller_depth <= 0 || !target.name.starts_with('_') {
-        return Some(false);
-    }
-    if seen.contains(&target.qualified_name) {
-        return Some(false);
-    }
-    let mut seen = seen.clone();
-    seen.insert(target.qualified_name.clone());
-    let callers: Vec<String> = store
-        .get_edges_by_target(&target.qualified_name)
-        .ok()?
-        .into_iter()
-        .filter(|edge| edge.kind == "CALLS")
-        .map(|edge| edge.source_qualified)
-        .collect();
-    // Python walks the returned dict, whose order is the Rust map's; the
-    // answer is the same whichever caller is found first.
-    let nodes = store.get_nodes_by_qualified_names(&callers).ok()?;
-    for caller in nodes.values() {
-        if has_coverage_evidence(store, state, caller, caller_depth - 1, &seen)? {
-            return Some(true);
-        }
-    }
-    Some(false)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

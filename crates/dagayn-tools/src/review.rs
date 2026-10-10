@@ -22,7 +22,6 @@ use crate::coverage::splitlines;
 use crate::findings;
 use crate::hints::{generate_hints, session};
 use crate::query::{edge_dict, node_dict};
-use crate::review_summary::change_analysis_summary;
 use crate::{Args, Context, OpenGraph, Ordered, Payload, open_graph, resolve_repo};
 
 const DECLARED: &[&str] = &[
@@ -80,21 +79,8 @@ const CONTEXT_PRIORITIES: [&str; 13] = [
     "context.change_file_sources.base_diff",
     "context.change_file_sources.files",
 ];
-/// Fields `detail_level="verbose"` still carries from the score-first
-/// contract, for one release.
 /// Entry points `affected_flows` lists before counting the rest.
 const ENTRY_POINT_LIMIT: usize = 10;
-
-const DEPRECATED_FIELDS: &[&str] = &[
-    "risk_score",
-    "review_priority_score",
-    "score_semantics",
-    "review_priorities",
-    "test_gaps",
-    "test_gap_evidence",
-    "changed_edges",
-    "analysis_summary",
-];
 
 /// `review_tool`'s arguments once fastmcp and `parse_review_request` accept
 /// them.
@@ -404,27 +390,6 @@ impl Review<'_> {
             &changed_files,
             &ranges,
         )?;
-        // The score-first summary (blast radius, stability profiles, SAP) is
-        // only shown at `verbose`; below it, nothing reads it.
-        let summary = if request.detail_level == "verbose" {
-            let absolute: Vec<String> = changed_files
-                .iter()
-                .map(|file| absolute_path(self.root(), file))
-                .collect();
-            let impact = self
-                .store()
-                .get_impact_radius(&absolute, request.max_depth, 500)
-                .ok()?;
-            Some(change_analysis_summary(
-                self.store(),
-                &analysis,
-                &impact,
-                &changed_files,
-                true,
-            )?)
-        } else {
-            None
-        };
         let (findings, findings_omitted, symbol_delta) =
             self.findings(&mut analysis, &changed_files, request.base)?;
         if request.include_source == Some(true) {
@@ -478,21 +443,17 @@ impl Review<'_> {
                     analysis.get("changed_functions").clone(),
                 )
                 .put("affected_flows", analysis.get("affected_flows").clone()),
-            // `verbose`: the score-first fields of the earlier contract, kept
-            // for one release (docs/plans/REVIEW-TOOL-TARGET.md).
+            // `verbose`: every analysis field, and what changed at `base`.
             _ => {
-                let summary = summary.unwrap_or_default();
-                let mut legacy = out
-                    .put("next_drill_downs", summary["next_drill_downs"].clone())
+                let mut full = out
                     .put("change_file_sources", sources)
-                    .put("symbol_delta", symbol_delta)
-                    .put("deprecated_fields", json!(DEPRECATED_FIELDS));
+                    .put("symbol_delta", symbol_delta);
                 for (key, value) in &analysis.fields {
-                    if *key != "summary" {
-                        legacy = legacy.put(key, value.clone());
+                    if full.get(key).is_none() {
+                        full = full.put(key, value.clone());
                     }
                 }
-                legacy.put("analysis_summary", summary)
+                full
             }
         };
         let mut missingness = self.answerability.missingness();
@@ -524,16 +485,8 @@ impl Review<'_> {
                     CHANGES_BUDGET
                 },
                 &[
-                    "analysis_summary.recommended_tests",
-                    "analysis_summary.affected_flow_rankings",
-                    "analysis_summary.documentation_update_candidates",
-                    "analysis_summary.stability_contracts",
-                    "analysis_summary.guidance",
-                    "review_priorities",
                     "affected_flows",
-                    "test_gaps",
                     "changed_functions",
-                    "changed_edges",
                     // Counted in `changed_file_count`; a long diff's paths
                     // go first.
                     "unmapped_changed_files",

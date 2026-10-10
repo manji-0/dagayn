@@ -31,8 +31,7 @@ has the compact workflow if you want it in context.
    (`dangling_reference`, `unchanged_caller`, `contract_doc_not_updated`,
    `bridge_touched`, `unstable_dependency`, `untested_change`, `tests_to_run`),
    its `evidence` or `sites`, and an `action`. An empty list means nothing beyond the diff needs
-   checking; say so and stop. The score-first fields (`analysis_summary`,
-   `risk_level`, ...) are deprecated and only in `detail_level="verbose"`.
+   checking; say so and stop.
 4. **Fetch source only for what can change the verdict**:
    `review_tool(mode="context")` for the change set, `query_graph_tool(
    pattern="source_of")` for one symbol.

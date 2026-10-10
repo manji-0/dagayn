@@ -69,7 +69,6 @@ rows keep their original values.
 search_quality.reciprocal_rank => retrieval / score / explicit / locator_quality
 impact_accuracy.graph_proxy_recall => impact / diagnostic / proxy / graph_internal_consistency
 token_efficiency.diff_to_graph_ratio => efficiency / cost / none / compression_efficiency
-guidance_precision.field_coverage => guidance / score / none / schema_completeness
 ```
 
 ## Adding A Benchmark Metric

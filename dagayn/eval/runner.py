@@ -25,7 +25,6 @@ BENCHMARK_REGISTRY = {  # nosec B105 - benchmark names, not credentials
     "token_efficiency": "dagayn.eval.benchmarks.token_efficiency",
     "impact_accuracy": "dagayn.eval.benchmarks.impact_accuracy",
     "flow_completeness": "dagayn.eval.benchmarks.flow_completeness",
-    "guidance_precision": "dagayn.eval.benchmarks.guidance_precision",
     "search_quality": "dagayn.eval.benchmarks.search_quality",
     "fts_quality": "dagayn.eval.benchmarks.fts_quality",
     "build_performance": "dagayn.eval.benchmarks.build_performance",

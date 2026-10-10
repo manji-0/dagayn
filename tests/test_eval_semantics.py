@@ -25,11 +25,6 @@ def test_metric_spec_registry_core_metrics():
     assert proxy.oracle_type == "proxy"
     assert proxy.valid_for_headline is False
 
-    coverage = get_metric_spec("guidance_precision", "field_coverage")
-    assert coverage is not None
-    assert coverage.family == "guidance"
-    assert coverage.construct == "schema_completeness"
-
     token = get_metric_spec("token_efficiency", "diff_to_graph_ratio")
     assert token is not None
     assert token.family == "efficiency"
@@ -93,17 +88,7 @@ def test_proxy_and_synthetic_metrics_not_headline_valid():
     assert synthetic["valid_for_headline"] is False
 
 
-def test_guidance_and_build_rows_get_expected_semantics():
-    guidance = decorate_metric_row(
-        {
-            "benchmark": "guidance_precision",
-            "precision_at_k": 0.75,
-        }
-    )
-    assert guidance["metric_family"] == "guidance"
-    assert guidance["metric_role"] == "score"
-    assert guidance["valid_for_headline"] is True
-
+def test_build_rows_get_expected_semantics():
     build = decorate_metric_row(
         {
             "benchmark": "build_performance",

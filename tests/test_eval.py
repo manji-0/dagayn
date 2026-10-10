@@ -5,7 +5,6 @@ import os
 import subprocess
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -91,19 +90,6 @@ def test_precision_at_k():
     assert result["precision_at_k"] == 0.5
     assert result["hits"] == 1
     assert result["k"] == 2
-
-
-def test_register_command_lists_guidance_precision():
-    import argparse
-
-    from dagayn.cli.commands.eval_cmd import register_command
-
-    parser = argparse.ArgumentParser()
-    sub = parser.add_subparsers(dest="command")
-    eval_parser = register_command(sub)
-
-    help_text = eval_parser.format_help()
-    assert "guidance_precision" in help_text
 
 
 def test_generate_markdown_report():
@@ -293,7 +279,6 @@ def test_generate_full_report():
 
 def test_generate_full_report_includes_registered_benchmarks(tmp_path):
     for benchmark in [
-        "guidance_precision",
         "fts_quality",
         "nplusone_count",
         "mcp_latency",
@@ -306,7 +291,6 @@ def test_generate_full_report_includes_registered_benchmarks(tmp_path):
             w.writerow({"benchmark": benchmark, "repo": "repo", "status": "ok"})
 
     report = generate_full_report(tmp_path)
-    assert "## Guidance Precision" in report
     assert "## Fts Quality" in report
     assert "## Nplusone Count" in report
     assert "## Mcp Latency" in report
@@ -464,12 +448,6 @@ def test_runner_with_mock_repo(monkeypatch: pytest.MonkeyPatch) -> None:
         assert any(scenario.startswith("mcp_latency:") for scenario in scenarios)
         assert all(row["benchmark"] == "recent_changes_effects" for row in effect_results)
 
-        from dagayn.eval.benchmarks import guidance_precision
-
-        guidance_results = guidance_precision.run(repo_path, store, config)
-        assert guidance_results[0]["benchmark"] == "guidance_precision"
-        assert guidance_results[0]["status"] == "skipped"
-
         store.close()
 
 
@@ -548,134 +526,6 @@ def test_identifier_matcher_exact_alias_and_basename_opt_in():
 
     basename = IdentifierMatcher(allow_basename=True)
     assert basename.matches("pkg/a.py::Service.run", "other.py::Service.run")
-
-
-def test_guidance_precision_no_cases_skipped():
-    from dagayn.eval.benchmarks import guidance_precision
-
-    rows = guidance_precision.run(Path("/tmp"), None, {})
-    assert rows == [
-        {
-            "benchmark": "guidance_precision",
-            "case": "no_cases",
-            "kind": "none",
-            "status": "skipped",
-        }
-    ]
-
-
-def test_guidance_precision_review_case_kinds(tmp_path):
-    """Focused CI fixture for calibrated guidance precision case kinds."""
-    from dagayn.eval.benchmarks import guidance_precision
-
-    fake_result = {
-        "status": "ok",
-        "missingness": [
-            {
-                "reason_code": "missing_test_edges",
-                "detail": "no TESTED_BY edges for changed production nodes",
-            }
-        ],
-        "analysis_summary": {
-            "guidance": [
-                {
-                    "claim": "Changed code lacks direct test coverage.",
-                    "evidence": {"test_gaps": 1},
-                    "confidence": "medium",
-                    "missingness": [],
-                    "action": "review_tool mode='impact'",
-                    "reason_codes": ["test_gaps", "documentation_update_candidates"],
-                    "counts": {"test_gap_count": 1},
-                }
-            ],
-            "recommended_tests": [{"qualified_name": "tests/test_app.py::test_run"}],
-            "documentation_update_candidates": [{"file": "README.md"}],
-            "stability_contracts": [{"status": "warn", "scope_key": "core"}],
-            "architecture_delta": {"counts": {"coupling_increase": 2}},
-        },
-    }
-    config = {
-        "guidance_precision_cases": [
-            {
-                "name": "guidance-contract",
-                "kind": "guidance_items",
-                "changed_files": ["app.py"],
-                "expected": ["test_gaps"],
-                "k": 1,
-            },
-            {
-                "name": "field-coverage",
-                "kind": "guidance_field_coverage",
-                "changed_files": ["app.py"],
-                "expected": ["1.0"],
-                "k": 1,
-            },
-            {
-                "name": "stable-warn",
-                "kind": "stable_contract_warnings",
-                "changed_files": ["app.py"],
-                "expected": ["core"],
-                "k": 1,
-            },
-            {
-                "name": "arch-leads",
-                "kind": "architecture_leads",
-                "changed_files": ["app.py"],
-                "expected": ["coupling_increase"],
-                "k": 1,
-            },
-            {
-                "name": "answerability",
-                "kind": "answerability_warnings",
-                "changed_files": ["app.py"],
-                "expected": ["missing_test_edges"],
-                "k": 1,
-            },
-            {
-                "name": "recommended-tests",
-                "kind": "recommended_tests",
-                "changed_files": ["app.py"],
-                "expected": ["tests/test_app.py::test_run"],
-                "k": 1,
-            },
-        ]
-    }
-    with patch("dagayn.tools.review_dispatcher.review_func", return_value=fake_result):
-        rows = guidance_precision.run(tmp_path, None, config)
-
-    by_name = {row["case"]: row for row in rows}
-    assert by_name["guidance-contract"]["precision_at_k"] == 1.0
-    assert by_name["field-coverage"]["field_coverage"] == 1.0
-    assert by_name["stable-warn"]["precision_at_k"] == 1.0
-    assert by_name["arch-leads"]["precision_at_k"] == 1.0
-    assert by_name["answerability"]["precision_at_k"] == 1.0
-    assert by_name["recommended-tests"]["precision_at_k"] == 1.0
-
-
-def test_guidance_precision_refactor_suggestions_kind(tmp_path):
-    from dagayn.eval.benchmarks import guidance_precision
-
-    fake_result = {
-        "suggestions": [
-            {"symbols": ["src/app.py::dead_helper"]},
-            {"symbols": ["src/util.py::unused"]},
-        ]
-    }
-    config = {
-        "guidance_precision_cases": [
-            {
-                "name": "refactor-suggest",
-                "kind": "refactor_suggestions",
-                "expected": ["src/app.py::dead_helper"],
-                "k": 1,
-            }
-        ]
-    }
-    with patch("dagayn.tools.refactor_tools.refactor_func", return_value=fake_result):
-        rows = guidance_precision.run(tmp_path, None, config)
-
-    assert rows[0]["precision_at_k"] == 1.0
-    assert rows[0]["hits"] == 1
 
 
 def test_build_performance_times_full_build(monkeypatch, tmp_path):

@@ -148,9 +148,7 @@ edited), `contract_doc_not_updated`, `bridge_touched`, `unstable_dependency`
 (the change makes a unit depend on a less stable one), `untested_change`, and
 `tests_to_run` (with a `command`). Each kind keeps 10; `findings_omitted`
 counts the rest. With no `base`, uncommitted edits to tracked files are
-reviewed against `HEAD`, a clean checkout against `HEAD~1`. The deprecated
-score-first fields (`analysis_summary`, `risk_score`, ...) appear only at
-`detail_level="verbose"`, for one release.
+reviewed against `HEAD`, a clean checkout against `HEAD~1`.
 
 The fork is designed to work well when docs, app code, and Terraform all change together.
 </section>

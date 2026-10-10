@@ -709,7 +709,6 @@ async def review_tool(
 
     Modes: changes (findings), context (source snippets), impact (blast
     radius, ``max_depth`` hops), affected_flows (flows the change touches).
-    ``detail_level="verbose"`` adds the deprecated score-first fields.
 
     Args:
         base: Git ref to diff against, plus staged, unstaged, and untracked

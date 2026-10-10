@@ -797,7 +797,7 @@
      "tags": []
     }
    },
-   "description": "Review a change set: what to check that the diff does not show.\n\nStart with ``changes`` and read ``findings``: each names a place to look,\nthe graph facts behind it, and an action. Kinds: dangling_reference\n(a removed symbol still referenced), unchanged_caller (new required\nparameter, callers not edited), contract_doc_not_updated, bridge_touched\n(one side of a manifest/Terraform/FFI bridge), unstable_dependency,\nuntested_change, tests_to_run (with a command). An empty list means\nnothing beyond the diff.\n\nModes: changes (findings), context (source snippets), impact (blast\nradius, ``max_depth`` hops), affected_flows (flows the change touches).\n``detail_level=\"verbose\"`` adds the deprecated score-first fields.",
+   "description": "Review a change set: what to check that the diff does not show.\n\nStart with ``changes`` and read ``findings``: each names a place to look,\nthe graph facts behind it, and an action. Kinds: dangling_reference\n(a removed symbol still referenced), unchanged_caller (new required\nparameter, callers not edited), contract_doc_not_updated, bridge_touched\n(one side of a manifest/Terraform/FFI bridge), unstable_dependency,\nuntested_change, tests_to_run (with a command). An empty list means\nnothing beyond the diff.\n\nModes: changes (findings), context (source snippets), impact (blast\nradius, ``max_depth`` hops), affected_flows (flows the change touches).",
    "inputSchema": {
     "properties": {
      "mode": {
