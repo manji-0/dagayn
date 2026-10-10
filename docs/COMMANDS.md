@@ -308,7 +308,7 @@ architecture metrics filtered to the scopes represented by that community.
 These CLI commands answer with the matching `architecture_analysis_tool`
 mode (`sdp_metrics`, `sdp_violations`, `sap_metrics`, `sap_violations`), so the CLI and MCP clients see the same scopes and
 numbers. `--format json` prints the MCP answer without the fields meant for
-an agent (`_hints`, `next_tool_suggestions`, `_runtime`, `_repo`). A
+an agent (`_runtime`, `_repo`). A
 `package` is a declared unit (Cargo crate, npm package, Go module, Python
 import package, Terraform module, or a top-level directory no manifest
 covers), not a directory; `sap-metrics` and `detect-sap` keep directory
@@ -638,8 +638,8 @@ edge's `confidence_tier`, and rows drop `id`, `language`, default
 `parent_name` / `is_test`, and a `file_path` already in `qualified_name`.
 It omits `answerability` and `edges`. `minimal` keeps fewer row fields, drops `guidance` and
 `description`, and returns every row that fits a 2,000-token budget. `full`
-returns the earlier `standard` shape: one row per edge, the `edges` list, full
-`answerability`, and `_hints`.
+returns the earlier `standard` shape: one row per edge, the `edges` list, and
+full `answerability`.
 
 `traverse_graph_tool` returns both the legacy top-level `truncated` boolean and a
 typed `reachability` object. `reachability.state` is `complete`, `truncated`, or
@@ -825,19 +825,11 @@ dead-code report without test fixtures), `complex_hotspot` (a function past the
 split thresholds whose lines changed in 5 or more commits in the last 90 days,
 from `git log -L`), and `undocumented_surface` (one of the three symbols other
 units use most from a unit, without a docstring or doc comment). An empty list
-means nothing worth doing. The earlier size-based `suggestions` (remove, split,
-document) are only in `detail_level="verbose"` for one release, listed in
-`deprecated_fields`. Findings and suggestions are leads (structure, not correctness): confirm them
+means nothing worth doing. Findings are leads (structure, not correctness): confirm them
 with `source_of` or a reproduction on a current graph (see the `trust` section
 of `get_docs_section_tool`). Verify public APIs,
 test artifacts, dynamic dispatch, and generated entry points before changing
-source. `plans` states, once per suggestion type, the minimum safe steps,
-safety checks, rollback guidance, and defer conditions; `work_packs` gives the
-first five suggestions a first commit scope, blast radius, required tests, and
-verification commands (`detail_level="minimal"` leaves it out).
-`detail_level="verbose"` returns the earlier layout: an `execution_plan` and
-`work_pack` on every suggestion, and for function splits a
-`concern_separation` profile in `evidence`. A rename preview lists the first
+source. A rename preview lists the first
 20 `edits` with `edits_omitted` and per-file `files` counts; the pending store
 keeps every edit for `apply_refactor_tool`, and `verbose` returns them all.
 

@@ -873,45 +873,6 @@ def test_search_leaves_embedding_and_errors_to_python(
     assert rust == python
 
 
-@pytest.mark.parametrize(
-    ("tool", "arguments"),
-    [
-        ("context:get_minimal_context", {"task": "review"}),
-        ("query:query_graph", {"pattern": "callers_of", "target": "app.py::helper"}),
-        ("query:query_graph", {"pattern": "source_of", "target": "main"}),
-        ("query:query_graph", {"pattern": "tests_for", "target": "app.py::main"}),
-        (
-            "query:query_graph",
-            {"pattern": "children_of", "target": "app.py", "detail_level": "full"},
-        ),
-        ("query:semantic_search_nodes", {"query": "helper"}),
-        ("query:semantic_search_nodes", {"query": "zz_none", "detail_level": "minimal"}),
-        ("query:list_graph_stats", {}),
-        ("docs:get_docs_section", {"section_name": "trust"}),
-    ],
-)
-def test_native_tools_leave_the_hint_session_untouched(
-    git_repo: Path, tool: str, arguments: dict[str, Any]
-) -> None:
-    """These tools record nothing in the `dagayn.hints` session, so their Rust
-    versions record nothing either. A Rust tool that calls `generate_hints`
-    records into the same session (`_core.HintSession`) and is checked by a
-    mixed-session test instead."""
-    from importlib import import_module
-
-    from dagayn.hints import get_session, reset_session
-
-    module_name, _, name = tool.partition(":")
-    reset_session()
-    getattr(import_module(f"dagayn.tools.{module_name}"), name)(
-        repo_root=str(git_repo), **arguments
-    )
-    session = get_session()
-    assert list(session.tools_called) == []
-    assert session.files_touched == set()
-    assert session.nodes_queried == set()
-
-
 REVIEW_TRACE = "answered review_tool in Rust"
 
 

@@ -64,11 +64,6 @@ The reply contract of `query_graph_tool`, `semantic_search_nodes_tool`,
   `nearest_test`, `counts_as_tested` within `hop_limit`, which is `null`,
   no limit, for Rust). No test there
   means no path in the graph, which a test run may still cover.
-- The earlier next-step fields (`next_action`, `exactness.next_action`,
-  `next_drill_downs`, `next_tool_suggestions`, `_hints`) appear only at
-  `detail_level="verbose"` (`"full"` for `query_graph_tool`), named in
-  `deprecated_fields`, for one release. `get_minimal_context_tool` no
-  longer returns `recommended_action` or `next_tool_suggestions`.
 - Below `verbose` a reply leaves out what is diagnosis or restatement:
   `_runtime`, `called_subtool`, `guidance` (its claim is `summary`, its
   caveats `missingness`, its action `next`), and search's

@@ -24,8 +24,8 @@ ambiguous name costs a round trip with no hint of how to retry. This note
 defines the workflow, the response contract that carries it, the evidence,
 and the order of work.
 
-Status: accepted ([decisions](#decisions-2026-10-07)); steps 1–7 are
-done; step 8 waits one release (see the [order of work](#order-of-work)).
+Status: accepted ([decisions](#decisions-2026-10-07)); steps 1–9 are
+done (see the [order of work](#order-of-work)).
 
 ## Target contract
 
@@ -342,8 +342,9 @@ fixtures the tests build.
    `get_docs_section_tool(section_name="trust")` has in full. The MCP server instructions name `next` and
    the `workflow` section in two sentences, inside the default
    descriptions' 8,500-character budget.
-8. After one release: remove the next-step fields `verbose` still
-   carries, and the hint engine that builds `_hints`.
+8. **Done (10.0.0):** the next-step fields `verbose` still carried, and the
+   hint engine that built `_hints`, are removed; the contract test checks
+   every Tier 1 reply at its default level and at `verbose` for them.
 9. **Done:** the envelope. `dagayn_tools::trim_envelope` (and its
    Python twin) applies the decision of 2026-10-08 below `verbose` and
    to every `get_minimal_context_tool` reply; search accepts

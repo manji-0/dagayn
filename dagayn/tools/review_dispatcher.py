@@ -20,9 +20,7 @@ from ._native import native_tool
 
 logger = logging.getLogger(__name__)
 
-_with_dispatch_metadata = partial(
-    with_dispatch_metadata, summary_label="Review", hints_tool="review"
-)
+_with_dispatch_metadata = partial(with_dispatch_metadata, summary_label="Review")
 
 #: The internal tool each mode answered with, as ``called_subtool`` names it.
 _SUBTOOLS: dict[str, str] = {

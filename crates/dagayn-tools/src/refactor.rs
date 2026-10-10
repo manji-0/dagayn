@@ -6,7 +6,7 @@ use serde_json::{Map, Value, json};
 
 use crate::analysis::py_prefix;
 use crate::answerability::Answerability;
-use crate::{Args, Context, Ordered, Payload, hints, open_graph, resolve_repo};
+use crate::{Args, Context, Ordered, Payload, open_graph, resolve_repo};
 
 const DECLARED: &[&str] = &[
     "mode",
@@ -74,8 +74,7 @@ pub(crate) fn refactor(context: &Context, arguments: &Map<String, Value>) -> Opt
     let store = &graph.store;
     let answerability = graph.answerability()?;
     if let Some((old, new)) = rename_names {
-        let exposed = |tool: &str| context.exposes(tool);
-        let out = rename(store, &answerability, old, new, &exposed, detail_level)?;
+        let out = rename(store, &answerability, old, new, detail_level)?;
         return Some(out.put("_repo", graph.repo_context()).into_payload());
     }
     let out = if mode == "dead_code" {
@@ -83,21 +82,7 @@ pub(crate) fn refactor(context: &Context, arguments: &Map<String, Value>) -> Opt
     } else {
         suggest(store, &graph.root, &answerability, detail_level)?
     };
-    let exposed = |tool: &str| context.exposes(tool);
-    // `suggest` takes its hints from its guidance when that names a step.
-    let from_guidance = out
-        .get("guidance")
-        .and_then(Value::as_array)
-        .map(|g| crate::review::guidance_actions_to_hints(g));
-    let hint = match from_guidance {
-        Some(hint) if hint["next_steps"].as_array().is_some_and(|s| !s.is_empty()) => hint,
-        _ => hints::generate_hints("refactor", &out.value(), &mut hints::session(), &exposed),
-    };
-    Some(
-        out.put("_hints", hint)
-            .put("_repo", graph.repo_context())
-            .into_payload(),
-    )
+    Some(out.put("_repo", graph.repo_context()).into_payload())
 }
 
 fn dead_code(
@@ -358,7 +343,6 @@ fn rename(
     answerability: &Answerability,
     old: &str,
     new: &str,
-    exposed: &dyn Fn(&str) -> bool,
     detail_level: &str,
 ) -> Option<Ordered> {
     use crate::query::sanitize;
@@ -570,16 +554,8 @@ fn rename(
                 json!({"refactor_id": id, "dry_run": true}),
                 "preview the unified diff in this session before any file is written",
             )]),
-        )
-        .put(
-            "next_tool_suggestions",
-            json!([
-                format!("apply_refactor_tool(refactor_id='{id}', dry_run=true) in the same session -- preview unified diff before writing files"),
-                format!("apply_refactor_tool(refactor_id='{id}') in the same session -- apply the rename"),
-            ]),
         );
-    let hint = hints::generate_hints("refactor", &out.value(), &mut hints::session(), exposed);
-    Some(out.put("_hints", hint))
+    Some(out)
 }
 
 /// A path under a `fixtures/` or `testdata/` directory.

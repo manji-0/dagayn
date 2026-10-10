@@ -194,18 +194,6 @@ pub(crate) fn read_entry_points(entries: &[Value]) -> Value {
     Value::Array(calls)
 }
 
-/// `_hints` that say what `next` says, for a reply whose generic hints
-/// would point elsewhere.
-pub(crate) fn as_hints(next: &Value) -> Value {
-    let steps: Vec<Value> = next
-        .as_array()
-        .into_iter()
-        .flatten()
-        .map(|call| json!({"tool": call["tool"], "suggestion": call["why"]}))
-        .collect();
-    json!({"next_steps": steps, "related": [], "warnings": []})
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -15,7 +15,6 @@ from ..contracts.state_types import (
     seal_reachability_info,
 )
 from ..graph import _sanitize_name
-from ..hints import generate_hints, get_session
 from ..search import embedding_health_available, hybrid_search
 from ._common import (
     ToolStoreScope,
@@ -23,7 +22,6 @@ from ._common import (
     _error_response,
     _get_store,
     graph_answerability_summary,
-    guidance_actions_to_hints,
     handle_tool_runtime_error,
     is_sqlite_corrupt_error,
     make_guidance_item,
@@ -33,7 +31,7 @@ from ._common import (
     summary_at_verbose_only,
 )
 from ._native import native_tool
-from .query_graph_support import exactness_action, result_evidence_type
+from .query_graph_support import result_evidence_type
 
 logger = logging.getLogger(__name__)
 
@@ -348,7 +346,6 @@ def semantic_search_nodes(
             if query in {str(r.get("name", "")), str(r.get("qualified_name", ""))}
         ]
         ambiguity = "multiple_exact_matches" if len(exact_matches) > 1 else None
-        next_action = exactness_action(query, len(exact_matches), len(results))
         guidance = _semantic_search_guidance(
             query=query,
             result_count=result_count,
@@ -389,24 +386,16 @@ def semantic_search_nodes(
             "total": total,
             "confidence": confidence,
             "zero_result_reason": zero_result_reason,
-            "next_action": next_action,
             "next": _read_hits(results),
             "exactness": {
                 "exact_match_count": len(exact_matches),
                 "ambiguity": ambiguity,
                 "source_arm": search_mode,
-                "next_action": next_action,
             },
             "summary": summary,
             "results": results,
             "guidance": guidance,
         }
-        hints = guidance_actions_to_hints(guidance)
-        if not hints["next_steps"]:
-            # Minimal mode feeds the hint engine only the status and summary.
-            hint_input = {"status": "ok", "summary": summary} if minimal else result
-            hints = generate_hints("semantic_search_nodes", hint_input, get_session())
-        result["_hints"] = hints
         return summary_at_verbose_only(result, detail_level)
     return scope.error
 

@@ -20,7 +20,6 @@ use crate::answerability::Answerability;
 use crate::changes::{Analysis, DiffParse, analyze_changes, parse_diff};
 use crate::coverage::splitlines;
 use crate::findings;
-use crate::hints::{generate_hints, session};
 use crate::query::{edge_dict, node_dict};
 use crate::{Args, Context, OpenGraph, Ordered, Payload, open_graph, resolve_repo};
 
@@ -160,11 +159,9 @@ pub(crate) fn review(context: &Context, arguments: &Map<String, Value>) -> Optio
     }
     let graph = open_graph(&root)?;
     let answerability = graph.answerability()?;
-    let exposed = |tool: &str| context.exposes(tool);
     let review = Review {
         graph: &graph,
         answerability: &answerability,
-        exposed: &exposed,
     };
     let (subtool, answer) = match mode {
         "changes" => ("detect_changes_func", review.changes(&request)?),
@@ -231,12 +228,10 @@ pub(crate) fn review(context: &Context, arguments: &Map<String, Value>) -> Optio
         crate::Dispatch {
             mode,
             subtool,
-            hints_tool: "review",
             runtime,
             trailing: Vec::new(),
             repo: graph.repo_context(),
         },
-        &exposed,
     ))
 }
 
@@ -276,16 +271,9 @@ macro_rules! attempt {
 struct Review<'a> {
     graph: &'a OpenGraph,
     answerability: &'a Answerability,
-    exposed: &'a dyn Fn(&str) -> bool,
 }
 
 impl Review<'_> {
-    /// `generate_hints(tool, result, get_session())`, holding the session
-    /// only while it records.
-    fn hints(&self, tool: &str, result: &Value) -> Value {
-        generate_hints(tool, result, &mut session(), self.exposed)
-    }
-
     fn store(&self) -> &GraphStore {
         &self.graph.store
     }
@@ -485,8 +473,7 @@ impl Review<'_> {
                     "changed_files",
                 ],
             );
-        let hints = findings_hints(&findings);
-        Some(Ok(out.put("_hints", hints)))
+        Some(Ok(out))
     }
 
     /// `detect_changes_func`'s `include_source`: the changed function's lines,
@@ -638,14 +625,6 @@ impl Review<'_> {
                     .put("test_gaps", gaps)
                     .put("answerability", self.answerability.full())
                     .put("missingness", json!(self.answerability.missingness()))
-                    .put(
-                        "next_tool_suggestions",
-                        json!([
-                            "review_tool mode=\"changes\"",
-                            "review_tool mode=\"affected_flows\"",
-                            "review_tool mode=\"impact\"",
-                        ]),
-                    )
                     .apply_output_budget(crate::MINIMAL_BUDGET, &SOURCE_LISTS),
             );
         }
@@ -891,8 +870,7 @@ impl Review<'_> {
         } else {
             out.apply_output_budget(budget, &priorities)
         };
-        let hints = self.hints("get_affected_flows", &out.value());
-        Some(Ok(out.put("_hints", hints)))
+        Some(Ok(out))
     }
 
     /// `get_impact_radius` (the tool, `dagayn.tools.query`).
@@ -1161,45 +1139,6 @@ fn findings_summary(
     format!("{head} Findings: {}.", listed.join(", "))
 }
 
-/// `_hints` from the findings: the first places to look, in order.
-fn findings_hints(findings: &Value) -> Value {
-    let mut steps: Vec<Value> = Vec::new();
-    for finding in findings.as_array().into_iter().flatten() {
-        if steps.len() == 3 {
-            break;
-        }
-        let kind = finding["kind"].as_str().unwrap_or_default();
-        let step = match kind {
-            "tests_to_run" => match finding["command"].as_str() {
-                Some(command) => json!({"tool": "shell", "suggestion": command}),
-                None => {
-                    json!({"tool": "shell", "suggestion": format!("run the tests in {}", finding["file"].as_str().unwrap_or_default())})
-                }
-            },
-            "untested_change" => json!({
-                "tool": "review_tool",
-                "suggestion": "review_tool mode=\"context\" -- read the untested functions before adding a test",
-            }),
-            _ => {
-                let target = finding["sites"][0]["qualified_name"]
-                    .as_str()
-                    .or_else(|| finding["qualified_name"].as_str())
-                    .or_else(|| finding["file"].as_str())
-                    .unwrap_or_default();
-                json!({
-                    "tool": "query_graph_tool",
-                    "suggestion": format!("query_graph_tool pattern=\"source_of\" target=\"{target}\" -- {kind}"),
-                })
-            }
-        };
-        // Several untested files point at the same next step; list it once.
-        if !steps.contains(&step) {
-            steps.push(step);
-        }
-    }
-    json!({"next_steps": steps, "related": [], "warnings": []})
-}
-
 /// How many changed files each source (`base_diff`, `staged`, ...) named;
 /// `minimal` lists the files once in `changed_files`.
 fn source_counts(sources: &Value) -> Value {
@@ -1253,86 +1192,6 @@ fn sources_value(sources: ChangeSources) -> Value {
         "unstaged": sources.unstaged,
         "untracked": sources.untracked,
     })
-}
-
-/// `guidance_actions_to_hints(guidance)`: the first three actions as next
-/// steps, and the medium or high missingness codes met on the way.
-pub(crate) fn guidance_actions_to_hints(guidance: &[Value]) -> Value {
-    let mut next_steps = Vec::new();
-    let mut warnings = Vec::new();
-    for item in guidance {
-        let (tool, suggestion) = match item.get("action") {
-            Some(Value::Object(action)) => {
-                let text = |v: Option<&Value>| match v {
-                    Some(value) if !value.is_null() && value != "" => Some(match value {
-                        Value::String(s) => s.clone(),
-                        other => other.to_string(),
-                    }),
-                    _ => None,
-                };
-                let tool = text(action.get("tool")).unwrap_or_else(|| "manual".to_string());
-                let suggestion = text(action.get("suggestion"))
-                    .or_else(|| text(action.get("command")))
-                    .unwrap_or_else(|| tool.clone());
-                (tool, suggestion)
-            }
-            action => {
-                let text = match action {
-                    Some(Value::String(s)) => s.clone(),
-                    None | Some(Value::Null) => String::new(),
-                    Some(other) => other.to_string(),
-                };
-                let head = text.split(" -- ").next().unwrap_or("");
-                let tool = if head.is_empty() {
-                    "manual".to_string()
-                } else {
-                    head.split(' ')
-                        .next()
-                        .unwrap_or("")
-                        .split('(')
-                        .next()
-                        .unwrap_or("")
-                        .to_string()
-                };
-                (tool, text)
-            }
-        };
-        if suggestion.is_empty() {
-            continue;
-        }
-        let step = json!({"tool": tool, "suggestion": suggestion});
-        if !next_steps.contains(&step) {
-            next_steps.push(step);
-        }
-        let missing = match item.get("missingness") {
-            Some(Value::Object(one)) => vec![Value::Object(one.clone())],
-            Some(Value::Array(many)) => many.clone(),
-            _ => Vec::new(),
-        };
-        for entry in missing {
-            let severity = entry
-                .get("severity")
-                .and_then(Value::as_str)
-                .unwrap_or("info");
-            if matches!(severity, "medium" | "high")
-                && let Some(code) = entry
-                    .get("reason_code")
-                    .filter(|c| !c.is_null() && *c != "")
-            {
-                let code = match code {
-                    Value::String(s) => s.clone(),
-                    other => other.to_string(),
-                };
-                if !warnings.contains(&code) {
-                    warnings.push(code);
-                }
-            }
-        }
-        if next_steps.len() >= 3 {
-            break;
-        }
-    }
-    json!({"next_steps": next_steps, "related": [], "warnings": warnings})
 }
 
 /// `_unmatched_changed_files`: the changed files no changed node belongs to.
@@ -1609,32 +1468,5 @@ mod tests {
             Some(CAVEAT_EXAMPLES)
         );
         assert_eq!(folded["examples"][0]["source"], "README.0.md::usage");
-    }
-
-    #[test]
-    fn hints_follow_the_findings_once_each() {
-        let findings = json!([
-            {"kind": "untested_change", "file": "a.py"},
-            {"kind": "untested_change", "file": "b.py"},
-            {"kind": "tests_to_run", "file": "t.py", "command": "pytest t.py"},
-            {"kind": "dangling_reference", "qualified_name": "a.py::gone",
-             "sites": [{"qualified_name": "c.py::caller"}]},
-        ]);
-        let steps = findings_hints(&findings)["next_steps"].clone();
-        let tools: Vec<&str> = steps
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|s| s["tool"].as_str().unwrap())
-            .collect();
-        assert_eq!(tools, ["review_tool", "shell", "query_graph_tool"]);
-        assert_eq!(steps[1]["suggestion"], "pytest t.py");
-        assert!(
-            steps[2]["suggestion"]
-                .as_str()
-                .unwrap()
-                .contains("target=\"c.py::caller\"")
-        );
-        assert_eq!(findings_hints(&json!([]))["next_steps"], json!([]));
     }
 }

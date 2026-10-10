@@ -561,18 +561,6 @@ fn fts_search(
     })
 }
 
-/// `guidance_actions_to_hints` for one guidance item.
-fn hints(action: &str, warnings: &[&str]) -> Value {
-    let head = action.split(" -- ").next().unwrap_or(action);
-    let tool = head.split(' ').next().unwrap_or(head);
-    let tool = tool.split('(').next().unwrap_or(tool);
-    json!({
-        "next_steps": [{"tool": tool, "suggestion": action}],
-        "related": [],
-        "warnings": warnings,
-    })
-}
-
 pub(crate) fn semantic_search(
     context: &Context,
     arguments: &Map<String, Value>,
@@ -650,10 +638,6 @@ pub(crate) fn semantic_search(
     }
     let mut missingness = answerability.missingness();
     missingness.extend(arm_missing.iter().cloned());
-    let arm_codes: Vec<&str> = arm_missing
-        .iter()
-        .filter_map(|item| item.get("reason_code").and_then(Value::as_str))
-        .collect();
 
     let result_count = hits.results.len();
     let summary = match kind {
@@ -668,16 +652,7 @@ pub(crate) fn semantic_search(
                 || r.get("qualified_name").and_then(Value::as_str) == Some(query)
         })
         .count();
-    let next_action = if exact_count == 1 {
-        json!({"tool": "query_graph_tool", "suggestion": "fetch live source with pattern=\"source_of\", then callers_of/callees_of"})
-    } else if exact_count > 1 {
-        json!({"tool": "semantic_search_nodes_tool", "suggestion": format!("choose one qualified name before querying relationships for '{query}'")})
-    } else if result_count > 0 {
-        json!({"tool": "query_graph_tool", "suggestion": "fetch live source with pattern=\"source_of\" for the chosen qualified_name"})
-    } else {
-        json!({"tool": "semantic_search_nodes_tool", "suggestion": "broaden the query or verify the graph is up to date"})
-    };
-    let (guidance, hint) = if result_count > 0 {
+    let guidance = if result_count > 0 {
         let action = "query_graph_tool pattern=\"source_of\" -- fetch the chosen node's live span";
         let missing = if arm_missing.is_empty() {
             json!([{
@@ -688,18 +663,15 @@ pub(crate) fn semantic_search(
         } else {
             json!(arm_missing)
         };
-        (
-            json!([{
-                "claim": format!("Hybrid search returned {result_count} candidate(s) for '{query}'."),
-                "evidence": [{"type": "computed", "query": query, "result_count": result_count, "search_mode": hits.mode}],
-                "confidence": "medium",
-                "missingness": missing,
-                "action": action,
-                "reason_codes": ["hybrid_search"],
-                "counts": {"result_count": result_count},
-            }]),
-            hints(action, &arm_codes),
-        )
+        json!([{
+            "claim": format!("Hybrid search returned {result_count} candidate(s) for '{query}'."),
+            "evidence": [{"type": "computed", "query": query, "result_count": result_count, "search_mode": hits.mode}],
+            "confidence": "medium",
+            "missingness": missing,
+            "action": action,
+            "reason_codes": ["hybrid_search"],
+            "counts": {"result_count": result_count},
+        }])
     } else {
         let action = "dagayn update -- refresh graph coverage before concluding absence";
         let mut missing = arm_missing.clone();
@@ -708,20 +680,15 @@ pub(crate) fn semantic_search(
             "severity": "medium",
             "claim_effect": "absence is graph-limited, not proof the symbol does not exist",
         }));
-        let mut codes = arm_codes.clone();
-        codes.push("not_found_in_current_graph");
-        (
-            json!([{
-                "claim": format!("No nodes matched '{query}' in the current graph."),
-                "evidence": [{"type": "computed", "query": query, "search_mode": hits.mode}],
-                "confidence": "low",
-                "missingness": missing,
-                "action": action,
-                "reason_codes": ["zero_result"],
-                "counts": {"result_count": 0},
-            }]),
-            hints(action, &codes),
-        )
+        json!([{
+            "claim": format!("No nodes matched '{query}' in the current graph."),
+            "evidence": [{"type": "computed", "query": query, "search_mode": hits.mode}],
+            "confidence": "low",
+            "missingness": missing,
+            "action": action,
+            "reason_codes": ["zero_result"],
+            "counts": {"result_count": 0},
+        }])
     };
     let results: Vec<Value> = if minimal {
         hits.results
@@ -781,7 +748,6 @@ pub(crate) fn semantic_search(
             .put("total", hits.total)
             .put("confidence", confidence)
             .put("zero_result_reason", zero_result_reason)
-            .put("next_action", next_action.clone())
             .put("next", crate::next::read_hits(&results))
             .put(
                 "exactness",
@@ -789,13 +755,11 @@ pub(crate) fn semantic_search(
                     "exact_match_count": exact_count,
                     "ambiguity": if exact_count > 1 { json!("multiple_exact_matches") } else { Value::Null },
                     "source_arm": hits.mode,
-                    "next_action": next_action,
                 }),
             )
             .put("summary", summary)
             .put("results", json!(results))
             .put("guidance", guidance)
-            .put("_hints", hint)
             .put("_repo", graph.repo_context())
             .into_payload(),
     )

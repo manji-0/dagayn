@@ -24,7 +24,6 @@ pub(crate) fn flow(context: &Context, arguments: &Map<String, Value>) -> Option<
     let runtime = context.runtime.clone()?;
     let graph = open_graph(&root)?;
     let answerability = graph.answerability()?;
-    let exposed = |tool: &str| context.exposes(tool);
     let out = match target.filter(|t| !t.is_empty()) {
         Some(target) => crate::entry_points::entry_points(
             &graph.store,
@@ -47,11 +46,9 @@ pub(crate) fn flow(context: &Context, arguments: &Map<String, Value>) -> Option<
         crate::Dispatch {
             mode: &mode,
             subtool: "entry_points",
-            hints_tool: "flow",
             runtime,
             trailing: Vec::new(),
             repo: graph.repo_context(),
         },
-        &exposed,
     ))
 }

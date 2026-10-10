@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import cast
 
 from ..contracts.state_types import seal_dispatcher_error, seal_dispatcher_ok
-from ..hints import generate_hints, get_session
 from ._common import ToolPayload, attach_answerability
 
 
@@ -13,7 +12,6 @@ def with_dispatch_metadata(
     result: ToolPayload,
     *,
     summary_label: str,
-    hints_tool: str,
     mode: str,
     called_subtool: str,
     repo_root: str | None,
@@ -28,7 +26,6 @@ def with_dispatch_metadata(
     if payload.get("status") == "error":
         payload.setdefault("error", payload["summary"])
         return cast(ToolPayload, seal_dispatcher_error(payload))
-    payload.setdefault("_hints", generate_hints(hints_tool, payload, get_session()))
     return cast(ToolPayload, seal_dispatcher_ok(payload))
 
 

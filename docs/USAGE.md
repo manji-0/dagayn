@@ -274,9 +274,9 @@ CLI results as the same implementation.
 
 `next` lists the calls to make, with their arguments; the earlier next-step
 fields (`_hints`, `next_action`, `next_tool_suggestions`, `next_drill_downs`)
-moved to `detail_level="verbose"` for one release; `guidance` is
-`verbose`-only too. New consumers should read `next` and `missingness` first, then fall back to the older raw
-sections only when a drill-down needs more detail.
+are gone from the Tier 1 tools, and `guidance` is `verbose`-only. Read `next`
+and `missingness` first, then the raw sections only when a drill-down needs
+more detail.
 
 `review_tool(mode="changes")` and `refactor_tool(mode="suggest")` answer
 with `findings`; their earlier score-first and size-based fields are gone.

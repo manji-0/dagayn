@@ -544,7 +544,7 @@ def handle_visualize_command(
 
 #: Fields of an ``architecture_analysis_tool`` answer that guide an MCP agent
 #: and mean nothing to a CLI caller.
-_AGENT_ONLY_FIELDS = ("_hints", "next_tool_suggestions", "_runtime", "_repo")
+_AGENT_ONLY_FIELDS = ("_runtime", "_repo")
 
 #: ``top_n`` for the ``detect-*`` commands, which list every violation unless
 #: ``--top-n`` says otherwise.

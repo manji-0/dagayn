@@ -190,7 +190,7 @@ def test_sdp_violations_truncate_to_top_n(layered_repo: Path) -> None:
     assert result["total"] >= 2
     assert result["truncated"] is True
     assert len(result["violations"]) == 1
-    assert result["_hints"]["next_steps"][0]["tool"] == "architecture_analysis_tool"
+    assert "_hints" not in result
 
 
 def test_sap_metrics_separate_inapplicable_scopes_by_default(layered_repo: Path) -> None:

@@ -495,40 +495,6 @@ def make_guidance_item(
     return cast(ToolPayload, seal_guidance_item(item))
 
 
-def guidance_actions_to_hints(
-    guidance: Sequence[Mapping[str, object]], *, limit: int = 3
-) -> ToolHintsRecord:
-    """Convert guidance actions into the existing ``_hints.next_steps`` shape."""
-    next_steps: list[ToolHintStep] = []
-    warnings: list[str] = []
-    for item in guidance:
-        action = item.get("action")
-        if isinstance(action, Mapping):
-            tool = str(action.get("tool") or "manual")
-            suggestion = str(action.get("suggestion") or action.get("command") or tool)
-        else:
-            # Keep the whole action text: the part before " -- " carries the
-            # mode/pattern arguments an agent needs to make the call.
-            action_text = str(action or "")
-            head = action_text.partition(" -- ")[0]
-            tool = head.split(" ", 1)[0].split("(", 1)[0] if head else "manual"
-            suggestion = action_text
-        if not suggestion:
-            continue
-        next_steps.append({"tool": tool, "suggestion": suggestion})
-        raw_missingness = item.get("missingness") or []
-        if isinstance(raw_missingness, Mapping):
-            raw_missingness = [raw_missingness]
-        for missing in cast(Sequence[Mapping[str, object]], raw_missingness):
-            severity = str(missing.get("severity", "info"))
-            code = missing.get("reason_code")
-            if severity in {"medium", "high"} and code:
-                warnings.append(str(code))
-        if len(next_steps) >= limit:
-            break
-    return {"next_steps": next_steps, "related": [], "warnings": warnings}
-
-
 def _freshness_reason_codes(
     store: Any,
     freshness: Mapping[str, Any] | None = None,
@@ -760,8 +726,8 @@ def attach_answerability(
     return payload
 
 
-#: What a Tier 1 reply said to call next before ``next``; they stay at
-#: ``detail_level="verbose"``, named in ``deprecated_fields``, for one release.
+#: What a Tier 1 reply said to call next before ``next``; a reply that still
+#: carries one has it dropped.
 NEXT_STEP_FIELDS = ("next_action", "next_drill_downs", "next_tool_suggestions", "_hints")
 
 
@@ -788,33 +754,19 @@ def summary_at_verbose_only(payload: ToolPayload, detail_level: str | None) -> T
     ``dagayn_tools::seal_reply`` does
     (docs/plans/AGENT-WORKFLOW-TARGET.md#target-contract): ``next`` always
     (``[]`` where nothing follows), the graph's ``answerability`` only at
-    ``detail_level="verbose"`` (or ``"full"``) and never on an error, and the
-    earlier next-step fields only at ``verbose``, named in
-    ``deprecated_fields``."""
+    ``detail_level="verbose"`` (or ``"full"``) and never on an error, and none
+    of the earlier next-step fields."""
     verbose = detail_level in ("verbose", "full")
     payload.setdefault("next", [])
     if not verbose or payload.get("status") == "error":
         payload.pop("answerability", None)
     if not verbose:
         trim_envelope(payload)
-        for key in NEXT_STEP_FIELDS:
-            payload.pop(key, None)
-        exactness = payload.get("exactness")
-        if isinstance(exactness, dict):
-            exactness.pop("next_action", None)
-        return payload
-    deprecated: list[str] = []
-    for key, value in payload.items():
-        if key in NEXT_STEP_FIELDS:
-            deprecated.append(key)
-        elif key == "exactness" and isinstance(value, dict) and "next_action" in value:
-            deprecated.append("exactness.next_action")
-    # Idempotent: a reply Rust already sealed passes through unchanged.
-    existing = payload.get("deprecated_fields")
-    if isinstance(existing, list):
-        existing.extend(name for name in deprecated if name not in existing)
-    elif deprecated:
-        payload["deprecated_fields"] = deprecated
+    for key in NEXT_STEP_FIELDS:
+        payload.pop(key, None)
+    exactness = payload.get("exactness")
+    if isinstance(exactness, dict):
+        exactness.pop("next_action", None)
     return payload
 
 

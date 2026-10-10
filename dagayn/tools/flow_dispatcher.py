@@ -20,7 +20,7 @@ from ._native import native_tool
 
 logger = logging.getLogger(__name__)
 
-_with_dispatch_metadata = partial(with_dispatch_metadata, summary_label="Flow", hints_tool="flow")
+_with_dispatch_metadata = partial(with_dispatch_metadata, summary_label="Flow")
 
 
 def flow_func(

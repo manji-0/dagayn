@@ -1404,13 +1404,17 @@ fn architecture_metrics_follow_the_requested_view() {
     assert!(sdp.get("answerability").is_none());
     assert!(sdp.get("_hints").is_none());
     assert_eq!(sdp["metrics"].as_array().map(Vec::len), Some(1));
-    // verbose keeps the earlier next-step fields for one release, named.
+    // verbose carries none of the earlier next-step fields either.
     let sdp = arch(json!({"mode": "sdp_metrics", "detail_level": "verbose"}));
-    assert!(
-        sdp["deprecated_fields"]
-            .as_array()
-            .is_some_and(|fields| fields.contains(&json!("_hints")))
-    );
+    for gone in [
+        "_hints",
+        "next_tool_suggestions",
+        "next_action",
+        "next_drill_downs",
+        "deprecated_fields",
+    ] {
+        assert!(sdp.get(gone).is_none(), "{gone}");
+    }
     let violations = arch(json!({"mode": "sdp_violations", "min_delta": 0}));
     assert!(
         violations["summary"]
@@ -2268,6 +2272,34 @@ fn every_reply_names_calls_that_answer_and_fits_its_budget() {
                         ));
                     }
                 }
+            }
+        }
+    }
+    // No reply, at any level, carries the next-step fields `next` replaced.
+    for (tool, arguments) in &cases {
+        let mut verbose = arguments.clone();
+        verbose["detail_level"] = json!(if *tool == "query_graph_tool" {
+            "full"
+        } else {
+            "verbose"
+        });
+        for args in [arguments, &verbose] {
+            let Some(payload) = call(&context, tool, args) else {
+                continue;
+            };
+            for gone in [
+                "_hints",
+                "next_action",
+                "next_drill_downs",
+                "next_tool_suggestions",
+                "deprecated_fields",
+            ] {
+                if payload.value.get(gone).is_some() {
+                    failures.push(format!("{tool} {args}: {gone}"));
+                }
+            }
+            if payload.value["exactness"].get("next_action").is_some() {
+                failures.push(format!("{tool} {args}: exactness.next_action"));
             }
         }
     }

@@ -26,7 +26,6 @@ mod ensure;
 mod entry_points;
 mod findings;
 mod flow;
-pub mod hints;
 mod large;
 mod next;
 pub mod pending;
@@ -212,8 +211,8 @@ fn trim_envelope(entries: &mut Vec<(String, Value)>) {
     }
 }
 
-/// What every Tier 1 reply says what to call next with, before `next`; they
-/// stay at `verbose`, named in `deprecated_fields`, for one release.
+/// What Tier 1 replies said to call next with before `next`; a subtool that
+/// still builds one has it dropped.
 const NEXT_STEP_FIELDS: [&str; 4] = [
     "next_action",
     "next_drill_downs",
@@ -223,9 +222,9 @@ const NEXT_STEP_FIELDS: [&str; 4] = [
 
 /// The reply contract of docs/plans/AGENT-WORKFLOW-TARGET.md#target-contract
 /// on one reply's entries: `next` always (`[]` where nothing follows), the
-/// graph's `answerability` only at `verbose` and never on an error, and the
-/// earlier next-step fields only at `verbose`. The Python server seals its own
-/// replies the same way (`dagayn/tools/_common.py::summary_at_verbose_only`).
+/// graph's `answerability` only at `verbose` and never on an error, and none
+/// of the earlier next-step fields. The Python server seals its own replies
+/// the same way (`dagayn/tools/_common.py::summary_at_verbose_only`).
 fn seal_reply(entries: &mut Vec<(String, Value)>, verbose: bool, error: bool) {
     if !entries.iter().any(|(key, _)| key == "next") {
         entries.push(("next".into(), json!([])));
@@ -235,40 +234,14 @@ fn seal_reply(entries: &mut Vec<(String, Value)>, verbose: bool, error: bool) {
     }
     if !verbose {
         trim_envelope(entries);
-        entries.retain(|(key, _)| !NEXT_STEP_FIELDS.contains(&key.as_str()));
-        for (key, value) in entries.iter_mut() {
-            if key == "exactness"
-                && let Some(exactness) = value.as_object_mut()
-            {
-                exactness.remove("next_action");
-            }
-        }
-        return;
     }
-    let mut deprecated: Vec<Value> = Vec::new();
-    for (key, value) in entries.iter() {
-        if NEXT_STEP_FIELDS.contains(&key.as_str()) {
-            deprecated.push(json!(key));
-        } else if key == "exactness" && value.get("next_action").is_some() {
-            deprecated.push(json!("exactness.next_action"));
+    entries.retain(|(key, _)| !NEXT_STEP_FIELDS.contains(&key.as_str()));
+    for (key, value) in entries.iter_mut() {
+        if key == "exactness"
+            && let Some(exactness) = value.as_object_mut()
+        {
+            exactness.remove("next_action");
         }
-    }
-    if deprecated.is_empty() {
-        return;
-    }
-    match entries
-        .iter_mut()
-        .find(|(key, _)| key == "deprecated_fields")
-    {
-        // Idempotent, as the Python twin is.
-        Some((_, Value::Array(fields))) => {
-            for name in deprecated {
-                if !fields.contains(&name) {
-                    fields.push(name);
-                }
-            }
-        }
-        _ => entries.push(("deprecated_fields".into(), Value::Array(deprecated))),
     }
 }
 
@@ -303,39 +276,21 @@ fn answer(context: &Context, name: &str, arguments: &Map<String, Value>) -> Opti
 pub(crate) struct Dispatch<'a> {
     pub mode: &'a str,
     pub subtool: &'a str,
-    /// The `generate_hints` tool name the dispatcher reports.
-    pub hints_tool: &'a str,
     pub runtime: Value,
     pub trailing: Vec<(&'a str, Value)>,
     /// `_repo`.
     pub repo: Value,
 }
 
-pub(crate) fn seal_dispatch(
-    out: Ordered,
-    dispatch: Dispatch,
-    exposed: &dyn Fn(&str) -> bool,
-) -> Payload {
+pub(crate) fn seal_dispatch(out: Ordered, dispatch: Dispatch) -> Payload {
     let Dispatch {
         mode,
         subtool,
-        hints_tool,
         runtime,
         trailing,
         repo,
     } = dispatch;
-    let mut seen = out.value();
-    if let Some(object) = seen.as_object_mut() {
-        object.insert("mode".to_string(), json!(mode));
-        object.insert("called_subtool".to_string(), json!(subtool));
-        object.insert("_runtime".to_string(), runtime.clone());
-        for (key, value) in &trailing {
-            object.insert(key.to_string(), value.clone());
-        }
-    }
-    let dispatcher_hints = hints::generate_hints(hints_tool, &seen, &mut hints::session(), exposed);
-    let has_hints = out.get("_hints").is_some();
-    let field = |key: &str| seen.get(key).cloned().unwrap_or(Value::Null);
+    let field = |key: &str| out.get(key).cloned().unwrap_or(Value::Null);
     let mut sealed = Ordered::default()
         .put("status", field("status"))
         .put("mode", mode)
@@ -349,9 +304,6 @@ pub(crate) fn seal_dispatch(
     sealed = sealed.put("_runtime", runtime);
     for (key, value) in trailing {
         sealed = sealed.put(key, value);
-    }
-    if !has_hints {
-        sealed = sealed.put("_hints", dispatcher_hints);
     }
     sealed.put("_repo", repo).into_payload()
 }

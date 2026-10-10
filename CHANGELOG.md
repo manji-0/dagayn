@@ -63,6 +63,13 @@ All notable changes to `dagayn` are documented here.
   `missing_flows`, `missing_flows_table`, and `stale_flow_memberships`
   reason codes and counts are gone; a graph without stored flows no longer
   loses 0.15 of its score.
+- **Breaking:** the Tier 1 tools no longer return `_hints`, `next_action`,
+  `exactness.next_action`, `next_drill_downs`, `next_tool_suggestions`, or
+  `deprecated_fields` at any detail level, deprecated in 9.0.0; read `next`.
+  The hint engine behind `_hints` (`dagayn.hints`, `_core.HintSession`)
+  goes with them. The other tools (`list_graph_stats_tool`,
+  `ensure_graph_tool`, and the rest of the advanced surface) keep their
+  `_hints`.
 - `dagayn eval --benchmark flow_completeness` scores the detected entry
   points directly, and the `query_performance` and `nplusone_count`
   benchmarks drop their stored-flow scenarios.

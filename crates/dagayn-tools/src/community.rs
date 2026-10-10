@@ -4,9 +4,9 @@
 use dagayn_graph::GraphStore;
 use serde_json::{Value, json};
 
+use crate::Ordered;
 use crate::analysis::py_prefix;
 use crate::query::node_dict;
-use crate::{Ordered, hints};
 
 /// `get_communities(store, sort_by, min_size)`.
 fn get_communities(store: &GraphStore, sort_by: &str, min_size: i64) -> Option<Vec<Value>> {
@@ -16,7 +16,6 @@ fn get_communities(store: &GraphStore, sort_by: &str, min_size: i64) -> Option<V
 /// `list_communities_func(sort_by, min_size, detail_level, limit)`.
 pub(crate) fn list_communities(
     store: &GraphStore,
-    exposed: &dyn Fn(&str) -> bool,
     sort_by: &str,
     min_size: i64,
     detail_level: &str,
@@ -45,19 +44,12 @@ pub(crate) fn list_communities(
         .put("total", total)
         .put("truncated", truncated)
         .apply_output_budget(4000, &["communities"]);
-    let hints = hints::generate_hints(
-        "list_communities",
-        &out.value(),
-        &mut hints::session(),
-        exposed,
-    );
-    Some(out.put("_hints", hints))
+    Some(out)
 }
 
 /// `get_community_func(community_name, community_id, include_members)`.
 pub(crate) fn get_community(
     store: &GraphStore,
-    exposed: &dyn Fn(&str) -> bool,
     name: Option<&str>,
     id: Option<i64>,
     include_members: bool,
@@ -110,11 +102,5 @@ pub(crate) fn get_community(
         .put("status", "ok")
         .put("summary", summary)
         .put("community", community);
-    let hints = hints::generate_hints(
-        "get_community",
-        &out.value(),
-        &mut hints::session(),
-        exposed,
-    );
-    Some(out.put("_hints", hints))
+    Some(out)
 }

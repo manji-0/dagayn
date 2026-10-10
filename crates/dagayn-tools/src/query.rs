@@ -617,44 +617,6 @@ fn project_minimal(row: Row) -> Value {
     )
 }
 
-/// `guidance_actions_to_hints` for the items `guidance` builds.
-fn hints(guidance: &Value) -> Value {
-    let mut next_steps = Vec::new();
-    let mut warnings = Vec::new();
-    for item in guidance.as_array().into_iter().flatten() {
-        let action = item.get("action").and_then(Value::as_str).unwrap_or("");
-        if action.is_empty() {
-            continue;
-        }
-        let head = action.split(" -- ").next().unwrap_or(action);
-        let tool = head.split(' ').next().unwrap_or(head);
-        let tool = tool.split('(').next().unwrap_or(tool);
-        next_steps.push(
-            json!({"tool": if head.is_empty() { "manual" } else { tool }, "suggestion": action}),
-        );
-        for missing in item
-            .get("missingness")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-        {
-            let severity = missing
-                .get("severity")
-                .and_then(Value::as_str)
-                .unwrap_or("info");
-            if let Some(code) = missing.get("reason_code").and_then(Value::as_str)
-                && matches!(severity, "medium" | "high")
-            {
-                warnings.push(code.to_string());
-            }
-        }
-        if next_steps.len() >= 3 {
-            break;
-        }
-    }
-    json!({"next_steps": next_steps, "related": [], "warnings": warnings})
-}
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Resolution {
     Exact,
@@ -1270,7 +1232,6 @@ fn not_found(
         .put("result_count", 0)
         .put("results", json!([]))
         .put("zero_result_reason", "target_not_found_in_graph")
-        .put("next_action", exactness_action(pattern, 0, 0))
         .put(
             "next",
             json!([crate::next::call(
@@ -1281,8 +1242,7 @@ fn not_found(
         )
         .put("answerability", answerability.full())
         .put("missingness", json!(missingness))
-        .put("guidance", guidance.clone())
-        .put("_hints", hints(&guidance))
+        .put("guidance", guidance)
         .put("_repo", graph.repo_context())
         .into_payload()
 }
@@ -1339,35 +1299,6 @@ fn ambiguous(
         .put("missingness", json!(missingness))
         .put("_repo", graph.repo_context())
         .into_payload()
-}
-
-/// `exactness_action` (with the pattern, as `query_graph` passes it).
-fn exactness_action(pattern: &str, exact_count: i64, result_count: usize) -> Value {
-    if exact_count == 1 {
-        if pattern == "source_of" {
-            return json!({"tool": "query_graph_tool", "suggestion": "inspect callers_of/callees_of after reading the live span; Read the file only for surrounding context or edits"});
-        }
-        return json!({"tool": "query_graph_tool", "suggestion": "fetch live source with pattern=\"source_of\", then callers_of/callees_of"});
-    }
-    if result_count > 0 {
-        return json!({"tool": "query_graph_tool", "suggestion": "fetch live source with pattern=\"source_of\" for the chosen qualified_name"});
-    }
-    json!({"tool": "semantic_search_nodes_tool", "suggestion": "broaden the query or verify the graph is up to date"})
-}
-
-/// `_transitive_next_action`.
-fn transitive_next_action(reachability: &Value, results_complete: bool) -> Value {
-    if reachability.get("truncated") == Some(&Value::Bool(true)) || !results_complete {
-        return json!({"tool": "query_graph_tool", "suggestion": "the reachable set was cut off; lower depth or query the deepest listed nodes to see the rest"});
-    }
-    if reachability.get("depth_limit_reached") == Some(&Value::Bool(true)) {
-        let max = reachability
-            .get("max_depth")
-            .cloned()
-            .unwrap_or(Value::Null);
-        return json!({"tool": "query_graph_tool", "suggestion": format!("nodes beyond {max} hops may exist; raise depth (max 6) or query the deepest listed nodes")});
-    }
-    json!({"tool": null, "suggestion": "the transitive set is closed over graph edges: no other node is reachable, so querying listed nodes again returns nothing new"})
 }
 
 pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> Option<Payload> {
@@ -1513,7 +1444,6 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
     } else {
         ("low", json!("not_found_in_current_graph"))
     };
-    let next_action = exactness_action(pattern, exact_count, raw_count);
     let guidance = guidance(pattern, target, raw_count, exact_count);
     let mut summary = format!("Found {raw_count} result(s) for {pattern}('{target}')");
     if depth > 1 {
@@ -1528,7 +1458,6 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
         .put("unresolved_targets", json!(found.unresolved))
         .put("confidence", confidence)
         .put("zero_result_reason", zero_result_reason)
-        .put("next_action", next_action)
         .put("next", json!([]))
         .put("resolution", resolution.as_str())
         .put("exact_match_count", exact_count);
@@ -1554,8 +1483,7 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
                 json!(found.rows.iter().cloned().map(object).collect::<Vec<_>>()),
             )
             .put("edges", json!(edges))
-            .put("guidance", guidance.clone())
-            .put("_hints", hints(&guidance));
+            .put("guidance", guidance);
         budget = 8000;
     } else {
         let mut rows: Vec<Row> = found.rows.iter().map(|row| compact(row, minimal)).collect();
@@ -1603,12 +1531,6 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
         .and_then(Value::as_object)
         .is_some_and(|truncation| truncation.contains_key("results"));
     payload = payload.put("results_complete", results_complete);
-    if let Some(reachability) = &found.reachability {
-        payload = payload.replace(
-            "next_action",
-            transitive_next_action(reachability, results_complete),
-        );
-    }
     let rows = payload
         .get("results")
         .and_then(Value::as_array)

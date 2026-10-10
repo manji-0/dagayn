@@ -1,7 +1,7 @@
 """Comprehensive end-to-end integration test for the v2 pipeline.
 
 Exercises: communities, FTS search,
-find_dead_code, generate_hints, review_changes_prompt,
+find_dead_code, review_changes_prompt,
 generate_wiki, and the Registry API.
 """
 
@@ -14,7 +14,6 @@ from dagayn.communities import (
     store_communities,
 )
 from dagayn.graph import GraphStore
-from dagayn.hints import generate_hints, get_session, reset_session
 from dagayn.parser import EdgeInfo, NodeInfo
 from dagayn.prompts import review_changes_prompt
 from dagayn.refactor import find_dead_code
@@ -368,25 +367,6 @@ class TestV2Integration:
         )
         # but these nodes have no source on disk, so nothing is claimed dead
         assert find_dead_code(self.store) == []
-
-        # ---- Step 7: generate_hints ----
-        reset_session()
-        session = get_session()
-        # A review_tool(mode="changes") reply for auth.py (the change
-        # analysis itself runs in Rust; tests/test_review_changes.py covers it).
-        hints = generate_hints(
-            "detect_changes",
-            {
-                "summary": "1 changed file(s), 3 changed symbol(s).",
-                "risk_score": 0.85,
-                "test_gaps": [{"name": "verify_token"}, {"name": "logout"}],
-            },
-            session,
-        )
-        assert "next_steps" in hints
-        assert isinstance(hints["next_steps"], list)
-        assert "Test coverage gaps: verify_token, logout" in hints["warnings"]
-        assert any(w.startswith("High risk score (0.85)") for w in hints["warnings"])
 
         # ---- Step 8: review_changes_prompt ----
         prompt_messages = review_changes_prompt(base="HEAD~1")

@@ -8,9 +8,7 @@ use crate::analysis::py_prefix;
 use crate::architecture::{
     Artifact, Profile, ScopeGraph, Snapshot, View, sap_metrics, sap_violations,
 };
-use crate::{
-    Args, Context, Ordered, Payload, open_graph, resolve_repo, seal_dispatch, suggestions,
-};
+use crate::{Args, Context, Ordered, Payload, open_graph, resolve_repo, seal_dispatch};
 
 const DECLARED: &[&str] = &[
     "mode",
@@ -184,7 +182,6 @@ pub(crate) fn architecture(context: &Context, arguments: &Map<String, Value>) ->
     let artifact = Artifact::parse(request.artifact_scope)?;
     let profile = Profile::parse(request.dependency_profile)?;
     let answerability = graph.answerability()?;
-    let exposed = |tool: &str| context.exposes(tool);
     let (subtool, out, trailing) = match request.mode {
         "overview" => (
             "get_architecture_overview_func",
@@ -201,7 +198,6 @@ pub(crate) fn architecture(context: &Context, arguments: &Map<String, Value>) ->
             "list_communities_func",
             crate::community::list_communities(
                 &graph.store,
-                &exposed,
                 request.sort_by,
                 request.min_size,
                 request.detail_level,
@@ -213,7 +209,6 @@ pub(crate) fn architecture(context: &Context, arguments: &Map<String, Value>) ->
             "get_community_func",
             crate::community::get_community(
                 &graph.store,
-                &exposed,
                 request.community_name,
                 request.community_id,
                 request.include_members,
@@ -222,46 +217,22 @@ pub(crate) fn architecture(context: &Context, arguments: &Map<String, Value>) ->
         ),
         "sdp_metrics" => (
             "compute_sdp_metrics_func",
-            sdp_metrics(
-                context,
-                &request,
-                &Snapshot::read(&graph.store)?,
-                artifact,
-                profile,
-            ),
+            sdp_metrics(&request, &Snapshot::read(&graph.store)?, artifact, profile),
             true,
         ),
         "sdp_violations" => (
             "detect_sdp_violations_func",
-            sdp_violations(
-                context,
-                &request,
-                &Snapshot::read(&graph.store)?,
-                artifact,
-                profile,
-            )?,
+            sdp_violations(&request, &Snapshot::read(&graph.store)?, artifact, profile)?,
             true,
         ),
         "sap_metrics" => (
             "compute_sap_metrics_func",
-            sap(
-                context,
-                &request,
-                &Snapshot::read(&graph.store)?,
-                artifact,
-                profile,
-            ),
+            sap(&request, &Snapshot::read(&graph.store)?, artifact, profile),
             true,
         ),
         _ => (
             "detect_sap_violations_func",
-            sap_violation_list(
-                context,
-                &request,
-                &Snapshot::read(&graph.store)?,
-                artifact,
-                profile,
-            )?,
+            sap_violation_list(&request, &Snapshot::read(&graph.store)?, artifact, profile)?,
             true,
         ),
     };
@@ -279,12 +250,10 @@ pub(crate) fn architecture(context: &Context, arguments: &Map<String, Value>) ->
         crate::Dispatch {
             mode: request.mode,
             subtool,
-            hints_tool: "architecture_analysis",
             runtime,
             trailing,
             repo: graph.repo_context(),
         },
-        &exposed,
     ))
 }
 
@@ -372,40 +341,18 @@ fn with_unit_map(
     if detail_level == "verbose" {
         out = out.put("answerability", answerability.full());
     }
-    let mut next_steps = Vec::new();
-    if !findings.is_empty() {
-        next_steps.push(json!({
-            "tool": "query_graph_tool",
-            "suggestion": "pattern=\"source_of\" or \"importers_of\" -- open the place each finding names",
-        }));
-    }
-    if detail_level == "minimal" {
-        next_steps.push(json!({
-            "tool": "architecture_analysis_tool",
-            "suggestion": "detail_level=\"standard\" -- the symbols other units use most (surface)",
-        }));
-    }
-    Some(out.put(
-        "_hints",
-        json!({"next_steps": next_steps, "related": [], "warnings": []}),
-    ))
+    Some(out)
 }
 
-/// `make_response("ok", summary, **fields, next_tool_suggestions=...)`.
-fn make_response(
-    context: &Context,
-    summary: String,
-    fields: Vec<(&str, Value)>,
-    next: &[&str],
-) -> Ordered {
-    let (hints, kept) = suggestions(context, next);
+/// `make_response("ok", summary, **fields)`.
+fn make_response(summary: String, fields: Vec<(&str, Value)>) -> Ordered {
     let mut out = Ordered::default()
         .put("status", "ok")
         .put("summary", summary);
     for (key, value) in fields {
         out = out.put(key, value);
     }
-    out.put("_hints", hints).put("next_tool_suggestions", kept)
+    out
 }
 
 fn graph_for(
@@ -426,7 +373,6 @@ fn graph_for(
 
 /// `compute_sdp_metrics_func`.
 fn sdp_metrics(
-    context: &Context,
     request: &Request,
     snapshot: &Snapshot,
     artifact: Artifact,
@@ -442,7 +388,6 @@ fn sdp_metrics(
         .collect();
     let shown = request.top_n.min(metrics.len() as i64);
     make_response(
-        context,
         format!(
             "Computed SDP instability for {} {}(s) (artifact_scope={}, dependency_profile={}). Showing top {shown} most unstable.",
             metrics.len(),
@@ -457,16 +402,11 @@ fn sdp_metrics(
             ("artifact_scope", json!(request.artifact_scope)),
             ("dependency_profile", json!(profile.name())),
         ],
-        &[
-            "architecture_analysis_tool mode=\"sdp_violations\" -- find stability violations",
-            "architecture_analysis_tool mode=\"overview\" -- find import cycles",
-        ],
     )
 }
 
 /// `detect_sdp_violations_func`.
 fn sdp_violations(
-    context: &Context,
     request: &Request,
     snapshot: &Snapshot,
     artifact: Artifact,
@@ -490,7 +430,6 @@ fn sdp_violations(
         ));
     }
     Some(make_response(
-        context,
         summary,
         vec![
             (
@@ -503,11 +442,6 @@ fn sdp_violations(
             ("granularity", json!(request.granularity)),
             ("artifact_scope", json!(request.artifact_scope)),
             ("dependency_profile", json!(profile.name())),
-        ],
-        &[
-            "architecture_analysis_tool mode=\"sdp_metrics\" -- see instability scores",
-            "architecture_analysis_tool mode=\"overview\" -- find import cycles",
-            "review_tool mode=\"impact\" -- check blast radius of a violating module",
         ],
     ))
 }
@@ -524,13 +458,7 @@ fn sap_view(request: &Request, snapshot: &Snapshot, artifact: Artifact, profile:
 }
 
 /// `compute_sap_metrics_func`.
-fn sap(
-    context: &Context,
-    request: &Request,
-    snapshot: &Snapshot,
-    artifact: Artifact,
-    profile: Profile,
-) -> Ordered {
+fn sap(request: &Request, snapshot: &Snapshot, artifact: Artifact, profile: Profile) -> Ordered {
     let view = sap_view(request, snapshot, artifact, profile);
     let raw = sap_metrics(
         snapshot,
@@ -576,7 +504,6 @@ fn sap(
         summary.push_str(" Results truncated.");
     }
     make_response(
-        context,
         summary,
         vec![
             ("metrics", Value::Array(py_prefix(visible, top_n))),
@@ -603,11 +530,6 @@ fn sap(
             ("dependency_profile", json!(profile.name())),
             ("detail_level", json!(request.detail_level)),
         ],
-        &[
-            "architecture_analysis_tool mode=\"sap_violations\" -- find far-from-sequence scopes",
-            "architecture_analysis_tool mode=\"sdp_metrics\" -- check raw instability",
-            "architecture_analysis_tool mode=\"community\" -- explore the scope as a community",
-        ],
     )
 }
 
@@ -626,7 +548,6 @@ fn zone(violation: &Value) -> &'static str {
 
 /// `detect_sap_violations_func`.
 fn sap_violation_list(
-    context: &Context,
     request: &Request,
     snapshot: &Snapshot,
     artifact: Artifact,
@@ -658,7 +579,6 @@ fn sap_violation_list(
         summary.push_str(&format!(" Showing top {} by distance.", request.top_n));
     }
     let out = make_response(
-        context,
         summary,
         vec![
             (
@@ -682,11 +602,6 @@ fn sap_violation_list(
                     "test and fixture scopes are retained in sap_metrics notes but omitted from sap_violations"
                 ),
             ),
-        ],
-        &[
-            "architecture_analysis_tool mode=\"sap_metrics\" -- see full A/I/D scores",
-            "architecture_analysis_tool mode=\"overview\" -- find import cycles",
-            "review_tool mode=\"impact\" -- check blast radius of a violating scope",
         ],
     );
     Some(out.apply_output_budget(SAP_VIOLATIONS_BUDGET, &["violations"]))

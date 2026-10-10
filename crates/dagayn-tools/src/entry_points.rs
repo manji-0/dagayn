@@ -18,7 +18,6 @@ use crate::Ordered;
 use crate::answerability::Answerability;
 use crate::findings::is_production_code;
 use crate::query::node_dict;
-use crate::review::guidance_actions_to_hints;
 use crate::review_summary::guidance_item;
 use crate::units::UnitIndex;
 
@@ -270,8 +269,7 @@ pub(crate) fn entry_points(
                     )
                     .put("next", next.clone())
                     .put("answerability", answerability.full())
-                    .put("missingness", json!(missingness))
-                    .put("_hints", crate::next::as_hints(&next)),
+                    .put("missingness", json!(missingness)),
             );
         }
     };
@@ -324,7 +322,6 @@ pub(crate) fn entry_points(
         vec![json!("query_time_reverse_search")],
         json!({"entry_point_count": total}),
     )];
-    let hints = guidance_actions_to_hints(&guidance);
     Some(
         Ordered::default()
             .put("status", "ok")
@@ -337,8 +334,7 @@ pub(crate) fn entry_points(
             .put("truncated", found.truncated)
             .put("answerability", answerability.full())
             .put("missingness", json!(missingness))
-            .put("guidance", Value::Array(guidance))
-            .put("_hints", hints),
+            .put("guidance", Value::Array(guidance)),
     )
 }
 
@@ -509,7 +505,6 @@ pub(crate) fn entry_point_map(
         vec![json!("query_time_entry_point_scan")],
         json!({"entry_point_count": total}),
     )];
-    let hints = guidance_actions_to_hints(&guidance);
     Some(
         Ordered::default()
             .put("status", "ok")
@@ -519,7 +514,6 @@ pub(crate) fn entry_point_map(
             .put("units", Value::Array(units))
             .put("answerability", answerability.full())
             .put("missingness", json!(missingness))
-            .put("guidance", Value::Array(guidance))
-            .put("_hints", hints),
+            .put("guidance", Value::Array(guidance)),
     )
 }

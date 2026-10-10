@@ -11,7 +11,6 @@ from dagayn.graph.sqlite_errors import is_sqlite_corrupt_error
 from dagayn.tools._common import (
     attach_answerability,
     graph_answerability_summary,
-    guidance_actions_to_hints,
     handle_tool_runtime_error,
     make_guidance_item,
     make_response,
@@ -224,24 +223,6 @@ class TestGuidanceItems:
         assert item["confidence"] == "unknown"
         assert item["missingness"][0]["severity"] == "low"
         assert item["action"]["tool"] == "review_tool"
-
-    def test_guidance_actions_to_hints(self) -> None:
-        hints = guidance_actions_to_hints(
-            [
-                make_guidance_item(
-                    claim="Inspect callers.",
-                    action="query_graph_tool callers_of -- inspect inbound callers",
-                    missingness={"reason_code": "ambiguous_symbol", "severity": "high"},
-                )
-            ]
-        )
-        assert hints["next_steps"] == [
-            {
-                "tool": "query_graph_tool",
-                "suggestion": "query_graph_tool callers_of -- inspect inbound callers",
-            }
-        ]
-        assert hints["warnings"] == ["ambiguous_symbol"]
 
 
 class TestProjectionForDetailLevel:
@@ -488,41 +469,6 @@ class TestAttachAnswerability:
         result = attach_answerability({"status": "ok"}, "/nowhere")
         assert result["answerability"]["reason_codes"] == ["answerability_unavailable"]
         assert result["missingness"][0]["reason_code"] == "answerability_unavailable"
-
-
-class TestGuidanceActionsToHintsShapes:
-    def test_mapping_actions_empty_actions_and_limit(self) -> None:
-        hints = guidance_actions_to_hints(
-            [
-                {
-                    "action": {
-                        "tool": "query_graph_tool",
-                        "command": "query_graph_tool tests_for X",
-                    },
-                    "missingness": {
-                        "reason_code": "graph_describes_another_commit",
-                        "severity": "high",
-                    },
-                },
-                {"action": ""},
-                {
-                    "action": {"suggestion": "read the file by hand"},
-                    "missingness": [
-                        {"reason_code": "minor_gap", "severity": "low"},
-                        {"reason_code": "missing_flows", "severity": "medium"},
-                        {"severity": "high"},
-                    ],
-                },
-                {"action": "review_tool(mode='changes') -- past the limit"},
-            ],
-            limit=2,
-        )
-
-        assert hints["next_steps"] == [
-            {"tool": "query_graph_tool", "suggestion": "query_graph_tool tests_for X"},
-            {"tool": "manual", "suggestion": "read the file by hand"},
-        ]
-        assert hints["warnings"] == ["graph_describes_another_commit", "missing_flows"]
 
 
 class TestToolRuntimeErrors:
