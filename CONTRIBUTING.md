@@ -16,11 +16,17 @@ Do not file sensitive vulnerabilities as public issues. Follow `SECURITY.md`.
 
 ## Development setup (maintainers)
 
+The toolchain comes from the Nix flake (`flake.nix`): Python 3.14, uv, the
+Rust toolchain pinned by `rust-toolchain.toml` (plus `cargo-llvm-cov`), Node 22
+with corepack for pnpm, prek, and jj. Enter it with `nix develop`, or let
+direnv load it from `.envrc` (`direnv allow`). Inside the shell uv uses the
+flake's Python (`UV_PYTHON`) and `PYO3_PYTHON` already points at it.
+
 <!-- constrained-by ./prek.toml -->
 
 ```bash
+nix develop
 uv sync --extra dev
-uv tool install prek
 prek install
 ```
 
@@ -47,10 +53,11 @@ Tests run in parallel with pytest-xdist (`-n auto --dist loadfile`); pass
 
 ### Rust workspace
 
-Requires a Rust toolchain (1.98+) and a C compiler. `uv sync` is enough for
-the Python test path (maturin). For `cargo test --workspace` or
-`cargo clippy --workspace --all-targets -- -D warnings`, point PyO3 at uv's
-interpreter so `dagayn-py` can link `libpython`:
+Requires a Rust toolchain (1.98+) and a C compiler; the flake provides both.
+`uv sync` is enough for the Python test path (maturin). For
+`cargo test --workspace` or `cargo clippy --workspace --all-targets -- -D warnings`,
+`dagayn-py` must link `libpython`. The flake's shell sets `PYO3_PYTHON` for
+that; outside it, point PyO3 at uv's interpreter:
 
 ```bash
 export PYO3_PYTHON="$(uv run python -c 'import sys; print(sys.executable)')"
@@ -66,7 +73,9 @@ cargo llvm-cov --workspace --summary-only --ignore-filename-regex 'dagayn-py/'
 
 ### VS Code extension (`dagayn-vscode/`)
 
-Requires Node 22+ and pnpm.
+Requires Node 22+ and pnpm. In the flake's shell, corepack supplies the pnpm
+version pinned by `packageManager`, which it resolves from the current
+directory, so run pnpm inside `dagayn-vscode/` rather than with `-C`.
 
 ```bash
 cd dagayn-vscode
