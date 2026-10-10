@@ -88,6 +88,18 @@ If you update features, command names, integrations, or supported languages, upd
 
 Subagent delegation rules are maintained in the global `~/.pi/agent/AGENTS.md`. See that file for the current agent roster, models, use-when rules, and tool constraints.
 
+## Claude Code cloud sessions
+
+`.claude/hooks/session-start.sh` loads the flake's devShell (`flake.nix`) into
+each cloud session through `$CLAUDE_ENV_FILE`, so `uv`, `cargo`, `pnpm`, `prek`,
+and `jj` resolve to the flake's versions without `nix develop`. It then runs
+`uv sync --extra dev` and installs `dagayn-vscode`'s dependencies. Building
+`dagayn._core` downloads grammar archives from `codeload.github.com` and the
+lindera dictionary from `lindera.dev`; when the environment's network policy
+blocks those, the hook installs the Python dependencies alone, so ruff, pyrefly,
+and the VS Code checks run but pytest and the Rust crates that vendor grammars
+do not.
+
 ## Cursor Cloud specific instructions
 
 This repo ships two products: the primary `dagayn` CLI/MCP server (Python package
