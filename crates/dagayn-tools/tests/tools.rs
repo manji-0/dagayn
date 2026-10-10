@@ -1799,25 +1799,6 @@ fn traversal_walks_from_the_best_keyword_match() {
 }
 
 #[test]
-fn suggested_questions_come_high_priority_first() {
-    // dagayn: tests crates/dagayn-tools/src/questions.rs::suggested_questions
-    let repo = Repo::new("questions", true);
-    repo.build();
-    let context = repo.context();
-    let all = answer(&context, "get_suggested_questions_tool", json!({}));
-    assert_eq!(all["status"], "ok");
-    let total = all["total"].as_u64().expect("total");
-    let none = answer(
-        &context,
-        "get_suggested_questions_tool",
-        json!({"top_n": 0}),
-    );
-    assert_eq!(none["questions"], json!([]));
-    assert_eq!(none["truncated"], total > 0);
-    assert_eq!(none["guidance"][0]["confidence"], "low");
-}
-
-#[test]
 fn wiki_pages_are_read_by_slug_or_exact_name() {
     // dagayn: tests crates/dagayn-tools/src/docs.rs::get_wiki_page
     let repo = Repo::new("wiki", true);

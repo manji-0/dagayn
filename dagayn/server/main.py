@@ -896,27 +896,6 @@ def get_wiki_page_tool(
 
 
 @mcp.tool()
-def get_suggested_questions_tool(
-    top_n: int = 15,
-    repo_root: Optional[str] = None,
-) -> ToolPayload:
-    """Auto-generate review questions from graph analysis.
-
-    Produces prioritized questions about: bridge nodes needing tests,
-    untested hub nodes, surprising cross-community coupling, thin
-    communities, and untested hotspots.
-
-    Args:
-        top_n: Maximum questions to return, high-priority first. Default: 15.
-        repo_root: Repository root path. Auto-detected if omitted.
-    """
-    return _tool("analysis_tools:get_suggested_questions_func")(
-        repo_root=_resolve_repo_root(repo_root),
-        top_n=top_n,
-    )
-
-
-@mcp.tool()
 def traverse_graph_tool(
     query: str,
     mode: TraversalMode = "bfs",

@@ -60,7 +60,6 @@ _COMMON_CASES: list[tuple[str, str, dict[str, Any]]] = [
     ("flows", "flow_tool", {"mode": "list"}),
     ("refactor_suggest", "refactor_tool", {"mode": "suggest"}),
     ("dead_code", "refactor_tool", {"mode": "dead_code"}),
-    ("suggested_questions", "get_suggested_questions_tool", {}),
     ("large_functions", "find_large_functions_tool", {"min_lines": 1}),
 ]
 

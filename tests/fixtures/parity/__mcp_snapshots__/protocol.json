@@ -1493,43 +1493,6 @@
                 "tags": []
               }
             },
-            "description": "Auto-generate review questions from graph analysis.\n\nProduces prioritized questions about: bridge nodes needing tests,\nuntested hub nodes, surprising cross-community coupling, thin\ncommunities, and untested hotspots.",
-            "inputSchema": {
-              "additionalProperties": false,
-              "properties": {
-                "repo_root": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Repository root path. Auto-detected if omitted."
-                },
-                "top_n": {
-                  "default": 15,
-                  "description": "Maximum questions to return, high-priority first. Default: 15.",
-                  "type": "integer"
-                }
-              },
-              "type": "object"
-            },
-            "name": "get_suggested_questions_tool",
-            "outputSchema": {
-              "additionalProperties": {},
-              "type": "object"
-            },
-            "title": "Get Suggested Questions Tool"
-          },
-          {
-            "_meta": {
-              "fastmcp": {
-                "tags": []
-              }
-            },
             "description": "BFS/DFS traversal from best-matching node with token budget.\n\nFree-form graph exploration: finds the node best matching your\nquery, then traverses outward via BFS or DFS up to the given\ndepth, collecting connected nodes within the token budget.",
             "inputSchema": {
               "additionalProperties": false,

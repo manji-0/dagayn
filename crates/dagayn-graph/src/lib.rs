@@ -610,8 +610,6 @@ type RawCompactFileBatchItem = (
 );
 
 mod analysis;
-mod analysis_question_rows;
-mod analysis_questions;
 mod analysis_stats;
 mod bridges;
 pub use bridges::{

@@ -18,6 +18,9 @@ All notable changes to `dagayn` are documented here.
   unit's `surface` for hubs and bridges, `untested_core` and
   `refactor_tool(mode="suggest")` for knowledge gaps, `unit_edges` for
   surprising connections, and `import_cycle` for ADP cycles.
+- **Breaking:** `get_suggested_questions_tool`, deprecated in 8.0.0, and the
+  graph store's `generate_suggested_questions_json`. The architecture
+  overview's `findings` replace it.
 
 ### Changed
 

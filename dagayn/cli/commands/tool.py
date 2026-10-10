@@ -28,7 +28,6 @@ TOOL_REGISTRY: dict[str, str] = {
     "generate_wiki_tool": "dagayn.tools.docs:generate_wiki_func",
     "get_docs_section_tool": "dagayn.tools.docs:get_docs_section",
     "get_minimal_context_tool": "dagayn.tools.context:get_minimal_context",
-    "get_suggested_questions_tool": "dagayn.tools.analysis_tools:get_suggested_questions_func",
     "get_wiki_page_tool": "dagayn.tools.docs:get_wiki_page_func",
     "list_graph_stats_tool": "dagayn.tools.query:list_graph_stats",
     "list_repos_tool": "dagayn.tools.registry_tools:list_repos_func",

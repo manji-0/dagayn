@@ -149,13 +149,6 @@
         },
         "required": []
       },
-      "get_suggested_questions_tool": {
-        "params": {
-          "repo_root": "string",
-          "top_n": "integer"
-        },
-        "required": []
-      },
       "get_wiki_page_tool": {
         "params": {
           "community_name": "string",

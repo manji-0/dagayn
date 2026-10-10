@@ -5,11 +5,9 @@
 use serde_json::{Map, Value, json};
 
 use crate::analysis::py_prefix;
-use crate::answerability::Answerability;
 use crate::architecture::{
     Artifact, Profile, ScopeGraph, Snapshot, View, sap_metrics, sap_violations,
 };
-use crate::review::guidance_actions_to_hints;
 use crate::{
     Args, Context, Ordered, Payload, open_graph, resolve_repo, seal_dispatch, suggestions,
 };
@@ -718,26 +716,6 @@ fn sap_violation_list(
         ],
     );
     Some(out.apply_output_budget(SAP_VIOLATIONS_BUDGET, &["violations"]))
-}
-
-/// `make_response` for an analysis subtool: its own answerability, its
-/// guidance, and `_hints` from that guidance.
-pub(crate) fn analysis_response(
-    context: &Context,
-    answerability: &Answerability,
-    summary: String,
-    mut fields: Vec<(&str, Value)>,
-    guidance: Value,
-    next: &[&str],
-) -> Ordered {
-    fields.push(("answerability", answerability.full()));
-    fields.push((
-        "missingness",
-        json!(answerability.missingness_with_derived()),
-    ));
-    let hints = guidance_actions_to_hints(std::slice::from_ref(&guidance));
-    fields.push(("guidance", json!([guidance])));
-    make_response(context, summary, fields, next).replace("_hints", hints)
 }
 
 #[cfg(test)]

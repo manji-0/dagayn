@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from dagayn.graph import GraphStore
@@ -172,29 +170,3 @@ class TestFindBridgeNodes:
 
         assert len(result) == 1
         assert result[0]["score_source"] == "persisted"
-
-
-class TestGenerateSuggestedQuestions:
-    def test_returns_list(self, store):
-        result = json.loads(store.generate_suggested_questions_json())
-        assert isinstance(result, list)
-
-    def test_question_fields(self, store):
-        result = json.loads(store.generate_suggested_questions_json())
-        for q in result:
-            assert "category" in q
-            assert "question" in q
-            assert "target" in q
-            assert "priority" in q
-            assert isinstance(q["question"], str)
-            assert len(q["question"]) > 0
-
-    def test_priority_values(self, store):
-        result = json.loads(store.generate_suggested_questions_json())
-        valid = {"high", "medium", "low"}
-        for q in result:
-            assert q["priority"] in valid
-
-    def test_empty_store_returns_empty(self, empty_store):
-        result = json.loads(empty_store.generate_suggested_questions_json())
-        assert isinstance(result, list)

@@ -534,10 +534,6 @@ impl PyGraphStore {
         })
     }
 
-    fn generate_suggested_questions_json(&self) -> PyResult<String> {
-        self.with_store(|store| store.generate_suggested_questions_json())
-    }
-
     fn compute_summaries(&self) -> PyResult<()> {
         self.with_store_mut(|store| store.compute_summaries())
     }

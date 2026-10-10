@@ -11,7 +11,6 @@ from pathlib import Path
 import pytest
 
 from dagayn.tools import docs
-from dagayn.tools.analysis_tools import get_suggested_questions_func
 from dagayn.tools.flow_dispatcher import flow_func
 from dagayn.tools.query import find_large_functions, list_graph_stats
 from dagayn.tools.refactor_tools import apply_refactor_func, refactor_func
@@ -53,13 +52,6 @@ def test_find_large_functions_answers_through_rust(repo: Path) -> None:
     assert result["status"] == "ok"
     assert result["total_found"] == 2
     assert {row["name"] for row in result["results"]} == {"main", "helper"}
-
-
-def test_suggested_questions_answer_through_rust(repo: Path) -> None:
-    result = get_suggested_questions_func(repo_root=str(repo), top_n=5)
-    assert result["status"] == "ok"
-    assert isinstance(result["questions"], list)
-    assert result["guidance"][0]["reason_codes"] == ["suggested_questions"]
 
 
 def test_flow_tool_answers_through_rust(repo: Path) -> None:

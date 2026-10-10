@@ -1,5 +1,5 @@
 """Graph analysis: hub detection, bridge nodes, knowledge gaps,
-surprise scoring, suggested questions."""
+surprise scoring."""
 
 from __future__ import annotations
 

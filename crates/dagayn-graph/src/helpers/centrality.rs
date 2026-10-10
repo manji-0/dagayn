@@ -185,14 +185,3 @@ pub(crate) fn stable_fnv1a64(bytes: &[u8]) -> u64 {
     }
     hash
 }
-
-pub(crate) struct PersistedBridgeRow {
-    pub(crate) name: String,
-    pub(crate) qualified_name: String,
-}
-
-pub(crate) struct PersistedHubRow {
-    pub(crate) name: String,
-    pub(crate) qualified_name: String,
-    pub(crate) total_degree: i64,
-}
