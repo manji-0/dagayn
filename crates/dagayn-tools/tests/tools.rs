@@ -503,6 +503,49 @@ fn query_graph_counts_one_row_per_node_everywhere() {
 }
 
 #[test]
+fn a_closed_answer_says_it_is_the_whole_answer() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    let repo = Repo::new("query-closed", false);
+    repo.write(
+        "chain.py",
+        "from app import helper\n\n\ndef one():\n    helper()\n\n\ndef two():\n    one()\n\n\ndef three():\n    two()\n",
+    );
+    repo.build();
+    let context = repo.context();
+    let summary = |arguments: Value| {
+        answer(&context, "query_graph_tool", arguments)["summary"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string()
+    };
+
+    let direct = summary(json!({"pattern": "callers_of", "target": "app.py::helper"}));
+    assert!(
+        direct.ends_with(
+            "No direct caller the graph records is missing; calls made through strings, \
+             getattr, or registration are not edges"
+        ),
+        "{direct}"
+    );
+    let closed = summary(json!({"pattern": "callers_of", "target": "app.py::helper", "depth": 6}));
+    assert!(
+        closed.contains("within 6 hops. No caller the graph records"),
+        "{closed}"
+    );
+    let importers = summary(json!({"pattern": "importers_of", "target": "app.py"}));
+    assert!(
+        importers.contains("No direct importer the graph records"),
+        "{importers}"
+    );
+
+    // Cut at the depth asked for, or with nothing found: no claim.
+    let cut = summary(json!({"pattern": "callers_of", "target": "app.py::helper", "depth": 2}));
+    assert!(!cut.contains("is missing"), "{cut}");
+    let none = summary(json!({"pattern": "callers_of", "target": "chain.py::three"}));
+    assert!(!none.contains("is missing"), "{none}");
+}
+
+#[test]
 fn an_ambiguous_target_names_its_retries() {
     // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
     // dagayn: tests crates/dagayn-tools/src/flow.rs::flow

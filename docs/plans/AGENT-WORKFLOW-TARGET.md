@@ -25,7 +25,7 @@ defines the workflow, the response contract that carries it, the evidence,
 and the order of work.
 
 Status: accepted ([decisions](#decisions-2026-10-07)); steps 1–9 are
-done (see the [order of work](#order-of-work)).
+done, step 10 is in progress (see the [order of work](#order-of-work)).
 
 ## Target contract
 
@@ -357,6 +357,37 @@ fixtures the tests build.
    JSON, since serde_json sorts nested keys and Python does not. A
    review at `minimal` also stops computing the score-first summary it
    no longer shows (1.93 s → 1.72 s on this repository).
+10. Round trips. Two pre-registered runs (dagayn-video `experiment_cc9`,
+    Claude Opus 5.5, and `experiment_cc9_haiku`, Claude Haiku 5.5; Claude
+    Code headless, dagayn 9.0.0, five questions about dagayn 4.15.0, ten
+    runs per question with and without the MCP server) found every reply
+    within its budget (Opus: max 5,227 characters) and the resident cost at
+    +525 tokens, yet whole-task tokens at 1.29× (Opus) and 1.26× (Haiku)
+    of no MCP server, with correctness unchanged. The extra tokens are
+    turns, not reply size: every turn re-reads the conversation, and the
+    agent with dagayn took one or two more (Claude Code loads tool
+    descriptions on demand through `ToolSearch`, then calls dagayn). Haiku
+    followed "Start every task with get_minimal_context_tool" in all 50
+    runs, calling dagayn twice where Opus called it once; it asked
+    `query_graph_tool` for `detail_level="full"` in 22 of 37 calls, exactly
+    the replies over 8K characters; and after a complete `importers_of` it
+    widened the answer by hand to dynamic imports. The changes:
+    - **Done:** the MCP instructions and `get_minimal_context_tool`'s
+      description send an agent there when the task names no node or file,
+      or the graph may be stale, instead of before every task.
+    - **Done:** `query_graph_tool`'s description says what each
+      `detail_level` keeps and that a complete list never needs `"full"`.
+    - **Done:** a closed `callers_of`, `callees_of`, `importers_of`, or
+      `imports_of` answer (nothing cut by the budget or the depth, no
+      unresolved endpoints) ends its `summary` with "No (direct) caller the
+      graph records is missing" and names what static parsing cannot see
+      (`tests/tools.rs::a_closed_answer_says_it_is_the_whole_answer`).
+    - **Done:** `eval/run_agent_tokens_eval.py` measures the whole task:
+      tokens, turns, dagayn calls, and replies over 8K characters for two
+      dagayn builds (or one and none) on the same questions, with an
+      optional gate on the token ratio. It needs the `claude` CLI, so it
+      is a manual gate (Haiku: about 1 USD per 100 runs).
+    - Next: measure the three changes against 9.0.0 with that harness.
 
 ## Touch points
 

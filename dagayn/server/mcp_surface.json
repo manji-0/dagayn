@@ -13,7 +13,7 @@
     "listChanged": true
    }
   },
-  "instructions": "dagayn is a knowledge graph of this repository: code, Markdown docs, and Terraform are nodes, linked by calls, imports, tests, and doc contracts. Start every task with get_minimal_context_tool(task=...): it reports graph freshness (sync.state) and the first calls to make. Every reply ends with next: at most three calls with complete arguments and a why; follow it unless the task points elsewhere. Review changes with review_tool(mode=\"changes\"); trace relationships with query_graph_tool before grepping; read a located node with query_graph_tool(pattern=\"source_of\") instead of the whole file. Graph reach is not correctness: confirm a claim with source_of or a reproduction. get_docs_section_tool(section_name=\"workflow\") has the phases; get_docs_section_tool(section_name=\"trust\") ranks which results to state as fact.",
+  "instructions": "dagayn is a knowledge graph of this repository: code, Markdown docs, and Terraform are nodes, linked by calls, imports, tests, and doc contracts. When the task names no node or file, or you do not know whether the graph is current, call get_minimal_context_tool(task=...) first: it reports graph freshness (sync.state) and the first calls to make. Otherwise call the tool that answers the task; missingness says when the graph is behind. Every reply ends with next: at most three calls with complete arguments and a why; follow it unless the task points elsewhere. Review changes with review_tool(mode=\"changes\"); trace relationships with query_graph_tool before grepping; read a located node with query_graph_tool(pattern=\"source_of\") instead of the whole file. Graph reach is not correctness: confirm a claim with source_of or a reproduction. get_docs_section_tool(section_name=\"workflow\") has the phases; get_docs_section_tool(section_name=\"trust\") ranks which results to state as fact.",
   "serverInfo": {
    "name": "dagayn"
   }
@@ -40,7 +40,7 @@
     "io.modelcontextprotocol/ui": {}
    }
   },
-  "instructions": "dagayn is a knowledge graph of this repository: code, Markdown docs, and Terraform are nodes, linked by calls, imports, tests, and doc contracts. Start every task with get_minimal_context_tool(task=...): it reports graph freshness (sync.state) and the first calls to make. Every reply ends with next: at most three calls with complete arguments and a why; follow it unless the task points elsewhere. Review changes with review_tool(mode=\"changes\"); trace relationships with query_graph_tool before grepping; read a located node with query_graph_tool(pattern=\"source_of\") instead of the whole file. Graph reach is not correctness: confirm a claim with source_of or a reproduction. get_docs_section_tool(section_name=\"workflow\") has the phases; get_docs_section_tool(section_name=\"trust\") ranks which results to state as fact.",
+  "instructions": "dagayn is a knowledge graph of this repository: code, Markdown docs, and Terraform are nodes, linked by calls, imports, tests, and doc contracts. When the task names no node or file, or you do not know whether the graph is current, call get_minimal_context_tool(task=...) first: it reports graph freshness (sync.state) and the first calls to make. Otherwise call the tool that answers the task; missingness says when the graph is behind. Every reply ends with next: at most three calls with complete arguments and a why; follow it unless the task points elsewhere. Review changes with review_tool(mode=\"changes\"); trace relationships with query_graph_tool before grepping; read a located node with query_graph_tool(pattern=\"source_of\") instead of the whole file. Graph reach is not correctness: confirm a claim with source_of or a reproduction. get_docs_section_tool(section_name=\"workflow\") has the phases; get_docs_section_tool(section_name=\"trust\") ranks which results to state as fact.",
   "resultType": "complete"
  },
  "tools": [
@@ -236,7 +236,7 @@
      "tags": []
     }
    },
-   "description": "Get compact context for any task. Call this first.\n\nReturns ``sync.state``, ``graph_health`` (with ``reason_codes``), top\ncommunities, ``next`` (the task's first calls, with arguments), and,\nwhen there are changes, ``changes``: how many of each ``review_tool``\nfinding kind they raise. An empty or HEAD-drifted graph queues a\nbackground refresh and returns at once; call ``ensure_graph_tool`` to wait.",
+   "description": "Get compact context for a task: graph freshness and the first calls.\n\nCall it when the task names no node or file, or the graph may be stale;\na task that names its node can go straight to the tool that answers it.\n\nReturns ``sync.state``, ``graph_health`` (with ``reason_codes``), top\ncommunities, ``next`` (the task's first calls, with arguments), and,\nwhen there are changes, ``changes``: how many of each ``review_tool``\nfinding kind they raise. An empty or HEAD-drifted graph queues a\nbackground refresh and returns at once; call ``ensure_graph_tool`` to wait.",
    "inputSchema": {
     "properties": {
      "task": {
@@ -324,7 +324,7 @@
      "detail_level": {
       "default": "standard",
       "type": "string",
-      "description": "\"standard\" (default) lists every related node; \"minimal\"\ntrims row fields; \"full\" adds per-edge rows and guidance and hits\nthe output budget sooner."
+      "description": "\"minimal\" keeps each node's name, place, and\nconfidence, within 8K characters; \"standard\" (default) lists every\nrelated node with all its fields; \"full\" adds one row per edge, for\nseeing why an edge exists. A complete list never needs \"full\"."
      },
      "depth": {
       "default": 1,

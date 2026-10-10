@@ -4,6 +4,15 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Added
+
+- `eval/run_agent_tokens_eval.py`: what an agent spends on a whole task with
+  a dagayn build. It runs Claude Code headless on five questions about
+  dagayn 4.15.0 (answer key in `eval/agent_tokens_tasks.json`) for two
+  setups and reports the token ratio, turns, dagayn calls, replies over 8K
+  characters, and exact matches, with an optional `--gate`. It needs the
+  `claude` CLI, so it is not run in CI.
+
 ### Removed
 
 - The `install-dagayn` and `semantic-search` skills. An agent that has
@@ -76,6 +85,17 @@ All notable changes to `dagayn` are documented here.
 
 ### Changed
 
+- The MCP server instructions and `get_minimal_context_tool`'s description
+  send an agent to it when the task names no node or file, or the graph may
+  be stale, instead of "Start every task with" / "Call this first". An agent
+  that followed them called dagayn twice where once answered.
+- `query_graph_tool`'s description says what each `detail_level` keeps and
+  that a complete list never needs `"full"`.
+- A closed `callers_of`, `callees_of`, `importers_of`, or `imports_of`
+  answer (nothing cut by the output budget or the depth, no unresolved
+  endpoints) ends its `summary` with "No (direct) caller the graph records
+  is missing" and names what static parsing cannot see, so an agent stops
+  re-checking a list the graph already completed.
 - The installed instructions (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, and
   the other platforms' files) drop the default-tools table and the trust
   tiers: the tool descriptions say what each tool does, and

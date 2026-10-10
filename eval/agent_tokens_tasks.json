@@ -1,0 +1,189 @@
+{
+ "_about": "Tasks and answer key for eval/run_agent_tokens_eval.py. The tasks ask about dagayn 4.15.0 (source_commit); the answers were computed with ast, regular expressions, and networkx, without dagayn (dagayn-video experiment/truth.py), and re-derived on this commit on 2026-10-10.",
+ "source_commit": "918ed60f4c1c420b145cfb9bf7ba953108920267",
+ "preamble": "このリポジトリ (カレントディレクトリ。dagayn 4.15.0 のチェックアウト) について、次の質問に答えてください。\n- リポジトリのファイルは変更しないこと。一時ファイルが必要なら /tmp の下に作ること。\n- 回答の最後に、次の形式の JSON コードブロックを 1 つだけ置くこと: ```json\n{\"answer\": [...]}\n```\n\n質問: ",
+ "condition_line": {
+  "graph": "- dagayn の MCP ツール (サーバ名 dagayn) が使える。まずそれで調べ、必要なら他の道具で確かめること。\n",
+  "none": "- dagayn の MCP ツールは使えない。標準の道具 (検索・ファイルの読み込み・シェル) で調べること。\n"
+ },
+ "tasks": {
+  "T1": {
+   "prompt": "`dagayn/` 配下のコードで、関数 `_get_store` を直接呼び出している関数をすべて挙げてください。形式は \"ファイルパス::関数名\" (関数名は、呼び出しを直接囲む最も内側の関数の名前だけ。クラス名は付けない)。import だけの箇所や、文字列・コメントでの言及は含めない。`tests/` は対象外。",
+   "kind": "paths",
+   "truth": [
+    "dagayn/eval/benchmarks/nplusone_count.py::_scenario_traverse_graph",
+    "dagayn/tools/_common.py::attach_answerability",
+    "dagayn/tools/analysis_tools.py::get_bridge_nodes_func",
+    "dagayn/tools/analysis_tools.py::get_hub_nodes_func",
+    "dagayn/tools/analysis_tools.py::get_knowledge_gaps_func",
+    "dagayn/tools/analysis_tools.py::get_suggested_questions_func",
+    "dagayn/tools/analysis_tools.py::get_surprising_connections_func",
+    "dagayn/tools/architecture_tools.py::compute_sdp_metrics_func",
+    "dagayn/tools/architecture_tools.py::detect_adp_violations_func",
+    "dagayn/tools/architecture_tools.py::detect_sdp_violations_func",
+    "dagayn/tools/build.py::build_or_update_graph",
+    "dagayn/tools/build.py::run_postprocess",
+    "dagayn/tools/community_tools.py::get_architecture_overview_func",
+    "dagayn/tools/community_tools.py::get_community_func",
+    "dagayn/tools/community_tools.py::list_communities_func",
+    "dagayn/tools/context.py::_get_minimal_context_body",
+    "dagayn/tools/docs.py::embed_graph",
+    "dagayn/tools/docs.py::generate_wiki_func",
+    "dagayn/tools/docs.py::get_docs_section",
+    "dagayn/tools/docs.py::get_wiki_page_func",
+    "dagayn/tools/docs.py::scan_embed_work",
+    "dagayn/tools/flows_tools.py::get_flow",
+    "dagayn/tools/flows_tools.py::list_flows",
+    "dagayn/tools/query.py::find_large_functions",
+    "dagayn/tools/query.py::get_impact_radius",
+    "dagayn/tools/query.py::list_graph_stats",
+    "dagayn/tools/query.py::query_graph",
+    "dagayn/tools/query.py::semantic_search_nodes",
+    "dagayn/tools/query.py::traverse_graph_func",
+    "dagayn/tools/refactor_tools.py::refactor_func",
+    "dagayn/tools/review.py::detect_changes_func",
+    "dagayn/tools/review_context.py::get_review_context",
+    "dagayn/tools/review_flows.py::get_affected_flows_func",
+    "dagayn/tools/sap_tools.py::compute_sap_metrics_func",
+    "dagayn/tools/sap_tools.py::detect_sap_violations_func",
+    "dagayn/tools/session_prepare.py::session_prepare"
+   ]
+  },
+  "T2": {
+   "prompt": "`tests/` 配下で、`build_or_update_graph` を直接呼び出しているテスト関数・メソッドをすべて挙げてください。形式は \"ファイルパス::関数名\"、メソッドなら \"ファイルパス::クラス名.メソッド名\" (呼び出しを直接囲む最も内側の関数)。import だけの箇所や、文字列・コメントでの言及は含めない。",
+   "kind": "paths",
+   "truth": [
+    "tests/test_session_graph_freshness.py::TestContentDriftConvergence.test_discarded_edit_is_reindexed_by_prepare",
+    "tests/test_session_graph_freshness.py::TestContentDriftConvergence.test_unverified_content_is_not_reported_as_verified",
+    "tests/test_session_graph_freshness.py::TestWorktreeFreshnessIntegration.test_uc_a1_serve_seed_alone_insufficient_then_auto_prepare",
+    "tests/test_session_graph_freshness.py::TestWorktreeFreshnessIntegration.test_uc_h1_head_relocate_prepare",
+    "tests/test_session_graph_freshness.py::TestWorktreeFreshnessIntegration.test_uc_s2_dirty_worktree_prepare_is_structure_ready",
+    "tests/test_session_graph_freshness.py::TestWorktreeFreshnessIntegration.test_uc_w1_from_hook_prepare_resolves_worktree",
+    "tests/test_session_graph_freshness.py::TestWorktreeFreshnessIntegration.test_uc_w1_worktree_create_seed_and_prepare",
+    "tests/test_session_graph_freshness.py::TestWorktreeFreshnessIntegration.test_uc_w1_worktree_sync_cli",
+    "tests/test_session_graph_freshness.py::TestWorktreeFreshnessIntegration.test_uc_w2_reenter_seed_skipped_then_catch_up",
+    "tests/test_session_graph_freshness.py::TestWorktreeFreshnessIntegration.test_uc_w3_worktree_delete_leaves_main_intact",
+    "tests/test_tools.py::TestBuildPostprocess.test_incremental_scopes_local_embedding_to_changed_files",
+    "tests/test_tools.py::TestBuildPostprocess.test_local_embedding_runs_after_build",
+    "tests/test_tools.py::TestBuildPostprocess.test_local_embedding_runs_after_graph_store_close",
+    "tests/test_tools.py::TestBuildPostprocess.test_local_embedding_runs_when_incremental_has_no_changes",
+    "tests/test_tools.py::TestBuildPostprocess.test_local_embedding_skips_when_none",
+    "tests/test_tools.py::TestBuildPostprocess.test_postprocess_full_matches_default",
+    "tests/test_tools.py::TestBuildPostprocess.test_postprocess_minimal_has_fts_no_flows",
+    "tests/test_tools.py::TestBuildPostprocess.test_postprocess_none_produces_nodes_no_flows"
+   ]
+  },
+  "T3": {
+   "prompt": "`dagayn/` 配下の .py ファイルのうち、`dagayn/changes.py` を直接、または import の連鎖をたどって間接に import しているファイルをすべて挙げてください。import の解釈: 関数の中・`if TYPE_CHECKING:` の中・相対 import も含む。`from パッケージ import 名前` は、名前がサブモジュールならそのサブモジュールの import、そうでなければパッケージの `__init__.py` の import とみなす。`import a.b.c` は `a/b/c` の import とみなし、親パッケージの `__init__.py` が暗黙に実行される分は数えない。`dagayn` 以外 (標準ライブラリ・外部パッケージ) は数えない。形式はリポジトリルートからのファイルパス。`dagayn/changes.py` 自身は含めない。",
+   "kind": "paths",
+   "truth": [
+    "dagayn/cli/commands/detect_changes.py",
+    "dagayn/eval/benchmarks/guidance_precision.py",
+    "dagayn/eval/benchmarks/impact_accuracy.py",
+    "dagayn/eval/benchmarks/mcp_latency.py",
+    "dagayn/eval/benchmarks/recent_changes_effects.py",
+    "dagayn/eval/benchmarks/scale_performance.py",
+    "dagayn/eval/benchmarks/token_efficiency.py",
+    "dagayn/eval/token_benchmark.py",
+    "dagayn/tools/__init__.py",
+    "dagayn/tools/context.py",
+    "dagayn/tools/review.py",
+    "dagayn/tools/review_dispatcher.py"
+   ]
+  },
+  "T4": {
+   "prompt": "`dagayn/` 配下で、ディレクトリ単位の import の閉路 (循環依存) をすべて挙げてください。ノードは .py ファイルがあるディレクトリ (例: `dagayn/tools/build.py` → `dagayn/tools`、`dagayn/main.py` → `dagayn`)。エッジは、あるディレクトリのファイルが別のディレクトリのファイルを import していること。import の解釈: 関数の中・`if TYPE_CHECKING:` の中・相対 import も含む。`from パッケージ import 名前` は、名前がサブモジュールならそのサブモジュールの import、そうでなければパッケージの `__init__.py` の import とみなす。`import a.b.c` は `a/b/c` の import とみなし、親パッケージの `__init__.py` が暗黙に実行される分は数えない。`dagayn` 以外 (標準ライブラリ・外部パッケージ) は数えない。閉路は同じノードを 2 度通らない有向閉路 (長さ 2 以上。回転しただけのものは同じ閉路)。形式は、各閉路を、たどる順にディレクトリを並べた配列で (例: [\"dagayn/a\", \"dagayn/b\"])。",
+   "kind": "cycles",
+   "truth": [
+    [
+     "dagayn",
+     "dagayn/graph"
+    ],
+    [
+     "dagayn",
+     "dagayn/graph",
+     "dagayn/parser/_base"
+    ],
+    [
+     "dagayn",
+     "dagayn/parser"
+    ],
+    [
+     "dagayn",
+     "dagayn/parser",
+     "dagayn/parser/_base"
+    ],
+    [
+     "dagayn",
+     "dagayn/parser/_base"
+    ],
+    [
+     "dagayn",
+     "dagayn/tools"
+    ],
+    [
+     "dagayn",
+     "dagayn/tools",
+     "dagayn/graph"
+    ],
+    [
+     "dagayn",
+     "dagayn/tools",
+     "dagayn/graph",
+     "dagayn/parser/_base"
+    ],
+    [
+     "dagayn",
+     "dagayn/tools",
+     "dagayn/refactor"
+    ],
+    [
+     "dagayn",
+     "dagayn/tools",
+     "dagayn/refactor",
+     "dagayn/graph"
+    ],
+    [
+     "dagayn",
+     "dagayn/tools",
+     "dagayn/refactor",
+     "dagayn/graph",
+     "dagayn/parser/_base"
+    ]
+   ]
+  },
+  "T5": {
+   "prompt": "Markdown の依存ディレクティブ (`<!-- constrained-by 対象 -->`、`<!-- blocked-by 対象 -->`、`<!-- supersedes 対象 -->`、`<!-- derived-from 対象 -->`) をたどって、`docs/USAGE.md` に直接、または間接に依存している Markdown ファイルをすべて挙げてください。対象はそのファイルからの相対パスで書かれている。`#見出し` 付きの対象も、そのファイルへの依存とみなす。http(s) の URL、`~` から始まるもの、存在しないファイルは除く。`video/` と `node_modules/` は対象外。形式はリポジトリルートからのファイルパス。`docs/USAGE.md` 自身は含めない。",
+   "kind": "paths",
+   "truth": [
+    "AGENTS.md",
+    "README.hi-IN.md",
+    "README.ja-JP.md",
+    "README.ko-KR.md",
+    "README.md",
+    "README.zh-CN.md",
+    "docs/COMMANDS.md",
+    "docs/DAEMON-CONFIG.md",
+    "docs/GRAPH-EFFICIENCY-PLAN.md",
+    "docs/INDEX.md",
+    "docs/LLM-OPTIMIZED-REFERENCE.md",
+    "docs/LOCAL-EMBEDDINGS.md",
+    "docs/MARKDOWN-AUTHORING.md",
+    "docs/PERFORMANCE-IMPROVEMENTS-WIP.md",
+    "docs/RECIPES.md",
+    "docs/ROADMAP.md",
+    "docs/SESSION-GRAPH-FRESHNESS.md",
+    "docs/TROUBLESHOOTING.md",
+    "docs/audits/agent-interaction-criteria-review-2026-05-05.md",
+    "docs/audits/dagayn-fundamental-principles-recommendations.md",
+    "docs/audits/dagayn-usability-scorecard.md",
+    "docs/audits/mcp-tool-heuristic-review-2026-05-05.md",
+    "docs/dagayn-analysis-report.md",
+    "docs/plans/ANALYSIS-TOOL-STRATEGY.md",
+    "docs/plans/DAGAYN-FEATURE-INTERFACE-REMEDIATION-PLAN.md",
+    "docs/plans/README.md",
+    "skills/explore-codebase/SKILL.md"
+   ]
+  }
+ }
+}

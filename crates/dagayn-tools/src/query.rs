@@ -957,6 +957,29 @@ fn expand_transitive(
     Some(())
 }
 
+/// The sentence a closed answer of `pattern` ends with: the list holds every
+/// static relation the graph records (`direct` ones at depth 1), and names
+/// what static parsing cannot see.
+fn closed_note(pattern: &str, direct: bool) -> Option<String> {
+    let (relation, dynamic) = match pattern {
+        "callers_of" => (
+            "caller",
+            "calls made through strings, getattr, or registration",
+        ),
+        "callees_of" => (
+            "callee",
+            "calls made through strings, getattr, or registration",
+        ),
+        "importers_of" => ("importer", "imports by string (import_module, __import__)"),
+        "imports_of" => ("import", "imports by string (import_module, __import__)"),
+        _ => return None,
+    };
+    let direct = if direct { "direct " } else { "" };
+    Some(format!(
+        "No {direct}{relation} the graph records is missing; {dynamic} are not edges"
+    ))
+}
+
 /// Run `pattern` for `node` (or `target` where the pattern works without one).
 fn run_pattern(
     store: &GraphStore,
@@ -1531,6 +1554,23 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
         .and_then(Value::as_object)
         .is_some_and(|truncation| truncation.contains_key("results"));
     payload = payload.put("results_complete", results_complete);
+    // Say that a closed answer is the whole answer: agents re-checked lists
+    // the graph had already completed
+    // (docs/plans/AGENT-WORKFLOW-TARGET.md#order-of-work, step 10).
+    let closed = results_complete
+        && raw_count > 0
+        && found.unresolved.is_empty()
+        && found.reachability.as_ref().is_none_or(|reach| {
+            reach.get("state") == Some(&json!("complete"))
+                && reach.get("depth_limit_reached") != Some(&Value::Bool(true))
+        });
+    if closed
+        && let Some(note) = closed_note(pattern, found.reachability.is_none())
+        && let Some(summary) = payload.get("summary").and_then(Value::as_str)
+    {
+        let summary = format!("{summary}. {note}");
+        payload = payload.replace("summary", json!(summary));
+    }
     let rows = payload
         .get("results")
         .and_then(Value::as_array)

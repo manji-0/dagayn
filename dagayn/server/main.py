@@ -247,8 +247,11 @@ mcp = FastMCP(
     instructions=(
         "dagayn is a knowledge graph of this repository: code, Markdown docs, "
         "and Terraform are nodes, linked by calls, imports, tests, and doc "
-        "contracts. Start every task with get_minimal_context_tool(task=...): "
-        "it reports graph freshness (sync.state) and the first calls to make. "
+        "contracts. When the task names no node or file, or you do not know "
+        "whether the graph is current, call get_minimal_context_tool(task=...) "
+        "first: it reports graph freshness (sync.state) and the first calls to "
+        "make. Otherwise call the tool that answers the task; missingness says "
+        "when the graph is behind. "
         "Every reply ends with next: at most three calls with complete "
         "arguments and a why; follow it unless the task points elsewhere. "
         'Review changes with review_tool(mode="changes"); trace relationships '
@@ -391,7 +394,10 @@ async def get_minimal_context_tool(
     repo_root: Optional[str] = None,
     base: Optional[str] = None,
 ) -> ToolPayload:
-    """Get compact context for any task. Call this first.
+    """Get compact context for a task: graph freshness and the first calls.
+
+    Call it when the task names no node or file, or the graph may be stale;
+    a task that names its node can go straight to the tool that answers it.
 
     Returns ``sync.state``, ``graph_health`` (with ``reason_codes``), top
     communities, ``next`` (the task's first calls, with arguments), and,
@@ -438,9 +444,10 @@ def query_graph_tool(
     Args:
         pattern: One of the patterns above.
         target: Node name, qualified name, or file path.
-        detail_level: "standard" (default) lists every related node; "minimal"
-            trims row fields; "full" adds per-edge rows and guidance and hits
-            the output budget sooner.
+        detail_level: "minimal" keeps each node's name, place, and
+            confidence, within 8K characters; "standard" (default) lists every
+            related node with all its fields; "full" adds one row per edge, for
+            seeing why an edge exists. A complete list never needs "full".
         depth: (callers_of, importers_of) Hops to follow, 1-6. Default: 1. Pass 6
             for "directly or indirectly"; ``reachability.state`` says when the set is
             closed.
