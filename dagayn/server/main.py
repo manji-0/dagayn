@@ -792,10 +792,10 @@ def refactor_tool(
     detail_level: Literal["minimal", "standard", "verbose"] = "standard",
     repo_root: Optional[str] = None,
 ) -> ToolPayload:
-    """Plan refactors from the graph: suggestions, dead code, rename previews.
+    """Plan refactors from the graph: findings, dead code, rename previews.
 
     Modes:
-    - suggest (default): ``findings``; "verbose" adds the old leads.
+    - suggest (default): ``findings``.
     - dead_code: functions/classes nothing refers to: no caller, test,
       importer, entry point, registration, FFI export, override, or other
       mention of the name. Candidates that may still be used are counted in
@@ -805,9 +805,9 @@ def refactor_tool(
       ``dagayn serve`` session (advanced surface: ``dagayn serve --tools all``).
 
     Args:
-        limit: (dead_code, suggest) Maximum results; see ``total``.
-        detail_level: "verbose" adds each suggestion's plan and all rename
-            edits (else: plans per type, 20 edits, per-file counts).
+        limit: (dead_code) Maximum results; see ``total``.
+        detail_level: "verbose" lists all rename edits (else: 20 edits and
+            per-file counts) and all findings past the budget.
     """
     payload = _tool("refactor_tools:refactor_func")(
         mode=mode,

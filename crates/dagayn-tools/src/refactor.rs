@@ -81,7 +81,7 @@ pub(crate) fn refactor(context: &Context, arguments: &Map<String, Value>) -> Opt
     let out = if mode == "dead_code" {
         dead_code(store, &answerability, kind, file_pattern, limit)?
     } else {
-        suggest(store, &graph.root, &answerability, limit, detail_level)?
+        suggest(store, &graph.root, &answerability, detail_level)?
     };
     let exposed = |tool: &str| context.exposes(tool);
     // `suggest` takes its hints from its guidance when that names a step.
@@ -180,72 +180,6 @@ fn rename_error(context: &Context, args: &crate::Args, message: &str) -> Option<
     )
 }
 
-/// `_refactor_guidance`.
-fn refactor_guidance(suggestions: &[Value]) -> Vec<Value> {
-    suggestions
-        .iter()
-        .take(3)
-        .map(|s| {
-            let work_pack = s.get("work_pack").cloned().unwrap_or(json!({}));
-            let evidence = s.get("evidence").cloned().unwrap_or(json!({}));
-            let evidence_type = if crate::architecture::truthy(&evidence) { "computed" } else { "evaluated" };
-            let mut missingness = Vec::new();
-            if matches!(s["type"].as_str(), Some("remove" | "move")) {
-                missingness.push(json!({
-                    "reason_code": "dynamic_dispatch_not_proven_absent",
-                    "severity": "medium",
-                    "claim_effect": "verify runtime registration, generated code, and public APIs",
-                }));
-            }
-            for condition in work_pack["defer_conditions"].as_array().into_iter().flatten().take(3) {
-                let text = match condition {
-                    Value::String(t) => t.clone(),
-                    other => other.to_string(),
-                };
-                missingness.push(json!({"reason_code": "defer_condition", "severity": "medium", "claim_effect": text}));
-            }
-            let confidence = match s.get("confidence") {
-                Some(Value::String(c)) if matches!(c.as_str(), "high" | "medium" | "low" | "unknown") => c.as_str(),
-                _ => "unknown",
-            };
-            let claim = match s.get("description") {
-                Some(Value::String(d)) => d.clone(),
-                Some(other) => other.to_string(),
-                None => "Review refactor suggestion.".to_string(),
-            };
-            let mut item = crate::review_summary::guidance_item(
-                claim,
-                json!({
-                    "type": evidence_type,
-                    "suggestion_type": s.get("type").cloned().unwrap_or(Value::Null),
-                    "symbols": s.get("symbols").cloned().unwrap_or(json!([])),
-                    "reason_codes": s.get("reason_codes").cloned().unwrap_or(json!([])),
-                    "raw": evidence,
-                }),
-                confidence,
-                missingness,
-                "refactor_tool mode=\"suggest\" -- inspect work_pack, then run the verification commands before editing",
-                s.get("reason_codes").and_then(Value::as_array).cloned().unwrap_or_default(),
-                work_pack.get("blast_radius").cloned().unwrap_or(json!({})),
-            );
-            let subset: Map<String, Value> = [
-                "safe_first_commit",
-                "required_tests",
-                "documentation_obligations",
-                "rollback_path",
-                "defer_conditions",
-            ]
-            .iter()
-            .map(|k| (k.to_string(), work_pack.get(*k).cloned().unwrap_or(Value::Null)))
-            .collect();
-            if let Some(object) = item.as_object_mut() {
-                object.insert("work_pack".into(), Value::Object(subset));
-            }
-            item
-        })
-        .collect()
-}
-
 /// Findings each kind lists before counting the rest in `findings_omitted`.
 const FINDINGS_PER_KIND: usize = 10;
 
@@ -287,22 +221,10 @@ fn unused_symbol_findings(store: &dagayn_graph::GraphStore) -> Option<(Vec<Value
     Some((found.into_iter().take(FINDINGS_PER_KIND).collect(), omitted))
 }
 
-/// Fields `suggest` keeps only at `detail_level="verbose"`, for one release
-/// (docs/plans/REFACTOR-TOOL-TARGET.md#order-of-work).
-const DEPRECATED_FIELDS: &[&str] = &[
-    "suggestions",
-    "work_packs",
-    "guidance",
-    "total",
-    "truncated",
-    "counts_by_type",
-];
-
 fn suggest(
     store: &dagayn_graph::GraphStore,
     root: &std::path::Path,
     answerability: &Answerability,
-    limit: i64,
     detail_level: &str,
 ) -> Option<Ordered> {
     let suggestions = crate::suggestions::ranked_suggestions(store)?;
@@ -360,57 +282,14 @@ fn suggest(
         .put("summary", summary)
         .put("next", crate::next::from_findings(&findings))
         .put("findings", Value::Array(findings))
-        .put("findings_omitted", Value::Object(omitted));
-    if detail_level != "verbose" {
-        let budget = if detail_level == "minimal" {
-            crate::MINIMAL_BUDGET
-        } else {
-            crate::STANDARD_BUDGET
-        };
-        return Some(
-            out.put("answerability", answerability.full())
-                .put("missingness", json!(missingness))
-                .apply_output_budget(budget, &["findings"]),
-        );
-    }
-
-    // The earlier, size-based suggestions.
-    let total = suggestions.len();
-    let truncated = total as i64 > limit;
-    let mut by_type = Map::new();
-    for s in &suggestions {
-        let key = s["type"].as_str().unwrap_or("unknown").to_string();
-        let count = by_type.get(&key).and_then(Value::as_i64).unwrap_or(0) + 1;
-        by_type.insert(key, json!(count));
-    }
-    let shown = py_prefix(&suggestions, limit);
-    let packs: Vec<Value> = py_prefix(&suggestions, limit.min(5))
-        .iter()
-        .map(|s| {
-            let mut pack = Map::new();
-            pack.insert(
-                "symbols".into(),
-                s.get("symbols").cloned().unwrap_or(json!([])),
-            );
-            pack.insert("type".into(), s.get("type").cloned().unwrap_or(Value::Null));
-            for (k, v) in s["work_pack"].as_object().into_iter().flatten() {
-                pack.insert(k.clone(), v.clone());
-            }
-            Value::Object(pack)
-        })
-        .collect();
-    let guidance = refactor_guidance(&shown);
-    Some(
-        out.put("suggestions", Value::Array(shown))
-            .put("work_packs", Value::Array(packs))
-            .put("guidance", Value::Array(guidance))
-            .put("total", total)
-            .put("truncated", truncated)
-            .put("counts_by_type", Value::Object(by_type))
-            .put("deprecated_fields", json!(DEPRECATED_FIELDS))
-            .put("answerability", answerability.full())
-            .put("missingness", json!(missingness)),
-    )
+        .put("findings_omitted", Value::Object(omitted))
+        .put("answerability", answerability.full())
+        .put("missingness", json!(missingness));
+    Some(match detail_level {
+        "minimal" => out.apply_output_budget(crate::MINIMAL_BUDGET, &["findings"]),
+        "standard" => out.apply_output_budget(crate::STANDARD_BUDGET, &["findings"]),
+        _ => out,
+    })
 }
 
 /// Whether `name` can be substituted into source as an identifier:

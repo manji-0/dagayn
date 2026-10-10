@@ -2493,7 +2493,8 @@ class TestRefactorToolWithNativeBackend:
         verbose = refactor_tools.refactor_func(
             mode="suggest", repo_root=str(repo), limit=50, detail_level="verbose"
         )
-        assert isinstance(verbose["suggestions"], list)
+        assert verbose["findings"] == result["findings"]
+        assert "suggestions" not in verbose
 
     def test_rename_mode(self, tmp_path, monkeypatch):
         monkeypatch.setenv("DAGAYN_BACKEND", "rust")

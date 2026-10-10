@@ -177,22 +177,10 @@ def test_refactor_suggest_answers_through_rust(unused_repo: Path) -> None:
         "lib.py::orphan_two",
         "lib.py::orphan_three",
     }
-    result = refactor_func(
-        mode="suggest", top_n=1, detail_level="verbose", repo_root=str(unused_repo)
-    )
-    assert result["status"] == "ok"
-    assert result["total"] >= 1
-    assert len(result["suggestions"]) == 1
-    assert set(result["guidance"][0]) >= {
-        "claim",
-        "evidence",
-        "confidence",
-        "missingness",
-        "action",
-        "reason_codes",
-        "counts",
-    }
-    assert result["_hints"]["next_steps"]
+    verbose = refactor_func(mode="suggest", detail_level="verbose", repo_root=str(unused_repo))
+    assert verbose["status"] == "ok"
+    assert verbose["findings"] == findings["findings"]
+    assert "suggestions" not in verbose
 
 
 def test_refactor_defaults_to_suggest_like_the_mcp_tool(unused_repo: Path) -> None:

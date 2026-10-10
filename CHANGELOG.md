@@ -21,6 +21,11 @@ All notable changes to `dagayn` are documented here.
 - **Breaking:** `get_suggested_questions_tool`, deprecated in 8.0.0, and the
   graph store's `generate_suggested_questions_json`. The architecture
   overview's `findings` replace it.
+- **Breaking:** `refactor_tool(mode="suggest")` at `detail_level="verbose"`
+  no longer returns the size-based `suggestions`, `work_packs`, `guidance`,
+  `total`, `truncated`, and `counts_by_type`, deprecated in 9.0.0; verbose
+  is the findings without the output budget. `limit` applies to `dead_code`
+  alone.
 
 ### Changed
 

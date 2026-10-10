@@ -1582,7 +1582,6 @@ fn refactor_finds_dead_code_and_suggests() {
     assert!(suggest["findings"][0]["evidence"].is_object());
     assert_eq!(suggest["findings_omitted"], json!({}));
     assert_eq!(suggest["summary"], "Findings: 1 unused_symbol.");
-    // The size-based suggestions are verbose-only, for one release.
     assert!(suggest.get("suggestions").is_none());
     let minimal = answer(
         &context,
@@ -1595,22 +1594,11 @@ fn refactor_finds_dead_code_and_suggests() {
         "refactor_tool",
         json!({"detail_level": "verbose"}),
     );
-    assert!(
-        verbose["suggestions"]
-            .as_array()
-            .is_some_and(|s| s.iter().any(|x| x["type"] == "remove"))
-    );
-    assert!(verbose["suggestions"][0]["work_pack"].is_object());
-    assert!(verbose["work_packs"].is_array());
-    assert_eq!(verbose["deprecated_fields"][0], "suggestions");
-    let steps = &verbose["_hints"]["next_steps"];
-    let unique: std::collections::HashSet<String> = steps
-        .as_array()
-        .into_iter()
-        .flatten()
-        .map(Value::to_string)
-        .collect();
-    assert_eq!(unique.len(), steps.as_array().map_or(0, Vec::len));
+    // The size-based suggestions are gone at every level.
+    assert_eq!(verbose["findings"], suggest["findings"]);
+    for gone in ["suggestions", "work_packs", "counts_by_type"] {
+        assert!(verbose.get(gone).is_none(), "{gone}");
+    }
     let preview = answer(
         &context,
         "refactor_tool",

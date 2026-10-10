@@ -1274,13 +1274,13 @@
                 "tags": []
               }
             },
-            "description": "Plan refactors from the graph: suggestions, dead code, rename previews.\n\nModes:\n- suggest (default): ``findings``; \"verbose\" adds the old leads.\n- dead_code: functions/classes nothing refers to: no caller, test,\n  importer, entry point, registration, FFI export, override, or other\n  mention of the name. Candidates that may still be used are counted in\n  ``suppressed`` (filter with ``kind``, ``file_pattern``).\n- rename: preview renaming ``old_name`` to ``new_name``. Returns edits and a\n  ``refactor_id`` (valid 10 min) for ``apply_refactor_tool`` in the same\n  ``dagayn serve`` session (advanced surface: ``dagayn serve --tools all``).",
+            "description": "Plan refactors from the graph: findings, dead code, rename previews.\n\nModes:\n- suggest (default): ``findings``.\n- dead_code: functions/classes nothing refers to: no caller, test,\n  importer, entry point, registration, FFI export, override, or other\n  mention of the name. Candidates that may still be used are counted in\n  ``suppressed`` (filter with ``kind``, ``file_pattern``).\n- rename: preview renaming ``old_name`` to ``new_name``. Returns edits and a\n  ``refactor_id`` (valid 10 min) for ``apply_refactor_tool`` in the same\n  ``dagayn serve`` session (advanced surface: ``dagayn serve --tools all``).",
             "inputSchema": {
               "additionalProperties": false,
               "properties": {
                 "detail_level": {
                   "default": "standard",
-                  "description": "\"verbose\" adds each suggestion's plan and all rename\nedits (else: plans per type, 20 edits, per-file counts).",
+                  "description": "\"verbose\" lists all rename edits (else: 20 edits and\nper-file counts) and all findings past the budget.",
                   "enum": [
                     "minimal",
                     "standard",
@@ -1312,7 +1312,7 @@
                 },
                 "limit": {
                   "default": 50,
-                  "description": "(dead_code, suggest) Maximum results; see ``total``.",
+                  "description": "(dead_code) Maximum results; see ``total``.",
                   "type": "integer"
                 },
                 "mode": {
@@ -2633,13 +2633,13 @@
                 "tags": []
               }
             },
-            "description": "Plan refactors from the graph: suggestions, dead code, rename previews.\n\nModes:\n- suggest (default): ``findings``; \"verbose\" adds the old leads.\n- dead_code: functions/classes nothing refers to: no caller, test,\n  importer, entry point, registration, FFI export, override, or other\n  mention of the name. Candidates that may still be used are counted in\n  ``suppressed`` (filter with ``kind``, ``file_pattern``).\n- rename: preview renaming ``old_name`` to ``new_name``. Returns edits and a\n  ``refactor_id`` (valid 10 min) for ``apply_refactor_tool`` in the same\n  ``dagayn serve`` session (advanced surface: ``dagayn serve --tools all``).",
+            "description": "Plan refactors from the graph: findings, dead code, rename previews.\n\nModes:\n- suggest (default): ``findings``.\n- dead_code: functions/classes nothing refers to: no caller, test,\n  importer, entry point, registration, FFI export, override, or other\n  mention of the name. Candidates that may still be used are counted in\n  ``suppressed`` (filter with ``kind``, ``file_pattern``).\n- rename: preview renaming ``old_name`` to ``new_name``. Returns edits and a\n  ``refactor_id`` (valid 10 min) for ``apply_refactor_tool`` in the same\n  ``dagayn serve`` session (advanced surface: ``dagayn serve --tools all``).",
             "inputSchema": {
               "additionalProperties": false,
               "properties": {
                 "detail_level": {
                   "default": "standard",
-                  "description": "\"verbose\" adds each suggestion's plan and all rename\nedits (else: plans per type, 20 edits, per-file counts).",
+                  "description": "\"verbose\" lists all rename edits (else: 20 edits and\nper-file counts) and all findings past the budget.",
                   "enum": [
                     "minimal",
                     "standard",
@@ -2671,7 +2671,7 @@
                 },
                 "limit": {
                   "default": 50,
-                  "description": "(dead_code, suggest) Maximum results; see ``total``.",
+                  "description": "(dead_code) Maximum results; see ``total``.",
                   "type": "integer"
                 },
                 "mode": {
