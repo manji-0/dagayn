@@ -205,8 +205,7 @@ the unit depended on), `untested_core` (code used from many files
 that no test reaches through its callers), and `broken_doc_link` (a directive
 pointing at a file, section, or symbol that is gone). An empty `findings` list
 means nothing structural to act on. `detail_level="standard"` adds each unit's
-`surface`; the community health report (`architecture_health`) is at
-`"verbose"` until the next release. SDP and SAP modes compute per declared unit.
+`surface`. SDP and SAP modes compute per declared unit.
 
 `dagayn visualize` is the static graph export surface. It requires `--format` and supports `graphml`, `mermaid-c4`, `svg`, `cypher`, and `obsidian`.
 </section>

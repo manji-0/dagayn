@@ -32,7 +32,6 @@ mod next;
 pub mod pending;
 mod postprocess;
 mod pypath;
-mod pyrandom;
 mod pyunicode;
 mod query;
 mod refactor;

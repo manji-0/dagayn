@@ -195,21 +195,13 @@ mod tests {
     }
 
     #[test]
-    fn adp_lists_each_bounded_cycle_once_from_its_smallest_scope() {
+    fn sdp_violations_exceed_the_minimum_delta() {
         let deps: Vec<(String, String)> =
             [("b", "a"), ("a", "b"), ("b", "c"), ("c", "a"), ("a", "b")]
                 .iter()
                 .map(|(s, t)| (s.to_string(), t.to_string()))
                 .collect();
         let graph = ScopeGraph::new(&deps);
-        let cycles = graph
-            .adp_violations(2, 10, crate::architecture::Profile::StrictStatic)
-            .expect("cycles");
-        let nodes: Vec<Value> = cycles.iter().map(|c| c["nodes"].clone()).collect();
-        assert_eq!(nodes, vec![json!(["a", "b", "c"]), json!(["a", "b"])]);
-        // a->b carries weight 2: severity 3 * (2 + 1 + 1) beats 2 * (2 + 1).
-        assert_eq!(cycles[0]["severity"], 12);
-        assert_eq!(cycles[1]["edge_weight"], 3);
         assert!(
             graph
                 .sdp_violations(0.1, View::review().profile)

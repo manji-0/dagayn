@@ -34,6 +34,14 @@ All notable changes to `dagayn` are documented here.
   blast-radius summary and the test-gap scan are gone. Each changed
   function keeps its `risk_score`. `dagayn eval --benchmark
   guidance_precision`, which scored those fields, goes with them.
+- **Breaking:** `architecture_analysis_tool(mode="overview")` at
+  `detail_level="verbose"` no longer returns the community health report
+  deprecated in 8.0.0 (`communities`, `cross_community_coupling`,
+  `cross_community_edges`, `warnings`, `architecture_health`,
+  `stable_component_policy`); verbose is the map and its findings with the
+  graph-wide `answerability`. The hub, bridge, knowledge-gap,
+  surprising-connection, and ADP-cycle analyses behind it go too.
+  `mode="communities"` and `mode="community"` are unchanged.
 
 ### Changed
 

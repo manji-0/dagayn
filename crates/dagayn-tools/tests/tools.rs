@@ -1503,14 +1503,20 @@ fn architecture_metrics_follow_the_requested_view() {
     assert_eq!(cycle["kind"], "import_cycle");
     assert_eq!(cycle["targets"], json!(["app.py", "pkg/core.py"]));
     assert_eq!(cycle["cut"].as_array().map(Vec::len), Some(1));
+    // verbose is the map with the graph-wide answerability; the community
+    // health report is gone.
     let verbose = arch(json!({"detail_level": "verbose"}));
-    assert_eq!(verbose["architecture_health"]["status"], "ok");
-    assert!(verbose["stable_component_policy"]["counts"].is_object());
-    assert!(
-        verbose["deprecated_fields"]
-            .as_array()
-            .is_some_and(|fields| fields.contains(&json!("architecture_health")))
-    );
+    assert_eq!(verbose["findings"], overview["findings"]);
+    assert!(verbose["answerability"].is_object());
+    for gone in [
+        "architecture_health",
+        "stable_component_policy",
+        "communities",
+        "cross_community_coupling",
+        "warnings",
+    ] {
+        assert!(verbose.get(gone).is_none(), "{gone}");
+    }
     let communities = arch(json!({"mode": "communities", "detail_level": "standard"}));
     assert!(communities.get("called_subtool").is_none());
     assert!(communities.get("answerability").is_none());

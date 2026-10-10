@@ -192,15 +192,8 @@ pub(crate) fn architecture(context: &Context, arguments: &Map<String, Value>) ->
                 &root.path,
                 &graph.store,
                 request.detail_level,
-                crate::community::overview(
-                    &graph.store,
-                    &answerability,
-                    &exposed,
-                    request.detail_level,
-                    request.top_n,
-                    request.artifact_scope,
-                    artifact,
-                )?,
+                request.artifact_scope,
+                &answerability,
             )?,
             false,
         ),
@@ -307,7 +300,8 @@ fn with_unit_map(
     root: &std::path::Path,
     store: &dagayn_graph::GraphStore,
     detail_level: &str,
-    rest: Ordered,
+    artifact_scope: &str,
+    answerability: &crate::answerability::Answerability,
 ) -> Option<Ordered> {
     let snapshot = crate::architecture::Snapshot::read(store)?;
     let (mut units, mut unit_edges) = crate::units::unit_map(
@@ -343,14 +337,9 @@ fn with_unit_map(
                 .join(", ")
         )
     };
-    let mut summary = format!(
+    let summary = format!(
         "{unit_count} unit(s), {edge_count} dependency pair(s) between them. {findings_summary}"
     );
-    if detail_level == "verbose"
-        && let Some(legacy) = rest.get("summary").and_then(Value::as_str)
-    {
-        summary = format!("{summary} {legacy}");
-    }
     let mut out = Ordered::default()
         .put("status", "ok")
         .put("summary", summary);
@@ -368,35 +357,20 @@ fn with_unit_map(
     if !findings_omitted.is_empty() {
         out = out.put("findings_omitted", json!(findings_omitted));
     }
+    out = out.put("artifact_scope", artifact_scope);
+    // The map reads no community or flow: their gaps are not its caveats.
+    let missingness: Vec<Value> = answerability
+        .missingness_with_derived()
+        .into_iter()
+        .filter(|item| {
+            !item["reason_code"]
+                .as_str()
+                .is_some_and(crate::answerability::is_derived_structure_code)
+        })
+        .collect();
+    out = out.put("missingness", json!(missingness));
     if detail_level == "verbose" {
-        // The community-based health report the overview gave before the
-        // map, for one release.
-        let mut deprecated = Vec::new();
-        for (key, value) in rest.into_entries() {
-            if key == "status" || key == "summary" {
-                continue;
-            }
-            if !matches!(key.as_str(), "artifact_scope" | "missingness" | "_hints") {
-                deprecated.push(key.clone());
-            }
-            out = out.put(&key, value);
-        }
-        return Some(out.put("deprecated_fields", json!(deprecated)));
-    }
-    if let Some(scope) = rest.get("artifact_scope") {
-        out = out.put("artifact_scope", scope.clone());
-    }
-    // The map reads no community: the community report's gaps stay with it.
-    if let Some(Value::Array(missingness)) = rest.get("missingness") {
-        let kept: Vec<&Value> = missingness
-            .iter()
-            .filter(|item| {
-                !item["reason_code"]
-                    .as_str()
-                    .is_some_and(crate::answerability::is_derived_structure_code)
-            })
-            .collect();
-        out = out.put("missingness", json!(kept));
+        out = out.put("answerability", answerability.full());
     }
     let mut next_steps = Vec::new();
     if !findings.is_empty() {

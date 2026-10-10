@@ -34,30 +34,6 @@ class CommunityMetricsPayload(TypedDict):
     external_edge_ratio: float
 
 
-class CrossCommunityEdgeRecord(TypedDict):
-    source_community: int
-    target_community: int
-    edge_kind: str
-    source: str
-    target: str
-
-
-class CommunityCouplingRecord(TypedDict):
-    source_community_id: int
-    source_community_name: str
-    target_community_id: int
-    target_community_name: str
-    edge_count: int
-    edge_kinds: dict[str, int]
-
-
-class ArchitectureOverviewResult(TypedDict, total=False):
-    communities: list[CommunityRecord]
-    cross_community_coupling: list[CommunityCouplingRecord]
-    warnings: list[str]
-    cross_community_edges: list[CrossCommunityEdgeRecord]
-
-
 def detect_communities(store: GraphStore, min_size: int = 2) -> list[Any]:
     """Detect communities in the code graph."""
     payload = json.loads(store.detect_communities_json(min_size))
@@ -129,11 +105,8 @@ def refresh_community_stats(store: GraphStore) -> dict[str, int]:
 
 
 __all__ = [
-    "ArchitectureOverviewResult",
-    "CommunityCouplingRecord",
     "CommunityMetricsPayload",
     "CommunityRecord",
-    "CrossCommunityEdgeRecord",
     "count_affected_communities",
     "detect_communities",
     "get_communities",

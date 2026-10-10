@@ -782,13 +782,8 @@ found in the current graph" unless the surrounding source review confirms
 absence.
 
 `architecture_analysis_tool` is the primary architecture-analysis surface. Start
-with `mode="overview"` and `detail_level="minimal"`. Output includes
-`architecture_health`, which composes community coupling, hubs, bridges,
-knowledge gaps, surprising connections, and ADP/SDP/SAP signals into a bounded
-health summary with drill-down mode hints. These warnings are review leads, not
-verdicts. The overview reports formulas, thresholds, `artifact_scope`, guidance
-items, and `stable_component_policy` so review, architecture, and refactor
-surfaces use the same stability expectations.
+with `mode="overview"` and `detail_level="minimal"`: the declared units, the
+dependencies between them, and `findings`.
 
 ADP/SDP/SAP modes default to `artifact_scope="code"` so Markdown dependencies
 and code dependencies are not mixed in design-principle metrics. Pass

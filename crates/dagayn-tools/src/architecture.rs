@@ -10,9 +10,6 @@ use serde_json::{Value, json};
 use crate::suggestions::round_to;
 
 const DOC_SUFFIXES: &[&str] = &[".md", ".markdown", ".mdown", ".mkdn"];
-const MAX_ADP_CYCLES: usize = 5000;
-/// DFS steps after which ADP enumeration leaves the answer to Python.
-const MAX_ADP_STEPS: usize = 2_000_000;
 
 /// `ArtifactScope`.
 #[derive(Clone, Copy, PartialEq)]
@@ -331,11 +328,6 @@ impl ScopeGraph {
     }
 
     /// `compute_sdp_metrics`, sorted by instability descending (stable).
-    /// `g.number_of_nodes() == 0`.
-    pub(crate) fn is_empty(&self) -> bool {
-        self.nodes.is_empty()
-    }
-
     pub(crate) fn sdp_metrics(&self) -> Vec<(String, i64, i64, f64)> {
         let mut metrics: Vec<(String, i64, i64, f64)> = (0..self.nodes.len())
             .map(|node| {
@@ -385,73 +377,6 @@ impl ScopeGraph {
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
         violations.into_iter().map(|(_, value)| value).collect()
-    }
-
-    /// `find_adp_violations`: the simple cycles of at most `max_length`
-    /// nodes, the first [`MAX_ADP_CYCLES`] in the shared deterministic order
-    /// when there are more (the last one then marked `truncated`).
-    pub(crate) fn adp_violations(
-        &self,
-        min_size: i64,
-        max_length: i64,
-        profile: Profile,
-    ) -> Option<Vec<Value>> {
-        let edges: Vec<(usize, usize)> = self
-            .successors
-            .iter()
-            .enumerate()
-            .flat_map(|(from, targets)| targets.iter().map(move |(to, _)| (from, *to)))
-            .collect();
-        let found = dagayn_graph::bounded_simple_cycles(
-            &self.nodes,
-            &edges,
-            usize::try_from(min_size.max(0)).ok()?,
-            usize::try_from(max_length.max(0)).ok()?,
-            MAX_ADP_CYCLES,
-            MAX_ADP_STEPS,
-        );
-        let cycles = found.cycles;
-        let weight = |from: usize, to: usize| {
-            self.successors[from]
-                .iter()
-                .find(|(n, _)| *n == to)
-                .map_or(0, |(_, w)| *w)
-        };
-        let mut violations: Vec<(i64, Vec<String>, Value)> = cycles
-            .into_iter()
-            .map(|cycle| {
-                let names: Vec<&String> = cycle.iter().map(|n| &self.nodes[*n]).collect();
-                let start = (0..names.len()).min_by_key(|i| names[*i]).unwrap_or(0);
-                let rotated: Vec<usize> = cycle[start..]
-                    .iter()
-                    .chain(&cycle[..start])
-                    .copied()
-                    .collect();
-                let edge_weight: i64 = (0..rotated.len())
-                    .map(|i| weight(rotated[i], rotated[(i + 1) % rotated.len()]))
-                    .sum();
-                let severity = rotated.len() as i64 * edge_weight;
-                let nodes: Vec<String> = rotated.iter().map(|n| self.nodes[*n].clone()).collect();
-                let value = json!({
-                    "nodes": nodes,
-                    "length": rotated.len(),
-                    "edge_weight": edge_weight,
-                    "severity": severity,
-                    "dependency_profile": profile.name(),
-                });
-                (severity, nodes, value)
-            })
-            .collect();
-        violations.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| left.1.cmp(&right.1)));
-        let mut out: Vec<Value> = violations.into_iter().map(|(_, _, value)| value).collect();
-        if found.truncated
-            && let Some(Value::Object(last)) = out.last_mut()
-        {
-            last.insert("truncated".into(), json!(true));
-            last.insert("cycles_examined".into(), json!(found.examined));
-            last.insert("cycle_limit".into(), json!(MAX_ADP_CYCLES));
-        }
-        Some(out)
     }
 }
 
