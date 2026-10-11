@@ -246,7 +246,8 @@ fn import_targets_conn(conn: &rusqlite::Connection) -> Result<HashMap<String, Ha
                 COALESCE(json_extract(extra, '$.re_export'), 0) \
                     OR file_path LIKE '%/__init__.py' OR file_path = '__init__.py', \
                 COALESCE(json_extract(extra, '$.glob'), 0) \
-         FROM edges WHERE kind = 'IMPORTS_FROM'",
+         FROM edges WHERE kind = 'IMPORTS_FROM' \
+           AND COALESCE(json_extract(extra, '$.path_use'), 0) = 0",
     )?;
     let rows = stmt.query_map([], |row| {
         Ok((

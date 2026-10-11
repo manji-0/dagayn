@@ -726,8 +726,8 @@ fn imports_of_follows_a_chain_forward_and_says_which_edges_are_directives() {
     for (arguments, message) in [
         (
             json!({"pattern": "imports_of", "target": "docs/plan.md", "import_kind": "anchor"}),
-            "import_kind must be 'directive', 'link', 'lazy_export', or 'statement', got \
-             'anchor'.",
+            "import_kind must be 'directive', 'link', 'lazy_export', 'path', or 'statement', \
+             got 'anchor'.",
         ),
         (
             json!({"pattern": "callers_of", "target": "app.py::helper", "import_kind": "link"}),
@@ -1751,11 +1751,113 @@ fn a_cut_minimal_list_says_so_and_offers_the_standard_call() {
         summary.contains("of 150 rows; detail_level=\"standard\" lists more in one call"),
         "{summary}"
     );
+    assert!(
+        summary.ends_with("all 150 lie in 150 files (first 60 in files)"),
+        "{summary}"
+    );
+    assert_eq!(cut["files"].as_array().map(Vec::len), Some(60), "{cut}");
     assert_eq!(
         cut["next"][0]["args"],
         json!({"pattern": "importers_of", "target": "core.py", "detail_level": "standard", "depth": 6}),
         "{}",
         cut["next"]
+    );
+}
+
+#[test]
+fn rust_calls_through_a_field_and_paths_in_code_reach_other_files() {
+    // dagayn: tests crates/dagayn-graph/src/postprocess/returned.rs::resolve_field_receivers
+    let repo = Repo::new("rust-fields", false);
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fields\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write(
+        "src/lib.rs",
+        "pub mod model;\npub mod types;\npub mod user;\npub mod uses;\n",
+    );
+    repo.write(
+        "src/types.rs",
+        "pub struct Path(String);\n\nimpl Path {\n    pub fn as_str(&self) -> &str {\n        &self.0\n    }\n}\n\npub struct Other;\n\nimpl Other {\n    pub fn as_str(&self) -> &str {\n        \"o\"\n    }\n}\n",
+    );
+    repo.write(
+        "src/model.rs",
+        "use crate::types::Path;\n\npub struct Node {\n    pub path: Path,\n}\n",
+    );
+    repo.write(
+        "src/user.rs",
+        "use crate::model::Node;\n\npub fn name(node: &Node) -> usize {\n    node.path.as_str().len()\n}\n\npub fn shown(node: &Node) -> String {\n    format!(\"{}\", node.path.as_str())\n}\n",
+    );
+    repo.write(
+        "src/uses.rs",
+        "pub fn make() -> crate::types::Other {\n    crate::types::Other\n}\n",
+    );
+    repo.build();
+    let context = repo.context();
+
+    // `node.path.as_str()`: `Node` is declared in model.rs, its `path` a
+    // `Path` of types.rs, in a call and in a macro's arguments.
+    let callers = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": "src/types.rs::Path.as_str"}),
+    );
+    let names: Vec<&str> = callers["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .filter_map(|row| row["qualified_name"].as_str())
+        .collect();
+    assert_eq!(
+        names,
+        ["src/user.rs::name", "src/user.rs::shown"],
+        "{callers}"
+    );
+    assert!(
+        callers["summary"]
+            .as_str()
+            .is_some_and(|summary| summary.contains("calls on closure parameters, loop variables")),
+        "{}",
+        callers["summary"]
+    );
+    let other = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": "src/types.rs::Other.as_str"}),
+    );
+    assert_eq!(other["result_count"], 0, "{other}");
+
+    // `crate::types::Other` in code, no `use`: a dependency of kind `path`.
+    let importers = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "importers_of", "target": "src/types.rs"}),
+    );
+    let rows: Vec<(&str, Option<&str>)> = importers["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .map(|row| {
+            (
+                row["file"].as_str().unwrap_or(""),
+                row["import_kind"].as_str(),
+            )
+        })
+        .collect();
+    assert!(rows.contains(&("src/uses.rs", Some("path"))), "{importers}");
+    assert!(rows.contains(&("src/model.rs", None)), "{importers}");
+    let statements = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "importers_of", "target": "src/types.rs", "import_kind": "statement"}),
+    );
+    assert!(
+        statements["results"]
+            .as_array()
+            .expect("results")
+            .iter()
+            .all(|row| row["file"] != "src/uses.rs"),
+        "{statements}"
     );
 }
 

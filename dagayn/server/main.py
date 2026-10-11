@@ -455,9 +455,10 @@ def query_graph_tool(
             closed.
         import_kind: (importers_of, imports_of) "directive" or "link" follows
             only Markdown dependency directives or only links, "lazy_export"
-            only Python imports a lazy-export table names, "statement" only
-            import statements (no kind); each kinded row's ``import_kind``
-            says which it is.
+            only Python imports a lazy-export table names, "path" only Rust
+            files reached by a path in code without a ``use``, "statement"
+            only import statements (no kind); each kinded row's
+            ``import_kind`` says which it is.
 
     ``results_complete`` is false when the output budget cut rows. An import
     edge is a file's own import statement: ``from pkg import sub`` points at the
@@ -649,7 +650,7 @@ def architecture_analysis_tool(
         "infra_dataflow",
         "artifact_trace",
     ] = "strict_static",
-    import_kind: Optional[Literal["directive", "link", "lazy_export", "statement"]] = None,
+    import_kind: Optional[Literal["directive", "link", "lazy_export", "path", "statement"]] = None,
 ) -> ToolPayload:
     """Map the repository's units and report structural findings.
 

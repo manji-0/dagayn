@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::Path;
 use std::sync::LazyLock;
 
@@ -70,6 +70,7 @@ pub(super) fn parse_rust_with_parser(
         };
         rust_note_qualified_types(qualified_types, &context);
         rust_walk_children(root, &context, None, None, &mut nodes, &mut edges);
+        rust_path_use_edges(root, &context, &mut edges);
         rust_mark_std_calls(&mut edges, &context);
         let component_bindings = context.component_bindings;
         if rust_may_host_wasm(source, component_bindings) {
@@ -451,20 +452,28 @@ fn rust_walk_children(
                         file_path: context.file_path.clone(),
                         line: child.start_position().row as i64 + 1,
                         extra: if receiver_unknown {
+                            let receiver = child
+                                .child_by_field_name("function")
+                                .and_then(|function| function.child_by_field_name("value"));
                             // The call the receiver is the result of, whose
                             // declared return type resolution reads.
-                            match child
-                                .child_by_field_name("function")
-                                .and_then(|function| function.child_by_field_name("value"))
-                                .and_then(|receiver| {
-                                    rust_receiver_origin(receiver, &call_name, context)
-                                }) {
+                            let mut extra = match receiver.and_then(|receiver| {
+                                rust_receiver_origin(receiver, &call_name, context)
+                            }) {
                                 Some(origin) => json!({
                                     "receiver_unknown": true,
                                     "receiver_from": origin.to_json(),
                                 }),
                                 None => json!({"receiver_unknown": true}),
+                            };
+                            // A field of a value whose type is known, the
+                            // struct declared in another file.
+                            if let Some(field) =
+                                receiver.and_then(|receiver| rust_receiver_field(receiver, context))
+                            {
+                                extra["receiver_field"] = field;
                             }
+                            extra
                         } else if bound_receiver {
                             // Read (and dropped) by `rust_mark_std_calls`.
                             json!({"bound_receiver": true})
@@ -785,14 +794,27 @@ fn rust_note_struct_fields(
     source: &[u8],
     out: &mut HashMap<String, HashMap<String, String>>,
 ) {
-    let (Some(name), Some(body)) = (
-        node.child_by_field_name("name")
-            .map(|n| node_text(n, source)),
-        node.child_by_field_name("body"),
-    ) else {
+    let Some(name) = node
+        .child_by_field_name("name")
+        .map(|n| node_text(n, source))
+    else {
         return;
     };
     let mut fields = HashMap::new();
+    rust_struct_field_types(node, source, &mut fields);
+    out.insert(name, fields);
+}
+
+/// The receiver type of each named field of a struct (`file_path:
+/// FilePath`, `store: &'a GraphStore` -> `GraphStore`).
+fn rust_struct_field_types(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    fields: &mut HashMap<String, String>,
+) {
+    let Some(body) = node.child_by_field_name("body") else {
+        return;
+    };
     let mut cursor = body.walk();
     for field in body.named_children(&mut cursor) {
         if field.kind() != "field_declaration" {
@@ -806,7 +828,6 @@ fn rust_note_struct_fields(
             fields.insert(node_text(field_name, source), ty);
         }
     }
-    out.insert(name, fields);
 }
 
 fn rust_type_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
@@ -964,6 +985,15 @@ fn rust_type_extra(node: tree_sitter::Node<'_>, source: &[u8]) -> serde_json::Va
             .collect::<Vec<_>>();
         if !variants.is_empty() {
             extra["variants"] = json!(variants);
+        }
+    }
+    // A struct's field types: `x.field.m()` in another file is typed by
+    // them once resolution knows `x`'s type (`receiver_field`).
+    if node.kind() == "struct_item" {
+        let mut fields = HashMap::new();
+        rust_struct_field_types(node, source, &mut fields);
+        if !fields.is_empty() {
+            extra["field_types"] = json!(fields.into_iter().collect::<BTreeMap<_, _>>());
         }
     }
     if let Some(derive_traits) = rust_derive_traits(node, source) {
@@ -1601,6 +1631,89 @@ fn rust_emit_use(
     }
 }
 
+/// Files this one reaches by a path written in its code rather than a `use`
+/// (`crate::architecture::Snapshot::read(..)`, `&super::util::Scope`): one
+/// `IMPORTS_FROM` per file, tagged `path_use`, unless a `use` already
+/// imports from it. They are dependencies, not names in scope, so
+/// resolution does not widen what the file sees by them.
+fn rust_path_use_edges(
+    root: tree_sitter::Node<'_>,
+    context: &RustParseContext<'_>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let Some(scope) = context.scope else {
+        return;
+    };
+    let used: HashSet<String> = edges
+        .iter()
+        .filter(|edge| edge.kind == crate::core::types::EdgeKind::ImportsFrom)
+        .map(|edge| edge.target.clone())
+        .collect();
+    // file -> (module as written, first line, names)
+    let mut reached: BTreeMap<String, (String, i64, BTreeSet<String>)> = BTreeMap::new();
+    let mut pending = vec![root];
+    while let Some(node) = pending.pop() {
+        match node.kind() {
+            "use_declaration" | "mod_item" | "attribute_item" | "inner_attribute_item" => continue,
+            "scoped_identifier" | "scoped_type_identifier" => {
+                let text = rust_path_without_generics(&node_text(node, context.source));
+                let segments: Vec<String> = text
+                    .split("::")
+                    .filter(|segment| !segment.is_empty())
+                    .map(str::to_string)
+                    .collect();
+                if segments.len() > 1
+                    && segments[0] != "Self"
+                    && let Some(resolved) = scope.resolve(&segments)
+                    && !resolved.rest.is_empty()
+                    && resolved.file != context.file_path.as_str()
+                    && !used.contains(&resolved.file)
+                {
+                    let module = segments[..segments.len() - resolved.rest.len()].join("::");
+                    let entry = reached.entry(resolved.file).or_insert_with(|| {
+                        (
+                            module,
+                            node.start_position().row as i64 + 1,
+                            BTreeSet::new(),
+                        )
+                    });
+                    entry.2.insert(resolved.rest[0].clone());
+                }
+                // The path's own prefix is no second reference.
+                continue;
+            }
+            _ => {}
+        }
+        let mut cursor = node.walk();
+        pending.extend(node.children(&mut cursor));
+    }
+    for (file, (module, line, names)) in reached {
+        edges.push(ParsedEdge {
+            kind: crate::core::types::EdgeKind::ImportsFrom,
+            source: context.file_path.to_string(),
+            target: file,
+            file_path: context.file_path.clone(),
+            line,
+            extra: json!({"module": module, "path_use": true, "path_names": names}),
+        });
+    }
+}
+
+/// `a::B::<T>::c` -> `a::B::c`, whitespace dropped.
+fn rust_path_without_generics(text: &str) -> String {
+    let mut out = String::new();
+    let mut depth = 0_usize;
+    for character in text.chars() {
+        match character {
+            '<' => depth += 1,
+            '>' => depth = depth.saturating_sub(1),
+            _ if depth == 0 && !character.is_whitespace() => out.push(character),
+            _ => {}
+        }
+    }
+    out
+}
+
 fn rust_call_name(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
@@ -1671,6 +1784,29 @@ fn rust_receiver_owner(
         }
         _ => None,
     }
+}
+
+/// `value.field` as a receiver whose struct this file does not declare,
+/// `value`'s type being known: `{"owner": "ParsedNode", "field":
+/// "file_path"}`, which resolution types by the struct's `field_types`.
+fn rust_receiver_field(
+    receiver: tree_sitter::Node<'_>,
+    context: &RustParseContext<'_>,
+) -> Option<serde_json::Value> {
+    if receiver.kind() != "field_expression" {
+        return None;
+    }
+    let owner = rust_receiver_owner(receiver.child_by_field_name("value")?, context)?;
+    let owner = owner
+        .rsplit(['.', ':'])
+        .next()
+        .unwrap_or(&owner)
+        .to_string();
+    let field = receiver.child_by_field_name("field")?;
+    if field.kind() != "field_identifier" {
+        return None;
+    }
+    Some(json!({"owner": owner, "field": node_text(field, context.source)}))
 }
 
 /// Calls in a macro's arguments. tree-sitter keeps them as a flat token tree
@@ -1796,7 +1932,7 @@ fn rust_emit_token_tree_calls(
             let bindings = context.bindings.borrow();
             // `value.field.method(..)`: the type the struct declares the
             // field with, as outside a macro.
-            let field_type = receiver.as_deref().and_then(|field| {
+            let field_owner = receiver.as_deref().and_then(|field| {
                 let text = |at: usize| tokens.get(at).map(|token| node_text(*token, source));
                 if text(start.checked_sub(3)?).as_deref() != Some(".") {
                     return None;
@@ -1815,8 +1951,11 @@ fn rust_emit_token_tree_calls(
                     .filter(|ty| !ty.contains("::"))
                     .or_else(|| bindings.foreign_type(&value))?;
                 let owner = owner.rsplit(['.', ':']).next().unwrap_or(owner);
-                context.struct_fields.get(owner)?.get(field).cloned()
+                Some((owner.to_string(), field.to_string()))
             });
+            let field_type = field_owner
+                .as_ref()
+                .and_then(|(owner, field)| context.struct_fields.get(owner)?.get(field).cloned());
             match field_type.map(|ty| format!("{ty}::{method}")).or_else(|| {
                 receiver.as_deref().and_then(|receiver| {
                     bindings.resolve_member(receiver, &method).or_else(|| {
@@ -1834,13 +1973,16 @@ fn rust_emit_token_tree_calls(
                         Some(receiver) => bindings.returned_by(receiver).cloned(),
                         None => rust_token_call_origin(&tokens, start, source),
                     };
-                    match origin {
-                        Some(origin) => (
-                            method,
-                            json!({"receiver_unknown": true, "receiver_from": origin.to_json()}),
-                        ),
-                        None => (method, json!({"receiver_unknown": true})),
+                    let mut extra = match origin {
+                        Some(origin) => {
+                            json!({"receiver_unknown": true, "receiver_from": origin.to_json()})
+                        }
+                        None => json!({"receiver_unknown": true}),
+                    };
+                    if let Some((owner, field)) = &field_owner {
+                        extra["receiver_field"] = json!({"owner": owner, "field": field});
                     }
+                    (method, extra)
                 }
             }
         } else {

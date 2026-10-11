@@ -341,7 +341,7 @@
        }
       ],
       "default": null,
-      "description": "(importers_of, imports_of) \"directive\" or \"link\" follows\nonly Markdown dependency directives or only links, \"lazy_export\"\nonly Python imports a lazy-export table names, \"statement\" only\nimport statements (no kind); each kinded row's ``import_kind``\nsays which it is."
+      "description": "(importers_of, imports_of) \"directive\" or \"link\" follows\nonly Markdown dependency directives or only links, \"lazy_export\"\nonly Python imports a lazy-export table names, \"path\" only Rust\nfiles reached by a path in code without a ``use``, \"statement\"\nonly import statements (no kind); each kinded row's\n``import_kind`` says which it is."
      }
     },
     "required": [
@@ -795,6 +795,7 @@
          "directive",
          "link",
          "lazy_export",
+         "path",
          "statement"
         ],
         "type": "string"

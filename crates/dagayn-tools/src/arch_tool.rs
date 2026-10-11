@@ -40,7 +40,7 @@ const MODES: &[&str] = &[
     "import_cycles",
 ];
 /// `import_kind` values `import_cycles` accepts, as `query_graph_tool`'s.
-const IMPORT_KINDS: &[&str] = &["directive", "link", "lazy_export", "statement"];
+const IMPORT_KINDS: &[&str] = &["directive", "link", "lazy_export", "path", "statement"];
 /// `detect_sap_violations_func`'s output budget, in tokens.
 const SAP_VIOLATIONS_BUDGET: usize = 5000;
 
@@ -191,8 +191,8 @@ pub(crate) fn architecture(context: &Context, arguments: &Map<String, Value>) ->
             &root,
             request.mode,
             &format!(
-                "import_kind must be 'directive', 'link', 'lazy_export', or 'statement', got \
-                 '{kind}'."
+                "import_kind must be 'directive', 'link', 'lazy_export', 'path', or 'statement', \
+                 got '{kind}'."
             ),
         );
     }

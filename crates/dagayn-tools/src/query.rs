@@ -326,10 +326,14 @@ fn import_kind_error(pattern: &str, import_kind: Option<&str>) -> Option<String>
              take it."
         ));
     }
-    (!matches!(kind, "directive" | "link" | "lazy_export" | "statement")).then(|| {
+    (!matches!(
+        kind,
+        "directive" | "link" | "lazy_export" | "path" | "statement"
+    ))
+    .then(|| {
         format!(
-            "import_kind must be 'directive', 'link', 'lazy_export', or 'statement', got \
-             '{kind}'."
+            "import_kind must be 'directive', 'link', 'lazy_export', 'path', or 'statement', \
+             got '{kind}'."
         )
     })
 }
@@ -853,9 +857,15 @@ fn push_import_kind(row: &mut Row, edge: &GraphEdge) {
     }
 }
 
+/// Files a cut answer lists in `files` (at `minimal`: fewer).
+const MAX_CUT_FILES: usize = 200;
+const MAX_CUT_FILES_MINIMAL: usize = 60;
+
 /// `directive` or `link` for a Markdown import edge, `lazy_export` for a
 /// Python import a lazy-export table names (run at first attribute access,
-/// not an import statement), nothing for an ordinary import statement.
+/// not an import statement), `path` for a Rust file reached by a path in
+/// code (`crate::a::B::f()`) and no `use`, nothing for an ordinary import
+/// statement.
 pub(crate) fn edge_import_kind(edge: &GraphEdge) -> Option<&str> {
     if let Some(kind) = edge
         .extra
@@ -863,6 +873,9 @@ pub(crate) fn edge_import_kind(edge: &GraphEdge) -> Option<&str> {
         .and_then(Value::as_str)
     {
         return Some(kind);
+    }
+    if edge.extra.get("path_use") == Some(&Value::Bool(true)) {
+        return Some("path");
     }
     (edge.extra.get("lazy_export") == Some(&Value::Bool(true))).then_some("lazy_export")
 }
@@ -1128,6 +1141,7 @@ fn closed_note(
         (_, false, Some("directive")) => "only Markdown dependency directives were followed",
         (_, false, Some("link")) => "only Markdown links were followed",
         (_, false, Some("lazy_export")) => "only imports a lazy-export table names were followed",
+        (_, false, Some("path")) => "only Rust paths in code without a `use` were followed",
         (_, false, Some(_)) => "only import statements were followed",
         ("markdown", false, None) => "Markdown links and dependency directives both count",
         ("python", false, _) => {
@@ -1135,6 +1149,15 @@ fn closed_note(
              them (import_kind lazy_export)"
         }
         ("python", true, _) => "calls made through strings, getattr, or registration are not edges",
+        ("rust", true, _) => {
+            "a method call is an edge only where the code gives its receiver's type (a typed \
+             parameter or binding, a struct field, a declared return type); calls on closure \
+             parameters, loop variables, or untyped locals are not"
+        }
+        ("rust", false, _) => {
+            "a `use` or a path in code (import_kind path) counts; a path written only inside \
+             a macro's arguments does not"
+        }
         (_, false, _) => "modules loaded at run time are not edges",
         (_, true, _) => "calls dispatched at run time are not edges",
     };
@@ -1763,8 +1786,43 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
         } else {
             ""
         };
-        let summary = format!("{summary}. Showing {kept} of {total} rows{rest}");
-        payload = payload.replace("summary", json!(summary));
+        // The files of every row, cut or not: a question about which files
+        // gets its whole answer even when the rows do not fit.
+        let mut files: Vec<&str> = found
+            .rows
+            .iter()
+            .filter_map(|row| {
+                get(row, "file_path")
+                    .or_else(|| get(row, "file"))
+                    .and_then(Value::as_str)
+                    .or_else(|| {
+                        get(row, "qualified_name")
+                            .and_then(Value::as_str)
+                            .map(|name| name.split_once("::").map_or(name, |(file, _)| file))
+                    })
+            })
+            .collect();
+        files.sort_unstable();
+        files.dedup();
+        let cap = if minimal {
+            MAX_CUT_FILES_MINIMAL
+        } else {
+            MAX_CUT_FILES
+        };
+        let shown = files.len().min(cap);
+        let more = if files.len() > shown {
+            format!(" (first {shown} in files)")
+        } else {
+            " (files)".to_string()
+        };
+        let summary = format!(
+            "{summary}. Showing {kept} of {total} rows{rest}; all {total} lie in {} files{more}",
+            files.len()
+        );
+        files.truncate(cap);
+        payload = payload
+            .replace("summary", json!(summary))
+            .put("files", json!(files));
     }
     // Say that a closed answer is the whole answer: agents re-checked lists
     // the graph had already completed

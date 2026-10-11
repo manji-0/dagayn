@@ -252,6 +252,9 @@ pub(crate) struct Graph {
     globs: HashMap<String, Vec<String>>,
     /// File -> the packages it imports (`net/http`, `java.util`).
     imported_packages: HashMap<String, Vec<(String, bool)>>,
+    /// Struct QN -> field name -> the field's type as written (Rust
+    /// `field_types`).
+    fields: HashMap<String, HashMap<String, String>>,
 }
 
 impl Graph {
@@ -337,7 +340,8 @@ impl ResolveContext {
 fn load_graph(tx: &Transaction<'_>) -> Result<Graph> {
     let mut graph = Graph::default();
     let mut stmt = tx.prepare(
-        "SELECT qualified_name, kind, name, parent_name, file_path, return_type FROM nodes",
+        "SELECT qualified_name, kind, name, parent_name, file_path, return_type, \
+                json_extract(extra, '$.field_types') FROM nodes",
     )?;
     let rows = stmt.query_map([], |row| {
         <(
@@ -347,15 +351,22 @@ fn load_graph(tx: &Transaction<'_>) -> Result<Graph> {
             Option<String>,
             String,
             Option<String>,
+            Option<String>,
         )>::try_from(row)
     })?;
     let mut class_names_by_qn: HashMap<String, String> = HashMap::new();
     for row in rows {
-        let (qualified, kind, name, parent, file_path, return_type) = row?;
+        let (qualified, kind, name, parent, file_path, return_type, field_types) = row?;
         let family = language_family(&file_path);
         match kind.as_str() {
             "Class" => {
                 class_names_by_qn.insert(qualified.clone(), name.clone());
+                if let Some(fields) = field_types
+                    .as_deref()
+                    .and_then(|text| serde_json::from_str(text).ok())
+                {
+                    graph.fields.insert(qualified.clone(), fields);
+                }
                 if let Some(family) = family {
                     graph
                         .classes
@@ -1154,6 +1165,91 @@ fn update_call(tx: &Transaction<'_>, id: i64, target: &str, extra: &Value) -> Re
     Ok(())
 }
 
+/// Rust `x.field.m()` where `x`'s type is known and its struct is declared
+/// in another file (`receiver_field`: owner, field): the struct's
+/// `field_types` type the receiver, resolved where the struct is declared.
+/// Returns how many changed.
+fn resolve_field_receivers(tx: &Transaction<'_>, graph: &Graph) -> Result<i64> {
+    let calls = {
+        let mut stmt = tx.prepare(
+            "SELECT id, file_path, target_qualified, extra FROM edges \
+             WHERE kind = 'CALLS' AND json_extract(extra, '$.receiver_field') IS NOT NULL \
+               AND COALESCE(json_extract(extra, '$.external'), 0) = 0 \
+               AND NOT EXISTS (SELECT 1 FROM nodes n \
+                               WHERE n.qualified_name = edges.target_qualified)",
+        )?;
+        let rows = stmt.query_map([], |row| <(i64, String, String, String)>::try_from(row))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    let mut changed = 0_i64;
+    for (id, file, method, extra) in calls {
+        if language_family(&file) != Some("rust") {
+            continue;
+        }
+        let mut extra: Value = serde_json::from_str(&extra)?;
+        let (Some(owner), Some(field)) = (
+            extra["receiver_field"]["owner"].as_str(),
+            extra["receiver_field"]["field"].as_str(),
+        ) else {
+            continue;
+        };
+        let Some(Returned::Class(owner_class, _)) = resolve_type(graph, owner, &file, "rust", None)
+        else {
+            continue;
+        };
+        let Some(field_type) = graph
+            .fields
+            .get(&owner_class)
+            .and_then(|fields| fields.get(field))
+        else {
+            continue;
+        };
+        let declared_in = owner_class
+            .split_once("::")
+            .map_or(owner_class.as_str(), |(file, _)| file);
+        match resolve_type(graph, field_type, declared_in, "rust", None) {
+            Some(Returned::Class(class, class_name)) => {
+                let Some(targets) =
+                    graph
+                        .methods
+                        .get(&("rust", class_name.clone(), method.clone()))
+                else {
+                    continue;
+                };
+                let prefix = format!("{class}.");
+                let target = targets
+                    .iter()
+                    .find(|target| target.starts_with(&prefix))
+                    .or(match targets.as_slice() {
+                        [only] => Some(only),
+                        _ => None,
+                    });
+                let Some(target) = target else {
+                    continue;
+                };
+                if let Some(map) = extra.as_object_mut() {
+                    map.remove("receiver_unknown");
+                }
+                extra["receiver_type"] = json!(class_name);
+                update_call(tx, id, target, &extra)?;
+                changed += 1;
+            }
+            Some(Returned::External(package, stdlib, type_name)) => {
+                mark_external(
+                    &mut extra,
+                    &package,
+                    stdlib,
+                    format!("{type_name}::{method}"),
+                );
+                update_call(tx, id, &package, &extra)?;
+                changed += 1;
+            }
+            None => {}
+        }
+    }
+    Ok(changed)
+}
+
 /// Resolves member calls on the result of another call by the return type
 /// of the function that call resolved to (see the module docs). Returns
 /// how many changed.
@@ -1165,7 +1261,7 @@ pub(crate) fn resolve_returned_receivers(
     let import_targets = &context.import_targets;
     let mut changed = 0_i64;
     for _ in 0..MAX_ROUNDS {
-        let mut round = 0_i64;
+        let mut round = resolve_field_receivers(tx, graph)?;
         for (id, source, file, method, mut extra) in pending_calls(tx)? {
             let Some(family) = language_family(&file) else {
                 continue;
