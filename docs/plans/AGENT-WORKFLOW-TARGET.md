@@ -397,8 +397,22 @@ fixtures the tests build.
       `get_minimal_context_tool` together with the task's tool in one
       `ToolSearch` (9 of 9 on a question that names its function), so the
       wording alone did not remove the habit.
-    - Next: `query_graph_tool` at `minimal` by default; keep the orient
-      tool from being loaded alongside the task's tool.
+    - **Done:** the instructions name the task's tools first and
+      `get_minimal_context_tool` last, as the case for a task that names no
+      node or file. Measured against the build before it (dagayn-video
+      `experiment_e6_haiku`, pre-registered, Claude Haiku 5.5): runs calling
+      it 28 → 10 of 50 (Holm p = 0.0012; on the questions that name their
+      node, 15 → 0), exact matches 44 → 45, whole-task tokens 1.11× (not
+      significant).
+    - **Rejected:** `query_graph_tool` at `minimal` by default. In the same
+      experiment the replies over 8K characters stayed (19 → 20): Haiku
+      asked for `standard` explicitly in 35 of 42 calls, and for `minimal`
+      in none, against 15 under the current description. The description
+      steers the choice more than the default does.
+    - Open: none of the three measured changes moved whole-task tokens
+      significantly. On these five questions an agent without dagayn needs
+      two or three shell calls, so the next measurement needs questions
+      that cost it many round trips.
 
 ## Touch points
 

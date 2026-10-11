@@ -88,7 +88,8 @@ All notable changes to `dagayn` are documented here.
 - The MCP server instructions and `get_minimal_context_tool`'s description
   send an agent to it when the task names no node or file, or the graph may
   be stale, instead of "Start every task with" / "Call this first". An agent
-  that followed them called dagayn twice where once answered.
+  that followed them called dagayn twice where once answered. The
+  instructions now name the task's tools first and the orient tool last.
 - `query_graph_tool`'s description says what each `detail_level` keeps and
   that a complete list never needs `"full"`.
 - A closed `callers_of`, `callees_of`, `importers_of`, or `imports_of`
