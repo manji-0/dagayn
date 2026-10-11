@@ -387,7 +387,18 @@ fixtures the tests build.
       dagayn builds (or one and none) on the same questions, with an
       optional gate on the token ratio. It needs the `claude` CLI, so it
       is a manual gate (Haiku: about 1 USD per 100 runs).
-    - Next: measure the three changes against 9.0.0 with that harness.
+    - **Measured** (dagayn-video `experiment_e5_haiku`, pre-registered;
+      this build against 9.0.0, Claude Haiku 5.5, ten runs per question):
+      `detail_level="full"` calls 28 → 0; runs calling
+      `get_minimal_context_tool` 49 → 34 of 50; dagayn calls per run −0.28
+      (Holm p = 0.010); whole-task tokens 0.91× (Holm p = 0.057, not
+      significant); turns unchanged. The 17 replies still over 8K
+      characters were all `standard`, the default. Haiku still loads
+      `get_minimal_context_tool` together with the task's tool in one
+      `ToolSearch` (9 of 9 on a question that names its function), so the
+      wording alone did not remove the habit.
+    - Next: `query_graph_tool` at `minimal` by default; keep the orient
+      tool from being loaded alongside the task's tool.
 
 ## Touch points
 
