@@ -515,6 +515,13 @@ fn a_closed_answer_says_it_is_the_whole_answer() {
         "docs/plan.md",
         "# Plan\n\n<!-- constrained-by ./base.md -->\n\nSee [the base](./base.md).\n",
     );
+    repo.write("pkg/mod.py", "def f():\n    return 1\n");
+    repo.write(
+        "pkg/__init__.py",
+        "from importlib import import_module\n\n_LAZY_EXPORTS = {\"f\": (\".mod\", \"f\")}\n\n\n\
+         def __getattr__(name):\n    module_name, attr = _LAZY_EXPORTS[name]\n    \
+         return getattr(import_module(module_name, __name__), attr)\n",
+    );
     repo.build();
     let context = repo.context();
     let summary = |arguments: Value| {
@@ -541,6 +548,27 @@ fn a_closed_answer_says_it_is_the_whole_answer() {
     assert!(
         importers.contains("No direct importer the graph records"),
         "{importers}"
+    );
+
+    // A lazy-export table's import is an edge, and its row says so.
+    let lazy = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "importers_of", "target": "pkg/mod.py"}),
+    );
+    let kinds: Vec<&str> = lazy["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .filter_map(|row| row["import_kind"].as_str())
+        .collect();
+    assert_eq!(kinds, ["lazy_export"], "{lazy}");
+    assert!(
+        lazy["summary"]
+            .as_str()
+            .is_some_and(|summary| summary.ends_with("(import_kind lazy_export)")),
+        "{}",
+        lazy["summary"]
     );
 
     // A Markdown answer names what its rows mix, not Python's dynamic imports.
@@ -660,7 +688,7 @@ fn imports_of_follows_a_chain_forward_and_says_which_edges_are_directives() {
     for (arguments, message) in [
         (
             json!({"pattern": "imports_of", "target": "docs/plan.md", "import_kind": "anchor"}),
-            "import_kind must be 'directive' or 'link', got 'anchor'.",
+            "import_kind must be 'directive', 'link', or 'lazy_export', got 'anchor'.",
         ),
         (
             json!({"pattern": "callers_of", "target": "app.py::helper", "import_kind": "link"}),

@@ -13,7 +13,10 @@ All notable changes to `dagayn` are documented here.
   (`directive` or `link`), and an `import_kind` argument follows only one of
   the two, during the walk. On this repository the directive-only
   `importers_of("docs/USAGE.md", depth=6)` returns the 36 files a directive
-  chain reaches; without the filter it returned 54, links included.
+  chain reaches; without the filter it returned 54, links included. A Python
+  import that a lazy-export table names carries `import_kind: "lazy_export"`,
+  and the closed-answer sentence on Python imports no longer claims that
+  imports by string are never edges.
 - `eval/run_agent_tokens_eval.py`: what an agent spends on a whole task with
   a dagayn build. It runs Claude Code headless on five questions about
   dagayn 4.15.0 (answer key in `eval/agent_tokens_tasks.json`) for two

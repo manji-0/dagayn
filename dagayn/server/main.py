@@ -453,8 +453,9 @@ def query_graph_tool(
             for "directly or indirectly"; ``reachability.state`` says when the set is
             closed.
         import_kind: (importers_of, imports_of) "directive" or "link" follows
-            only Markdown dependency directives or only links; each Markdown
-            row's ``import_kind`` says which it is.
+            only Markdown dependency directives or only links, "lazy_export"
+            only Python imports a lazy-export table names; each such row's
+            ``import_kind`` says which it is.
 
     ``results_complete`` is false when the output budget cut rows. An import
     edge is a file's own import statement: ``from pkg import sub`` points at the

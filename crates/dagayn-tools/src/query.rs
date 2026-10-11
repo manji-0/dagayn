@@ -326,8 +326,9 @@ fn import_kind_error(pattern: &str, import_kind: Option<&str>) -> Option<String>
              take it."
         ));
     }
-    (!matches!(kind, "directive" | "link"))
-        .then(|| format!("import_kind must be 'directive' or 'link', got '{kind}'."))
+    (!matches!(kind, "directive" | "link" | "lazy_export")).then(|| {
+        format!("import_kind must be 'directive', 'link', or 'lazy_export', got '{kind}'.")
+    })
 }
 
 fn description(pattern: &str) -> Option<&'static str> {
@@ -830,23 +831,28 @@ fn importer_row(edge: &GraphEdge) -> Row {
 /// A Markdown import edge is a dependency directive or an ordinary link; the
 /// row says which (`import_kind`), so a question about directives can filter.
 fn push_import_kind(row: &mut Row, edge: &GraphEdge) {
+    if let Some(kind) = edge_import_kind(edge) {
+        row.push(("import_kind", json!(kind)));
+    }
+}
+
+/// `directive` or `link` for a Markdown import edge, `lazy_export` for a
+/// Python import a lazy-export table names (run at first attribute access,
+/// not an import statement), nothing for an ordinary import statement.
+fn edge_import_kind(edge: &GraphEdge) -> Option<&str> {
     if let Some(kind) = edge
         .extra
         .get("markdown_import_kind")
         .and_then(Value::as_str)
     {
-        row.push(("import_kind", json!(kind)));
+        return Some(kind);
     }
+    (edge.extra.get("lazy_export") == Some(&Value::Bool(true))).then_some("lazy_export")
 }
 
 /// Whether an import edge passes the `import_kind` filter (no filter: all).
 fn import_kind_matches(edge: &GraphEdge, filter: Option<&str>) -> bool {
-    filter.is_none_or(|kind| {
-        edge.extra
-            .get("markdown_import_kind")
-            .and_then(Value::as_str)
-            == Some(kind)
-    })
+    filter.is_none_or(|kind| edge_import_kind(edge) == Some(kind))
 }
 
 /// `imports_of` past hop 1: the files each imported file imports in turn,
@@ -1101,7 +1107,10 @@ fn closed_note(
         (_, false, Some("directive")) => "only Markdown dependency directives were followed",
         (_, false, Some(_)) => "only Markdown links were followed",
         ("markdown", false, None) => "Markdown links and dependency directives both count",
-        ("python", false, _) => "imports by string (import_module, __import__) are not edges",
+        ("python", false, _) => {
+            "imports built at run time are edges only when a lazy-export table names \
+             them (import_kind lazy_export)"
+        }
         ("python", true, _) => "calls made through strings, getattr, or registration are not edges",
         (_, false, _) => "modules loaded at run time are not edges",
         (_, true, _) => "calls dispatched at run time are not edges",

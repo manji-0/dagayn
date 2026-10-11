@@ -181,8 +181,8 @@ def query_graph(
         depth: Hops to follow for callers_of, importers_of, and imports_of (1 to 6). Rows
                past hop 1 carry ``depth`` and ``via``; ``reachability`` says
                whether the walk was complete or hit the depth limit.
-        import_kind: For importers_of and imports_of, "directive" or "link"
-               follows only that kind of Markdown import edge.
+        import_kind: For importers_of and imports_of, "directive", "link",
+               or "lazy_export" follows only that kind of import edge.
 
     Returns:
         Matching nodes and edges for the query.

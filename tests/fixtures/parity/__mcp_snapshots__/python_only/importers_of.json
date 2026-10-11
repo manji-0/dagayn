@@ -26,7 +26,7 @@
   ],
   "results_complete": true,
   "status": "ok",
-  "summary": "Found 1 result(s) for importers_of('models.py'). No direct importer the graph records is missing; imports by string (import_module, __import__) are not edges",
+  "summary": "Found 1 result(s) for importers_of('models.py'). No direct importer the graph records is missing; imports built at run time are edges only when a lazy-export table names them (import_kind lazy_export)",
   "target": "models.py",
   "unresolved_count": 0,
   "unresolved_targets": [],

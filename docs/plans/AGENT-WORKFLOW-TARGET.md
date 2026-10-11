@@ -444,6 +444,20 @@ fixtures the tests build.
       questions tokens 0.89× (Holm p = 0.29, not significant), F1
       unchanged. That forward question still costs more than an agent
       without dagayn (185k): the agent re-checks the graph's answer.
+    - **Measured** what the re-checks buy (dagayn-video
+      `experiment_e8_haiku`, pre-registered): telling the agent it may use
+      dagayn's answer as it is cut tokens and time to 0.78× (Holm p =
+      0.051) and made it faster than an agent without dagayn (0.79×, Holm p
+      = 0.027), but exact matches fell from 48 to 35 of 50. The misses were
+      where the graph counts by another rule than the question: an import a
+      lazy-export table names (`dagayn/cli/__init__.py`), and a directive
+      placed mid-section. Not adopted. The re-checks were repairing exactly
+      those rows.
+    - **Done:** rows of such Python imports carry `import_kind:
+      "lazy_export"` (and `import_kind="lazy_export"` selects them), so an
+      agent can check the rows that follow another rule instead of the
+      whole answer; the closed-answer sentence on Python imports no longer
+      says imports by string are never edges.
 
 ## Touch points
 

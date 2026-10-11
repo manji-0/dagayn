@@ -341,7 +341,7 @@
        }
       ],
       "default": null,
-      "description": "(importers_of, imports_of) \"directive\" or \"link\" follows\nonly Markdown dependency directives or only links; each Markdown\nrow's ``import_kind`` says which it is."
+      "description": "(importers_of, imports_of) \"directive\" or \"link\" follows\nonly Markdown dependency directives or only links, \"lazy_export\"\nonly Python imports a lazy-export table names; each such row's\n``import_kind`` says which it is."
      }
     },
     "required": [

@@ -624,7 +624,10 @@ caveats rather than hard claims.
 to follow the chain transitively in one call (`imports_of` forward, the others
 backward). On Markdown, each import row's `import_kind` says whether the edge
 is a dependency directive or a link, and `import_kind="directive"` (or
-`"link"`) on `importers_of` / `imports_of` follows only that kind. Rows past hop 1 carry `depth` and `via`
+`"link"`) on `importers_of` / `imports_of` follows only that kind. A Python
+import that a lazy-export table names (a string run through `import_module`
+at first attribute access, not an import statement) is an edge too, and its
+row says `import_kind: "lazy_export"`. Rows past hop 1 carry `depth` and `via`
 (the node they reach the previous hop through), and each node appears once, at
 its shortest hop. The response adds `depth` and a `reachability` object:
 `state` is `complete` or `truncated` (500 rows past hop 1), and
