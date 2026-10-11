@@ -13,6 +13,10 @@ All notable changes to `dagayn` are documented here.
   for `dagayn/` with `import_kind="statement"` equals the 15 cycles of the
   agent experiments' answer key; agents had no tool for this and wrote their
   own scripts.
+- A `query_graph_tool` answer the output budget cut says so in its summary
+  (`Showing 22 of 89 rows`), and at `detail_level="minimal"` its `next`
+  starts with the same call at `"standard"`. Agents that got a cut minimal
+  list with an empty `next` walked the graph one hop at a time instead.
 - `import_kind="statement"` on `importers_of` / `imports_of` follows only
   import statements, leaving out lazy exports and Markdown edges. The
   closed-answer sentence under `import_kind="lazy_export"` no longer says

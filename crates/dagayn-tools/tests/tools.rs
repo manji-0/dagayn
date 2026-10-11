@@ -1728,6 +1728,38 @@ fn architecture_metrics_follow_the_requested_view() {
 }
 
 #[test]
+fn a_cut_minimal_list_says_so_and_offers_the_standard_call() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    let repo = Repo::new("query-cut", false);
+    repo.write("core.py", "def f():\n    return 1\n");
+    for index in 0..150 {
+        repo.write(
+            &format!("users/user_module_with_a_long_name_{index:03}.py"),
+            "from core import f\n",
+        );
+    }
+    repo.build();
+    let context = repo.context();
+    let cut = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "importers_of", "target": "core.py", "depth": 6, "detail_level": "minimal"}),
+    );
+    assert_eq!(cut["results_complete"], false, "{cut}");
+    let summary = cut["summary"].as_str().unwrap_or_default();
+    assert!(
+        summary.contains("of 150 rows; detail_level=\"standard\" lists more in one call"),
+        "{summary}"
+    );
+    assert_eq!(
+        cut["next"][0]["args"],
+        json!({"pattern": "importers_of", "target": "core.py", "detail_level": "standard", "depth": 6}),
+        "{}",
+        cut["next"]
+    );
+}
+
+#[test]
 fn import_cycles_lists_every_cycle_between_directories() {
     // dagayn: tests crates/dagayn-tools/src/cycles.rs::import_cycles
     let repo = Repo::new("arch-cycles", true);

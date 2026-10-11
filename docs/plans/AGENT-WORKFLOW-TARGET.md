@@ -467,6 +467,24 @@ fixtures the tests build.
       question that never said how run-time imports count: the remaining
       gap is between the question's rule and the graph's, which a mark can
       show but not settle.
+    - **Done:** settle it from both sides. `architecture_analysis_tool(mode=
+      "import_cycles")` answers the directory-cycle question agents had
+      been scripting; `import_kind="statement"` follows only import
+      statements; a directive that opens a line anywhere in a section is
+      recorded.
+    - **Measured** with the questions worded to the graph's rules
+      (dagayn-video `experiment_e10_haiku`, pre-registered): agents with
+      and without dagayn both got 49 of 50 exact, so the accuracy gap of
+      earlier runs was mostly the questions' wording. Every cycle run
+      called `import_cycles` (10 of 10 exact; 0.65× the tokens and 0.56×
+      the time of no dagayn on that question), but over all five
+      questions dagayn cost 1.31× the tokens of no dagayn (Holm p =
+      0.008). Most of it was one question: `importers_of(depth=6)` at
+      `minimal` returned 22 of 89 rows with an empty `next`, and half the
+      runs walked the graph one hop at a time (38 to 58 calls).
+    - **Done:** a cut list says so in its summary (`Showing 22 of 89
+      rows`), and at `minimal` its `next` starts with the same call at
+      `detail_level="standard"`. Not yet measured.
 
 ## Touch points
 

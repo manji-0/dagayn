@@ -1743,6 +1743,29 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
         .and_then(Value::as_object)
         .is_some_and(|truncation| truncation.contains_key("results"));
     payload = payload.put("results_complete", results_complete);
+    // Say that a cut list is cut, and how to get the rest: agents given a
+    // cut minimal list walked the graph one hop at a time instead
+    // (docs/plans/AGENT-WORKFLOW-TARGET.md#order-of-work, step 10).
+    let cut = payload
+        .get("_truncation")
+        .and_then(|truncation| truncation.get("results"))
+        .and_then(|results| {
+            Some((
+                results.get("kept")?.as_u64()?,
+                results.get("total")?.as_u64()?,
+            ))
+        });
+    if let Some((kept, total)) = cut
+        && let Some(summary) = payload.get("summary").and_then(Value::as_str)
+    {
+        let rest = if minimal {
+            "; detail_level=\"standard\" lists more in one call"
+        } else {
+            ""
+        };
+        let summary = format!("{summary}. Showing {kept} of {total} rows{rest}");
+        payload = payload.replace("summary", json!(summary));
+    }
     // Say that a closed answer is the whole answer: agents re-checked lists
     // the graph had already completed
     // (docs/plans/AGENT-WORKFLOW-TARGET.md#order-of-work, step 10).
@@ -1792,6 +1815,23 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
                 },
                 format!("nodes beyond {depth} hops may reach it"),
             ),
+        );
+        calls.truncate(crate::next::MAX_NEXT);
+    }
+    if cut.is_some()
+        && minimal
+        && let Some(calls) = next.as_array_mut()
+    {
+        let mut args = json!({"pattern": pattern, "target": target, "detail_level": "standard"});
+        if found.reachability.is_some() {
+            args["depth"] = json!(depth);
+        }
+        if let Some(kind) = import_kind {
+            args["import_kind"] = json!(kind);
+        }
+        calls.insert(
+            0,
+            crate::next::call("query_graph_tool", args, "the rows minimal cut to fit"),
         );
         calls.truncate(crate::next::MAX_NEXT);
     }
