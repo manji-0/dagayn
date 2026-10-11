@@ -81,9 +81,9 @@ def load_tasks(path: Path = TASKS_FILE) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def prompt(spec: dict[str, Any], task: str, graph: bool) -> str:
+def prompt(spec: dict[str, Any], task: str, line_key: str) -> str:
     head, sep, tail = spec["preamble"].partition("- 回答の最後に")
-    line = spec["condition_line"]["graph" if graph else "none"]
+    line = spec["condition_line"][line_key]
     return head + line + sep + tail + spec["tasks"][task]["prompt"]
 
 
@@ -171,7 +171,8 @@ def run_one(item: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
     ]  # fmt: skip
     if graph:
         cmd += ["--mcp-config", str(ctx["mcp"][item["setup"]])]
-    cmd += ["--", prompt(ctx["spec"], item["task"], graph)]
+    line_key = ctx["lines"][item["setup"]] or ("graph" if graph else "none")
+    cmd += ["--", prompt(ctx["spec"], item["task"], line_key)]
     t0 = time.monotonic()
     with open(raw / f"{item['id']}.jsonl", "w") as out:
         try:
@@ -299,6 +300,8 @@ def main() -> int:
     ap.add_argument(
         "--baseline", default="none", help='dagayn command for setup "baseline", or "none"'
     )
+    ap.add_argument("--candidate-line", default="", help="condition_line key (default: graph/none)")
+    ap.add_argument("--baseline-line", default="", help="condition_line key (default: graph/none)")
     ap.add_argument("--model", default="claude-haiku-5-5")
     ap.add_argument("--effort", default="medium")
     ap.add_argument("--reps", type=int, default=10)
@@ -325,6 +328,7 @@ def main() -> int:
     try:
         ctx = {
             "spec": spec, "setups": setups, "model": args.model, "effort": args.effort,
+            "lines": {"candidate": args.candidate_line, "baseline": args.baseline_line},
             "timeout": args.timeout, "raw": raw, "work": work,
             "src": make_target(work, spec["source_commit"]),
             "mcp": {name: mcp_config(work, name, cmd) for name, cmd in graphs.items()},
