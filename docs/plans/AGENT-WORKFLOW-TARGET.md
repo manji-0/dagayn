@@ -458,6 +458,15 @@ fixtures the tests build.
       agent can check the rows that follow another rule instead of the
       whole answer; the closed-answer sentence on Python imports no longer
       says imports by string are never edges.
+    - **Measured** "check only the marked rows" (dagayn-video
+      `experiment_e9_haiku`, pre-registered): no gain against checking as
+      needed (tokens 0.92×, exact 40 vs 47); not adopted. Replies at
+      `minimal` dropped `import_kind`, now kept (and a merged row that is
+      both a link and a directive names both). Agents that saw
+      `lazy_export` read the file and kept the row, a fair reading of a
+      question that never said how run-time imports count: the remaining
+      gap is between the question's rule and the graph's, which a mark can
+      show but not settle.
 
 ## Touch points
 

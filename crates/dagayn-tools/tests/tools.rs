@@ -571,6 +571,22 @@ fn a_closed_answer_says_it_is_the_whole_answer() {
         lazy["summary"]
     );
 
+    // At minimal too, and a file that both links and declares a directive
+    // names both kinds on its one row.
+    let both = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "importers_of", "target": "docs/base.md", "detail_level": "minimal"}),
+    );
+    let plan: Vec<&Value> = both["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .filter(|row| row["file"] == "docs/plan.md")
+        .collect();
+    assert_eq!(plan.len(), 1, "{both}");
+    assert_eq!(plan[0]["import_kind"], "directive,link", "{both}");
+
     // A Markdown answer names what its rows mix, not Python's dynamic imports.
     let docs = summary(json!({"pattern": "importers_of", "target": "docs/base.md"}));
     assert!(

@@ -16,7 +16,9 @@ All notable changes to `dagayn` are documented here.
   chain reaches; without the filter it returned 54, links included. A Python
   import that a lazy-export table names carries `import_kind: "lazy_export"`,
   and the closed-answer sentence on Python imports no longer claims that
-  imports by string are never edges.
+  imports by string are never edges. `import_kind` stays at
+  `detail_level="minimal"`, and a merged row whose file both links to and
+  declares a directive on the target names both (`directive,link`).
 - `eval/run_agent_tokens_eval.py`: what an agent spends on a whole task with
   a dagayn build. It runs Claude Code headless on five questions about
   dagayn 4.15.0 (answer key in `eval/agent_tokens_tasks.json`) for two

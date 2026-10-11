@@ -380,6 +380,7 @@ const MINIMAL_FIELDS: &[&str] = &[
     "span_line_end",
     "importer",
     "import_target",
+    "import_kind",
     "unresolved",
     "lines",
     "line",
@@ -612,6 +613,19 @@ fn merge(rows: Vec<Row>) -> Vec<Row> {
                     && !lines.contains(&line)
                 {
                     lines.push(line);
+                }
+                // One file can link to a document and declare a directive on
+                // it: the merged row names both kinds.
+                if let Some(kind) = get(&row, "import_kind").and_then(Value::as_str) {
+                    match existing.iter_mut().find(|(k, _)| *k == "import_kind") {
+                        Some((_, Value::String(kinds))) => {
+                            if !kinds.split(',').any(|known| known == kind) {
+                                kinds.push(',');
+                                kinds.push_str(kind);
+                            }
+                        }
+                        _ => existing.push(("import_kind", json!(kind))),
+                    }
                 }
             }
         }
