@@ -436,6 +436,14 @@ fixtures the tests build.
       23 (the 23rd is a directive placed mid-section in
       `docs/COMMANDS.md`, which the Markdown policy does not record).
       `callees_of` still has no `depth`.
+    - **Measured** against the build before it on the same five questions
+      (dagayn-video `experiment_e7_haiku`, pre-registered, Claude Haiku
+      5.5): on the forward question 8 of 10 runs called
+      `imports_of(depth=6, import_kind="directive")`, and its median turns
+      fell from 25 to 9 and tokens from 354k to 240k; over all five
+      questions tokens 0.89× (Holm p = 0.29, not significant), F1
+      unchanged. That forward question still costs more than an agent
+      without dagayn (185k): the agent re-checks the graph's answer.
 
 ## Touch points
 
