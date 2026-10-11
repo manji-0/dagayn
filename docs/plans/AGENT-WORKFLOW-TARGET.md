@@ -510,9 +510,27 @@ fixtures the tests build.
       reference by full path (`crate::architecture::Snapshot`) is not an
       import, and the closed-answer sentence still said nothing the graph
       records was missing.
-    - **Next:** infer a method call's receiver from a field's declared
-      type; count full-path references as file dependencies; make the
-      Rust closed-answer sentence say which calls are not edges.
+    - **Done:** a method call's receiver typed from a field's declared
+      type across files; full-path references counted as file dependencies
+      (`import_kind: "path"`); a cut answer lists the files of every row
+      (`files`); the Rust closed-answer sentence says which calls are not
+      edges.
+    - **Measured** (dagayn-video `experiment_e13_haiku`, pre-registered,
+      same five Rust questions): against no dagayn, tokens 0.74× and time
+      0.61× (both Holm p = 0.0003) at equal accuracy; against the version
+      before the fixes, tokens 0.83× (Holm p = 0.038). Most of it came
+      from the transitive question, where every run got `files` (tokens
+      0.50× of the version without), and from field receivers (0.68×).
+    - **Measured** on TypeScript (dagayn-video `experiment_e14_haiku`,
+      Hono `src/`, answer key from the TypeScript checker): agents with
+      dagayn were faster (0.79× the time, Holm p = 0.0003), tokens not
+      different, and 5 fewer exact matches; 9 of their 11 misses only added
+      files outside `src/` that the graph's answers (whole repository)
+      listed. TypeScript method receivers were not part of the fixes
+      (`c.req.text()` on an untyped callback parameter found 1 of 7).
+    - **Next:** a path scope for query answers; TypeScript receivers of
+      untyped callback parameters; Rust loop variables and closure
+      parameters.
 
 ## Touch points
 
