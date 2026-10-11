@@ -10,7 +10,7 @@ two setups, each a dagayn command that builds the graph and serves MCP, or
 ``none`` for no MCP server at all.
 
 For each run it records the answer's F1 and exact match against the answer
-key in ``eval/agent_tokens_tasks.json``, total tokens (input, output, cache
+key in ``eval/agent_tokens_tasks.json`` (or ``--tasks-file``), total tokens (input, output, cache
 read and write, summed over models), turns, tool calls, dagayn calls, and the
 size of each dagayn reply. It reports, per setup, the geometric-mean token
 ratio against the baseline, median turns, dagayn calls per run, replies over
@@ -77,8 +77,8 @@ PASS_ENV = (
 REPLY_BUDGET = 8000
 
 
-def load_tasks() -> dict[str, Any]:
-    return json.loads(TASKS_FILE.read_text(encoding="utf-8"))
+def load_tasks(path: Path = TASKS_FILE) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def prompt(spec: dict[str, Any], task: str, graph: bool) -> str:
@@ -303,6 +303,7 @@ def main() -> int:
     ap.add_argument("--effort", default="medium")
     ap.add_argument("--reps", type=int, default=10)
     ap.add_argument("--tasks", default="", help="comma-separated task ids (default: all)")
+    ap.add_argument("--tasks-file", type=Path, default=TASKS_FILE, help="questions and answers")
     ap.add_argument("-j", type=int, default=3)
     ap.add_argument("--seed", type=int, default=20261010)
     ap.add_argument("--timeout", type=int, default=900)
@@ -313,7 +314,7 @@ def main() -> int:
     ap.add_argument("--max-token-ratio", type=float, default=1.0)
     args = ap.parse_args()
 
-    spec = load_tasks()
+    spec = load_tasks(args.tasks_file)
     tasks = args.tasks.split(",") if args.tasks else list(spec["tasks"])
     setups = {"candidate": args.candidate, "baseline": args.baseline}
     out = args.out or Path(tempfile.mkdtemp(prefix="dagayn-agent-tokens-"))
