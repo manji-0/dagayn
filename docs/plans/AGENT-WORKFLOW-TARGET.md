@@ -496,6 +496,23 @@ fixtures the tests build.
       What is left is the re-checking itself; telling agents they may use
       the answer as it is has not been measured on questions worded to the
       graph's rules.
+    - **Measured** on Rust, where no short script answers (dagayn-video
+      `experiment_e12_haiku`, pre-registered, answer key from
+      rust-analyzer's SCIP index): five caller and dependent questions on
+      `crates/`. Agents with dagayn were faster (0.71× the time, Holm p =
+      0.0006; 0.64× without one outlier run) at equal accuracy (48 vs 47
+      exact); tokens 0.85× (Holm p = 0.043), but 0.88× and not significant
+      without that run. Agents without dagayn read and grepped, or renamed
+      the method and ran `cargo check` to find callers from the errors.
+      dagayn's Rust answers were short where agents had to re-check:
+      method calls whose receiver is a struct field (`node.file_path.as_str()`)
+      are not edges (method caller recall 0.72 across the workspace), a
+      reference by full path (`crate::architecture::Snapshot`) is not an
+      import, and the closed-answer sentence still said nothing the graph
+      records was missing.
+    - **Next:** infer a method call's receiver from a field's declared
+      type; count full-path references as file dependencies; make the
+      Rust closed-answer sentence say which calls are not edges.
 
 ## Touch points
 
