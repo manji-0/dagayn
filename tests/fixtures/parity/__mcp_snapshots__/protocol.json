@@ -554,13 +554,25 @@
               "properties": {
                 "depth": {
                   "default": 1,
-                  "description": "(callers_of, importers_of) Hops to follow, 1-6. Default: 1. Pass 6\nfor \"directly or indirectly\"; ``reachability.state`` says when the set is\nclosed.",
+                  "description": "(callers_of, importers_of, imports_of) Hops to follow, 1-6. Default: 1. Pass 6\nfor \"directly or indirectly\"; ``reachability.state`` says when the set is\nclosed.",
                   "type": "integer"
                 },
                 "detail_level": {
                   "default": "standard",
                   "description": "\"minimal\" keeps each node's name, place, and\nconfidence, within 8K characters; \"standard\" (default) lists every\nrelated node with all its fields; \"full\" adds one row per edge, for\nseeing why an edge exists. A complete list never needs \"full\".",
                   "type": "string"
+                },
+                "import_kind": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "(importers_of, imports_of) \"directive\" or \"link\" follows\nonly Markdown dependency directives or only links; each Markdown\nrow's ``import_kind`` says which it is."
                 },
                 "pattern": {
                   "description": "One of the patterns above.",
@@ -2011,13 +2023,25 @@
               "properties": {
                 "depth": {
                   "default": 1,
-                  "description": "(callers_of, importers_of) Hops to follow, 1-6. Default: 1. Pass 6\nfor \"directly or indirectly\"; ``reachability.state`` says when the set is\nclosed.",
+                  "description": "(callers_of, importers_of, imports_of) Hops to follow, 1-6. Default: 1. Pass 6\nfor \"directly or indirectly\"; ``reachability.state`` says when the set is\nclosed.",
                   "type": "integer"
                 },
                 "detail_level": {
                   "default": "standard",
                   "description": "\"minimal\" keeps each node's name, place, and\nconfidence, within 8K characters; \"standard\" (default) lists every\nrelated node with all its fields; \"full\" adds one row per edge, for\nseeing why an edge exists. A complete list never needs \"full\".",
                   "type": "string"
+                },
+                "import_kind": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "(importers_of, imports_of) \"directive\" or \"link\" follows\nonly Markdown dependency directives or only links; each Markdown\nrow's ``import_kind`` says which it is."
                 },
                 "pattern": {
                   "description": "One of the patterns above.",

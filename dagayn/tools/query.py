@@ -161,6 +161,7 @@ def query_graph(
     repo_root: str | None = None,
     detail_level: str = "standard",
     depth: int = 1,
+    import_kind: str | None = None,
     *,
     _corrupt_retried: bool = False,
 ) -> dict[str, Any]:
@@ -177,9 +178,11 @@ def query_graph(
                       "minimal": the same rows with fewer fields and no
                       guidance. "full": one row per edge plus ``edges``,
                       full ``answerability``, and ``_hints``.
-        depth: Hops to follow for callers_of and importers_of (1 to 6). Rows
+        depth: Hops to follow for callers_of, importers_of, and imports_of (1 to 6). Rows
                past hop 1 carry ``depth`` and ``via``; ``reachability`` says
                whether the walk was complete or hit the depth limit.
+        import_kind: For importers_of and imports_of, "directive" or "link"
+               follows only that kind of Markdown import edge.
 
     Returns:
         Matching nodes and edges for the query.
@@ -189,6 +192,7 @@ def query_graph(
         # Resolves the repository and creates, migrates, or waits for the
         # graph; the Rust tool reads it.
         store, _root = _get_store(repo_root)
+        extra = {"import_kind": import_kind} if import_kind is not None else {}
         return native_tool(
             "query_graph_tool",
             pattern=pattern,
@@ -196,6 +200,7 @@ def query_graph(
             repo_root=repo_root,
             detail_level=detail_level,
             depth=depth,
+            **extra,
         )
     except Exception as exc:
         if is_sqlite_corrupt_error(exc) and not _corrupt_retried:
@@ -210,6 +215,7 @@ def query_graph(
                 repo_root,
                 detail_level,
                 depth,
+                import_kind,
                 _corrupt_retried=True,
             )
         return handle_tool_runtime_error(

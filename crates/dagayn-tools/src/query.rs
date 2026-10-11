@@ -307,13 +307,27 @@ fn argument_error(pattern: &str, depth: i64) -> Option<String> {
             listed.join(", ")
         ));
     }
-    if depth != 1 && !matches!(pattern, "callers_of" | "importers_of") {
+    if depth != 1 && !matches!(pattern, "callers_of" | "importers_of" | "imports_of") {
         return Some(format!(
-            "depth applies only to ['callers_of', 'importers_of']; '{pattern}' returns direct \
-             relationships only."
+            "depth applies only to ['callers_of', 'importers_of', 'imports_of']; '{pattern}' \
+             returns direct relationships only."
         ));
     }
     (depth < 1).then(|| format!("depth must be 1 or more, got {depth}."))
+}
+
+/// The error for an `import_kind` the pattern does not take or that is not
+/// one of the Markdown import kinds.
+fn import_kind_error(pattern: &str, import_kind: Option<&str>) -> Option<String> {
+    let kind = import_kind?;
+    if !matches!(pattern, "importers_of" | "imports_of") {
+        return Some(format!(
+            "import_kind applies only to ['importers_of', 'imports_of']; '{pattern}' does not \
+             take it."
+        ));
+    }
+    (!matches!(kind, "directive" | "link"))
+        .then(|| format!("import_kind must be 'directive' or 'link', got '{kind}'."))
 }
 
 fn description(pattern: &str) -> Option<&'static str> {
@@ -803,12 +817,117 @@ impl Found {
 }
 
 fn importer_row(edge: &GraphEdge) -> Row {
-    vec![
+    let mut row = vec![
         ("importer", json!(edge.source_qualified)),
         ("file", json!(edge.file_path)),
         ("line", json!(edge.line)),
         ("confidence_tier", json!(edge.confidence_tier.as_str())),
-    ]
+    ];
+    push_import_kind(&mut row, edge);
+    row
+}
+
+/// A Markdown import edge is a dependency directive or an ordinary link; the
+/// row says which (`import_kind`), so a question about directives can filter.
+fn push_import_kind(row: &mut Row, edge: &GraphEdge) {
+    if let Some(kind) = edge
+        .extra
+        .get("markdown_import_kind")
+        .and_then(Value::as_str)
+    {
+        row.push(("import_kind", json!(kind)));
+    }
+}
+
+/// Whether an import edge passes the `import_kind` filter (no filter: all).
+fn import_kind_matches(edge: &GraphEdge, filter: Option<&str>) -> bool {
+    filter.is_none_or(|kind| {
+        edge.extra
+            .get("markdown_import_kind")
+            .and_then(Value::as_str)
+            == Some(kind)
+    })
+}
+
+/// `imports_of` past hop 1: the files each imported file imports in turn,
+/// one row per newly reached file, up to `depth` hops.
+fn expand_imports(
+    store: &GraphStore,
+    root: &Path,
+    found: &mut Found,
+    start: &str,
+    depth: i64,
+    import_kind: Option<&str>,
+) -> Option<()> {
+    for row in &mut found.rows {
+        row.push(("depth", json!(1)));
+    }
+    let mut seen: HashSet<String> = HashSet::new();
+    seen.insert(start.to_string());
+    let mut frontier: Vec<String> = Vec::new();
+    for row in &found.rows {
+        if get(row, "unresolved") == Some(&Value::Bool(true)) {
+            continue;
+        }
+        if let Some(target) = get(row, "import_target").and_then(Value::as_str)
+            && seen.insert(target.to_string())
+        {
+            frontier.push(target.to_string());
+        }
+    }
+    let mut hop = 2;
+    let mut added = 0;
+    let mut truncated = false;
+    while !frontier.is_empty() && hop <= depth && !truncated {
+        let (outgoing, _) = store.get_edges_by_endpoints(&frontier).ok()?;
+        let mut layer: Vec<GraphEdge> = Vec::new();
+        for via in &frontier {
+            for edge in outgoing.get(via).into_iter().flatten() {
+                if edge.kind != "IMPORTS_FROM"
+                    || !import_kind_matches(edge, import_kind)
+                    || seen.contains(&edge.target_qualified)
+                {
+                    continue;
+                }
+                seen.insert(edge.target_qualified.clone());
+                layer.push(edge.clone());
+            }
+        }
+        if added + layer.len() > TRANSITIVE_ROW_LIMIT {
+            layer.truncate(TRANSITIVE_ROW_LIMIT - added);
+            truncated = true;
+        }
+        let mut next = Vec::new();
+        for edge in &layer {
+            let unresolved = is_unresolved_import(store, root, &edge.target_qualified)?;
+            let mut row = vec![
+                ("import_target", json!(edge.target_qualified)),
+                ("line", json!(edge.line)),
+                ("unresolved", json!(unresolved)),
+            ];
+            push_import_kind(&mut row, edge);
+            row.push(("depth", json!(hop)));
+            row.push(("via", json!(edge.source_qualified)));
+            found.rows.push(row);
+            found.edges.push(edge_dict(edge));
+            if unresolved {
+                found.unresolve(vec![edge.target_qualified.clone()]);
+            } else {
+                next.push(edge.target_qualified.clone());
+            }
+        }
+        added += layer.len();
+        frontier = next;
+        hop += 1;
+    }
+    found.reachability = Some(json!({
+        "state": if truncated { "truncated" } else { "complete" },
+        "truncated": truncated,
+        "max_depth": depth,
+        "nodes_visited": seen.len() - 1,
+        "depth_limit_reached": !frontier.is_empty() && !truncated,
+    }));
+    Some(())
 }
 
 pub(crate) fn cross_artifact_role(edge: &GraphEdge) -> Option<&str> {
@@ -870,6 +989,7 @@ fn expand_transitive(
     start: &str,
     depth: i64,
     importers: bool,
+    import_kind: Option<&str>,
 ) -> Option<()> {
     for row in &mut found.rows {
         row.push(("depth", json!(1)));
@@ -911,7 +1031,10 @@ fn expand_transitive(
         for via in &frontier {
             for edge in incoming.get(via).into_iter().flatten() {
                 let key = next_key(edge);
-                if edge.kind != kind || seen.contains(&key) {
+                if edge.kind != kind
+                    || (importers && !import_kind_matches(edge, import_kind))
+                    || seen.contains(&key)
+                {
                     continue;
                 }
                 seen.insert(key);
@@ -960,7 +1083,12 @@ fn expand_transitive(
 /// The sentence a closed answer of `pattern` ends with: the list holds every
 /// relation the graph records (`direct` ones at depth 1), and says what the
 /// graph does not hold for the target's `language`.
-fn closed_note(pattern: &str, direct: bool, language: &str) -> Option<String> {
+fn closed_note(
+    pattern: &str,
+    direct: bool,
+    language: &str,
+    import_kind: Option<&str>,
+) -> Option<String> {
     let relation = match pattern {
         "callers_of" => "caller",
         "callees_of" => "callee",
@@ -969,12 +1097,14 @@ fn closed_note(pattern: &str, direct: bool, language: &str) -> Option<String> {
         _ => return None,
     };
     let calls = matches!(pattern, "callers_of" | "callees_of");
-    let caveat = match (language, calls) {
-        ("markdown", false) => "Markdown links and dependency directives both count",
-        ("python", false) => "imports by string (import_module, __import__) are not edges",
-        ("python", true) => "calls made through strings, getattr, or registration are not edges",
-        (_, false) => "modules loaded at run time are not edges",
-        (_, true) => "calls dispatched at run time are not edges",
+    let caveat = match (language, calls, import_kind) {
+        (_, false, Some("directive")) => "only Markdown dependency directives were followed",
+        (_, false, Some(_)) => "only Markdown links were followed",
+        ("markdown", false, None) => "Markdown links and dependency directives both count",
+        ("python", false, _) => "imports by string (import_module, __import__) are not edges",
+        ("python", true, _) => "calls made through strings, getattr, or registration are not edges",
+        (_, false, _) => "modules loaded at run time are not edges",
+        (_, true, _) => "calls dispatched at run time are not edges",
     };
     let direct = if direct { "direct " } else { "" };
     Some(format!(
@@ -990,6 +1120,7 @@ fn run_pattern(
     target: &str,
     node: Option<&GraphNode>,
     depth: i64,
+    import_kind: Option<&str>,
 ) -> Option<Found> {
     let mut found = Found::default();
     let qualified = node.map_or(target, |node| node.qualified_name.as_str());
@@ -1018,7 +1149,7 @@ fn run_pattern(
                 annotate_bare(&mut found.edges);
             }
             if depth > 1 {
-                expand_transitive(store, &mut found, qualified, depth, false)?;
+                expand_transitive(store, &mut found, qualified, depth, false, None)?;
             }
         }
         "callees_of" => {
@@ -1031,31 +1162,36 @@ fn run_pattern(
         }
         "imports_of" => {
             for edge in edges_of(true)? {
-                if edge.kind != "IMPORTS_FROM" {
+                if edge.kind != "IMPORTS_FROM" || !import_kind_matches(&edge, import_kind) {
                     continue;
                 }
                 let unresolved = is_unresolved_import(store, root, &edge.target_qualified)?;
-                found.rows.push(vec![
+                let mut row = vec![
                     ("import_target", json!(edge.target_qualified)),
                     ("line", json!(edge.line)),
                     ("unresolved", json!(unresolved)),
-                ]);
+                ];
+                push_import_kind(&mut row, &edge);
+                found.rows.push(row);
                 found.edges.push(edge_dict(&edge));
                 if unresolved {
                     found.unresolve(vec![edge.target_qualified.clone()]);
                 }
             }
+            if depth > 1 {
+                expand_imports(store, root, &mut found, qualified, depth, import_kind)?;
+            }
         }
         "importers_of" => {
             let file = node?.file_path.clone();
             for edge in store.get_edges_by_target(&file).ok()? {
-                if edge.kind == "IMPORTS_FROM" {
+                if edge.kind == "IMPORTS_FROM" && import_kind_matches(&edge, import_kind) {
                     found.rows.push(importer_row(&edge));
                     found.edges.push(edge_dict(&edge));
                 }
             }
             if depth > 1 {
-                expand_transitive(store, &mut found, qualified, depth, true)?;
+                expand_transitive(store, &mut found, qualified, depth, true, import_kind)?;
             }
         }
         "docs_for" | "implementations_of" => {
@@ -1316,6 +1452,7 @@ fn ambiguous(
                     ("pattern", None),
                     ("depth", Some(json!(1))),
                     ("detail_level", Some(json!("standard"))),
+                    ("import_kind", None),
                 ],
                 candidates,
             ),
@@ -1329,7 +1466,14 @@ fn ambiguous(
 pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> Option<Payload> {
     let args = Args::new(
         arguments,
-        &["pattern", "target", "repo_root", "detail_level", "depth"],
+        &[
+            "pattern",
+            "target",
+            "repo_root",
+            "detail_level",
+            "depth",
+            "import_kind",
+        ],
     )?;
     let pattern = args.string("pattern")?;
     let target = args.string("target")?;
@@ -1342,11 +1486,14 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
     // Python treats any other level as `standard`.
     let (full, minimal) = (detail_level == "full", detail_level == "minimal");
     let depth = args.integer("depth", 1)?;
+    let import_kind = args.optional_string("import_kind")?;
     let root = resolve_repo(context, args.optional_string("repo_root")?)?;
     // Python checks the pattern and depth once the store is open, whatever
     // the checkout.
     let graph = open_graph(&root)?;
-    if let Some(message) = argument_error(pattern, depth) {
+    if let Some(message) =
+        argument_error(pattern, depth).or_else(|| import_kind_error(pattern, import_kind))
+    {
         return Some(
             Ordered::default()
                 .put("status", "error")
@@ -1449,7 +1596,15 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
     let exact_count = i64::from(
         matches!(resolution, Resolution::Exact | Resolution::ExactName) && node.is_some(),
     );
-    let found = run_pattern(store, &root, pattern, target, node.as_ref(), depth)?;
+    let found = run_pattern(
+        store,
+        &root,
+        pattern,
+        target,
+        node.as_ref(),
+        depth,
+        import_kind,
+    )?;
 
     // `query_zero_result_fields`.
     let raw_count = found.rows.len();
@@ -1571,6 +1726,7 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
             pattern,
             found.reachability.is_none(),
             node.as_ref().map_or("", |node| node.language.as_str()),
+            import_kind,
         )
         && let Some(summary) = payload.get("summary").and_then(Value::as_str)
     {
@@ -1594,7 +1750,14 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
             0,
             crate::next::call(
                 "query_graph_tool",
-                json!({"pattern": pattern, "target": target, "depth": MAX_DEPTH}),
+                {
+                    let mut args =
+                        json!({"pattern": pattern, "target": target, "depth": MAX_DEPTH});
+                    if let Some(kind) = import_kind {
+                        args["import_kind"] = json!(kind);
+                    }
+                    args
+                },
                 format!("nodes beyond {depth} hops may reach it"),
             ),
         );

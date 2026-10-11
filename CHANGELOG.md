@@ -6,6 +6,14 @@ All notable changes to `dagayn` are documented here.
 
 ### Added
 
+- `query_graph_tool(pattern="imports_of")` takes `depth` (1 to 6) and walks
+  forward, as `importers_of` walks backward: what a file reaches, with
+  `depth` and `via` on each row past hop 1 and a `reachability` object.
+- `importers_of` and `imports_of` rows of Markdown edges carry `import_kind`
+  (`directive` or `link`), and an `import_kind` argument follows only one of
+  the two, during the walk. On this repository the directive-only
+  `importers_of("docs/USAGE.md", depth=6)` returns the 36 files a directive
+  chain reaches; without the filter it returned 54, links included.
 - `eval/run_agent_tokens_eval.py`: what an agent spends on a whole task with
   a dagayn build. It runs Claude Code headless on five questions about
   dagayn 4.15.0 (answer key in `eval/agent_tokens_tasks.json`) for two

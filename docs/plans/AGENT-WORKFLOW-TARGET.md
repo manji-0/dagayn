@@ -427,8 +427,15 @@ fixtures the tests build.
     - **Done:** the closed-answer sentence follows the target's language;
       on Markdown it says that links and dependency directives both count
       instead of naming Python's dynamic imports.
-    - Next: `depth` for `imports_of` (and `callees_of`); a link / directive
-      field on Markdown import rows.
+    - **Done:** `imports_of` takes `depth` and walks forward; Markdown
+      import rows carry `import_kind` (`directive` / `link`), and an
+      `import_kind` argument follows one kind during the walk. On the
+      heavier questions' target, the directive-only `importers_of` on
+      `docs/USAGE.md` matches the answer key (36 of 36) in one call, and the
+      directive-only forward walk from the agent workflow plan finds 22 of
+      23 (the 23rd is a directive placed mid-section in
+      `docs/COMMANDS.md`, which the Markdown policy does not record).
+      `callees_of` still has no `depth`.
 
 ## Touch points
 

@@ -432,6 +432,7 @@ def query_graph_tool(
     repo_root: Optional[str] = None,
     detail_level: str = "standard",
     depth: int = 1,
+    import_kind: Optional[str] = None,
 ) -> ToolPayload:
     """Trace one relationship of a node: callers, callees, imports, tests, docs, source.
 
@@ -448,9 +449,12 @@ def query_graph_tool(
             confidence, within 8K characters; "standard" (default) lists every
             related node with all its fields; "full" adds one row per edge, for
             seeing why an edge exists. A complete list never needs "full".
-        depth: (callers_of, importers_of) Hops to follow, 1-6. Default: 1. Pass 6
+        depth: (callers_of, importers_of, imports_of) Hops to follow, 1-6. Default: 1. Pass 6
             for "directly or indirectly"; ``reachability.state`` says when the set is
             closed.
+        import_kind: (importers_of, imports_of) "directive" or "link" follows
+            only Markdown dependency directives or only links; each Markdown
+            row's ``import_kind`` says which it is.
 
     ``results_complete`` is false when the output budget cut rows. An import
     edge is a file's own import statement: ``from pkg import sub`` points at the
@@ -462,6 +466,7 @@ def query_graph_tool(
         repo_root=_resolve_repo_root(repo_root),
         detail_level=detail_level,
         depth=depth,
+        import_kind=import_kind,
     )
     return summary_at_verbose_only(payload, detail_level)
 

@@ -620,8 +620,11 @@ Review impact / flow / architecture guidance also surfaces reportable bridges
 as first-class transitions and keeps low-confidence bridges as missingness
 caveats rather than hard claims.
 
-`callers_of` and `importers_of` accept `depth` (1 to 6, default 1) to follow
-the chain transitively in one call. Rows past hop 1 carry `depth` and `via`
+`callers_of`, `importers_of`, and `imports_of` accept `depth` (1 to 6, default 1)
+to follow the chain transitively in one call (`imports_of` forward, the others
+backward). On Markdown, each import row's `import_kind` says whether the edge
+is a dependency directive or a link, and `import_kind="directive"` (or
+`"link"`) on `importers_of` / `imports_of` follows only that kind. Rows past hop 1 carry `depth` and `via`
 (the node they reach the previous hop through), and each node appears once, at
 its shortest hop. The response adds `depth` and a `reachability` object:
 `state` is `complete` or `truncated` (500 rows past hop 1), and

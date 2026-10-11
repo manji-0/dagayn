@@ -27,7 +27,8 @@ the selected embedding mode so exploration chooses the right search strategy.
   `inheritors_of`, `tests_for`, `docs_for`, `implementations_of`,
   `bridges_from`, `children_of`, `file_summary`, or `source_of`).
 - Everything that reaches a function or file, not just direct neighbours: pass
-  `depth` (up to 6) to `callers_of` or `importers_of` instead of calling once
+  `depth` (up to 6) to `callers_of` or `importers_of` (or `imports_of`, for what
+  a file reaches) instead of calling once
   per discovered node. `reachability.depth_limit_reached` says whether a deeper
   walk could find more.
 - Known entity whose body you need to inspect: use

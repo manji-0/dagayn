@@ -561,6 +561,119 @@ fn a_closed_answer_says_it_is_the_whole_answer() {
 }
 
 #[test]
+fn imports_of_follows_a_chain_forward_and_says_which_edges_are_directives() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    let repo = Repo::new("imports-forward", false);
+    repo.write("docs/base.md", "# Base\n\nText.\n");
+    repo.write(
+        "docs/middle.md",
+        "# Middle\n\n<!-- derived-from ./base.md -->\n",
+    );
+    repo.write(
+        "docs/plan.md",
+        "# Plan\n\n<!-- constrained-by ./middle.md -->\n\nSee [the notes](./notes.md).\n",
+    );
+    repo.write("docs/notes.md", "# Notes\n\nText.\n");
+    repo.build();
+    let context = repo.context();
+
+    let direct = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "imports_of", "target": "docs/plan.md"}),
+    );
+    let kinds: Vec<(String, String)> = direct["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .map(|row| {
+            (
+                row["import_target"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string(),
+                row["import_kind"].as_str().unwrap_or_default().to_string(),
+            )
+        })
+        .collect();
+    assert!(
+        kinds.contains(&("docs/middle.md".into(), "directive".into())),
+        "{kinds:?}"
+    );
+    assert!(
+        kinds.contains(&("docs/notes.md".into(), "link".into())),
+        "{kinds:?}"
+    );
+
+    let chain = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "imports_of", "target": "docs/plan.md", "depth": 6}),
+    );
+    assert_eq!(chain["reachability"]["state"], "complete", "{chain}");
+    let reached: Vec<(&str, i64)> = chain["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .map(|row| {
+            (
+                row["import_target"].as_str().unwrap_or_default(),
+                row["depth"].as_i64().unwrap_or_default(),
+            )
+        })
+        .collect();
+    assert!(reached.contains(&("docs/middle.md", 1)), "{reached:?}");
+    assert!(reached.contains(&("docs/base.md", 2)), "{reached:?}");
+    assert!(
+        reached.iter().any(|(t, _)| *t == "docs/notes.md"),
+        "{reached:?}"
+    );
+
+    // The filter applies during the walk: directives only, no link.
+    let directives = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "imports_of", "target": "docs/plan.md", "depth": 6, "import_kind": "directive"}),
+    );
+    let targets: Vec<&str> = directives["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .filter_map(|row| row["import_target"].as_str())
+        .collect();
+    assert!(targets.contains(&"docs/base.md"), "{targets:?}");
+    assert!(!targets.contains(&"docs/notes.md"), "{targets:?}");
+    assert!(
+        directives["summary"].as_str().is_some_and(
+            |summary| summary.ends_with("only Markdown dependency directives were followed")
+        ),
+        "{}",
+        directives["summary"]
+    );
+    let importers = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "importers_of", "target": "docs/notes.md", "import_kind": "directive"}),
+    );
+    assert_eq!(importers["result_count"], 0, "{importers}");
+
+    for (arguments, message) in [
+        (
+            json!({"pattern": "imports_of", "target": "docs/plan.md", "import_kind": "anchor"}),
+            "import_kind must be 'directive' or 'link', got 'anchor'.",
+        ),
+        (
+            json!({"pattern": "callers_of", "target": "app.py::helper", "import_kind": "link"}),
+            "import_kind applies only to ['importers_of', 'imports_of']; 'callers_of' does not \
+             take it.",
+        ),
+    ] {
+        let reply = answer(&context, "query_graph_tool", arguments.clone());
+        assert_eq!(reply["error"], message, "{arguments}");
+    }
+}
+
+#[test]
 fn an_ambiguous_target_names_its_retries() {
     // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
     // dagayn: tests crates/dagayn-tools/src/flow.rs::flow
@@ -726,8 +839,8 @@ fn query_graph_answers_callers_and_callees_of_exact_targets() {
         ),
         (
             json!({"pattern": "callees_of", "target": "app.py::helper", "depth": 2}),
-            "depth applies only to ['callers_of', 'importers_of']; 'callees_of' returns \
-             direct relationships only.",
+            "depth applies only to ['callers_of', 'importers_of', 'imports_of']; 'callees_of' \
+             returns direct relationships only.",
         ),
     ] {
         let reply = answer(&context, "query_graph_tool", arguments.clone());

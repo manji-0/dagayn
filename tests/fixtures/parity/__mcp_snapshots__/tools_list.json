@@ -167,6 +167,7 @@
         "params": {
           "depth": "integer",
           "detail_level": "string",
+          "import_kind": "string",
           "pattern": "string",
           "repo_root": "string",
           "target": "string"
@@ -326,6 +327,7 @@
         "params": {
           "depth": "integer",
           "detail_level": "string",
+          "import_kind": "string",
           "pattern": "string",
           "repo_root": "string",
           "target": "string"
