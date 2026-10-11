@@ -484,7 +484,18 @@ fixtures the tests build.
       runs walked the graph one hop at a time (38 to 58 calls).
     - **Done:** a cut list says so in its summary (`Showing 22 of 89
       rows`), and at `minimal` its `next` starts with the same call at
-      `detail_level="standard"`. Not yet measured.
+      `detail_level="standard"`.
+    - **Measured** (dagayn-video `experiment_e11_haiku`, pre-registered):
+      agents followed that `next`, and the hop-by-hop walks stopped (E2 runs
+      over 20 calls: 5 of 10 before, 0 of 10 after), but tokens did not fall
+      against the version without it (1.09×, Holm p = 0.85) and stayed above
+      no dagayn (1.40×, Holm p = 0.0006) at equal accuracy. Given the whole
+      list, agents checked its rows one by one (median 5 to 8 checks on the
+      two import questions), each turn carrying the long reply. Agents
+      without dagayn answered the same questions with one `ast` script.
+      What is left is the re-checking itself; telling agents they may use
+      the answer as it is has not been measured on questions worded to the
+      graph's rules.
 
 ## Touch points
 
