@@ -30,8 +30,9 @@ Usage::
     uv run python eval/run_agent_tokens_eval.py --candidate dagayn --baseline none \\
         --reps 10 --gate --max-token-ratio 1.2
 
-The target is ``git archive <source_commit>`` of this repository, made into a
-one-commit repository; fetch the commit first in a shallow clone.
+The target is ``git archive <source_commit>`` of this repository (or of
+``--source-repo``), made into a one-commit repository; fetch the commit first
+in a shallow clone.
 """
 
 from __future__ import annotations
@@ -106,13 +107,13 @@ def answer_set(kind: str, items: list[Any]) -> set[Any]:
     return {norm_path(x) for x in items if isinstance(x, str)}
 
 
-def make_target(work: Path, commit: str) -> Path:
+def make_target(work: Path, commit: str, repo: Path = REPO_ROOT) -> Path:
     src = work / "src"
     if src.exists():
         return src
     src.mkdir(parents=True)
     archive = subprocess.run(
-        ["git", "-C", str(REPO_ROOT), "archive", commit], capture_output=True, check=True
+        ["git", "-C", str(repo), "archive", commit], capture_output=True, check=True
     ).stdout
     subprocess.run(["tar", "-x", "-C", str(src)], input=archive, check=True)
     git = ["git", "-c", "user.name=eval", "-c", "user.email=eval@example.invalid"]
@@ -313,6 +314,12 @@ def main() -> int:
     ap.add_argument(
         "--out", type=Path, default=None, help="keeps raw runs; reruns skip finished ids"
     )
+    ap.add_argument(
+        "--source-repo",
+        type=Path,
+        default=REPO_ROOT,
+        help="git repository holding source_commit (default: this one)",
+    )
     ap.add_argument("--gate", action="store_true")
     ap.add_argument("--max-token-ratio", type=float, default=1.0)
     args = ap.parse_args()
@@ -330,7 +337,7 @@ def main() -> int:
             "spec": spec, "setups": setups, "model": args.model, "effort": args.effort,
             "lines": {"candidate": args.candidate_line, "baseline": args.baseline_line},
             "timeout": args.timeout, "raw": raw, "work": work,
-            "src": make_target(work, spec["source_commit"]),
+            "src": make_target(work, spec["source_commit"], args.source_repo),
             "mcp": {name: mcp_config(work, name, cmd) for name, cmd in graphs.items()},
         }  # fmt: skip
         items = [
