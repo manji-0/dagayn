@@ -627,8 +627,13 @@ is a dependency directive or a link, and `import_kind="directive"` (or
 `"link"`) on `importers_of` / `imports_of` follows only that kind. A Python
 import that a lazy-export table names (a string run through `import_module`
 at first attribute access, not an import statement) is an edge too, and its
-row says `import_kind: "lazy_export"`; `import_kind="statement"` follows only
-import statements (rows with no `import_kind`). Rows past hop 1 carry `depth` and `via`
+row says `import_kind: "lazy_export"`. A Rust file that reaches another by a
+path written in code (`crate::a::B::f()`) and no `use` is its importer with
+`import_kind: "path"`. `import_kind="statement"` follows only import
+statements (rows with no `import_kind`). An answer the output budget cuts
+lists the files of every row it found in `files` (up to 200, 60 at
+`minimal`), so a question about which files has its whole answer even when
+the rows do not fit. Rows past hop 1 carry `depth` and `via`
 (the node they reach the previous hop through), and each node appears once, at
 its shortest hop. The response adds `depth` and a `reachability` object:
 `state` is `complete` or `truncated` (500 rows past hop 1), and
@@ -810,7 +815,8 @@ the order the imports run, starting at its smallest scope, and is listed once;
 `detail_level="standard"` adds, per hop, the first import behind it (`from`,
 `to`, `line`, `imports` for how many). `unit_filter` keeps only scopes with one
 of the given prefixes, `import_kind` counts only one kind of import edge as
-`query_graph_tool` does (`"statement"` leaves out lazy exports and Markdown),
+`query_graph_tool` does (`"statement"` leaves out lazy exports, Rust paths in
+code, and Markdown),
 and `artifact_scope` works as above. `groups` lists the strongly connected
 scopes. An import that resolves to no indexed file (standard library,
 third-party, a compiled extension such as `dagayn._core`) is not an edge. The

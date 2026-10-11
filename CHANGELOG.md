@@ -6,6 +6,20 @@ All notable changes to `dagayn` are documented here.
 
 ### Added
 
+- Rust: a method call on a field of a value whose type is known
+  (`node.file_path.as_str()`, the struct declared in another file) resolves
+  through the struct's declared field types; struct nodes carry
+  `field_types`. On dagayn's own crates the callers of
+  `FilePath::as_str` went from 3 of 9 files to 8.
+- Rust: a path written in code without a `use` (`crate::architecture::
+  Snapshot::read(..)`, `&super::util::Scope`) makes the file an importer of
+  the file it reaches, with `import_kind: "path"` (and
+  `import_kind="path"` selects them). These edges do not widen which names a
+  file sees for call resolution.
+- A `query_graph_tool` answer cut to fit lists, in `files`, the files of
+  every row it found (up to 200; 60 at `minimal`), and its summary says how
+  many: a which-files question gets its whole answer from one call.
+
 - `architecture_analysis_tool(mode="import_cycles")` lists every simple
   import cycle between files, directories, or declared units (`scope_kind`),
   narrowed by `unit_filter` and `import_kind`, with one import per hop at
@@ -13,6 +27,11 @@ All notable changes to `dagayn` are documented here.
   for `dagayn/` with `import_kind="statement"` equals the 15 cycles of the
   agent experiments' answer key; agents had no tool for this and wrote their
   own scripts.
+- The closed-answer sentence on Rust callers says which method calls are
+  not edges (receivers the code does not type: closure parameters, loop
+  variables, untyped locals), instead of naming only run-time dispatch; on
+  Rust importers it says paths in code count and paths inside macro
+  arguments do not.
 - A `query_graph_tool` answer the output budget cut says so in its summary
   (`Showing 22 of 89 rows`), and at `detail_level="minimal"` its `next`
   starts with the same call at `"standard"`. Agents that got a cut minimal
