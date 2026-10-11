@@ -66,8 +66,10 @@ _MARKDOWN_POLICY_SECTION = f"""{_MARKDOWN_POLICY_MARKER}
 ## Markdown documentation policy: declare dependencies via directive comments
 
 In Markdown that dagayn indexes, declare a real dependency on another section
-or document with an HTML comment directly under the dependent heading, so the
-graph records it (`DEPENDS_ON` / `IMPORTS_FROM`) and impact analysis sees it:
+or document with an HTML comment on its own line in the dependent section
+(directly under its heading is clearest; anywhere in the section outside code
+counts), so the graph records it (`DEPENDS_ON` / `IMPORTS_FROM`) and impact
+analysis sees it:
 
 ```markdown
 <!-- <kind> <target> -->

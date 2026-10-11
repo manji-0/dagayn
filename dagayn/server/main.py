@@ -249,6 +249,7 @@ mcp = FastMCP(
         "and Terraform are nodes, linked by calls, imports, tests, and doc "
         "contracts. Call the tool that answers the task: trace callers, "
         "callees, imports, and tests with query_graph_tool before grepping; "
+        'list import cycles with architecture_analysis_tool(mode="import_cycles"); '
         'read a located node with query_graph_tool(pattern="source_of") '
         'instead of the whole file; review changes with review_tool(mode="changes"). '
         "Every reply ends with next: at most three calls with complete "
@@ -454,8 +455,9 @@ def query_graph_tool(
             closed.
         import_kind: (importers_of, imports_of) "directive" or "link" follows
             only Markdown dependency directives or only links, "lazy_export"
-            only Python imports a lazy-export table names; each such row's
-            ``import_kind`` says which it is.
+            only Python imports a lazy-export table names, "statement" only
+            import statements (no kind); each kinded row's ``import_kind``
+            says which it is.
 
     ``results_complete`` is false when the output budget cut rows. An import
     edge is a file's own import statement: ``from pkg import sub`` points at the
@@ -625,6 +627,7 @@ def architecture_analysis_tool(
         "sdp_violations",
         "sap_metrics",
         "sap_violations",
+        "import_cycles",
     ] = "overview",
     detail_level: Literal["minimal", "standard", "verbose"] = "minimal",
     top_n: int = 10,
@@ -646,6 +649,7 @@ def architecture_analysis_tool(
         "infra_dataflow",
         "artifact_trace",
     ] = "strict_static",
+    import_kind: Optional[Literal["directive", "link", "lazy_export", "statement"]] = None,
 ) -> ToolPayload:
     """Map the repository's units and report structural findings.
 
@@ -661,18 +665,23 @@ def architecture_analysis_tool(
     depending on a less stable one by more than ``min_delta``); sap_metrics and
     sap_violations (abstractness vs instability; farther than ``min_distance``
     from the main sequence). communities / community: graph clusters (need full
-    post-processing).
+    post-processing). import_cycles: every simple cycle the resolved imports
+    form between ``scope_kind`` scopes, each starting at its smallest scope
+    (``standard`` adds one import per hop); ``results_complete`` says
+    whether the list is whole.
 
     Args:
         granularity: (sdp) "package" (declared units; default) or "file".
-        scope_kind: (sap) "package" (declared units; default), "directory",
-            or "file".
-        unit_filter: (sap_metrics) Scope-key prefixes to keep.
+        scope_kind: (sap, import_cycles) "package" (declared units; default),
+            "directory", or "file".
+        unit_filter: (sap_metrics, import_cycles) Scope-key prefixes to keep.
         artifact_scope: "code" (default), "docs" (Markdown), or "all".
         dependency_profile: (sdp, sap) Edges counted: "strict_static"
             (imports, inheritance; default), "implementation" (+ calls),
             "infra_dataflow" (+ infra references), "artifact_trace"
             (+ cross-artifact bridges).
+        import_kind: (import_cycles) Count only these import edges, as
+            query_graph's: "statement" leaves out lazy exports and Markdown.
     """
     payload = _tool("architecture_analysis:architecture_analysis_func")(
         mode=mode,
@@ -690,6 +699,7 @@ def architecture_analysis_tool(
         min_delta=min_delta,
         min_distance=min_distance,
         dependency_profile=dependency_profile,
+        import_kind=import_kind,
         repo_root=_resolve_repo_root(repo_root),
     )
     return summary_at_verbose_only(payload, detail_level)

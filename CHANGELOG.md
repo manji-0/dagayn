@@ -6,6 +6,21 @@ All notable changes to `dagayn` are documented here.
 
 ### Added
 
+- `architecture_analysis_tool(mode="import_cycles")` lists every simple
+  import cycle between files, directories, or declared units (`scope_kind`),
+  narrowed by `unit_filter` and `import_kind`, with one import per hop at
+  `detail_level="standard"`. On dagayn 8c2414a, the directory-level answer
+  for `dagayn/` with `import_kind="statement"` equals the 15 cycles of the
+  agent experiments' answer key; agents had no tool for this and wrote their
+  own scripts.
+- `import_kind="statement"` on `importers_of` / `imports_of` follows only
+  import statements, leaving out lazy exports and Markdown edges. The
+  closed-answer sentence under `import_kind="lazy_export"` no longer says
+  only Markdown links were followed.
+- A Markdown dependency directive counts anywhere in a section, outside
+  code, when the comment opens a line: one right after a list item was
+  inline HTML to the grammar and was dropped.
+
 - `query_graph_tool(pattern="imports_of")` takes `depth` (1 to 6) and walks
   forward, as `importers_of` walks backward: what a file reaches, with
   `depth` and `via` on each row past hop 1 and a `reachability` object.

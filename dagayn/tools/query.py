@@ -182,7 +182,8 @@ def query_graph(
                past hop 1 carry ``depth`` and ``via``; ``reachability`` says
                whether the walk was complete or hit the depth limit.
         import_kind: For importers_of and imports_of, "directive", "link",
-               or "lazy_export" follows only that kind of import edge.
+               or "lazy_export" follows only that kind of import edge;
+               "statement" follows only import statements.
 
     Returns:
         Matching nodes and edges for the query.

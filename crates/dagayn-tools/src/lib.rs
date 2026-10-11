@@ -17,6 +17,7 @@ mod changes;
 mod community;
 mod context;
 mod coverage;
+mod cycles;
 mod dead_code;
 mod dead_code_verify;
 mod difflib;

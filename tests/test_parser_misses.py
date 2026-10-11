@@ -696,3 +696,31 @@ Setext Title
         fence = [n for n in bodies if n.name.startswith("closing-hashes--body")]
         assert len(fence) == 1
         assert (fence[0].line_start, fence[0].line_end) == (10, 14)
+
+    def test_directive_anywhere_in_a_section_outside_code(self, parse):
+        source = """\
+# Commands
+
+- `run` — runs.
+<!-- derived-from ./after-list.md -->
+
+Some prose.
+  <!-- constrained-by ./indented.md -->
+
+Prose with <!-- blocked-by ./inline.md --> in the line.
+
+    <!-- supersedes ./indented-code.md -->
+
+```md
+<!-- supersedes ./fenced.md -->
+```
+"""
+        _, edges, _ = parse("doc.md", source)
+        depends = {target for kind, _, target in edges if kind == "DEPENDS_ON"}
+        assert any(t.endswith("after-list.md") for t in depends)
+        assert any(t.endswith("indented.md") for t in depends)
+        assert not any(
+            t.endswith(name)
+            for t in depends
+            for name in ("inline.md", "indented-code.md", "fenced.md")
+        )

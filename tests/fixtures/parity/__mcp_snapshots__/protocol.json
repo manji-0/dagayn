@@ -102,7 +102,7 @@
             "listChanged": true
           }
         },
-        "instructions": "dagayn is a knowledge graph of this repository: code, Markdown docs, and Terraform are nodes, linked by calls, imports, tests, and doc contracts. Call the tool that answers the task: trace callers, callees, imports, and tests with query_graph_tool before grepping; read a located node with query_graph_tool(pattern=\"source_of\") instead of the whole file; review changes with review_tool(mode=\"changes\"). Every reply ends with next: at most three calls with complete arguments and a why; follow it unless the task points elsewhere. missingness says when the graph is behind. Only when the task names no node or file, or the graph may be stale, start with get_minimal_context_tool(task=...): it reports graph freshness (sync.state) and the first calls to make. Graph reach is not correctness: confirm a claim with source_of or a reproduction. get_docs_section_tool(section_name=\"workflow\") has the phases; get_docs_section_tool(section_name=\"trust\") ranks which results to state as fact.",
+        "instructions": "dagayn is a knowledge graph of this repository: code, Markdown docs, and Terraform are nodes, linked by calls, imports, tests, and doc contracts. Call the tool that answers the task: trace callers, callees, imports, and tests with query_graph_tool before grepping; list import cycles with architecture_analysis_tool(mode=\"import_cycles\"); read a located node with query_graph_tool(pattern=\"source_of\") instead of the whole file; review changes with review_tool(mode=\"changes\"). Every reply ends with next: at most three calls with complete arguments and a why; follow it unless the task points elsewhere. missingness says when the graph is behind. Only when the task names no node or file, or the graph may be stale, start with get_minimal_context_tool(task=...): it reports graph freshness (sync.state) and the first calls to make. Graph reach is not correctness: confirm a claim with source_of or a reproduction. get_docs_section_tool(section_name=\"workflow\") has the phases; get_docs_section_tool(section_name=\"trust\") ranks which results to state as fact.",
         "protocolVersion": "2025-06-18",
         "serverInfo": {
           "name": "dagayn",
@@ -572,7 +572,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "(importers_of, imports_of) \"directive\" or \"link\" follows\nonly Markdown dependency directives or only links, \"lazy_export\"\nonly Python imports a lazy-export table names; each such row's\n``import_kind`` says which it is."
+                  "description": "(importers_of, imports_of) \"directive\" or \"link\" follows\nonly Markdown dependency directives or only links, \"lazy_export\"\nonly Python imports a lazy-export table names, \"statement\" only\nimport statements (no kind); each kinded row's ``import_kind``\nsays which it is."
                 },
                 "pattern": {
                   "description": "One of the patterns above.",
@@ -894,7 +894,7 @@
                 "tags": []
               }
             },
-            "description": "Map the repository's units and report structural findings.\n\n``overview`` returns ``units`` (the crates, packages, and modules the\nmanifests declare), ``unit_edges`` (the dependencies between two units;\n``declared`` when a manifest lists one), and\n``findings``: ``import_cycle`` (with the imports to cut),\n``unstable_dependency``, ``untested_core``, ``broken_doc_link``. An empty\n``findings`` list means nothing structural to act on.\n``detail_level=\"standard\"`` adds each unit's ``surface``.\n\nMetric modes, per declared unit: sdp_metrics and sdp_violations (a unit\ndepending on a less stable one by more than ``min_delta``); sap_metrics and\nsap_violations (abstractness vs instability; farther than ``min_distance``\nfrom the main sequence). communities / community: graph clusters (need full\npost-processing).",
+            "description": "Map the repository's units and report structural findings.\n\n``overview`` returns ``units`` (the crates, packages, and modules the\nmanifests declare), ``unit_edges`` (the dependencies between two units;\n``declared`` when a manifest lists one), and\n``findings``: ``import_cycle`` (with the imports to cut),\n``unstable_dependency``, ``untested_core``, ``broken_doc_link``. An empty\n``findings`` list means nothing structural to act on.\n``detail_level=\"standard\"`` adds each unit's ``surface``.\n\nMetric modes, per declared unit: sdp_metrics and sdp_violations (a unit\ndepending on a less stable one by more than ``min_delta``); sap_metrics and\nsap_violations (abstractness vs instability; farther than ``min_distance``\nfrom the main sequence). communities / community: graph clusters (need full\npost-processing). import_cycles: every simple cycle the resolved imports\nform between ``scope_kind`` scopes, each starting at its smallest scope\n(``standard`` adds one import per hop); ``results_complete`` says\nwhether the list is whole.",
             "inputSchema": {
               "additionalProperties": false,
               "properties": {
@@ -959,6 +959,24 @@
                   ],
                   "type": "string"
                 },
+                "import_kind": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "directive",
+                        "link",
+                        "lazy_export",
+                        "statement"
+                      ],
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "(import_cycles) Count only these import edges, as\nquery_graph's: \"statement\" leaves out lazy exports and Markdown."
+                },
                 "include_members": {
                   "default": false,
                   "type": "boolean"
@@ -984,7 +1002,8 @@
                     "sdp_metrics",
                     "sdp_violations",
                     "sap_metrics",
-                    "sap_violations"
+                    "sap_violations",
+                    "import_cycles"
                   ],
                   "type": "string"
                 },
@@ -1001,7 +1020,7 @@
                 },
                 "scope_kind": {
                   "default": "package",
-                  "description": "(sap) \"package\" (declared units; default), \"directory\",\nor \"file\".",
+                  "description": "(sap, import_cycles) \"package\" (declared units; default),\n\"directory\", or \"file\".",
                   "enum": [
                     "file",
                     "package",
@@ -1035,7 +1054,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "(sap_metrics) Scope-key prefixes to keep."
+                  "description": "(sap_metrics, import_cycles) Scope-key prefixes to keep."
                 }
               },
               "type": "object"
@@ -1721,7 +1740,7 @@
             "listChanged": true
           }
         },
-        "instructions": "dagayn is a knowledge graph of this repository: code, Markdown docs, and Terraform are nodes, linked by calls, imports, tests, and doc contracts. Call the tool that answers the task: trace callers, callees, imports, and tests with query_graph_tool before grepping; read a located node with query_graph_tool(pattern=\"source_of\") instead of the whole file; review changes with review_tool(mode=\"changes\"). Every reply ends with next: at most three calls with complete arguments and a why; follow it unless the task points elsewhere. missingness says when the graph is behind. Only when the task names no node or file, or the graph may be stale, start with get_minimal_context_tool(task=...): it reports graph freshness (sync.state) and the first calls to make. Graph reach is not correctness: confirm a claim with source_of or a reproduction. get_docs_section_tool(section_name=\"workflow\") has the phases; get_docs_section_tool(section_name=\"trust\") ranks which results to state as fact.",
+        "instructions": "dagayn is a knowledge graph of this repository: code, Markdown docs, and Terraform are nodes, linked by calls, imports, tests, and doc contracts. Call the tool that answers the task: trace callers, callees, imports, and tests with query_graph_tool before grepping; list import cycles with architecture_analysis_tool(mode=\"import_cycles\"); read a located node with query_graph_tool(pattern=\"source_of\") instead of the whole file; review changes with review_tool(mode=\"changes\"). Every reply ends with next: at most three calls with complete arguments and a why; follow it unless the task points elsewhere. missingness says when the graph is behind. Only when the task names no node or file, or the graph may be stale, start with get_minimal_context_tool(task=...): it reports graph freshness (sync.state) and the first calls to make. Graph reach is not correctness: confirm a claim with source_of or a reproduction. get_docs_section_tool(section_name=\"workflow\") has the phases; get_docs_section_tool(section_name=\"trust\") ranks which results to state as fact.",
         "protocolVersion": "2025-06-18",
         "serverInfo": {
           "name": "dagayn",
@@ -2041,7 +2060,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "(importers_of, imports_of) \"directive\" or \"link\" follows\nonly Markdown dependency directives or only links, \"lazy_export\"\nonly Python imports a lazy-export table names; each such row's\n``import_kind`` says which it is."
+                  "description": "(importers_of, imports_of) \"directive\" or \"link\" follows\nonly Markdown dependency directives or only links, \"lazy_export\"\nonly Python imports a lazy-export table names, \"statement\" only\nimport statements (no kind); each kinded row's ``import_kind``\nsays which it is."
                 },
                 "pattern": {
                   "description": "One of the patterns above.",
@@ -2209,7 +2228,7 @@
                 "tags": []
               }
             },
-            "description": "Map the repository's units and report structural findings.\n\n``overview`` returns ``units`` (the crates, packages, and modules the\nmanifests declare), ``unit_edges`` (the dependencies between two units;\n``declared`` when a manifest lists one), and\n``findings``: ``import_cycle`` (with the imports to cut),\n``unstable_dependency``, ``untested_core``, ``broken_doc_link``. An empty\n``findings`` list means nothing structural to act on.\n``detail_level=\"standard\"`` adds each unit's ``surface``.\n\nMetric modes, per declared unit: sdp_metrics and sdp_violations (a unit\ndepending on a less stable one by more than ``min_delta``); sap_metrics and\nsap_violations (abstractness vs instability; farther than ``min_distance``\nfrom the main sequence). communities / community: graph clusters (need full\npost-processing).",
+            "description": "Map the repository's units and report structural findings.\n\n``overview`` returns ``units`` (the crates, packages, and modules the\nmanifests declare), ``unit_edges`` (the dependencies between two units;\n``declared`` when a manifest lists one), and\n``findings``: ``import_cycle`` (with the imports to cut),\n``unstable_dependency``, ``untested_core``, ``broken_doc_link``. An empty\n``findings`` list means nothing structural to act on.\n``detail_level=\"standard\"`` adds each unit's ``surface``.\n\nMetric modes, per declared unit: sdp_metrics and sdp_violations (a unit\ndepending on a less stable one by more than ``min_delta``); sap_metrics and\nsap_violations (abstractness vs instability; farther than ``min_distance``\nfrom the main sequence). communities / community: graph clusters (need full\npost-processing). import_cycles: every simple cycle the resolved imports\nform between ``scope_kind`` scopes, each starting at its smallest scope\n(``standard`` adds one import per hop); ``results_complete`` says\nwhether the list is whole.",
             "inputSchema": {
               "additionalProperties": false,
               "properties": {
@@ -2274,6 +2293,24 @@
                   ],
                   "type": "string"
                 },
+                "import_kind": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "directive",
+                        "link",
+                        "lazy_export",
+                        "statement"
+                      ],
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "(import_cycles) Count only these import edges, as\nquery_graph's: \"statement\" leaves out lazy exports and Markdown."
+                },
                 "include_members": {
                   "default": false,
                   "type": "boolean"
@@ -2299,7 +2336,8 @@
                     "sdp_metrics",
                     "sdp_violations",
                     "sap_metrics",
-                    "sap_violations"
+                    "sap_violations",
+                    "import_cycles"
                   ],
                   "type": "string"
                 },
@@ -2316,7 +2354,7 @@
                 },
                 "scope_kind": {
                   "default": "package",
-                  "description": "(sap) \"package\" (declared units; default), \"directory\",\nor \"file\".",
+                  "description": "(sap, import_cycles) \"package\" (declared units; default),\n\"directory\", or \"file\".",
                   "enum": [
                     "file",
                     "package",
@@ -2350,7 +2388,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "(sap_metrics) Scope-key prefixes to keep."
+                  "description": "(sap_metrics, import_cycles) Scope-key prefixes to keep."
                 }
               },
               "type": "object"
@@ -2660,7 +2698,7 @@
             "listChanged": true
           }
         },
-        "instructions": "dagayn is a knowledge graph of this repository: code, Markdown docs, and Terraform are nodes, linked by calls, imports, tests, and doc contracts. Call the tool that answers the task: trace callers, callees, imports, and tests with query_graph_tool before grepping; read a located node with query_graph_tool(pattern=\"source_of\") instead of the whole file; review changes with review_tool(mode=\"changes\"). Every reply ends with next: at most three calls with complete arguments and a why; follow it unless the task points elsewhere. missingness says when the graph is behind. Only when the task names no node or file, or the graph may be stale, start with get_minimal_context_tool(task=...): it reports graph freshness (sync.state) and the first calls to make. Graph reach is not correctness: confirm a claim with source_of or a reproduction. get_docs_section_tool(section_name=\"workflow\") has the phases; get_docs_section_tool(section_name=\"trust\") ranks which results to state as fact.",
+        "instructions": "dagayn is a knowledge graph of this repository: code, Markdown docs, and Terraform are nodes, linked by calls, imports, tests, and doc contracts. Call the tool that answers the task: trace callers, callees, imports, and tests with query_graph_tool before grepping; list import cycles with architecture_analysis_tool(mode=\"import_cycles\"); read a located node with query_graph_tool(pattern=\"source_of\") instead of the whole file; review changes with review_tool(mode=\"changes\"). Every reply ends with next: at most three calls with complete arguments and a why; follow it unless the task points elsewhere. missingness says when the graph is behind. Only when the task names no node or file, or the graph may be stale, start with get_minimal_context_tool(task=...): it reports graph freshness (sync.state) and the first calls to make. Graph reach is not correctness: confirm a claim with source_of or a reproduction. get_docs_section_tool(section_name=\"workflow\") has the phases; get_docs_section_tool(section_name=\"trust\") ranks which results to state as fact.",
         "protocolVersion": "2024-11-05",
         "serverInfo": {
           "name": "dagayn",
@@ -2683,7 +2721,7 @@
             "listChanged": true
           }
         },
-        "instructions": "dagayn is a knowledge graph of this repository: code, Markdown docs, and Terraform are nodes, linked by calls, imports, tests, and doc contracts. Call the tool that answers the task: trace callers, callees, imports, and tests with query_graph_tool before grepping; read a located node with query_graph_tool(pattern=\"source_of\") instead of the whole file; review changes with review_tool(mode=\"changes\"). Every reply ends with next: at most three calls with complete arguments and a why; follow it unless the task points elsewhere. missingness says when the graph is behind. Only when the task names no node or file, or the graph may be stale, start with get_minimal_context_tool(task=...): it reports graph freshness (sync.state) and the first calls to make. Graph reach is not correctness: confirm a claim with source_of or a reproduction. get_docs_section_tool(section_name=\"workflow\") has the phases; get_docs_section_tool(section_name=\"trust\") ranks which results to state as fact.",
+        "instructions": "dagayn is a knowledge graph of this repository: code, Markdown docs, and Terraform are nodes, linked by calls, imports, tests, and doc contracts. Call the tool that answers the task: trace callers, callees, imports, and tests with query_graph_tool before grepping; list import cycles with architecture_analysis_tool(mode=\"import_cycles\"); read a located node with query_graph_tool(pattern=\"source_of\") instead of the whole file; review changes with review_tool(mode=\"changes\"). Every reply ends with next: at most three calls with complete arguments and a why; follow it unless the task points elsewhere. missingness says when the graph is behind. Only when the task names no node or file, or the graph may be stale, start with get_minimal_context_tool(task=...): it reports graph freshness (sync.state) and the first calls to make. Graph reach is not correctness: confirm a claim with source_of or a reproduction. get_docs_section_tool(section_name=\"workflow\") has the phases; get_docs_section_tool(section_name=\"trust\") ranks which results to state as fact.",
         "protocolVersion": "2025-11-25",
         "serverInfo": {
           "name": "dagayn",

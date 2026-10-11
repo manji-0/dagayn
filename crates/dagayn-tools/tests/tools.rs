@@ -516,6 +516,7 @@ fn a_closed_answer_says_it_is_the_whole_answer() {
         "# Plan\n\n<!-- constrained-by ./base.md -->\n\nSee [the base](./base.md).\n",
     );
     repo.write("pkg/mod.py", "def f():\n    return 1\n");
+    repo.write("pkg/user.py", "from pkg.mod import f\n");
     repo.write(
         "pkg/__init__.py",
         "from importlib import import_module\n\n_LAZY_EXPORTS = {\"f\": (\".mod\", \"f\")}\n\n\n\
@@ -569,6 +570,27 @@ fn a_closed_answer_says_it_is_the_whole_answer() {
             .is_some_and(|summary| summary.ends_with("(import_kind lazy_export)")),
         "{}",
         lazy["summary"]
+    );
+
+    // "statement" keeps the import statements and leaves the lazy export out.
+    let statements = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "importers_of", "target": "pkg/mod.py", "import_kind": "statement"}),
+    );
+    let files: Vec<&str> = statements["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .filter_map(|row| row["file"].as_str())
+        .collect();
+    assert_eq!(files, ["pkg/user.py"], "{statements}");
+    assert!(
+        statements["summary"]
+            .as_str()
+            .is_some_and(|summary| summary.ends_with("only import statements were followed")),
+        "{}",
+        statements["summary"]
     );
 
     // At minimal too, and a file that both links and declares a directive
@@ -704,7 +726,8 @@ fn imports_of_follows_a_chain_forward_and_says_which_edges_are_directives() {
     for (arguments, message) in [
         (
             json!({"pattern": "imports_of", "target": "docs/plan.md", "import_kind": "anchor"}),
-            "import_kind must be 'directive', 'link', or 'lazy_export', got 'anchor'.",
+            "import_kind must be 'directive', 'link', 'lazy_export', or 'statement', got \
+             'anchor'.",
         ),
         (
             json!({"pattern": "callers_of", "target": "app.py::helper", "import_kind": "link"}),
@@ -1702,6 +1725,75 @@ fn architecture_metrics_follow_the_requested_view() {
             "{arguments}"
         );
     }
+}
+
+#[test]
+fn import_cycles_lists_every_cycle_between_directories() {
+    // dagayn: tests crates/dagayn-tools/src/cycles.rs::import_cycles
+    let repo = Repo::new("arch-cycles", true);
+    repo.write(
+        "a/one.py",
+        "from b.two import g\n\n\ndef f():\n    return g()\n",
+    );
+    repo.write(
+        "b/two.py",
+        "def g():\n    from c.three import h\n    return h()\n",
+    );
+    repo.write(
+        "c/three.py",
+        "from a.one import f\n\n\ndef h():\n    return 1\n",
+    );
+    repo.write("b/back.py", "from a.one import f\n");
+    repo.build();
+    let context = Context {
+        runtime: Some(json!({})),
+        ..repo.context()
+    };
+    let arch = |arguments: Value| answer(&context, "architecture_analysis_tool", arguments);
+    let cycles = arch(json!({"mode": "import_cycles", "scope_kind": "directory"}));
+    assert_eq!(
+        cycles["cycles"],
+        json!([["a", "b"], ["a", "b", "c"]]),
+        "{cycles}"
+    );
+    assert_eq!(cycles["cycle_count"], 2, "{cycles}");
+    assert_eq!(cycles["results_complete"], true, "{cycles}");
+    assert!(
+        cycles["summary"]
+            .as_str()
+            .is_some_and(|summary| summary.contains("This is every simple cycle")),
+        "{cycles}"
+    );
+
+    // standard names one import behind each hop.
+    let standard = arch(json!({
+        "mode": "import_cycles",
+        "scope_kind": "directory",
+        "unit_filter": ["a", "b"],
+        "detail_level": "standard",
+    }));
+    assert_eq!(
+        standard["cycles"],
+        json!([{"scopes": ["a", "b"], "imports": [
+            {"from": "a/one.py", "to": "b/two.py", "line": 1, "imports": 1},
+            {"from": "b/back.py", "to": "a/one.py", "line": 1, "imports": 1},
+        ]}]),
+        "{standard}"
+    );
+
+    let files = arch(json!({"mode": "import_cycles", "scope_kind": "file"}));
+    assert_eq!(
+        files["cycles"],
+        json!([["a/one.py", "b/two.py", "c/three.py"]]),
+        "{files}"
+    );
+    assert!(declines(
+        &context,
+        "architecture_analysis_tool",
+        json!({"mode": "import_cycles", "import_kind": 3})
+    ));
+    let bad = arch(json!({"mode": "import_cycles", "import_kind": "anchor"}));
+    assert_eq!(bad["status"], "error", "{bad}");
 }
 
 #[test]

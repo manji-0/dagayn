@@ -627,7 +627,8 @@ is a dependency directive or a link, and `import_kind="directive"` (or
 `"link"`) on `importers_of` / `imports_of` follows only that kind. A Python
 import that a lazy-export table names (a string run through `import_module`
 at first attribute access, not an import statement) is an edge too, and its
-row says `import_kind: "lazy_export"`. Rows past hop 1 carry `depth` and `via`
+row says `import_kind: "lazy_export"`; `import_kind="statement"` follows only
+import statements (rows with no `import_kind`). Rows past hop 1 carry `depth` and `via`
 (the node they reach the previous hop through), and each node appears once, at
 its shortest hop. The response adds `depth` and a `reachability` object:
 `state` is `complete` or `truncated` (500 rows past hop 1), and
@@ -801,6 +802,22 @@ Unknown profile names are rejected instead of falling back silently.
 `sap_metrics` separates SAP-inapplicable scopes (`no-eligible-types` and
 `isolated`) into `inapplicable_metrics` by default; use
 `detail_level="verbose"` for raw metric inspection.
+
+`mode="import_cycles"` lists every simple cycle the resolved import edges form
+between scopes: `scope_kind="file"`, `"directory"` (the file's directory), or
+`"package"` (declared units; the default). Each cycle is a list of scopes in
+the order the imports run, starting at its smallest scope, and is listed once;
+`detail_level="standard"` adds, per hop, the first import behind it (`from`,
+`to`, `line`, `imports` for how many). `unit_filter` keeps only scopes with one
+of the given prefixes, `import_kind` counts only one kind of import edge as
+`query_graph_tool` does (`"statement"` leaves out lazy exports and Markdown),
+and `artifact_scope` works as above. `groups` lists the strongly connected
+scopes. An import that resolves to no indexed file (standard library,
+third-party, a compiled extension such as `dagayn._core`) is not an edge. The
+answer says `results_complete: false` when it stopped at 200 cycles or cut
+cycles to fit the reply; narrow with `unit_filter` then. Unlike the overview's
+`import_cycle` finding, which counts only imports that run at load time in
+production code, this mode counts every import edge the filter keeps.
 
 The minimal search-ranking scaffold lives in `eval/search_queries.yaml`,
 `eval/search_judgments.yaml`, and `eval/run_search_eval.py`. It reports MRR@10,

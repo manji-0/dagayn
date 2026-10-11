@@ -326,8 +326,11 @@ fn import_kind_error(pattern: &str, import_kind: Option<&str>) -> Option<String>
              take it."
         ));
     }
-    (!matches!(kind, "directive" | "link" | "lazy_export")).then(|| {
-        format!("import_kind must be 'directive', 'link', or 'lazy_export', got '{kind}'.")
+    (!matches!(kind, "directive" | "link" | "lazy_export" | "statement")).then(|| {
+        format!(
+            "import_kind must be 'directive', 'link', 'lazy_export', or 'statement', got \
+             '{kind}'."
+        )
     })
 }
 
@@ -853,7 +856,7 @@ fn push_import_kind(row: &mut Row, edge: &GraphEdge) {
 /// `directive` or `link` for a Markdown import edge, `lazy_export` for a
 /// Python import a lazy-export table names (run at first attribute access,
 /// not an import statement), nothing for an ordinary import statement.
-fn edge_import_kind(edge: &GraphEdge) -> Option<&str> {
+pub(crate) fn edge_import_kind(edge: &GraphEdge) -> Option<&str> {
     if let Some(kind) = edge
         .extra
         .get("markdown_import_kind")
@@ -865,8 +868,12 @@ fn edge_import_kind(edge: &GraphEdge) -> Option<&str> {
 }
 
 /// Whether an import edge passes the `import_kind` filter (no filter: all).
-fn import_kind_matches(edge: &GraphEdge, filter: Option<&str>) -> bool {
-    filter.is_none_or(|kind| edge_import_kind(edge) == Some(kind))
+/// `statement` keeps the edges with no kind: ordinary import statements.
+pub(crate) fn import_kind_matches(edge: &GraphEdge, filter: Option<&str>) -> bool {
+    filter.is_none_or(|kind| match kind {
+        "statement" => edge_import_kind(edge).is_none(),
+        _ => edge_import_kind(edge) == Some(kind),
+    })
 }
 
 /// `imports_of` past hop 1: the files each imported file imports in turn,
@@ -1119,7 +1126,9 @@ fn closed_note(
     let calls = matches!(pattern, "callers_of" | "callees_of");
     let caveat = match (language, calls, import_kind) {
         (_, false, Some("directive")) => "only Markdown dependency directives were followed",
-        (_, false, Some(_)) => "only Markdown links were followed",
+        (_, false, Some("link")) => "only Markdown links were followed",
+        (_, false, Some("lazy_export")) => "only imports a lazy-export table names were followed",
+        (_, false, Some(_)) => "only import statements were followed",
         ("markdown", false, None) => "Markdown links and dependency directives both count",
         ("python", false, _) => {
             "imports built at run time are edges only when a lazy-export table names \

@@ -45,7 +45,14 @@ mode only when the user asks for one by name.
    inheritance, `DEPENDS_ON`; default), `implementation` (+ calls),
    `infra_dataflow` (+ Terraform references), `artifact_trace` (+ high-
    confidence doc links).
-5. **Doc ↔ code boundaries**: `docs_for` from code or Terraform nodes,
+5. **Every import cycle**, not only those the overview reports:
+   `mode="import_cycles"` with `scope_kind` `"directory"`, `"file"`, or
+   `"package"`, and `unit_filter` to narrow it. Each cycle lists its scopes
+   in import order, once; `detail_level="standard"` names one import per hop,
+   and `results_complete` says whether the list is whole. `import_kind=
+   "statement"` leaves out lazy exports. Imports of modules the graph does
+   not index (standard library, compiled extensions) are not edges.
+6. **Doc ↔ code boundaries**: `docs_for` from code or Terraform nodes,
    `implementations_of` from a Markdown section. These are traceability links,
    not architectural coupling.
 

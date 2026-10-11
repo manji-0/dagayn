@@ -114,7 +114,7 @@ impl View {
     }
 
     /// `node_file_to_scope_key` for a non-empty path.
-    fn scope_of(&self, file_path: &str) -> String {
+    pub(crate) fn scope_of(&self, file_path: &str) -> String {
         if self.file_scopes {
             return file_path.to_string();
         }
