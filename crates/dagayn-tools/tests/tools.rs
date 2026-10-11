@@ -510,6 +510,11 @@ fn a_closed_answer_says_it_is_the_whole_answer() {
         "chain.py",
         "from app import helper\n\n\ndef one():\n    helper()\n\n\ndef two():\n    one()\n\n\ndef three():\n    two()\n",
     );
+    repo.write("docs/base.md", "# Base\n\nText.\n");
+    repo.write(
+        "docs/plan.md",
+        "# Plan\n\n<!-- constrained-by ./base.md -->\n\nSee [the base](./base.md).\n",
+    );
     repo.build();
     let context = repo.context();
     let summary = |arguments: Value| {
@@ -536,6 +541,16 @@ fn a_closed_answer_says_it_is_the_whole_answer() {
     assert!(
         importers.contains("No direct importer the graph records"),
         "{importers}"
+    );
+
+    // A Markdown answer names what its rows mix, not Python's dynamic imports.
+    let docs = summary(json!({"pattern": "importers_of", "target": "docs/base.md"}));
+    assert!(
+        docs.ends_with(
+            "No direct importer the graph records is missing; Markdown links and \
+             dependency directives both count"
+        ),
+        "{docs}"
     );
 
     // Cut at the depth asked for, or with nothing found: no claim.

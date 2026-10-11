@@ -95,8 +95,9 @@ All notable changes to `dagayn` are documented here.
 - A closed `callers_of`, `callees_of`, `importers_of`, or `imports_of`
   answer (nothing cut by the output budget or the depth, no unresolved
   endpoints) ends its `summary` with "No (direct) caller the graph records
-  is missing" and names what static parsing cannot see, so an agent stops
-  re-checking a list the graph already completed.
+  is missing" and names what the graph does not hold for the target's
+  language (for Markdown, that links and dependency directives both count),
+  so an agent stops re-checking a list the graph already completed.
 - The installed instructions (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, and
   the other platforms' files) drop the default-tools table and the trust
   tiers: the tool descriptions say what each tool does, and

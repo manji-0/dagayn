@@ -958,25 +958,27 @@ fn expand_transitive(
 }
 
 /// The sentence a closed answer of `pattern` ends with: the list holds every
-/// static relation the graph records (`direct` ones at depth 1), and names
-/// what static parsing cannot see.
-fn closed_note(pattern: &str, direct: bool) -> Option<String> {
-    let (relation, dynamic) = match pattern {
-        "callers_of" => (
-            "caller",
-            "calls made through strings, getattr, or registration",
-        ),
-        "callees_of" => (
-            "callee",
-            "calls made through strings, getattr, or registration",
-        ),
-        "importers_of" => ("importer", "imports by string (import_module, __import__)"),
-        "imports_of" => ("import", "imports by string (import_module, __import__)"),
+/// relation the graph records (`direct` ones at depth 1), and says what the
+/// graph does not hold for the target's `language`.
+fn closed_note(pattern: &str, direct: bool, language: &str) -> Option<String> {
+    let relation = match pattern {
+        "callers_of" => "caller",
+        "callees_of" => "callee",
+        "importers_of" => "importer",
+        "imports_of" => "import",
         _ => return None,
+    };
+    let calls = matches!(pattern, "callers_of" | "callees_of");
+    let caveat = match (language, calls) {
+        ("markdown", false) => "Markdown links and dependency directives both count",
+        ("python", false) => "imports by string (import_module, __import__) are not edges",
+        ("python", true) => "calls made through strings, getattr, or registration are not edges",
+        (_, false) => "modules loaded at run time are not edges",
+        (_, true) => "calls dispatched at run time are not edges",
     };
     let direct = if direct { "direct " } else { "" };
     Some(format!(
-        "No {direct}{relation} the graph records is missing; {dynamic} are not edges"
+        "No {direct}{relation} the graph records is missing; {caveat}"
     ))
 }
 
@@ -1565,7 +1567,11 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
                 && reach.get("depth_limit_reached") != Some(&Value::Bool(true))
         });
     if closed
-        && let Some(note) = closed_note(pattern, found.reachability.is_none())
+        && let Some(note) = closed_note(
+            pattern,
+            found.reachability.is_none(),
+            node.as_ref().map_or("", |node| node.language.as_str()),
+        )
         && let Some(summary) = payload.get("summary").and_then(Value::as_str)
     {
         let summary = format!("{summary}. {note}");

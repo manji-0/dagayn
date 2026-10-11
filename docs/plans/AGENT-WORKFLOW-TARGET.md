@@ -413,6 +413,22 @@ fixtures the tests build.
       significantly. On these five questions an agent without dagayn needs
       two or three shell calls, so the next measurement needs questions
       that cost it many round trips.
+    - Measured on heavier questions (dagayn-video `experiment_e1_haiku`,
+      pre-registered: transitive importers, Markdown dependencies both
+      ways, and directory cycles in this repository at 8c2414a; Claude
+      Haiku 5.5): whole-task tokens 1.16× of no MCP server, time 1.03×, F1
+      +0.006, none significant. An agent without dagayn wrote one script
+      and answered in five to seven turns. `importers_of(depth=6)`
+      answered both transitive-import questions in one call; with no
+      forward transitive pattern, the question "what does this plan depend
+      on" cost twice the tokens. The rows of `importers_of` / `imports_of`
+      do not say whether a Markdown edge is a link or a directive, though
+      the edge records it (`markdown_import_kind`).
+    - **Done:** the closed-answer sentence follows the target's language;
+      on Markdown it says that links and dependency directives both count
+      instead of naming Python's dynamic imports.
+    - Next: `depth` for `imports_of` (and `callees_of`); a link / directive
+      field on Markdown import rows.
 
 ## Touch points
 
