@@ -46,8 +46,10 @@ dagayn-vscode/out/
 *.vsix
 pnpm-debug.log*
 
-# Claude Code
-.claude/
+# Claude Code (the SessionStart hook that loads the Nix devShell is shared)
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
 .claude-plugin/
 
 # Local AI tooling configs (per-machine, not shared)
@@ -115,3 +117,8 @@ SCALING_AND_TOKEN_EFFICIENCY_PLAN.md
 
 # Separate repository (manji-0/dagayn-video) checked out in place
 /dagayn-video/
+
+# Nix / direnv
+.direnv/
+result
+result-*
