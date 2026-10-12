@@ -1165,6 +1165,19 @@ fn update_call(tx: &Transaction<'_>, id: i64, target: &str, extra: &Value) -> Re
     Ok(())
 }
 
+/// The type of `field` on the only struct declared in `file` that has a
+/// field of that name.
+fn sole_struct_field<'g>(graph: &'g Graph, file: &str, field: &str) -> Option<&'g String> {
+    let prefix = format!("{file}::");
+    let mut found = graph
+        .fields
+        .iter()
+        .filter(|(class, _)| class.starts_with(&prefix))
+        .filter_map(|(_, fields)| fields.get(field));
+    let first = found.next()?;
+    found.next().is_none().then_some(first)
+}
+
 /// Rust `x.field.m()` where `x`'s type is known and its struct is declared
 /// in another file (`receiver_field`: owner, field): the struct's
 /// `field_types` type the receiver, resolved where the struct is declared.
@@ -1197,16 +1210,21 @@ fn resolve_field_receivers(tx: &Transaction<'_>, graph: &Graph) -> Result<i64> {
         else {
             continue;
         };
+        let declared_in = owner_class
+            .split_once("::")
+            .map_or(owner_class.as_str(), |(file, _)| file);
+        // A wrapper delegating through an inner struct (`Router` holding
+        // `Arc<RouterInner>`, whose `path_router` a macro reaches as
+        // `this.path_router`): when the owner has no such field, the one
+        // struct of the owner's file that declares it.
         let Some(field_type) = graph
             .fields
             .get(&owner_class)
             .and_then(|fields| fields.get(field))
+            .or_else(|| sole_struct_field(graph, declared_in, field))
         else {
             continue;
         };
-        let declared_in = owner_class
-            .split_once("::")
-            .map_or(owner_class.as_str(), |(file, _)| file);
         match resolve_type(graph, field_type, declared_in, "rust", None) {
             Some(Returned::Class(class, class_name)) => {
                 let Some(targets) =

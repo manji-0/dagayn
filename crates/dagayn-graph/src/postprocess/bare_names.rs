@@ -549,6 +549,65 @@ fn bind_bare_call_targets(
     Ok(resolved)
 }
 
+/// Go `F(x)` and `pkg.F(x)`: the extractor names the directory of the
+/// callee's package (`go_package_dir`); bind the call to the one top-level
+/// function of that name declared in a `.go` file directly in it. Methods
+/// (`T.F`) never match, so a call through a value stays to the receiver
+/// passes.
+fn bind_go_package_calls(tx: &Transaction<'_>) -> Result<i64> {
+    let mut functions: HashMap<(String, String), Vec<String>> = HashMap::new();
+    {
+        let mut stmt = tx.prepare(
+            "SELECT qualified_name, file_path FROM nodes \
+             WHERE kind IN ('Function', 'Test') AND file_path LIKE '%.go'",
+        )?;
+        let rows = stmt.query_map([], |row| <(String, String)>::try_from(row))?;
+        for row in rows {
+            let (qualified, file) = row?;
+            let Some((_, name)) = qualified.split_once("::") else {
+                continue;
+            };
+            if name.contains('.') {
+                continue;
+            }
+            let dir = file.rsplit_once('/').map_or("", |(dir, _)| dir).to_string();
+            functions
+                .entry((dir, name.to_string()))
+                .or_default()
+                .push(qualified.clone());
+        }
+    }
+    let edges = {
+        let mut stmt = tx.prepare(
+            "SELECT id, target_qualified, json_extract(extra, '$.go_package_dir') FROM edges \
+             WHERE kind = 'CALLS' AND json_extract(extra, '$.go_package_dir') IS NOT NULL \
+               AND target_qualified NOT LIKE '%::%' \
+               AND COALESCE(json_extract(extra, '$.external'), 0) = 0",
+        )?;
+        let rows = stmt.query_map([], |row| <(i64, String, String)>::try_from(row))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    let mut resolved = 0_i64;
+    for (id, name, dir) in edges {
+        let Some([qualified]) = functions.get(&(dir, name)).map(Vec::as_slice) else {
+            continue;
+        };
+        tx.execute(
+            "UPDATE edges SET target_qualified = ?, target_name = ?, \
+             confidence = ?, confidence_tier = ? WHERE id = ?",
+            params![
+                qualified,
+                edge_target_name(qualified),
+                DIRECT_IMPORT_CONFIDENCE,
+                ConfidenceTier::High.as_str(),
+                id
+            ],
+        )?;
+        resolved += 1;
+    }
+    Ok(resolved)
+}
+
 fn load_bare_name_index(
     tx: &Transaction<'_>,
     kinds: &[&str],
@@ -790,6 +849,7 @@ impl GraphStore {
         let visibility = symbol_visibility(&tx)?;
         let index = load_bare_name_index(&tx, &["Function", "Test", "Class"])?;
         let mut resolved = resolve_member_shapes(&tx, &context)?;
+        resolved += bind_go_package_calls(&tx)?;
         resolved += bind_bare_call_targets(&tx, &index, import_targets, &visibility, false)?;
         resolved += resolve_enum_variant_calls(&tx)?;
         // Twice: a call these passes type (`repo_root.join(x)` as `std`) is

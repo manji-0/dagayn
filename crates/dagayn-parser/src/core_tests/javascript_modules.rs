@@ -91,6 +91,64 @@ export function formatUser(name: string): string {
 }
 
 #[test]
+fn follows_tsconfig_extends_for_paths() {
+    // `spec/tsconfig.json` extends the root config, whose `paths` map the
+    // package's own name to its source (rxjs tests import `rxjs`).
+    let mut repo_root = std::env::temp_dir();
+    repo_root.push(format!(
+        "dagayn-parser-ts-extends-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    let _ = std::fs::remove_dir_all(&repo_root);
+    std::fs::create_dir_all(repo_root.join("src")).unwrap();
+    std::fs::create_dir_all(repo_root.join("spec")).unwrap();
+    std::fs::write(
+        repo_root.join("tsconfig.json"),
+        br#"{"compilerOptions": {"baseUrl": ".", "paths": {"pkg": ["./src/index"]}}}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        repo_root.join("spec/tsconfig.json"),
+        br#"{"extends": "../tsconfig.json", "compilerOptions": {"strict": true}}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        repo_root.join("src/index.ts"),
+        b"export function run(): void {}\n",
+    )
+    .unwrap();
+    let source = b"import { run } from 'pkg';\nexport function t() { run(); }\n";
+    let mut parser = RustOwnedParser::new();
+    let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "spec/a-spec.ts", source);
+    assert!(
+        edges
+            .iter()
+            .any(|edge| edge.kind == "IMPORTS_FROM" && edge.target == "src/index.ts"),
+        "{edges:?}"
+    );
+    let _ = std::fs::remove_dir_all(&repo_root);
+}
+
+#[test]
+fn a_default_parameter_value_references_the_function() {
+    let source = b"function defaultFactory() { return new Error('x'); }\nexport function f(make = defaultFactory) { return make(); }\nexport function g(): () => Error { const h = defaultFactory; return h; }\n";
+    let mut parser = RustOwnedParser::new();
+    let (_nodes, edges) = parser.parse_file_in_repo(None, "src/f.ts", source);
+    let uses = edges
+        .iter()
+        .filter(|edge| {
+            edge.kind == "REFERENCES"
+                && edge.target == "src/f.ts::defaultFactory"
+                && edge.extra["value_reference"] == true
+        })
+        .map(|edge| edge.source.as_str())
+        .collect::<Vec<_>>();
+    assert!(uses.contains(&"src/f.ts::f"), "{edges:?}");
+    assert!(uses.contains(&"src/f.ts::g"), "{edges:?}");
+}
+
+#[test]
 fn resolves_typescript_dotted_basename_imports() {
     let mut repo_root = std::env::temp_dir();
     repo_root.push(format!(

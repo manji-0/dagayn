@@ -105,8 +105,11 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 11: a member call on a parameter with no type annotation records
         // the members the function uses on it (`receiver_shape`), for
         // resolution to type it by the one class that has them all.
+        // 12: a function named as a default parameter value, a variable's
+        // initializer, or a return value is a REFERENCES `value_reference`;
+        // a tsconfig's relative `extends` is followed for `paths`/`baseUrl`.
         extractor: "javascript",
-        version: 11,
+        version: 12,
         languages: &["javascript", "typescript", "tsx", "vue", "svelte"],
     },
     ExtractorVersion {
@@ -220,8 +223,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 23: struct nodes carry `field_types`; `x.field.m()` on a struct of
         // another file records `receiver_field`; a path in code with no `use`
         // (`crate::a::B::f()`) is an IMPORTS_FROM tagged `path_use`.
+        // 24: workspace `members` globs (`axum-*`) and `exclude` decide which
+        // crates are the repository's, so their calls are not external.
         extractor: "rust",
-        version: 23,
+        version: 24,
         languages: &["rust"],
     },
     ExtractorVersion {
@@ -243,8 +248,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // call it came from) and functions their declared `return_type`.
         // 8: a cgo call (`C.f()`, `receiver: "C"`) never binds to a function
         // of the file.
+        // 9: `F(x)` and `pkg.F(x)` (a package of the same module) record the
+        // repository directory of the callee's package (`go_package_dir`).
         extractor: "go",
-        version: 8,
+        version: 9,
         languages: &["go"],
     },
     ExtractorVersion {

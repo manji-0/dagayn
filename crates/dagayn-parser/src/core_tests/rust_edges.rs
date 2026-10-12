@@ -467,6 +467,49 @@ fn workspace_crates_are_not_dependencies() {
 }
 
 #[test]
+fn workspace_member_globs_name_crates_of_the_repository() {
+    // `members = ["axum-*"]`: every `axum-*` directory with a manifest is a
+    // crate of the repository (axum's own layout), and `exclude` wins.
+    let root = repo(
+        "workspace-member-glob",
+        &[
+            (
+                "Cargo.toml",
+                "[workspace]\nmembers = [\"app\", \"lib-*\"]\nexclude = [\"lib-old\"]\n",
+            ),
+            ("lib-core/Cargo.toml", "[package]\nname = \"lib-core\"\n"),
+            ("lib-core/src/lib.rs", "pub fn run() {}\n"),
+            ("lib-old/Cargo.toml", "[package]\nname = \"lib-old\"\n"),
+            ("lib-old/src/lib.rs", "pub fn gone() {}\n"),
+            (
+                "app/Cargo.toml",
+                "[package]\nname = \"app\"\n\n[dependencies]\nlib-core = { path = \"../lib-core\" }\nlib-old = { path = \"../lib-old\" }\n",
+            ),
+            (
+                "app/src/lib.rs",
+                "fn go() {\n    lib_core::run();\n    lib_old::gone();\n}\n",
+            ),
+        ],
+    );
+    let mut parser = RustOwnedParser::new();
+    let source = std::fs::read(root.join("app/src/lib.rs")).unwrap();
+    let (_, edges) = parser.parse_file_in_repo(Some(&root), "app/src/lib.rs", &source);
+    let external = edges
+        .iter()
+        .filter(|edge| edge.extra["external"] == true)
+        .map(|edge| {
+            edge.extra["external_package"]
+                .as_str()
+                .unwrap_or("")
+                .to_string()
+        })
+        .collect::<Vec<_>>();
+    assert!(!external.contains(&"lib_core".to_string()), "{edges:?}");
+    assert!(external.contains(&"lib_old".to_string()), "{edges:?}");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn types_record_what_they_dereference_to() {
     let source = b"use std::ops::Deref;\npub struct FilePath(String);\nimpl Deref for FilePath {\n    type Target = str;\n    fn deref(&self) -> &str { &self.0 }\n}\npub struct Names(Vec<String>);\nimpl std::ops::Deref for Names {\n    type Target = [String];\n    fn deref(&self) -> &[String] { &self.0 }\n}\n";
     let (nodes, _) = parse_rust("src/types.rs", source);

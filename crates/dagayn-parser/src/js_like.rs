@@ -787,7 +787,12 @@ fn javascript_walk_syntax_node(
         | "assignment_expression"
         | "array"
         | "arguments"
-        | "shorthand_property_identifier" => {
+        | "shorthand_property_identifier"
+        | "required_parameter"
+        | "optional_parameter"
+        | "assignment_pattern"
+        | "variable_declarator"
+        | "return_statement" => {
             javascript_emit_value_references(child, context, owner_path, enclosing_func, edges);
         }
         _ => {}

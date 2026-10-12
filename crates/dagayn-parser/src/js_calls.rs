@@ -299,6 +299,34 @@ pub(super) fn javascript_emit_value_references(
                 }
             }
         }
+        // `(errorFactory = defaultErrorFactory) =>`, `const f = g`, `return g`:
+        // the identifier the default, initializer, or return value names.
+        "required_parameter" | "optional_parameter" | "variable_declarator" => {
+            if let Some(value) = node.child_by_field_name("value")
+                && value.kind() == "identifier"
+            {
+                let name = node_text(value, context.source);
+                javascript_emit_reference_if_known(value, context, &caller, &name, edges);
+            }
+        }
+        "assignment_pattern" => {
+            if let Some(value) = node.child_by_field_name("right")
+                && value.kind() == "identifier"
+            {
+                let name = node_text(value, context.source);
+                javascript_emit_reference_if_known(value, context, &caller, &name, edges);
+            }
+        }
+        "return_statement" => {
+            let mut cursor = node.walk();
+            if let Some(value) = node
+                .named_children(&mut cursor)
+                .find(|child| child.kind() == "identifier")
+            {
+                let name = node_text(value, context.source);
+                javascript_emit_reference_if_known(value, context, &caller, &name, edges);
+            }
+        }
         _ => {}
     }
 }
@@ -390,13 +418,14 @@ fn javascript_emit_reference_if_known(
         return;
     }
     let target = resolve_javascript_call_target(name, context);
-    edges.push(ParsedEdge::new(
-        crate::core::types::EdgeKind::References,
-        caller.to_string(),
+    edges.push(ParsedEdge {
+        kind: crate::core::types::EdgeKind::References,
+        source: caller.to_string(),
         target,
-        context.file_path.clone(),
-        line_of(node),
-    ));
+        file_path: context.file_path.clone(),
+        line: line_of(node),
+        extra: json!({"value_reference": true}),
+    });
 }
 
 /// `ns.Name` where `ns` is a namespace (or default) import resolves to the

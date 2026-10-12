@@ -74,6 +74,9 @@ static LIB_NAME: LazyLock<Regex> = LazyLock::new(|| {
 static MEMBERS: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?ms)^\s*members\s*=\s*\[(.*?)\]"#).expect("workspace members regex")
 });
+static EXCLUDE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?ms)^\s*exclude\s*=\s*\[(.*?)\]"#).expect("workspace exclude regex")
+});
 
 /// Blanks comments and string / char literals, keeping offsets, so a `mod`
 /// inside a doc comment or a test fixture string is not a declaration.
@@ -254,6 +257,47 @@ fn build_crate_modules(repo_root: &Path, root: &str) -> CrateModules {
     modules
 }
 
+/// The quoted entries of a TOML string array's body.
+fn manifest_list(body: &str) -> Vec<String> {
+    body.split(',')
+        .map(|entry| {
+            entry
+                .trim()
+                .trim_matches('"')
+                .trim_end_matches('/')
+                .to_string()
+        })
+        .filter(|entry| !entry.is_empty() && !entry.starts_with('#'))
+        .collect()
+}
+
+/// The package directories a workspace member names. A `*` in the last
+/// path segment matches any directory holding a `Cargo.toml` (`crates/*`,
+/// `axum-*`); other members are taken as written.
+fn expand_member(repo_root: &Path, member: &str) -> Vec<String> {
+    let (dir, last) = member.rsplit_once('/').unwrap_or(("", member));
+    if !last.contains('*') {
+        return vec![member.to_string()];
+    }
+    let (head, tail) = last.split_once('*').expect("contains *");
+    let mut out = Vec::new();
+    let Ok(entries) = std::fs::read_dir(repo_root.join(dir)) else {
+        return out;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.len() >= head.len() + tail.len()
+            && name.starts_with(head)
+            && name.ends_with(tail.trim_end_matches('*'))
+            && entry.path().join("Cargo.toml").is_file()
+        {
+            out.push(join(dir, &name));
+        }
+    }
+    out.sort();
+    out
+}
+
 /// Library crates of the repository: the root package and workspace members.
 fn build_libraries(repo_root: &Path) -> HashMap<String, String> {
     let mut libraries = HashMap::new();
@@ -261,21 +305,15 @@ fn build_libraries(repo_root: &Path) -> HashMap<String, String> {
     if let Ok(manifest) = std::fs::read_to_string(repo_root.join("Cargo.toml"))
         && let Some(members) = MEMBERS.captures(&manifest)
     {
-        for member in members[1].split(',') {
-            let member = member.trim().trim_matches('"').trim_end_matches('/');
-            if member.is_empty() {
-                continue;
-            }
-            if let Some(prefix) = member.strip_suffix("/*") {
-                if let Ok(entries) = std::fs::read_dir(repo_root.join(prefix)) {
-                    for entry in entries.flatten() {
-                        if entry.path().join("Cargo.toml").is_file() {
-                            packages.push(join(prefix, &entry.file_name().to_string_lossy()));
-                        }
-                    }
+        let excluded: Vec<String> = EXCLUDE
+            .captures(&manifest)
+            .map(|c| manifest_list(&c[1]))
+            .unwrap_or_default();
+        for member in manifest_list(&members[1]) {
+            for package in expand_member(repo_root, &member) {
+                if !excluded.contains(&package) {
+                    packages.push(package);
                 }
-            } else {
-                packages.push(member.to_string());
             }
         }
     }

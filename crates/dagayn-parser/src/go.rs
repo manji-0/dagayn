@@ -27,7 +27,16 @@ pub(super) fn parse_go_with_parser(
     {
         let root = tree.root_node();
         let module = repo_root.and_then(|root| go_module_path(root, &file_path));
+        let module_root = repo_root.and_then(|root| go_module_root(root, &file_path));
+        let package_dirs = match (&module, &module_root) {
+            (Some(module), Some(module_root)) => go_package_dirs(root, source, module, module_root),
+            _ => HashMap::new(),
+        };
         let stdlib = GoStdlibScope::of_file(root, source, module);
+        let own_dir = Path::new(file_path.as_str())
+            .parent()
+            .map(|dir| dir.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_default();
         let context = GoContext {
             source,
             file_path: &file_path,
@@ -37,6 +46,8 @@ pub(super) fn parse_go_with_parser(
                 root, source,
             ))),
             locals: RefCell::new(HashSet::new()),
+            own_dir,
+            package_dirs,
         };
         go_walk_children(root, &context, None, &mut nodes, &mut edges);
         go_finish_typed_receivers(&nodes, &mut edges);
@@ -66,6 +77,11 @@ struct GoContext<'a> {
     /// `var`, `:=`, `range`): a receiver of these is a variable, never a
     /// package qualifier.
     locals: RefCell<HashSet<String>>,
+    /// The repository directory of this file's package, and of each package
+    /// it imports from the same module, by the name the file uses for it
+    /// (`caddy` -> `""` for `github.com/caddyserver/caddy/v2`).
+    own_dir: String,
+    package_dirs: HashMap<String, String>,
 }
 
 fn go_walk_children(
@@ -507,6 +523,13 @@ fn go_emit_call(
     } else {
         json!({})
     };
+    let callee = node.child_by_field_name("function");
+    if callee.is_some_and(|callee| callee.kind() == "identifier")
+        && !context.locals.borrow().contains(&call_name)
+    {
+        // `F(x)`: a function of this package, in this directory.
+        extra[GO_PACKAGE_DIR_KEY] = json!(context.own_dir);
+    }
     if let Some((package, symbol, evidence)) = context.stdlib.package_of_call(&signature) {
         call_name = symbol;
         mark_stdlib_edge(&mut call_name, &mut extra, package, evidence);
@@ -531,7 +554,14 @@ fn go_emit_call(
                     extra["receiver_from"] = origin.to_json();
                 }
             }
-            GoReceiver::Known => {}
+            GoReceiver::Known => {
+                // `pkg.F(x)` with `pkg` a package of this module.
+                if operand.kind() == "identifier"
+                    && let Some(dir) = context.package_dirs.get(&node_text(operand, source))
+                {
+                    extra[GO_PACKAGE_DIR_KEY] = json!(dir);
+                }
+            }
         }
     }
     edges.push(ParsedEdge {
@@ -1386,6 +1416,92 @@ fn go_last_named_descendant(
         }
     }
     found
+}
+
+/// Key on a `CALLS` edge: the repository directory of the package the
+/// callee is a function of (`F(x)` in this package, `pkg.F(x)` for a
+/// package of the same module). The graph binds it to the one top-level
+/// function of that name declared in that directory.
+pub const GO_PACKAGE_DIR_KEY: &str = "go_package_dir";
+
+/// The repository directory holding the `go.mod` nearest above `file_path`.
+fn go_module_root(repo_root: &Path, file_path: &str) -> Option<String> {
+    let mut dir = Path::new(file_path).parent();
+    while let Some(current) = dir {
+        if repo_root.join(current).join("go.mod").is_file() {
+            return Some(current.to_string_lossy().replace('\\', "/"));
+        }
+        dir = current.parent();
+    }
+    None
+}
+
+/// The name each import of the same module is used under, and the
+/// repository directory it names. Without an alias the name is the path's
+/// last element, or the one before a major-version suffix (`.../caddy/v2`
+/// is `caddy`); blank and dot imports name nothing.
+fn go_package_dirs(
+    root: tree_sitter::Node<'_>,
+    source: &[u8],
+    module: &str,
+    module_root: &str,
+) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    let mut specs = Vec::new();
+    let mut cursor = root.walk();
+    for declaration in root.children(&mut cursor) {
+        if declaration.kind() == "import_declaration" {
+            go_collect_import_specs(declaration, &mut specs);
+        }
+    }
+    for spec in specs {
+        let Some(path) = spec.child_by_field_name("path") else {
+            continue;
+        };
+        let path = strip_matching_quotes(node_text(path, source).trim()).to_string();
+        let rest = if path == module {
+            ""
+        } else if let Some(rest) = path.strip_prefix(module).and_then(|r| r.strip_prefix('/')) {
+            rest
+        } else {
+            continue;
+        };
+        let dir = match (module_root, rest) {
+            ("", rest) => rest.to_string(),
+            (root, "") => root.to_string(),
+            (root, rest) => format!("{root}/{rest}"),
+        };
+        let name = match spec.child_by_field_name("name") {
+            Some(alias) => node_text(alias, source),
+            None => {
+                let mut parts = path.rsplit('/');
+                let last = parts.next().unwrap_or_default();
+                let versioned = last.len() > 1
+                    && last.starts_with('v')
+                    && last[1..].bytes().all(|b| b.is_ascii_digit());
+                if versioned {
+                    parts.next().unwrap_or(last).to_string()
+                } else {
+                    last.to_string()
+                }
+            }
+        };
+        if name != "_" && name != "." && !name.is_empty() {
+            out.insert(name, dir);
+        }
+    }
+    out
+}
+
+fn go_collect_import_specs<'t>(node: tree_sitter::Node<'t>, out: &mut Vec<tree_sitter::Node<'t>>) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "import_spec" {
+            out.push(child);
+        } else {
+            go_collect_import_specs(child, out);
+        }
+    }
 }
 
 /// The module path of the `go.mod` nearest above `file_path` within

@@ -276,7 +276,9 @@ const JAVASCRIPT_PROJECT_CONFIGS: [&str; 3] =
 /// wins. Within it, the first config that sets `paths` or `baseUrl` is used,
 /// so a solution-style `tsconfig.json` (`files: []` plus `references`) does
 /// not hide the aliases of its `tsconfig.app.json`; otherwise the first
-/// readable one. `extends` is not followed.
+/// readable one. A config's relative `extends` is followed (see
+/// [`read_javascript_tsconfig_extended`]), so a test directory's
+/// `tsconfig.json` that extends the root one gets the root's `paths`.
 fn find_javascript_tsconfig_uncached(mut current: PathBuf) -> Option<(PathBuf, Value)> {
     loop {
         let mut first = None;
@@ -285,7 +287,7 @@ fn find_javascript_tsconfig_uncached(mut current: PathBuf) -> Option<(PathBuf, V
             if !candidate.is_file() {
                 continue;
             }
-            let Some(value) = read_javascript_tsconfig(&candidate) else {
+            let Some((candidate, value)) = read_javascript_tsconfig_extended(&candidate) else {
                 continue;
             };
             let options = value.get("compilerOptions");
@@ -308,6 +310,71 @@ fn find_javascript_tsconfig_uncached(mut current: PathBuf) -> Option<(PathBuf, V
         current = parent.to_path_buf();
     }
     None
+}
+
+/// The config at `path` with the `compilerOptions` of the configs it
+/// `extends` (relative paths only; a package name is skipped) merged under
+/// its own, and the path `baseUrl` and `paths` are relative to: as in
+/// TypeScript, the config that set `baseUrl`, else the one that set `paths`.
+fn read_javascript_tsconfig_extended(path: &Path) -> Option<(PathBuf, Value)> {
+    let (options, base_from, paths_from) = javascript_tsconfig_chain(path, 0)?;
+    let mut value = read_javascript_tsconfig(path)?;
+    let anchor = base_from
+        .or(paths_from)
+        .unwrap_or_else(|| path.to_path_buf());
+    if let Some(object) = value.as_object_mut() {
+        object.insert("compilerOptions".to_string(), Value::Object(options));
+    }
+    Some((anchor, value))
+}
+
+type TsconfigChain = (
+    serde_json::Map<String, Value>,
+    Option<PathBuf>,
+    Option<PathBuf>,
+);
+
+fn javascript_tsconfig_chain(path: &Path, depth: usize) -> Option<TsconfigChain> {
+    let value = read_javascript_tsconfig(path)?;
+    let mut options = serde_json::Map::new();
+    let (mut base_from, mut paths_from) = (None, None);
+    let parents: Vec<&str> = match value.get("extends") {
+        Some(Value::String(one)) => vec![one.as_str()],
+        Some(Value::Array(many)) => many.iter().filter_map(Value::as_str).collect(),
+        _ => Vec::new(),
+    };
+    if depth < 8 {
+        for parent in parents {
+            if !(parent.starts_with("./") || parent.starts_with("../")) {
+                continue; // a package's config: not part of the repository
+            }
+            let mut parent_path = path.parent().unwrap_or_else(|| Path::new("")).join(parent);
+            if !parent_path.is_file() {
+                parent_path.set_extension("json");
+            }
+            if let Some((parent_options, parent_base, parent_paths)) =
+                javascript_tsconfig_chain(&parent_path, depth + 1)
+            {
+                if parent_base.is_some() {
+                    base_from = parent_base;
+                }
+                if parent_paths.is_some() {
+                    paths_from = parent_paths;
+                }
+                options.extend(parent_options);
+            }
+        }
+    }
+    if let Some(own) = value.get("compilerOptions").and_then(Value::as_object) {
+        if own.contains_key("baseUrl") {
+            base_from = Some(path.to_path_buf());
+        }
+        if own.contains_key("paths") {
+            paths_from = Some(path.to_path_buf());
+        }
+        options.extend(own.clone());
+    }
+    Some((options, base_from, paths_from))
 }
 
 fn read_javascript_tsconfig(path: &Path) -> Option<Value> {

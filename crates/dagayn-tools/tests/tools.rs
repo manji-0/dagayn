@@ -3366,3 +3366,103 @@ fn importing_a_module_reaches_its_top_level_calls_only() {
         "{changes}"
     );
 }
+
+/// The files of a `query_graph_tool` answer's rows.
+fn row_files(reply: &Value) -> Vec<String> {
+    let mut files: Vec<String> = reply["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .filter_map(|row| {
+            row["file"].as_str().map(str::to_string).or_else(|| {
+                row["qualified_name"]
+                    .as_str()
+                    .and_then(|qn| qn.split_once("::"))
+                    .map(|(file, _)| file.to_string())
+            })
+        })
+        .collect();
+    files.sort();
+    files.dedup();
+    files
+}
+
+#[test]
+fn go_callers_include_other_files_and_packages_of_the_module() {
+    // dagayn: tests crates/dagayn-graph/src/postprocess/bare_names.rs::bind_go_package_calls
+    let repo = Repo::new("go-package-calls", false);
+    repo.write("go.mod", "module example.com/app/v2\n\ngo 1.22\n");
+    repo.write(
+        "net.go",
+        "package app\n\nfunc IsUnixNetwork(n string) bool { return n == \"unix\" }\n",
+    );
+    repo.write(
+        "listen.go",
+        "package app\n\nfunc listen(n string) bool { return IsUnixNetwork(n) }\n",
+    );
+    repo.write(
+        "cmd/main.go",
+        "package cmd\n\nimport app \"example.com/app/v2\"\n\nfunc Run() bool { return app.IsUnixNetwork(\"tcp\") }\n",
+    );
+    repo.build();
+    let reply = answer(
+        &repo.context(),
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": "net.go::IsUnixNetwork"}),
+    );
+    assert_eq!(row_files(&reply), ["cmd/main.go", "listen.go"], "{reply}");
+}
+
+#[test]
+fn importers_follow_a_re_export_to_the_files_that_use_it() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    let repo = Repo::new("rust-reexport-importers", false);
+    repo.write("Cargo.toml", "[package]\nname = \"lib\"\n");
+    repo.write(
+        "src/lib.rs",
+        "pub mod extract;\npub mod user;\npub mod other;\n",
+    );
+    repo.write(
+        "src/extract/mod.rs",
+        "mod from_ref;\npub use self::from_ref::FromRef;\npub struct Unrelated;\n",
+    );
+    repo.write("src/extract/from_ref.rs", "pub trait FromRef {}\n");
+    repo.write(
+        "src/user.rs",
+        "use crate::extract::FromRef;\npub struct S;\nimpl FromRef for S {}\n",
+    );
+    repo.write(
+        "src/other.rs",
+        "use crate::extract::Unrelated;\npub fn f(_: Unrelated) {}\n",
+    );
+    repo.build();
+    let reply = answer(
+        &repo.context(),
+        "query_graph_tool",
+        json!({"pattern": "importers_of", "target": "src/extract/from_ref.rs"}),
+    );
+    let files = row_files(&reply);
+    assert!(files.contains(&"src/user.rs".to_string()), "{reply}");
+    assert!(!files.contains(&"src/other.rs".to_string()), "{reply}");
+}
+
+#[test]
+fn callers_include_uses_of_a_function_as_a_value() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    let repo = Repo::new("ts-value-callers", false);
+    repo.write(
+        "src/errors.ts",
+        "export function defaultErrorFactory(): Error { return new Error('empty'); }\n",
+    );
+    repo.write(
+        "src/throwIfEmpty.ts",
+        "import { defaultErrorFactory } from './errors';\nexport function throwIfEmpty(make = defaultErrorFactory): Error { return make(); }\n",
+    );
+    repo.build();
+    let reply = answer(
+        &repo.context(),
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": "src/errors.ts::defaultErrorFactory"}),
+    );
+    assert_eq!(row_files(&reply), ["src/throwIfEmpty.ts"], "{reply}");
+}

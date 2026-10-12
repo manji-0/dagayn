@@ -435,3 +435,51 @@ fn go_variables_copied_from_a_call_result_keep_its_origin() {
         .expect("Save");
     assert_eq!(save.extra["receiver_from"]["call"], "Open");
 }
+
+#[test]
+fn go_calls_name_the_directory_of_their_package() {
+    // `caddy.IsUnixNetwork(..)` (module root, imported under its name before
+    // the `/v2` suffix) and `helper()` (this package) name where the callee
+    // is declared, so the graph can bind them across files.
+    let mut root = std::env::temp_dir();
+    root.push(format!(
+        "dagayn-parser-go-pkgdir-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("cmd")).unwrap();
+    std::fs::write(
+        root.join("go.mod"),
+        "module example.com/caddy/v2\n\ngo 1.22\n",
+    )
+    .unwrap();
+    let source = br#"package cmd
+
+import (
+  "fmt"
+  caddy "example.com/caddy/v2"
+  tls "example.com/caddy/v2/modules/caddytls"
+)
+
+func run(network string) {
+  if caddy.IsUnixNetwork(network) {
+    fmt.Println(helper())
+  }
+  tls.Load()
+}
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_nodes, edges) = parser.parse_file_in_repo(Some(&root), "cmd/run.go", source);
+    let dir_of = |name: &str| {
+        edges
+            .iter()
+            .find(|edge| edge.kind == "CALLS" && edge.target == name)
+            .map(|edge| edge.extra["go_package_dir"].clone())
+            .unwrap_or_else(|| panic!("no call of {name}: {edges:?}"))
+    };
+    assert_eq!(dir_of("IsUnixNetwork"), "");
+    assert_eq!(dir_of("helper"), "cmd");
+    assert_eq!(dir_of("Load"), "modules/caddytls");
+    let _ = std::fs::remove_dir_all(&root);
+}

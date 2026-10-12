@@ -838,6 +838,98 @@ impl Found {
     }
 }
 
+/// The names an import edge brings in (`names`: `[original, alias]`
+/// pairs), or `None` for a glob import.
+fn imported_names(edge: &GraphEdge) -> Option<Vec<(String, String)>> {
+    if edge.extra.get("glob").and_then(Value::as_bool) == Some(true) {
+        return None;
+    }
+    Some(
+        edge.extra
+            .get("names")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|pair| {
+                let pair = pair.as_array()?;
+                let original = pair.first()?.as_str()?.to_string();
+                let alias = pair.get(1).and_then(Value::as_str).unwrap_or(&original);
+                Some((original.clone(), alias.to_string()))
+            })
+            .collect(),
+    )
+}
+
+/// Files that import `target`'s items through a re-export (`pub use
+/// self::from_ref::FromRef` in a module the importer `use`s), following up
+/// to four hubs: an import of the hub counts when it names one of the
+/// re-exported names, or is a glob. Returns each such import edge with the
+/// hub it went through.
+fn reexport_importers(
+    store: &GraphStore,
+    target: &str,
+    direct: &[GraphEdge],
+    import_kind: Option<&str>,
+) -> Option<Vec<(GraphEdge, String)>> {
+    let mut seen_files: HashSet<String> = direct.iter().map(|e| e.file_path.clone()).collect();
+    seen_files.insert(target.to_string());
+    let mut seen_hubs: HashSet<String> = HashSet::new();
+    // (hub file, names it re-exports, `None` for all)
+    let mut frontier: Vec<(String, Option<HashSet<String>>)> = direct
+        .iter()
+        .filter(|e| e.extra.get("re_export").and_then(Value::as_bool) == Some(true))
+        .map(|e| {
+            let names = imported_names(e).map(|pairs| pairs.into_iter().map(|(_, a)| a).collect());
+            (e.file_path.clone(), names)
+        })
+        .collect();
+    let mut out = Vec::new();
+    for _ in 0..4 {
+        let mut next = Vec::new();
+        for (hub, exported) in frontier {
+            if !seen_hubs.insert(format!("{hub}|{exported:?}")) {
+                continue;
+            }
+            for edge in store.get_edges_by_target(&hub).ok()? {
+                if edge.kind != "IMPORTS_FROM" || !import_kind_matches(&edge, import_kind) {
+                    continue;
+                }
+                let brought = imported_names(&edge);
+                let hits: Option<HashSet<String>> = match (&brought, &exported) {
+                    (None, None) => None,
+                    (None, Some(exported)) => Some(exported.clone()),
+                    (Some(pairs), exported) => {
+                        let hit: HashSet<String> = pairs
+                            .iter()
+                            .filter(|(original, _)| {
+                                exported
+                                    .as_ref()
+                                    .is_none_or(|names| names.contains(original))
+                            })
+                            .map(|(_, alias)| alias.clone())
+                            .collect();
+                        if hit.is_empty() {
+                            continue;
+                        }
+                        Some(hit)
+                    }
+                };
+                if edge.extra.get("re_export").and_then(Value::as_bool) == Some(true) {
+                    next.push((edge.file_path.clone(), hits));
+                }
+                if seen_files.insert(edge.file_path.clone()) {
+                    out.push((edge, hub.clone()));
+                }
+            }
+        }
+        if next.is_empty() {
+            break;
+        }
+        frontier = next;
+    }
+    Some(out)
+}
+
 fn importer_row(edge: &GraphEdge) -> Row {
     let mut row = vec![
         ("importer", json!(edge.source_qualified)),
@@ -1034,6 +1126,19 @@ fn documentation_row(edge: &GraphEdge, endpoint: &str, inverse_label: Option<&st
     row
 }
 
+/// A call, or a use of a function as a value (passed as a callback, a
+/// default parameter, stored): `callers_of` counts both, as a reader asking
+/// who runs a function would.
+fn is_call_or_value_use(edge: &GraphEdge) -> bool {
+    edge.kind == "CALLS"
+        || (edge.kind == "REFERENCES"
+            && edge
+                .extra
+                .get("value_reference")
+                .and_then(Value::as_bool)
+                .unwrap_or(false))
+}
+
 /// `_expand_transitive` for `callers_of` (`importers = false`) and
 /// `importers_of`.
 fn expand_transitive(
@@ -1084,7 +1189,12 @@ fn expand_transitive(
         for via in &frontier {
             for edge in incoming.get(via).into_iter().flatten() {
                 let key = next_key(edge);
-                if edge.kind != kind
+                let kind_matches = if importers {
+                    edge.kind == kind
+                } else {
+                    is_call_or_value_use(edge)
+                };
+                if !kind_matches
                     || (importers && !import_kind_matches(edge, import_kind))
                     || seen.contains(&key)
                 {
@@ -1203,7 +1313,7 @@ fn run_pattern(
         "callers_of" => {
             let edges: Vec<GraphEdge> = edges_of(false)?
                 .into_iter()
-                .filter(|e| e.kind == "CALLS")
+                .filter(is_call_or_value_use)
                 .collect();
             found.rows = found.edge_rows(store, &edges, true)?;
             found.edges = edges.iter().map(edge_dict).collect();
@@ -1252,11 +1362,23 @@ fn run_pattern(
         }
         "importers_of" => {
             let file = node?.file_path.clone();
-            for edge in store.get_edges_by_target(&file).ok()? {
-                if edge.kind == "IMPORTS_FROM" && import_kind_matches(&edge, import_kind) {
-                    found.rows.push(importer_row(&edge));
-                    found.edges.push(edge_dict(&edge));
-                }
+            let direct: Vec<GraphEdge> = store
+                .get_edges_by_target(&file)
+                .ok()?
+                .into_iter()
+                .filter(|edge| {
+                    edge.kind == "IMPORTS_FROM" && import_kind_matches(edge, import_kind)
+                })
+                .collect();
+            for edge in &direct {
+                found.rows.push(importer_row(edge));
+                found.edges.push(edge_dict(edge));
+            }
+            for (edge, hub) in reexport_importers(store, &file, &direct, import_kind)? {
+                let mut row = importer_row(&edge);
+                row.push(("via_reexport", json!(hub)));
+                found.rows.push(row);
+                found.edges.push(edge_dict(&edge));
             }
             if depth > 1 {
                 expand_transitive(store, &mut found, qualified, depth, true, import_kind)?;
