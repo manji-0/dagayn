@@ -11,10 +11,17 @@
 - full and incremental graph builds
 - repo-root-relative graph registration for dagayn workflows
 - local SQLite storage
-- graph queries for callers, callees, imports, tests, and file summaries
+- graph queries for callers, callees, imports, tests, and file summaries,
+  transitive up to 6 hops in one call, with the files of every row even when
+  the rows are cut (`files`), a path scope (`path_prefix`), and a filter by
+  kind of import edge (`import_kind`: statement, lazy export, Rust path,
+  Markdown directive or link)
 - native Japanese FTS (Lindera IPADIC morphemes + CJK bigrams) so inflected queries still AND-match
 - review context generation and change-impact analysis
-- communities, flows, hub nodes, bridge nodes, and knowledge-gap analysis
+- the declared units and their dependencies, structural findings (import
+  cycles, unstable dependencies, untested core, broken doc links), every
+  simple import cycle between files, directories, or units, SDP / SAP
+  metrics, communities, and flows
 - refactor previews and dead-code inspection
 - wiki generation and static graph exports (GraphML, Mermaid C4, SVG, Cypher, Obsidian)
 
@@ -36,6 +43,10 @@
   source paths, `handler` / `entry_point`) with confidence/evidence metadata
 - Markdown heading, body, reference, directive, and `dagayn:` documentation-link extraction
 - namespace-aware call resolution (shared packages/namespaces, class-declaring files, include/URI imports)
+- receiver typing without type annotations: Rust method calls on a struct
+  field declared in another file, TypeScript calls on an untyped parameter
+  through the one class that has every member used on it; a member name the
+  standard objects share (`get`, `text`, `json`) is never bound by name alone
 - optional SCIP-backed call resolution (`dagayn build --scip`) for Rust, TypeScript/JavaScript, Go, Python, Java/Kotlin, C/C++, C#, Ruby, Dart, PHP, and R, with install hints for missing indexers
 - stronger mixed-monorepo testing across docs, app code, and infra
 - updated CI stack using `ruff` and `pyrefly`
