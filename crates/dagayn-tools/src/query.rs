@@ -1243,6 +1243,48 @@ fn expand_transitive(
     Some(())
 }
 
+/// Calls named like `node` whose target the graph left unbound (no
+/// `file::` qualified target, not external), in files the answer does not
+/// already list: how many, and their files.
+fn unbound_same_name_calls(
+    store: &GraphStore,
+    node: &GraphNode,
+    found: &Found,
+    path_prefix: Option<&str>,
+) -> (usize, Vec<String>) {
+    let listed: HashSet<String> = found
+        .rows
+        .iter()
+        .filter_map(|row| {
+            get(row, "qualified_name")
+                .and_then(Value::as_str)
+                .and_then(|qn| qn.split_once("::"))
+                .map(|(file, _)| file.to_string())
+        })
+        .collect();
+    let Ok(edges) = store.search_edges_by_target_name(&node.name, "CALLS") else {
+        return (0, Vec::new());
+    };
+    let mut sites = 0;
+    let mut files: Vec<String> = Vec::new();
+    for edge in edges {
+        if edge.target_qualified.contains("::")
+            || edge.target_qualified != node.name
+            || edge.extra.get("external").and_then(Value::as_bool) == Some(true)
+            || listed.contains(&edge.file_path)
+            || path_prefix.is_some_and(|prefix| !edge.file_path.starts_with(prefix))
+        {
+            continue;
+        }
+        sites += 1;
+        if !files.contains(&edge.file_path) {
+            files.push(edge.file_path.clone());
+        }
+    }
+    files.sort();
+    (sites, files)
+}
+
 /// The sentence a closed answer of `pattern` ends with: the list holds every
 /// relation the graph records (`direct` ones at depth 1), and says what the
 /// graph does not hold for the target's `language`.
@@ -1280,6 +1322,15 @@ fn closed_note(
         ("rust", false, _) => {
             "a `use` or a path in code (import_kind path) counts; a path written only inside \
              a macro's arguments does not"
+        }
+        ("javascript" | "typescript" | "tsx", true, _) => {
+            "a method call is an edge only where the code gives its receiver's type (a \
+             declared type, `new X()`, a member's declared return type); calls through \
+             `any` or untyped values are not"
+        }
+        ("go", true, _) => {
+            "a call through an interface value is a call of the interface's method, not of \
+             its implementations"
         }
         (_, false, _) => "modules loaded at run time are not edges",
         (_, true, _) => "calls dispatched at run time are not edges",
@@ -1990,7 +2041,42 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
             reach.get("state") == Some(&json!("complete"))
                 && reach.get("depth_limit_reached") != Some(&Value::Bool(true))
         });
+    // Calls of the same name the graph could not bind (a receiver it could
+    // not type, a package it could not place): a list without them is not
+    // closed, and they are where to look (dagayn-video experiment_e16_haiku:
+    // agents trusted a closed list that missed them).
+    let unbound = if pattern == "callers_of" {
+        node.as_ref()
+            .map(|node| unbound_same_name_calls(store, node, &found, path_prefix))
+            .unwrap_or_default()
+    } else {
+        (0, Vec::new())
+    };
+    if unbound.0 > 0
+        && let Some(summary) = payload.get("summary").and_then(Value::as_str)
+    {
+        let (sites, files) = &unbound;
+        let shown: Vec<&str> = files.iter().take(8).map(String::as_str).collect();
+        let more = if files.len() > shown.len() {
+            ", ..."
+        } else {
+            ""
+        };
+        let name = node.as_ref().map_or("", |node| node.name.as_str());
+        let summary = format!(
+            "{summary}. {sites} call(s) named `{name}` in {} other file(s) have a receiver or \
+             package the graph could not resolve, so they may call it too; check those \
+             (unbound_calls): {}{more}",
+            files.len(),
+            shown.join(", ")
+        );
+        payload = payload.replace("summary", json!(summary)).put(
+            "unbound_calls",
+            json!({"count": sites, "files": files.iter().take(30).collect::<Vec<_>>()}),
+        );
+    }
     if closed
+        && unbound.0 == 0
         && let Some(note) = closed_note(
             pattern,
             found.reachability.is_none(),

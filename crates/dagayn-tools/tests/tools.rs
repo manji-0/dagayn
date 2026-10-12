@@ -3466,3 +3466,32 @@ fn callers_include_uses_of_a_function_as_a_value() {
     );
     assert_eq!(row_files(&reply), ["src/throwIfEmpty.ts"], "{reply}");
 }
+
+#[test]
+fn a_list_with_unbound_calls_of_the_name_is_not_closed() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // `s.complete()` on an untyped parameter may call `Subject.complete`; the
+    // answer says where such calls are instead of claiming the list is whole.
+    let repo = Repo::new("ts-unbound-same-name", false);
+    repo.write(
+        "src/subject.ts",
+        "export class Subject { complete(): void {} }\nexport function done(s: Subject): void { s.complete(); }\n",
+    );
+    repo.write(
+        "src/other.ts",
+        "export class Other { complete(): void {} }\nexport function finish(s: any): void { s.complete(); }\n",
+    );
+    repo.build();
+    let reply = answer(
+        &repo.context(),
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": "src/subject.ts::Subject.complete"}),
+    );
+    let summary = reply["summary"].as_str().unwrap_or_default();
+    assert!(!summary.contains("is missing"), "{reply}");
+    assert_eq!(
+        reply["unbound_calls"]["files"],
+        json!(["src/other.ts"]),
+        "{reply}"
+    );
+}
