@@ -434,6 +434,7 @@ def query_graph_tool(
     detail_level: str = "standard",
     depth: int = 1,
     import_kind: Optional[str] = None,
+    path_prefix: Optional[str] = None,
 ) -> ToolPayload:
     """Trace one relationship of a node: callers, callees, imports, tests, docs, source.
 
@@ -459,6 +460,9 @@ def query_graph_tool(
             files reached by a path in code without a ``use``, "statement"
             only import statements (no kind); each kinded row's
             ``import_kind`` says which it is.
+        path_prefix: Keep only result rows (and ``files``) whose file starts
+            with this path, e.g. "src/"; a chain through files outside it
+            still counts.
 
     ``results_complete`` is false when the output budget cut rows. An import
     edge is a file's own import statement: ``from pkg import sub`` points at the
@@ -471,6 +475,7 @@ def query_graph_tool(
         detail_level=detail_level,
         depth=depth,
         import_kind=import_kind,
+        path_prefix=path_prefix,
     )
     return summary_at_verbose_only(payload, detail_level)
 

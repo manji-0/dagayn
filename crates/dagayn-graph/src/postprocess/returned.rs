@@ -1250,6 +1250,204 @@ fn resolve_field_receivers(tx: &Transaction<'_>, graph: &Graph) -> Result<i64> {
     Ok(changed)
 }
 
+/// Member names a single use cannot type a parameter by: the standard
+/// objects have them too (`(req) => req.text()` on a fetch `Request` is no
+/// call of the repository's `HonoRequest.text`).
+pub(crate) const COMMON_MEMBERS: &[&str] = &[
+    "add",
+    "append",
+    "apply",
+    "arrayBuffer",
+    "bind",
+    "blob",
+    "body",
+    "call",
+    "catch",
+    "clear",
+    "clone",
+    "close",
+    "data",
+    "delete",
+    "emit",
+    "end",
+    "entries",
+    "error",
+    "exec",
+    "filter",
+    "finally",
+    "find",
+    "forEach",
+    "formData",
+    "get",
+    "has",
+    "headers",
+    "id",
+    "includes",
+    "info",
+    "join",
+    "json",
+    "keys",
+    "length",
+    "log",
+    "map",
+    "match",
+    "name",
+    "next",
+    "on",
+    "open",
+    "pop",
+    "push",
+    "read",
+    "replace",
+    "send",
+    "set",
+    "size",
+    "slice",
+    "split",
+    "status",
+    "test",
+    "text",
+    "then",
+    "toString",
+    "type",
+    "value",
+    "valueOf",
+    "values",
+    "warn",
+    "write",
+];
+
+/// JavaScript / TypeScript calls on a parameter the code gives no type
+/// (`receiver_shape`: the members the function uses on it, the members up
+/// to the call): the one class of the repository that has every such
+/// member types the parameter, and the declared return types of the
+/// members on the way (`get req(): HonoRequest`) type the receiver.
+/// Returns how many changed.
+fn resolve_shape_receivers(tx: &Transaction<'_>, graph: &Graph) -> Result<i64> {
+    let calls = {
+        let mut stmt = tx.prepare(
+            "SELECT id, file_path, target_qualified, extra FROM edges \
+             WHERE kind = 'CALLS' AND json_extract(extra, '$.receiver_shape') IS NOT NULL \
+               AND COALESCE(json_extract(extra, '$.external'), 0) = 0 \
+               AND NOT EXISTS (SELECT 1 FROM nodes n \
+                               WHERE n.qualified_name = edges.target_qualified)",
+        )?;
+        let rows = stmt.query_map([], |row| <(i64, String, String, String)>::try_from(row))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    if calls.is_empty() {
+        return Ok(0);
+    }
+    // Member name -> the classes declaring it (by QN).
+    let mut declaring: HashMap<&str, HashSet<&str>> = HashMap::new();
+    for ((family, _, member), targets) in &graph.methods {
+        if *family != "javascript" {
+            continue;
+        }
+        for target in targets {
+            if let Some((class, _)) = target.rsplit_once('.') {
+                declaring.entry(member.as_str()).or_default().insert(class);
+            }
+        }
+    }
+    let member_of = |class: &str, member: &str| -> Option<&String> {
+        let name = class.rsplit(['.', ':']).next().unwrap_or(class);
+        graph
+            .methods
+            .get(&("javascript", name.to_string(), member.to_string()))?
+            .iter()
+            .find(|target| {
+                target
+                    .rsplit_once('.')
+                    .is_some_and(|(owner, _)| owner == class)
+            })
+    };
+    let mut changed = 0_i64;
+    for (id, file, method, extra) in calls {
+        if language_family(&file) != Some("javascript") {
+            continue;
+        }
+        let mut extra: Value = serde_json::from_str(&extra)?;
+        let names: Vec<&str> = extra["receiver_shape"]["members"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .filter(|name| declaring.contains_key(name))
+            .collect();
+        if names.is_empty() || (names.len() == 1 && COMMON_MEMBERS.contains(&names[0])) {
+            continue;
+        }
+        let mut candidates: Option<HashSet<&str>> = None;
+        for name in &names {
+            let classes = &declaring[name];
+            candidates = Some(match candidates {
+                None => classes.clone(),
+                Some(found) => found.intersection(classes).copied().collect(),
+            });
+        }
+        let Some(candidates) = candidates.filter(|found| found.len() == 1) else {
+            continue;
+        };
+        let mut class = candidates
+            .into_iter()
+            .next()
+            .unwrap_or_default()
+            .to_string();
+        let path: Vec<String> = extra["receiver_shape"]["path"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect();
+        let mut typed = true;
+        for member in &path {
+            let next = member_of(&class, member).and_then(|member_qn| {
+                let (return_type, owner) = graph.returns.get(member_qn)?;
+                let (base, _) = parse_type(return_type)?;
+                let declared_in = member_qn.split_once("::").map(|(file, _)| file)?;
+                match resolve_type(graph, &base, declared_in, "javascript", owner.as_deref())? {
+                    Returned::Class(next, _) => Some(next),
+                    Returned::External(..) => None,
+                }
+            });
+            match next {
+                Some(next) => class = next,
+                None => {
+                    typed = false;
+                    break;
+                }
+            }
+        }
+        if !typed {
+            continue;
+        }
+        let Some(target) = member_of(&class, &method).cloned() else {
+            continue;
+        };
+        let class_name = class
+            .rsplit(['.', ':'])
+            .next()
+            .unwrap_or(&class)
+            .to_string();
+        if let Some(map) = extra.as_object_mut() {
+            map.remove("receiver_unknown");
+        }
+        extra["receiver_type"] = json!(class_name);
+        extra["inferred_from"] = json!("member_shape");
+        update_call(tx, id, &target, &extra)?;
+        changed += 1;
+    }
+    Ok(changed)
+}
+
+/// [`resolve_shape_receivers`] before calls are bound by name, so a call
+/// the member shape types is not taken by a same-named member elsewhere.
+pub(crate) fn resolve_member_shapes(tx: &Transaction<'_>, context: &ResolveContext) -> Result<i64> {
+    resolve_shape_receivers(tx, &context.graph)
+}
+
 /// Resolves member calls on the result of another call by the return type
 /// of the function that call resolved to (see the module docs). Returns
 /// how many changed.
@@ -1261,7 +1459,7 @@ pub(crate) fn resolve_returned_receivers(
     let import_targets = &context.import_targets;
     let mut changed = 0_i64;
     for _ in 0..MAX_ROUNDS {
-        let mut round = resolve_field_receivers(tx, graph)?;
+        let mut round = resolve_field_receivers(tx, graph)? + resolve_shape_receivers(tx, graph)?;
         for (id, source, file, method, mut extra) in pending_calls(tx)? {
             let Some(family) = language_family(&file) else {
                 continue;

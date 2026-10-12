@@ -857,6 +857,19 @@ fn push_import_kind(row: &mut Row, edge: &GraphEdge) {
     }
 }
 
+/// The file a result row is in: its `file_path`, its `file` (an import
+/// row), or the file part of its qualified name.
+fn row_file(row: &Row) -> Option<&str> {
+    get(row, "file_path")
+        .or_else(|| get(row, "file"))
+        .and_then(Value::as_str)
+        .or_else(|| {
+            get(row, "qualified_name")
+                .and_then(Value::as_str)
+                .map(|name| name.split_once("::").map_or(name, |(file, _)| file))
+        })
+}
+
 /// Files a cut answer lists in `files` (at `minimal`: fewer).
 const MAX_CUT_FILES: usize = 200;
 const MAX_CUT_FILES_MINIMAL: usize = 60;
@@ -1508,6 +1521,7 @@ fn ambiguous(
                     ("depth", Some(json!(1))),
                     ("detail_level", Some(json!("standard"))),
                     ("import_kind", None),
+                    ("path_prefix", None),
                 ],
                 candidates,
             ),
@@ -1528,6 +1542,7 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
             "detail_level",
             "depth",
             "import_kind",
+            "path_prefix",
         ],
     )?;
     let pattern = args.string("pattern")?;
@@ -1542,6 +1557,9 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
     let (full, minimal) = (detail_level == "full", detail_level == "minimal");
     let depth = args.integer("depth", 1)?;
     let import_kind = args.optional_string("import_kind")?;
+    let path_prefix = args
+        .optional_string("path_prefix")?
+        .filter(|prefix| !prefix.is_empty());
     let root = resolve_repo(context, args.optional_string("repo_root")?)?;
     // Python checks the pattern and depth once the store is open, whatever
     // the checkout.
@@ -1651,7 +1669,7 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
     let exact_count = i64::from(
         matches!(resolution, Resolution::Exact | Resolution::ExactName) && node.is_some(),
     );
-    let found = run_pattern(
+    let mut found = run_pattern(
         store,
         &root,
         pattern,
@@ -1660,6 +1678,18 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
         depth,
         import_kind,
     )?;
+    // Rows outside the scope asked for go after the walk, so a chain through
+    // a file outside it still reaches the files inside.
+    if let Some(prefix) = path_prefix {
+        found.rows.retain(|row| {
+            let file = if pattern == "imports_of" {
+                get(row, "import_target").and_then(Value::as_str)
+            } else {
+                row_file(row)
+            };
+            file.is_some_and(|file| file.starts_with(prefix))
+        });
+    }
 
     // `query_zero_result_fields`.
     let raw_count = found.rows.len();
@@ -1683,6 +1713,9 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
     let mut summary = format!("Found {raw_count} result(s) for {pattern}('{target}')");
     if depth > 1 {
         summary.push_str(&format!(" within {depth} hops"));
+    }
+    if let Some(prefix) = path_prefix {
+        summary.push_str(&format!(" under '{prefix}'"));
     }
 
     let mut payload = Ordered::default()
@@ -1779,7 +1812,10 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
             ))
         });
     if let Some((kept, total)) = cut
-        && let Some(summary) = payload.get("summary").and_then(Value::as_str)
+        && let Some(summary) = payload
+            .get("summary")
+            .and_then(Value::as_str)
+            .map(str::to_string)
     {
         let rest = if minimal {
             "; detail_level=\"standard\" lists more in one call"
@@ -1788,20 +1824,7 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
         };
         // The files of every row, cut or not: a question about which files
         // gets its whole answer even when the rows do not fit.
-        let mut files: Vec<&str> = found
-            .rows
-            .iter()
-            .filter_map(|row| {
-                get(row, "file_path")
-                    .or_else(|| get(row, "file"))
-                    .and_then(Value::as_str)
-                    .or_else(|| {
-                        get(row, "qualified_name")
-                            .and_then(Value::as_str)
-                            .map(|name| name.split_once("::").map_or(name, |(file, _)| file))
-                    })
-            })
-            .collect();
+        let mut files: Vec<&str> = found.rows.iter().filter_map(row_file).collect();
         files.sort_unstable();
         files.dedup();
         let cap = if minimal {
@@ -1815,14 +1838,25 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
         } else {
             " (files)".to_string()
         };
-        let summary = format!(
-            "{summary}. Showing {kept} of {total} rows{rest}; all {total} lie in {} files{more}",
-            files.len()
-        );
+        let count = files.len();
         files.truncate(cap);
+        // The file list comes before more rows: cut the rows again to fit it.
         payload = payload
-            .replace("summary", json!(summary))
-            .put("files", json!(files));
+            .put("files", json!(files))
+            .apply_output_budget(budget, &["results", "edges"]);
+        let kept = payload
+            .get("results")
+            .and_then(Value::as_array)
+            .map_or(kept, |rows| rows.len() as u64);
+        if let Some(truncation) = payload.get("_truncation").cloned() {
+            let mut truncation = truncation;
+            truncation["results"] = json!({"kept": kept, "total": total});
+            payload = payload.replace("_truncation", truncation);
+        }
+        let summary = format!(
+            "{summary}. Showing {kept} of {total} rows{rest}; all {total} lie in {count} files{more}"
+        );
+        payload = payload.replace("summary", json!(summary));
     }
     // Say that a closed answer is the whole answer: agents re-checked lists
     // the graph had already completed
@@ -1869,6 +1903,9 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
                     if let Some(kind) = import_kind {
                         args["import_kind"] = json!(kind);
                     }
+                    if let Some(prefix) = path_prefix {
+                        args["path_prefix"] = json!(prefix);
+                    }
                     args
                 },
                 format!("nodes beyond {depth} hops may reach it"),
@@ -1886,6 +1923,9 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
         }
         if let Some(kind) = import_kind {
             args["import_kind"] = json!(kind);
+        }
+        if let Some(prefix) = path_prefix {
+            args["path_prefix"] = json!(prefix);
         }
         calls.insert(
             0,

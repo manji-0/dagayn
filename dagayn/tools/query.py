@@ -162,6 +162,7 @@ def query_graph(
     detail_level: str = "standard",
     depth: int = 1,
     import_kind: str | None = None,
+    path_prefix: str | None = None,
     *,
     _corrupt_retried: bool = False,
 ) -> dict[str, Any]:
@@ -184,6 +185,8 @@ def query_graph(
         import_kind: For importers_of and imports_of, "directive", "link",
                "lazy_export", or "path" follows only that kind of import
                edge; "statement" follows only import statements.
+        path_prefix: Keep only rows (and ``files``) whose file starts with
+               this path; a chain through files outside it still counts.
 
     Returns:
         Matching nodes and edges for the query.
@@ -193,7 +196,11 @@ def query_graph(
         # Resolves the repository and creates, migrates, or waits for the
         # graph; the Rust tool reads it.
         store, _root = _get_store(repo_root)
-        extra = {"import_kind": import_kind} if import_kind is not None else {}
+        extra: dict[str, str] = {}
+        if import_kind is not None:
+            extra["import_kind"] = import_kind
+        if path_prefix is not None:
+            extra["path_prefix"] = path_prefix
         return native_tool(
             "query_graph_tool",
             pattern=pattern,
@@ -217,6 +224,7 @@ def query_graph(
                 detail_level,
                 depth,
                 import_kind,
+                path_prefix,
                 _corrupt_retried=True,
             )
         return handle_tool_runtime_error(

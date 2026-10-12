@@ -342,6 +342,18 @@
       ],
       "default": null,
       "description": "(importers_of, imports_of) \"directive\" or \"link\" follows\nonly Markdown dependency directives or only links, \"lazy_export\"\nonly Python imports a lazy-export table names, \"path\" only Rust\nfiles reached by a path in code without a ``use``, \"statement\"\nonly import statements (no kind); each kinded row's\n``import_kind`` says which it is."
+     },
+     "path_prefix": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Keep only result rows (and ``files``) whose file starts\nwith this path, e.g. \"src/\"; a chain through files outside it\nstill counts."
      }
     },
     "required": [

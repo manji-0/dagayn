@@ -169,6 +169,7 @@
           "depth": "integer",
           "detail_level": "string",
           "import_kind": "string",
+          "path_prefix": "string",
           "pattern": "string",
           "repo_root": "string",
           "target": "string"
@@ -330,6 +331,7 @@
           "depth": "integer",
           "detail_level": "string",
           "import_kind": "string",
+          "path_prefix": "string",
           "pattern": "string",
           "repo_root": "string",
           "target": "string"

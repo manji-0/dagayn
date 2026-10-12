@@ -1862,6 +1862,68 @@ fn rust_calls_through_a_field_and_paths_in_code_reach_other_files() {
 }
 
 #[test]
+fn typescript_untyped_parameters_are_typed_by_the_members_they_use() {
+    // dagayn: tests crates/dagayn-graph/src/postprocess/returned.rs::resolve_shape_receivers
+    let repo = Repo::new("ts-shape", false);
+    repo.write(
+        "src/req.ts",
+        "export class Req {\n  text(): string {\n    return ''\n  }\n}\n",
+    );
+    repo.write(
+        "src/ctx.ts",
+        "import { Req } from './req'\n\nexport class Context {\n  get req(): Req {\n    return new Req()\n  }\n  get(key: string): string {\n    return key\n  }\n  render(): string {\n    return ''\n  }\n}\n",
+    );
+    repo.write(
+        "src/other.ts",
+        "export class Resp {\n  text(): string {\n    return ''\n  }\n  get(key: string): string {\n    return key\n  }\n}\n",
+    );
+    repo.write(
+        "src/app.ts",
+        "export const body = (c) => c.req.text()\n\nexport const raw = (req) => req.text()\n\nexport const header = (res) => res.headers.get('x')\n\nexport const both = (c) => {\n  c.render()\n  return c.get('k')\n}\n",
+    );
+    repo.write(
+        "test/app.ts",
+        "export const outside = (c) => c.req.text()\n",
+    );
+    repo.build();
+    let context = repo.context();
+    let callers = |target: &str, prefix: Option<&str>| -> Vec<String> {
+        let mut arguments = json!({"pattern": "callers_of", "target": target});
+        if let Some(prefix) = prefix {
+            arguments["path_prefix"] = json!(prefix);
+        }
+        let reply = answer(&context, "query_graph_tool", arguments);
+        let mut names: Vec<String> = reply["results"]
+            .as_array()
+            .expect("results")
+            .iter()
+            .filter_map(|row| row["qualified_name"].as_str().map(str::to_string))
+            .collect();
+        names.sort();
+        names
+    };
+    // `c.req.text()`: only `Context` has `req`, and `req` returns a `Req`.
+    assert_eq!(
+        callers("src/req.ts::Req.text", None),
+        ["src/app.ts::body", "test/app.ts::outside"]
+    );
+    // `path_prefix` keeps the rows under it.
+    assert_eq!(
+        callers("src/req.ts::Req.text", Some("src/")),
+        ["src/app.ts::body"]
+    );
+    // `req.text()` alone, `res.headers.get(..)`: names the standard objects
+    // have too, so neither binds; `c.render()` with `c.get(..)` is a
+    // `Context`.
+    assert!(callers("src/other.ts::Resp.text", None).is_empty());
+    assert_eq!(
+        callers("src/ctx.ts::Context.get", None),
+        ["src/app.ts::both"]
+    );
+    assert!(callers("src/other.ts::Resp.get", None).is_empty());
+}
+
+#[test]
 fn import_cycles_lists_every_cycle_between_directories() {
     // dagayn: tests crates/dagayn-tools/src/cycles.rs::import_cycles
     let repo = Repo::new("arch-cycles", true);

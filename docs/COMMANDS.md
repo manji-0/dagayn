@@ -633,7 +633,8 @@ path written in code (`crate::a::B::f()`) and no `use` is its importer with
 statements (rows with no `import_kind`). An answer the output budget cuts
 lists the files of every row it found in `files` (up to 200, 60 at
 `minimal`), so a question about which files has its whole answer even when
-the rows do not fit. Rows past hop 1 carry `depth` and `via`
+the rows do not fit. `path_prefix="src/"` keeps only rows (and `files`)
+under that path, after the walk. Rows past hop 1 carry `depth` and `via`
 (the node they reach the previous hop through), and each node appears once, at
 its shortest hop. The response adds `depth` and a `reachability` object:
 `state` is `complete` or `truncated` (500 rows past hop 1), and

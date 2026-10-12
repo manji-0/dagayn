@@ -6,6 +6,27 @@ All notable changes to `dagayn` are documented here.
 
 ### Added
 
+- JavaScript / TypeScript: a call on a parameter the code gives no type
+  (`app.get('/', (c) => c.req.text())`) resolves when exactly one class of
+  the repository has every member the function uses on that parameter, and
+  the members on the way have declared return types (`get req():
+  HonoRequest`); such edges carry `inferred_from: "member_shape"`. A single
+  member that the standard objects also have (`text`, `json`, `get`, ...)
+  is not enough.
+- `query_graph_tool` takes `path_prefix`: only rows (and `files`) whose file
+  starts with it are kept, after the walk, so a chain through files outside
+  it still counts.
+
+### Changed
+
+- JavaScript / TypeScript: a call of a member name the standard objects
+  also have (`res.headers.get(..)`) on a receiver of unknown type is no
+  longer bound to a same-named member of the repository by name. On Hono
+  (`src/`), method-call precision against the TypeScript checker went from
+  0.72 to 0.95 and recall from 0.67 to 0.70; the callers of `Context.get`
+  from 26 files (8 right) to 14 (all right) of 15, and of
+  `HonoRequest.text` from 1 to 6 of 7.
+
 - Rust: a method call on a field of a value whose type is known
   (`node.file_path.as_str()`, the struct declared in another file) resolves
   through the struct's declared field types; struct nodes carry

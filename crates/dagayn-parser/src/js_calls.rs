@@ -514,7 +514,117 @@ fn javascript_unknown_receiver_extra(
     {
         extra["receiver_from"] = origin.to_json();
     }
+    if let Some(shape) = object.and_then(|object| javascript_receiver_shape(object, context)) {
+        extra["receiver_shape"] = shape;
+    }
     extra
+}
+
+/// A receiver rooted at a parameter the code gives no type
+/// (`app.get('/', (c) => c.req.text())`): the members the enclosing
+/// function uses on that parameter (`["json", "req"]`) and the members
+/// between it and the call (`["req"]`). Resolution types the parameter by
+/// the one class of the repository that has every such member.
+fn javascript_receiver_shape(
+    object: tree_sitter::Node<'_>,
+    context: &JavaScriptParseContext<'_>,
+) -> Option<Value> {
+    let source = context.source;
+    let mut path = Vec::new();
+    let mut current = object;
+    let root = loop {
+        match current.kind() {
+            "member_expression" => {
+                let property = current.child_by_field_name("property")?;
+                if property.kind() != "property_identifier" {
+                    return None;
+                }
+                path.push(node_text(property, source));
+                current = current.child_by_field_name("object")?;
+            }
+            "parenthesized_expression" | "non_null_expression" => {
+                current = current.named_child(0)?;
+            }
+            "identifier" => break node_text(current, source),
+            _ => return None,
+        }
+    };
+    path.reverse();
+    // The nearest enclosing function with a parameter of that name; a typed
+    // one is the extractor's to bind.
+    let mut ancestor = object.parent();
+    let function = loop {
+        let node = ancestor?;
+        if javascript_is_function_like(node.kind()) {
+            match javascript_parameter_typed(node, &root, source) {
+                Some(true) => return None,
+                Some(false) => break node,
+                None => {}
+            }
+        }
+        ancestor = node.parent();
+    };
+    let body = function.child_by_field_name("body")?;
+    let mut members = std::collections::BTreeSet::new();
+    let mut pending = vec![body];
+    while let Some(node) = pending.pop() {
+        if node.kind() == "member_expression"
+            && let (Some(value), Some(property)) = (
+                node.child_by_field_name("object"),
+                node.child_by_field_name("property"),
+            )
+            && value.kind() == "identifier"
+            && property.kind() == "property_identifier"
+            && node_text(value, source) == root
+        {
+            members.insert(node_text(property, source));
+        }
+        let mut cursor = node.walk();
+        pending.extend(node.named_children(&mut cursor));
+    }
+    (!members.is_empty()).then(|| json!({"members": members, "path": path}))
+}
+
+fn javascript_is_function_like(kind: &str) -> bool {
+    matches!(
+        kind,
+        "arrow_function"
+            | "function_expression"
+            | "function"
+            | "function_declaration"
+            | "generator_function"
+            | "generator_function_declaration"
+            | "method_definition"
+    )
+}
+
+/// Whether `function` has a parameter named `name`, and whether that
+/// parameter carries a type annotation; `None` when it has none of that name.
+fn javascript_parameter_typed(
+    function: tree_sitter::Node<'_>,
+    name: &str,
+    source: &[u8],
+) -> Option<bool> {
+    if let Some(parameter) = function.child_by_field_name("parameter") {
+        return (node_text(parameter, source) == name).then_some(false);
+    }
+    let parameters = function.child_by_field_name("parameters")?;
+    let mut cursor = parameters.walk();
+    for parameter in parameters.named_children(&mut cursor) {
+        match parameter.kind() {
+            "identifier" if node_text(parameter, source) == name => return Some(false),
+            "required_parameter" | "optional_parameter" => {
+                let Some(pattern) = parameter.child_by_field_name("pattern") else {
+                    continue;
+                };
+                if pattern.kind() == "identifier" && node_text(pattern, source) == name {
+                    return Some(parameter.child_by_field_name("type").is_some());
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 /// The call a receiver is the result of, past calls of the same method: in
