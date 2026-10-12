@@ -31,6 +31,7 @@ def architecture_analysis_func(
         "infra_dataflow",
         "artifact_trace",
     ] = "strict_static",
+    import_kind: Literal["directive", "link", "lazy_export", "path", "statement"] | None = None,
 ) -> ToolPayload:
     """Run architecture analysis by dispatching to the requested internal mode."""
     # Resolves the repository and creates, migrates, or waits for the graph;
@@ -55,6 +56,7 @@ def architecture_analysis_func(
             repo_root=repo_root,
             artifact_scope=artifact_scope,
             dependency_profile=dependency_profile,
+            import_kind=import_kind,
         )
     finally:
         store.close()

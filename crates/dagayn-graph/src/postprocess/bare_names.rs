@@ -5,7 +5,8 @@ use crate::postprocess::external_calls::{
 };
 use crate::postprocess::reexports::resolve_reexported_targets;
 use crate::postprocess::returned::{
-    ResolveContext, resolve_pyo3_methods, resolve_returned_receivers,
+    COMMON_MEMBERS, ResolveContext, resolve_member_shapes, resolve_pyo3_methods,
+    resolve_returned_receivers,
 };
 use crate::postprocess::sync_tested_by_with_calls;
 use crate::postprocess::tested_by::reconcile_tested_by_with_calls;
@@ -246,7 +247,8 @@ fn import_targets_conn(conn: &rusqlite::Connection) -> Result<HashMap<String, Ha
                 COALESCE(json_extract(extra, '$.re_export'), 0) \
                     OR file_path LIKE '%/__init__.py' OR file_path = '__init__.py', \
                 COALESCE(json_extract(extra, '$.glob'), 0) \
-         FROM edges WHERE kind = 'IMPORTS_FROM'",
+         FROM edges WHERE kind = 'IMPORTS_FROM' \
+           AND COALESCE(json_extract(extra, '$.path_use'), 0) = 0",
     )?;
     let rows = stmt.query_map([], |row| {
         Ok((
@@ -458,6 +460,15 @@ fn bind_bare_call_targets(
         // typed every receiver the syntax gives away, and binding the rest
         // to whichever `m` is visible is usually wrong (`tx.commit()`).
         if rust && receiver_unknown {
+            continue;
+        }
+        // JavaScript `x.get(..)` on a receiver of unknown type: the standard
+        // objects have that member too (`res.headers.get(..)`), so the name
+        // alone is no evidence of the repository's `get`.
+        if receiver_unknown
+            && language_family(&src_file) == Some("javascript")
+            && COMMON_MEMBERS.contains(&target_qualified.as_str())
+        {
             continue;
         }
         let mut candidates = index.get(&target_qualified).cloned().unwrap_or_default();
@@ -778,7 +789,8 @@ impl GraphStore {
         let import_targets = context.import_targets();
         let visibility = symbol_visibility(&tx)?;
         let index = load_bare_name_index(&tx, &["Function", "Test", "Class"])?;
-        let mut resolved = bind_bare_call_targets(&tx, &index, import_targets, &visibility, false)?;
+        let mut resolved = resolve_member_shapes(&tx, &context)?;
+        resolved += bind_bare_call_targets(&tx, &index, import_targets, &visibility, false)?;
         resolved += resolve_enum_variant_calls(&tx)?;
         // Twice: a call these passes type (`repo_root.join(x)` as `std`) is
         // the origin a call on its result (`.exists()`) waits for.

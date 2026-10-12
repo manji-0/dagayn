@@ -187,7 +187,9 @@ fn import_cycles(nodes: &[GraphNode], edges: &[GraphEdge]) -> Vec<Value> {
 }
 
 /// Tarjan's algorithm, iteratively, over a deterministic adjacency.
-fn strongly_connected<'a>(adjacency: &BTreeMap<&'a str, BTreeSet<&'a str>>) -> Vec<Vec<&'a str>> {
+pub(crate) fn strongly_connected<'a>(
+    adjacency: &BTreeMap<&'a str, BTreeSet<&'a str>>,
+) -> Vec<Vec<&'a str>> {
     let mut index: HashMap<&str, usize> = HashMap::new();
     let mut low: HashMap<&str, usize> = HashMap::new();
     let mut on_stack: HashSet<&str> = HashSet::new();

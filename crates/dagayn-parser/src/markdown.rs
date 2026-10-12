@@ -194,15 +194,18 @@ pub(crate) fn parse_markdown_with_parser(
     extract_markdown_doc_bodies(&file_path, &text, &headings, &mut nodes, &mut edges);
 
     let line_context = MarkdownLineContext::new(file_path, &headings);
+    let code_masked = mask_markdown_code(&text);
     if tree_facts.parsed {
         extract_markdown_directives(&line_context, &tree_facts.directives, &mut edges);
+        // The grammar yields a directive node only for a comment that starts
+        // its own block; one right after a list item or paragraph line is
+        // inline HTML. Comments that open a line count too.
+        extract_markdown_directives_from_text(&line_context, &code_masked, true, &mut edges);
         extract_markdown_reference_links(&line_context, &tree_facts.reference_links, &mut edges);
     } else {
-        let masked = mask_markdown_code(&text);
-        extract_markdown_directives_from_text(&line_context, &masked, &mut edges);
-        extract_markdown_reference_links_from_text(&line_context, &masked, &mut edges);
+        extract_markdown_directives_from_text(&line_context, &code_masked, false, &mut edges);
+        extract_markdown_reference_links_from_text(&line_context, &code_masked, &mut edges);
     }
-    let code_masked = mask_markdown_code(&text);
     extract_markdown_inline_links(&line_context, &code_masked, &mut edges);
     // A directive shown in a code span or fence is an example, not a claim.
     extract_markdown_dagayn_directives(&line_context, &code_masked, &mut edges);
@@ -642,10 +645,14 @@ fn extract_markdown_directives(
 fn extract_markdown_directives_from_text(
     line_context: &MarkdownLineContext<'_>,
     text: &str,
+    line_start_only: bool,
     edges: &mut Vec<ParsedEdge>,
 ) {
     let mut lines = LineCursor::new(text);
     let directives = text.match_indices("<!--").filter_map(|(offset, _)| {
+        if line_start_only && !opens_line(text, offset) {
+            return None;
+        }
         let rest = &text[offset..];
         let end = rest.find("-->")?;
         let full = &rest[..end + 3];
@@ -670,6 +677,14 @@ fn extract_markdown_directives_from_text(
         })
     });
     extract_markdown_directives(line_context, &directives.collect::<Vec<_>>(), edges);
+}
+
+/// True when only up to three spaces precede `offset` on its line, so the
+/// comment is not inside an indented code block or after prose.
+fn opens_line(text: &str, offset: usize) -> bool {
+    let line_start = text[..offset].rfind('\n').map_or(0, |idx| idx + 1);
+    let prefix = &text[line_start..offset];
+    prefix.len() <= 3 && prefix.bytes().all(|byte| byte == b' ')
 }
 
 fn extract_markdown_reference_links(

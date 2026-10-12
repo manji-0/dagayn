@@ -27,8 +27,11 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // and creates no edge.
         // 2: a `dagayn: tests` directive creates an edge
         // (docs/plans/TEST-REACH-TARGET.md).
+        // 3: a dependency directive that opens a line anywhere in a section,
+        // outside code, creates its edges (one after a list item was inline
+        // HTML to the grammar).
         extractor: "markdown",
-        version: 2,
+        version: 3,
         languages: &["markdown"],
     },
     ExtractorVersion {
@@ -99,8 +102,11 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 9: tree-sitter-vue ce8011a.
         // 10: `import type` / `export type ... from` mark their IMPORTS_FROM
         // `import_kind: "type"`.
+        // 11: a member call on a parameter with no type annotation records
+        // the members the function uses on it (`receiver_shape`), for
+        // resolution to type it by the one class that has them all.
         extractor: "javascript",
-        version: 10,
+        version: 11,
         languages: &["javascript", "typescript", "tsx", "vue", "svelte"],
     },
     ExtractorVersion {
@@ -211,8 +217,11 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // the call (`receiver_from.element`); a method passed as a value
         // (`.map(Type::m)`) and a `let`-bound closure passed by name are
         // REFERENCES; `value.field.method()` in a macro is typed by the field.
+        // 23: struct nodes carry `field_types`; `x.field.m()` on a struct of
+        // another file records `receiver_field`; a path in code with no `use`
+        // (`crate::a::B::f()`) is an IMPORTS_FROM tagged `path_use`.
         extractor: "rust",
-        version: 22,
+        version: 23,
         languages: &["rust"],
     },
     ExtractorVersion {

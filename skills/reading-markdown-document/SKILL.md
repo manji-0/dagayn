@@ -33,9 +33,12 @@ what a section is built on.
    target="<doc.md>")`. It always answers at file level (a `doc.md::slug`
    target is widened to the file), so it can't tell you which section is
    cited. Ignore the doc's own row, which comes from its in-page anchor links.
-   Pass `depth` (up to 6) for transitive dependents.
+   Pass `depth` (up to 6) for transitive dependents; `import_kind` on each row
+   separates dependency directives from ordinary links.
 3. **What it depends on**: `query_graph_tool(pattern="imports_of",
-   target="<doc.md>")` lists the files its directives and links point to.
+   target="<doc.md>")` lists the files its directives and links point to;
+   each Markdown row's `import_kind` says `directive` or `link`. Pass `depth`
+   (up to 6) to follow the chain forward.
 4. **Implementations** (specs, or when asked):
    `query_graph_tool(pattern="implementations_of", target="<doc.md>::<section-slug>")`;
    weigh each hit by `evidence_type` and `missingness`. From a code symbol, the reverse is

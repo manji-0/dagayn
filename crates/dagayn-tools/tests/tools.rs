@@ -503,6 +503,244 @@ fn query_graph_counts_one_row_per_node_everywhere() {
 }
 
 #[test]
+fn a_closed_answer_says_it_is_the_whole_answer() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    let repo = Repo::new("query-closed", false);
+    repo.write(
+        "chain.py",
+        "from app import helper\n\n\ndef one():\n    helper()\n\n\ndef two():\n    one()\n\n\ndef three():\n    two()\n",
+    );
+    repo.write("docs/base.md", "# Base\n\nText.\n");
+    repo.write(
+        "docs/plan.md",
+        "# Plan\n\n<!-- constrained-by ./base.md -->\n\nSee [the base](./base.md).\n",
+    );
+    repo.write("pkg/mod.py", "def f():\n    return 1\n");
+    repo.write("pkg/user.py", "from pkg.mod import f\n");
+    repo.write(
+        "pkg/__init__.py",
+        "from importlib import import_module\n\n_LAZY_EXPORTS = {\"f\": (\".mod\", \"f\")}\n\n\n\
+         def __getattr__(name):\n    module_name, attr = _LAZY_EXPORTS[name]\n    \
+         return getattr(import_module(module_name, __name__), attr)\n",
+    );
+    repo.build();
+    let context = repo.context();
+    let summary = |arguments: Value| {
+        answer(&context, "query_graph_tool", arguments)["summary"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string()
+    };
+
+    let direct = summary(json!({"pattern": "callers_of", "target": "app.py::helper"}));
+    assert!(
+        direct.ends_with(
+            "No direct caller the graph records is missing; calls made through strings, \
+             getattr, or registration are not edges"
+        ),
+        "{direct}"
+    );
+    let closed = summary(json!({"pattern": "callers_of", "target": "app.py::helper", "depth": 6}));
+    assert!(
+        closed.contains("within 6 hops. No caller the graph records"),
+        "{closed}"
+    );
+    let importers = summary(json!({"pattern": "importers_of", "target": "app.py"}));
+    assert!(
+        importers.contains("No direct importer the graph records"),
+        "{importers}"
+    );
+
+    // A lazy-export table's import is an edge, and its row says so.
+    let lazy = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "importers_of", "target": "pkg/mod.py"}),
+    );
+    let kinds: Vec<&str> = lazy["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .filter_map(|row| row["import_kind"].as_str())
+        .collect();
+    assert_eq!(kinds, ["lazy_export"], "{lazy}");
+    assert!(
+        lazy["summary"]
+            .as_str()
+            .is_some_and(|summary| summary.ends_with("(import_kind lazy_export)")),
+        "{}",
+        lazy["summary"]
+    );
+
+    // "statement" keeps the import statements and leaves the lazy export out.
+    let statements = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "importers_of", "target": "pkg/mod.py", "import_kind": "statement"}),
+    );
+    let files: Vec<&str> = statements["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .filter_map(|row| row["file"].as_str())
+        .collect();
+    assert_eq!(files, ["pkg/user.py"], "{statements}");
+    assert!(
+        statements["summary"]
+            .as_str()
+            .is_some_and(|summary| summary.ends_with("only import statements were followed")),
+        "{}",
+        statements["summary"]
+    );
+
+    // At minimal too, and a file that both links and declares a directive
+    // names both kinds on its one row.
+    let both = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "importers_of", "target": "docs/base.md", "detail_level": "minimal"}),
+    );
+    let plan: Vec<&Value> = both["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .filter(|row| row["file"] == "docs/plan.md")
+        .collect();
+    assert_eq!(plan.len(), 1, "{both}");
+    assert_eq!(plan[0]["import_kind"], "directive,link", "{both}");
+
+    // A Markdown answer names what its rows mix, not Python's dynamic imports.
+    let docs = summary(json!({"pattern": "importers_of", "target": "docs/base.md"}));
+    assert!(
+        docs.ends_with(
+            "No direct importer the graph records is missing; Markdown links and \
+             dependency directives both count"
+        ),
+        "{docs}"
+    );
+
+    // Cut at the depth asked for, or with nothing found: no claim.
+    let cut = summary(json!({"pattern": "callers_of", "target": "app.py::helper", "depth": 2}));
+    assert!(!cut.contains("is missing"), "{cut}");
+    let none = summary(json!({"pattern": "callers_of", "target": "chain.py::three"}));
+    assert!(!none.contains("is missing"), "{none}");
+}
+
+#[test]
+fn imports_of_follows_a_chain_forward_and_says_which_edges_are_directives() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    let repo = Repo::new("imports-forward", false);
+    repo.write("docs/base.md", "# Base\n\nText.\n");
+    repo.write(
+        "docs/middle.md",
+        "# Middle\n\n<!-- derived-from ./base.md -->\n",
+    );
+    repo.write(
+        "docs/plan.md",
+        "# Plan\n\n<!-- constrained-by ./middle.md -->\n\nSee [the notes](./notes.md).\n",
+    );
+    repo.write("docs/notes.md", "# Notes\n\nText.\n");
+    repo.build();
+    let context = repo.context();
+
+    let direct = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "imports_of", "target": "docs/plan.md"}),
+    );
+    let kinds: Vec<(String, String)> = direct["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .map(|row| {
+            (
+                row["import_target"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string(),
+                row["import_kind"].as_str().unwrap_or_default().to_string(),
+            )
+        })
+        .collect();
+    assert!(
+        kinds.contains(&("docs/middle.md".into(), "directive".into())),
+        "{kinds:?}"
+    );
+    assert!(
+        kinds.contains(&("docs/notes.md".into(), "link".into())),
+        "{kinds:?}"
+    );
+
+    let chain = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "imports_of", "target": "docs/plan.md", "depth": 6}),
+    );
+    assert_eq!(chain["reachability"]["state"], "complete", "{chain}");
+    let reached: Vec<(&str, i64)> = chain["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .map(|row| {
+            (
+                row["import_target"].as_str().unwrap_or_default(),
+                row["depth"].as_i64().unwrap_or_default(),
+            )
+        })
+        .collect();
+    assert!(reached.contains(&("docs/middle.md", 1)), "{reached:?}");
+    assert!(reached.contains(&("docs/base.md", 2)), "{reached:?}");
+    assert!(
+        reached.iter().any(|(t, _)| *t == "docs/notes.md"),
+        "{reached:?}"
+    );
+
+    // The filter applies during the walk: directives only, no link.
+    let directives = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "imports_of", "target": "docs/plan.md", "depth": 6, "import_kind": "directive"}),
+    );
+    let targets: Vec<&str> = directives["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .filter_map(|row| row["import_target"].as_str())
+        .collect();
+    assert!(targets.contains(&"docs/base.md"), "{targets:?}");
+    assert!(!targets.contains(&"docs/notes.md"), "{targets:?}");
+    assert!(
+        directives["summary"].as_str().is_some_and(
+            |summary| summary.ends_with("only Markdown dependency directives were followed")
+        ),
+        "{}",
+        directives["summary"]
+    );
+    let importers = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "importers_of", "target": "docs/notes.md", "import_kind": "directive"}),
+    );
+    assert_eq!(importers["result_count"], 0, "{importers}");
+
+    for (arguments, message) in [
+        (
+            json!({"pattern": "imports_of", "target": "docs/plan.md", "import_kind": "anchor"}),
+            "import_kind must be 'directive', 'link', 'lazy_export', 'path', or 'statement', \
+             got 'anchor'.",
+        ),
+        (
+            json!({"pattern": "callers_of", "target": "app.py::helper", "import_kind": "link"}),
+            "import_kind applies only to ['importers_of', 'imports_of']; 'callers_of' does not \
+             take it.",
+        ),
+    ] {
+        let reply = answer(&context, "query_graph_tool", arguments.clone());
+        assert_eq!(reply["error"], message, "{arguments}");
+    }
+}
+
+#[test]
 fn an_ambiguous_target_names_its_retries() {
     // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
     // dagayn: tests crates/dagayn-tools/src/flow.rs::flow
@@ -668,8 +906,8 @@ fn query_graph_answers_callers_and_callees_of_exact_targets() {
         ),
         (
             json!({"pattern": "callees_of", "target": "app.py::helper", "depth": 2}),
-            "depth applies only to ['callers_of', 'importers_of']; 'callees_of' returns \
-             direct relationships only.",
+            "depth applies only to ['callers_of', 'importers_of', 'imports_of']; 'callees_of' \
+             returns direct relationships only.",
         ),
     ] {
         let reply = answer(&context, "query_graph_tool", arguments.clone());
@@ -1487,6 +1725,271 @@ fn architecture_metrics_follow_the_requested_view() {
             "{arguments}"
         );
     }
+}
+
+#[test]
+fn a_cut_minimal_list_says_so_and_offers_the_standard_call() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    let repo = Repo::new("query-cut", false);
+    repo.write("core.py", "def f():\n    return 1\n");
+    for index in 0..150 {
+        repo.write(
+            &format!("users/user_module_with_a_long_name_{index:03}.py"),
+            "from core import f\n",
+        );
+    }
+    repo.build();
+    let context = repo.context();
+    let cut = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "importers_of", "target": "core.py", "depth": 6, "detail_level": "minimal"}),
+    );
+    assert_eq!(cut["results_complete"], false, "{cut}");
+    let summary = cut["summary"].as_str().unwrap_or_default();
+    assert!(
+        summary.contains("of 150 rows; detail_level=\"standard\" lists more in one call"),
+        "{summary}"
+    );
+    assert!(
+        summary.ends_with("all 150 lie in 150 files (first 60 in files)"),
+        "{summary}"
+    );
+    assert_eq!(cut["files"].as_array().map(Vec::len), Some(60), "{cut}");
+    assert_eq!(
+        cut["next"][0]["args"],
+        json!({"pattern": "importers_of", "target": "core.py", "detail_level": "standard", "depth": 6}),
+        "{}",
+        cut["next"]
+    );
+}
+
+#[test]
+fn rust_calls_through_a_field_and_paths_in_code_reach_other_files() {
+    // dagayn: tests crates/dagayn-graph/src/postprocess/returned.rs::resolve_field_receivers
+    let repo = Repo::new("rust-fields", false);
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"fields\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write(
+        "src/lib.rs",
+        "pub mod model;\npub mod types;\npub mod user;\npub mod uses;\n",
+    );
+    repo.write(
+        "src/types.rs",
+        "pub struct Path(String);\n\nimpl Path {\n    pub fn as_str(&self) -> &str {\n        &self.0\n    }\n}\n\npub struct Other;\n\nimpl Other {\n    pub fn as_str(&self) -> &str {\n        \"o\"\n    }\n}\n",
+    );
+    repo.write(
+        "src/model.rs",
+        "use crate::types::Path;\n\npub struct Node {\n    pub path: Path,\n}\n",
+    );
+    repo.write(
+        "src/user.rs",
+        "use crate::model::Node;\n\npub fn name(node: &Node) -> usize {\n    node.path.as_str().len()\n}\n\npub fn shown(node: &Node) -> String {\n    format!(\"{}\", node.path.as_str())\n}\n",
+    );
+    repo.write(
+        "src/uses.rs",
+        "pub fn make() -> crate::types::Other {\n    crate::types::Other\n}\n",
+    );
+    repo.build();
+    let context = repo.context();
+
+    // `node.path.as_str()`: `Node` is declared in model.rs, its `path` a
+    // `Path` of types.rs, in a call and in a macro's arguments.
+    let callers = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": "src/types.rs::Path.as_str"}),
+    );
+    let names: Vec<&str> = callers["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .filter_map(|row| row["qualified_name"].as_str())
+        .collect();
+    assert_eq!(
+        names,
+        ["src/user.rs::name", "src/user.rs::shown"],
+        "{callers}"
+    );
+    assert!(
+        callers["summary"]
+            .as_str()
+            .is_some_and(|summary| summary.contains("calls on closure parameters, loop variables")),
+        "{}",
+        callers["summary"]
+    );
+    let other = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": "src/types.rs::Other.as_str"}),
+    );
+    assert_eq!(other["result_count"], 0, "{other}");
+
+    // `crate::types::Other` in code, no `use`: a dependency of kind `path`.
+    let importers = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "importers_of", "target": "src/types.rs"}),
+    );
+    let rows: Vec<(&str, Option<&str>)> = importers["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .map(|row| {
+            (
+                row["file"].as_str().unwrap_or(""),
+                row["import_kind"].as_str(),
+            )
+        })
+        .collect();
+    assert!(rows.contains(&("src/uses.rs", Some("path"))), "{importers}");
+    assert!(rows.contains(&("src/model.rs", None)), "{importers}");
+    let statements = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "importers_of", "target": "src/types.rs", "import_kind": "statement"}),
+    );
+    assert!(
+        statements["results"]
+            .as_array()
+            .expect("results")
+            .iter()
+            .all(|row| row["file"] != "src/uses.rs"),
+        "{statements}"
+    );
+}
+
+#[test]
+fn typescript_untyped_parameters_are_typed_by_the_members_they_use() {
+    // dagayn: tests crates/dagayn-graph/src/postprocess/returned.rs::resolve_shape_receivers
+    let repo = Repo::new("ts-shape", false);
+    repo.write(
+        "src/req.ts",
+        "export class Req {\n  text(): string {\n    return ''\n  }\n}\n",
+    );
+    repo.write(
+        "src/ctx.ts",
+        "import { Req } from './req'\n\nexport class Context {\n  get req(): Req {\n    return new Req()\n  }\n  get(key: string): string {\n    return key\n  }\n  render(): string {\n    return ''\n  }\n}\n",
+    );
+    repo.write(
+        "src/other.ts",
+        "export class Resp {\n  text(): string {\n    return ''\n  }\n  get(key: string): string {\n    return key\n  }\n}\n",
+    );
+    repo.write(
+        "src/app.ts",
+        "export const body = (c) => c.req.text()\n\nexport const raw = (req) => req.text()\n\nexport const header = (res) => res.headers.get('x')\n\nexport const both = (c) => {\n  c.render()\n  return c.get('k')\n}\n",
+    );
+    repo.write(
+        "test/app.ts",
+        "export const outside = (c) => c.req.text()\n",
+    );
+    repo.build();
+    let context = repo.context();
+    let callers = |target: &str, prefix: Option<&str>| -> Vec<String> {
+        let mut arguments = json!({"pattern": "callers_of", "target": target});
+        if let Some(prefix) = prefix {
+            arguments["path_prefix"] = json!(prefix);
+        }
+        let reply = answer(&context, "query_graph_tool", arguments);
+        let mut names: Vec<String> = reply["results"]
+            .as_array()
+            .expect("results")
+            .iter()
+            .filter_map(|row| row["qualified_name"].as_str().map(str::to_string))
+            .collect();
+        names.sort();
+        names
+    };
+    // `c.req.text()`: only `Context` has `req`, and `req` returns a `Req`.
+    assert_eq!(
+        callers("src/req.ts::Req.text", None),
+        ["src/app.ts::body", "test/app.ts::outside"]
+    );
+    // `path_prefix` keeps the rows under it.
+    assert_eq!(
+        callers("src/req.ts::Req.text", Some("src/")),
+        ["src/app.ts::body"]
+    );
+    // `req.text()` alone, `res.headers.get(..)`: names the standard objects
+    // have too, so neither binds; `c.render()` with `c.get(..)` is a
+    // `Context`.
+    assert!(callers("src/other.ts::Resp.text", None).is_empty());
+    assert_eq!(
+        callers("src/ctx.ts::Context.get", None),
+        ["src/app.ts::both"]
+    );
+    assert!(callers("src/other.ts::Resp.get", None).is_empty());
+}
+
+#[test]
+fn import_cycles_lists_every_cycle_between_directories() {
+    // dagayn: tests crates/dagayn-tools/src/cycles.rs::import_cycles
+    let repo = Repo::new("arch-cycles", true);
+    repo.write(
+        "a/one.py",
+        "from b.two import g\n\n\ndef f():\n    return g()\n",
+    );
+    repo.write(
+        "b/two.py",
+        "def g():\n    from c.three import h\n    return h()\n",
+    );
+    repo.write(
+        "c/three.py",
+        "from a.one import f\n\n\ndef h():\n    return 1\n",
+    );
+    repo.write("b/back.py", "from a.one import f\n");
+    repo.build();
+    let context = Context {
+        runtime: Some(json!({})),
+        ..repo.context()
+    };
+    let arch = |arguments: Value| answer(&context, "architecture_analysis_tool", arguments);
+    let cycles = arch(json!({"mode": "import_cycles", "scope_kind": "directory"}));
+    assert_eq!(
+        cycles["cycles"],
+        json!([["a", "b"], ["a", "b", "c"]]),
+        "{cycles}"
+    );
+    assert_eq!(cycles["cycle_count"], 2, "{cycles}");
+    assert_eq!(cycles["results_complete"], true, "{cycles}");
+    assert!(
+        cycles["summary"]
+            .as_str()
+            .is_some_and(|summary| summary.contains("This is every simple cycle")),
+        "{cycles}"
+    );
+
+    // standard names one import behind each hop.
+    let standard = arch(json!({
+        "mode": "import_cycles",
+        "scope_kind": "directory",
+        "unit_filter": ["a", "b"],
+        "detail_level": "standard",
+    }));
+    assert_eq!(
+        standard["cycles"],
+        json!([{"scopes": ["a", "b"], "imports": [
+            {"from": "a/one.py", "to": "b/two.py", "line": 1, "imports": 1},
+            {"from": "b/back.py", "to": "a/one.py", "line": 1, "imports": 1},
+        ]}]),
+        "{standard}"
+    );
+
+    let files = arch(json!({"mode": "import_cycles", "scope_kind": "file"}));
+    assert_eq!(
+        files["cycles"],
+        json!([["a/one.py", "b/two.py", "c/three.py"]]),
+        "{files}"
+    );
+    assert!(declines(
+        &context,
+        "architecture_analysis_tool",
+        json!({"mode": "import_cycles", "import_kind": 3})
+    ));
+    let bad = arch(json!({"mode": "import_cycles", "import_kind": "anchor"}));
+    assert_eq!(bad["status"], "error", "{bad}");
 }
 
 #[test]

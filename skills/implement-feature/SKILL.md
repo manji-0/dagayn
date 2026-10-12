@@ -59,7 +59,7 @@ dagayn instructions (full rules: `get_docs_section_tool(section_name="trust")`).
 
 ## Notes
 
-- `callers_of` / `importers_of` take `depth` (up to 6) for transitive reach.
+- `callers_of` / `importers_of` / `imports_of` take `depth` (up to 6) for transitive reach.
   Calls into packages target the package name and show up in `callees_of` as
   `unresolved_targets` (packages are not nodes).
 - Where SCIP indexers are installed, `dagayn build --scip` makes call targets

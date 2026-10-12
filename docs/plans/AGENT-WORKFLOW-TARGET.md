@@ -25,7 +25,7 @@ defines the workflow, the response contract that carries it, the evidence,
 and the order of work.
 
 Status: accepted ([decisions](#decisions-2026-10-07)); steps 1–9 are
-done (see the [order of work](#order-of-work)).
+done, step 10 is in progress (see the [order of work](#order-of-work)).
 
 ## Target contract
 
@@ -357,6 +357,191 @@ fixtures the tests build.
    JSON, since serde_json sorts nested keys and Python does not. A
    review at `minimal` also stops computing the score-first summary it
    no longer shows (1.93 s → 1.72 s on this repository).
+10. Round trips. Two pre-registered runs (dagayn-video `experiment_cc9`,
+    Claude Opus 5.5, and `experiment_cc9_haiku`, Claude Haiku 5.5; Claude
+    Code headless, dagayn 9.0.0, five questions about dagayn 4.15.0, ten
+    runs per question with and without the MCP server) found every reply
+    within its budget (Opus: max 5,227 characters) and the resident cost at
+    +525 tokens, yet whole-task tokens at 1.29× (Opus) and 1.26× (Haiku)
+    of no MCP server, with correctness unchanged. The extra tokens are
+    turns, not reply size: every turn re-reads the conversation, and the
+    agent with dagayn took one or two more (Claude Code loads tool
+    descriptions on demand through `ToolSearch`, then calls dagayn). Haiku
+    followed "Start every task with get_minimal_context_tool" in all 50
+    runs, calling dagayn twice where Opus called it once; it asked
+    `query_graph_tool` for `detail_level="full"` in 22 of 37 calls, exactly
+    the replies over 8K characters; and after a complete `importers_of` it
+    widened the answer by hand to dynamic imports. The changes:
+    - **Done:** the MCP instructions and `get_minimal_context_tool`'s
+      description send an agent there when the task names no node or file,
+      or the graph may be stale, instead of before every task.
+    - **Done:** `query_graph_tool`'s description says what each
+      `detail_level` keeps and that a complete list never needs `"full"`.
+    - **Done:** a closed `callers_of`, `callees_of`, `importers_of`, or
+      `imports_of` answer (nothing cut by the budget or the depth, no
+      unresolved endpoints) ends its `summary` with "No (direct) caller the
+      graph records is missing" and names what static parsing cannot see
+      (`tests/tools.rs::a_closed_answer_says_it_is_the_whole_answer`).
+    - **Done:** `eval/run_agent_tokens_eval.py` measures the whole task:
+      tokens, turns, dagayn calls, and replies over 8K characters for two
+      dagayn builds (or one and none) on the same questions, with an
+      optional gate on the token ratio. It needs the `claude` CLI, so it
+      is a manual gate (Haiku: about 1 USD per 100 runs).
+    - **Measured** (dagayn-video `experiment_e5_haiku`, pre-registered;
+      this build against 9.0.0, Claude Haiku 5.5, ten runs per question):
+      `detail_level="full"` calls 28 → 0; runs calling
+      `get_minimal_context_tool` 49 → 34 of 50; dagayn calls per run −0.28
+      (Holm p = 0.010); whole-task tokens 0.91× (Holm p = 0.057, not
+      significant); turns unchanged. The 17 replies still over 8K
+      characters were all `standard`, the default. Haiku still loads
+      `get_minimal_context_tool` together with the task's tool in one
+      `ToolSearch` (9 of 9 on a question that names its function), so the
+      wording alone did not remove the habit.
+    - **Done:** the instructions name the task's tools first and
+      `get_minimal_context_tool` last, as the case for a task that names no
+      node or file. Measured against the build before it (dagayn-video
+      `experiment_e6_haiku`, pre-registered, Claude Haiku 5.5): runs calling
+      it 28 → 10 of 50 (Holm p = 0.0012; on the questions that name their
+      node, 15 → 0), exact matches 44 → 45, whole-task tokens 1.11× (not
+      significant).
+    - **Rejected:** `query_graph_tool` at `minimal` by default. In the same
+      experiment the replies over 8K characters stayed (19 → 20): Haiku
+      asked for `standard` explicitly in 35 of 42 calls, and for `minimal`
+      in none, against 15 under the current description. The description
+      steers the choice more than the default does.
+    - Open: none of the three measured changes moved whole-task tokens
+      significantly. On these five questions an agent without dagayn needs
+      two or three shell calls, so the next measurement needs questions
+      that cost it many round trips.
+    - Measured on heavier questions (dagayn-video `experiment_e1_haiku`,
+      pre-registered: transitive importers, Markdown dependencies both
+      ways, and directory cycles in this repository at 8c2414a; Claude
+      Haiku 5.5): whole-task tokens 1.16× of no MCP server, time 1.03×, F1
+      +0.006, none significant. An agent without dagayn wrote one script
+      and answered in five to seven turns. `importers_of(depth=6)`
+      answered both transitive-import questions in one call; with no
+      forward transitive pattern, the question "what does this plan depend
+      on" cost twice the tokens. The rows of `importers_of` / `imports_of`
+      do not say whether a Markdown edge is a link or a directive, though
+      the edge records it (`markdown_import_kind`).
+    - **Done:** the closed-answer sentence follows the target's language;
+      on Markdown it says that links and dependency directives both count
+      instead of naming Python's dynamic imports.
+    - **Done:** `imports_of` takes `depth` and walks forward; Markdown
+      import rows carry `import_kind` (`directive` / `link`), and an
+      `import_kind` argument follows one kind during the walk. On the
+      heavier questions' target, the directive-only `importers_of` on
+      `docs/USAGE.md` matches the answer key (36 of 36) in one call, and the
+      directive-only forward walk from the agent workflow plan finds 22 of
+      23 (the 23rd is a directive placed mid-section in
+      `docs/COMMANDS.md`, which the Markdown policy does not record).
+      `callees_of` still has no `depth`.
+    - **Measured** against the build before it on the same five questions
+      (dagayn-video `experiment_e7_haiku`, pre-registered, Claude Haiku
+      5.5): on the forward question 8 of 10 runs called
+      `imports_of(depth=6, import_kind="directive")`, and its median turns
+      fell from 25 to 9 and tokens from 354k to 240k; over all five
+      questions tokens 0.89× (Holm p = 0.29, not significant), F1
+      unchanged. That forward question still costs more than an agent
+      without dagayn (185k): the agent re-checks the graph's answer.
+    - **Measured** what the re-checks buy (dagayn-video
+      `experiment_e8_haiku`, pre-registered): telling the agent it may use
+      dagayn's answer as it is cut tokens and time to 0.78× (Holm p =
+      0.051) and made it faster than an agent without dagayn (0.79×, Holm p
+      = 0.027), but exact matches fell from 48 to 35 of 50. The misses were
+      where the graph counts by another rule than the question: an import a
+      lazy-export table names (`dagayn/cli/__init__.py`), and a directive
+      placed mid-section. Not adopted. The re-checks were repairing exactly
+      those rows.
+    - **Done:** rows of such Python imports carry `import_kind:
+      "lazy_export"` (and `import_kind="lazy_export"` selects them), so an
+      agent can check the rows that follow another rule instead of the
+      whole answer; the closed-answer sentence on Python imports no longer
+      says imports by string are never edges.
+    - **Measured** "check only the marked rows" (dagayn-video
+      `experiment_e9_haiku`, pre-registered): no gain against checking as
+      needed (tokens 0.92×, exact 40 vs 47); not adopted. Replies at
+      `minimal` dropped `import_kind`, now kept (and a merged row that is
+      both a link and a directive names both). Agents that saw
+      `lazy_export` read the file and kept the row, a fair reading of a
+      question that never said how run-time imports count: the remaining
+      gap is between the question's rule and the graph's, which a mark can
+      show but not settle.
+    - **Done:** settle it from both sides. `architecture_analysis_tool(mode=
+      "import_cycles")` answers the directory-cycle question agents had
+      been scripting; `import_kind="statement"` follows only import
+      statements; a directive that opens a line anywhere in a section is
+      recorded.
+    - **Measured** with the questions worded to the graph's rules
+      (dagayn-video `experiment_e10_haiku`, pre-registered): agents with
+      and without dagayn both got 49 of 50 exact, so the accuracy gap of
+      earlier runs was mostly the questions' wording. Every cycle run
+      called `import_cycles` (10 of 10 exact; 0.65× the tokens and 0.56×
+      the time of no dagayn on that question), but over all five
+      questions dagayn cost 1.31× the tokens of no dagayn (Holm p =
+      0.008). Most of it was one question: `importers_of(depth=6)` at
+      `minimal` returned 22 of 89 rows with an empty `next`, and half the
+      runs walked the graph one hop at a time (38 to 58 calls).
+    - **Done:** a cut list says so in its summary (`Showing 22 of 89
+      rows`), and at `minimal` its `next` starts with the same call at
+      `detail_level="standard"`.
+    - **Measured** (dagayn-video `experiment_e11_haiku`, pre-registered):
+      agents followed that `next`, and the hop-by-hop walks stopped (E2 runs
+      over 20 calls: 5 of 10 before, 0 of 10 after), but tokens did not fall
+      against the version without it (1.09×, Holm p = 0.85) and stayed above
+      no dagayn (1.40×, Holm p = 0.0006) at equal accuracy. Given the whole
+      list, agents checked its rows one by one (median 5 to 8 checks on the
+      two import questions), each turn carrying the long reply. Agents
+      without dagayn answered the same questions with one `ast` script.
+      What is left is the re-checking itself; telling agents they may use
+      the answer as it is has not been measured on questions worded to the
+      graph's rules.
+    - **Measured** on Rust, where no short script answers (dagayn-video
+      `experiment_e12_haiku`, pre-registered, answer key from
+      rust-analyzer's SCIP index): five caller and dependent questions on
+      `crates/`. Agents with dagayn were faster (0.71× the time, Holm p =
+      0.0006; 0.64× without one outlier run) at equal accuracy (48 vs 47
+      exact); tokens 0.85× (Holm p = 0.043), but 0.88× and not significant
+      without that run. Agents without dagayn read and grepped, or renamed
+      the method and ran `cargo check` to find callers from the errors.
+      dagayn's Rust answers were short where agents had to re-check:
+      method calls whose receiver is a struct field (`node.file_path.as_str()`)
+      are not edges (method caller recall 0.72 across the workspace), a
+      reference by full path (`crate::architecture::Snapshot`) is not an
+      import, and the closed-answer sentence still said nothing the graph
+      records was missing.
+    - **Done:** a method call's receiver typed from a field's declared
+      type across files; full-path references counted as file dependencies
+      (`import_kind: "path"`); a cut answer lists the files of every row
+      (`files`); the Rust closed-answer sentence says which calls are not
+      edges.
+    - **Measured** (dagayn-video `experiment_e13_haiku`, pre-registered,
+      same five Rust questions): against no dagayn, tokens 0.74× and time
+      0.61× (both Holm p = 0.0003) at equal accuracy; against the version
+      before the fixes, tokens 0.83× (Holm p = 0.038). Most of it came
+      from the transitive question, where every run got `files` (tokens
+      0.50× of the version without), and from field receivers (0.68×).
+    - **Measured** on TypeScript (dagayn-video `experiment_e14_haiku`,
+      Hono `src/`, answer key from the TypeScript checker): agents with
+      dagayn were faster (0.79× the time, Holm p = 0.0003), tokens not
+      different, and 5 fewer exact matches; 9 of their 11 misses only added
+      files outside `src/` that the graph's answers (whole repository)
+      listed. TypeScript method receivers were not part of the fixes
+      (`c.req.text()` on an untyped callback parameter found 1 of 7).
+    - **Done:** `path_prefix` on query answers; TypeScript calls on a
+      parameter with no type typed by the one repository class that has
+      every member the function uses on it (`member_shape`); a member name
+      the standard objects also have is no longer bound by name alone (Hono
+      method-call precision 0.72 to 0.95, recall 0.67 to 0.70).
+    - **Measured** (dagayn-video `experiment_e15_haiku`, pre-registered):
+      against no dagayn, time 0.65× (Holm p = 0.0003) at equal accuracy
+      (44 vs 44 exact), tokens not different; against the version before
+      these fixes, no difference on any measure. Most misses on both sides
+      still added files outside `src/`; agents passed `path_prefix` in 12
+      of 100 runs.
+    - **Next:** make the scope visible where agents look (the instructions,
+      or `files` grouped by top directory); Rust loop variables and closure
+      parameters.
 
 ## Touch points
 

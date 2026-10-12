@@ -4,6 +4,125 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+## 10.0.0 — 2026-10-12
+
+Breaking: the replies drop the next-step and diagnostic fields that `next`
+replaced, and several deprecated modes, tools, and stored flows are gone
+(see Removed). New in this release: whole-answer help for agents
+(`imports_of` with `depth`, `import_kind`, `path_prefix`, `files` on a cut
+answer, `architecture_analysis_tool(mode="import_cycles")`) and better call
+resolution for Rust (field receivers, paths in code) and TypeScript
+(untyped parameters, no name binding of common member names). The Rust,
+JavaScript / TypeScript, and Markdown extractor versions move (rust 23,
+javascript 11, markdown 3), so the first update after upgrading re-parses
+those files; no manual rebuild is needed.
+
+The changes were driven by pre-registered agent experiments (dagayn-video
+`experiment_*`, Claude Haiku 5.5, 100 runs each): on Rust questions an
+agent with dagayn used 0.74x the tokens and 0.61x the time of one without
+(E13), on TypeScript 0.65x the time (E15), both at equal accuracy.
+
+### Added
+
+- `query_graph_tool(pattern="imports_of")` takes `depth` (1 to 6) and walks
+  forward, as `importers_of` walks backward: what a file reaches, with
+  `depth` and `via` on each row past hop 1 and a `reachability` object.
+- `importers_of` and `imports_of` rows of Markdown edges carry `import_kind`
+  (`directive` or `link`), and an `import_kind` argument follows only one of
+  the two, during the walk. On this repository the directive-only
+  `importers_of("docs/USAGE.md", depth=6)` returns the 36 files a directive
+  chain reaches; without the filter it returned 54, links included. A Python
+  import that a lazy-export table names carries `import_kind: "lazy_export"`,
+  and the closed-answer sentence on Python imports no longer claims that
+  imports by string are never edges. `import_kind` stays at
+  `detail_level="minimal"`, and a merged row whose file both links to and
+  declares a directive on the target names both (`directive,link`).
+- `import_kind="statement"` on `importers_of` / `imports_of` follows only
+  import statements, leaving out lazy exports and Markdown edges. The
+  closed-answer sentence under `import_kind="lazy_export"` no longer says
+  only Markdown links were followed.
+- `query_graph_tool` takes `path_prefix`: only rows (and `files`) whose file
+  starts with it are kept, after the walk, so a chain through files outside
+  it still counts.
+- A `query_graph_tool` answer cut to fit lists, in `files`, the files of
+  every row it found (up to 200; 60 at `minimal`), and its summary says how
+  many: a which-files question gets its whole answer from one call.
+- `architecture_analysis_tool(mode="import_cycles")` lists every simple
+  import cycle between files, directories, or declared units (`scope_kind`),
+  narrowed by `unit_filter` and `import_kind`, with one import per hop at
+  `detail_level="standard"`. On dagayn 8c2414a, the directory-level answer
+  for `dagayn/` with `import_kind="statement"` equals the 15 cycles of the
+  agent experiments' answer key; agents had no tool for this and wrote their
+  own scripts.
+- Rust: a method call on a field of a value whose type is known
+  (`node.file_path.as_str()`, the struct declared in another file) resolves
+  through the struct's declared field types; struct nodes carry
+  `field_types`. On dagayn's own crates the callers of
+  `FilePath::as_str` went from 3 of 9 files to 8.
+- Rust: a path written in code without a `use` (`crate::architecture::
+  Snapshot::read(..)`, `&super::util::Scope`) makes the file an importer of
+  the file it reaches, with `import_kind: "path"` (and
+  `import_kind="path"` selects them). These edges do not widen which names a
+  file sees for call resolution.
+- JavaScript / TypeScript: a call on a parameter the code gives no type
+  (`app.get('/', (c) => c.req.text())`) resolves when exactly one class of
+  the repository has every member the function uses on that parameter, and
+  the members on the way have declared return types (`get req():
+  HonoRequest`); such edges carry `inferred_from: "member_shape"`. A single
+  member that the standard objects also have (`text`, `json`, `get`, ...)
+  is not enough.
+- `eval/run_agent_tokens_eval.py`: what an agent spends on a whole task with
+  a dagayn build. It runs Claude Code headless on five questions about
+  dagayn 4.15.0 (answer key in `eval/agent_tokens_tasks.json`) for two
+  setups and reports the token ratio, turns, dagayn calls, replies over 8K
+  characters, and exact matches, with an optional `--gate`. It needs the
+  `claude` CLI, so it is not run in CI.
+- `dagayn eval --benchmark flow_completeness` scores the detected entry
+  points directly, and the `query_performance` and `nplusone_count`
+  benchmarks drop their stored-flow scenarios.
+
+### Changed
+
+- The MCP server instructions and `get_minimal_context_tool`'s description
+  send an agent to it when the task names no node or file, or the graph may
+  be stale, instead of "Start every task with" / "Call this first". An agent
+  that followed them called dagayn twice where once answered. The
+  instructions now name the task's tools first and the orient tool last.
+- `query_graph_tool`'s description says what each `detail_level` keeps and
+  that a complete list never needs `"full"`.
+- A closed `callers_of`, `callees_of`, `importers_of`, or `imports_of`
+  answer (nothing cut by the output budget or the depth, no unresolved
+  endpoints) ends its `summary` with "No (direct) caller the graph records
+  is missing" and names what the graph does not hold for the target's
+  language (for Markdown, that links and dependency directives both count),
+  so an agent stops re-checking a list the graph already completed.
+- The installed instructions (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, and
+  the other platforms' files) drop the default-tools table and the trust
+  tiers: the tool descriptions say what each tool does, and
+  `get_docs_section_tool(section_name="trust")` ranks the evidence. Skills
+  no longer repeat the workflow the instructions already carry, and the
+  tool descriptions drop their `Trust:` paragraphs. Together about 4K
+  characters less in every session, and 1.2K less per skill read.
+- The closed-answer sentence on Rust callers says which method calls are
+  not edges (receivers the code does not type: closure parameters, loop
+  variables, untyped locals), instead of naming only run-time dispatch; on
+  Rust importers it says paths in code count and paths inside macro
+  arguments do not.
+- A `query_graph_tool` answer the output budget cut says so in its summary
+  (`Showing 22 of 89 rows`), and at `detail_level="minimal"` its `next`
+  starts with the same call at `"standard"`. Agents that got a cut minimal
+  list with an empty `next` walked the graph one hop at a time instead.
+- A Markdown dependency directive counts anywhere in a section, outside
+  code, when the comment opens a line: one right after a list item was
+  inline HTML to the grammar and was dropped.
+- JavaScript / TypeScript: a call of a member name the standard objects
+  also have (`res.headers.get(..)`) on a receiver of unknown type is no
+  longer bound to a same-named member of the repository by name. On Hono
+  (`src/`), method-call precision against the TypeScript checker went from
+  0.72 to 0.95 and recall from 0.67 to 0.70; the callers of `Context.get`
+  from 26 files (8 right) to 14 (all right) of 15, and of
+  `HonoRequest.text` from 1 to 6 of 7.
+
 ### Removed
 
 - The `install-dagayn` and `semantic-search` skills. An agent that has
@@ -70,19 +189,6 @@ All notable changes to `dagayn` are documented here.
   goes with them. The other tools (`list_graph_stats_tool`,
   `ensure_graph_tool`, and the rest of the advanced surface) keep their
   `_hints`.
-- `dagayn eval --benchmark flow_completeness` scores the detected entry
-  points directly, and the `query_performance` and `nplusone_count`
-  benchmarks drop their stored-flow scenarios.
-
-### Changed
-
-- The installed instructions (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, and
-  the other platforms' files) drop the default-tools table and the trust
-  tiers: the tool descriptions say what each tool does, and
-  `get_docs_section_tool(section_name="trust")` ranks the evidence. Skills
-  no longer repeat the workflow the instructions already carry, and the
-  tool descriptions drop their `Trust:` paragraphs. Together about 4K
-  characters less in every session, and 1.2K less per skill read.
 
 ## 9.0.0 — 2026-10-09
 

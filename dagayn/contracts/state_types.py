@@ -123,6 +123,7 @@ ArchitectureAnalysisMode: TypeAlias = Literal[
     "sdp_violations",
     "sap_metrics",
     "sap_violations",
+    "import_cycles",
 ]
 ArtifactScope: TypeAlias = Literal["code", "docs", "all"]
 GuidanceConfidence: TypeAlias = Literal["high", "medium", "low", "unknown"]

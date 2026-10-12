@@ -27,9 +27,14 @@ the selected embedding mode so exploration chooses the right search strategy.
   `inheritors_of`, `tests_for`, `docs_for`, `implementations_of`,
   `bridges_from`, `children_of`, `file_summary`, or `source_of`).
 - Everything that reaches a function or file, not just direct neighbours: pass
-  `depth` (up to 6) to `callers_of` or `importers_of` instead of calling once
+  `depth` (up to 6) to `callers_of` or `importers_of` (or `imports_of`, for what
+  a file reaches) instead of calling once
   per discovered node. `reachability.depth_limit_reached` says whether a deeper
   walk could find more.
+- The task names a part of the repository (`src/`, one crate): pass
+  `path_prefix` so rows outside it drop out; the walk still goes through
+  them. A list cut to fit the reply carries `files`, the files of every row
+  it found, so a which-files question needs no second call.
 - Known entity whose body you need to inspect: use
   `query_graph_tool(pattern="source_of")` before opening the file.
 - Changed code, review risk, or blast radius: use `review_tool` before raw

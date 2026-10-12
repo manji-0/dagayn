@@ -27,6 +27,7 @@ const DECLARED: &[&str] = &[
     "repo_root",
     "artifact_scope",
     "dependency_profile",
+    "import_kind",
 ];
 const MODES: &[&str] = &[
     "overview",
@@ -36,7 +37,10 @@ const MODES: &[&str] = &[
     "sdp_violations",
     "sap_metrics",
     "sap_violations",
+    "import_cycles",
 ];
+/// `import_kind` values `import_cycles` accepts, as `query_graph_tool`'s.
+const IMPORT_KINDS: &[&str] = &["directive", "link", "lazy_export", "path", "statement"];
 /// `detect_sap_violations_func`'s output budget, in tokens.
 const SAP_VIOLATIONS_BUDGET: usize = 5000;
 
@@ -84,6 +88,7 @@ struct Request<'a> {
     min_distance: f64,
     artifact_scope: &'a str,
     dependency_profile: &'a str,
+    import_kind: Option<&'a str>,
     /// The repository, for the manifests that declare units.
     root: std::path::PathBuf,
 }
@@ -155,6 +160,7 @@ impl<'a> Request<'a> {
                     "artifact_trace",
                 ],
             )?,
+            import_kind: args.optional_string("import_kind")?,
             root: std::path::PathBuf::new(),
         })
     }
@@ -175,6 +181,19 @@ pub(crate) fn architecture(context: &Context, arguments: &Map<String, Value>) ->
             &root,
             request.mode,
             "Value error, mode=\"community\" requires community_id or community_name.",
+        );
+    }
+    if let Some(kind) = request.import_kind
+        && !IMPORT_KINDS.contains(&kind)
+    {
+        return crate::dispatcher_error(
+            context,
+            &root,
+            request.mode,
+            &format!(
+                "import_kind must be 'directive', 'link', 'lazy_export', 'path', or 'statement', \
+                 got '{kind}'."
+            ),
         );
     }
     let runtime = context.runtime.clone()?;
@@ -228,6 +247,22 @@ pub(crate) fn architecture(context: &Context, arguments: &Map<String, Value>) ->
         "sap_metrics" => (
             "compute_sap_metrics_func",
             sap(&request, &Snapshot::read(&graph.store)?, artifact, profile),
+            true,
+        ),
+        "import_cycles" => (
+            "find_import_cycles_func",
+            crate::cycles::import_cycles(
+                &crate::cycles::CycleRequest {
+                    scope_kind: request.scope_kind,
+                    unit_filter: request.unit_filter.as_deref(),
+                    import_kind: request.import_kind,
+                    artifact,
+                    artifact_scope: request.artifact_scope,
+                    detail_level: request.detail_level,
+                    root: &request.root,
+                },
+                &Snapshot::read(&graph.store)?,
+            ),
             true,
         ),
         _ => (

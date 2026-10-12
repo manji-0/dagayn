@@ -40,7 +40,11 @@ correctly.
 | Code span | `` `BridgeDetector` `` | `CROSS_ARTIFACT` to a code symbol, resolved in post-processing |
 
 Dependency kinds: `constrained-by`, `blocked-by`, `supersedes`, `derived-from`
-(case-insensitive; the kind is kept as metadata).
+(case-insensitive; the kind is kept as metadata). A dependency directive
+counts when the comment opens a line (at most three spaces of indent) anywhere
+in the section outside code, so one under a list item is recorded too; the
+edge comes from the section the line falls in. Put it directly under the
+heading when you can, where readers see it first.
 
 **Paths resolve differently by construct.** Dependency directives and links
 resolve every path relative to **the document's own directory** (with or

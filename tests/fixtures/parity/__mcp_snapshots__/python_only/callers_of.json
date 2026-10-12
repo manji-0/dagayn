@@ -41,7 +41,7 @@
   ],
   "results_complete": true,
   "status": "ok",
-  "summary": "Found 1 result(s) for callers_of('services.py::create_user')",
+  "summary": "Found 1 result(s) for callers_of('services.py::create_user'). No direct caller the graph records is missing; calls made through strings, getattr, or registration are not edges",
   "target": "services.py::create_user",
   "unresolved_count": 0,
   "unresolved_targets": [],
