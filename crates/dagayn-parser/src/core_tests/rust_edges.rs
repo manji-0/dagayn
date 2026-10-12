@@ -477,7 +477,10 @@ fn workspace_member_globs_name_crates_of_the_repository() {
                 "Cargo.toml",
                 "[workspace]\nmembers = [\"app\", \"lib-*\"]\nexclude = [\"lib-old\"]\n",
             ),
-            ("lib-core/Cargo.toml", "[package]\nname = \"lib-core\"\n"),
+            (
+                "lib-core/Cargo.toml",
+                "[package]\ncategories = [\"web\"]\nedition = \"2021\"\nname = \"lib-core\"\n",
+            ),
             ("lib-core/src/lib.rs", "pub fn run() {}\n"),
             ("lib-old/Cargo.toml", "[package]\nname = \"lib-old\"\n"),
             ("lib-old/src/lib.rs", "pub fn gone() {}\n"),

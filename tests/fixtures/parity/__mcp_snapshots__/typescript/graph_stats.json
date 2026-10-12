@@ -29,7 +29,7 @@
     "IMPLEMENTS": 5,
     "IMPORTS_FROM": 51,
     "INHERITS": 11,
-    "REFERENCES": 36,
+    "REFERENCES": 37,
     "TESTED_BY": 9
   },
   "embeddings_count": 0,
@@ -52,7 +52,7 @@
     "Type": 7
   },
   "status": "ok",
-  "summary": "Graph stats for repo: 215 nodes, 402 edges, 36 files, 2 language(s), 0 embedding(s).",
-  "total_edges": 402,
+  "summary": "Graph stats for repo: 215 nodes, 403 edges, 36 files, 2 language(s), 0 embedding(s).",
+  "total_edges": 403,
   "total_nodes": 215
 }

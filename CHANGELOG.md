@@ -4,6 +4,54 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+On three repositories never used to tune dagayn (axum, rxjs, caddy;
+dagayn-video `experiment_e16_haiku`), 10.0.0's answers missed most callers
+in 13 of 15 questions while saying nothing was missing, and agents that
+trusted them got fewer TypeScript and Go answers right than agents without
+dagayn. These changes close the gaps that caused it and stop a list that may
+be incomplete from calling itself complete. Extractor versions: rust 24,
+javascript 12, go 9 (upgraded graphs re-parse those files on the first
+update).
+
+### Added
+
+- `callers_of` names calls of the target's name that the graph could not
+  bind (a receiver it could not type, a package it could not place), or
+  bound by name alone to another definition, in files the answer does not
+  list: their count and files are in `unbound_calls`, the summary says to
+  check them, and the answer does not claim to be closed. On rxjs,
+  `Subject.complete` lists 115 such calls.
+- Go: `F(x)` and `pkg.F(x)` (a package of the same module) bind to the one
+  top-level function of that name in the package's directory, found from
+  `go.mod`. On caddy, the callers of `IsUnixNetwork` found went from 5 of
+  34 files to 32.
+- Go: `importers_of` on a `.go` file lists the files that import its
+  package (`import_kind: "package"`), and says that files of the same
+  package use its names without an import.
+- `importers_of` follows re-exports (`pub use self::from_ref::FromRef`) to
+  the files that import a re-exported name, up to four hubs; a glob import
+  of the hub does not count. On axum, the importers of `from_ref.rs` went
+  from 1 of 16 files to 16.
+
+### Changed
+
+- `callers_of` counts a function used as a value (passed as a callback, a
+  default parameter, stored) as a caller, in every language that records
+  value references. JavaScript / TypeScript record a function named as a
+  default parameter value, an initializer, or a return value.
+- TypeScript: a tsconfig's relative `extends` is followed for `paths` and
+  `baseUrl`, so tests that import their package by name (`from 'rxjs'`)
+  reach its source.
+- Rust: workspace `members` globs (`axum-*`) and `exclude` decide which
+  crates are the repository's, and a manifest's package name is read
+  even when keys with arrays come before it, so calls into the workspace's
+  own crates are no longer external. A field call reached through a
+  wrapper's inner struct (`this.path_router` on `Router`, declared on
+  `RouterInner`) takes the field's type from the one struct of the owner's
+  file that declares it.
+- The closed-answer sentence for JavaScript / TypeScript and Go callers
+  says what a call needs to become an edge in that language.
+
 ## 10.0.0 — 2026-10-12
 
 Breaking: the replies drop the next-step and diagnostic fields that `next`

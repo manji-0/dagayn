@@ -28,9 +28,9 @@ pub(super) fn parse_go_with_parser(
         let root = tree.root_node();
         let module = repo_root.and_then(|root| go_module_path(root, &file_path));
         let module_root = repo_root.and_then(|root| go_module_root(root, &file_path));
-        let package_dirs = match (&module, &module_root) {
+        let (package_dirs, import_dirs) = match (&module, &module_root) {
             (Some(module), Some(module_root)) => go_package_dirs(root, source, module, module_root),
-            _ => HashMap::new(),
+            _ => (HashMap::new(), HashMap::new()),
         };
         let stdlib = GoStdlibScope::of_file(root, source, module);
         let own_dir = Path::new(file_path.as_str())
@@ -48,6 +48,7 @@ pub(super) fn parse_go_with_parser(
             locals: RefCell::new(HashSet::new()),
             own_dir,
             package_dirs,
+            import_dirs,
         };
         go_walk_children(root, &context, None, &mut nodes, &mut edges);
         go_finish_typed_receivers(&nodes, &mut edges);
@@ -82,6 +83,8 @@ struct GoContext<'a> {
     /// (`caddy` -> `""` for `github.com/caddyserver/caddy/v2`).
     own_dir: String,
     package_dirs: HashMap<String, String>,
+    /// Import path -> repository directory, for imports of the same module.
+    import_dirs: HashMap<String, String>,
 }
 
 fn go_walk_children(
@@ -96,7 +99,7 @@ fn go_walk_children(
     for child in node.children(&mut cursor) {
         match child.kind() {
             "import_declaration" => {
-                go_emit_imports(child, source, file_path, context.stdlib, edges);
+                go_emit_imports(child, source, file_path, context, edges);
             }
             "type_declaration" => {
                 // A type declared in a function body is local to it.
@@ -150,16 +153,21 @@ fn go_emit_imports(
     node: tree_sitter::Node<'_>,
     source: &[u8],
     file_path: &FilePath,
-    stdlib: &GoStdlibScope,
+    context: &GoContext<'_>,
     edges: &mut Vec<ParsedEdge>,
 ) {
+    let stdlib = context.stdlib;
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        go_emit_imports(child, source, file_path, stdlib, edges);
+        go_emit_imports(child, source, file_path, context, edges);
         if child.kind() == "interpreted_string_literal" {
             let mut target = strip_matching_quotes(node_text(child, source).trim()).to_string();
             if !target.is_empty() {
                 let mut extra = json!({});
+                if let Some(dir) = context.import_dirs.get(&target) {
+                    // A package of this module: the directory its files are in.
+                    extra["package_dir"] = json!(dir);
+                }
                 if stdlib.is_std_import(&target) {
                     let package = target.clone();
                     mark_stdlib_edge(&mut target, &mut extra, &package, StdlibEvidence::Certain);
@@ -1445,8 +1453,9 @@ fn go_package_dirs(
     source: &[u8],
     module: &str,
     module_root: &str,
-) -> HashMap<String, String> {
+) -> (HashMap<String, String>, HashMap<String, String>) {
     let mut out = HashMap::new();
+    let mut by_path = HashMap::new();
     let mut specs = Vec::new();
     let mut cursor = root.walk();
     for declaration in root.children(&mut cursor) {
@@ -1486,11 +1495,12 @@ fn go_package_dirs(
                 }
             }
         };
+        by_path.insert(path.clone(), dir.clone());
         if name != "_" && name != "." && !name.is_empty() {
             out.insert(name, dir);
         }
     }
-    out
+    (out, by_path)
 }
 
 fn go_collect_import_specs<'t>(node: tree_sitter::Node<'t>, out: &mut Vec<tree_sitter::Node<'t>>) {

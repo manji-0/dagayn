@@ -863,8 +863,8 @@ fn imported_names(edge: &GraphEdge) -> Option<Vec<(String, String)>> {
 /// Files that import `target`'s items through a re-export (`pub use
 /// self::from_ref::FromRef` in a module the importer `use`s), following up
 /// to four hubs: an import of the hub counts when it names one of the
-/// re-exported names, or is a glob. Returns each such import edge with the
-/// hub it went through.
+/// re-exported names (a glob import does not). Returns each such import
+/// edge with the hub it went through.
 fn reexport_importers(
     store: &GraphStore,
     target: &str,
@@ -894,28 +894,25 @@ fn reexport_importers(
                 if edge.kind != "IMPORTS_FROM" || !import_kind_matches(&edge, import_kind) {
                     continue;
                 }
-                let brought = imported_names(&edge);
-                let hits: Option<HashSet<String>> = match (&brought, &exported) {
-                    (None, None) => None,
-                    (None, Some(exported)) => Some(exported.clone()),
-                    (Some(pairs), exported) => {
-                        let hit: HashSet<String> = pairs
-                            .iter()
-                            .filter(|(original, _)| {
-                                exported
-                                    .as_ref()
-                                    .is_none_or(|names| names.contains(original))
-                            })
-                            .map(|(_, alias)| alias.clone())
-                            .collect();
-                        if hit.is_empty() {
-                            continue;
-                        }
-                        Some(hit)
-                    }
+                // A glob import of the hub makes the names visible without
+                // saying the file uses them: only imports that name one count.
+                let Some(pairs) = imported_names(&edge) else {
+                    continue;
                 };
+                let hits: HashSet<String> = pairs
+                    .iter()
+                    .filter(|(original, _)| {
+                        exported
+                            .as_ref()
+                            .is_none_or(|names| names.contains(original))
+                    })
+                    .map(|(_, alias)| alias.clone())
+                    .collect();
+                if hits.is_empty() {
+                    continue;
+                }
                 if edge.extra.get("re_export").and_then(Value::as_bool) == Some(true) {
-                    next.push((edge.file_path.clone(), hits));
+                    next.push((edge.file_path.clone(), Some(hits)));
                 }
                 if seen_files.insert(edge.file_path.clone()) {
                     out.push((edge, hub.clone()));
@@ -1244,8 +1241,9 @@ fn expand_transitive(
 }
 
 /// Calls named like `node` whose target the graph left unbound (no
-/// `file::` qualified target, not external), in files the answer does not
-/// already list: how many, and their files.
+/// `file::` qualified target, not external) or bound by name alone to
+/// another definition, in files the answer does not already list: how
+/// many, and their files.
 fn unbound_same_name_calls(
     store: &GraphStore,
     node: &GraphNode,
@@ -1262,14 +1260,18 @@ fn unbound_same_name_calls(
                 .map(|(file, _)| file.to_string())
         })
         .collect();
-    let Ok(edges) = store.search_edges_by_target_name(&node.name, "CALLS") else {
+    let Ok(edges) = store.search_edges_by_target_leaf(&node.name, "CALLS") else {
         return (0, Vec::new());
     };
     let mut sites = 0;
     let mut files: Vec<String> = Vec::new();
     for edge in edges {
-        if edge.target_qualified.contains("::")
-            || edge.target_qualified != node.name
+        // Unbound (`complete`), or bound by name alone to another definition
+        // (`receiver_unknown`: the receiver's type was never known).
+        let unbound = !edge.target_qualified.contains("::") && edge.target_qualified == node.name;
+        let guessed = edge.target_qualified != node.qualified_name
+            && edge.extra.get("receiver_unknown").and_then(Value::as_bool) == Some(true);
+        if !(unbound || guessed)
             || edge.extra.get("external").and_then(Value::as_bool) == Some(true)
             || listed.contains(&edge.file_path)
             || path_prefix.is_some_and(|prefix| !edge.file_path.starts_with(prefix))
@@ -1327,6 +1329,11 @@ fn closed_note(
             "a method call is an edge only where the code gives its receiver's type (a \
              declared type, `new X()`, a member's declared return type); calls through \
              `any` or untyped values are not"
+        }
+        ("go", false, _) => {
+            "a Go import names a package, so these files import this file's package (import_kind \
+             package); files of the same package use its names without an import and are not \
+             listed"
         }
         ("go", true, _) => {
             "a call through an interface value is a call of the interface's method, not of \
@@ -1424,6 +1431,21 @@ fn run_pattern(
             for edge in &direct {
                 found.rows.push(importer_row(edge));
                 found.edges.push(edge_dict(edge));
+            }
+            // Go imports name a package: the files that import this file's
+            // package directory (`package_dir` on their import edge).
+            if file.ends_with(".go") && import_kind.is_none() {
+                let dir = file.rsplit_once('/').map_or("", |(dir, _)| dir);
+                for edge in store.get_edges_by_kind("IMPORTS_FROM", false).ok()? {
+                    if edge.extra.get("package_dir").and_then(Value::as_str) == Some(dir)
+                        && edge.file_path != file
+                    {
+                        let mut row = importer_row(&edge);
+                        row.push(("import_kind", json!("package")));
+                        found.rows.push(row);
+                        found.edges.push(edge_dict(&edge));
+                    }
+                }
             }
             for (edge, hub) in reexport_importers(store, &file, &direct, import_kind)? {
                 let mut row = importer_row(&edge);

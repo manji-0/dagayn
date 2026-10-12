@@ -65,12 +65,9 @@ static MOD_DECL: LazyLock<Regex> = LazyLock::new(|| {
 static PATH_ATTR: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"#\s*\[\s*path\s*=\s*"([^"]+)"\s*\]"#).expect("path attribute regex")
 });
-static PACKAGE_NAME: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?ms)^\[package\][^\[]*?^\s*name\s*=\s*"([^"]+)""#).expect("package name regex")
-});
-static LIB_NAME: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?ms)^\[lib\][^\[]*?^\s*name\s*=\s*"([^"]+)""#).expect("lib name regex")
-});
+/// A `name = "..."` line.
+static NAME_KEY: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(?m)^\s*name\s*=\s*"([^"]+)""#).expect("name key regex"));
 static MEMBERS: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?ms)^\s*members\s*=\s*\[(.*?)\]"#).expect("workspace members regex")
 });
@@ -257,6 +254,20 @@ fn build_crate_modules(repo_root: &Path, root: &str) -> CrateModules {
     modules
 }
 
+/// The `name` of a manifest's `[section]`, read up to the next section
+/// header: keys before it may hold arrays (`categories = ["web"]`).
+fn section_name(manifest: &str, section: &str) -> Option<String> {
+    let header = format!("[{section}]");
+    let mut lines = manifest.lines().skip_while(|line| line.trim() != header);
+    lines.next()?;
+    let body: Vec<&str> = lines
+        .take_while(|line| !line.trim_start().starts_with('['))
+        .collect();
+    NAME_KEY
+        .captures(&body.join("\n"))
+        .map(|captures| captures[1].to_string())
+}
+
 /// The quoted entries of a TOML string array's body.
 fn manifest_list(body: &str) -> Vec<String> {
     body.split(',')
@@ -322,10 +333,9 @@ fn build_libraries(repo_root: &Path) -> HashMap<String, String> {
         else {
             continue;
         };
-        let name = LIB_NAME
-            .captures(&manifest)
-            .or_else(|| PACKAGE_NAME.captures(&manifest))
-            .map(|captures| captures[1].replace('-', "_"));
+        let name = section_name(&manifest, "lib")
+            .or_else(|| section_name(&manifest, "package"))
+            .map(|name| name.replace('-', "_"));
         let lib = join(&package, "src/lib.rs");
         if let Some(name) = name
             && exists(repo_root, &lib)

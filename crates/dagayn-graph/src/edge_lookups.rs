@@ -163,6 +163,21 @@ impl GraphStore {
             .map_err(Into::into)
     }
 
+    /// Edges whose `target_name` is `name` or ends in `.name` (a member of
+    /// any type with that name).
+    pub fn search_edges_by_target_leaf(&self, name: &str, kind: &str) -> Result<Vec<GraphEdge>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT * FROM edges WHERE kind = ? AND (target_name = ? OR target_name LIKE ? ESCAPE '\\')",
+        )?;
+        let escaped = name
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
+        let rows = stmt.query_map(params![kind, name, format!("%.{escaped}")], edge_from_row)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
     /// `IMPORTS_FROM` edges resolving to `defining_file`.
     ///
     /// `IMPORTS_FROM.target_qualified` holds the resolved module file path, not

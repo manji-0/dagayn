@@ -3470,7 +3470,8 @@ fn callers_include_uses_of_a_function_as_a_value() {
 #[test]
 fn a_list_with_unbound_calls_of_the_name_is_not_closed() {
     // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
-    // `s.complete()` on an untyped parameter may call `Subject.complete`; the
+    // `s.complete()` on an untyped parameter (two classes have `complete`, so
+    // its shape types nothing) may call `Subject.complete`; the
     // answer says where such calls are instead of claiming the list is whole.
     let repo = Repo::new("ts-unbound-same-name", false);
     repo.write(
@@ -3479,7 +3480,7 @@ fn a_list_with_unbound_calls_of_the_name_is_not_closed() {
     );
     repo.write(
         "src/other.ts",
-        "export class Other { complete(): void {} }\nexport function finish(s: any): void { s.complete(); }\n",
+        "export class Other { complete(): void {} }\nexport function finish(s) { s.complete(); }\n",
     );
     repo.build();
     let reply = answer(
@@ -3492,6 +3493,33 @@ fn a_list_with_unbound_calls_of_the_name_is_not_closed() {
     assert_eq!(
         reply["unbound_calls"]["files"],
         json!(["src/other.ts"]),
+        "{reply}"
+    );
+}
+
+#[test]
+fn go_file_importers_are_the_files_importing_its_package() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    let repo = Repo::new("go-package-importers", false);
+    repo.write("go.mod", "module example.com/app\n\ngo 1.22\n");
+    repo.write("tls/tls.go", "package tls\n\ntype TLS struct{}\n");
+    repo.write("tls/other.go", "package tls\n\nfunc use(t TLS) {}\n");
+    repo.write(
+        "http/app.go",
+        "package http\n\nimport \"example.com/app/tls\"\n\nfunc Run(t *tls.TLS) {}\n",
+    );
+    repo.build();
+    let reply = answer(
+        &repo.context(),
+        "query_graph_tool",
+        json!({"pattern": "importers_of", "target": "tls/tls.go"}),
+    );
+    assert_eq!(row_files(&reply), ["http/app.go"], "{reply}");
+    assert!(
+        reply["summary"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("same package"),
         "{reply}"
     );
 }

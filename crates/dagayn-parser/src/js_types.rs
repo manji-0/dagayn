@@ -386,7 +386,28 @@ pub(super) fn javascript_merge_type_references(
             }
         }
     }
-    *edges = kept;
+    // `let t: typeof Color = Color` uses the name as a type and as a value:
+    // one edge, with both.
+    let mut drop = Vec::new();
+    for (at, edge) in kept.iter().enumerate() {
+        if edge.kind == crate::core::types::EdgeKind::References
+            && edge.extra["value_reference"] == json!(true)
+            && let Some(&typed) = merged.get(&(edge.source.clone(), edge.target.clone()))
+            && kept[typed].line == edge.line
+        {
+            drop.push((at, typed));
+        }
+    }
+    for &(_, typed) in &drop {
+        kept[typed].extra["value_reference"] = json!(true);
+    }
+    let dropped: std::collections::HashSet<usize> = drop.iter().map(|&(at, _)| at).collect();
+    *edges = kept
+        .into_iter()
+        .enumerate()
+        .filter(|(at, _)| !dropped.contains(at))
+        .map(|(_, edge)| edge)
+        .collect();
 }
 
 /// Emits the type references of the type subtrees below `node` that the
