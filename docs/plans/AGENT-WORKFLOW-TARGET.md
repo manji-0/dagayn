@@ -528,8 +528,19 @@ fixtures the tests build.
       files outside `src/` that the graph's answers (whole repository)
       listed. TypeScript method receivers were not part of the fixes
       (`c.req.text()` on an untyped callback parameter found 1 of 7).
-    - **Next:** a path scope for query answers; TypeScript receivers of
-      untyped callback parameters; Rust loop variables and closure
+    - **Done:** `path_prefix` on query answers; TypeScript calls on a
+      parameter with no type typed by the one repository class that has
+      every member the function uses on it (`member_shape`); a member name
+      the standard objects also have is no longer bound by name alone (Hono
+      method-call precision 0.72 to 0.95, recall 0.67 to 0.70).
+    - **Measured** (dagayn-video `experiment_e15_haiku`, pre-registered):
+      against no dagayn, time 0.65× (Holm p = 0.0003) at equal accuracy
+      (44 vs 44 exact), tokens not different; against the version before
+      these fixes, no difference on any measure. Most misses on both sides
+      still added files outside `src/`; agents passed `path_prefix` in 12
+      of 100 runs.
+    - **Next:** make the scope visible where agents look (the instructions,
+      or `files` grouped by top directory); Rust loop variables and closure
       parameters.
 
 ## Touch points
