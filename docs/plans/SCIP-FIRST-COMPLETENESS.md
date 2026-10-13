@@ -222,6 +222,37 @@ of group B in TypeScript is not names:
 So for TypeScript, step 3 is about a hook update keeping what a build
 found, not about closing the gap.
 
+## TypeScript without scip-typescript: a tsgo resolver
+
+<!-- derived-from #open-questions -->
+
+TypeScript 7.0.2 (the Go compiler) ships an unstable API,
+`typescript/unstable/sync`, that answers `getSymbolAtLocation` for many
+nodes per request over IPC. A resolver on top of it asks for every
+identifier's symbol and takes each declaration's line from the source
+files it has already fetched. Measured in the evaluation repository
+(`tsgo/RESULTS.md`, 4 cores):
+
+| typeorm, with `node_modules` | Time |
+| ---------------------------- | ---- |
+| `scip-typescript` 0.4.0 | 29.3 s |
+| TypeScript 5.9 compiler API, symbols only | 15.1 s |
+| tsgo, every identifier (339 k) | 9.5 s |
+| tsgo, identifiers named like a repository function or class (147 k) | 6.5 s |
+
+- **Agreement.** tsgo agrees with TypeScript 5.9 on 97–99.8 % of
+  references. The differences examined (zod) are which of several
+  declarations a union property returns first.
+- **Resident mode.** Kept running, the resolver re-resolves an edited
+  file and the files importing it in 0.13–0.30 s per edit (typeorm,
+  `updateSnapshot({fileChanges})`). That is fast enough for the hook
+  update, which would close the hook-update gap below for TypeScript.
+- **Costs:**
+  - TypeScript 7 rejects removed options (`downlevelIteration`,
+    `moduleResolution: node`), so the resolver needs a derived tsconfig
+    that overrides them.
+  - The API is marked unstable.
+
 ## Open questions
 
 - **Default on.** `--scip` is opt-in. Whether `build` should use an
