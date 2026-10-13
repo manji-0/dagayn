@@ -308,6 +308,33 @@ pub(super) fn javascript_emit_value_references(
                 let name = node_text(value, context.source);
                 javascript_emit_reference_if_known(value, context, &caller, &name, edges);
             }
+            // `const stringType = ZodString.create;` at module level: calls of
+            // `stringType` return what `ZodString.create` does.
+            if node.kind() == "variable_declarator"
+                && enclosing_func.is_none()
+                && owner_path.is_none()
+                && let (Some(alias), Some(value)) = (
+                    node.child_by_field_name("name"),
+                    node.child_by_field_name("value"),
+                )
+                && alias.kind() == "identifier"
+                && value.kind() == "member_expression"
+                && let Some(path) = javascript_member_path(value, context.source)
+                && let Some((owner, _)) = path.split_once('.')
+                && context.class_table.contains_key(owner)
+            {
+                edges.push(ParsedEdge {
+                    kind: crate::core::types::EdgeKind::References,
+                    source: caller.clone(),
+                    target: qualify(&context.file_path, &path, None),
+                    file_path: context.file_path.clone(),
+                    line: line_of(value),
+                    extra: json!({
+                        "value_reference": true,
+                        "alias": node_text(alias, context.source),
+                    }),
+                });
+            }
         }
         "assignment_pattern" => {
             if let Some(value) = node.child_by_field_name("right")

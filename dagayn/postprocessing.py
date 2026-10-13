@@ -111,8 +111,10 @@ def _resolve_bare_name_edges(
     with _warn_on_failure(
         "Bare-name edge resolution", (OSError, RuntimeError, TypeError, AttributeError), warnings
     ):
-        result.bare_call_targets_resolved = int(store.resolve_bare_call_targets())
+        # Inheritance first: a call on a subclass value binds to a method its
+        # base class declares, so the bases must be resolved.
         result.bare_inheritance_targets_resolved = int(store.resolve_bare_inheritance_targets())
+        result.bare_call_targets_resolved = int(store.resolve_bare_call_targets())
     with _warn_on_failure("Rust impl member linking", _STEP_ERRORS, warnings):
         result.foreign_impl_members_linked = int(store.link_foreign_impl_members())
 

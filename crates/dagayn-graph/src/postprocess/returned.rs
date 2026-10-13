@@ -260,6 +260,11 @@ pub(crate) struct Graph {
     go_imports: HashMap<String, Vec<(String, String, bool)>>,
     /// Go struct QN -> the types it embeds, as written (`caddyfile.Dispenser`).
     embeds: HashMap<String, Vec<String>>,
+    /// Class QN -> the classes it extends (resolved `INHERITS` targets).
+    bases: HashMap<String, Vec<String>>,
+    /// `file::alias` -> the function it names (`const stringType =
+    /// ZodString.create`).
+    aliases: HashMap<String, String>,
 }
 
 impl Graph {
@@ -415,6 +420,28 @@ fn load_graph(tx: &Transaction<'_>) -> Result<Graph> {
             _ => {}
         }
         graph.nodes.insert(qualified);
+    }
+    {
+        let mut stmt = tx.prepare(
+            "SELECT file_path, json_extract(extra, '$.alias'), target_qualified FROM edges \
+             WHERE kind = 'REFERENCES' AND json_extract(extra, '$.alias') IS NOT NULL",
+        )?;
+        let rows = stmt.query_map([], |row| <(String, String, String)>::try_from(row))?;
+        for row in rows {
+            let (file, alias, target) = row?;
+            graph.aliases.insert(format!("{file}::{alias}"), target);
+        }
+    }
+    {
+        let mut stmt = tx.prepare(
+            "SELECT source_qualified, target_qualified FROM edges \
+             WHERE kind = 'INHERITS' AND target_qualified LIKE '%::%'",
+        )?;
+        let rows = stmt.query_map([], |row| <(String, String)>::try_from(row))?;
+        for row in rows {
+            let (class, base) = row?;
+            graph.bases.entry(class).or_default().push(base);
+        }
     }
     let mut stmt = tx.prepare(
         "SELECT file_path, target_qualified, extra FROM edges WHERE kind = 'IMPORTS_FROM'",
@@ -1108,7 +1135,12 @@ fn resolve_type(
 /// `Option` / `Promise` / `Task` / `Future` when the call was (`?`,
 /// `.unwrap()`, `await`, `try`).
 fn returned_by(graph: &Graph, function: &str, unwrap: bool, element: bool) -> Option<Returned> {
-    let (return_type, owner) = graph.returns.get(function)?;
+    let (return_type, owner) = graph.returns.get(function).or_else(|| {
+        graph
+            .aliases
+            .get(function)
+            .and_then(|aliased| graph.returns.get(aliased))
+    })?;
     let file = function.split_once("::").map(|(file, _)| file)?;
     let family = language_family(file)?;
     let (mut base, mut arguments) = parse_type(return_type)?;
@@ -1166,8 +1198,9 @@ fn origin_call(
     file: &str,
     line: i64,
     name: &str,
-    nodes: &HashSet<String>,
+    graph: &Graph,
 ) -> Result<Option<(String, Value)>> {
+    let nodes = &graph.nodes;
     let mut stmt = tx.prepare_cached(
         "SELECT id, target_qualified, extra FROM edges \
          WHERE kind = 'CALLS' AND source_qualified = ? AND file_path = ? AND line = ?",
@@ -1176,6 +1209,10 @@ fn origin_call(
         <(i64, String, String)>::try_from(row)
     })?;
     let mut unresolved = None;
+    // A call imported under another name (`z.string()` is `stringType`,
+    // exported `as string`): the one other call of the line whose result
+    // has a known type.
+    let mut renamed: Vec<(String, Value)> = Vec::new();
     for row in rows {
         let (edge_id, target, extra) = row?;
         if edge_id == id {
@@ -1195,14 +1232,23 @@ fn origin_call(
                 .and_then(Value::as_str)
                 .is_some_and(|symbol| leaf(symbol) == name);
         if !named {
+            if graph.returns.contains_key(&target) || graph.aliases.contains_key(&target) {
+                renamed.push((target, extra));
+            }
             continue;
         }
-        let resolved =
-            nodes.contains(&target) || extra.get("external").and_then(Value::as_bool) == Some(true);
+        let resolved = nodes.contains(&target)
+            || graph.aliases.contains_key(&target)
+            || extra.get("external").and_then(Value::as_bool) == Some(true);
         if resolved {
             return Ok(Some((target, extra)));
         }
         unresolved.get_or_insert((target, extra));
+    }
+    if unresolved.is_none()
+        && let [only] = renamed.as_slice()
+    {
+        return Ok(Some(only.clone()));
     }
     Ok(unresolved)
 }
@@ -1248,6 +1294,79 @@ fn sole_struct_field<'g>(graph: &'g Graph, file: &str, field: &str) -> Option<&'
         .filter_map(|(_, fields)| fields.get(field));
     let first = found.next()?;
     found.next().is_none().then_some(first)
+}
+
+/// A call on a value of a known type (`receiver_type`) that the type does not
+/// declare and no pass bound: the method of a class it extends.
+fn resolve_inherited_typed_calls(tx: &Transaction<'_>, graph: &Graph) -> Result<i64> {
+    if graph.bases.is_empty() {
+        return Ok(0);
+    }
+    let calls = {
+        let mut stmt = tx.prepare(
+            "SELECT id, file_path, target_qualified, json_extract(extra, '$.receiver_type'), extra \
+             FROM edges WHERE kind = 'CALLS' AND target_qualified NOT LIKE '%::%' \
+               AND json_extract(extra, '$.receiver_type') IS NOT NULL \
+               AND COALESCE(json_extract(extra, '$.external'), 0) = 0",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            <(i64, String, String, String, String)>::try_from(row)
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    let mut changed = 0_i64;
+    for (id, file, method, receiver, extra) in calls {
+        let Some(family) = language_family(&file) else {
+            continue;
+        };
+        let Some(Returned::Class(class, _)) = resolve_type(graph, &receiver, &file, family, None)
+        else {
+            continue;
+        };
+        let Some(target) = inherited_method(graph, family, &class, &method) else {
+            continue;
+        };
+        let mut extra: Value = serde_json::from_str(&extra)?;
+        extra["inherited"] = json!(true);
+        update_call(tx, id, &target, &extra)?;
+        changed += 1;
+    }
+    Ok(changed)
+}
+
+/// `method` declared on a class `class` extends, nearest first (six
+/// levels): the target a call on a `class` value reaches.
+fn inherited_method(
+    graph: &Graph,
+    family: &'static str,
+    class: &str,
+    method: &str,
+) -> Option<String> {
+    let mut frontier: Vec<String> = graph.bases.get(class).cloned().unwrap_or_default();
+    let mut seen: HashSet<String> = HashSet::new();
+    for _ in 0..6 {
+        let mut next = Vec::new();
+        for base in frontier {
+            if !seen.insert(base.clone()) {
+                continue;
+            }
+            let name = base.rsplit(['.', ':']).next().unwrap_or(&base).to_string();
+            let prefix = format!("{base}.");
+            if let Some(found) = graph
+                .methods
+                .get(&(family, name, method.to_string()))
+                .and_then(|targets| targets.iter().find(|t| t.starts_with(&prefix)))
+            {
+                return Some(found.clone());
+            }
+            next.extend(graph.bases.get(&base).cloned().unwrap_or_default());
+        }
+        if next.is_empty() {
+            break;
+        }
+        frontier = next;
+    }
+    None
 }
 
 /// Go `h.Err(..)` where `h`'s type (`Helper`) has no `Err` but embeds a type
@@ -1631,7 +1750,8 @@ pub(crate) fn resolve_returned_receivers(
     for _ in 0..MAX_ROUNDS {
         let mut round = resolve_field_receivers(tx, graph)?
             + resolve_shape_receivers(tx, graph)?
-            + resolve_go_promoted_methods(tx, graph)?;
+            + resolve_go_promoted_methods(tx, graph)?
+            + resolve_inherited_typed_calls(tx, graph)?;
         for (id, source, file, method, mut extra) in pending_calls(tx)? {
             let Some(family) = language_family(&file) else {
                 continue;
@@ -1646,7 +1766,7 @@ pub(crate) fn resolve_returned_receivers(
             let unwrap = origin.get("unwrap").and_then(Value::as_bool) == Some(true);
             let element = origin.get("element").and_then(Value::as_bool) == Some(true);
             let Some((inner_target, inner_extra)) =
-                origin_call(tx, id, &source, &file, line, name, &graph.nodes)?
+                origin_call(tx, id, &source, &file, line, name, graph)?
             else {
                 continue;
             };
@@ -1654,7 +1774,9 @@ pub(crate) fn resolve_returned_receivers(
             // Typed by a table of package return types, not by a type the
             // code writes: observed-method inference does not learn from it.
             let mut by_table = false;
-            let returned = if graph.nodes.contains(&inner_target) {
+            let returned = if graph.nodes.contains(&inner_target)
+                || graph.aliases.contains_key(&inner_target)
+            {
                 returned_by(graph, &inner_target, unwrap, element)
             } else if element {
                 // An element of what a package returned: its type is not
@@ -1713,6 +1835,25 @@ pub(crate) fn resolve_returned_receivers(
             };
             match returned {
                 Some(Returned::Class(class, class_name)) => {
+                    // Declared on a class it extends (`ZodVoid` gets `parse`
+                    // from `ZodType`).
+                    if graph
+                        .methods
+                        .get(&(family, class_name.clone(), method.clone()))
+                        .is_none_or(|targets| {
+                            !targets.iter().any(|t| t.starts_with(&format!("{class}.")))
+                        })
+                        && let Some(inherited) = inherited_method(graph, family, &class, &method)
+                    {
+                        if let Some(map) = extra.as_object_mut() {
+                            map.remove("receiver_unknown");
+                        }
+                        extra["receiver_type"] = json!(class_name);
+                        extra["inherited"] = json!(true);
+                        update_call(tx, id, &inherited, &extra)?;
+                        round += 1;
+                        continue;
+                    }
                     let Some(targets) =
                         graph
                             .methods

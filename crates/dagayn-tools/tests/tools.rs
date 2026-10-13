@@ -3572,3 +3572,33 @@ fn go_callers_follow_dot_imports_embedding_and_function_values() {
         ["register/register.go"]
     );
 }
+
+#[test]
+fn callers_reach_inherited_methods_through_factory_aliases() {
+    // dagayn: tests crates/dagayn-graph/src/postprocess/returned.rs::inherited_method
+    // `z.string()` is `ZodString.create` under an alias exported by another
+    // name; `.email()` is ZodString's; `.parse()` is declared on ZodType.
+    let repo = Repo::new("ts-alias-inherited", false);
+    repo.write(
+        "src/types.ts",
+        "export abstract class ZodType {\n  parse(x: unknown): unknown { return x; }\n}\nexport class ZodString extends ZodType {\n  email(): ZodString { return this; }\n  static create = (): ZodString => {\n    return new ZodString();\n  };\n}\nconst stringType = ZodString.create;\nexport { stringType as string };\n",
+    );
+    repo.write("src/index.ts", "export * from \"./types\";\n");
+    repo.write(
+        "src/t/a.test.ts",
+        "import * as z from \"../index\";\nexport function f() {\n  const s = z.string().email();\n  s.parse(1);\n}\n",
+    );
+    repo.build();
+    let context = repo.context();
+    for target in [
+        "src/types.ts::ZodString.email",
+        "src/types.ts::ZodType.parse",
+    ] {
+        let reply = answer(
+            &context,
+            "query_graph_tool",
+            json!({"pattern": "callers_of", "target": target}),
+        );
+        assert_eq!(row_files(&reply), ["src/t/a.test.ts"], "{target}: {reply}");
+    }
+}

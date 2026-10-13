@@ -194,10 +194,12 @@ fn minimal_steps(
     }) {
         outcome.set("fts_indexed", count);
     }
-    if let Some((calls, inheritance)) = outcome.step("Bare-name edge resolution", || {
+    // Inheritance first: a call on a subclass value binds to a method its
+    // base class declares, so the bases must be resolved.
+    if let Some((inheritance, calls)) = outcome.step("Bare-name edge resolution", || {
         Ok((
-            store.resolve_bare_call_targets()?,
             store.resolve_bare_inheritance_targets()?,
+            store.resolve_bare_call_targets()?,
         ))
     }) {
         outcome.set("bare_call_targets_resolved", calls);

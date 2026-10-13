@@ -98,20 +98,22 @@ pub fn run_post_processing_json(
         result.fts_indexed = Some(count);
     }
 
-    if let Some(count) = record_step(
-        &mut result.warnings,
-        "Bare-name edge resolution (calls)",
-        || store.resolve_bare_call_targets(),
-    ) {
-        result.bare_call_targets_resolved = Some(count);
-    }
-
+    // Inheritance first: a call on a subclass value binds to a method its
+    // base class declares, so the bases must be resolved.
     if let Some(count) = record_step(
         &mut result.warnings,
         "Bare-name edge resolution (inheritance)",
         || store.resolve_bare_inheritance_targets(),
     ) {
         result.bare_inheritance_targets_resolved = Some(count);
+    }
+
+    if let Some(count) = record_step(
+        &mut result.warnings,
+        "Bare-name edge resolution (calls)",
+        || store.resolve_bare_call_targets(),
+    ) {
+        result.bare_call_targets_resolved = Some(count);
     }
 
     if let Some(count) = record_step(&mut result.warnings, "Rust impl member linking", || {

@@ -108,8 +108,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 12: a function named as a default parameter value, a variable's
         // initializer, or a return value is a REFERENCES `value_reference`;
         // a tsconfig's relative `extends` is followed for `paths`/`baseUrl`.
+        // 13: a module-level `const f = Class.member` records the alias
+        // (REFERENCES `alias`), so calls of `f` return what the member does.
         extractor: "javascript",
-        version: 12,
+        version: 13,
         languages: &["javascript", "typescript", "tsx", "vue", "svelte"],
     },
     ExtractorVersion {
