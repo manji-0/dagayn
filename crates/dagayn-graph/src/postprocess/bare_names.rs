@@ -579,17 +579,47 @@ fn bind_go_package_calls(tx: &Transaction<'_>) -> Result<i64> {
     }
     let edges = {
         let mut stmt = tx.prepare(
-            "SELECT id, target_qualified, json_extract(extra, '$.go_package_dir') FROM edges \
-             WHERE kind = 'CALLS' AND json_extract(extra, '$.go_package_dir') IS NOT NULL \
+            "SELECT id, file_path, target_qualified, json_extract(extra, '$.go_package_dir') \
+             FROM edges \
+             WHERE (kind = 'CALLS' OR (kind = 'REFERENCES' \
+                    AND json_extract(extra, '$.value_reference') = 1)) \
+               AND json_extract(extra, '$.go_package_dir') IS NOT NULL \
                AND target_qualified NOT LIKE '%::%' \
                AND COALESCE(json_extract(extra, '$.external'), 0) = 0",
         )?;
-        let rows = stmt.query_map([], |row| <(i64, String, String)>::try_from(row))?;
+        let rows = stmt.query_map([], |row| <(i64, String, String, String)>::try_from(row))?;
         rows.collect::<std::result::Result<Vec<_>, _>>()?
     };
+    // `import . "pkg"`: a file's unqualified names may come from these dirs.
+    let mut dot_dirs: HashMap<String, Vec<String>> = HashMap::new();
+    {
+        let mut stmt = tx.prepare(
+            "SELECT file_path, json_extract(extra, '$.package_dir') FROM edges \
+             WHERE kind = 'IMPORTS_FROM' AND json_extract(extra, '$.dot_import') = 1",
+        )?;
+        let rows = stmt.query_map([], |row| <(String, String)>::try_from(row))?;
+        for row in rows {
+            let (file, dir) = row?;
+            dot_dirs.entry(file).or_default().push(dir);
+        }
+    }
     let mut resolved = 0_i64;
-    for (id, name, dir) in edges {
-        let Some([qualified]) = functions.get(&(dir, name)).map(Vec::as_slice) else {
+    for (id, file, name, dir) in edges {
+        let mut found = functions
+            .get(&(dir.clone(), name.clone()))
+            .cloned()
+            .unwrap_or_default();
+        if found.is_empty() && dir == file.rsplit_once('/').map_or("", |(d, _)| d) {
+            for dot in dot_dirs.get(&file).into_iter().flatten() {
+                found.extend(
+                    functions
+                        .get(&(dot.clone(), name.clone()))
+                        .cloned()
+                        .unwrap_or_default(),
+                );
+            }
+        }
+        let [qualified] = found.as_slice() else {
             continue;
         };
         tx.execute(

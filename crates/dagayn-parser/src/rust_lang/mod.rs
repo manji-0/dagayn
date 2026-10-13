@@ -59,6 +59,7 @@ pub(super) fn parse_rust_with_parser(
             uses: RefCell::new(HashMap::new()),
             repo_glob: std::cell::Cell::new(false),
             any_glob: std::cell::Cell::new(false),
+            glob_paths: RefCell::new(Vec::new()),
             free_functions: &free_functions,
             struct_fields: &struct_fields,
             locals: RefCell::new(Vec::new()),
@@ -106,6 +107,7 @@ pub(super) fn parse_rust_with_parser(
             &file_path,
             scope.as_ref(),
             &context.uses.borrow(),
+            &context.glob_paths.borrow(),
         );
         add_tested_by_edges(&nodes, &mut edges);
         extract_rust_dagayn_directives(root, &file_path, source, &nodes, &mut edges);
@@ -665,6 +667,9 @@ struct RustParseContext<'a> {
     repo_glob: std::cell::Cell<bool>,
     /// Any `use ...::*` is in effect: a glob may shadow a prelude name.
     any_glob: std::cell::Cell<bool>,
+    /// The module paths of `use ...::*` (`tracing_mock`): a call path whose
+    /// first segment no `use` names (`expect::event()`) may start in one.
+    glob_paths: RefCell<Vec<Vec<String>>>,
     /// Free functions of this file (not methods), by name.
     free_functions: &'a HashSet<String>,
     /// Field types of the structs this file declares: struct -> field -> type.
@@ -1258,6 +1263,7 @@ fn rust_finish_call_targets(
     file_path: &FilePath,
     scope: Option<&modules::RustModuleScope<'_>>,
     uses: &HashMap<String, Vec<String>>,
+    glob_paths: &[Vec<String>],
 ) {
     let is_type = |segment: &str| segment.starts_with(|c: char| c.is_ascii_uppercase());
     for edge in edges.iter_mut() {
@@ -1306,7 +1312,21 @@ fn rust_finish_call_targets(
             }
             continue;
         }
-        let Some(resolved) = scope.and_then(|scope| scope.resolve(&segments)) else {
+        // `expect::event()` under `use tracing_mock::*;`: the module path may
+        // start in a module a glob brought in.
+        let resolved = scope.and_then(|scope| {
+            scope
+                .resolve(&segments)
+                .filter(|r| r.rest.is_empty())
+                .or_else(|| {
+                    glob_paths.iter().find_map(|glob| {
+                        let mut path = glob.clone();
+                        path.extend(segments.iter().cloned());
+                        scope.resolve(&path).filter(|r| r.rest.is_empty())
+                    })
+                })
+        });
+        let Some(resolved) = resolved else {
             continue;
         };
         if resolved.rest.is_empty() {
@@ -1540,6 +1560,12 @@ fn rust_emit_use(
             .unwrap_or_else(|| segments.last().cloned().unwrap_or_default());
         if local == "*" {
             context.any_glob.set(true);
+            if segments.len() > 1 {
+                context
+                    .glob_paths
+                    .borrow_mut()
+                    .push(segments[..segments.len() - 1].to_vec());
+            }
         }
         if local != "*" && local != "_" {
             context
@@ -2360,24 +2386,26 @@ fn rust_emit_argument_references(
             let scope = enclosing_func.map(|func| rust_scope_join(enclosing_class, func));
             let closure = qualify(file_path, &name, scope.as_deref());
             if context.closures.borrow().contains(&closure) {
-                edges.push(ParsedEdge::new(
-                    crate::core::types::EdgeKind::References,
-                    caller.clone(),
-                    closure,
-                    file_path.clone(),
+                edges.push(ParsedEdge {
+                    kind: crate::core::types::EdgeKind::References,
+                    source: caller.clone(),
+                    target: closure,
+                    file_path: file_path.clone(),
                     line,
-                ));
+                    extra: json!({"value_reference": true}),
+                });
             }
             continue;
         }
         if context.free_functions.contains(&name) {
-            edges.push(ParsedEdge::new(
-                crate::core::types::EdgeKind::References,
-                caller.clone(),
-                qualify(file_path, &name, None),
-                file_path.clone(),
+            edges.push(ParsedEdge {
+                kind: crate::core::types::EdgeKind::References,
+                source: caller.clone(),
+                target: qualify(file_path, &name, None),
+                file_path: file_path.clone(),
                 line,
-            ));
+                extra: json!({"value_reference": true}),
+            });
             continue;
         }
         // Unbound and snake_case: a function a glob import (`use

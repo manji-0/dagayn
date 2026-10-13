@@ -28,9 +28,9 @@ pub(super) fn parse_go_with_parser(
         let root = tree.root_node();
         let module = repo_root.and_then(|root| go_module_path(root, &file_path));
         let module_root = repo_root.and_then(|root| go_module_root(root, &file_path));
-        let (package_dirs, import_dirs) = match (&module, &module_root) {
+        let (package_dirs, import_dirs, dot_imports) = match (&module, &module_root) {
             (Some(module), Some(module_root)) => go_package_dirs(root, source, module, module_root),
-            _ => (HashMap::new(), HashMap::new()),
+            _ => (HashMap::new(), HashMap::new(), HashSet::new()),
         };
         let stdlib = GoStdlibScope::of_file(root, source, module);
         let own_dir = Path::new(file_path.as_str())
@@ -49,6 +49,7 @@ pub(super) fn parse_go_with_parser(
             own_dir,
             package_dirs,
             import_dirs,
+            dot_imports,
         };
         go_walk_children(root, &context, None, &mut nodes, &mut edges);
         go_finish_typed_receivers(&nodes, &mut edges);
@@ -85,6 +86,8 @@ struct GoContext<'a> {
     package_dirs: HashMap<String, String>,
     /// Import path -> repository directory, for imports of the same module.
     import_dirs: HashMap<String, String>,
+    /// Import paths imported with `.` (their names are used unqualified).
+    dot_imports: HashSet<String>,
 }
 
 fn go_walk_children(
@@ -143,9 +146,97 @@ fn go_walk_children(
             "call_expression" => {
                 go_emit_call(child, context, enclosing_func, edges);
             }
+            "argument_list" | "expression_list" | "literal_value" | "return_statement" => {
+                go_emit_value_references(child, context, enclosing_func, edges);
+            }
             _ => {}
         }
         go_walk_children(child, context, enclosing_func, nodes, edges);
+    }
+}
+
+/// A function or method named as a value: an argument (`Register("x",
+/// parseX)`), a composite-literal value (`Func: cmdRun`), the right of an
+/// assignment, or a returned value; `pkg.F` and `recv.M` (a method value)
+/// too. Each is a REFERENCES `value_reference`, bound like a call.
+fn go_emit_value_references(
+    node: tree_sitter::Node<'_>,
+    context: &GoContext<'_>,
+    enclosing_func: Option<&str>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let source = context.source;
+    let caller = enclosing_func
+        .map(|func| qualify(context.file_path, func, None))
+        .unwrap_or_else(|| context.file_path.to_string());
+    let mut values = Vec::new();
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        match child.kind() {
+            // `Key: value` and `value` inside `T{...}`: the value part.
+            "keyed_element" => {
+                if let Some(value) =
+                    child.named_child((child.named_child_count() as u32).saturating_sub(1))
+                {
+                    values.push(value);
+                }
+            }
+            _ => values.push(child),
+        }
+    }
+    for mut value in values {
+        if value.kind() == "literal_element"
+            && let Some(inner) = value.named_child(0)
+        {
+            value = inner;
+        }
+        let mut extra = json!({"value_reference": true});
+        let target = match value.kind() {
+            "identifier" => {
+                let name = node_text(value, source);
+                if matches!(name.as_str(), "nil" | "true" | "false" | "iota" | "_")
+                    || context.locals.borrow().contains(&name)
+                {
+                    continue;
+                }
+                extra[GO_PACKAGE_DIR_KEY] = json!(context.own_dir);
+                name
+            }
+            "selector_expression" => {
+                let (Some(operand), Some(field)) = (
+                    value.child_by_field_name("operand"),
+                    value.child_by_field_name("field"),
+                ) else {
+                    continue;
+                };
+                let name = node_text(field, source);
+                if operand.kind() == "identifier"
+                    && let Some(dir) = context.package_dirs.get(&node_text(operand, source))
+                    && !context
+                        .locals
+                        .borrow()
+                        .contains(&node_text(operand, source))
+                {
+                    extra[GO_PACKAGE_DIR_KEY] = json!(dir);
+                } else if let GoReceiver::Typed(GoType::Named(type_name)) =
+                    go_receiver(operand, &name, context)
+                {
+                    extra[GO_TYPED_RECEIVER_KEY] = json!(type_name);
+                } else {
+                    continue;
+                }
+                name
+            }
+            _ => continue,
+        };
+        edges.push(ParsedEdge {
+            kind: crate::core::types::EdgeKind::References,
+            source: caller.clone(),
+            target,
+            file_path: context.file_path.clone(),
+            line: value.start_position().row as i64 + 1,
+            extra,
+        });
     }
 }
 
@@ -167,6 +258,10 @@ fn go_emit_imports(
                 if let Some(dir) = context.import_dirs.get(&target) {
                     // A package of this module: the directory its files are in.
                     extra["package_dir"] = json!(dir);
+                    if context.dot_imports.contains(&target) {
+                        // `import . "pkg"`: its names are used unqualified.
+                        extra["dot_import"] = json!(true);
+                    }
                 }
                 if stdlib.is_std_import(&target) {
                     let package = target.clone();
@@ -242,9 +337,42 @@ fn go_type_extra(node: tree_sitter::Node<'_>, source: &[u8]) -> serde_json::Valu
         if type_role == "struct" {
             map.insert("container_role".to_string(), json!("data_container"));
             map.insert("value_semantics".to_string(), json!(true));
+            let embeds = go_embedded_types(node, source);
+            if !embeds.is_empty() {
+                map.insert("embeds".to_string(), json!(embeds));
+            }
         }
     }
     extra
+}
+
+/// The types a struct embeds (`*caddyfile.Dispenser` -> `caddyfile.Dispenser`):
+/// their methods are the struct's too.
+fn go_embedded_types(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut stack = vec![node];
+    while let Some(current) = stack.pop() {
+        let mut cursor = current.walk();
+        for child in current.children(&mut cursor) {
+            match child.kind() {
+                "field_declaration" => {
+                    if child.child_by_field_name("name").is_none()
+                        && let Some(ty) = child.child_by_field_name("type")
+                    {
+                        let text = node_text(ty, source);
+                        let text = text.trim_start_matches('*');
+                        let text = text.split('[').next().unwrap_or(text).trim();
+                        if !text.is_empty() {
+                            out.push(text.to_string());
+                        }
+                    }
+                }
+                "struct_type" | "field_declaration_list" => stack.push(child),
+                _ => {}
+            }
+        }
+    }
+    out
 }
 
 fn go_type_role(node: tree_sitter::Node<'_>, _source: &[u8]) -> &'static str {
@@ -1453,9 +1581,14 @@ fn go_package_dirs(
     source: &[u8],
     module: &str,
     module_root: &str,
-) -> (HashMap<String, String>, HashMap<String, String>) {
+) -> (
+    HashMap<String, String>,
+    HashMap<String, String>,
+    HashSet<String>,
+) {
     let mut out = HashMap::new();
     let mut by_path = HashMap::new();
+    let mut dots = HashSet::new();
     let mut specs = Vec::new();
     let mut cursor = root.walk();
     for declaration in root.children(&mut cursor) {
@@ -1496,11 +1629,13 @@ fn go_package_dirs(
             }
         };
         by_path.insert(path.clone(), dir.clone());
-        if name != "_" && name != "." && !name.is_empty() {
+        if name == "." {
+            dots.insert(path.clone());
+        } else if name != "_" && !name.is_empty() {
             out.insert(name, dir);
         }
     }
-    (out, by_path)
+    (out, by_path, dots)
 }
 
 fn go_collect_import_specs<'t>(node: tree_sitter::Node<'t>, out: &mut Vec<tree_sitter::Node<'t>>) {

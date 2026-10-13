@@ -225,8 +225,11 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // (`crate::a::B::f()`) is an IMPORTS_FROM tagged `path_use`.
         // 24: workspace `members` globs (`axum-*`) and `exclude` decide which
         // crates are the repository's, so their calls are not external.
+        // 25: a same-file function or closure passed as a value is a
+        // `value_reference`; a call path through a glob-imported module
+        // (`use mock::*; expect::event()`) records its `module_file`.
         extractor: "rust",
-        version: 24,
+        version: 25,
         languages: &["rust"],
     },
     ExtractorVersion {
@@ -250,8 +253,12 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // of the file.
         // 9: `F(x)` and `pkg.F(x)` (a package of the same module) record the
         // repository directory of the callee's package (`go_package_dir`).
+        // 10: imports record `dot_import`; structs record the types they
+        // embed (`embeds`); a function or method named as a value (an
+        // argument, a composite-literal value, an assignment, a return) is a
+        // REFERENCES `value_reference`.
         extractor: "go",
-        version: 9,
+        version: 10,
         languages: &["go"],
     },
     ExtractorVersion {

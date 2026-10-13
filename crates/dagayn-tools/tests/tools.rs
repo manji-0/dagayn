@@ -3375,10 +3375,10 @@ fn row_files(reply: &Value) -> Vec<String> {
         .iter()
         .filter_map(|row| {
             row["file"].as_str().map(str::to_string).or_else(|| {
+                // A file-level caller's qualified name is the file itself.
                 row["qualified_name"]
                     .as_str()
-                    .and_then(|qn| qn.split_once("::"))
-                    .map(|(file, _)| file.to_string())
+                    .map(|qn| qn.split_once("::").map_or(qn, |(file, _)| file).to_string())
             })
         })
         .collect();
@@ -3521,5 +3521,54 @@ fn go_file_importers_are_the_files_importing_its_package() {
             .unwrap_or_default()
             .contains("same package"),
         "{reply}"
+    );
+}
+
+#[test]
+fn go_callers_follow_dot_imports_embedding_and_function_values() {
+    // dagayn: tests crates/dagayn-graph/src/postprocess/returned.rs::resolve_go_promoted_methods
+    let repo = Repo::new("go-dot-embed-values", false);
+    repo.write("go.mod", "module example.com/app\n\ngo 1.22\n");
+    repo.write(
+        "components/test.go",
+        "package components\n\ntype Args struct{}\n\nfunc NewTest(a Args) int { return 1 }\n",
+    );
+    repo.write(
+        "components/dispenser.go",
+        "package components\n\ntype Dispenser struct{}\n\nfunc (d *Dispenser) Err(msg string) error { return nil }\n",
+    );
+    repo.write(
+        "config/helper.go",
+        "package config\n\nimport \"example.com/app/components\"\n\ntype Helper struct {\n\t*components.Dispenser\n}\n",
+    );
+    repo.write(
+        "tests/a.go",
+        "package tests\n\nimport . \"example.com/app/components\"\n\nvar A = NewTest(Args{})\n",
+    );
+    repo.write(
+        "rewrite/caddyfile.go",
+        "package rewrite\n\nimport \"example.com/app/config\"\n\nfunc parse(h config.Helper) error { return h.Err(\"x\") }\n",
+    );
+    repo.write(
+        "register/register.go",
+        "package register\n\nfunc Register(name string, f func() int) {}\n\nfunc parseX() int { return 1 }\n\nfunc init() { Register(\"x\", parseX) }\n",
+    );
+    repo.build();
+    let context = repo.context();
+    let callers = |target: &str| {
+        row_files(&answer(
+            &context,
+            "query_graph_tool",
+            json!({"pattern": "callers_of", "target": target}),
+        ))
+    };
+    assert_eq!(callers("components/test.go::NewTest"), ["tests/a.go"]);
+    assert_eq!(
+        callers("components/dispenser.go::Dispenser.Err"),
+        ["rewrite/caddyfile.go"]
+    );
+    assert_eq!(
+        callers("register/register.go::parseX"),
+        ["register/register.go"]
     );
 }

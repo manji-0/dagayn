@@ -255,6 +255,11 @@ pub(crate) struct Graph {
     /// Struct QN -> field name -> the field's type as written (Rust
     /// `field_types`).
     fields: HashMap<String, HashMap<String, String>>,
+    /// Go file -> the packages of the module it imports: (import path,
+    /// repository directory, imported with `.`).
+    go_imports: HashMap<String, Vec<(String, String, bool)>>,
+    /// Go struct QN -> the types it embeds, as written (`caddyfile.Dispenser`).
+    embeds: HashMap<String, Vec<String>>,
 }
 
 impl Graph {
@@ -341,7 +346,7 @@ fn load_graph(tx: &Transaction<'_>) -> Result<Graph> {
     let mut graph = Graph::default();
     let mut stmt = tx.prepare(
         "SELECT qualified_name, kind, name, parent_name, file_path, return_type, \
-                json_extract(extra, '$.field_types') FROM nodes",
+                json_extract(extra, '$.field_types'), json_extract(extra, '$.embeds') FROM nodes",
     )?;
     let rows = stmt.query_map([], |row| {
         <(
@@ -352,11 +357,12 @@ fn load_graph(tx: &Transaction<'_>) -> Result<Graph> {
             String,
             Option<String>,
             Option<String>,
+            Option<String>,
         )>::try_from(row)
     })?;
     let mut class_names_by_qn: HashMap<String, String> = HashMap::new();
     for row in rows {
-        let (qualified, kind, name, parent, file_path, return_type, field_types) = row?;
+        let (qualified, kind, name, parent, file_path, return_type, field_types, embeds) = row?;
         let family = language_family(&file_path);
         match kind.as_str() {
             "Class" => {
@@ -366,6 +372,12 @@ fn load_graph(tx: &Transaction<'_>) -> Result<Graph> {
                     .and_then(|text| serde_json::from_str(text).ok())
                 {
                     graph.fields.insert(qualified.clone(), fields);
+                }
+                if let Some(embeds) = embeds
+                    .as_deref()
+                    .and_then(|text| serde_json::from_str::<Vec<String>>(text).ok())
+                {
+                    graph.embeds.insert(qualified.clone(), embeds);
                 }
                 if let Some(family) = family {
                     graph
@@ -417,6 +429,14 @@ fn load_graph(tx: &Transaction<'_>) -> Result<Graph> {
                 .entry(file.clone())
                 .or_default()
                 .push(target.clone());
+        }
+        if let Some(dir) = extra.get("package_dir").and_then(Value::as_str) {
+            let dot = extra.get("dot_import").and_then(Value::as_bool) == Some(true);
+            graph.go_imports.entry(file.clone()).or_default().push((
+                target.clone(),
+                dir.to_string(),
+                dot,
+            ));
         }
         let names: Vec<(String, String)> = extra
             .get("names")
@@ -950,6 +970,53 @@ fn builtin_type_package(family: &str, file: &str, name: &str) -> Option<&'static
 
 /// What `type_path` names in `file` (a function of `family` declared
 /// there returns it, `owner` being its class).
+/// Go: a type named without a qualifier is declared in the file's package
+/// (its directory) or a package imported with `.`; `pkg.T` in the directory
+/// of the imported package whose last path element is `pkg` (before a
+/// `/vN` suffix).
+fn go_package_class<'g>(
+    graph: &Graph,
+    classes: &'g [String],
+    file: &str,
+    segments: &[&str],
+) -> Option<&'g String> {
+    let dir_of = |path: &str| path.rsplit_once('/').map_or("", |(dir, _)| dir).to_string();
+    let in_dir = |dir: &str| {
+        let mut found = classes.iter().filter(|class| {
+            dir_of(class.split_once("::").map_or(class.as_str(), |(f, _)| f)) == dir
+        });
+        let first = found.next()?;
+        found.next().is_none().then_some(first)
+    };
+    let imports = graph
+        .go_imports
+        .get(file)
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    match segments {
+        [_] => in_dir(&dir_of(file)).or_else(|| {
+            imports
+                .iter()
+                .filter(|(_, _, dot)| *dot)
+                .find_map(|(_, dir, _)| in_dir(dir))
+        }),
+        [qualifier, _] => imports.iter().find_map(|(path, dir, _)| {
+            let mut parts = path.rsplit('/');
+            let last = parts.next().unwrap_or_default();
+            let versioned = last.len() > 1
+                && last.starts_with('v')
+                && last[1..].bytes().all(|b| b.is_ascii_digit());
+            let name = if versioned {
+                parts.next().unwrap_or(last)
+            } else {
+                last
+            };
+            (name == *qualifier).then(|| in_dir(dir)).flatten()
+        }),
+        _ => None,
+    }
+}
+
 fn resolve_type(
     graph: &Graph,
     type_path: &str,
@@ -976,6 +1043,11 @@ fn resolve_type(
         .get(&(family, name.to_string()))
         .map(Vec::as_slice)
         .unwrap_or_default();
+    if family == "go"
+        && let Some(class) = go_package_class(graph, classes, file, &segments)
+    {
+        return Some(Returned::Class(class.clone(), name.to_string()));
+    }
     let class = classes
         .iter()
         .find(|class| class.starts_with(&format!("{file}::")))
@@ -1176,6 +1248,86 @@ fn sole_struct_field<'g>(graph: &'g Graph, file: &str, field: &str) -> Option<&'
         .filter_map(|(_, fields)| fields.get(field));
     let first = found.next()?;
     found.next().is_none().then_some(first)
+}
+
+/// Go `h.Err(..)` where `h`'s type (`Helper`) has no `Err` but embeds a type
+/// that has (`*caddyfile.Dispenser`): the method is promoted, so the call is
+/// of the embedded type's method. Embedded types are followed three deep.
+fn resolve_go_promoted_methods(tx: &Transaction<'_>, graph: &Graph) -> Result<i64> {
+    if graph.embeds.is_empty() {
+        return Ok(0);
+    }
+    let calls = {
+        let mut stmt = tx.prepare(
+            "SELECT id, file_path, target_qualified, json_extract(extra, '$.receiver_type'), extra \
+             FROM edges WHERE kind = 'CALLS' AND file_path LIKE '%.go' \
+               AND target_qualified NOT LIKE '%::%' \
+               AND json_extract(extra, '$.receiver_type') IS NOT NULL",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            <(i64, String, String, String, String)>::try_from(row)
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    let class_of = |name: &str, file: &str, segments: &[&str]| -> Option<String> {
+        let classes = graph
+            .classes
+            .get(&("go", name.to_string()))
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        go_package_class(graph, classes, file, segments)
+            .or(match classes {
+                [only] => Some(only),
+                _ => None,
+            })
+            .cloned()
+    };
+    let mut changed = 0_i64;
+    for (id, file, method, receiver, extra) in calls {
+        let receiver = receiver.trim_start_matches('*');
+        let Some(start) = class_of(
+            receiver.rsplit('.').next().unwrap_or(receiver),
+            &file,
+            &[receiver],
+        ) else {
+            continue;
+        };
+        let mut frontier = vec![start];
+        let mut target = None;
+        'depth: for _ in 0..3 {
+            let mut next = Vec::new();
+            for class in &frontier {
+                let declared_in = class.split_once("::").map_or(class.as_str(), |(f, _)| f);
+                for embed in graph.embeds.get(class).into_iter().flatten() {
+                    let segments: Vec<&str> = embed.split('.').collect();
+                    let name = *segments.last().unwrap_or(&embed.as_str());
+                    let Some(embedded) = class_of(name, declared_in, &segments) else {
+                        continue;
+                    };
+                    let prefix = format!("{embedded}.");
+                    if let Some(found) = graph
+                        .methods
+                        .get(&("go", name.to_string(), method.clone()))
+                        .and_then(|targets| targets.iter().find(|t| t.starts_with(&prefix)))
+                    {
+                        target = Some((found.clone(), name.to_string()));
+                        break 'depth;
+                    }
+                    next.push(embedded);
+                }
+            }
+            frontier = next;
+        }
+        let Some((target, owner)) = target else {
+            continue;
+        };
+        let mut extra: Value = serde_json::from_str(&extra)?;
+        extra["receiver_type"] = json!(owner);
+        extra["promoted_from"] = json!(receiver);
+        update_call(tx, id, &target, &extra)?;
+        changed += 1;
+    }
+    Ok(changed)
 }
 
 /// Rust `x.field.m()` where `x`'s type is known and its struct is declared
@@ -1477,7 +1629,9 @@ pub(crate) fn resolve_returned_receivers(
     let import_targets = &context.import_targets;
     let mut changed = 0_i64;
     for _ in 0..MAX_ROUNDS {
-        let mut round = resolve_field_receivers(tx, graph)? + resolve_shape_receivers(tx, graph)?;
+        let mut round = resolve_field_receivers(tx, graph)?
+            + resolve_shape_receivers(tx, graph)?
+            + resolve_go_promoted_methods(tx, graph)?;
         for (id, source, file, method, mut extra) in pending_calls(tx)? {
             let Some(family) = language_family(&file) else {
                 continue;

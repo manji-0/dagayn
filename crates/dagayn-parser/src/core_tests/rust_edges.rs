@@ -687,3 +687,35 @@ fn enums_record_their_variants() {
         serde_json::json!(["Local", "Unknown", "Known"])
     );
 }
+
+#[test]
+fn a_module_path_call_through_a_glob_import_names_its_module_file() {
+    // `use mock::*;` brings the module `expect` in; `expect::event()` is
+    // `mock/src/expect.rs`'s `event`.
+    let root = repo(
+        "rust-glob-module-path",
+        &[
+            ("Cargo.toml", "[workspace]\nmembers = [\"mock\", \"app\"]\n"),
+            ("mock/Cargo.toml", "[package]\nname = \"mock\"\n"),
+            ("mock/src/lib.rs", "pub mod expect;\n"),
+            ("mock/src/expect.rs", "pub fn event() {}\n"),
+            (
+                "app/Cargo.toml",
+                "[package]\nname = \"app\"\n\n[dependencies]\nmock = { path = \"../mock\" }\n",
+            ),
+            (
+                "app/src/lib.rs",
+                "use mock::*;\nfn go() {\n    expect::event();\n}\n",
+            ),
+        ],
+    );
+    let mut parser = RustOwnedParser::new();
+    let source = std::fs::read(root.join("app/src/lib.rs")).unwrap();
+    let (_, edges) = parser.parse_file_in_repo(Some(&root), "app/src/lib.rs", &source);
+    let call = edges
+        .iter()
+        .find(|edge| edge.kind == "CALLS" && edge.target == "event")
+        .unwrap_or_else(|| panic!("{edges:?}"));
+    assert_eq!(call.extra["module_file"], "mock/src/expect.rs", "{edges:?}");
+    let _ = std::fs::remove_dir_all(root);
+}
