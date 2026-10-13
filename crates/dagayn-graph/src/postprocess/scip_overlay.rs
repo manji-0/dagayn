@@ -17,6 +17,14 @@
 //!
 //! Every edge the index settles records `resolved_by: "scip"`. Files whose
 //! content no longer matches what the graph parsed are skipped.
+//!
+//! `value_reference` `REFERENCES` edges are settled the same way. A
+//! reference no edge was matched to, whose definition is a function node,
+//! gets one (`scip_added`): a `CALLS` edge when it is called (`(` follows
+//! it, past a generic argument list or a Rust `!`), else a `REFERENCES`
+//! `value_reference` edge, from the innermost function holding it or the
+//! file. Function values and calls inside macros, which the extractors do
+//! not see, are reached this way.
 
 use std::path::Path;
 
@@ -57,6 +65,11 @@ pub struct ScipOverlayStats {
     /// Edges whose definition lies outside every node (or is a local left
     /// alone).
     pub left: i64,
+    /// `CALLS` edges added for a called reference no edge named.
+    pub added_calls: i64,
+    /// `REFERENCES` `value_reference` edges added for a function used as a
+    /// value that no edge named.
+    pub added_references: i64,
 }
 
 #[derive(Clone, Copy)]
@@ -305,6 +318,262 @@ fn write_edge(
     Ok(())
 }
 
+/// The lines of `file` under `repo_root`, or `None` when its content no
+/// longer matches the hash the graph parsed.
+fn unchanged_lines(
+    repo_root: &Path,
+    file: &str,
+    hashes: &HashMap<String, String>,
+) -> Option<Vec<String>> {
+    let bytes = std::fs::read(repo_root.join(file)).ok()?;
+    let digest = Sha256::digest(&bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    (hashes.get(file) == Some(&digest)).then(|| {
+        String::from_utf8_lossy(&bytes)
+            .lines()
+            .map(str::to_string)
+            .collect()
+    })
+}
+
+/// The byte offset in `line` of a column counted in `encoding`'s units.
+fn byte_offset(line: &str, column: usize, encoding: Encoding) -> Option<usize> {
+    match encoding {
+        Encoding::Utf8 => (column <= line.len() && line.is_char_boundary(column)).then_some(column),
+        Encoding::Utf16 => {
+            let mut units = 0;
+            for (at, c) in line.char_indices() {
+                if units >= column {
+                    return (units == column).then_some(at);
+                }
+                units += c.len_utf16();
+            }
+            (units == column).then_some(line.len())
+        }
+        Encoding::Utf32 => match line.char_indices().nth(column) {
+            Some((at, _)) => Some(at),
+            None => (line.chars().count() == column).then_some(line.len()),
+        },
+    }
+}
+
+/// Whether the text after a reference calls it: `(` next, past spaces, a
+/// generic argument list (`::<T>`, `<T>`), a Rust `!`, or an optional
+/// call's `?.`.
+fn is_called(rest: &str) -> bool {
+    let mut rest = rest.trim_start();
+    if let Some(after) = rest.strip_prefix("::") {
+        rest = after.trim_start();
+    }
+    if rest.starts_with('<') {
+        let mut depth = 0usize;
+        let mut end = None;
+        for (at, c) in rest.char_indices() {
+            match c {
+                '<' => depth += 1,
+                '>' => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        end = Some(at + 1);
+                        break;
+                    }
+                }
+                ';' | '{' | '}' => return false,
+                _ => {}
+            }
+        }
+        let Some(end) = end else {
+            return false;
+        };
+        rest = rest[end..].trim_start();
+    }
+    rest = rest.strip_prefix('!').unwrap_or(rest);
+    rest = rest.strip_prefix("?.").unwrap_or(rest).trim_start();
+    rest.starts_with('(')
+}
+
+/// Whether a line is a Rust attribute or `use` declaration, whose names a
+/// SCIP index records as references but which use nothing.
+fn is_declaration_line(text: &str) -> bool {
+    let text = text.trim_start();
+    let text = text
+        .strip_prefix("pub")
+        .map(|rest| {
+            rest.trim_start()
+                .strip_prefix('(')
+                .and_then(|rest| rest.split_once(')').map(|(_, rest)| rest))
+                .unwrap_or(rest)
+                .trim_start()
+        })
+        .unwrap_or(text);
+    text.starts_with("#[")
+        || text.starts_with("#![")
+        || text.starts_with("use ")
+        || text.starts_with("import ")
+        || text.starts_with("export {")
+        || text.starts_with("export type {")
+}
+
+/// Lines a multi-line declaration spans are searched back from.
+const DECLARATION_LINES: usize = 50;
+
+/// Whether line `line` (1-based) of `lines` is part of a declaration
+/// [`is_declaration_line`] recognizes: its first line, or a later one
+/// before any `;` (`pub use self::{\n    run,\n};`).
+fn in_declaration(lines: &[String], line: i64) -> bool {
+    let Some(at) = usize::try_from(line - 1)
+        .ok()
+        .filter(|at| *at < lines.len())
+    else {
+        return false;
+    };
+    if is_declaration_line(&lines[at]) {
+        return true;
+    }
+    for earlier in (at.saturating_sub(DECLARATION_LINES)..at).rev() {
+        let text = &lines[earlier];
+        if is_declaration_line(text) {
+            return !text.contains(';');
+        }
+        if text.contains(';') || text.trim_end().ends_with('}') {
+            return false;
+        }
+    }
+    false
+}
+
+/// Adds an edge for every reference of the index that no edge was matched
+/// to and whose definition is a function node: `CALLS` when it is called,
+/// else `REFERENCES` `value_reference` (see the module docs).
+#[allow(clippy::too_many_arguments)]
+fn add_unmatched_references(
+    tx: &Transaction<'_>,
+    index: &ScipIndex,
+    sources: &mut HashMap<String, Option<Vec<String>>>,
+    hashes: &HashMap<String, String>,
+    repo_root: &Path,
+    claimed: &HashSet<(String, i64, usize)>,
+    by_file: &HashMap<String, Vec<(i64, i64, String)>>,
+    functions: &HashSet<String>,
+    node_at: &impl Fn(&str, i64, &[String]) -> Option<String>,
+    stats: &mut ScipOverlayStats,
+) -> Result<()> {
+    // (file, target) -> lines of the edges already there.
+    let mut existing: HashMap<(String, String), Vec<i64>> = HashMap::new();
+    {
+        let mut stmt = tx.prepare(
+            "SELECT file_path, target_qualified, line FROM edges \
+             WHERE kind IN ('CALLS', 'REFERENCES')",
+        )?;
+        let rows = stmt.query_map([], |row| <(String, String, i64)>::try_from(row))?;
+        for row in rows {
+            let (file, target, line) = row?;
+            existing.entry((file, target)).or_default().push(line);
+        }
+    }
+    let now = now_seconds()?;
+    let mut references = index.references.iter().collect::<Vec<_>>();
+    references.sort_by(|a, b| a.0.cmp(b.0));
+    for ((file, line), on_line) in references {
+        let Some(&encoding) = index.documents.get(file) else {
+            continue;
+        };
+        let lines = sources
+            .entry(file.clone())
+            .or_insert_with(|| unchanged_lines(repo_root, file, hashes));
+        let Some(text) = lines
+            .as_ref()
+            .and_then(|lines| usize::try_from(line - 1).ok().and_then(|i| lines.get(i)))
+        else {
+            continue;
+        };
+        for reference in on_line {
+            if reference.end == usize::MAX
+                || claimed.contains(&(file.clone(), *line, reference.start))
+                || is_callee_local(&reference.symbol)
+            {
+                continue;
+            }
+            let Some((definition_file, definition_line)) = index.definitions.get(&reference.symbol)
+            else {
+                continue;
+            };
+            let names = defined_names(&reference.symbol);
+            let Some(target) = node_at(definition_file, *definition_line, &names) else {
+                continue;
+            };
+            if !functions.contains(&target) {
+                continue;
+            }
+            let (Some(start), Some(end)) = (
+                byte_offset(text, reference.start, encoding),
+                byte_offset(text, reference.end, encoding),
+            ) else {
+                continue;
+            };
+            // The name as written: `.await` refers to `poll`, but uses no
+            // function value. `typeof f` names a type; an attribute, a
+            // `use`, an import, or an export list uses nothing either.
+            if !names.iter().any(|name| name == &text[start..end])
+                || text[..start].trim_end().ends_with("typeof")
+                || lines
+                    .as_ref()
+                    .is_some_and(|lines| in_declaration(lines, *line))
+            {
+                continue;
+            }
+            let key = (file.clone(), target.clone());
+            // A chain an edge records at its first line had its reference
+            // claimed above; an edge at this very line names it already.
+            if existing.get(&key).is_some_and(|at| at.contains(line)) {
+                continue;
+            }
+            let source = by_file
+                .get(file)
+                .into_iter()
+                .flatten()
+                .filter(|(start, end, qualified)| {
+                    *start <= *line && *line <= *end && functions.contains(qualified)
+                })
+                .min_by_key(|(start, end, _)| end - start)
+                .map_or_else(|| file.clone(), |(_, _, qualified)| qualified.clone());
+            let called = is_called(&text[end..]);
+            let (kind, mut extra) = if called {
+                stats.added_calls += 1;
+                ("CALLS", json!({}))
+            } else {
+                stats.added_references += 1;
+                ("REFERENCES", json!({"value_reference": true}))
+            };
+            extra["resolved_by"] = json!("scip");
+            extra["scip_added"] = json!(true);
+            extra["confidence"] = json!(DIRECT_IMPORT_CONFIDENCE);
+            extra["confidence_tier"] = json!(ConfidenceTier::High.as_str());
+            tx.execute(
+                "INSERT INTO edges (kind, source_qualified, target_qualified, target_name, \
+                 file_path, line, extra, confidence, confidence_tier, updated_at) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                params![
+                    kind,
+                    source,
+                    target,
+                    edge_target_name(&target),
+                    file,
+                    line,
+                    serde_json::to_string(&extra)?,
+                    DIRECT_IMPORT_CONFIDENCE,
+                    ConfidenceTier::High.as_str(),
+                    now
+                ],
+            )?;
+            existing.entry(key).or_default().push(*line);
+        }
+    }
+    Ok(())
+}
+
 impl GraphStore {
     /// Settles `CALLS` edges by the SCIP index at `index_path` (see the
     /// module docs). `prefix` turns its document paths into the graph's
@@ -327,9 +596,10 @@ impl GraphStore {
         };
         let mut nodes: HashMap<String, (String, i64, i64)> = HashMap::new();
         let mut by_file: HashMap<String, Vec<(i64, i64, String)>> = HashMap::new();
+        let mut functions = HashSet::new();
         {
             let mut stmt = tx.prepare(
-                "SELECT qualified_name, file_path, line_start, line_end FROM nodes \
+                "SELECT qualified_name, file_path, line_start, line_end, kind FROM nodes \
                  WHERE kind IN ('Function', 'Test', 'Class', 'Type')",
             )?;
             let rows = stmt.query_map([], |row| {
@@ -338,15 +608,19 @@ impl GraphStore {
                     row.get::<_, String>(1)?,
                     row.get::<_, Option<i64>>(2)?.unwrap_or_default(),
                     row.get::<_, Option<i64>>(3)?,
+                    row.get::<_, String>(4)?,
                 ))
             })?;
             for row in rows {
-                let (qualified, file, start, end) = row?;
+                let (qualified, file, start, end, kind) = row?;
                 let end = end.unwrap_or(start);
                 by_file
                     .entry(file.clone())
                     .or_default()
                     .push((start, end, qualified.clone()));
+                if kind == "Function" || kind == "Test" {
+                    functions.insert(qualified.clone());
+                }
                 nodes.insert(qualified, (file, start, end));
             }
         }
@@ -376,7 +650,9 @@ impl GraphStore {
         let edges = {
             let mut stmt = tx.prepare(
                 "SELECT id, target_qualified, file_path, line, confidence_tier, extra \
-                 FROM edges WHERE kind = 'CALLS' ORDER BY file_path, line",
+                 FROM edges WHERE kind = 'CALLS' OR (kind = 'REFERENCES' \
+                   AND json_extract(extra, '$.value_reference') = 1) \
+                 ORDER BY file_path, line",
             )?;
             let rows = stmt.query_map([], |row| {
                 <(i64, String, String, i64, Option<String>, Option<String>)>::try_from(row)
@@ -386,24 +662,16 @@ impl GraphStore {
         // File -> its lines, or `None` when it changed since the graph
         // parsed it.
         let mut sources: HashMap<String, Option<Vec<String>>> = HashMap::new();
+        // References an edge was matched to: (file, line, start column).
+        let mut claimed: HashSet<(String, i64, usize)> = HashSet::new();
         for (id, target, file, line, tier, extra) in edges {
             let Some(&encoding) = index.documents.get(&file) else {
                 continue;
             };
             stats.calls += 1;
-            let lines = sources.entry(file.clone()).or_insert_with(|| {
-                let bytes = std::fs::read(repo_root.join(&file)).ok()?;
-                let digest = Sha256::digest(&bytes)
-                    .iter()
-                    .map(|byte| format!("{byte:02x}"))
-                    .collect::<String>();
-                (hashes.get(&file) == Some(&digest)).then(|| {
-                    String::from_utf8_lossy(&bytes)
-                        .lines()
-                        .map(str::to_string)
-                        .collect()
-                })
-            });
+            let lines = sources
+                .entry(file.clone())
+                .or_insert_with(|| unchanged_lines(repo_root, &file, &hashes));
             let Some(lines) = lines else {
                 stats.stale_skipped += 1;
                 continue;
@@ -428,11 +696,11 @@ impl GraphStore {
                         .into_iter()
                         .flatten()
                     {
-                        if reference.start <= column
-                            && column < reference.end
-                            && !symbols.contains(&reference.symbol.as_str())
-                        {
-                            symbols.push(&reference.symbol);
+                        if reference.start <= column && column < reference.end {
+                            claimed.insert((file.clone(), at, reference.start));
+                            if !symbols.contains(&reference.symbol.as_str()) {
+                                symbols.push(&reference.symbol);
+                            }
                         }
                     }
                 }
@@ -529,6 +797,18 @@ impl GraphStore {
             write_edge(&tx, id, &package, &extra, Some(ConfidenceTier::High))?;
             stats.rewritten_to_package += 1;
         }
+        add_unmatched_references(
+            &tx,
+            &index,
+            &mut sources,
+            &hashes,
+            repo_root,
+            &claimed,
+            &by_file,
+            &functions,
+            &node_at,
+            &mut stats,
+        )?;
         sync_tested_by_with_calls(&tx)?;
         tx.commit()?;
         Ok(stats)
@@ -636,6 +916,53 @@ mod tests {
             defined_names("rust-analyzer cargo demo 0.1.0 b/Bindings#snapshot()."),
             vec!["snapshot".to_string()]
         );
+    }
+
+    #[test]
+    fn a_reference_is_called_past_generics_macros_and_optional_calls() {
+        for rest in [
+            "()",
+            " (x)",
+            "::<u8>(x)",
+            "::<_, (Method,)>()",
+            "<T>(value)",
+            "!(\"{}\", x)",
+            "?.(x)",
+        ] {
+            assert!(is_called(rest), "{rest}");
+        }
+        for rest in ["", ", other)", ".bind(this)", "<T> = x;", " => x"] {
+            assert!(!is_called(rest), "{rest}");
+        }
+        for line in [
+            "#[crate::test]",
+            "  #![allow(x)]",
+            "use axum_macros::__private_axum_test as test;",
+            "pub(crate) use helpers::run;",
+            "pub use self::run;",
+        ] {
+            assert!(is_declaration_line(line), "{line}");
+        }
+        for line in ["    publish(x);", "    user(x);", "let f = run;"] {
+            assert!(!is_declaration_line(line), "{line}");
+        }
+        let lines = [
+            "pub use self::{",
+            "    run, stop,",
+            "};",
+            "export {",
+            "  ostring,",
+            "};",
+            "fn go() {",
+            "    apply(run,",
+            "        stop);",
+            "}",
+        ]
+        .map(str::to_string);
+        let spanned = (1..=10)
+            .filter(|line| in_declaration(&lines, *line))
+            .collect::<Vec<_>>();
+        assert_eq!(spanned, vec![1, 2, 3, 4, 5, 6]);
     }
 
     #[test]

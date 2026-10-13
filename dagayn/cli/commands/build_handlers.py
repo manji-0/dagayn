@@ -355,7 +355,9 @@ def handle_build_command(args: argparse.Namespace, repo_root: Path) -> None:
             f"SCIP overlay ({run.get('language')}): {run.get('calls', 0)} calls, "
             f"{run.get('rewritten_to_node', 0)} to nodes, "
             f"{run.get('rewritten_to_package', 0)} to packages, "
-            f"{run.get('confirmed', 0)} confirmed, {run.get('stale_skipped', 0)} stale"
+            f"{run.get('confirmed', 0)} confirmed, {run.get('stale_skipped', 0)} stale, "
+            f"{run.get('added_calls', 0)} calls and "
+            f"{run.get('added_references', 0)} value references added"
         )
     for hint in result.get("scip_hints") or []:
         print(f"hint: {hint}")

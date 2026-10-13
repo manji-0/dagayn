@@ -2933,6 +2933,137 @@ fn a_filling_scip_index_keeps_resolutions_answer() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+#[test]
+fn a_scip_index_adds_edges_for_references_no_edge_names() {
+    use protobuf::{EnumOrUnknown, Message};
+    use scip::types::{Document, Index, Occurrence, PositionEncoding};
+
+    // Only `helper();` on line 6 has an edge. The index also sees `helper`
+    // passed as a value, called inside a macro, and named in `typeof`;
+    // `other` is a value reference the extractor left unresolved.
+    let root = std::env::temp_dir().join(format!("dagayn-scip-add-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let source = "fn helper() {}\n\
+                  fn other() {}\n\
+                  fn run() {\n    \
+                  apply(helper);\n    \
+                  log!(\"{}\", helper::<u8> ());\n    \
+                  helper();\n    \
+                  type T = typeof helper;\n    \
+                  let g = other;\n\
+                  }\n";
+    std::fs::write(root.join("a.rs"), source).unwrap();
+    let lines = source.lines().collect::<Vec<_>>();
+    let occurrence = |row: usize, name: &str, symbol: &str, roles: i32| {
+        let start = lines[row].find(name).unwrap() as i32;
+        Occurrence {
+            range: vec![row as i32, start, start + name.len() as i32],
+            symbol: symbol.to_string(),
+            symbol_roles: roles,
+            ..Occurrence::default()
+        }
+    };
+    let helper = "rust-analyzer cargo demo 0.1.0 helper().";
+    let other = "rust-analyzer cargo demo 0.1.0 other().";
+    let index = Index {
+        documents: vec![Document {
+            relative_path: "a.rs".to_string(),
+            position_encoding: EnumOrUnknown::new(
+                PositionEncoding::UTF8CodeUnitOffsetFromLineStart,
+            ),
+            occurrences: vec![
+                occurrence(0, "helper", helper, 1),
+                occurrence(1, "other", other, 1),
+                occurrence(3, "helper", helper, 0),
+                occurrence(4, "helper", helper, 0),
+                occurrence(5, "helper", helper, 0),
+                occurrence(6, "helper", helper, 0),
+                occurrence(7, "other", other, 0),
+            ],
+            ..Document::default()
+        }],
+        ..Index::default()
+    };
+    let index_path = root.join("index.scip");
+    std::fs::write(&index_path, index.write_to_bytes().unwrap()).unwrap();
+
+    let path = temp_db("scip-add");
+    let mut store = GraphStore::open(&path).expect("open");
+    let ranged = |name: &str, line: i64, end: i64| NodeInput {
+        line_start: line,
+        line_end: end,
+        ..function_node(name, "a.rs")
+    };
+    store
+        .store_file_nodes_edges(
+            "a.rs",
+            &[
+                file_node("a.rs"),
+                ranged("helper", 1, 1),
+                ranged("other", 2, 2),
+                ranged("run", 3, 9),
+            ],
+            &[
+                edge("CALLS", "a.rs::run", "a.rs::helper", "a.rs", 6),
+                EdgeInput {
+                    extra: json!({"value_reference": true}),
+                    ..edge("REFERENCES", "a.rs::run", "other", "a.rs", 8)
+                },
+            ],
+            &sha256_hex(source.as_bytes()),
+            0,
+        )
+        .expect("store");
+    let stats = store
+        .apply_scip_overlay(&index_path, "", &root, true)
+        .unwrap();
+    assert_eq!(
+        (
+            stats.confirmed,
+            stats.rewritten_to_node,
+            stats.added_calls,
+            stats.added_references
+        ),
+        (1, 1, 1, 1)
+    );
+    let rows = store
+        .conn
+        .prepare(
+            "SELECT kind, source_qualified, target_qualified, line, \
+                    json_extract(extra, '$.value_reference'), json_extract(extra, '$.scip_added') \
+             FROM edges WHERE kind IN ('CALLS', 'REFERENCES') ORDER BY line",
+        )
+        .unwrap()
+        .query_map([], |row| {
+            <(String, String, String, i64, Option<i64>, Option<i64>)>::try_from(row)
+        })
+        .unwrap()
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .unwrap();
+    let row = |kind: &str, line: i64, value: Option<i64>, added: Option<i64>, target: &str| {
+        (
+            kind.to_string(),
+            "a.rs::run".to_string(),
+            target.to_string(),
+            line,
+            value,
+            added,
+        )
+    };
+    assert_eq!(
+        rows,
+        vec![
+            row("REFERENCES", 4, Some(1), Some(1), "a.rs::helper"),
+            row("CALLS", 5, None, Some(1), "a.rs::helper"),
+            row("CALLS", 6, None, None, "a.rs::helper"),
+            row("REFERENCES", 8, Some(1), None, "a.rs::other"),
+        ]
+    );
+    let _ = std::fs::remove_file(path);
+    let _ = std::fs::remove_dir_all(root);
+}
+
 fn rust(node: NodeInput) -> NodeInput {
     NodeInput {
         language: "rust".to_string(),

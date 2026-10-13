@@ -289,6 +289,16 @@ parsed are skipped.
   `callee_local`, and bare-name binding never binds it; others are left.
 - No reference at the name, or several different ones: the edge is left.
 
+`value_reference` `REFERENCES` edges are settled the same way. Then every
+reference of the index that no edge was matched to, whose definition is a
+`Function` or `Test` node, gets an edge (`scip_added: true`, `HIGH`), from
+the innermost function holding it or the file: `CALLS` when `(` follows the
+name (past a generic argument list, a Rust `!`, or `?.`), otherwise
+`REFERENCES` with `value_reference: true`. A `typeof f` names a type and
+gets none. This reaches functions passed as values and calls inside macros,
+which the extractors do not see; an edge already at that line to that node
+is not duplicated.
+
 Settled edges record `resolved_by: "scip"`; confirming raises `MEDIUM` and
 `LOW` to `HIGH` and leaves other tiers. The passes above only touch edges
 whose target is neither a node nor a package, so they leave the overlay's

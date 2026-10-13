@@ -15,6 +15,14 @@ update).
 
 ### Added
 
+- `dagayn build --scip` adds an edge for every reference the index sees
+  that no edge names, when its definition is a function of the repository:
+  `CALLS` when it is called, `REFERENCES` `value_reference` when it is used
+  as a value (`scip_added: true`, `HIGH`). It also settles `value_reference`
+  edges as it does calls. Functions passed as values and calls inside
+  macros, which the extractors do not see, now reach `callers_of`. On zod,
+  caller recall with `--scip` went from 0.910 to 0.961, on axum from 0.845
+  to 0.867, at the same precision (`docs/plans/SCIP-FIRST-COMPLETENESS.md`).
 - `callers_of` names calls of the target's name that the graph could not
   bind (a receiver it could not type, a package it could not place), or
   bound by name alone to another definition, in files the answer does not
