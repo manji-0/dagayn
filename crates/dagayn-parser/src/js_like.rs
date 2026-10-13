@@ -783,16 +783,7 @@ fn javascript_walk_syntax_node(
         "jsx_opening_element" | "jsx_self_closing_element" => {
             javascript_emit_jsx_component_call(child, context, owner_path, enclosing_func, edges);
         }
-        "pair"
-        | "assignment_expression"
-        | "array"
-        | "arguments"
-        | "shorthand_property_identifier"
-        | "required_parameter"
-        | "optional_parameter"
-        | "assignment_pattern"
-        | "variable_declarator"
-        | "return_statement" => {
+        "identifier" | "shorthand_property_identifier" | "variable_declarator" => {
             javascript_emit_value_references(child, context, owner_path, enclosing_func, edges);
         }
         _ => {}

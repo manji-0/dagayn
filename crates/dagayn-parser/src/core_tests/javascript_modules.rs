@@ -149,6 +149,48 @@ fn a_default_parameter_value_references_the_function() {
 }
 
 #[test]
+fn a_function_named_in_any_expression_position_is_a_value_reference() {
+    // Used as a value: after `??`, in a conditional, by `export default`, in
+    // a template, as an element. Not: called, declared (an overload too),
+    // the object of `.call`, a key, an `instanceof` operand, or a type.
+    let source = b"export function make(x?: () => void): void;\n\
+export function make(x?: () => void) {}\n\
+class C {}\n\
+export function use(o: any, k: boolean) {\n\
+  const a = o.cb ?? make;\n\
+  const b = k ? make : null;\n\
+  const c = `${make}`;\n\
+  const d = [1, make];\n\
+  make();\n\
+  make.call(null);\n\
+  const e = { [make.name]: 1 };\n\
+  const g = o[make as any];\n\
+  const h = o instanceof C;\n\
+  let t: typeof make;\n\
+  return a && b && c && d && e && g && h && t;\n\
+}\n\
+export default make;\n";
+    let mut parser = RustOwnedParser::new();
+    let (_nodes, edges) = parser.parse_file_in_repo(None, "src/v.ts", source);
+    let lines = |target: &str| {
+        let mut lines = edges
+            .iter()
+            .filter(|edge| {
+                edge.kind == "REFERENCES"
+                    && edge.target == target
+                    && edge.extra["value_reference"] == true
+            })
+            .map(|edge| edge.line)
+            .collect::<Vec<_>>();
+        lines.sort_unstable();
+        lines.dedup();
+        lines
+    };
+    assert_eq!(lines("src/v.ts::make"), vec![5, 6, 7, 8, 17], "{edges:?}");
+    assert_eq!(lines("src/v.ts::C"), Vec::<i64>::new(), "{edges:?}");
+}
+
+#[test]
 fn resolves_typescript_dotted_basename_imports() {
     let mut repo_root = std::env::temp_dir();
     repo_root.push(format!(

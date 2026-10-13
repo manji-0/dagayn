@@ -276,42 +276,23 @@ pub(super) fn javascript_emit_value_references(
         .map(|func| qualify(&context.file_path, func, owner_path))
         .unwrap_or_else(|| context.file_path.to_string());
     match node.kind() {
-        "pair" => {
-            if let Some(value) = javascript_pair_value_identifier(node, context.source) {
-                javascript_emit_reference_if_known(node, context, &caller, &value, edges);
-            }
+        // Any name in expression position that names a function of the file
+        // or an import is a use of its value, except where it is called,
+        // declared, assigned to, or only typed: no list of the positions a
+        // value can take (`f(g)`, `[g]`, `{k: g}`, `x ?? g`, `c ? g : h`,
+        // `return g`, `export default g`, ...).
+        "identifier" if javascript_identifier_is_value_use(node) => {
+            let name = node_text(node, context.source);
+            javascript_emit_reference_if_known(node, context, &caller, &name, edges);
         }
         "shorthand_property_identifier" => {
             let value = node_text(node, context.source);
             javascript_emit_reference_if_known(node, context, &caller, &value, edges);
         }
-        "assignment_expression" => {
-            if let Some(value) = javascript_last_identifier_child(node, context.source) {
-                javascript_emit_reference_if_known(node, context, &caller, &value, edges);
-            }
-        }
-        "array" | "arguments" => {
-            let mut cursor = node.walk();
-            for child in node.children(&mut cursor) {
-                if child.kind() == "identifier" {
-                    let value = node_text(child, context.source);
-                    javascript_emit_reference_if_known(child, context, &caller, &value, edges);
-                }
-            }
-        }
-        // `(errorFactory = defaultErrorFactory) =>`, `const f = g`, `return g`:
-        // the identifier the default, initializer, or return value names.
-        "required_parameter" | "optional_parameter" | "variable_declarator" => {
-            if let Some(value) = node.child_by_field_name("value")
-                && value.kind() == "identifier"
-            {
-                let name = node_text(value, context.source);
-                javascript_emit_reference_if_known(value, context, &caller, &name, edges);
-            }
-            // `const stringType = ZodString.create;` at module level: calls of
-            // `stringType` return what `ZodString.create` does.
-            if node.kind() == "variable_declarator"
-                && enclosing_func.is_none()
+        // `const stringType = ZodString.create;` at module level: calls of
+        // `stringType` return what `ZodString.create` does.
+        "variable_declarator"
+            if enclosing_func.is_none()
                 && owner_path.is_none()
                 && let (Some(alias), Some(value)) = (
                     node.child_by_field_name("name"),
@@ -321,41 +302,126 @@ pub(super) fn javascript_emit_value_references(
                 && value.kind() == "member_expression"
                 && let Some(path) = javascript_member_path(value, context.source)
                 && let Some((owner, _)) = path.split_once('.')
-                && context.class_table.contains_key(owner)
-            {
-                edges.push(ParsedEdge {
-                    kind: crate::core::types::EdgeKind::References,
-                    source: caller.clone(),
-                    target: qualify(&context.file_path, &path, None),
-                    file_path: context.file_path.clone(),
-                    line: line_of(value),
-                    extra: json!({
-                        "value_reference": true,
-                        "alias": node_text(alias, context.source),
-                    }),
-                });
-            }
-        }
-        "assignment_pattern" => {
-            if let Some(value) = node.child_by_field_name("right")
-                && value.kind() == "identifier"
-            {
-                let name = node_text(value, context.source);
-                javascript_emit_reference_if_known(value, context, &caller, &name, edges);
-            }
-        }
-        "return_statement" => {
-            let mut cursor = node.walk();
-            if let Some(value) = node
-                .named_children(&mut cursor)
-                .find(|child| child.kind() == "identifier")
-            {
-                let name = node_text(value, context.source);
-                javascript_emit_reference_if_known(value, context, &caller, &name, edges);
-            }
+                && context.class_table.contains_key(owner) =>
+        {
+            edges.push(ParsedEdge {
+                kind: crate::core::types::EdgeKind::References,
+                source: caller.clone(),
+                target: qualify(&context.file_path, &path, None),
+                file_path: context.file_path.clone(),
+                line: line_of(value),
+                extra: json!({
+                    "value_reference": true,
+                    "alias": node_text(alias, context.source),
+                }),
+            });
         }
         _ => {}
     }
+}
+
+/// Whether an `identifier` node is a use of the value it names: not the
+/// callee of a call or `new`, the object of a member access (`ns.f`,
+/// `f.call`), a declared or assigned name, a pattern, a label, an import or
+/// export specifier, JSX, or part of a type (`typeof f` in a type).
+fn javascript_identifier_is_value_use(node: tree_sitter::Node<'_>) -> bool {
+    let Some(direct_parent) = node.parent() else {
+        return false;
+    };
+    // `(f as T).x`, `f!.x`, `(f)()`: the wrapped name stands where its
+    // wrapper does.
+    let (mut wrapped, mut parent) = (node, direct_parent);
+    while matches!(
+        parent.kind(),
+        "parenthesized_expression"
+            | "as_expression"
+            | "non_null_expression"
+            | "satisfies_expression"
+    ) {
+        let Some(next) = parent.parent() else {
+            return false;
+        };
+        (wrapped, parent) = (parent, next);
+    }
+    let is_field = |name: &str| {
+        parent
+            .child_by_field_name(name)
+            .is_some_and(|child| child.id() == wrapped.id())
+    };
+    let direct = match parent.kind() {
+        "call_expression" => !is_field("function"),
+        "new_expression" => !is_field("constructor"),
+        // `obj[key]` and `{[key]: v}` use `key` as a key.
+        "member_expression" | "subscript_expression" | "computed_property_name" => false,
+        // `x instanceof C`, `k in obj`: a class or key, not a value passed on.
+        "binary_expression" => parent
+            .child_by_field_name("operator")
+            .is_none_or(|operator| !matches!(operator.kind(), "instanceof" | "in")),
+        "variable_declarator" => !is_field("name"),
+        "assignment_expression" | "augmented_assignment_expression" | "assignment_pattern" => {
+            !is_field("left")
+        }
+        "required_parameter" | "optional_parameter" => !is_field("pattern"),
+        "arrow_function" => !is_field("parameter"),
+        "for_in_statement" => !is_field("left"),
+        "function_declaration"
+        | "function_signature"
+        | "method_signature"
+        | "abstract_method_signature"
+        | "ambient_declaration"
+        | "function_expression"
+        | "function"
+        | "generator_function_declaration"
+        | "generator_function"
+        | "class_declaration"
+        | "class"
+        | "abstract_class_declaration"
+        | "method_definition"
+        | "import_specifier"
+        | "export_specifier"
+        | "namespace_import"
+        | "namespace_export"
+        | "import_clause"
+        | "labeled_statement"
+        | "break_statement"
+        | "continue_statement"
+        | "catch_clause"
+        | "update_expression"
+        | "object_pattern"
+        | "array_pattern"
+        | "rest_pattern"
+        | "pair_pattern"
+        | "formal_parameters"
+        | "jsx_opening_element"
+        | "jsx_closing_element"
+        | "jsx_self_closing_element"
+        | "jsx_attribute"
+        | "nested_identifier"
+        | "decorator"
+        | "enum_declaration"
+        | "module"
+        | "internal_module"
+        | "import_alias" => false,
+        _ => true,
+    };
+    if !direct {
+        return false;
+    }
+    let mut ancestor = Some(parent);
+    for _ in 0..8 {
+        let Some(current) = ancestor else {
+            break;
+        };
+        let kind = current.kind();
+        if kind.contains("type") && kind != "type_assertion" {
+            return false;
+        }
+        if kind.ends_with("statement") || kind.ends_with("declaration") || kind == "program" {
+            break;
+        }
+        ancestor = current.parent();
+    }
+    true
 }
 
 pub(super) fn javascript_emit_jsx_component_call(
@@ -1394,29 +1460,4 @@ fn javascript_first_string_arg(node: tree_sitter::Node<'_>, source: &[u8]) -> Op
         return None;
     }
     None
-}
-
-fn javascript_pair_value_identifier(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let mut seen_colon = false;
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == ":" {
-            seen_colon = true;
-            continue;
-        }
-        if seen_colon && child.kind() == "identifier" {
-            return Some(node_text(child, source));
-        }
-    }
-    None
-}
-
-fn javascript_last_identifier_child(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let mut cursor = node.walk();
-    let children = node.children(&mut cursor).collect::<Vec<_>>();
-    children
-        .into_iter()
-        .rev()
-        .find(|child| child.kind() == "identifier")
-        .map(|child| node_text(child, source))
 }

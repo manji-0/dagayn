@@ -4,7 +4,7 @@
   },
   "communities": [
     {
-      "cohesion": 0.5517,
+      "cohesion": 0.5455,
       "name": "src-default",
       "size": 32
     },
@@ -14,7 +14,7 @@
       "size": 23
     },
     {
-      "cohesion": 0.5319,
+      "cohesion": 0.5208,
       "name": "src-constructor",
       "size": 21
     },

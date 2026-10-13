@@ -45,8 +45,12 @@ update).
 
 - `callers_of` counts a function used as a value (passed as a callback, a
   default parameter, stored) as a caller, in every language that records
-  value references. JavaScript / TypeScript record a function named as a
-  default parameter value, an initializer, or a return value.
+  value references. JavaScript / TypeScript record a function named
+  anywhere in expression position (`x ?? f`, `c ? f : g`, `[f]`,
+  `export default f`, a default parameter, an initializer, a return value),
+  except where it is called, declared, assigned to, used as a key or an
+  `instanceof` operand, or named in a type. Extractor version: javascript
+  14.
 - TypeScript: a tsconfig's relative `extends` is followed for `paths` and
   `baseUrl`, so tests that import their package by name (`from 'rxjs'`)
   reach its source.

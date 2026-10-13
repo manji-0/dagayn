@@ -36,7 +36,7 @@
     }
   ],
   "status": "ok",
-  "summary": "215 nodes, 403 edges across 36 files.",
+  "summary": "215 nodes, 405 edges across 36 files.",
   "sync": {
     "state": "commit_synced",
     "status": "synced",
