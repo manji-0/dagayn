@@ -182,6 +182,46 @@ This is an open design point rather than step 1's mechanical one:
 - **What it measures:** the pre-registered tokens, time, F1, and exact
   matches, plus build cost (time, peak memory) per repository.
 
+## Status
+
+<!-- derived-from #plan -->
+
+**Step 1 is done** (`9002f86c`). Recall with `--scip`:
+
+| Repository | Overlay before | Completed | Precision |
+| ---------- | -------------- | --------- | --------- |
+| zod | 0.910 | 0.961 | 0.998 → 0.998 |
+| axum | 0.845 | 0.867 | 0.980 → 0.979 |
+| caddy | 0.993 | 0.994 | 0.985 → 0.985 |
+
+The first version gave the same recall at a lower precision (axum 0.968).
+Four filters fixed that:
+
+- `.await` is a reference to `poll`, but the name written there is not
+  the definition's;
+- Rust attributes (`#[crate::test]`);
+- `use` lines and the lines of a multi-line `use` / `export { … }`;
+- calls through a generic argument list holding parentheses
+  (`f::<(A,)>()`).
+
+**Step 3 is done for JavaScript / TypeScript** (`db3c3144`, javascript
+14). Without an index, on the six TypeScript repositories:
+
+- recall rose by 0.000 to 0.012 (rxjs 0.754 → 0.758, mobx 0.679 →
+  0.687, query 0.707 → 0.719);
+- precision was unchanged.
+
+The rule is now one rule instead of a list of positions. But what is left
+of group B in TypeScript is not names:
+
+- 1,081 of the 1,490 value misses are members (`observer.next`,
+  `this._next = onNext`), which need the receiver's type, so the index's.
+- Most of the other 409 are functions held in a `const` inside another
+  function, which have no node of their own.
+
+So for TypeScript, step 3 is about a hook update keeping what a build
+found, not about closing the gap.
+
 ## Open questions
 
 - **Default on.** `--scip` is opt-in. Whether `build` should use an
