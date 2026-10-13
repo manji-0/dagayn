@@ -14,6 +14,7 @@ This directory stores design notes and implementation plans that are more detail
 - `REVIEW-TOOL-TARGET.md` — what `review_tool` is for: the measured noise in today's output, the findings-first target contract, the finding kinds, and the eval that gates them
 - `RUFF-PYTHON-PARSER.md` — parsing Python with Ruff's parser instead of tree-sitter: the differential comparison, every classified difference, error recovery, and performance
 - `SCIP-CALL-RESOLUTION.md` — taking call targets from SCIP indexers and freezing the type-inference layer above Tree-sitter
+- `SCIP-FIRST-COMPLETENESS.md` — why per-shape receiver-typing fixes did not generalise, what the SCIP overlay leaves (missing edges and macro-defined nodes, not types), and the plan: complete the overlay, invert value references, evaluate by agent experiments
 - `STABILITY-FINDING-TARGET.md` — SDP as the finding `unstable_dependency` (every one in the architecture overview, the ones a change introduced in a review), SAP as its evidence, and the eval cases that gate it
 - `TEST-REACH-TARGET.md` — tests the call graph cannot see: why a deeper caller walk is wrong (the dispatch hub), the `dagayn: tests` declaration that replaces it, and dispatch-aware reach as the follow-up
 - `TREESITTER-TERRAFORM-INTEGRATION.md` — Terraform grammar integration plan for the fork
