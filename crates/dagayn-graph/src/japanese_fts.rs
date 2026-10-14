@@ -46,6 +46,12 @@ const QUERY_STOP_POS: &[&str] = &["助詞", "助動詞", "記号", "接続詞", 
 fn segmenter() -> Option<&'static Mutex<Segmenter>> {
     static CELL: OnceLock<Option<Mutex<Segmenter>>> = OnceLock::new();
     CELL.get_or_init(|| {
+        // A build made with `DOCS_RS` set embeds lindera's dummy dictionary,
+        // whose segmenter panics on ordinary Japanese text (and release
+        // builds abort on a panic): such a build indexes CJK bigrams only.
+        if option_env!("DOCS_RS").is_some() {
+            return None;
+        }
         let dictionary = load_dictionary("embedded://ipadic").ok()?;
         Some(Mutex::new(Segmenter::new(Mode::Normal, dictionary, None)))
     })
