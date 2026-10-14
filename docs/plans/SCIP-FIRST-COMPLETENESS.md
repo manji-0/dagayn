@@ -253,6 +253,35 @@ files it has already fetched. Measured in the evaluation repository
     that overrides them.
   - The API is marked unstable.
 
+### In dagayn
+
+The resolver ships as `dagayn/scip_tsgo.mjs`. It writes a SCIP index, so
+the overlay reads it like `scip-typescript`'s. `build --scip` uses it when
+TypeScript 7 is installed (see [COMMANDS.md](../COMMANDS.md#scip-call-resolution)).
+
+| Repository | Indexer | Index | Applying it | `build --scip` | Recall | Precision |
+| ---------- | ------- | ----- | ----------- | -------------- | ------ | --------- |
+| typeorm | tsgo | 9.7 s | 7.0 s | 41 s | 1.000 | 0.987 |
+| typeorm | `scip-typescript` | 24.6 s | 9.5 s | 56 s | 1.000 | 0.988 |
+| zod (warm) | tsgo | 1.6 s | — | 5.2 s | 0.963 | 0.998 |
+| zod (warm) | `scip-typescript` | — | — | 9.4 s | 0.963 | 0.998 |
+
+`build` without `--scip` takes 19 s on typeorm and 2.7 s on zod.
+
+Where the two indexers differ:
+
+- **Ambiguous positions.** tsgo gives one symbol per identifier, where
+  `scip-typescript` often gives several at one position (`ambiguous`: 5
+  against 265 on zod, 47 against 3,066 on typeorm).
+- **More value references.** It therefore confirms more edges and adds
+  more value references. On zod these are mostly getters read as
+  properties (`schema.isInt`) and `this.f.bind(this)`.
+- **Overloads.** Every declaration of an overloaded method defines it;
+  taking only the first counted later overloads as references.
+
+The resident mode (re-resolving edited files on a hook update) is not wired
+yet.
+
 ## Open questions
 
 - **Default on.** `--scip` is opt-in. Whether `build` should use an

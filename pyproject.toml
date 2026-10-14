@@ -89,6 +89,8 @@ include = [
     { path = "docs/**/*", format = "sdist" },
     { path = "dagayn/_vendor_grammars/**/*", format = "wheel" },
     { path = "dagayn/_vendor_grammars/**/*", format = "sdist" },
+    { path = "dagayn/scip_tsgo.mjs", format = "wheel" },
+    { path = "dagayn/scip_tsgo.mjs", format = "sdist" },
     { path = "vendor/**/*", format = "sdist" },
     { path = ".claude-plugin/**/*", format = "sdist" },
     { path = "hooks/**/*", format = "sdist" },

@@ -177,7 +177,10 @@ INDEXERS: tuple[Indexer, ...] = (
         requires=("node_modules",),
         commands=(("scip-typescript",), ("npx", "-y", "@sourcegraph/scip-typescript")),
         arguments=_typescript_arguments,
-        install="npm install -g @sourcegraph/scip-typescript (or install Node.js for npx)",
+        install=(
+            "npm install -g typescript@7 (indexed by dagayn's tsgo resolver), or "
+            "npm install -g @sourcegraph/scip-typescript (or install Node.js for npx)"
+        ),
         authoritative=True,
     ),
     Indexer(
@@ -290,6 +293,10 @@ class ScipJob:
     output: Path
     authoritative: bool = False
     fixed_output: str | None = None
+    # Environment the command needs on top of dagayn's.
+    env: dict[str, str] = field(default_factory=dict)
+    # The indexer's name when it is not the language's default one.
+    indexer: str | None = None
 
 
 @dataclass
@@ -307,6 +314,50 @@ def _timeout() -> int:
         return int(os.environ.get("DAGAYN_SCIP_TIMEOUT", _DEFAULT_TIMEOUT))
     except ValueError:
         return _DEFAULT_TIMEOUT
+
+
+# dagayn's TypeScript indexer on TypeScript 7 (``scip_tsgo.mjs``).
+_TSGO_SCRIPT = Path(__file__).with_name("scip_tsgo.mjs")
+_TSGO_MIN_MAJOR = 7
+
+
+def _global_node_modules() -> Path | None:
+    npm = shutil.which("npm")
+    if npm is None:
+        return None
+    try:
+        completed = subprocess.run(  # noqa: S603 - npm itself
+            [npm, "root", "-g"], capture_output=True, text=True, timeout=30, check=True
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    root = completed.stdout.strip()
+    return Path(root) if root else None
+
+
+def _tsgo_typescript(project: Path) -> Path | None:
+    """The ``typescript`` package, version 7 or later (the Go compiler, whose
+    API ``scip_tsgo.mjs`` uses), from ``DAGAYN_TSGO_TYPESCRIPT``, the
+    project's ``node_modules``, or the global ``node_modules``.
+    ``DAGAYN_TSGO=0`` turns the tsgo resolver off."""
+    if os.environ.get("DAGAYN_TSGO") == "0" or shutil.which("node") is None:
+        return None
+    candidates: list[Path] = []
+    if os.environ.get("DAGAYN_TSGO_TYPESCRIPT"):
+        candidates.append(Path(os.environ["DAGAYN_TSGO_TYPESCRIPT"]))
+    candidates.append(project / "node_modules" / "typescript")
+    global_root = _global_node_modules()
+    if global_root is not None:
+        candidates.append(global_root / "typescript")
+    for candidate in candidates:
+        try:
+            version = json.loads((candidate / "package.json").read_text())["version"]
+            major = int(str(version).split(".", 1)[0])
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        if major >= _TSGO_MIN_MAJOR and (candidate / "dist/api/sync/api.js").is_file():
+            return candidate
+    return None
 
 
 def _command(indexer: Indexer, project: Path) -> list[str] | None:
@@ -387,7 +438,18 @@ def plan_jobs(repo_root: Path, output_dir: Path) -> tuple[list[ScipJob], list[st
             continue
         missing = False
         for number, project in enumerate(projects):
-            command = _command(indexer, project)
+            env: dict[str, str] = {}
+            name: str | None = None
+            tsgo = (
+                _tsgo_typescript(project)
+                if indexer.language == "typescript" and not os.environ.get(indexer.env_var)
+                else None
+            )
+            if tsgo is not None:
+                command: list[str] | None = [str(shutil.which("node")), str(_TSGO_SCRIPT)]
+                env, name = {"DAGAYN_TSGO_TYPESCRIPT": str(tsgo)}, "tsgo"
+            else:
+                command = _command(indexer, project)
             if command is None:
                 missing = True
                 continue
@@ -402,6 +464,8 @@ def plan_jobs(repo_root: Path, output_dir: Path) -> tuple[list[ScipJob], list[st
                     output=output,
                     authoritative=indexer.authoritative,
                     fixed_output=indexer.fixed_output,
+                    env=env,
+                    indexer=name,
                 )
             )
         if missing:
@@ -426,6 +490,7 @@ def run_scip_overlay(store: Any, repo_root: Path, output_dir: Path) -> ScipOverl
             completed = subprocess.run(  # noqa: S603 - indexer command, not shell
                 job.command,
                 cwd=job.cwd,
+                env={**os.environ, **job.env} if job.env else None,
                 capture_output=True,
                 text=True,
                 timeout=_timeout(),
@@ -450,6 +515,9 @@ def run_scip_overlay(store: Any, repo_root: Path, output_dir: Path) -> ScipOverl
             report.warnings.append(f"{label}: index not applied: {type(e).__name__}: {e}")
             continue
         stats = json.loads(raw)
-        report.runs.append({"language": job.language, "prefix": job.prefix, **stats})
+        run = {"language": job.language, "prefix": job.prefix, **stats}
+        if job.indexer:
+            run["indexer"] = job.indexer
+        report.runs.append(run)
         logger.info("%s: %s", label, stats)
     return report

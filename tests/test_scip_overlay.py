@@ -183,3 +183,101 @@ def test_an_indexer_writing_a_fixed_file_has_it_moved(
     assert store.calls == [("php-0.scip", "web/", False)]
     assert not (repo / "web" / "index.scip").exists()
     assert {hint.split(":")[0] for hint in report.hints} >= {"java", "ruby"}
+
+
+def _typescript_package(directory: Path, version: str) -> Path:
+    package = directory / "node_modules" / "typescript"
+    (package / "dist" / "api" / "sync").mkdir(parents=True)
+    (package / "dist" / "api" / "sync" / "api.js").write_text("")
+    (package / "package.json").write_text(json.dumps({"name": "typescript", "version": version}))
+    return package
+
+
+def _node_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        scip_overlay.shutil, "which", lambda name: "/usr/bin/node" if name == "node" else None
+    )
+
+
+def test_typescript_7_in_the_project_is_indexed_by_the_tsgo_resolver(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _repo(tmp_path)
+    package = _typescript_package(repo / "web", "7.0.2")
+    _node_only(monkeypatch)
+    monkeypatch.delenv("DAGAYN_TSGO", raising=False)
+    monkeypatch.delenv("DAGAYN_TSGO_TYPESCRIPT", raising=False)
+    jobs, _hints = plan_jobs(repo, tmp_path / "out")
+    (job,) = [job for job in jobs if job.language == "typescript"]
+    assert job.command[:4] == ["/usr/bin/node", str(scip_overlay._TSGO_SCRIPT), "index", "--output"]
+    assert job.command[-2:] == ["tsconfig.json", "tsconfig.test.json"]
+    assert job.env == {"DAGAYN_TSGO_TYPESCRIPT": str(package)}
+    assert job.indexer == "tsgo"
+    assert job.authoritative
+
+
+def test_older_typescript_an_override_or_dagayn_tsgo_0_keep_scip_typescript(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _repo(tmp_path)
+    _node_only(monkeypatch)
+    monkeypatch.delenv("DAGAYN_TSGO_TYPESCRIPT", raising=False)
+
+    _typescript_package(repo / "web", "5.9.3")
+    jobs, hints = plan_jobs(repo, tmp_path / "out")
+    assert [job for job in jobs if job.language == "typescript"] == []
+    assert any(hint.startswith("typescript: no SCIP indexer found") for hint in hints)
+
+    newer = _typescript_package(tmp_path / "tsgo", "7.0.2")
+    monkeypatch.setenv("DAGAYN_TSGO_TYPESCRIPT", str(newer))
+    monkeypatch.setenv("DAGAYN_TSGO", "0")
+    jobs, _hints = plan_jobs(repo, tmp_path / "out")
+    assert [job for job in jobs if job.language == "typescript"] == []
+
+    monkeypatch.delenv("DAGAYN_TSGO")
+    monkeypatch.setenv("DAGAYN_SCIP_TYPESCRIPT", "scip-ts")
+    jobs, _hints = plan_jobs(repo, tmp_path / "out")
+    (job,) = [job for job in jobs if job.language == "typescript"]
+    assert job.command[0] == "scip-ts"
+    assert job.indexer is None
+
+
+def test_the_tsgo_resolver_settles_calls_in_a_real_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Runs only where TypeScript 7 and Node.js are installed
+    (``DAGAYN_TSGO_TYPESCRIPT``)."""
+    import os
+    import shutil
+    import sqlite3
+
+    monkeypatch.undo()  # the real `which`
+    typescript = os.environ.get("DAGAYN_TSGO_TYPESCRIPT")
+    if not typescript or shutil.which("node") is None:
+        pytest.skip("needs DAGAYN_TSGO_TYPESCRIPT and node")
+    from dagayn.tools.build import build_or_update_graph
+
+    (tmp_path / ".git").mkdir()
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / "tsconfig.json").write_text('{"compilerOptions": {"strict": true}}')
+    (tmp_path / "store.ts").write_text(
+        "export class Store {\n  save(): void {}\n}\n"
+        "export function make(): Store { return new Store(); }\n"
+    )
+    (tmp_path / "main.ts").write_text(
+        "import { make } from './store';\n"
+        "export function run(): void {\n  const s = make();\n  s.save();\n  [1].forEach(make);\n}\n"
+    )
+    result = build_or_update_graph(repo_root=str(tmp_path), full_rebuild=True, scip=True)
+    (run,) = result["scip_overlay"]
+    assert run["indexer"] == "tsgo"
+    db = sqlite3.connect(tmp_path / ".dagayn" / "graph.db")
+    rows = set(
+        db.execute(
+            "SELECT kind, target_qualified, line FROM edges WHERE file_path = 'main.ts' "
+            "AND json_extract(extra, '$.resolved_by') = 'scip'"
+        )
+    )
+    assert ("CALLS", "store.ts::Store.save", 4) in rows
+    assert ("CALLS", "store.ts::make", 3) in rows
+    assert ("REFERENCES", "store.ts::make", 5) in rows

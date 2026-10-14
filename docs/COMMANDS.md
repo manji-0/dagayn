@@ -70,7 +70,7 @@ the marker file) it runs the indexer, when this machine has it:
 | Language | Indexer | Project marker | Answer |
 | -------- | ------- | -------------- | ------ |
 | Rust | `rust-analyzer scip` | outermost `Cargo.toml` | replaces the extractor's |
-| TypeScript / JavaScript | `scip-typescript` (or `npx @sourcegraph/scip-typescript`) | `tsconfig.json` with `node_modules` | replaces the extractor's |
+| TypeScript / JavaScript | dagayn's tsgo resolver when TypeScript 7 is installed, else `scip-typescript` (or `npx @sourcegraph/scip-typescript`) | `tsconfig.json` with `node_modules` | replaces the extractor's |
 | Go | `scip-go` | `go.mod` | fills |
 | Python | `scip-python` (or `npx @sourcegraph/scip-python`) | outermost `pyproject.toml` / `setup.py` / `setup.cfg` | fills |
 | Java / Kotlin | `scip-java` (or `coursier launch`) | outermost `pom.xml` / `build.gradle(.kts)` / `settings.gradle(.kts)` | fills; runs only with `DAGAYN_SCIP_ALLOW_BUILD=1` |
@@ -87,7 +87,18 @@ any target it disagrees with. When a project's indexer is not installed, the
 build prints a `hint:` line with the install command and the language keeps
 dagayn's own resolution; a failed run is a warning and does the same.
 `scip-java` runs the project's build with `clean`, so it needs
-`DAGAYN_SCIP_ALLOW_BUILD=1`; `scip-dotnet` runs `dotnet restore`. The indexes
+`DAGAYN_SCIP_ALLOW_BUILD=1`; `scip-dotnet` runs `dotnet restore`.
+
+For TypeScript, dagayn's own indexer (`dagayn/scip_tsgo.mjs`, run by
+Node.js) asks TypeScript 7's compiler API (`typescript/unstable/sync`) for
+every identifier's declaration. It runs when a `typescript` package of
+version 7 or later is found in `DAGAYN_TSGO_TYPESCRIPT` (its directory), the
+project's `node_modules`, or the global `node_modules`
+(`npm install -g typescript@7`); `DAGAYN_TSGO=0` keeps `scip-typescript`,
+and `DAGAYN_SCIP_TYPESCRIPT` overrides both. On typeorm it indexed in 9.7 s
+where `scip-typescript` took 24.6 s, with the same caller recall. Options
+TypeScript 7 removed (`downlevelIteration`, `moduleResolution: node`) are
+reported as warnings and do not stop it. The indexes
 are written under `.dagayn/scip/`. `DAGAYN_SCIP_<LANGUAGE>`
 (`DAGAYN_SCIP_RUST`, `DAGAYN_SCIP_GO`, `DAGAYN_SCIP_CSHARP`, ...) replaces an
 indexer's command, and `DAGAYN_SCIP_TIMEOUT` bounds each run (seconds,

@@ -15,6 +15,15 @@ update).
 
 ### Added
 
+- `dagayn build --scip` indexes TypeScript with TypeScript 7 (the Go
+  compiler) when it is installed (`npm install -g typescript@7`, or the
+  project's own; `DAGAYN_TSGO_TYPESCRIPT` names it, `DAGAYN_TSGO=0` keeps
+  `scip-typescript`). dagayn's indexer (`dagayn/scip_tsgo.mjs`) asks its
+  compiler API for every identifier's declaration and writes the SCIP index
+  the overlay reads. On typeorm it indexed in 9.7 s against
+  `scip-typescript`'s 24.6 s, and the whole `build --scip` took 41 s
+  against 56 s, at the same caller recall (1.000) and precision (0.987
+  against 0.988).
 - `dagayn build --scip` adds an edge for every reference the index sees
   that no edge names, when its definition is a function of the repository:
   `CALLS` when it is called, `REFERENCES` `value_reference` when it is used
