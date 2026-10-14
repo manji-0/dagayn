@@ -279,8 +279,33 @@ Where the two indexers differ:
 - **Overloads.** Every declaration of an overloaded method defines it;
   taking only the first counted later overloads as references.
 
-The resident mode (re-resolving edited files on a hook update) is not wired
-yet.
+**Resident mode.** `dagayn watch` (what the daemon runs per repository)
+keeps one `scip_tsgo.mjs serve` process per TypeScript project. It does so
+only when the last full build ran the TypeScript overlay
+(`scip_overlay_languages` metadata) and TypeScript 7 is installed.
+
+After each incremental update:
+
+1. The process is told which files changed.
+2. It indexes the re-parsed files (the changed ones and their dependents),
+   plus the definitions they reference.
+3. The overlay settles their edges before post-processing.
+
+The overlay skips the edges of a document that holds only definitions.
+
+Measured on typeorm, from the edit to the overlay applied:
+
+| Edited file | Re-parsed | Index | Total |
+| ----------- | --------- | ----- | ----- |
+| a test file | 1 | 0.12 s | 0.4 s |
+| `PostgresQueryRunner.ts` | 26 | 0.73 s | 1.1 s |
+| `SelectQueryBuilder.ts` (dependents capped at 500 of 2,075) | 501 | 3.7 s | 5.3 s |
+
+On zod, a call added to a test (`schema.safeParse(..)` on a `z.string()`)
+was settled to `ZodType.safeParse` about a second after the save.
+
+`dagayn update` (the hook) does not start the process: a cold start costs
+1 to 7 s.
 
 ## Open questions
 
@@ -289,9 +314,11 @@ yet.
   product decision. The cost is the indexer's time (axum: 140 s against
   about 10 s without) and a build environment (`node_modules`, a Cargo
   workspace).
-- **Hook updates.** Overlay edges of a changed file are replaced by
-  Tree-sitter's until the next `--scip` build. Step 3 is what keeps that
-  window from losing value references.
+- **Hook updates.** Under `dagayn update` (the hook), overlay edges of a
+  changed file are replaced by Tree-sitter's until the next `--scip`
+  build. Step 3 keeps that window from losing value references. `dagayn
+  watch` closes the window for TypeScript with the resident tsgo resolver;
+  Rust and the other languages have none yet.
 - **Indexer versions.** Positions and symbol formats differ across
   indexer versions. The overlay's tests pin the shapes it reads; new
   indexer releases need a check.

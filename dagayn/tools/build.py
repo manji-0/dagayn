@@ -720,6 +720,7 @@ def build_or_update_graph(
         # Pass changed_files for incremental community detection.
         changed = build_result.changed_files if not full_rebuild else None
         scip_warnings: list[str] = []
+        scip_languages: set[str] = set()
         if scip and full_rebuild and not no_changes:
             from dagayn.scip_overlay import run_scip_overlay
 
@@ -727,6 +728,10 @@ def build_or_update_graph(
             build_result.scip_overlay = scip_report.runs
             build_result.scip_hints = scip_report.hints or None
             scip_warnings = scip_report.warnings
+            scip_languages = {run["language"] for run in scip_report.runs}
+        if full_rebuild and not no_changes:
+            # What `watch` keeps resolving between builds (scip_overlay.ResidentTsgo).
+            store.set_metadata("scip_overlay_languages", ",".join(sorted(scip_languages)))
         if not no_changes:
             warnings = _run_postprocess(
                 store,

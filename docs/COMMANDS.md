@@ -98,7 +98,11 @@ project's `node_modules`, or the global `node_modules`
 and `DAGAYN_SCIP_TYPESCRIPT` overrides both. On typeorm it indexed in 9.7 s
 where `scip-typescript` took 24.6 s, with the same caller recall. Options
 TypeScript 7 removed (`downlevelIteration`, `moduleResolution: node`) are
-reported as warnings and do not stop it. The indexes
+reported as warnings and do not stop it. After a `build --scip` that
+indexed TypeScript this way, `dagayn watch` (and so the daemon) keeps the
+resolver running and settles the calls of the files each update re-parses
+(about 0.4 s for a leaf file of typeorm, 5 s for one 500 files depend on);
+`dagayn update` does not. The indexes
 are written under `.dagayn/scip/`. `DAGAYN_SCIP_<LANGUAGE>`
 (`DAGAYN_SCIP_RUST`, `DAGAYN_SCIP_GO`, `DAGAYN_SCIP_CSHARP`, ...) replaces an
 indexer's command, and `DAGAYN_SCIP_TIMEOUT` bounds each run (seconds,

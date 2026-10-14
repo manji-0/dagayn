@@ -88,6 +88,10 @@ struct Reference {
 #[derive(Default)]
 struct ScipIndex {
     documents: HashMap<String, Encoding>,
+    /// Documents with at least one reference. A document holding only
+    /// definitions (the ones a partial index carries for the symbols its
+    /// other documents reference) settles none of its file's edges.
+    referencing: HashSet<String>,
     references: HashMap<(String, i64), Vec<Reference>>,
     definitions: HashMap<String, (String, i64)>,
 }
@@ -124,6 +128,7 @@ fn read_index(path: &Path, prefix: &str) -> Result<ScipIndex> {
             if occurrence.symbol_roles & (ROLE_DEFINITION | ROLE_IMPORT) != 0 {
                 continue;
             }
+            read.referencing.insert(file.clone());
             let start = usize::try_from(range[1]).unwrap_or_default();
             // A four-element range spans lines: it covers the rest of the first.
             let end = match range.len() {
@@ -668,6 +673,9 @@ impl GraphStore {
             let Some(&encoding) = index.documents.get(&file) else {
                 continue;
             };
+            if !index.referencing.contains(&file) {
+                continue;
+            }
             stats.calls += 1;
             let lines = sources
                 .entry(file.clone())

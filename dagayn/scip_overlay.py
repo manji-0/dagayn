@@ -521,3 +521,170 @@ def run_scip_overlay(store: Any, repo_root: Path, output_dir: Path) -> ScipOverl
         report.runs.append(run)
         logger.info("%s: %s", label, stats)
     return report
+
+
+# ---------------------------------------------------------------------------
+# Resident TypeScript resolution for `watch`
+# ---------------------------------------------------------------------------
+
+_TYPESCRIPT_SUFFIXES = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
+
+
+class TsgoSession:
+    """One ``scip_tsgo.mjs serve`` process kept open on a TypeScript project:
+    each request names the files that changed and the files to index, and
+    gets a SCIP index of just those (with the definitions they reference)."""
+
+    def __init__(self, project: Path, prefix: str, configs: list[str], typescript: Path) -> None:
+        self.project = project
+        self.prefix = prefix
+        self.configs = configs
+        self.typescript = typescript
+        self._process: subprocess.Popen[str] | None = None
+
+    def start(self, timeout: float = 120.0) -> bool:
+        node = shutil.which("node")
+        if node is None:
+            return False
+        self._process = subprocess.Popen(  # noqa: S603 - node running dagayn's script
+            [node, str(_TSGO_SCRIPT), "serve", *self.configs],
+            cwd=self.project,
+            env={**os.environ, "DAGAYN_TSGO_TYPESCRIPT": str(self.typescript)},
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        answer = self._read(timeout)
+        if not (answer and answer.get("ready")):
+            self.close()
+            return False
+        return True
+
+    def _read(self, timeout: float) -> dict[str, Any] | None:
+        import select
+
+        process = self._process
+        if process is None or process.stdout is None:
+            return None
+        ready, _, _ = select.select([process.stdout], [], [], timeout)
+        if not ready:
+            return None
+        line = process.stdout.readline()
+        try:
+            return json.loads(line) if line else None
+        except ValueError:
+            return None
+
+    def index(
+        self, changed: list[str], files: list[str], output: Path, timeout: float = 120.0
+    ) -> dict[str, Any] | None:
+        """Index ``files`` (paths relative to the project) after telling the
+        compiler ``changed`` changed; the answer, or ``None`` when the
+        session died or did not answer in time."""
+        process = self._process
+        if process is None or process.stdin is None or process.poll() is not None:
+            return None
+        request = {"changed": changed, "files": files, "output": str(output)}
+        try:
+            process.stdin.write(json.dumps(request) + "\n")
+            process.stdin.flush()
+        except OSError:
+            self.close()
+            return None
+        answer = self._read(timeout)
+        if answer is None:
+            self.close()
+        return answer
+
+    def close(self) -> None:
+        process, self._process = self._process, None
+        if process is None:
+            return
+        try:
+            if process.stdin is not None:
+                process.stdin.close()
+            process.wait(timeout=5)
+        except (OSError, subprocess.TimeoutExpired):
+            process.kill()
+
+
+class ResidentTsgo:
+    """The TypeScript projects of a repository, each with a ``TsgoSession``,
+    for ``watch``: after an incremental update re-parses files, their calls
+    are settled by the compiler again, as ``build --scip`` settled them. On
+    only when the last full build ran the TypeScript overlay
+    (``scip_overlay_languages``) and the tsgo resolver is available."""
+
+    def __init__(self, repo_root: Path, output_dir: Path) -> None:
+        self.repo_root = repo_root
+        self.output_dir = output_dir
+        self.sessions: list[TsgoSession] = []
+
+    @classmethod
+    def for_store(cls, store: Any, repo_root: Path, output_dir: Path) -> ResidentTsgo | None:
+        try:
+            languages = store.get_metadata("scip_overlay_languages") or ""
+        except (AttributeError, OSError, RuntimeError, ValueError):
+            return None
+        if "typescript" not in languages.split(","):
+            return None
+        indexer = next(i for i in INDEXERS if i.language == "typescript")
+        if os.environ.get(indexer.env_var):
+            return None  # an overridden indexer has no resident mode
+        resident = cls(repo_root, output_dir)
+        for project in _projects(repo_root, indexer):
+            typescript = _tsgo_typescript(project)
+            if typescript is None:
+                continue
+            relative = project.relative_to(repo_root).as_posix()
+            configs = sorted(p.name for p in project.glob("tsconfig*.json"))
+            session = TsgoSession(
+                project, "" if relative == "." else f"{relative}/", configs, typescript
+            )
+            if session.start():
+                resident.sessions.append(session)
+            else:
+                logger.warning("tsgo resolver did not start for %s", project)
+        return resident if resident.sessions else None
+
+    def apply(self, store: Any, changed: list[str], reparsed: list[str]) -> list[dict[str, Any]]:
+        """Settle the calls of ``reparsed`` (repository-relative paths, the
+        ``changed`` ones edited) by each project's session."""
+        runs: list[dict[str, Any]] = []
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        for number, session in enumerate(self.sessions):
+
+            def local(paths: list[str], prefix: str = session.prefix) -> list[str]:
+                return [
+                    p[len(prefix) :]
+                    for p in paths
+                    if p.startswith(prefix) and p.endswith(_TYPESCRIPT_SUFFIXES)
+                ]
+
+            files = local(reparsed)
+            if not files:
+                continue
+            output = self.output_dir / f"typescript-resident-{number}.scip"
+            answer = session.index(local(changed), files, output)
+            if not answer or not answer.get("ok"):
+                logger.warning(
+                    "tsgo resolver failed for %s: %s",
+                    session.project,
+                    (answer or {}).get("error", "no answer"),
+                )
+                continue
+            try:
+                raw = store.apply_scip_overlay_json(
+                    str(output), session.prefix, str(self.repo_root), True
+                )
+            except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as e:
+                logger.warning("tsgo index not applied for %s: %s", session.project, e)
+                continue
+            runs.append({"language": "typescript", "prefix": session.prefix, **json.loads(raw)})
+        return runs
+
+    def close(self) -> None:
+        for session in self.sessions:
+            session.close()
+        self.sessions = []

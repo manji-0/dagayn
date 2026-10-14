@@ -559,6 +559,24 @@ _DEBOUNCE_SECONDS = 0.3
 _MAX_DEBOUNCE_SECONDS = float(os.environ.get("DAGAYN_WATCH_MAX_DEBOUNCE_SECONDS", "5"))
 
 
+def _start_resident_tsgo(repo_root: Path, store: GraphStore) -> Any:
+    """The resident TypeScript resolver when the last full build ran the
+    TypeScript SCIP overlay and TypeScript 7 is installed, else ``None``."""
+    from .paths import get_data_dir
+    from .scip_overlay import ResidentTsgo
+
+    try:
+        resident = ResidentTsgo.for_store(store, repo_root, get_data_dir(repo_root) / "scip")
+    except OSError as e:
+        logger.warning("tsgo resolver not started: %s", e)
+        return None
+    if resident is not None:
+        logger.info(
+            "tsgo resolver keeps TypeScript calls settled (%d project(s))", len(resident.sessions)
+        )
+    return resident
+
+
 def _idle() -> None:
     """One tick of the watch loop's wait for Ctrl+C (patched in tests)."""
     time.sleep(1)
@@ -590,6 +608,7 @@ def watch(
     repo_root = repo_root.resolve()
     store.set_metadata("repo_root", str(repo_root))
     scope = {"ignore_patterns": _load_ignore_patterns(repo_root)}
+    resident = _start_resident_tsgo(repo_root, store)
 
     class GraphUpdateHandler(FileSystemEventHandler):
         def __init__(self):
@@ -699,6 +718,12 @@ def watch(
                 try:
                     result = incremental_update(repo_root, store, changed_files=rels)
                     updated = result.files_updated or 0
+                    if resident is not None and updated > 0:
+                        changed = list(result.changed_files or [])
+                        for run in resident.apply(
+                            store, changed, [*changed, *(result.dependent_files or [])]
+                        ):
+                            logger.info("SCIP overlay (resident %s): %s", run["language"], run)
                 except _GRAPH_STORE_ERRORS as e:
                     logger.error("Error updating watched files %s: %s", rels, e)
 
@@ -719,5 +744,8 @@ def watch(
             _idle()
     except KeyboardInterrupt:
         observer.stop()
+    finally:
+        if resident is not None:
+            resident.close()
     observer.join()
     logger.info("Watch stopped.")

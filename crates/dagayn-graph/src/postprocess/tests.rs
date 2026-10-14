@@ -3064,6 +3064,88 @@ fn a_scip_index_adds_edges_for_references_no_edge_names() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+#[test]
+fn a_scip_document_of_definitions_only_settles_none_of_its_files_edges() {
+    use protobuf::{EnumOrUnknown, Message};
+    use scip::types::{Document, Index, Occurrence, PositionEncoding};
+
+    // A partial index: `a.rs` re-indexed, `b.rs` present only for the
+    // definition `a.rs` references. `b.rs`'s own unresolved call is left.
+    let root = std::env::temp_dir().join(format!("dagayn-scip-defs-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let a = "fn run() {\n    helper();\n}\n";
+    let b = "fn helper() {\n    other();\n}\n";
+    std::fs::write(root.join("a.rs"), a).unwrap();
+    std::fs::write(root.join("b.rs"), b).unwrap();
+    let helper = "rust-analyzer cargo demo 0.1.0 helper().";
+    let at = |row: i32, start: i32, len: i32, symbol: &str, roles: i32| Occurrence {
+        range: vec![row, start, start + len],
+        symbol: symbol.to_string(),
+        symbol_roles: roles,
+        ..Occurrence::default()
+    };
+    let document = |path: &str, occurrences: Vec<Occurrence>| Document {
+        relative_path: path.to_string(),
+        position_encoding: EnumOrUnknown::new(PositionEncoding::UTF8CodeUnitOffsetFromLineStart),
+        occurrences,
+        ..Document::default()
+    };
+    let index = Index {
+        documents: vec![
+            document("a.rs", vec![at(1, 4, 6, helper, 0)]),
+            document("b.rs", vec![at(0, 3, 6, helper, 1)]),
+        ],
+        ..Index::default()
+    };
+    let index_path = root.join("index.scip");
+    std::fs::write(&index_path, index.write_to_bytes().unwrap()).unwrap();
+
+    let path = temp_db("scip-defs");
+    let mut store = GraphStore::open(&path).expect("open");
+    let ranged = |name: &str, file: &str, end: i64| NodeInput {
+        line_start: 1,
+        line_end: end,
+        ..function_node(name, file)
+    };
+    for (file, source, node, target) in
+        [("a.rs", a, "run", "helper"), ("b.rs", b, "helper", "other")]
+    {
+        store
+            .store_file_nodes_edges(
+                file,
+                &[file_node(file), ranged(node, file, 3)],
+                &[edge("CALLS", &format!("{file}::{node}"), target, file, 2)],
+                &sha256_hex(source.as_bytes()),
+                0,
+            )
+            .expect("store");
+    }
+    let stats = store
+        .apply_scip_overlay(&index_path, "", &root, true)
+        .unwrap();
+    assert_eq!((stats.calls, stats.rewritten_to_node), (1, 1));
+    let targets = store
+        .conn
+        .prepare(
+            "SELECT file_path, target_qualified FROM edges WHERE kind = 'CALLS' ORDER BY file_path",
+        )
+        .unwrap()
+        .query_map([], |row| <(String, String)>::try_from(row))
+        .unwrap()
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(
+        targets,
+        vec![
+            ("a.rs".to_string(), "b.rs::helper".to_string()),
+            ("b.rs".to_string(), "other".to_string()),
+        ]
+    );
+    let _ = std::fs::remove_file(path);
+    let _ = std::fs::remove_dir_all(root);
+}
+
 fn rust(node: NodeInput) -> NodeInput {
     NodeInput {
         language: "rust".to_string(),

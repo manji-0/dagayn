@@ -281,3 +281,56 @@ def test_the_tsgo_resolver_settles_calls_in_a_real_build(
     assert ("CALLS", "store.ts::Store.save", 4) in rows
     assert ("CALLS", "store.ts::make", 3) in rows
     assert ("REFERENCES", "store.ts::make", 5) in rows
+
+
+def test_watch_keeps_typescript_calls_settled_by_a_resident_tsgo_resolver(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """After a `build --scip`, an edit re-parsed by an incremental update has
+    its calls settled by the resident resolver. Runs only where TypeScript 7
+    and Node.js are installed (``DAGAYN_TSGO_TYPESCRIPT``)."""
+    import os
+    import shutil
+    import sqlite3
+
+    monkeypatch.undo()  # the real `which`
+    if not os.environ.get("DAGAYN_TSGO_TYPESCRIPT") or shutil.which("node") is None:
+        pytest.skip("needs DAGAYN_TSGO_TYPESCRIPT and node")
+    from dagayn.graph import GraphStore
+    from dagayn.incremental_update_pipeline import incremental_update
+    from dagayn.scip_overlay import ResidentTsgo
+    from dagayn.tools.build import build_or_update_graph
+
+    (tmp_path / ".git").mkdir()
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / "tsconfig.json").write_text('{"compilerOptions": {"strict": true}}')
+    (tmp_path / "store.ts").write_text(
+        "export class Store {\n  save(): void {}\n}\n"
+        "export function make(): Store { return new Store(); }\n"
+    )
+    main = tmp_path / "main.ts"
+    main.write_text("import { make } from './store';\nexport function run(): void {}\n")
+    build_or_update_graph(repo_root=str(tmp_path), full_rebuild=True, scip=True)
+
+    store = GraphStore(str(tmp_path / ".dagayn" / "graph.db"))
+    resident = ResidentTsgo.for_store(store, tmp_path, tmp_path / ".dagayn" / "scip")
+    assert resident is not None
+    try:
+        main.write_text(
+            "import { make } from './store';\n"
+            "export function run(): void {\n  const s = make();\n  s.save();\n}\n"
+        )
+        result = incremental_update(tmp_path, store, changed_files=["main.ts"])
+        changed = list(result.changed_files or [])
+        (run,) = resident.apply(store, changed, [*changed, *(result.dependent_files or [])])
+        assert run["rewritten_to_node"] + run["confirmed"] >= 1
+    finally:
+        resident.close()
+    db = sqlite3.connect(tmp_path / ".dagayn" / "graph.db")
+    rows = set(
+        db.execute(
+            "SELECT target_qualified, line FROM edges WHERE file_path = 'main.ts' "
+            "AND kind = 'CALLS' AND json_extract(extra, '$.resolved_by') = 'scip'"
+        )
+    )
+    assert ("store.ts::Store.save", 4) in rows

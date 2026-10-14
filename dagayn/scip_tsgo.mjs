@@ -3,27 +3,40 @@
 // (docs/plans/SCIP-FIRST-COMPLETENESS.md#typescript-without-scip-typescript-a-tsgo-resolver).
 //
 //   node scip_tsgo.mjs index --output <index.scip> [tsconfig.json ...]
+//   node scip_tsgo.mjs serve [tsconfig.json ...]
 //
-// The arguments are scip-typescript's. `DAGAYN_TSGO_TYPESCRIPT` names the
-// directory of the `typescript` package (7 or later) to load.
+// `index` takes scip-typescript's arguments and indexes every file of the
+// projects. `serve` keeps the projects open and reads one JSON request per
+// line on stdin, `{"changed": [paths], "files": [paths], "output": path}`:
+// it tells the compiler which files changed, indexes only `files` (paths
+// relative to the working directory), and answers one JSON line on stdout
+// (`{"ok": true, "documents": n, "occurrences": m}`). `DAGAYN_TSGO_TYPESCRIPT`
+// names the directory of the `typescript` package (7 or later) to load.
 //
 // Only what the overlay reads is written: per document its occurrences
 // (range, symbol, definition role), in UTF-16 units. Every identifier of the
-// project's own files is asked for its symbol, many per request; a
-// declaration's position comes from the source files already fetched, so a
-// symbol costs one round trip at most (an alias's target, a parent's name).
-// Symbols declared inside a function are `local`; the others are global,
-// named as scip-typescript names them (`scip-typescript npm <package> .
+// files indexed is asked for its symbol, many per request; a declaration's
+// position comes from its source file's syntax tree, so a symbol costs one
+// round trip at most (an alias's target, a parent's name). Symbols declared
+// inside a function are `local`; the others are global, named as
+// scip-typescript names them (`scip-typescript npm <package> .
 // <descriptors>`), the package of a declaration outside the project read
-// from its `node_modules` path (`typescript` for the default library).
+// from its `node_modules` path (`typescript` for the default library). A
+// project symbol referenced from the files indexed also gets its definition,
+// in its own file's document, so the overlay finds its node.
 
 import fs from "node:fs";
 import path from "node:path";
+import readline from "node:readline";
 import { pathToFileURL } from "node:url";
 
 const args = process.argv.slice(2);
-if (args[0] !== "index") {
-  process.stderr.write("usage: scip_tsgo.mjs index --output <index.scip> [tsconfig.json ...]\n");
+const mode = args[0];
+if (mode !== "index" && mode !== "serve") {
+  process.stderr.write(
+    "usage: scip_tsgo.mjs index --output <index.scip> [tsconfig.json ...]\n" +
+      "       scip_tsgo.mjs serve [tsconfig.json ...]\n",
+  );
   process.exit(2);
 }
 let output = "index.scip";
@@ -58,68 +71,6 @@ const FUNCTION_LIKE = new Set(
 );
 const CHUNK = 5000;
 
-const api = new API({ cwd });
-const snapshot = api.updateSnapshot({
-  openProjects: configs.map((config) => path.resolve(cwd, config)),
-});
-const projects = snapshot.getProjects();
-for (const project of projects) {
-  for (const diagnostic of project.program.getConfigFileParsingDiagnostics()) {
-    process.stderr.write(`warning: ${project.configFileName}: TS${diagnostic.code} ${diagnostic.text ?? ""}\n`);
-  }
-}
-
-// --- the project's own files and their identifiers -------------------------
-
-const own = new Map(); // absolute path -> { project, sourceFile, relative }
-for (const project of projects) {
-  for (const file of project.program.getSourceFileNames()) {
-    if (own.has(file) || file.endsWith(".d.ts") || file.includes("/node_modules/")) continue;
-    const relative = path.relative(cwd, file);
-    if (relative.startsWith("..") || path.isAbsolute(relative)) continue;
-    own.set(file, { project, sourceFile: project.program.getSourceFile(file), relative });
-  }
-}
-
-const lineStarts = new Map();
-function position(file, offset) {
-  let starts = lineStarts.get(file);
-  if (!starts) {
-    const text = own.get(file).sourceFile.text;
-    starts = [0];
-    for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) === 10) starts.push(i + 1);
-    lineStarts.set(file, starts);
-  }
-  let low = 0;
-  let high = starts.length - 1;
-  while (low < high) {
-    const middle = (low + high + 1) >> 1;
-    if (starts[middle] <= offset) low = middle;
-    else high = middle - 1;
-  }
-  return [low, offset - starts[low]];
-}
-
-// Identifiers by project, so each request goes to one checker.
-const byProject = new Map();
-for (const [file, entry] of own) {
-  const list = byProject.get(entry.project) ?? [];
-  const visit = (node) => {
-    if (isIdentifier(node)) list.push({ file, node });
-    node.forEachChild(visit);
-    return undefined;
-  };
-  entry.sourceFile.forEachChild(visit);
-  byProject.set(entry.project, list);
-}
-
-// --- symbols ----------------------------------------------------------------
-
-const aliasTarget = new Map();
-const names = new Map(); // symbol id -> SCIP symbol, or null
-const ownDeclarations = new Map(); // SCIP symbol -> its declaration's handle
-let localCounter = 0;
-
 const escape = (name) => (/^[\w$+-]+$/.test(name) ? name : `\`${name.replaceAll("`", "``")}\``);
 const suffixOf = (flags) => {
   if (flags & (SymbolFlags.Class | SymbolFlags.Interface | SymbolFlags.Enum | SymbolFlags.TypeAlias)) return "#";
@@ -139,11 +90,6 @@ function packageOf(file) {
   return { name, inner };
 }
 
-function declarationNode(handle) {
-  const entry = own.get(handle.path);
-  return entry ? entry.sourceFile.getOrCreateNodeAtIndex(handle.index) : undefined;
-}
-
 function insideFunction(node) {
   for (let current = node.parent; current; current = current.parent) {
     if (FUNCTION_LIKE.has(current.kind)) return true;
@@ -151,106 +97,173 @@ function insideFunction(node) {
   return false;
 }
 
-const chains = new Map(); // symbol id -> its descriptors
-function descriptorChain(symbol, depth = 0) {
-  if (chains.has(symbol.id)) return chains.get(symbol.id);
-  let chain = "";
-  if (!symbol.name.startsWith('"')) {
-    // a module's name is quoted: it ends the chain
-    let parent;
-    if (depth < 8) {
-      try {
-        parent = symbol.getParent();
-      } catch {
-        parent = undefined;
-      }
-    }
-    const name = symbol.name === "__constructor" ? "<constructor>" : symbol.name;
-    chain = `${parent ? descriptorChain(parent, depth + 1) : ""}${escape(name)}${suffixOf(symbol.flags)}`;
-  }
-  chains.set(symbol.id, chain);
-  return chain;
-}
+/**
+ * The SCIP index of `only` (absolute paths; every project file when null)
+ * in `snapshot`, as bytes, with its document and occurrence counts.
+ */
+function indexSnapshot(snapshot, only) {
+  const projects = snapshot.getProjects();
 
-function scipName(symbol) {
-  if (names.has(symbol.id)) return names.get(symbol.id);
-  let name = null;
-  const handle = symbol.declarations?.[0];
-  if (handle) {
-    const node = declarationNode(handle);
-    if (node && insideFunction(node) && !(symbol.flags & (SymbolFlags.Method | SymbolFlags.Property))) {
-      name = `local ${localCounter++}`;
-    } else {
-      const entry = own.get(handle.path);
-      const pkg = entry ? { name: "dagayn-project", inner: entry.relative } : packageOf(handle.path);
-      if (pkg) name = `scip-typescript npm ${pkg.name} . ${escape(pkg.inner)}/${descriptorChain(symbol)}`;
-      if (name && entry) ownDeclarations.set(name, handle);
+  // The projects' own files; their syntax trees are fetched when needed.
+  const own = new Map(); // absolute path -> { project, relative, sourceFile }
+  for (const project of projects) {
+    for (const file of project.program.getSourceFileNames()) {
+      if (own.has(file) || file.endsWith(".d.ts") || file.includes("/node_modules/")) continue;
+      const relative = path.relative(cwd, file);
+      if (relative.startsWith("..") || path.isAbsolute(relative)) continue;
+      own.set(file, { project, relative, sourceFile: undefined });
     }
   }
-  names.set(symbol.id, name);
-  return name;
-}
+  const sourceFileOf = (file) => {
+    const entry = own.get(file);
+    if (!entry) return undefined;
+    entry.sourceFile ??= entry.project.program.getSourceFile(file);
+    return entry.sourceFile;
+  };
+  const declarationNode = (handle) => sourceFileOf(handle.path)?.getOrCreateNodeAtIndex(handle.index);
 
-// --- occurrences ------------------------------------------------------------
+  const lineStarts = new Map();
+  const position = (file, offset) => {
+    let starts = lineStarts.get(file);
+    if (!starts) {
+      const text = sourceFileOf(file).text;
+      starts = [0];
+      for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) === 10) starts.push(i + 1);
+      lineStarts.set(file, starts);
+    }
+    let low = 0;
+    let high = starts.length - 1;
+    while (low < high) {
+      const middle = (low + high + 1) >> 1;
+      if (starts[middle] <= offset) low = middle;
+      else high = middle - 1;
+    }
+    return [low, offset - starts[low]];
+  };
 
-const documents = new Map(); // relative path -> occurrences
-const definitionsWritten = new Set();
-const occurrence = (file, start, end, symbol, roles) => {
-  const relative = own.get(file).relative;
-  const list = documents.get(relative) ?? [];
-  const [line, column] = position(file, start);
-  const [, endColumn] = position(file, end);
-  list.push({ range: [line, column, endColumn], symbol, roles });
-  documents.set(relative, list);
-};
+  // Identifiers by project, so each request goes to one checker.
+  const byProject = new Map();
+  for (const file of only ?? own.keys()) {
+    const entry = own.get(file);
+    if (!entry) continue;
+    const list = byProject.get(entry.project) ?? [];
+    const visit = (node) => {
+      if (isIdentifier(node)) list.push({ file, node });
+      node.forEachChild(visit);
+      return undefined;
+    };
+    sourceFileOf(file).forEachChild(visit);
+    byProject.set(entry.project, list);
+  }
 
-for (const [project, identifiers] of byProject) {
-  for (let i = 0; i < identifiers.length; i += CHUNK) {
-    const batch = identifiers.slice(i, i + CHUNK);
-    const symbols = project.checker.getSymbolAtLocation(batch.map((entry) => entry.node));
-    batch.forEach(({ file, node }, k) => {
-      let symbol = symbols[k];
-      if (!symbol) return;
-      if (symbol.flags & SymbolFlags.Alias) {
-        if (!aliasTarget.has(symbol.id)) {
-          let target;
-          try {
-            target = project.checker.getAliasedSymbol(symbol);
-          } catch {
-            target = undefined;
-          }
-          aliasTarget.set(symbol.id, target);
+  const aliasTarget = new Map();
+  const names = new Map(); // symbol id -> SCIP symbol, or null
+  const ownDeclarations = new Map(); // SCIP symbol -> its declaration's handle
+  const chains = new Map(); // symbol id -> its descriptors
+  let localCounter = 0;
+
+  const descriptorChain = (symbol, depth = 0) => {
+    if (chains.has(symbol.id)) return chains.get(symbol.id);
+    let chain = "";
+    if (!symbol.name.startsWith('"')) {
+      // a module's name is quoted: it ends the chain
+      let parent;
+      if (depth < 8) {
+        try {
+          parent = symbol.getParent();
+        } catch {
+          parent = undefined;
         }
-        symbol = aliasTarget.get(symbol.id);
-        if (!symbol) return;
       }
-      const name = scipName(symbol);
-      if (!name) return;
-      const start = node.end - node.text.length;
-      // The identifier that names one of the symbol's declarations (an
-      // overload, a merged interface) defines the symbol there.
-      const defines = (symbol.declarations ?? []).some((handle) => {
-        if (handle.path !== file) return false;
-        const declaration = declarationNode(handle);
-        const declared = declaration?.name ?? declaration;
-        return declared !== undefined && declared.end === node.end;
-      });
-      if (defines) definitionsWritten.add(name);
-      occurrence(file, start, node.end, name, defines ? 1 : 0);
-    });
-  }
-}
+      const name = symbol.name === "__constructor" ? "<constructor>" : symbol.name;
+      chain = `${parent ? descriptorChain(parent, depth + 1) : ""}${escape(name)}${suffixOf(symbol.flags)}`;
+    }
+    chains.set(symbol.id, chain);
+    return chain;
+  };
 
-// Every symbol declared in the project gets a definition, even when no
-// identifier named it there (a default export, a string-named member):
-// without one, the overlay would take the symbol for a package's.
-for (const [name, handle] of ownDeclarations) {
-  if (definitionsWritten.has(name)) continue;
-  const node = declarationNode(handle);
-  const declared = node?.name ?? node;
-  if (!declared) continue;
-  const length = declared.text?.length ?? 0;
-  occurrence(handle.path, declared.end - length, declared.end, name, 1);
+  const scipName = (symbol) => {
+    if (names.has(symbol.id)) return names.get(symbol.id);
+    let name = null;
+    const handle = symbol.declarations?.[0];
+    if (handle) {
+      const node = declarationNode(handle);
+      if (node && insideFunction(node) && !(symbol.flags & (SymbolFlags.Method | SymbolFlags.Property))) {
+        name = `local ${localCounter++}`;
+      } else {
+        const entry = own.get(handle.path);
+        const pkg = entry ? { name: "dagayn-project", inner: entry.relative } : packageOf(handle.path);
+        if (pkg) name = `scip-typescript npm ${pkg.name} . ${escape(pkg.inner)}/${descriptorChain(symbol)}`;
+        if (name && entry) ownDeclarations.set(name, handle);
+      }
+    }
+    names.set(symbol.id, name);
+    return name;
+  };
+
+  const documents = new Map(); // relative path -> occurrences
+  const definitionsWritten = new Set();
+  const occurrence = (file, start, end, symbol, roles) => {
+    const relative = own.get(file).relative;
+    const list = documents.get(relative) ?? [];
+    const [line, column] = position(file, start);
+    const [, endColumn] = position(file, end);
+    list.push({ range: [line, column, endColumn], symbol, roles });
+    documents.set(relative, list);
+  };
+
+  for (const [project, identifiers] of byProject) {
+    for (let i = 0; i < identifiers.length; i += CHUNK) {
+      const batch = identifiers.slice(i, i + CHUNK);
+      const symbols = project.checker.getSymbolAtLocation(batch.map((entry) => entry.node));
+      batch.forEach(({ file, node }, k) => {
+        let symbol = symbols[k];
+        if (!symbol) return;
+        if (symbol.flags & SymbolFlags.Alias) {
+          if (!aliasTarget.has(symbol.id)) {
+            let target;
+            try {
+              target = project.checker.getAliasedSymbol(symbol);
+            } catch {
+              target = undefined;
+            }
+            aliasTarget.set(symbol.id, target);
+          }
+          symbol = aliasTarget.get(symbol.id);
+          if (!symbol) return;
+        }
+        const name = scipName(symbol);
+        if (!name) return;
+        const start = node.end - node.text.length;
+        // The identifier that names one of the symbol's declarations (an
+        // overload, a merged interface) defines the symbol there.
+        const defines = (symbol.declarations ?? []).some((handle) => {
+          if (handle.path !== file) return false;
+          const declaration = declarationNode(handle);
+          const declared = declaration?.name ?? declaration;
+          return declared !== undefined && declared.end === node.end;
+        });
+        if (defines) definitionsWritten.add(name);
+        occurrence(file, start, node.end, name, defines ? 1 : 0);
+      });
+    }
+  }
+
+  // Every project symbol named gets a definition, even when no identifier
+  // indexed named it there (a default export, a string-named member, a file
+  // not indexed): without one, the overlay would take it for a package's.
+  for (const [name, handle] of ownDeclarations) {
+    if (definitionsWritten.has(name)) continue;
+    const node = declarationNode(handle);
+    const declared = node?.name ?? node;
+    if (!declared) continue;
+    const length = declared.text?.length ?? 0;
+    occurrence(handle.path, declared.end - length, declared.end, name, 1);
+  }
+
+  let occurrences = 0;
+  for (const list of documents.values()) occurrences += list.length;
+  return { bytes: encode(documents), documents: documents.size, occurrences };
 }
 
 // --- protobuf ---------------------------------------------------------------
@@ -292,38 +305,79 @@ class Writer {
   }
 }
 
-const encoded = new Map(); // SCIP symbol -> its UTF-8 bytes
+const encoded = new Map(); // text -> its UTF-8 bytes
 const utf8 = (text) => {
   let bytes = encoded.get(text);
   if (!bytes) encoded.set(text, (bytes = Buffer.from(text, "utf8")));
   return bytes;
 };
 
-const index = new Writer(1 << 20);
-const document = new Writer();
-const message = new Writer(256);
-const packed = new Writer(32);
-for (const [relative, occurrences] of documents) {
-  document.length = 0;
-  document.bytesField(1, utf8(relative));
-  for (const { range, symbol, roles } of occurrences) {
-    message.length = 0;
-    packed.length = 0;
-    for (const value of range) packed.varint(value);
-    message.bytesField(1, packed.view());
-    message.bytesField(2, utf8(symbol));
-    if (roles) {
-      message.tag(3, 0);
-      message.varint(roles);
+function encode(documents) {
+  const index = new Writer(1 << 20);
+  const document = new Writer();
+  const message = new Writer(256);
+  const packed = new Writer(32);
+  for (const [relative, occurrences] of documents) {
+    document.length = 0;
+    document.bytesField(1, utf8(relative));
+    for (const { range, symbol, roles } of occurrences) {
+      message.length = 0;
+      packed.length = 0;
+      for (const value of range) packed.varint(value);
+      message.bytesField(1, packed.view());
+      message.bytesField(2, utf8(symbol));
+      if (roles) {
+        message.tag(3, 0);
+        message.varint(roles);
+      }
+      document.bytesField(2, message.view());
     }
-    document.bytesField(2, message.view());
+    document.tag(6, 0);
+    document.varint(2); // UTF16CodeUnitOffsetFromLineStart
+    index.bytesField(2, document.view());
   }
-  document.tag(6, 0);
-  document.varint(2); // UTF16CodeUnitOffsetFromLineStart
-  index.bytesField(2, document.view());
+  return index.view();
 }
-fs.writeFileSync(path.resolve(cwd, output), index.view());
-process.stderr.write(
-  `tsgo index: ${documents.size} documents, ${[...documents.values()].reduce((n, list) => n + list.length, 0)} occurrences\n`,
-);
-api.close();
+
+// --- main -------------------------------------------------------------------
+
+const api = new API({ cwd });
+let snapshot = api.updateSnapshot({
+  openProjects: configs.map((config) => path.resolve(cwd, config)),
+});
+for (const project of snapshot.getProjects()) {
+  for (const diagnostic of project.program.getConfigFileParsingDiagnostics()) {
+    process.stderr.write(`warning: ${project.configFileName}: TS${diagnostic.code} ${diagnostic.text ?? ""}\n`);
+  }
+}
+
+if (mode === "index") {
+  const result = indexSnapshot(snapshot, null);
+  fs.writeFileSync(path.resolve(cwd, output), result.bytes);
+  process.stderr.write(`tsgo index: ${result.documents} documents, ${result.occurrences} occurrences\n`);
+  api.close();
+} else {
+  process.stdout.write(`${JSON.stringify({ ready: true })}\n`);
+  const lines = readline.createInterface({ input: process.stdin });
+  for await (const line of lines) {
+    if (!line.trim()) continue;
+    let answer;
+    try {
+      const request = JSON.parse(line);
+      const absolute = (file) => path.resolve(cwd, file);
+      const changed = (request.changed ?? []).map(absolute);
+      if (changed.length) {
+        const existing = changed.filter((file) => fs.existsSync(file));
+        const deleted = changed.filter((file) => !fs.existsSync(file));
+        snapshot = api.updateSnapshot({ fileChanges: { changed: existing, deleted } });
+      }
+      const result = indexSnapshot(snapshot, (request.files ?? []).map(absolute));
+      fs.writeFileSync(absolute(request.output), result.bytes);
+      answer = { ok: true, documents: result.documents, occurrences: result.occurrences };
+    } catch (error) {
+      answer = { ok: false, error: String(error?.stack ?? error) };
+    }
+    process.stdout.write(`${JSON.stringify(answer)}\n`);
+  }
+  api.close();
+}

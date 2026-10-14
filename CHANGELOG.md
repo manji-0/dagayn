@@ -15,6 +15,12 @@ update).
 
 ### Added
 
+- `dagayn watch` (and the daemon) keeps TypeScript calls settled by the
+  compiler between builds. After a `build --scip` that indexed TypeScript
+  with TypeScript 7, it keeps the tsgo resolver running
+  (`scip_tsgo.mjs serve`), and after each update it settles the calls of
+  the re-parsed files. On typeorm, editing a test file is settled in about
+  0.4 s; editing a file 500 others depend on takes about 5 s.
 - `dagayn build --scip` indexes TypeScript with TypeScript 7 (the Go
   compiler) when it is installed (`npm install -g typescript@7`, or the
   project's own; `DAGAYN_TSGO_TYPESCRIPT` names it, `DAGAYN_TSGO=0` keeps
