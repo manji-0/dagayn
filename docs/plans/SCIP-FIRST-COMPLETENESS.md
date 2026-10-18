@@ -307,6 +307,46 @@ was settled to `ZodType.safeParse` about a second after the save.
 `dagayn update` (the hook) does not start the process: a cold start costs
 1 to 7 s.
 
+### tsrs: the Rust port behind the same API
+
+[tsrs](https://github.com/oxc-project/tsrs) (oxc-project, Apache-2.0) ports
+the TypeScript 7 compiler from Go to Rust. Its npm package `tsrs` (0.16.0,
+TypeScript 7.1.0-dev) ships TypeScript 7.1's JavaScript API, so
+`scip_tsgo.mjs` runs on it unchanged but for two points of the 7.1 API:
+
+- Snapshots are made with `api.createSnapshot`, not `api.updateSnapshot`.
+- An edit makes a new snapshot with `fileNotifications`. `snapshot.update`
+  in tsrs 0.16 answered from the old file contents. A new snapshot after
+  an edit took 0.15 to 0.18 s on typeorm.
+
+It also ships the default library with its platform package
+(`@tsrs/linux-x64-gnu`), which the indexer names `typescript` as before.
+
+| Repository | TypeScript 7.0.2 | tsrs 0.16.0 | Index |
+| ---------- | ---------------- | ----------- | ----- |
+| zod | 1.4 s | 1.2 s | byte-identical (25,901 occurrences) |
+| typeorm | 11.3 s | 11.2 s | byte-identical (336,381 occurrences) |
+
+The resolver takes `tsrs` when no `typescript` 7 is found.
+
+**Embedding tsrs in the Rust core** was considered and is not done:
+
+- **No gain in speed through the API.** Both are native compilers behind
+  the same protocol. On typeorm, about 2 s of the index is the exchange
+  (19,584 round trips, 149 MB) and about 3 s type checking, per the earlier
+  tsgo measurement; in-process the floor is roughly the check.
+- **Not published.** Every crate is `publish = false`, a git dependency
+  pinned to a TypeScript nightly, at version 0.x.
+- **Toolchain.** It needs Rust 1.99.1; dagayn is on 1.98.0.
+- **Size.** The checker alone is 109k lines, with 16 tsrs crates and 51
+  others under it. The `tsrs` binary is 33 MB.
+- **API.** `new_program` returns `&'static Program`, leaked per build,
+  which a long-running `dagayn watch` would have to manage.
+
+Revisit when the crates are published with a stable API. Until then the
+`--api` process keeps the compiler swappable (TypeScript 7 or tsrs) with
+no change to dagayn's build.
+
 ## Open questions
 
 - **Default on.** `--scip` is opt-in. Whether `build` should use an

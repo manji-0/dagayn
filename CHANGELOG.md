@@ -15,6 +15,12 @@ update).
 
 ### Added
 
+- The TypeScript indexer of `dagayn build --scip` and `dagayn watch` also
+  runs on [tsrs](https://github.com/oxc-project/tsrs), the Rust port of
+  TypeScript 7 (`npm install -g tsrs`), when no TypeScript 7 is installed.
+  It speaks TypeScript 7.1's API (`createSnapshot`), which the indexer now
+  handles alongside 7.0's. On zod and typeorm its indexes are
+  byte-identical to TypeScript 7.0.2's, in the same time.
 - `dagayn watch` (and the daemon) keeps TypeScript calls settled by the
   compiler between builds. After a `build --scip` that indexed TypeScript
   with TypeScript 7, it keeps the tsgo resolver running

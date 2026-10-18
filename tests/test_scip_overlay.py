@@ -185,11 +185,11 @@ def test_an_indexer_writing_a_fixed_file_has_it_moved(
     assert {hint.split(":")[0] for hint in report.hints} >= {"java", "ruby"}
 
 
-def _typescript_package(directory: Path, version: str) -> Path:
-    package = directory / "node_modules" / "typescript"
+def _typescript_package(directory: Path, version: str, name: str = "typescript") -> Path:
+    package = directory / "node_modules" / name
     (package / "dist" / "api" / "sync").mkdir(parents=True)
     (package / "dist" / "api" / "sync" / "api.js").write_text("")
-    (package / "package.json").write_text(json.dumps({"name": "typescript", "version": version}))
+    (package / "package.json").write_text(json.dumps({"name": name, "version": version}))
     return package
 
 
@@ -214,6 +214,24 @@ def test_typescript_7_in_the_project_is_indexed_by_the_tsgo_resolver(
     assert job.env == {"DAGAYN_TSGO_TYPESCRIPT": str(package)}
     assert job.indexer == "tsgo"
     assert job.authoritative
+
+
+def test_tsrs_in_the_project_stands_in_for_typescript_7(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """tsrs (the Rust port of TypeScript 7) serves the same API under its own
+    version numbers, so a project on TypeScript 5 that installed it is
+    indexed through it."""
+    repo = _repo(tmp_path)
+    _typescript_package(repo / "web", "5.9.3")
+    tsrs = _typescript_package(repo / "web", "0.16.0", name="tsrs")
+    _node_only(monkeypatch)
+    monkeypatch.delenv("DAGAYN_TSGO", raising=False)
+    monkeypatch.delenv("DAGAYN_TSGO_TYPESCRIPT", raising=False)
+    jobs, _hints = plan_jobs(repo, tmp_path / "out")
+    (job,) = [job for job in jobs if job.language == "typescript"]
+    assert job.env == {"DAGAYN_TSGO_TYPESCRIPT": str(tsrs)}
+    assert job.indexer == "tsgo"
 
 
 def test_older_typescript_an_override_or_dagayn_tsgo_0_keep_scip_typescript(

@@ -85,8 +85,10 @@ function packageOf(file) {
   const scoped = parts[0].startsWith("@");
   const name = scoped ? `${parts[0]}/${parts[1]}` : parts[0];
   const inner = parts.slice(scoped ? 2 : 1).join("/");
-  // TypeScript's own library ships with the compiler package.
-  if (name === "typescript" || name.startsWith("@typescript/typescript-")) return { name: "typescript", inner: path.basename(inner) };
+  // TypeScript's own library ships with the compiler package (tsrs, the Rust
+  // port, ships it with its platform binary).
+  const compiler = name === "typescript" || name.startsWith("@typescript/typescript-") || name === "tsrs" || name.startsWith("@tsrs/");
+  if (compiler) return { name: "typescript", inner: path.basename(inner) };
   return { name, inner };
 }
 
@@ -342,9 +344,11 @@ function encode(documents) {
 // --- main -------------------------------------------------------------------
 
 const api = new API({ cwd });
-let snapshot = api.updateSnapshot({
-  openProjects: configs.map((config) => path.resolve(cwd, config)),
-});
+const openProjects = configs.map((config) => path.resolve(cwd, config));
+// TypeScript 7.0 updates one snapshot in place; 7.1 (and tsrs) create
+// snapshots, each from the server's current state and the file changes.
+const nextApi = typeof api.createSnapshot === "function";
+let snapshot = nextApi ? api.createSnapshot({ openProjects }) : api.updateSnapshot({ openProjects });
 for (const project of snapshot.getProjects()) {
   for (const diagnostic of project.program.getConfigFileParsingDiagnostics()) {
     process.stderr.write(`warning: ${project.configFileName}: TS${diagnostic.code} ${diagnostic.text ?? ""}\n`);
@@ -369,7 +373,15 @@ if (mode === "index") {
       if (changed.length) {
         const existing = changed.filter((file) => fs.existsSync(file));
         const deleted = changed.filter((file) => !fs.existsSync(file));
-        snapshot = api.updateSnapshot({ fileChanges: { changed: existing, deleted } });
+        if (nextApi) {
+          // A new snapshot rather than `snapshot.update`, which tsrs 0.16
+          // answers from the old file contents.
+          const previous = snapshot;
+          snapshot = api.createSnapshot({ openProjects, fileNotifications: { changed: existing, deleted } });
+          previous.dispose();
+        } else {
+          snapshot = api.updateSnapshot({ fileChanges: { changed: existing, deleted } });
+        }
       }
       const result = indexSnapshot(snapshot, (request.files ?? []).map(absolute));
       fs.writeFileSync(absolute(request.output), result.bytes);

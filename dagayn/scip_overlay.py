@@ -337,25 +337,31 @@ def _global_node_modules() -> Path | None:
 
 def _tsgo_typescript(project: Path) -> Path | None:
     """The ``typescript`` package, version 7 or later (the Go compiler, whose
-    API ``scip_tsgo.mjs`` uses), from ``DAGAYN_TSGO_TYPESCRIPT``, the
-    project's ``node_modules``, or the global ``node_modules``.
+    API ``scip_tsgo.mjs`` uses), or ``tsrs`` (its Rust port, the same API),
+    from ``DAGAYN_TSGO_TYPESCRIPT``, the project's ``node_modules``, or the
+    global ``node_modules``; ``typescript`` first.
     ``DAGAYN_TSGO=0`` turns the tsgo resolver off."""
     if os.environ.get("DAGAYN_TSGO") == "0" or shutil.which("node") is None:
         return None
     candidates: list[Path] = []
     if os.environ.get("DAGAYN_TSGO_TYPESCRIPT"):
         candidates.append(Path(os.environ["DAGAYN_TSGO_TYPESCRIPT"]))
-    candidates.append(project / "node_modules" / "typescript")
     global_root = _global_node_modules()
-    if global_root is not None:
-        candidates.append(global_root / "typescript")
+    for package in ("typescript", "tsrs"):
+        candidates.append(project / "node_modules" / package)
+        if global_root is not None:
+            candidates.append(global_root / package)
     for candidate in candidates:
         try:
-            version = json.loads((candidate / "package.json").read_text())["version"]
-            major = int(str(version).split(".", 1)[0])
+            manifest = json.loads((candidate / "package.json").read_text())
+            major = int(str(manifest["version"]).split(".", 1)[0])
         except (OSError, ValueError, KeyError, TypeError):
             continue
-        if major >= _TSGO_MIN_MAJOR and (candidate / "dist/api/sync/api.js").is_file():
+        # tsrs, the Rust port of TypeScript 7, ships the same API under its
+        # own version numbers.
+        if (manifest.get("name") == "tsrs" or major >= _TSGO_MIN_MAJOR) and (
+            candidate / "dist/api/sync/api.js"
+        ).is_file():
             return candidate
     return None
 

@@ -94,7 +94,10 @@ Node.js) asks TypeScript 7's compiler API (`typescript/unstable/sync`) for
 every identifier's declaration. It runs when a `typescript` package of
 version 7 or later is found in `DAGAYN_TSGO_TYPESCRIPT` (its directory), the
 project's `node_modules`, or the global `node_modules`
-(`npm install -g typescript@7`); `DAGAYN_TSGO=0` keeps `scip-typescript`,
+(`npm install -g typescript@7`). `tsrs` (oxc-project's Rust port of
+TypeScript 7, `npm install -g tsrs`) serves the same API and is taken when
+no `typescript` 7 is found; its indexes are byte-identical to TypeScript
+7's on zod and typeorm. `DAGAYN_TSGO=0` keeps `scip-typescript`,
 and `DAGAYN_SCIP_TYPESCRIPT` overrides both. On typeorm it indexed in 9.7 s
 where `scip-typescript` took 24.6 s, with the same caller recall. Options
 TypeScript 7 removed (`downlevelIteration`, `moduleResolution: node`) are
