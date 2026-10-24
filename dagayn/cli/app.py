@@ -26,10 +26,6 @@ _BUILD_COMMANDS = frozenset(
         "postprocess",
         "watch",
         "status",
-        "sdp-metrics",
-        "detect-sdp",
-        "sap-metrics",
-        "detect-sap",
     }
 )
 _TOOL_COMMANDS = frozenset({"tool"})

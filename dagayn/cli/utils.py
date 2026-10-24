@@ -60,10 +60,6 @@ def _print_banner() -> None:
     {g}watch{r}       Auto-update on file changes
     {g}status{r}      Show graph statistics
     {g}detect-changes{r} Analyze change impact {d}(risk-scored review){r}
-    {g}sdp-metrics{r}   Compute instability scores {d}(SDP metrics){r}
-    {g}detect-sdp{r}    Detect stability-direction violations {d}(SDP){r}
-    {g}sap-metrics{r}  Compute abstractness/instability/distance {d}(SAP metrics){r}
-    {g}detect-sap{r}   Detect scopes far from the main sequence {d}(SAP){r}
     {g}register{r}    Register a repository in the multi-repo registry
     {g}unregister{r}  Remove a repository from the registry
     {g}repos{r}       List registered repositories

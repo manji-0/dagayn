@@ -171,8 +171,6 @@ Important CLI commands:
 - `dagayn detect-changes`
 - `dagayn tool`
 - `dagayn serve`
-- `dagayn sdp-metrics` / `dagayn detect-sdp`
-- `dagayn sap-metrics` / `dagayn detect-sap`
 - `dagayn profile`
 - `dagayn register` / `dagayn repos` / `dagayn daemon`
 
@@ -199,7 +197,7 @@ the unit depended on), `untested_core` (code used from many files
 that no test reaches through its callers), and `broken_doc_link` (a directive
 pointing at a file, section, or symbol that is gone). An empty `findings` list
 means nothing structural to act on. `detail_level="standard"` adds each unit's
-`surface`. SDP and SAP modes compute per declared unit.
+`surface`.
 </section>
 
 <section name="legal">

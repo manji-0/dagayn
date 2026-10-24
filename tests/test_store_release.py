@@ -29,16 +29,7 @@ def repo(tmp_path: Path) -> Path:
 
 @pytest.mark.parametrize(
     "tool",
-    [
-        partial(architecture_analysis_func, mode=mode)
-        for mode in (
-            "overview",
-            "sdp_metrics",
-            "sdp_violations",
-            "sap_metrics",
-            "sap_violations",
-        )
-    ],
+    [partial(architecture_analysis_func, mode=mode) for mode in ("overview", "import_cycles")],
 )
 def test_the_graph_is_released_after_the_call(repo: Path, tool) -> None:
     db_path = repo / ".dagayn" / "graph.db"

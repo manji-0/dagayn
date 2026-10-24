@@ -38,7 +38,6 @@ pub(crate) fn import_cycles(request: &CycleRequest<'_>, snapshot: &Snapshot) -> 
     let view = View {
         file_scopes: request.scope_kind == "file",
         artifact: request.artifact,
-        profile: crate::architecture::Profile::StrictStatic,
         units: (request.scope_kind == "package").then(|| snapshot.unit_scopes(request.root)),
     };
     let files: HashMap<&str, &GraphNode> = snapshot

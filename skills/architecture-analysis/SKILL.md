@@ -1,14 +1,13 @@
 ---
 name: architecture-analysis
-description: Assess architecture with the dagayn graph — the declared units (crates, packages, modules) and how they depend on each other, import cycles, widely used untested code, broken doc links, and SDP / SAP stability metrics per unit. Use when the user asks about architecture, layering, modularity, coupling, cycles, the riskiest parts of the codebase, or wants an architecture health check.
+description: Assess architecture with the dagayn graph — the declared units (crates, packages, modules) and how they depend on each other, import cycles, dependencies on less stable units, widely used untested code, and broken doc links. Use when the user asks about architecture, layering, modularity, coupling, cycles, the riskiest parts of the codebase, or wants an architecture health check.
 ---
 
 # Architecture Analysis
 
 `architecture_analysis_tool(mode="overview")` is the single entry point. It
 returns a map of the units the repository declares and a list of `findings`,
-structural facts worth acting on. Answer from those two first; open a metric
-mode only when the user asks for one by name.
+structural facts worth acting on. Answer from those two first.
 
 ## Steps
 
@@ -37,22 +36,14 @@ mode only when the user asks for one by name.
 3. **Confirm each finding** before stating it: `query_graph_tool`
    (`importers_of` on a cycle's modules, `callers_of` / `tests_for` on an
    untested symbol, `source_of` for the code), or read the directive's line.
-4. **Metrics only on request**: `sdp_metrics` / `sdp_violations` (a unit
-   depending on a less stable one) and `sap_metrics` / `sap_violations`
-   (abstractness vs instability) compute per declared unit;
-   `scope_kind="directory"` gives the old per-directory SAP. For these modes
-   `dependency_profile` chooses the edges: `strict_static` (imports,
-   inheritance, `DEPENDS_ON`; default), `implementation` (+ calls),
-   `infra_dataflow` (+ Terraform references), `artifact_trace` (+ high-
-   confidence doc links).
-5. **Every import cycle**, not only those the overview reports:
+4. **Every import cycle**, not only those the overview reports:
    `mode="import_cycles"` with `scope_kind` `"directory"`, `"file"`, or
    `"package"`, and `unit_filter` to narrow it. Each cycle lists its scopes
    in import order, once; `detail_level="standard"` names one import per hop,
    and `results_complete` says whether the list is whole. `import_kind=
    "statement"` leaves out lazy exports. Imports of modules the graph does
    not index (standard library, compiled extensions) are not edges.
-6. **Doc ↔ code boundaries**: `docs_for` from code or Terraform nodes,
+5. **Doc ↔ code boundaries**: `docs_for` from code or Terraform nodes,
    `implementations_of` from a Markdown section. These are traceability links,
    not architectural coupling.
 
@@ -69,18 +60,16 @@ dagayn instructions (full rules: `get_docs_section_tool(section_name="trust")`).
   `line` or `targets`, and `evidence`, after confirming it at the source.
 - The map is aggregated graph structure: cite edge counts as counts, and note
   that a call the extractor cannot resolve is missing from them.
-- SDP / SAP values are **Medium** leads, not design bugs: cite the formula's
-  inputs, the threshold, and `total` / `truncated`.
+- An `unstable_dependency` is a **Medium** lead, not a design bug: cite both
+  units' instability, the gap, and the import `sites`.
 - For a zero-result query, cite `zero_result_reason` and `next` rather
   than treating it as proof that no relationship exists.
-- Call-based profiles (`implementation`) are only as good as call resolution;
-  `dagayn build --scip` makes them compiler-accurate where indexers exist.
 
 ## CLI fallback
 
 ```bash
 dagayn tool architecture_analysis_tool --arg mode='"overview"' --arg detail_level='"minimal"'
 dagayn tool architecture_analysis_tool --arg mode='"overview"' --arg detail_level='"standard"'
-dagayn tool architecture_analysis_tool --arg mode='"sdp_violations"' --arg dependency_profile='"implementation"'
+dagayn tool architecture_analysis_tool --arg mode='"import_cycles"' --arg scope_kind='"directory"'
 dagayn tool query_graph_tool --arg pattern='"importers_of"' --arg target='"pkg/a.py"'
 ```

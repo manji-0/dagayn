@@ -285,63 +285,6 @@ so agents can compare a direct CLI run with a running MCP server. A long-lived M
 at startup; after editing or upgrading dagayn, restart `dagayn serve` before
 treating MCP output as the same truth source as `dagayn tool`.
 
-### Architecture metrics
-
-<!-- derived-from ./USAGE.md -->
-
-These CLI commands answer with the matching `architecture_analysis_tool`
-mode (`sdp_metrics`, `sdp_violations`, `sap_metrics`, `sap_violations`), so the CLI and MCP clients see the same scopes and
-numbers. `--format json` prints the MCP answer without the fields meant for
-an agent (`_runtime`, `_repo`). A
-`package` is a declared unit (Cargo crate, npm package, Go module, Python
-import package, Terraform module, or a top-level directory no manifest
-covers), not a directory; `sap-metrics` and `detect-sap` keep directory
-scopes under `--scope-kind directory`. They default to
-`artifact_scope="code"` so Markdown dependencies are not mixed into code
-design metrics; pass `--artifact-scope docs` or `--artifact-scope all` for
-documentation or legacy mixed-graph analysis.
-
-- `dagayn sdp-metrics` — Compute per-scope instability (Stable Dependencies
-  Principle) scores. Returns `instability`, `Ca`, and `Ce` per scope, sorted,
-  limited by `--top-n`.
-  - `--granularity {package,file}` (default `package`)
-  - `--artifact-scope {code,docs,all}` (default `code`)
-  - `--top-n N` (default 30)
-  - `--format {json,text}` (default `json`)
-- `dagayn detect-sdp` — Detect stability-direction violations: dependencies
-  from a more-stable scope to a less-stable scope whose instability gap meets
-  `--min-delta`.
-  - `--granularity {package,file}` (default `package`)
-  - `--artifact-scope {code,docs,all}` (default `code`)
-  - `--min-delta FLOAT` (default 0.1)
-  - `--top-n N` (default: every violation)
-  - `--format {json,text}` (default `json`)
-<!-- derived-from ./SAP-METRICS.md -->
-
-- `dagayn sap-metrics` — Compute per-scope abstractness, instability, and
-  distance from the main sequence (Stable Abstractions Principle). Returns
-  `A`, `I`, and `D` per scope, limited by `--top-n`; scopes the metric does
-  not apply to (no eligible types, or isolated) are listed apart in
-  `inapplicable_metrics`.
-  - `--scope-kind {package,file,directory}` (default `package`)
-  - `--unit-filter PREFIXES` — comma-separated scope_key prefixes to restrict
-    output
-  - `--artifact-scope {code,docs,all}` (default `code`)
-  - `--top-n N` (default 30)
-  - `--format {json,text}` (default `json`)
-- `dagayn detect-sap` — Detect scopes whose distance from the main sequence
-  meets `--min-distance`, with the zone (`pain` or `uselessness`) each is in.
-  - `--scope-kind {package,file,directory}` (default `package`)
-  - `--artifact-scope {code,docs,all}` (default `code`)
-  - `--min-distance FLOAT` (default 0.5)
-  - `--top-n N` (default: every violation)
-  - `--format {json,text}` (default `json`)
-
-All five commands accept `--repo` to override the repository root
-(auto-detected by default). `detect-sap` suppresses test-scope and
-fixture-scope entries from the violation list, as
-`architecture_analysis_tool(mode="sap_violations")` does.
-
 ### Profiling
 
 - `dagayn profile`
@@ -651,7 +594,7 @@ dagayn serve
 dagayn serve --tools query_graph_tool,semantic_search_nodes_tool
 dagayn serve --tools all
 dagayn tool architecture_analysis_tool --arg mode='"overview"'
-dagayn tool architecture_analysis_tool --arg mode='"sdp_violations"' --arg artifact_scope='"docs"'
+dagayn tool architecture_analysis_tool --arg mode='"import_cycles"' --arg artifact_scope='"docs"'
 dagayn serve --local-embedding
 dagayn serve --local-embedding --mode llama-qwen3
 dagayn serve --remote-embedding openai
@@ -775,18 +718,10 @@ absence.
 with `mode="overview"` and `detail_level="minimal"`: the declared units, the
 dependencies between them, and `findings`.
 
-ADP/SDP/SAP modes default to `artifact_scope="code"` so Markdown dependencies
-and code dependencies are not mixed in design-principle metrics. Pass
-`artifact_scope="docs"` to inspect documentation dependency cycles or stability,
-or `artifact_scope="all"` for the legacy mixed projection.
-They also accept `dependency_profile`: `strict_static` preserves the historical
-`IMPORTS_FROM` / `DEPENDS_ON` / `INHERITS` / `IMPLEMENTS` edge set,
-`implementation` adds `CALLS`, `infra_dataflow` adds Terraform-style
-`REFERENCES`, and `artifact_trace` adds high-confidence `CROSS_ARTIFACT` edges.
-Unknown profile names are rejected instead of falling back silently.
-`sap_metrics` separates SAP-inapplicable scopes (`no-eligible-types` and
-`isolated`) into `inapplicable_metrics` by default; use
-`detail_level="verbose"` for raw metric inspection.
+`import_cycles` defaults to `artifact_scope="code"` so Markdown dependencies
+and code dependencies are not mixed. Pass `artifact_scope="docs"` to inspect
+documentation dependency cycles, or `artifact_scope="all"` for the mixed
+projection.
 
 `mode="import_cycles"` lists every simple cycle the resolved import edges form
 between scopes: `scope_kind="file"`, `"directory"` (the file's directory), or
