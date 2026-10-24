@@ -713,11 +713,14 @@ cycles to fit the reply; narrow with `unit_filter` then. Unlike the overview's
 `import_cycle` finding, which counts only imports that run at load time in
 production code, this mode counts every import edge the filter keeps.
 
-The minimal search-ranking scaffold lives in `eval/search_queries.yaml`,
-`eval/search_judgments.yaml`, and `eval/run_search_eval.py`. It reports MRR@10,
-NDCG@10, Recall@20, exact-symbol success@5, prose-intent success@10,
-doc-vs-code confusion rate, and test crowding rate. Follow-up work should add
-larger judgment sets before changing ranking weights.
+The search-ranking eval lives in `eval/search_queries.yaml`,
+`eval/search_judgments.yaml`, and `eval/run_search_eval.py`. Each query names
+the repository it searches (`--repo NAME=PATH`), and the eval runs the hybrid
+search with and without its embedding arm on the same queries. It reports
+MRR@10, nDCG@10, P@5, Recall@20, success@5, and median latency per arm, overall
+and per query intent and repository, and refuses to run when a judged target is
+missing from its graph. Results are in
+[OPEN-MEASUREMENTS.md](./plans/OPEN-MEASUREMENTS.md#search-embeddings).
 
 Migration note for dagayn 3.0: v2 split architecture MCP/CLI tools such as
 `get_architecture_overview_tool`, `list_communities_tool`,
