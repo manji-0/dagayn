@@ -411,8 +411,8 @@ def _run_postprocess(
 ) -> list[str]:
     """Run post-build steps based on *postprocess* level.
 
-    ``minimal`` runs signatures, FTS, the edge resolvers, centrality, and the
-    orphan prune. ``full`` adds communities and the summary tables, detected
+    ``minimal`` runs signatures, FTS, the edge resolvers, and the orphan
+    prune. ``full`` adds communities and the summary tables, detected
     incrementally for *changed_files* unless *full_rebuild*.
 
     Returns a list of warning strings (empty on success).
@@ -508,18 +508,6 @@ def _run_postprocess(
             build_result.summaries_computed = True
         except (sqlite3.OperationalError, RuntimeError, Exception) as e:
             _warn(warnings, "Summary computation", e)
-
-    # File re-parses invalidate hub_scores / bridge_scores wholesale (see
-    # remove_files_data_tx), so every non-none postprocess level must
-    # recompute them or the tables stay empty after skip-flows updates.
-    from dagayn.postprocessing import _persist_centrality_scores
-
-    _persist_centrality_scores(
-        store,
-        post_result,
-        warnings,
-        changed_files if not full_rebuild else None,
-    )
 
     warnings.extend(_prune_orphaned_structures(store, build_result))
 

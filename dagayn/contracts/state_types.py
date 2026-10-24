@@ -358,10 +358,6 @@ class PostprocessResult(BaseModel):
     manifest_bridges_edges: int | None = None
     manifest_bridges_nodes: int | None = None
     native_bindings_resolved: int | None = None
-    hub_scores_persisted: int | None = None
-    bridge_scores_persisted: int | None = None
-    hub_scores_code_persisted: int | None = None
-    bridge_scores_code_persisted: int | None = None
     communities_detected: int | None = None
     warnings: list[str] = Field(default_factory=list)
 

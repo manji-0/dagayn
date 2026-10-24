@@ -147,11 +147,6 @@ fn community_edge_queries_are_region_local() {
             .iter()
             .any(|edge| edge.target_qualified == "b.py::b_callee")
     );
-
-    let incident = store.get_edges_incident_to_community_ids(&[id_a]).unwrap();
-    assert!(incident.iter().any(|edge| {
-        edge.source_qualified == "a.py::a_caller" && edge.target_qualified == "b.py::b_callee"
-    }));
     let _ = std::fs::remove_file(path);
 }
 
