@@ -1,0 +1,23 @@
+# Gate for Terraform bridges on real repositories
+# (docs/CROSS-ARTIFACT-EDGES-WIP.md#acceptance-criteria).
+# `run_terraform_eval.py --work-dir DIR --gate` exits non-zero when a metric
+# drops below its floor or rises above its ceiling. It clones four public
+# repositories, so it is not part of CI.
+#
+# Baseline of 2026-10-25 (after the one-segment ${path.module} fix):
+# extracted families (path_attr, local_exec, entrypoint) precision 0.25 =
+# 3 / 12, reference precision 1.0, recall 0.375 = 3 / 8; recall over every
+# family 0.031 = 3 / 97. The 9 false positives are aws-otel-lambda layer
+# `filename`s naming build outputs that are not in the tree.
+#
+# Floors sit just under the baseline. The true-positive floor and the
+# false-positive ceiling keep a run that emits nothing, or more noise, from
+# passing on a ratio alone.
+floors:
+  extracted_precision: 0.2
+  extracted_reference_precision: 0.95
+  extracted_recall: 0.3
+  extracted_true_positives: 3
+  all_families_recall: 0.025
+ceilings:
+  extracted_false_positives: 9

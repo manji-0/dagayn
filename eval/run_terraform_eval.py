@@ -232,6 +232,8 @@ def score_repo(
                     "wrong_target" if _in_tree(path, edge.target) else "unexpected_missing_target"
                 )
         counts[(edge.family, outcome)] += 1
+        if cause == "target_not_in_tree":
+            counts[(edge.family, "fp_real_reference")] += 1
         if outcome != "tp":
             rows.append(
                 {
@@ -309,12 +311,18 @@ def summarize(per_repo: dict[str, dict[str, Any]]) -> dict[str, Any]:
         k: sum(families[f][k] for f in EXTRACTED_FAMILIES) for k in ("tp", "fp", "fn", "expected")
     }
     every = {k: sum(families[f][k] for f in families) for k in ("tp", "fp", "fn", "expected")}
-    modules = Counter()
+    real_reference = sum(total.get(f"{f}/fp_real_reference", 0) for f in EXTRACTED_FAMILIES)
+    modules: Counter[str] = Counter()
     for result in per_repo.values():
         modules.update(result["module_source"])
     return {
         "families": families,
         "extracted_precision": ratio(extracted["tp"], extracted["tp"] + extracted["fp"]),
+        # An fp whose value is a real reference to something outside the
+        # tree (a build output, a submodule path): right reading, no code.
+        "extracted_reference_precision": ratio(
+            extracted["tp"] + real_reference, extracted["tp"] + extracted["fp"]
+        ),
         "extracted_recall": ratio(extracted["expected"] - extracted["fn"], extracted["expected"]),
         "extracted_true_positives": extracted["tp"],
         "extracted_false_positives": extracted["fp"],
@@ -434,7 +442,8 @@ def gate(summary: dict[str, Any], thresholds: dict[str, Any]) -> list[str]:
 def format_report(result: dict[str, Any]) -> str:
     summary = result["summary"]
     lines = [
-        f"extracted families: precision {summary['extracted_precision']}  "
+        f"extracted families: precision {summary['extracted_precision']} "
+        f"(reference {summary['extracted_reference_precision']})  "
         f"recall {summary['extracted_recall']}  "
         f"(tp {summary['extracted_true_positives']}, fp {summary['extracted_false_positives']})",
         f"all families recall: {summary['all_families_recall']}  "
