@@ -14,6 +14,7 @@ This directory documents the fork as `dagayn`.
 
 ## Core references
 
+- [POSITIONING.md](./POSITIONING.md) — who dagayn is for, the evidence, and what follows for each feature
 - [USAGE.md](./USAGE.md) — install, build, update, serve, and operate the graph
 - [COMMANDS.md](./COMMANDS.md) — CLI commands, MCP tools, prompts, and exports
 - [FEATURES.md](./FEATURES.md) — fork-specific capabilities and practical strengths
