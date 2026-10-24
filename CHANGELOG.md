@@ -61,6 +61,11 @@ Removed).
   `persisted_hub_scores`, `persisted_bridge_scores`,
   `get_edges_incident_to_community_ids`, and `get_community_ids_by_node_ids`
   go with them.
+- **Breaking:** the `dagayn-daemon` console script and its own argument
+  parser (`dagayn.daemon_cli`), a second copy of `dagayn daemon`. Use
+  `dagayn daemon start|stop|restart|status|logs|add|remove`; its `logs`
+  takes `--follow` and `--lines` (the copy also accepted `-f` and `-n`). The
+  handlers now live in `dagayn.cli.commands.daemon`.
 
 ## 10.0.0 — 2026-10-12
 

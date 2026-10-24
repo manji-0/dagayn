@@ -508,7 +508,7 @@ class TestDaemonForkOrder:
     def test_daemonize_runs_before_start(self):
         import inspect
 
-        from dagayn import daemon_cli
+        from dagayn.cli.commands import daemon as daemon_cli
 
         source = inspect.getsource(daemon_cli._handle_start)
         assert "daemon.daemonize()" in source
@@ -522,7 +522,7 @@ class TestDaemonForkOrder:
         """An unflushed buffer is duplicated into both children."""
         import inspect
 
-        from dagayn import daemon_cli
+        from dagayn.cli.commands import daemon as daemon_cli
 
         source = inspect.getsource(daemon_cli._handle_start)
         assert source.index("sys.stdout.flush()") < source.index("daemon.daemonize()")

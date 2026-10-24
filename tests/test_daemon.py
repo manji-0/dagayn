@@ -755,7 +755,7 @@ class TestWatchDaemon:
 class TestDaemonCLI:
     def test_handle_add_success(self, tmp_path):
         """_handle_add adds a repo and prints confirmation."""
-        from dagayn.daemon_cli import _handle_add
+        from dagayn.cli.commands.daemon import _handle_add
 
         repo = tmp_path / "cli-repo"
         repo.mkdir()
@@ -783,7 +783,7 @@ class TestDaemonCLI:
 
     def test_handle_remove_success(self):
         """_handle_remove removes a repo and prints confirmation."""
-        from dagayn.daemon_cli import _handle_remove
+        from dagayn.cli.commands.daemon import _handle_remove
 
         args = MagicMock()
         args.path_or_alias = "some-alias"
@@ -813,7 +813,7 @@ class TestDaemonCLI:
 
     def test_handle_stop_not_running(self):
         """_handle_stop exits when daemon is not running."""
-        from dagayn.daemon_cli import _handle_stop
+        from dagayn.cli.commands.daemon import _handle_stop
 
         args = MagicMock()
 
@@ -831,7 +831,7 @@ class TestDaemonCLI:
 
     def test_handle_status_not_running(self):
         """_handle_status displays 'not running' when daemon is down."""
-        from dagayn.daemon_cli import _handle_status
+        from dagayn.cli.commands.daemon import _handle_status
 
         args = MagicMock()
         cfg = DaemonConfig(repos=[])
@@ -864,7 +864,7 @@ class TestDaemonCLI:
         """
         import os
 
-        from dagayn.daemon_cli import _handle_status
+        from dagayn.cli.commands.daemon import _handle_status
 
         repo = tmp_path / "my-repo"
         repo.mkdir()
@@ -905,7 +905,7 @@ class TestDaemonCLI:
 
     def test_handle_start_already_running(self):
         """_handle_start exits with error when daemon is already running."""
-        from dagayn.daemon_cli import _handle_start
+        from dagayn.cli.commands.daemon import _handle_start
 
         args = MagicMock()
         args.foreground = False
@@ -924,7 +924,7 @@ class TestDaemonCLI:
 
     def test_handle_logs_missing_file(self, tmp_path):
         """_handle_logs exits when log file does not exist."""
-        from dagayn.daemon_cli import _handle_logs
+        from dagayn.cli.commands.daemon import _handle_logs
 
         args = MagicMock()
         args.repo = None
@@ -947,7 +947,7 @@ class TestDaemonCLI:
 
     def test_handle_logs_reads_lines(self, tmp_path):
         """_handle_logs reads last N lines from log file."""
-        from dagayn.daemon_cli import _handle_logs
+        from dagayn.cli.commands.daemon import _handle_logs
 
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
