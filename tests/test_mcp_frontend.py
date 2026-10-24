@@ -1436,9 +1436,6 @@ def test_maintenance_reads_answer_in_rust_as_python_does(
     subprocess.run(
         [DAGAYN, "build", "--repo", git_repo], env=_env(), check=True, capture_output=True
     )
-    wiki = git_repo / ".dagayn" / "wiki"
-    wiki.mkdir()
-    (wiki / "app-main.md").write_text("# App\r\nmain\n")
     home = tmp_path / "home"
     (home / ".dagayn").mkdir(parents=True)
     if registry is not None:
@@ -1450,15 +1447,12 @@ def test_maintenance_reads_answer_in_rust_as_python_does(
         ("traverse_graph_tool", {"query": "main", "mode": "dfs", "depth": 2}),
         ("traverse_graph_tool", {"query": "main", "token_budget": 10}),
         ("traverse_graph_tool", {"query": "zzzqqq"}),
-        ("get_wiki_page_tool", {"community_name": "App Main"}),
-        ("get_wiki_page_tool", {"community_name": "missing"}),
         ("list_repos_tool", {}),
     ]
     rust, python, stderr = _session_both(git_repo, calls, HOME=str(home))
     assert stderr.count(" in Rust") == len(calls)
     assert BOOT_TRACE not in stderr
     assert [r["structuredContent"] for r in rust] == [p["structuredContent"] for p in python]
-    assert rust[6]["structuredContent"]["content"] == "# App\nmain\n"
 
 
 def _fake_embedding_server(vector: list[float]) -> tuple[Any, int]:

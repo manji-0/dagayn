@@ -97,7 +97,6 @@ def main() -> None:
     build = _command_module("build")
     serve = _command_module("serve")
     detect_changes = _command_module("detect_changes")
-    wiki = _command_module("wiki")
     registry = _command_module("registry")
     daemon = _command_module("daemon")
     eval_cmd = _command_module("eval_cmd")
@@ -119,7 +118,6 @@ def main() -> None:
     build.register_commands(sub)
     serve_parser = serve.register_command(sub)
     detect_changes.register_command(sub)
-    wiki.register_command(sub)
     registry.register_commands(sub)
     daemon_parser = daemon.register_command(sub)
     eval_cmd.register_command(sub)
@@ -148,8 +146,6 @@ def main() -> None:
             serve.handle(args, serve_parser)
         elif args.command == "detect-changes":
             detect_changes.handle(args)
-        elif args.command == "wiki":
-            wiki.handle(args)
         elif args.command in ("register", "unregister", "repos"):
             registry.handle(args)
         elif args.command == "daemon":

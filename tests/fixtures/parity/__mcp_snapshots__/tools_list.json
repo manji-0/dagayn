@@ -119,13 +119,6 @@
         },
         "required": []
       },
-      "generate_wiki_tool": {
-        "params": {
-          "force": "boolean",
-          "repo_root": "string"
-        },
-        "required": []
-      },
       "get_docs_section_tool": {
         "params": {
           "max_chars": "integer",
@@ -144,15 +137,6 @@
           "task": "string"
         },
         "required": []
-      },
-      "get_wiki_page_tool": {
-        "params": {
-          "community_name": "string",
-          "repo_root": "string"
-        },
-        "required": [
-          "community_name"
-        ]
       },
       "list_graph_stats_tool": {
         "params": {

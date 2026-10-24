@@ -5,7 +5,6 @@ Tests cover:
 - review_tool(mode="changes") diff attribution with real diffs
 - incremental_update detecting real file modifications
 - base ref injection rejection
-- wiki page path traversal protection
 """
 
 from __future__ import annotations
@@ -289,11 +288,6 @@ def test_base_validation_rejects_injection(git_repo: Path) -> None:
     """Passing a malicious --flag as base should be rejected (empty list)."""
     result = get_changed_file_sources(git_repo, base="--output=/tmp/evil")["files"]
     assert result == []
-
-
-# ------------------------------------------------------------------
-# 5. wiki page path traversal is blocked
-# ------------------------------------------------------------------
 
 
 @pytest.fixture()

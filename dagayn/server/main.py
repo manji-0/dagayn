@@ -235,7 +235,7 @@ def _tool(spec: str) -> Any:
 
 
 # Tool docstrings are what MCP clients show agents, so implementation notes
-# stay out of them. Blocking tools (builds, embedding, post-processing, wiki,
+# stay out of them. Blocking tools (builds, embedding, post-processing,
 # get_minimal_context) run via ``asyncio.to_thread`` so the stdio event loop
 # stays responsive: without it, long builds deadlocked on Windows when
 # ProcessPoolExecutor met the only event-loop thread (#46, #136).
@@ -860,48 +860,6 @@ def apply_refactor_tool(
         refactor_id=refactor_id,
         repo_root=_resolve_repo_root(repo_root),
         dry_run=dry_run,
-    )
-
-
-@mcp.tool()
-async def generate_wiki_tool(
-    repo_root: Optional[str] = None,
-    force: bool = False,
-) -> ToolPayload:
-    """Generate a markdown wiki from the code community structure.
-
-    Creates a wiki page for each detected community and an index page.
-    Pages are written to .dagayn/wiki/ inside the repository.
-    Only regenerates pages whose content has changed unless force=True.
-
-    Args:
-        repo_root: Repository root path. Auto-detected if omitted.
-        force: If True, regenerate all pages even if content unchanged. Default: False.
-    """
-    return await asyncio.to_thread(
-        _tool("docs:generate_wiki_func"),
-        repo_root=_resolve_repo_root(repo_root),
-        force=force,
-    )
-
-
-@mcp.tool()
-def get_wiki_page_tool(
-    community_name: str,
-    repo_root: Optional[str] = None,
-) -> ToolPayload:
-    """Retrieve a specific wiki page by community name.
-
-    Returns the markdown content of the wiki page for the given community.
-    The wiki must have been generated first via generate_wiki_tool.
-
-    Args:
-        community_name: Community name to look up.
-        repo_root: Repository root path. Auto-detected if omitted.
-    """
-    return _tool("docs:get_wiki_page_func")(
-        community_name=community_name,
-        repo_root=_resolve_repo_root(repo_root),
     )
 
 

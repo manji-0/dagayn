@@ -47,7 +47,6 @@ This spec does **not** require an immediate Rust replacement for:
 - editor/platform config injection
 - daemon/watch process management
 - embedding provider integrations
-- wiki generation and other convenience surfaces
 
 Those surfaces may remain in Python until the Rust core reaches parity.
 

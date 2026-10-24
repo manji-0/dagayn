@@ -404,7 +404,6 @@ class TestLongRunningToolsAreAsync:
         "run_postprocess_tool",
         "embed_graph_tool",
         "review_tool",
-        "generate_wiki_tool",
     }
 
     def test_heavy_tools_are_coroutines(self):
