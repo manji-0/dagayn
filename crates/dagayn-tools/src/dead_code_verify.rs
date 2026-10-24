@@ -549,46 +549,69 @@ fn has_token(text: &str, token: &str) -> bool {
         .any(|word| word == token)
 }
 
+/// The `impl` or `trait` header enclosing the item at 1-based `line`: the
+/// nearest less-indented line above it, with its index, when it is one.
+fn enclosing_rust_header(lines: &[String], line: i64) -> Option<(usize, &str)> {
+    let own = lines.get(usize::try_from(line - 1).ok()?)?;
+    let indent = own.len() - own.trim_start().len();
+    let (at, text) = lines[..usize::try_from(line - 1).ok()?]
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(_, text)| {
+            let trimmed = text.trim_start();
+            !trimmed.is_empty() && text.len() - trimmed.len() < indent
+        })?;
+    let header = text
+        .trim_start()
+        .trim_start_matches("pub(crate) ")
+        .trim_start_matches("pub ")
+        .trim_start_matches("unsafe ");
+    (header.starts_with("trait ") || header.starts_with("impl")).then_some((at, header))
+}
+
 /// `Some("trait_impl_method")` for a method in `impl Trait for Type`, and
 /// `Some("trait_method")` for one declared in a `trait`; found by the nearest
 /// less-indented `impl`/`trait` header above it.
-fn rust_trait_context(lines: &[String], line: i64) -> Option<&'static str> {
-    let own = lines.get(usize::try_from(line - 1).ok()?)?;
-    let indent = own.len() - own.trim_start().len();
-    for text in lines[..usize::try_from(line - 1).ok()?].iter().rev() {
-        let trimmed = text.trim_start();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let depth = text.len() - trimmed.len();
-        if depth >= indent {
-            continue;
-        }
-        let header = trimmed
-            .trim_start_matches("pub(crate) ")
-            .trim_start_matches("pub ")
-            .trim_start_matches("unsafe ");
-        if header.starts_with("trait ") {
-            return Some("trait_method");
-        }
-        if header.starts_with("impl") {
-            // `#[pymethods] impl`: every method is exported to Python.
-            let at = lines
-                .iter()
-                .position(|l| std::ptr::eq(l, text))
-                .unwrap_or(0);
-            let exported = lines[at.saturating_sub(3)..at]
-                .iter()
-                .any(|l| l.trim_start().starts_with("#[pymethods"));
-            if exported {
-                return Some("ffi_export");
-            }
-            let head = header.split('{').next().unwrap_or(header);
-            return head.contains(" for ").then_some("trait_impl_method");
-        }
-        return None;
+pub(crate) fn rust_trait_context(lines: &[String], line: i64) -> Option<&'static str> {
+    let (at, header) = enclosing_rust_header(lines, line)?;
+    if header.starts_with("trait ") {
+        return Some("trait_method");
     }
-    None
+    // `#[pymethods] impl`: every method is exported to Python.
+    let exported = lines[at.saturating_sub(3)..at]
+        .iter()
+        .any(|l| l.trim_start().starts_with("#[pymethods"));
+    if exported {
+        return Some("ffi_export");
+    }
+    rust_impl_trait(lines, line).map(|_| "trait_impl_method")
+}
+
+/// The trait an enclosing `impl Trait for Type` implements, as its last
+/// path segment without arguments (`impl<'de> de::Visitor<'de> for V` is
+/// `Visitor`).
+pub(crate) fn rust_impl_trait(lines: &[String], line: i64) -> Option<&str> {
+    let (_, header) = enclosing_rust_header(lines, line)?;
+    let head = header.strip_prefix("impl")?.split('{').next()?;
+    let head = match head.strip_prefix('<') {
+        Some(rest) => {
+            let mut depth = 1;
+            let close = rest.find(|c| {
+                match c {
+                    '<' => depth += 1,
+                    '>' => depth -= 1,
+                    _ => {}
+                }
+                depth == 0
+            })?;
+            &rest[close + 1..]
+        }
+        None => head,
+    };
+    let (path, _) = head.split_once(" for ")?;
+    let path = path.trim().split('<').next()?;
+    path.rsplit("::").next().filter(|name| !name.is_empty())
 }
 
 /// The enclosing class of a method, as far as the graph knows it.
@@ -860,7 +883,7 @@ pub(crate) fn verify(
 
 #[cfg(test)]
 mod tests {
-    use super::{header_annotations, implicit_method, rust_trait_context};
+    use super::{header_annotations, implicit_method, rust_impl_trait, rust_trait_context};
 
     fn lines(text: &str) -> Vec<String> {
         text.lines().map(str::to_string).collect()
@@ -876,6 +899,12 @@ mod tests {
         assert_eq!(rust_trait_context(&src, 8), Some("trait_method"));
         let py = lines("#[pymethods]\nimpl Store {\n    fn close(&self) {}\n}");
         assert_eq!(rust_trait_context(&py, 3), Some("ffi_export"));
+        assert_eq!(rust_impl_trait(&src, 2), Some("Display"));
+        assert_eq!(rust_impl_trait(&src, 5), None);
+        let generic = lines(
+            "impl<'de, T: Into<String>> serde::de::Visitor<'de> for V<T> {\n    fn visit_map(self) {}\n}",
+        );
+        assert_eq!(rust_impl_trait(&generic, 2), Some("Visitor"));
     }
 
     #[test]

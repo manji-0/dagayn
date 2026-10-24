@@ -3049,6 +3049,50 @@ fn importing_a_module_reaches_what_its_import_runs() {
 }
 
 #[test]
+fn a_rust_test_that_uses_a_type_reaches_the_trait_methods_the_runtime_calls() {
+    // dagayn: tests crates/dagayn-tools/src/review.rs::review
+    // dagayn: tests crates/dagayn-tools/src/findings.rs::nearest_test
+    // dagayn: tests crates/dagayn-tools/src/findings.rs::rust_trait_impl_type
+    let repo = Repo::new("trait-impls", true);
+    let rust = |value: i64| {
+        format!(
+            "pub struct Guard {{\n    pub value: i64,\n}}\n\nimpl Guard {{\n    pub fn new() -> Guard {{\n        Guard {{ value: {value} }}\n    }}\n\n    pub fn grow(&mut self) {{\n        self.value += {value};\n    }}\n}}\n\nimpl Drop for Guard {{\n    fn drop(&mut self) {{\n        self.value -= {value};\n    }}\n}}\n\nimpl PartialEq for Guard {{\n    fn eq(&self, other: &Guard) -> bool {{\n        self.value + {value} == other.value\n    }}\n}}\n\n#[cfg(test)]\nmod tests {{\n    #[test]\n    fn guard() {{\n        let _guard = super::Guard::new();\n    }}\n}}\n"
+        )
+    };
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("src/lib.rs", &rust(1));
+    commit_all(&repo, "guard");
+    repo.build();
+    repo.write("src/lib.rs", &rust(2));
+    commit_all(&repo, "edit");
+    repo.build();
+    let context = Context {
+        runtime: Some(json!({})),
+        ..repo.context()
+    };
+    let changes = answer(&context, "review_tool", json!({}));
+    let mut untested: Vec<&str> = changes["findings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|f| f["kind"] == "untested_change")
+        .flat_map(|f| f["targets"].as_array().into_iter().flatten())
+        .filter_map(Value::as_str)
+        .collect();
+    untested.sort_unstable();
+    // Dropping the `Guard` the test builds runs `drop`; `==` and `grow` are
+    // calls nothing makes.
+    assert_eq!(
+        untested,
+        ["src/lib.rs::Guard.eq", "src/lib.rs::Guard.grow"],
+        "{changes}"
+    );
+}
+
+#[test]
 fn a_rust_test_any_number_of_hops_away_counts_and_a_python_one_does_not() {
     // dagayn: tests crates/dagayn-tools/src/review.rs::review
     // dagayn: tests crates/dagayn-tools/src/findings.rs::caller_test_depth
