@@ -49,33 +49,6 @@ const WRITE_INDEXES: &[(&str, &str)] = &[
         "CREATE INDEX IF NOT EXISTS idx_edges_target_name_kind ON edges(target_name, kind)",
     ),
 ];
-const SECURITY_KEYWORDS: &[&str] = &[
-    "auth",
-    "login",
-    "password",
-    "token",
-    "session",
-    "crypt",
-    "secret",
-    "credential",
-    "permission",
-    "sql",
-    "query",
-    "execute",
-    "connect",
-    "socket",
-    "request",
-    "http",
-    "sanitize",
-    "validate",
-    "encrypt",
-    "decrypt",
-    "hash",
-    "sign",
-    "verify",
-    "admin",
-    "privilege",
-];
 
 /// Identifier tokens that start with a security keyword but name ordinary,
 /// non-security concepts: without them `hashmap` would match `hash`,
@@ -189,11 +162,6 @@ pub(crate) fn identifier_matches_keywords(texts: &[&str], keywords: &[&str]) -> 
             keywords.iter().any(|keyword| token.starts_with(keyword))
         })
     })
-}
-
-/// Security-keyword check for change risk.
-pub(crate) fn is_security_sensitive_identifier(name: &str, qualified_name: &str) -> bool {
-    identifier_matches_keywords(&[name, qualified_name], SECURITY_KEYWORDS)
 }
 
 const SCHEMA_SQL: &str = r#"
@@ -444,14 +412,6 @@ impl ConfidenceTier {
 
 pub type EdgeEndpointMap = HashMap<String, Vec<GraphEdge>>;
 
-/// `compute_change_risk_score`'s prefetched inputs for one changed node.
-pub struct ChangeRiskInputs<'a> {
-    pub node: &'a GraphNode,
-    pub inbound_edges: &'a [GraphEdge],
-    pub node_community_id: Option<i64>,
-    pub caller_community_ids: &'a HashMap<String, Option<i64>>,
-    pub transitive_test_count: i64,
-}
 #[derive(Clone, Debug)]
 pub struct GraphStats {
     pub total_nodes: i64,

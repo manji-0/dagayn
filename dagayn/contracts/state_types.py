@@ -49,8 +49,6 @@ class ChangeNodeRecord(_OpenTypedDict, total=False):
     language: str
     parent_name: str | None
     is_test: bool
-    risk_score: float
-    review_priority_score: float
     change_status: Literal["existing", "added", "unknown"]
     source: str
 

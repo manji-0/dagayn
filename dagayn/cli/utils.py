@@ -59,7 +59,7 @@ def _print_banner() -> None:
     {g}update{r}      Incremental update {d}(changed files only){r}
     {g}watch{r}       Auto-update on file changes
     {g}status{r}      Show graph statistics
-    {g}detect-changes{r} Analyze change impact {d}(risk-scored review){r}
+    {g}detect-changes{r} Analyze change impact {d}(review findings){r}
     {g}register{r}    Register a repository in the multi-repo registry
     {g}unregister{r}  Remove a repository from the registry
     {g}repos{r}       List registered repositories

@@ -43,6 +43,13 @@ Removed).
   depended on. The Python `dagayn.sap` module and
   `dagayn.architecture.compute_sdp_metrics` / `find_sdp_violations`, which
   only tests called, go with them.
+- **Breaking:** `risk_score` and `review_priority_score` on each
+  `changed_functions` row of `review_tool(mode="changes")`. The `findings`
+  (`untested_change`, `unchanged_caller`, and the rest) name what to check;
+  the score ranked nothing. Its computation (`GraphStore`'s
+  `compute_change_risk_score` and `get_community_ids_by_qualified_names`)
+  goes with it, which also drops a transitive-test lookup per changed
+  function from each review.
 
 ## 10.0.0 — 2026-10-12
 

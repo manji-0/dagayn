@@ -50,34 +50,6 @@ impl GraphStore {
         Ok(out)
     }
 
-    pub fn get_community_ids_by_qualified_names(
-        &self,
-        qns: &[String],
-    ) -> Result<HashMap<String, Option<i64>>> {
-        let mut out = HashMap::new();
-        for chunk in qns.chunks(450) {
-            if chunk.is_empty() {
-                continue;
-            }
-            let placeholders = std::iter::repeat_n("?", chunk.len())
-                .collect::<Vec<_>>()
-                .join(",");
-            let sql = format!(
-                "SELECT qualified_name, community_id FROM nodes \
-                 WHERE qualified_name IN ({placeholders})"
-            );
-            let mut stmt = self.conn.prepare(&sql)?;
-            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
-                <(String, Option<i64>)>::try_from(row)
-            })?;
-            for row in rows {
-                let (qualified_name, community_id) = row?;
-                out.insert(qualified_name, community_id);
-            }
-        }
-        Ok(out)
-    }
-
     pub fn get_all_community_ids(&self) -> Result<HashMap<String, Option<i64>>> {
         let mut stmt = self
             .conn
