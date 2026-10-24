@@ -66,6 +66,9 @@ Removed).
   `dagayn daemon start|stop|restart|status|logs|add|remove`; its `logs`
   takes `--follow` and `--lines` (the copy also accepted `-f` and `-n`). The
   handlers now live in `dagayn.cli.commands.daemon`.
+- **Breaking:** `dagayn profile`, which ran another subcommand under
+  pyinstrument, and pyinstrument from the `dev` extra. Nothing called it but
+  its own CLI registration; run `pyinstrument -m dagayn ...` directly.
 
 ## 10.0.0 — 2026-10-12
 

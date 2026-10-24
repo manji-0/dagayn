@@ -171,7 +171,6 @@ Important CLI commands:
 - `dagayn detect-changes`
 - `dagayn tool`
 - `dagayn serve`
-- `dagayn profile`
 - `dagayn register` / `dagayn repos` / `dagayn daemon`
 
 `dagayn build --scip` settles call targets with the SCIP indexers installed for the repository's projects (Rust and TypeScript answers replace the extractor's; Go, Python, Java/Kotlin, C/C++, C#, Ruby, Dart, PHP, and R fill what it left unresolved). Missing indexers print a `hint:` and keep dagayn's own resolution. Edges an index settled carry `resolved_by: "scip"`.
