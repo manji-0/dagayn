@@ -62,11 +62,6 @@
               pkgs.cargo-llvm-cov
               pkgs.pkg-config
 
-              # dagayn-vscode: corepack supplies the pnpm pinned by
-              # package.json's packageManager field.
-              pkgs.nodejs_22
-              pkgs.corepack_22
-
               # Git hooks and the jj workspace tests
               pkgs.prek
               pkgs.jujutsu
