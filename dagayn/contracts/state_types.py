@@ -118,10 +118,6 @@ ArchitectureAnalysisMode: TypeAlias = Literal[
     "overview",
     "communities",
     "community",
-    "sdp_metrics",
-    "sdp_violations",
-    "sap_metrics",
-    "sap_violations",
     "import_cycles",
 ]
 ArtifactScope: TypeAlias = Literal["code", "docs", "all"]

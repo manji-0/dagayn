@@ -368,8 +368,9 @@ class TestGenerateSkills:
         skills_dir = generate_skills(tmp_path)
         content = (skills_dir / "architecture-analysis" / "SKILL.md").read_text()
         assert 'architecture_analysis_tool(mode="overview"' in content
-        assert "sdp_violations" in content
-        assert "sap_violations" in content
+        assert "unstable_dependency" in content
+        assert "sdp_violations" not in content
+        assert "sap_violations" not in content
         assert "get_architecture_overview_tool" not in content
 
     def test_debug_and_explore_find_entry_points(self, tmp_path):

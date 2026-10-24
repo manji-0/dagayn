@@ -1232,7 +1232,7 @@ def test_flow_tool_answers_in_rust_as_python_does(git_repo: Path, stale: bool) -
 ARCHITECTURE_TRACE = "answered architecture_analysis_tool in Rust"
 
 
-def test_architecture_metrics_answer_in_rust_as_python_does(git_repo: Path) -> None:
+def test_architecture_modes_answer_in_rust_as_python_does(git_repo: Path) -> None:
     (git_repo / "pkg").mkdir()
     (git_repo / "pkg" / "core.py").write_text(
         "from app import main\n\n\nclass Base:\n    pass\n\n\ndef run():\n    return main()\n"
@@ -1246,12 +1246,6 @@ def test_architecture_metrics_answer_in_rust_as_python_does(git_repo: Path) -> N
     )
     arch = "architecture_analysis_tool"
     calls: list[tuple[str, dict[str, Any]]] = [
-        (arch, {"mode": "sdp_metrics", "granularity": "file"}),
-        (arch, {"mode": "sdp_violations", "min_delta": 0}),
-        (arch, {"mode": "sdp_violations", "dependency_profile": "implementation"}),
-        (arch, {"mode": "sap_metrics", "detail_level": "verbose"}),
-        (arch, {"mode": "sap_metrics", "scope_kind": "file", "unit_filter": ["pkg"]}),
-        (arch, {"mode": "sap_violations", "min_distance": 0.1, "artifact_scope": "all"}),
         (arch, {}),
         (arch, {"mode": "overview", "detail_level": "verbose", "top_n": 1}),
         (arch, {"mode": "communities", "detail_level": "standard", "sort_by": "name"}),
@@ -1264,7 +1258,7 @@ def test_architecture_metrics_answer_in_rust_as_python_does(git_repo: Path) -> N
     rust, python, stderr = _session_both(git_repo, calls)
     assert stderr.count(ARCHITECTURE_TRACE) == len(calls)
     assert rust == python
-    assert rust[0]["structuredContent"]["metrics"]
+    assert rust[0]["structuredContent"]["units"]
 
 
 REFACTOR_TRACE = "answered refactor_tool in Rust"

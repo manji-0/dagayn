@@ -1,4 +1,4 @@
-"""Artifact-scoped package design principle analysis: ADP and SDP."""
+"""Artifact-scoped package design principle analysis: ADP."""
 
 from __future__ import annotations
 
@@ -26,23 +26,6 @@ class AdpViolationRecord(TypedDict, total=False):
     truncated: bool
     cycles_examined: int
     cycle_limit: int
-
-
-class SdpMetricRecord(TypedDict):
-    name: str
-    ca: int
-    ce: int
-    instability: float
-    dependency_profile: DependencyProfile
-
-
-class SdpViolationRecord(TypedDict):
-    source: str
-    target: str
-    source_instability: float
-    target_instability: float
-    delta: float
-    dependency_profile: DependencyProfile
 
 
 def _project_dependency_graph(
@@ -185,116 +168,4 @@ def find_adp_violations(
         violations[-1]["truncated"] = True
         violations[-1]["cycles_examined"] = examined
         violations[-1]["cycle_limit"] = max_cycles
-    return violations
-
-
-def compute_sdp_metrics(
-    store: GraphStore,
-    granularity: Literal["file", "package"] = "package",
-    artifact_scope: ArtifactScope = "code",
-    dependency_profile: DependencyProfile = "strict_static",
-    snapshot: Any | None = None,
-) -> list[SdpMetricRecord]:
-    """Compute SDP instability metrics for each module/package.
-
-    Instability I = Ce / (Ca + Ce), where:
-    - Ca (afferent couplings) = in-degree: number of modules that import this one
-    - Ce (efferent couplings) = out-degree: number of modules this one imports
-    - I = 0: maximally stable (others depend on it, it depends on nothing)
-    - I = 1: maximally unstable (nothing depends on it, it depends on many things)
-    Isolated nodes (Ca + Ce = 0) are assigned I = 0.
-
-    ``artifact_scope`` keeps code and Markdown documentation dependencies from
-    contributing to each other's Ca/Ce counts. ``snapshot`` may supply the
-    shared node/edge lists to skip re-reading the graph tables.
-
-    Returns list of dicts sorted by instability descending.
-    """
-    dependency_profile = validate_dependency_profile(dependency_profile)
-    g = _project_dependency_graph(
-        store,
-        granularity=granularity,
-        artifact_scope=artifact_scope,
-        dependency_profile=dependency_profile,
-        snapshot=snapshot,
-    )
-
-    if g.number_of_nodes() == 0:
-        return []
-
-    results: list[SdpMetricRecord] = []
-    for node in g.nodes():
-        ca = g.in_degree(node)
-        ce = g.out_degree(node)
-        total = ca + ce
-        instability = ce / total if total > 0 else 0.0
-        results.append(
-            {
-                "name": node,
-                "ca": ca,
-                "ce": ce,
-                "instability": round(instability, 4),
-                "dependency_profile": dependency_profile,
-            }
-        )
-
-    results.sort(key=lambda x: x["instability"], reverse=True)
-    return results
-
-
-def find_sdp_violations(
-    store: GraphStore,
-    granularity: Literal["file", "package"] = "package",
-    min_delta: float = 0.1,
-    artifact_scope: ArtifactScope = "code",
-    dependency_profile: DependencyProfile = "strict_static",
-    snapshot: Any | None = None,
-) -> list[SdpViolationRecord]:
-    """Find SDP violations: dependencies pointing toward instability.
-
-    An edge A -> B violates SDP when I(A) < I(B) - min_delta, i.e., a more
-    stable module depends on a less stable one.
-
-    ``snapshot`` may supply the shared node/edge lists to skip re-reading the
-    graph tables.
-
-    Returns list of dicts sorted by delta descending.
-    """
-    dependency_profile = validate_dependency_profile(dependency_profile)
-    g = _project_dependency_graph(
-        store,
-        granularity=granularity,
-        artifact_scope=artifact_scope,
-        dependency_profile=dependency_profile,
-        snapshot=snapshot,
-    )
-
-    if g.number_of_nodes() == 0:
-        return []
-
-    instability: dict[str, float] = {}
-    for node in g.nodes():
-        ca = g.in_degree(node)
-        ce = g.out_degree(node)
-        total = ca + ce
-        instability[node] = ce / total if total > 0 else 0.0
-
-    violations: list[SdpViolationRecord] = []
-    for src, tgt in g.edges():
-        i_src = instability[src]
-        i_tgt = instability[tgt]
-        delta = i_tgt - i_src
-        if delta > min_delta:
-            violations.append(
-                {
-                    "source": src,
-                    "target": tgt,
-                    "source_instability": round(i_src, 4),
-                    "target_instability": round(i_tgt, 4),
-                    "delta": round(delta, 4),
-                    "dependency_profile": dependency_profile,
-                }
-            )
-
-    violations.sort(key=lambda x: x["delta"], reverse=True)
     return violations

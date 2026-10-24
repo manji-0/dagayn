@@ -600,10 +600,6 @@ def architecture_analysis_tool(
         "overview",
         "communities",
         "community",
-        "sdp_metrics",
-        "sdp_violations",
-        "sap_metrics",
-        "sap_violations",
         "import_cycles",
     ] = "overview",
     detail_level: Literal["minimal", "standard", "verbose"] = "minimal",
@@ -613,19 +609,10 @@ def architecture_analysis_tool(
     community_name: Optional[str] = None,
     community_id: Optional[int] = None,
     include_members: bool = False,
-    granularity: Literal["file", "package"] = "package",
     scope_kind: Literal["file", "package", "directory"] = "package",
     unit_filter: Optional[list[str]] = None,
-    min_delta: float = 0.1,
-    min_distance: float = 0.5,
     repo_root: Optional[str] = None,
     artifact_scope: Literal["code", "docs", "all"] = "code",
-    dependency_profile: Literal[
-        "strict_static",
-        "implementation",
-        "infra_dataflow",
-        "artifact_trace",
-    ] = "strict_static",
     import_kind: Optional[Literal["directive", "link", "lazy_export", "path", "statement"]] = None,
 ) -> ToolPayload:
     """Map the repository's units and report structural findings.
@@ -638,25 +625,17 @@ def architecture_analysis_tool(
     ``findings`` list means nothing structural to act on.
     ``detail_level="standard"`` adds each unit's ``surface``.
 
-    Metric modes, per declared unit: sdp_metrics and sdp_violations (a unit
-    depending on a less stable one by more than ``min_delta``); sap_metrics and
-    sap_violations (abstractness vs instability; farther than ``min_distance``
-    from the main sequence). communities / community: graph clusters (need full
-    post-processing). import_cycles: every simple cycle the resolved imports
-    form between ``scope_kind`` scopes, each starting at its smallest scope
+    communities / community: graph clusters (need full post-processing).
+    import_cycles: every simple cycle the resolved imports form between
+    ``scope_kind`` scopes, each starting at its smallest scope
     (``standard`` adds one import per hop); ``results_complete`` says
     whether the list is whole.
 
     Args:
-        granularity: (sdp) "package" (declared units; default) or "file".
-        scope_kind: (sap, import_cycles) "package" (declared units; default),
+        scope_kind: (import_cycles) "package" (declared units; default),
             "directory", or "file".
-        unit_filter: (sap_metrics, import_cycles) Scope-key prefixes to keep.
+        unit_filter: (import_cycles) Scope-key prefixes to keep.
         artifact_scope: "code" (default), "docs" (Markdown), or "all".
-        dependency_profile: (sdp, sap) Edges counted: "strict_static"
-            (imports, inheritance; default), "implementation" (+ calls),
-            "infra_dataflow" (+ infra references), "artifact_trace"
-            (+ cross-artifact bridges).
         import_kind: (import_cycles) Count only these import edges, as
             query_graph's: "statement" leaves out lazy exports and Markdown.
     """
@@ -669,13 +648,9 @@ def architecture_analysis_tool(
         community_name=community_name,
         community_id=community_id,
         include_members=include_members,
-        granularity=granularity,
         scope_kind=scope_kind,
         unit_filter=unit_filter,
         artifact_scope=artifact_scope,
-        min_delta=min_delta,
-        min_distance=min_distance,
-        dependency_profile=dependency_profile,
         import_kind=import_kind,
         repo_root=_resolve_repo_root(repo_root),
     )

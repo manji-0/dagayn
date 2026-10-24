@@ -1,10 +1,10 @@
-//! `dagayn.architecture` and `dagayn.sap`: the dependency graph between
-//! scopes and its ADP, SDP, and SAP measures, for any granularity, artifact
-//! scope, and dependency profile.
+//! The dependency graph between scopes and its ADP, SDP, and SAP measures,
+//! for any granularity and artifact scope, over the `strict_static` edges
+//! (imports, inheritance) the structural findings count.
 
 use std::collections::{HashMap, HashSet};
 
-use dagayn_graph::{GraphEdge, GraphNode, GraphStore, is_reportable_bridge};
+use dagayn_graph::{GraphEdge, GraphNode, GraphStore};
 use serde_json::{Value, json};
 
 use crate::suggestions::round_to;
@@ -39,55 +39,12 @@ impl Artifact {
     }
 }
 
-/// `DependencyProfile` and its edge kinds.
-#[derive(Clone, Copy)]
-pub(crate) enum Profile {
-    StrictStatic,
-    Implementation,
-    InfraDataflow,
-    ArtifactTrace,
-}
-
-impl Profile {
-    pub(crate) fn parse(text: &str) -> Option<Self> {
-        Some(match text {
-            "strict_static" => Self::StrictStatic,
-            "implementation" => Self::Implementation,
-            "infra_dataflow" => Self::InfraDataflow,
-            "artifact_trace" => Self::ArtifactTrace,
-            _ => return None,
-        })
-    }
-
-    pub(crate) fn name(self) -> &'static str {
-        match self {
-            Self::StrictStatic => "strict_static",
-            Self::Implementation => "implementation",
-            Self::InfraDataflow => "infra_dataflow",
-            Self::ArtifactTrace => "artifact_trace",
-        }
-    }
-
-    /// `edge_matches_dependency_profile`.
-    fn matches(self, edge: &GraphEdge) -> bool {
-        let extra = match self {
-            Self::StrictStatic => None,
-            Self::Implementation => Some("CALLS"),
-            Self::InfraDataflow => Some("REFERENCES"),
-            Self::ArtifactTrace => Some("CROSS_ARTIFACT"),
-        };
-        let kind = edge.kind.as_str();
-        if matches!(
-            kind,
-            "IMPORTS_FROM" | "DEPENDS_ON" | "INHERITS" | "IMPLEMENTS"
-        ) {
-            return true;
-        }
-        if Some(kind) != extra {
-            return false;
-        }
-        kind != "CROSS_ARTIFACT" || is_reportable_bridge(edge)
-    }
+/// An edge the `strict_static` profile counts as a dependency.
+fn is_dependency(edge: &GraphEdge) -> bool {
+    matches!(
+        edge.kind.as_str(),
+        "IMPORTS_FROM" | "DEPENDS_ON" | "INHERITS" | "IMPLEMENTS"
+    )
 }
 
 /// How nodes map to scopes and which edges count.
@@ -95,7 +52,6 @@ pub(crate) struct View {
     /// `file` keeps each file its own scope; anything else is the package.
     pub file_scopes: bool,
     pub artifact: Artifact,
-    pub profile: Profile,
     /// The declared unit of each code file
     /// ([`crate::units::unit_scopes`]); a file it does not list, and every
     /// file when it is `None`, is scoped by its directory.
@@ -103,12 +59,11 @@ pub(crate) struct View {
 }
 
 impl View {
-    /// `review_helpers`' fixed view: directories, code, `strict_static`.
+    /// `review_helpers`' fixed view: directories, code.
     pub(crate) fn review() -> Self {
         Self {
             file_scopes: false,
             artifact: Artifact::Code,
-            profile: Profile::StrictStatic,
             units: None,
         }
     }
@@ -246,7 +201,7 @@ impl Snapshot {
         let (qualified, names) = self.scope_maps(view);
         let mut out = Vec::new();
         for edge in &self.edges {
-            if !view.profile.matches(edge) {
+            if !is_dependency(edge) {
                 continue;
             }
             let Some(source) = qualified.get(edge.source_qualified.as_str()) else {
@@ -327,7 +282,8 @@ impl ScopeGraph {
         }
     }
 
-    /// `compute_sdp_metrics`, sorted by instability descending (stable).
+    /// `(scope, Ca, Ce, instability)` per scope, by instability descending
+    /// (stable).
     pub(crate) fn sdp_metrics(&self) -> Vec<(String, i64, i64, f64)> {
         let mut metrics: Vec<(String, i64, i64, f64)> = (0..self.nodes.len())
             .map(|node| {
@@ -348,8 +304,9 @@ impl ScopeGraph {
         metrics
     }
 
-    /// `find_sdp_violations(min_delta)`.
-    pub(crate) fn sdp_violations(&self, min_delta: f64, profile: Profile) -> Vec<Value> {
+    /// Each dependency on a scope less stable by more than `min_delta`,
+    /// largest gap first.
+    pub(crate) fn sdp_violations(&self, min_delta: f64) -> Vec<Value> {
         let mut violations: Vec<(f64, Value)> = Vec::new();
         for (source, successors) in self.successors.iter().enumerate() {
             for (target, _) in successors {
@@ -364,7 +321,6 @@ impl ScopeGraph {
                             "source_instability": round_to(i_src, 4),
                             "target_instability": round_to(i_tgt, 4),
                             "delta": round_to(delta, 4),
-                            "dependency_profile": profile.name(),
                         }),
                     ));
                 }
@@ -380,8 +336,8 @@ impl ScopeGraph {
     }
 }
 
-/// `compute_sap_metrics(scope_kind, unit_filter, artifact_scope,
-/// dependency_profile)`; `scope_kind` is the caller's spelling.
+/// Abstractness, instability, and distance from the main sequence per
+/// scope (docs/SAP-METRICS.md); `scope_kind` is the caller's spelling.
 pub(crate) fn sap_metrics(
     snapshot: &Snapshot,
     view: &View,
@@ -432,7 +388,7 @@ pub(crate) fn sap_metrics(
     let mut outgoing: HashMap<String, Vec<(String, i64)>> = HashMap::new();
     let mut scopes: HashSet<String> = members.keys().cloned().collect();
     for edge in &snapshot.edges {
-        if !view.profile.matches(edge) {
+        if !is_dependency(edge) {
             continue;
         }
         let Some(source) = qualified.get(edge.source_qualified.as_str()) else {
@@ -528,7 +484,6 @@ pub(crate) fn sap_metrics(
             "distance": round_to(distance, 4),
             "sap_applicable": applicable,
             "applicability_reason": reason,
-            "dependency_profile": view.profile.name(),
             "member_count": members.get(&scope).copied().unwrap_or(0),
             "top_incoming_dependencies": top(&incoming),
             "top_outgoing_dependencies": top(&out),
@@ -562,27 +517,4 @@ fn sap_notes(scope: &str) -> Vec<&'static str> {
         notes.push("fixture-scope");
     }
     notes
-}
-
-/// `find_sap_violations(min_distance)` over `compute_sap_metrics`' rows.
-pub(crate) fn sap_violations(metrics: &[Value], min_distance: f64) -> Vec<Value> {
-    let mut violations: Vec<Value> = metrics
-        .iter()
-        .filter(|metric| {
-            let notes = metric.get("notes").and_then(Value::as_array);
-            let has = |note: &str| notes.is_some_and(|n| n.iter().any(|x| x == note));
-            metric["distance"].as_f64().unwrap_or(0.0) > min_distance
-                && metric["sap_applicable"].as_bool().unwrap_or(false)
-                && !has("test-scope")
-                && !has("fixture-scope")
-        })
-        .cloned()
-        .collect();
-    violations.sort_by(|left, right| {
-        right["distance"]
-            .as_f64()
-            .partial_cmp(&left["distance"].as_f64())
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    violations
 }

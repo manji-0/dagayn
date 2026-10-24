@@ -89,164 +89,17 @@ def register_commands(sub: argparse._SubParsersAction) -> CommandRegistry:
     status_cmd = sub.add_parser("status", help="Show graph statistics")
     status_cmd.add_argument("--repo", default=None, help="Repository root (auto-detected)")
 
-    # sdp-metrics
-    sdp_metrics_cmd = sub.add_parser(
-        "sdp-metrics", help="Compute instability scores per module (SDP)"
-    )
-    sdp_metrics_cmd.add_argument(
-        "--granularity",
-        choices=["package", "file"],
-        default="package",
-        help=(
-            "Aggregation level: 'package' (declared unit: crate, package, module) "
-            "or 'file' (default: package)"
-        ),
-    )
-    sdp_metrics_cmd.add_argument(
-        "--artifact-scope",
-        choices=["code", "docs", "all"],
-        default="code",
-        help="Analyze code, docs, or the legacy mixed graph (default: code)",
-    )
-    sdp_metrics_cmd.add_argument(
-        "--top-n", type=int, default=30, help="Number of entries to return (default: 30)"
-    )
-    sdp_metrics_cmd.add_argument(
-        "--format",
-        choices=["json", "text"],
-        default="json",
-        help="Output format (default: json)",
-    )
-    sdp_metrics_cmd.add_argument("--repo", default=None, help="Repository root (auto-detected)")
-
-    # detect-sdp
-    detect_sdp_cmd = sub.add_parser(
-        "detect-sdp", help="Detect stability-direction violations (SDP)"
-    )
-    detect_sdp_cmd.add_argument(
-        "--granularity",
-        choices=["package", "file"],
-        default="package",
-        help=(
-            "Aggregation level: 'package' (declared unit: crate, package, module) "
-            "or 'file' (default: package)"
-        ),
-    )
-    detect_sdp_cmd.add_argument(
-        "--artifact-scope",
-        choices=["code", "docs", "all"],
-        default="code",
-        help="Analyze code, docs, or the legacy mixed graph (default: code)",
-    )
-    detect_sdp_cmd.add_argument(
-        "--min-delta",
-        type=float,
-        default=0.1,
-        help="Minimum instability gap to flag (default: 0.1)",
-    )
-    detect_sdp_cmd.add_argument(
-        "--format",
-        choices=["json", "text"],
-        default="json",
-        help="Output format (default: json)",
-    )
-    detect_sdp_cmd.add_argument(
-        "--top-n",
-        type=int,
-        default=None,
-        help="Number of violations to list (default: all)",
-    )
-    detect_sdp_cmd.add_argument("--repo", default=None, help="Repository root (auto-detected)")
-
-    # sap-metrics
-    sap_metrics_cmd = sub.add_parser(
-        "sap-metrics", help="Compute abstractness/instability/distance scores per scope (SAP)"
-    )
-    sap_metrics_cmd.add_argument(
-        "--scope-kind",
-        choices=["package", "file", "directory"],
-        default="package",
-        help=(
-            "Aggregation level: 'package' (declared unit), 'directory', "
-            "or 'file' (default: package)"
-        ),
-    )
-    sap_metrics_cmd.add_argument(
-        "--unit-filter",
-        default=None,
-        help="Comma-separated scope_key prefixes to restrict output",
-    )
-    sap_metrics_cmd.add_argument(
-        "--artifact-scope",
-        choices=["code", "docs", "all"],
-        default="code",
-        help="Analyze code, docs, or the legacy mixed graph (default: code)",
-    )
-    sap_metrics_cmd.add_argument(
-        "--top-n", type=int, default=30, help="Number of entries to return (default: 30)"
-    )
-    sap_metrics_cmd.add_argument(
-        "--format",
-        choices=["json", "text"],
-        default="json",
-        help="Output format (default: json)",
-    )
-    sap_metrics_cmd.add_argument("--repo", default=None, help="Repository root (auto-detected)")
-
-    # detect-sap
-    detect_sap_cmd = sub.add_parser(
-        "detect-sap", help="Detect scopes far from the main sequence (SAP violations)"
-    )
-    detect_sap_cmd.add_argument(
-        "--scope-kind",
-        choices=["package", "file", "directory"],
-        default="package",
-        help=(
-            "Aggregation level: 'package' (declared unit), 'directory', "
-            "or 'file' (default: package)"
-        ),
-    )
-    detect_sap_cmd.add_argument(
-        "--artifact-scope",
-        choices=["code", "docs", "all"],
-        default="code",
-        help="Analyze code, docs, or the legacy mixed graph (default: code)",
-    )
-    detect_sap_cmd.add_argument(
-        "--min-distance",
-        type=float,
-        default=0.5,
-        help="Minimum D value to flag (default: 0.5)",
-    )
-    detect_sap_cmd.add_argument(
-        "--format",
-        choices=["json", "text"],
-        default="json",
-        help="Output format (default: json)",
-    )
-    detect_sap_cmd.add_argument(
-        "--top-n",
-        type=int,
-        default=None,
-        help="Number of violations to list (default: all)",
-    )
-    detect_sap_cmd.add_argument("--repo", default=None, help="Repository root (auto-detected)")
-
     return {
         "build": build_cmd,
         "update": update_cmd,
         "postprocess": pp_cmd,
         "watch": watch_cmd,
         "status": status_cmd,
-        "sdp-metrics": sdp_metrics_cmd,
-        "detect-sdp": detect_sdp_cmd,
-        "sap-metrics": sap_metrics_cmd,
-        "detect-sap": detect_sap_cmd,
     }
 
 
 def handle(args: argparse.Namespace) -> None:
-    """Dispatch build/update/postprocess/watch/status/sdp/sap commands."""
+    """Dispatch build/update/postprocess/watch/status commands."""
     from .build_handlers import execute_build_command
 
     execute_build_command(args)

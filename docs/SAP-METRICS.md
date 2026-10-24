@@ -3,10 +3,12 @@
 <!-- constrained-by ./SCHEMA.md -->
 <!-- constrained-by ./ARCHITECTURE.md -->
 
-> **Status:** Implemented. SAP is exposed through
-> `architecture_analysis_tool(mode="sap_metrics")` and
-> `architecture_analysis_tool(mode="sap_violations")`. See `dagayn/sap.py`,
-> `crates/dagayn-tools/src/arch_tool.rs`, and `tests/test_sap.py`.
+> **Status:** Implemented as evidence. The `unstable_dependency` finding of
+> `architecture_analysis_tool(mode="overview")` and `review_tool` carries the
+> abstractness and distance of the unit depended on, where SAP applies. See
+> `crates/dagayn-tools/src/architecture.rs` (`sap_metrics`) and
+> `crates/dagayn-tools/src/stability.rs`. The `sap_metrics` and
+> `sap_violations` modes that listed every scope were removed.
 
 ## Purpose
 
@@ -86,7 +88,7 @@ Language mapping:
 
 ### Which types count toward `Nt` and `Na`
 
-`compute_sap_metrics` (`dagayn/sap.py`) counts a node only when all of these
+`sap_metrics` (`crates/dagayn-tools/src/architecture.rs`) counts a node only when all of these
 hold:
 
 - `kind == "Class"` (nodes of kind `Type`, such as Python, C#, and Rust type
@@ -129,27 +131,14 @@ data types plus a few traits or interfaces can have a small `Nt` and a high
 
 ## Edge semantics
 
-The edge kinds that feed `Ce`/`Ca` come from the `dependency_profile`
-parameter (`dagayn/dependency_profiles.py`). The default is `strict_static`:
+The edge kinds that feed `Ce`/`Ca` are the `strict_static` set:
 
 - `IMPORTS_FROM` — explicit module-level import
 - `DEPENDS_ON` — generic dependency (used by Terraform, Markdown, and other non-import languages)
 - `INHERITS` — nominal inheritance or subtype extension
 - `IMPLEMENTS` — interface/protocol/trait conformance
 
-The other profiles add one edge kind each to that set:
-
-| `dependency_profile` | Edge kinds |
-|----------------------|------------|
-| `strict_static` (default) | `IMPORTS_FROM`, `DEPENDS_ON`, `INHERITS`, `IMPLEMENTS` |
-| `implementation` | `strict_static` + `CALLS` |
-| `infra_dataflow` | `strict_static` + `REFERENCES` |
-| `artifact_trace` | `strict_static` + `CROSS_ARTIFACT`, counting only reportable bridges (`EXACT`/`HIGH`/`EXTRACTED`, no `<unresolved:` target, not flagged low-confidence) |
-
-Unknown profile names are rejected with an error. Every row reports the
-profile it was computed with in `dependency_profile`.
-
-`CALLS` and `REFERENCES` stay out of the default because they produce noise in dynamic languages (e.g., calling `len()`) and do not cleanly signal cross-boundary coupling. Opt into them only when the question is about call or dataflow coupling.
+`CALLS` and `REFERENCES` stay out because they produce noise in dynamic languages (e.g., calling `len()`) and do not cleanly signal cross-boundary coupling.
 
 An edge adds a scope-to-scope dependency only when its source is an in-scope
 node and its target resolves to a different scope. Edges within one
@@ -194,7 +183,7 @@ Scopes with no eligible types or no dependency coupling are SAP-inapplicable
 (`sap_applicable=false`). `applicability_reason` is `no-eligible-types` when
 `Nt = 0` (checked first), otherwise `isolated` when `Ca + Ce = 0`, otherwise
 `applicable`. Their raw `D` value is still available for inspection, but it is
-not a main-sequence quality signal, and they never appear in `sap_violations`.
+not a main-sequence quality signal, and a finding never cites it.
 A scope with `Nt = 0` and outgoing dependencies has `A = 0`, `I = 1`, and
 `D = 0`; a scope with `Nt = 0` and only incoming dependencies has `D = 1`.
 Neither value is meaningful.
@@ -222,20 +211,9 @@ A SAP result row includes:
 - `top_outgoing_dependencies`
 - optional `notes` such as `no-eligible-types`, `isolated`, `test-scope`, and `fixture-scope`
 
-`architecture_analysis_tool(mode="sap_metrics")` separates SAP-inapplicable
-scopes into `inapplicable_metrics` by default so raw `no-eligible-types` or
-`isolated` rows do not sort above actionable architecture signals. Pass
-`detail_level="verbose"` to include those rows in the main `metrics` list.
-Rows include `dependency_profile`; the default `strict_static` profile preserves
-the historical SAP edge set. Use `implementation`, `infra_dataflow`, or
-`artifact_trace` only when the question is explicitly about call dependencies,
-Terraform/dataflow references, or high-confidence code/docs/infra traceability.
-
-`architecture_analysis_tool(mode="sap_violations")` and
-`detect_sap_violations_func()` suppress `test-scope` and `fixture-scope`
-entries, and SAP-inapplicable rows, from the violation list. Those scopes still
-appear in `compute_sap_metrics` so callers can inspect raw measurements without
-turning harness structure into product-architecture alerts.
+An `unstable_dependency` finding cites the row of the unit depended on
+(`abstractness`, `distance`) only when it is SAP-applicable; findings never
+name a test or fixture scope.
 
 ## Known open questions
 
@@ -254,7 +232,7 @@ An early design (`docs/plans/SAP-METRICS.md`) included `CALLS` and `REFERENCES` 
 - `CALLS` in dynamic languages (Python `len()`, JavaScript prototype calls) produces cross-package noise that inflates `Ce` without representing real coupling.
 - `REFERENCES` in Terraform and Markdown is a structural artifact of how those formats express dependency, not a coupling signal between logical packages.
 
-The default `strict_static` profile uses only `IMPORTS_FROM`, `DEPENDS_ON`, `INHERITS`, and `IMPLEMENTS`. `CALLS`, `REFERENCES`, and reportable `CROSS_ARTIFACT` edges were later added back as opt-in `dependency_profile` values, not defaults. Callers choose code, documentation, or legacy mixed-graph analysis with `artifact_scope`.
+The default `strict_static` profile uses only `IMPORTS_FROM`, `DEPENDS_ON`, `INHERITS`, and `IMPLEMENTS`. `CALLS`, `REFERENCES`, and reportable `CROSS_ARTIFACT` edges were later added back as opt-in `dependency_profile` values, and went again with the metric modes. Callers choose code, documentation, or legacy mixed-graph analysis with `artifact_scope`.
 
 ### `INHERITS` vs `IMPLEMENTS` split
 

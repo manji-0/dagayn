@@ -33,6 +33,16 @@ Removed).
   `refactor_tool(mode="suggest")` reports oversized code as
   `complex_hotspot` findings with `line_count`. The graph store's
   `get_nodes_by_size`, which only that tool read, goes with it.
+- **Breaking:** the `sdp_metrics`, `sdp_violations`, `sap_metrics`, and
+  `sap_violations` modes of `architecture_analysis_tool`, with its
+  `granularity`, `min_delta`, `min_distance`, and `dependency_profile`
+  arguments, and the `dagayn sdp-metrics`, `detect-sdp`, `sap-metrics`, and
+  `detect-sap` commands. The `unstable_dependency` finding of
+  `mode="overview"` and `review_tool` names each dependency on a less stable
+  unit with both units' instability and the SAP position of the unit
+  depended on. The Python `dagayn.sap` module and
+  `dagayn.architecture.compute_sdp_metrics` / `find_sdp_violations`, which
+  only tests called, go with them.
 
 ## 10.0.0 — 2026-10-12
 

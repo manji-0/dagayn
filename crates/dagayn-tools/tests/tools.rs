@@ -1637,44 +1637,6 @@ fn architecture_metrics_follow_the_requested_view() {
         ..repo.context()
     };
     let arch = |arguments: Value| answer(&context, "architecture_analysis_tool", arguments);
-    let sdp = arch(json!({"mode": "sdp_metrics", "granularity": "file", "top_n": 1}));
-    assert!(sdp.get("called_subtool").is_none());
-    assert!(sdp.get("answerability").is_none());
-    assert!(sdp.get("_hints").is_none());
-    assert_eq!(sdp["metrics"].as_array().map(Vec::len), Some(1));
-    // verbose carries none of the earlier next-step fields either.
-    let sdp = arch(json!({"mode": "sdp_metrics", "detail_level": "verbose"}));
-    for gone in [
-        "_hints",
-        "next_tool_suggestions",
-        "next_action",
-        "next_drill_downs",
-        "deprecated_fields",
-    ] {
-        assert!(sdp.get(gone).is_none(), "{gone}");
-    }
-    let violations = arch(json!({"mode": "sdp_violations", "min_delta": 0}));
-    assert!(
-        violations["summary"]
-            .as_str()
-            .is_some_and(|s| s.contains("min_delta=0.0"))
-    );
-    let sap = arch(json!({"mode": "sap_metrics", "detail_level": "verbose"}));
-    assert_eq!(sap["inapplicable_visibility"], "included_in_metrics");
-    let tiny = arch(json!({"mode": "sdp_violations", "min_delta": 0.00001}));
-    assert!(
-        tiny["summary"]
-            .as_str()
-            .is_some_and(|s| s.contains("min_delta=1e-05)"))
-    );
-    let sap_v = arch(json!({"mode": "sap_violations", "min_distance": 0.0}));
-    assert!(sap_v["violations"].is_array());
-    let huge = arch(json!({"mode": "sap_violations", "min_distance": 1.5e16}));
-    assert!(
-        huge["summary"]
-            .as_str()
-            .is_some_and(|s| s.contains("min_distance=1.5e+16)"))
-    );
     let overview = arch(json!({}));
     assert!(overview.get("called_subtool").is_none());
     assert!(overview["units"].is_array());
@@ -1695,6 +1657,11 @@ fn architecture_metrics_follow_the_requested_view() {
         "communities",
         "cross_community_coupling",
         "warnings",
+        "_hints",
+        "next_tool_suggestions",
+        "next_action",
+        "next_drill_downs",
+        "deprecated_fields",
     ] {
         assert!(verbose.get(gone).is_none(), "{gone}");
     }
@@ -1714,11 +1681,15 @@ fn architecture_metrics_follow_the_requested_view() {
         "Value error, mode=\"community\" requires community_id or community_name."
     );
     for arguments in [
-        json!({"mode": "sdp_metrics", "dependency_profile": "bogus"}),
         // Removed in favour of the overview's map and findings.
         json!({"mode": "hubs"}),
         json!({"mode": "adp_violations"}),
-        json!({"mode": "sap_metrics", "unit_filter": "pkg"}),
+        json!({"mode": "sdp_metrics"}),
+        json!({"mode": "sdp_violations"}),
+        json!({"mode": "sap_metrics"}),
+        json!({"mode": "sap_violations"}),
+        json!({"dependency_profile": "implementation"}),
+        json!({"mode": "import_cycles", "unit_filter": "pkg"}),
     ] {
         assert!(
             declines(&context, "architecture_analysis_tool", arguments.clone()),
