@@ -99,16 +99,6 @@
         },
         "required": []
       },
-      "find_large_functions_tool": {
-        "params": {
-          "file_path_pattern": "string",
-          "kind": "string",
-          "limit": "integer",
-          "min_lines": "integer",
-          "repo_root": "string"
-        },
-        "required": []
-      },
       "flow_tool": {
         "params": {
           "detail_level": "string",

@@ -177,27 +177,6 @@ class TestTools:
         assert len(callers) == 1
         assert callers[0].source_qualified == "/repo/main.py::process"
 
-    def test_get_nodes_by_size(self):
-        """Find nodes above a line-count threshold."""
-        results = self.store.get_nodes_by_size(min_lines=10, kind="Function")
-        names = {r.name for r in results}
-        assert "login" in names  # 10-20 = 11 lines >= 10
-        assert "process" in names  # 5-15 = 11 lines >= 10
-
-    def test_get_nodes_by_size_with_max(self):
-        """Max-lines filter works."""
-        results = self.store.get_nodes_by_size(min_lines=1, max_lines=5)
-        # test_login: 1-10 = 10 lines > 5, should be excluded
-        names = {r.name for r in results}
-        assert "test_login" not in names
-
-    def test_get_nodes_by_size_file_pattern(self):
-        """File path pattern filter works."""
-        results = self.store.get_nodes_by_size(min_lines=1, file_path_pattern="auth")
-        fps = {r.file_path for r in results}
-        for fp in fps:
-            assert "auth" in fp
-
     def test_multi_word_search(self):
         """Multi-word queries match nodes containing any term."""
         results = self.store.search_nodes("auth login")
@@ -750,80 +729,6 @@ class TestGetDocsSection:
         assert result["status"] in ("ok", "not_found")
         if result["status"] == "ok":
             assert len(result["content"]) > 0
-
-
-class TestFindLargeFunctions:
-    """Tests for find_large_functions via direct store access."""
-
-    def setup_method(self):
-        self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-        self.store = GraphStore(self.tmp.name)
-        # Create functions of various sizes
-        self.store.upsert_node(
-            NodeInfo(
-                kind="File",
-                name="/repo/big.py",
-                file_path="/repo/big.py",
-                line_start=1,
-                line_end=500,
-                language="python",
-            )
-        )
-        self.store.upsert_node(
-            NodeInfo(
-                kind="Function",
-                name="huge_func",
-                file_path="/repo/big.py",
-                line_start=1,
-                line_end=200,
-                language="python",
-            )
-        )
-        self.store.upsert_node(
-            NodeInfo(
-                kind="Function",
-                name="small_func",
-                file_path="/repo/big.py",
-                line_start=201,
-                line_end=210,
-                language="python",
-            )
-        )
-        self.store.upsert_node(
-            NodeInfo(
-                kind="Class",
-                name="BigClass",
-                file_path="/repo/big.py",
-                line_start=211,
-                line_end=400,
-                language="python",
-            )
-        )
-        self.store.commit()
-
-    def teardown_method(self):
-        self.store.close()
-        Path(self.tmp.name).unlink(missing_ok=True)
-
-    def test_finds_large_functions(self):
-        results = self.store.get_nodes_by_size(min_lines=50, kind="Function")
-        names = {r.name for r in results}
-        assert "huge_func" in names
-        assert "small_func" not in names
-
-    def test_finds_large_classes(self):
-        results = self.store.get_nodes_by_size(min_lines=50, kind="Class")
-        names = {r.name for r in results}
-        assert "BigClass" in names
-
-    def test_ordered_by_size(self):
-        results = self.store.get_nodes_by_size(min_lines=1)
-        sizes = [(r.line_end - r.line_start + 1) for r in results]
-        assert sizes == sorted(sizes, reverse=True)
-
-    def test_respects_limit(self):
-        results = self.store.get_nodes_by_size(min_lines=1, limit=2)
-        assert len(results) <= 2
 
 
 class TestSanitizeName:

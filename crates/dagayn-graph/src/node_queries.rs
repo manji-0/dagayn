@@ -7,47 +7,6 @@ use crate::*;
 pub type NodeSignatureRow = (i64, String, String, Option<String>, Option<String>);
 
 impl GraphStore {
-    /// Nodes whose line span falls inside `[min_lines, max_lines]`, largest first.
-    pub fn get_nodes_by_size(
-        &self,
-        min_lines: i64,
-        max_lines: Option<i64>,
-        kind: Option<&str>,
-        file_path_pattern: Option<&str>,
-        limit: i64,
-    ) -> Result<Vec<GraphNode>> {
-        let mut conditions = vec![
-            "line_start IS NOT NULL".to_string(),
-            "line_end IS NOT NULL".to_string(),
-            "(line_end - line_start + 1) >= ?".to_string(),
-        ];
-        let mut params: Vec<SqlValue> = vec![SqlValue::Integer(min_lines)];
-
-        if let Some(max_lines) = max_lines {
-            conditions.push("(line_end - line_start + 1) <= ?".to_string());
-            params.push(SqlValue::Integer(max_lines));
-        }
-        if let Some(kind) = kind.filter(|kind| !kind.is_empty()) {
-            conditions.push("kind = ?".to_string());
-            params.push(SqlValue::Text(kind.to_string()));
-        }
-        if let Some(pattern) = file_path_pattern.filter(|pattern| !pattern.is_empty()) {
-            conditions.push("file_path LIKE ?".to_string());
-            params.push(SqlValue::Text(format!("%{pattern}%")));
-        }
-        params.push(SqlValue::Integer(limit));
-
-        let where_clause = conditions.join(" AND ");
-        let sql = format!(
-            "SELECT * FROM nodes WHERE {where_clause} \
-             ORDER BY (line_end - line_start + 1) DESC LIMIT ?"
-        );
-        let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map(rusqlite::params_from_iter(params), node_from_row)?;
-        rows.collect::<std::result::Result<Vec<_>, _>>()
-            .map_err(Into::into)
-    }
-
     /// `name -> definition count` over the requested kinds.
     ///
     /// Dead-code analysis uses this to tell an ambiguous bare name (many

@@ -12,7 +12,7 @@ import pytest
 
 from dagayn.tools import docs
 from dagayn.tools.flow_dispatcher import flow_func
-from dagayn.tools.query import find_large_functions, list_graph_stats
+from dagayn.tools.query import list_graph_stats
 from dagayn.tools.refactor_tools import apply_refactor_func, refactor_func
 from dagayn.tools.review_dispatcher import review_func
 
@@ -45,13 +45,6 @@ def test_a_missing_graph_is_created_before_rust_reads_it(tmp_path: Path) -> None
     assert result["status"] == "ok"
     assert result["total_nodes"] == 0
     assert (root / ".dagayn" / "graph.db").is_file()
-
-
-def test_find_large_functions_answers_through_rust(repo: Path) -> None:
-    result = find_large_functions(min_lines=1, kind="Function", repo_root=str(repo))
-    assert result["status"] == "ok"
-    assert result["total_found"] == 2
-    assert {row["name"] for row in result["results"]} == {"main", "helper"}
 
 
 def test_flow_tool_answers_through_rust(repo: Path) -> None:

@@ -595,35 +595,6 @@ def get_docs_section_tool(
 
 
 @mcp.tool()
-def find_large_functions_tool(
-    min_lines: int = 50,
-    kind: Optional[str] = None,
-    file_path_pattern: Optional[str] = None,
-    limit: int = 50,
-    repo_root: Optional[str] = None,
-) -> ToolPayload:
-    """Find functions, classes, or files exceeding a line-count threshold.
-
-    Useful for decomposition audits, code quality checks, and enforcing
-    size limits during code review. Results are ordered by line count.
-
-    Args:
-        min_lines: Minimum line count to flag. Default: 50.
-        kind: Optional filter: Function, Class, File, or Test.
-        file_path_pattern: Filter by file path substring (e.g. "components/").
-        limit: Maximum results. Default: 50.
-        repo_root: Repository root path. Auto-detected if omitted.
-    """
-    return _tool("query:find_large_functions")(
-        min_lines=min_lines,
-        kind=kind,
-        file_path_pattern=file_path_pattern,
-        limit=limit,
-        repo_root=_resolve_repo_root(repo_root),
-    )
-
-
-@mcp.tool()
 def architecture_analysis_tool(
     mode: Literal[
         "overview",
