@@ -50,8 +50,8 @@ PARITY_DIR = REPO_ROOT / "tests" / "fixtures" / "parity"
 SNAPSHOT_DIR = PARITY_DIR / "__mcp_snapshots__"
 
 #: (case name, tool, arguments) per fixture. Read-only tools only: building,
-#: embedding, applying refactors, wiki generation, and cross-repo search write
-#: state or reach outside the fixture.
+#: embedding, applying refactors, and cross-repo search write state or reach
+#: outside the fixture.
 _COMMON_CASES: list[tuple[str, str, dict[str, Any]]] = [
     ("minimal_context", "get_minimal_context_tool", {"task": "review the change"}),
     ("graph_stats", "list_graph_stats_tool", {}),

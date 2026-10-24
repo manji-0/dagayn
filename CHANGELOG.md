@@ -4,6 +4,24 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+dagayn is a tool for agents, so the surfaces built for a human to look at
+are gone (see Removed).
+
+### Removed
+
+- **Breaking:** the `dagayn-vscode` editor extension, its CI jobs (the
+  extension build and the graph-schema check against it), its prek hook,
+  and the Node and pnpm entries in the Nix devShell.
+- **Breaking:** `generate_wiki_tool`, `get_wiki_page_tool`, and
+  `dagayn wiki`, which wrote and read Markdown pages per community under
+  `.dagayn/wiki/`. `architecture_analysis_tool(mode="communities")` and
+  `mode="overview"` answer the same questions without a file round trip.
+- **Breaking:** `dagayn visualize` and its static exports (GraphML,
+  Mermaid C4, SVG, Neo4j Cypher, Obsidian vault), with `dagayn.exports`,
+  `dagayn.visualization`, the graph store's `entry_points_json`, and
+  matplotlib from the `eval` extra. The HTML viewer it once served was
+  already gone. Agents read the graph through the MCP tools instead.
+
 ## 10.0.0 — 2026-10-12
 
 Breaking: the replies drop the next-step and diagnostic fields that `next`

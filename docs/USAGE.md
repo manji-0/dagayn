@@ -353,26 +353,6 @@ if result["reachability"]["depth_limit_reached"]:
 Rows are one per related node, with the edge lines in `lines`. Pass
 `detail_level="full"` for one row per edge and the raw `edges` list.
 
-## Export the graph
-
-<!-- constrained-by ./ARCHITECTURE.md#post-processing -->
-
-```bash
-dagayn visualize --format graphml
-dagayn visualize --format mermaid-c4
-dagayn visualize --format svg
-dagayn visualize --format cypher
-dagayn visualize --format obsidian
-```
-
-Notes:
-
-- `--format` is required
-- built-in export formats are `graphml`, `mermaid-c4`, `svg`, `cypher`, and `obsidian`
-- `mermaid-c4` emits Mermaid `C4Component` code using files as components
-- Jupyter / Databricks / marimo notebooks (Python `.py` and Markdown `.md`) are graph inputs, not report outputs
-- `svg` export requires matplotlib, available via `dagayn[eval]`
-
 ## Multi-repo workflows
 
 <!-- constrained-by ./DAEMON-CONFIG.md -->
