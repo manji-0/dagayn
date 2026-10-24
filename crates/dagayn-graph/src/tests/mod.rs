@@ -6,7 +6,6 @@ use std::path::PathBuf;
 
 mod analysis;
 mod bridges;
-mod centrality;
 mod communities;
 mod flows;
 mod impact;

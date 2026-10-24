@@ -41,29 +41,6 @@ def _speedup(before_ms: float, after_ms: float) -> float:
     return round(before_ms / after_ms, 2)
 
 
-def _scenario_centrality(store: Any, config: BenchmarkPayload) -> BenchmarkPayload:
-    from dagayn.analysis import find_bridge_nodes, persist_centrality_scores
-
-    repeat = int(config.get("centrality_repeat", 1))
-    runtime_ms, runtime = _measure_ms(
-        lambda: find_bridge_nodes(store, top_n=10, use_persisted=False),
-        repeat=repeat,
-    )
-    persist_centrality_scores(store)
-    persisted_ms, persisted = _measure_ms(
-        lambda: find_bridge_nodes(store, top_n=10),
-        repeat=max(1, int(config.get("effect_repeat", 3))),
-    )
-    return {
-        "scenario": "bridge_centrality_persisted_read",
-        "before_ms": round(runtime_ms, 3),
-        "after_ms": round(persisted_ms, 3),
-        "speedup": _speedup(runtime_ms, persisted_ms),
-        "runtime_result_count": len(runtime),
-        "persisted_result_count": len(persisted),
-    }
-
-
 def _seed_remove_store(db_path: Path, file_count: int) -> GraphStore:
     store = GraphStore(db_path)
     store.store_file_batch(_make_file_batch(file_count))
@@ -168,9 +145,6 @@ def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[Benchmark
     """Run all recent-change effect measurements."""
     results: list[BenchmarkPayload] = []
 
-    def _centrality() -> BenchmarkPayload | list[BenchmarkPayload]:
-        return _scenario_centrality(store, config)
-
     def _batch_remove() -> BenchmarkPayload | list[BenchmarkPayload]:
         return _scenario_batch_remove(config)
 
@@ -181,13 +155,11 @@ def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[Benchmark
         return _scenario_mcp_latency(repo_path, store, config)
 
     # Keep scenario names stable even when a helper raises before returning.
-    _centrality.__name__ = "bridge_centrality_persisted_read"
     _batch_remove.__name__ = "remove_files_data_batch"
     _store_file_batch.__name__ = "store_file_batch_bulk_replace"
     _mcp_latency.__name__ = "mcp_latency"
 
     scenarios: list[Callable[[], BenchmarkPayload | list[BenchmarkPayload]]] = [
-        _centrality,
         _batch_remove,
         _store_file_batch,
         _mcp_latency,

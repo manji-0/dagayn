@@ -434,13 +434,11 @@ def test_runner_with_mock_repo(monkeypatch: pytest.MonkeyPatch) -> None:
                 **config,
                 "latency_repeat": 1,
                 "effect_repeat": 1,
-                "centrality_repeat": 1,
                 "effect_remove_files": 5,
                 "effect_store_files": 5,
             },
         )
         scenarios = {row["scenario"] for row in effect_results}
-        assert "bridge_centrality_persisted_read" in scenarios
         assert "remove_files_data_batch" in scenarios
         assert "store_file_batch_bulk_replace" in scenarios
         assert any(scenario.startswith("mcp_latency:") for scenario in scenarios)

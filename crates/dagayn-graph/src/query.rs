@@ -292,18 +292,8 @@ impl GraphStore {
         Ok(total)
     }
 
+    /// The edges with both endpoints (neither a File) in `community_ids`.
     pub fn get_edges_within_community_ids(&self, community_ids: &[i64]) -> Result<Vec<GraphEdge>> {
-        self.community_edges(community_ids, false)
-    }
-
-    pub fn get_edges_incident_to_community_ids(
-        &self,
-        community_ids: &[i64],
-    ) -> Result<Vec<GraphEdge>> {
-        self.community_edges(community_ids, true)
-    }
-
-    fn community_edges(&self, community_ids: &[i64], incident: bool) -> Result<Vec<GraphEdge>> {
         let mut by_id = HashMap::<i64, GraphEdge>::new();
         if community_ids.is_empty() {
             return Ok(Vec::new());
@@ -315,26 +305,14 @@ impl GraphStore {
             let placeholders = std::iter::repeat_n("?", chunk.len())
                 .collect::<Vec<_>>()
                 .join(",");
-            let sql = if incident {
-                format!(
-                    "SELECT e.* FROM edges e \
-                     JOIN nodes n ON n.qualified_name = e.source_qualified \
-                     WHERE n.kind != 'File' AND n.community_id IN ({placeholders}) \
-                     UNION \
-                     SELECT e.* FROM edges e \
-                     JOIN nodes n ON n.qualified_name = e.target_qualified \
-                     WHERE n.kind != 'File' AND n.community_id IN ({placeholders})"
-                )
-            } else {
-                format!(
-                    "SELECT e.* FROM edges e \
-                     JOIN nodes s ON s.qualified_name = e.source_qualified \
-                     JOIN nodes t ON t.qualified_name = e.target_qualified \
-                     WHERE s.kind != 'File' AND t.kind != 'File' \
-                       AND s.community_id IN ({placeholders}) \
-                       AND t.community_id IN ({placeholders})"
-                )
-            };
+            let sql = format!(
+                "SELECT e.* FROM edges e \
+                 JOIN nodes s ON s.qualified_name = e.source_qualified \
+                 JOIN nodes t ON t.qualified_name = e.target_qualified \
+                 WHERE s.kind != 'File' AND t.kind != 'File' \
+                   AND s.community_id IN ({placeholders}) \
+                   AND t.community_id IN ({placeholders})"
+            );
             let mut params = Vec::with_capacity(chunk.len() * 2);
             params.extend_from_slice(chunk);
             params.extend_from_slice(chunk);

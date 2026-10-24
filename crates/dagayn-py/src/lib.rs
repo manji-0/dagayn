@@ -484,16 +484,6 @@ impl PyGraphStore {
         })
     }
 
-    #[pyo3(signature = (changed_files = None))]
-    fn persist_centrality_scores(
-        &self,
-        changed_files: Option<Vec<String>>,
-    ) -> PyResult<std::collections::HashMap<String, i64>> {
-        self.with_store_mut(|store| {
-            store.persist_centrality_scores_filtered(changed_files.as_deref())
-        })
-    }
-
     fn sync_fts_for_file_paths(&self, file_paths: Vec<String>) -> PyResult<i64> {
         self.with_store_mut(|store| store.sync_fts_for_file_paths(&file_paths))
     }

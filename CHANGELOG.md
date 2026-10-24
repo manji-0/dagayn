@@ -50,6 +50,17 @@ Removed).
   `compute_change_risk_score` and `get_community_ids_by_qualified_names`)
   goes with it, which also drops a transitive-test lookup per changed
   function from each review.
+- **Breaking:** hub and bridge centrality scores. Post-processing no longer
+  computes betweenness or persists the `hub_scores` / `bridge_scores` (and
+  `_code`) tables, its reply drops the `*_scores_persisted` counters, and
+  graph schema 19 drops the four tables on open. Nothing read them since the
+  `hubs` and `bridges` architecture modes went; the Python
+  `dagayn.analysis` module (`find_bridge_nodes`,
+  `persist_centrality_scores`), the `bridge_centrality_persisted_read`
+  benchmark scenario, and the graph store's `persist_centrality_scores`,
+  `persisted_hub_scores`, `persisted_bridge_scores`,
+  `get_edges_incident_to_community_ids`, and `get_community_ids_by_node_ids`
+  go with them.
 
 ## 10.0.0 — 2026-10-12
 
