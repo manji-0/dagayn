@@ -1,4 +1,4 @@
-"""Tools 7, 8, 19, 20: embed_graph, get_docs_section, wiki tools."""
+"""Tools 7 and 8: embed_graph and get_docs_section."""
 
 from __future__ import annotations
 
@@ -16,7 +16,6 @@ from ..embeddings_store import EmbedWorkItem
 from ..paths import get_db_path
 from ._common import (
     ToolPayload,
-    ToolStoreScope,
     _error_response,
     _get_store,
     _validate_repo_root,
@@ -312,78 +311,3 @@ def get_docs_section(
     if text is None:
         raise RuntimeError(f"get_docs_section has no answer for section {section_name!r}")
     return json.loads(text)
-
-
-# ---------------------------------------------------------------------------
-# Tool 19: generate_wiki  [DOCS]
-# ---------------------------------------------------------------------------
-
-
-def generate_wiki_func(
-    repo_root: str | None = None,
-    force: bool = False,
-) -> ToolPayload:
-    """Generate a markdown wiki from the community structure.
-
-    [DOCS] Creates a wiki page for each detected community and an index
-    page. Pages are written to ``.dagayn/wiki/`` inside the
-    repository. Only regenerates pages whose content has changed unless
-    force=True.
-
-    Args:
-        repo_root: Repository root path. Auto-detected if omitted.
-        force: If True, regenerate all pages even if content is unchanged.
-
-    Returns:
-        Status with pages_generated, pages_updated, pages_unchanged counts.
-    """
-    from ..paths import get_data_dir
-    from ..wiki import generate_wiki
-
-    with ToolStoreScope(logger=logger, context="generate_wiki") as scope:
-        store, root = scope.track(_get_store(repo_root))
-        wiki_dir = get_data_dir(root) / "wiki"
-        result = generate_wiki(store, wiki_dir, force=force)
-        total = result["pages_generated"] + result["pages_updated"] + result["pages_unchanged"]
-        return {
-            "status": "ok",
-            "summary": (
-                f"Wiki generated: {result['pages_generated']} new, "
-                f"{result['pages_updated']} updated, "
-                f"{result['pages_unchanged']} unchanged "
-                f"({total} total pages)"
-            ),
-            "wiki_dir": str(wiki_dir),
-            **result,
-        }
-    return scope.error
-
-
-# ---------------------------------------------------------------------------
-# Tool 20: get_wiki_page  [DOCS]
-# ---------------------------------------------------------------------------
-
-
-def get_wiki_page_func(
-    community_name: str,
-    repo_root: str | None = None,
-) -> ToolPayload:
-    """Retrieve a specific wiki page by community name.
-
-    [DOCS] Returns the markdown content of the wiki page for the given
-    community. The wiki must have been generated first via generate_wiki.
-
-    Args:
-        community_name: Community name to look up (slugified for filename).
-        repo_root: Repository root path. Auto-detected if omitted.
-
-    Returns:
-        Page content or not_found status.
-    """
-    # Resolves the repository and creates, migrates, or waits for the graph;
-    # the Rust tool reads the page from the wiki next to it.
-    store, _root = _get_store(repo_root)
-    try:
-        return native_tool("get_wiki_page_tool", community_name=community_name, repo_root=repo_root)
-    finally:
-        store.close()

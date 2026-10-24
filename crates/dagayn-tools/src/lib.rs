@@ -260,7 +260,6 @@ fn answer(context: &Context, name: &str, arguments: &Map<String, Value>) -> Opti
         "ensure_graph_tool" => ensure::ensure_graph(context, arguments),
         "find_large_functions_tool" => large::find_large_functions(context, arguments),
         "traverse_graph_tool" => traverse::traverse_graph(context, arguments),
-        "get_wiki_page_tool" => docs::get_wiki_page(context, arguments),
         "list_repos_tool" => repos::list_repos(context, arguments),
         "apply_refactor_tool" => apply::apply_refactor(context, arguments),
         "run_postprocess_tool" => postprocess::run_postprocess(context, arguments),

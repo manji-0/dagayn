@@ -12,6 +12,10 @@ are gone (see Removed).
 - **Breaking:** the `dagayn-vscode` editor extension, its CI jobs (the
   extension build and the graph-schema check against it), its prek hook,
   and the Node and pnpm entries in the Nix devShell.
+- **Breaking:** `generate_wiki_tool`, `get_wiki_page_tool`, and
+  `dagayn wiki`, which wrote and read Markdown pages per community under
+  `.dagayn/wiki/`. `architecture_analysis_tool(mode="communities")` and
+  `mode="overview"` answer the same questions without a file round trip.
 
 ## 10.0.0 — 2026-10-12
 
