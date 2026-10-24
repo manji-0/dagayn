@@ -28,12 +28,19 @@
 # and file_call (file() / filesha256()) are real references it does not
 # cover.
 #
-# Drafted from a scratch grep of the .tf files, then each entry checked
-# against the file; handler targets were resolved by reading the module's
-# source_path and the handler file.
+# Drafted by a scratch scan of the .tf files (string literals in watched
+# attributes, paths normalized against the file's directory, `exists` from
+# the checkout). By hand: every entry read in this file, every handler and
+# entry-point target and its `exists` decided by reading the module's
+# source_path and the handler code, the local_exec, file_call and
+# local_existing_package entries written from the source, and non-code
+# values (build commands, patterns, config and SQL files) dropped. The
+# mechanical module_source and source_path entries were spot-checked against
+# the source, not each one.
 #
-# review_judgments: hand verdicts on the bridge_touched findings that
-# `--review 10` produced, keyed by commit and finding qualified_name.
+# review_judgments: hand verdicts ({commit, qualified_name, correct, why}) on
+# the bridge_touched findings that `--review 10` produced. The 2026-10-25 run
+# produced none.
 repos:
   - name: terraform-aws-lambda
     url: https://github.com/terraform-aws-modules/terraform-aws-lambda

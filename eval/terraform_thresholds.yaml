@@ -8,7 +8,9 @@
 # extracted families (path_attr, local_exec, entrypoint) precision 0.25 =
 # 3 / 12, reference precision 1.0, recall 0.375 = 3 / 8; recall over every
 # family 0.031 = 3 / 97. The 9 false positives are aws-otel-lambda layer
-# `filename`s naming build outputs that are not in the tree.
+# `filename`s naming build outputs that are not in the tree; the 3 true
+# positives are the three terraform-google-cloud-functions archive_file
+# blocks. Each number rests on one repository.
 #
 # Floors sit just under the baseline. The true-positive floor and the
 # false-positive ceiling keep a run that emits nothing, or more noise, from

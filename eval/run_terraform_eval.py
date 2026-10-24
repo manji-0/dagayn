@@ -117,38 +117,23 @@ def ensure_checkout(repo: dict[str, Any], work_dir: Path) -> Path:
     path = work_dir / repo["name"]
     if not (path / ".git").exists():
         work_dir.mkdir(parents=True, exist_ok=True)
-        _run(
-            [
-                "git",
-                "clone",
-                "--quiet",
-                "--filter=blob:none",
-                "--no-checkout",
-                repo["url"],
-                str(path),
-            ]
-        )
-    head = _git(path, "rev-parse", "HEAD").strip() if _has_head(path) else ""
-    if head != repo["sha"]:
-        dirty = [
-            line
-            for line in _git(path, "status", "--porcelain").splitlines()
-            if ".dagayn" not in line
-        ]
-        if dirty:
-            raise InconclusiveError(f"{path} has local changes: {dirty[:3]}")
+        clone = ["git", "clone", "--quiet", "--filter=blob:none", "--no-checkout"]
+        _run([*clone, repo["url"], str(path)])
+        # A --no-checkout clone has an empty index, so check out explicitly
+        # even when the default branch already sits at the pinned commit.
+        _git(path, "checkout", "--quiet", repo["sha"])
+    dirty = [
+        line for line in _git(path, "status", "--porcelain").splitlines() if ".dagayn" not in line
+    ]
+    if dirty:
+        raise InconclusiveError(f"{path} has local changes: {dirty[:3]}")
+    if _git(path, "rev-parse", "HEAD").strip() != repo["sha"]:
         _git(path, "checkout", "--quiet", repo["sha"])
     if _git(path, "rev-parse", "HEAD").strip() != repo["sha"]:
         raise InconclusiveError(f"{path} is not at {repo['sha']}")
+    if not _git(path, "ls-files", "*.tf").strip() or not any(path.rglob("*.tf")):
+        raise InconclusiveError(f"{path} has no Terraform files checked out")
     return path
-
-
-def _has_head(path: Path) -> bool:
-    try:
-        _git(path, "rev-parse", "--verify", "--quiet", "HEAD")
-        return True
-    except InconclusiveError:
-        return False
 
 
 def build(path: Path, dagayn_cmd: list[str]) -> None:
@@ -374,7 +359,7 @@ def review_commit(path: Path, commit: str, dagayn_cmd: list[str]) -> list[dict[s
 def run_reviews(
     repo: dict[str, Any], path: Path, count: int, dagayn_cmd: list[str]
 ) -> list[dict[str, Any]]:
-    verdicts = {(j["commit"], j["target"]): j for j in repo.get("review_judgments", [])}
+    verdicts = {(j["commit"], j["qualified_name"]): j for j in repo.get("review_judgments", [])}
     rows: list[dict[str, Any]] = []
     try:
         for commit in tf_commits(path, count):
