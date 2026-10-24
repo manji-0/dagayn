@@ -285,33 +285,6 @@ so agents can compare a direct CLI run with a running MCP server. A long-lived M
 at startup; after editing or upgrading dagayn, restart `dagayn serve` before
 treating MCP output as the same truth source as `dagayn tool`.
 
-### Profiling
-
-- `dagayn profile`
-
-`dagayn profile` wraps any other dagayn subcommand in a
-[pyinstrument](https://pyinstrument.readthedocs.io/) CPU profile and writes an
-HTML report. The profiler is an optional dev dependency; install it with
-`uv sync --extra dev` or `pip install pyinstrument`.
-
-```bash
-dagayn profile build
-dagayn profile update --local-embedding
-dagayn profile tool review_tool --arg mode='"changes"'
-```
-
-Flags:
-
-- `--output-dir DIR` — directory for the HTML report (default
-  `.dagayn/profiles`)
-- `--interval SECONDS` — sampling interval (default `0.001`)
-- `--open` — open the HTML report in a browser when finished
-
-The subcommand and its arguments are passed after the `profile` command name.
-The wrapped subcommand re-enters the dagayn CLI under the profiler, so the
-profile reflects the full nested command execution. If `pyinstrument` is not
-installed, the command prints a clear install hint and exits non-zero.
-
 ### Integration and serving
 
 - `dagayn install`
