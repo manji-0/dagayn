@@ -332,6 +332,12 @@ resource "google_cloudfunctions_function" "api" {
   entry_point      = "serve"
   source_directory = "${path.module}/../app"
 }
+
+data "archive_file" "function" {
+  type        = "zip"
+  source_dir  = "${path.module}/function"
+  output_path = "function.zip"
+}
 "#;
     let (_nodes, edges) = parse_terraform("infra/main.tf", source);
     let bridges: Vec<_> = edges
@@ -359,6 +365,12 @@ resource "google_cloudfunctions_function" "api" {
     }));
     assert!(bridges.iter().any(|edge| {
         edge.extra["evidence_source"] == "entry_point" && edge.target == "<unresolved:serve>"
+    }));
+    // A one-segment directory under `${path.module}` is still a path.
+    assert!(bridges.iter().any(|edge| {
+        edge.source == "infra/main.tf::data.archive_file.function"
+            && edge.extra["evidence_source"] == "source_dir"
+            && edge.target == "infra/function"
     }));
 }
 

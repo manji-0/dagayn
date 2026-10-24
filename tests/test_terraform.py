@@ -216,6 +216,22 @@ resource "google_cloudfunctions_function" "api" {
         assert archive.source.endswith("::data.archive_file.hello_zip")
         assert archive.target.endswith("app")
 
+    def test_one_segment_module_directory_is_a_path(self):
+        _, edges = self.parser.parse_bytes(
+            Path("examples/server/main.tf"),
+            b"""
+data "archive_file" "source" {
+  type        = "zip"
+  source_dir  = "${path.module}/function"
+  output_path = "function.zip"
+}
+""",
+        )
+        archive = next(
+            e for e in self._cross_artifact(edges) if e.extra.get("evidence_source") == "source_dir"
+        )
+        assert archive.target == "examples/server/function"
+
     def test_rejects_remote_uri_filename(self):
         _, edges = self.parser.parse_bytes(
             Path("infra/main.tf"),

@@ -274,10 +274,13 @@ fn concrete_tf_path(raw: &str, file_path: &FilePath) -> Option<String> {
     if normalized.is_empty() {
         return None;
     }
-    if !(normalized.contains('/')
-        || looks_like_code_path(&normalized)
-        || normalized.starts_with("../"))
-    {
+    // `${path.module}/function` or `./function` is a path by construction;
+    // only a bare word needs a slash or a code extension to count as one.
+    let module_relative = value.contains("${path.module}")
+        || value.contains("${path.root}")
+        || value.starts_with("./")
+        || value.starts_with("../");
+    if !(module_relative || normalized.contains('/') || looks_like_code_path(&normalized)) {
         return None;
     }
 
@@ -286,11 +289,7 @@ fn concrete_tf_path(raw: &str, file_path: &FilePath) -> Option<String> {
         .unwrap_or_else(|| Path::new(""));
     let joined = if Path::new(&normalized).is_absolute() {
         Path::new(&normalized).to_path_buf()
-    } else if value.contains("${path.module}")
-        || value.contains("${path.root}")
-        || value.starts_with("./")
-        || value.starts_with("../")
-    {
+    } else if module_relative {
         base.join(&normalized)
     } else if normalized.contains('/') {
         // Repo-relative path without path.module — keep as written.
