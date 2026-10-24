@@ -97,7 +97,7 @@ def test_change_records_keep_typed_fields_and_extensions() -> None:
             "file_path": "src/pkg.py",
             "line_start": 1,
             "line_end": 2,
-            "risk_score": 0.8,
+            "change_status": "added",
             "payload": "forward-compatible",
         }
     )
@@ -106,7 +106,7 @@ def test_change_records_keep_typed_fields_and_extensions() -> None:
     )
 
     assert dict(node)["payload"] == "forward-compatible"
-    assert node["risk_score"] == 0.8
+    assert node["change_status"] == "added"
     assert edge["change_status"] == "added"
     with pytest.raises(ValidationError):
         TypeAdapter(ChangeEdgeRecord).validate_python({"change_status": "renamed"})

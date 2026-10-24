@@ -1356,6 +1356,12 @@ fn review_changes_scores_the_diff_against_base() {
         verbose_changes["changed_functions"],
         changes["changed_functions"]
     );
+    let rows = changes["changed_functions"].as_array().expect("rows");
+    assert!(!rows.is_empty());
+    for row in rows {
+        assert!(row.get("risk_score").is_none(), "{row}");
+        assert!(row.get("review_priority_score").is_none(), "{row}");
+    }
     // verbose keeps the diagnosis the agent's envelope leaves out.
     assert_eq!(verbose_changes["called_subtool"], "detect_changes_func");
     assert!(verbose_changes["_runtime"].is_object());

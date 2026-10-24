@@ -53,17 +53,6 @@ fn stores_and_reads_communities() {
         all_member_qns.get(&community_id),
         Some(&vec!["auth.py::login".to_string()])
     );
-    let community_ids = store
-        .get_community_ids_by_qualified_names(&[
-            "auth.py::login".to_string(),
-            "missing.py::none".to_string(),
-        ])
-        .unwrap();
-    assert_eq!(
-        community_ids.get("auth.py::login").copied().flatten(),
-        Some(community_id)
-    );
-    assert!(!community_ids.contains_key("missing.py::none"));
     assert_eq!(
         store
             .count_affected_communities(&["auth.py".to_string()])

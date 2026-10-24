@@ -109,6 +109,38 @@ fn identifier_tokens_split_case_acronyms_digits_and_separators() {
     assert!(identifier_tokens("__").is_empty());
 }
 
+const SECURITY_KEYWORDS: &[&str] = &[
+    "auth",
+    "login",
+    "password",
+    "token",
+    "session",
+    "crypt",
+    "secret",
+    "credential",
+    "permission",
+    "sql",
+    "query",
+    "execute",
+    "connect",
+    "socket",
+    "request",
+    "http",
+    "sanitize",
+    "validate",
+    "encrypt",
+    "decrypt",
+    "hash",
+    "sign",
+    "verify",
+    "admin",
+    "privilege",
+];
+
+fn is_security_sensitive_identifier(name: &str, qualified_name: &str) -> bool {
+    identifier_matches_keywords(&[name, qualified_name], SECURITY_KEYWORDS)
+}
+
 #[test]
 fn security_keywords_match_on_identifier_token_starts() {
     let sensitive = |name: &str| is_security_sensitive_identifier(name, "");
