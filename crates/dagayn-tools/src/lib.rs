@@ -27,7 +27,6 @@ mod ensure;
 mod entry_points;
 mod findings;
 mod flow;
-mod large;
 mod next;
 pub mod pending;
 mod postprocess;
@@ -257,7 +256,6 @@ fn answer(context: &Context, name: &str, arguments: &Map<String, Value>) -> Opti
         "architecture_analysis_tool" => arch_tool::architecture(context, arguments),
         "refactor_tool" => refactor::refactor(context, arguments),
         "ensure_graph_tool" => ensure::ensure_graph(context, arguments),
-        "find_large_functions_tool" => large::find_large_functions(context, arguments),
         "list_repos_tool" => repos::list_repos(context, arguments),
         "apply_refactor_tool" => apply::apply_refactor(context, arguments),
         "run_postprocess_tool" => postprocess::run_postprocess(context, arguments),

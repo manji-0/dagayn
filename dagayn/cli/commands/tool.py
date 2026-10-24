@@ -23,7 +23,6 @@ TOOL_REGISTRY: dict[str, str] = {
     "cross_repo_search_tool": "dagayn.tools.registry_tools:cross_repo_search_func",
     "embed_graph_tool": "dagayn.tools.docs:embed_graph",
     "ensure_graph_tool": "dagayn.tools.ensure:ensure_graph",
-    "find_large_functions_tool": "dagayn.tools.query:find_large_functions",
     "flow_tool": "dagayn.tools.flow_dispatcher:flow_func",
     "get_docs_section_tool": "dagayn.tools.docs:get_docs_section",
     "get_minimal_context_tool": "dagayn.tools.context:get_minimal_context",

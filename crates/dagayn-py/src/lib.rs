@@ -604,22 +604,6 @@ impl PyGraphStore {
         )
     }
 
-    #[pyo3(signature = (min_lines = 50, max_lines = None, kind = None, file_path_pattern = None, limit = 50))]
-    fn get_nodes_by_size(
-        &self,
-        py: Python<'_>,
-        min_lines: i64,
-        max_lines: Option<i64>,
-        kind: Option<&str>,
-        file_path_pattern: Option<&str>,
-        limit: i64,
-    ) -> PyResult<Vec<Py<PyAny>>> {
-        let nodes = self.with_store(|store| {
-            store.get_nodes_by_size(min_lines, max_lines, kind, file_path_pattern, limit)
-        })?;
-        graph_nodes_to_py_vec(py, nodes)
-    }
-
     #[pyo3(signature = (kinds, include_tests = false))]
     fn count_nodes_by_name(
         &self,

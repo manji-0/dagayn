@@ -170,7 +170,6 @@ class TestPreMergeCheckPrompt:
 
     def test_does_not_name_advanced_only_tools(self):
         result = pre_merge_check_prompt()
-        assert "find_large_functions_tool" not in result[0]["content"]
         assert "apply_refactor_tool(" not in result[0]["content"]
 
 

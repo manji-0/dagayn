@@ -29,6 +29,10 @@ Removed).
   `mcp_latency`, and `nplusone_count` benchmarks, the `dfs_lazy_fetch`
   scenario of `recent_changes_effects`, and the graph store's
   `get_local_subgraph`, which only that scenario called, go with it.
+- **Breaking:** `find_large_functions_tool`, the line-count listing.
+  `refactor_tool(mode="suggest")` reports oversized code as
+  `complex_hotspot` findings with `line_count`. The graph store's
+  `get_nodes_by_size`, which only that tool read, goes with it.
 
 ## 10.0.0 — 2026-10-12
 

@@ -173,24 +173,6 @@ class TestEdgeQueries:
 
 
 class TestNodeQueries:
-    def test_get_nodes_by_size(self, store):
-        assert qns(store.get_nodes_by_size(min_lines=1, kind="Function")) == [
-            MIDDLE,
-            ENTRY,
-            LEAF,
-            "app.py::Derived.handle",
-            "app.py::Base.handle",
-        ]
-        assert qns(store.get_nodes_by_size(min_lines=1, file_path_pattern="tests")) == [
-            "tests/test_app.py",
-            TEST_ENTRY,
-        ]
-        assert qns(store.get_nodes_by_size(min_lines=1, limit=2)) == ["app.py", MIDDLE]
-        assert all(
-            n.line_end - n.line_start + 1 <= 6
-            for n in store.get_nodes_by_size(min_lines=1, max_lines=6)
-        )
-
     def test_count_nodes_by_name(self, store):
         assert store.count_nodes_by_name(["Function", "Class"], False) == {
             "Base": 1,

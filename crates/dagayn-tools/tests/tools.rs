@@ -2143,40 +2143,6 @@ fn ensure_graph_leaves_a_tree_outside_git_to_python() {
 }
 
 #[test]
-fn large_functions_rank_by_line_count() {
-    // dagayn: tests crates/dagayn-tools/src/large.rs::find_large_functions
-    let repo = Repo::new("large", true);
-    repo.write(
-        "big.py",
-        &format!("def big():\n{}    return 0\n", "    x = 1\n".repeat(60)),
-    );
-    repo.build();
-    let context = repo.context();
-    let found = answer(&context, "find_large_functions_tool", json!({}));
-    assert_eq!(found["total_found"], 2, "{found}");
-    assert_eq!(found["results"][0]["kind"], "File");
-    assert_eq!(found["results"][1]["name"], "big");
-    assert_eq!(found["results"][1]["line_count"], 62);
-    assert_eq!(found["results"][1]["relative_path"], "big.py");
-    let functions = answer(
-        &context,
-        "find_large_functions_tool",
-        json!({"kind": "Function", "file_path_pattern": "big", "min_lines": 10}),
-    );
-    assert!(
-        functions["summary"]
-            .as_str()
-            .expect("summary")
-            .starts_with("Found 1 node(s) with >= 10 lines (kind=Function) matching 'big':")
-    );
-    assert!(declines(
-        &context,
-        "find_large_functions_tool",
-        json!({"min_lines": "50"})
-    ));
-}
-
-#[test]
 fn a_rename_preview_is_applied_or_shown_as_a_diff() {
     // dagayn: tests crates/dagayn-tools/src/refactor.rs::refactor
     // dagayn: tests crates/dagayn-tools/src/apply.rs::apply_refactor

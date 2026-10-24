@@ -1441,8 +1441,6 @@ def test_maintenance_reads_answer_in_rust_as_python_does(
     if registry is not None:
         (home / ".dagayn" / "registry.json").write_text(registry)
     calls: list[tuple[str, dict[str, Any]]] = [
-        ("find_large_functions_tool", {}),
-        ("find_large_functions_tool", {"min_lines": 2, "kind": "Function", "limit": 2}),
         ("list_repos_tool", {}),
     ]
     rust, python, stderr = _session_both(git_repo, calls, HOME=str(home))

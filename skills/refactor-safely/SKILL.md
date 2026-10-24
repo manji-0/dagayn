@@ -76,8 +76,7 @@ role-aware refactoring profile, not a verdict that the function is bad:
   before you recommend an edit. Start from `action`, and extract one cohesive
   decision or transformation before moving IO or changing signatures.
 
-`line_count` is on the suggestion; `find_large_functions_tool` (advanced
-surface) is only needed for a wider sweep.
+`line_count` is on the suggestion.
 
 ## Output budget
 
