@@ -308,7 +308,7 @@ fn write_edge(
 impl GraphStore {
     /// Settles `CALLS` edges by the SCIP index at `index_path` (see the
     /// module docs). `prefix` turns its document paths into the graph's
-    /// (`dagayn-vscode/` for an index made in that directory); `repo_root`
+    /// (`frontend/` for an index made in that directory); `repo_root`
     /// holds the files the graph parsed. An `authoritative` index moves any
     /// edge it disagrees with; otherwise it only settles edges resolution
     /// left unresolved and confirms the ones it agrees with.

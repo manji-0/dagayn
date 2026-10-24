@@ -55,22 +55,6 @@ jobs:
       - name: Run bandit security scan
         run: uv tool run --with 'bandit[toml]' bandit -r dagayn/ -c pyproject.toml
 
-  schema-sync:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - name: Check graph store/VSCode schema versions match
-        run: |
-          PY_VER=$(grep -oP 'const LATEST_VERSION: i64 = \K\d+' crates/dagayn-graph/src/lib.rs)
-          TS_VER=$(grep -oP 'SUPPORTED_SCHEMA_VERSION\s*=\s*\K\d+' dagayn-vscode/src/backend/sqlite.ts)
-          echo "Graph store LATEST_VERSION: $PY_VER"
-          echo "VSCode SUPPORTED_SCHEMA_VERSION: $TS_VER"
-          if [ "$PY_VER" != "$TS_VER" ]; then
-            echo "::error::Schema version mismatch! graph store=$PY_VER, VSCode=$TS_VER"
-            exit 1
-          fi
-          echo "Schema versions in sync."
-
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -193,38 +177,6 @@ jobs:
           DAGAYN_MCP_SERVER_CMD="$PWD/.venv/bin/dagayn serve" uv run pytest -q -n auto tests/test_mcp_snapshots.py
       - name: Smoke-test uvx source install path
         run: uvx --refresh --from . dagayn --help
-
-  vscode:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: dagayn-vscode
-    steps:
-      - uses: actions/checkout@v6
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11.6.0
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: pnpm
-          cache-dependency-path: dagayn-vscode/pnpm-lock.yaml
-      - name: Install dependencies (frozen)
-        run: pnpm install --frozen-lockfile
-      - name: Compile
-        run: pnpm compile
-      - name: Check formatting
-        run: pnpm fmt:check
-      - name: Lint (tsc --noEmit)
-        run: pnpm lint
-      - name: Test
-        run: pnpm test
-      - name: Type-check tests
-        run: pnpm test:compile
-      - name: Package VSIX
-        run: pnpm package
 
   install-smoke:
     runs-on: macos-latest

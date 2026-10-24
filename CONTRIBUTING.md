@@ -17,8 +17,8 @@ Do not file sensitive vulnerabilities as public issues. Follow `SECURITY.md`.
 ## Development setup (maintainers)
 
 The toolchain comes from the Nix flake (`flake.nix`): Python 3.14, uv, the
-Rust toolchain pinned by `rust-toolchain.toml` (plus `cargo-llvm-cov`), Node 22
-with corepack for pnpm, prek, and jj. Enter it with `nix develop`, or let
+Rust toolchain pinned by `rust-toolchain.toml` (plus `cargo-llvm-cov`), prek,
+and jj. Enter it with `nix develop`, or let
 direnv load it from `.envrc` (`direnv allow`). Inside the shell uv uses the
 flake's Python (`UV_PYTHON`) and `PYO3_PYTHON` already points at it.
 
@@ -71,29 +71,6 @@ tests exercise it:
 cargo llvm-cov --workspace --summary-only --ignore-filename-regex 'dagayn-py/'
 ```
 
-### VS Code extension (`dagayn-vscode/`)
-
-Requires Node 22+ and pnpm. In the flake's shell, corepack supplies the pnpm
-version pinned by `packageManager`, which it resolves from the current
-directory, so run pnpm inside `dagayn-vscode/` rather than with `-C`.
-
-```bash
-cd dagayn-vscode
-pnpm install
-pnpm compile
-pnpm lint
-pnpm fmt:check
-pnpm test
-pnpm test:compile
-```
-
-The `prek` hooks (configured in `prek.toml`) run ruff/pyrefly on Python changes and
-the VS Code checks when files under `dagayn-vscode/` change. Pre-push pytest
-runs tests related to the files being pushed, not the full suite. CI still
-runs `uv run pytest --tb=short -q`. To auto-fix VS Code formatting:
-
-```bash
-cd dagayn-vscode && pnpm fmt
-```
-
-The formatter is Biome (configured in `biome.json`).
+The `prek` hooks (configured in `prek.toml`) run ruff/pyrefly on Python changes.
+Pre-push pytest runs tests related to the files being pushed, not the full
+suite. CI still runs `uv run pytest --tb=short -q`.

@@ -4,6 +4,15 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+dagayn is a tool for agents, so the surfaces built for a human to look at
+are gone (see Removed).
+
+### Removed
+
+- **Breaking:** the `dagayn-vscode` editor extension, its CI jobs (the
+  extension build and the graph-schema check against it), its prek hook,
+  and the Node and pnpm entries in the Nix devShell.
+
 ## 10.0.0 — 2026-10-12
 
 Breaking: the replies drop the next-step and diagnostic fields that `next`
