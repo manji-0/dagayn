@@ -1,4 +1,4 @@
-"""build / update / postprocess / watch / status / visualize commands."""
+"""build / update / postprocess / watch / status commands."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from ._shared import CommandRegistry, _add_local_embedding_args
 
 
 def register_commands(sub: argparse._SubParsersAction) -> CommandRegistry:
-    """Register build/update/postprocess/watch/status/visualize subcommands."""
+    """Register build/update/postprocess/watch/status subcommands."""
 
     # build
     build_cmd = sub.add_parser("build", help="Full graph build (re-parse all files)")
@@ -88,19 +88,6 @@ def register_commands(sub: argparse._SubParsersAction) -> CommandRegistry:
     # status
     status_cmd = sub.add_parser("status", help="Show graph statistics")
     status_cmd.add_argument("--repo", default=None, help="Repository root (auto-detected)")
-
-    # visualize
-    vis_cmd = sub.add_parser(
-        "visualize",
-        help="Export graph artifacts (GraphML, Mermaid C4, Cypher, Obsidian, SVG)",
-    )
-    vis_cmd.add_argument("--repo", default=None, help="Repository root (auto-detected)")
-    vis_cmd.add_argument(
-        "--format",
-        choices=["graphml", "mermaid-c4", "cypher", "obsidian", "svg"],
-        required=True,
-        help="Export format: graphml, mermaid-c4, cypher, obsidian, or svg",
-    )
 
     # sdp-metrics
     sdp_metrics_cmd = sub.add_parser(
@@ -251,7 +238,6 @@ def register_commands(sub: argparse._SubParsersAction) -> CommandRegistry:
         "postprocess": pp_cmd,
         "watch": watch_cmd,
         "status": status_cmd,
-        "visualize": vis_cmd,
         "sdp-metrics": sdp_metrics_cmd,
         "detect-sdp": detect_sdp_cmd,
         "sap-metrics": sap_metrics_cmd,
@@ -260,7 +246,7 @@ def register_commands(sub: argparse._SubParsersAction) -> CommandRegistry:
 
 
 def handle(args: argparse.Namespace) -> None:
-    """Dispatch build/update/postprocess/watch/status/visualize/sdp/sap commands."""
+    """Dispatch build/update/postprocess/watch/status/sdp/sap commands."""
     from .build_handlers import execute_build_command
 
     execute_build_command(args)

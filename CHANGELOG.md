@@ -16,6 +16,11 @@ are gone (see Removed).
   `dagayn wiki`, which wrote and read Markdown pages per community under
   `.dagayn/wiki/`. `architecture_analysis_tool(mode="communities")` and
   `mode="overview"` answer the same questions without a file round trip.
+- **Breaking:** `dagayn visualize` and its static exports (GraphML,
+  Mermaid C4, SVG, Neo4j Cypher, Obsidian vault), with `dagayn.exports`,
+  `dagayn.visualization`, the graph store's `entry_points_json`, and
+  matplotlib from the `eval` extra. The HTML viewer it once served was
+  already gone. Agents read the graph through the MCP tools instead.
 
 ## 10.0.0 — 2026-10-12
 

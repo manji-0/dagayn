@@ -513,35 +513,6 @@ def handle_watch_command(
     watch(repo_root, store, on_files_updated=run_post_processing)
 
 
-_VISUALIZE_EXPORTS = {
-    "graphml": ("graph.graphml", "export_graphml", "GraphML"),
-    "mermaid-c4": ("graph.mmd", "export_mermaid_c4", "Mermaid C4"),
-    "cypher": ("graph.cypher", "export_neo4j_cypher", "Neo4j Cypher"),
-    "obsidian": ("obsidian", "export_obsidian_vault", "Obsidian vault"),
-    "svg": ("graph.svg", "export_svg", "SVG"),
-}
-
-
-def handle_visualize_command(
-    args: argparse.Namespace,
-    repo_root: Path,
-    store: Any,
-    _db_path: Path,
-) -> None:
-    from ...paths import get_data_dir
-
-    data_dir = get_data_dir(repo_root)
-    target = _VISUALIZE_EXPORTS.get(args.format)
-    if target is None:
-        return
-    from ... import exports
-
-    filename, fn_name, label = target
-    out = data_dir / filename
-    getattr(exports, fn_name)(store, out)
-    print(f"{label} exported: {out}")
-
-
 #: Fields of an ``architecture_analysis_tool`` answer that guide an MCP agent
 #: and mean nothing to a CLI caller.
 _AGENT_ONLY_FIELDS = ("_runtime", "_repo")
@@ -719,7 +690,6 @@ def _print_truncation(payload: dict[str, Any], shown: int, total: int) -> None:
 _STORE_COMMAND_HANDLERS = {
     "status": handle_status_command,
     "watch": handle_watch_command,
-    "visualize": handle_visualize_command,
     "sdp-metrics": handle_sdp_metrics_command,
     "detect-sdp": handle_detect_sdp_command,
     "sap-metrics": handle_sap_metrics_command,
@@ -728,7 +698,7 @@ _STORE_COMMAND_HANDLERS = {
 
 
 def execute_build_command(args: argparse.Namespace) -> None:
-    """Dispatch build/update/postprocess/watch/status/visualize/sdp/sap commands."""
+    """Dispatch build/update/postprocess/watch/status/sdp/sap commands."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
     if args.command == "postprocess":
