@@ -165,7 +165,7 @@ const TIER1_ANALYSIS_TOOLS: [&str; 6] = [
 /// The output budgets of docs/plans/AGENT-WORKFLOW-TARGET.md#decisions-2026-10-07
 /// (8K characters at `minimal`, 32K at `standard`) in `apply_output_budget`
 /// tokens of four characters, less 250 for what a reply adds after trimming
-/// (`next`, `missingness`, `_hints`, `_repo`).
+/// (`next`, `missingness`, `_repo`).
 pub(crate) const MINIMAL_BUDGET: usize = 1750;
 pub(crate) const STANDARD_BUDGET: usize = 7750;
 
@@ -212,12 +212,7 @@ fn trim_envelope(entries: &mut Vec<(String, Value)>) {
 
 /// What Tier 1 replies said to call next with before `next`; a subtool that
 /// still builds one has it dropped.
-const NEXT_STEP_FIELDS: [&str; 4] = [
-    "next_action",
-    "next_drill_downs",
-    "next_tool_suggestions",
-    "_hints",
-];
+const NEXT_STEP_FIELDS: [&str; 2] = ["next_action", "next_drill_downs"];
 
 /// The reply contract of docs/plans/AGENT-WORKFLOW-TARGET.md#target-contract
 /// on one reply's entries: `next` always (`[]` where nothing follows), the
@@ -756,44 +751,6 @@ pub fn graph_dead_code_candidates_json(
 /// while the Python server (and its SQLite connections) is not running.
 pub fn writes_graph(name: &str) -> bool {
     matches!(name, "run_postprocess_tool")
-}
-
-/// `dagayn.tool_surface.suggestion_is_callable`.
-fn suggestion_is_callable(context: &Context, suggestion: &str) -> bool {
-    let Some(allowed) = &context.allowed_tools else {
-        return true;
-    };
-    let mut stripped = suggestion.trim();
-    if let Some(rest) = stripped.strip_prefix("Run:") {
-        stripped = rest.trim();
-    }
-    let tool = suggestion_tool(stripped);
-    tool == "dagayn" || !tool.ends_with("_tool") || allowed.contains(tool)
-}
-
-fn suggestion_tool(suggestion: &str) -> &str {
-    let head = suggestion.split(" -- ").next().unwrap_or(suggestion);
-    let head = head.split(' ').next().unwrap_or(head);
-    head.split('(').next().unwrap_or(head)
-}
-
-/// `_hints` and `next_tool_suggestions` as `make_response` builds them from
-/// plain suggestions, filtered to the session's tools.
-pub(crate) fn suggestions(context: &Context, all: &[&str]) -> (Value, Value) {
-    let kept: Vec<&str> = all
-        .iter()
-        .copied()
-        .filter(|suggestion| suggestion_is_callable(context, suggestion))
-        .take(3)
-        .collect();
-    let next_steps: Vec<Value> = kept
-        .iter()
-        .map(|suggestion| json!({"tool": suggestion_tool(suggestion), "suggestion": suggestion}))
-        .collect();
-    (
-        json!({"next_steps": next_steps, "related": [], "warnings": []}),
-        json!(kept),
-    )
 }
 
 #[cfg(test)]

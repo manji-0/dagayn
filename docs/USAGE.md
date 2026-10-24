@@ -264,9 +264,10 @@ CLI results as the same implementation.
 
 ### Migrating response consumers
 
-`next` lists the calls to make, with their arguments; the earlier next-step
-fields (`_hints`, `next_action`, `next_tool_suggestions`, `next_drill_downs`)
-are gone from the Tier 1 tools, and `guidance` is `verbose`-only. Read `next`
+`next` lists the calls to make, with their arguments. The earlier next-step
+fields `_hints` and `next_tool_suggestions` are gone from every reply, and
+`next_action` and `next_drill_downs` from the Tier 1 tools; `guidance` is
+`verbose`-only. Read `next`
 and `missingness` first, then the raw sections only when a drill-down needs
 more detail.
 

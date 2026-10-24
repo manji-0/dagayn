@@ -69,6 +69,13 @@ Removed).
 - **Breaking:** `dagayn profile`, which ran another subcommand under
   pyinstrument, and pyinstrument from the `dev` extra. Nothing called it but
   its own CLI registration; run `pyinstrument -m dagayn ...` directly.
+- **Breaking:** the `_hints` and `next_tool_suggestions` fields that 10.0.0
+  meant to remove, which `list_graph_stats_tool`, `list_repos_tool`,
+  `ensure_graph_tool`, and `cross_repo_search_tool` still returned. Those
+  replies now carry no next-step list; the Tier 1 tools' `next` is
+  unchanged. `make_response` no longer takes `hints` or
+  `next_tool_suggestions`, and `dagayn.tool_surface` loses
+  `suggestion_is_callable` and `filter_suggestions`.
 
 ## 10.0.0 — 2026-10-12
 

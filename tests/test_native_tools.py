@@ -35,7 +35,8 @@ def test_list_graph_stats_answers_through_rust(repo: Path) -> None:
     assert result["nodes_by_kind"]["Function"] == 2
     assert result["embeddings_count"] == 0
     assert result["summary"].startswith("Graph stats for repo: ")
-    assert result["_hints"]["next_steps"][0]["tool"] == "architecture_analysis_tool"
+    assert "_hints" not in result
+    assert "next_tool_suggestions" not in result
 
 
 def test_a_missing_graph_is_created_before_rust_reads_it(tmp_path: Path) -> None:
