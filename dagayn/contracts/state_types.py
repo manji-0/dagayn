@@ -108,7 +108,6 @@ GraphSyncLegacyStatus: TypeAlias = Literal[
     "synced",
 ]
 
-TraversalMode: TypeAlias = Literal["bfs", "dfs"]
 RefactorMode: TypeAlias = Literal["rename", "dead_code", "suggest"]
 FlowMode: TypeAlias = Literal["entry_points"]
 ReviewMode: TypeAlias = Literal["changes", "context", "affected_flows", "impact"]
@@ -213,53 +212,6 @@ def seal_embedding_status(payload: Mapping[str, object]) -> EmbeddingStatusRecor
         EmbeddingStatusRecord,
         _EMBEDDING_STATUS_ADAPTER.validate_python(payload).model_dump(exclude_none=True),
     )
-
-
-class TraversalEntry(TypedDict):
-    name: str
-    qualified_name: str
-    kind: str
-    file: str
-    depth: int
-
-
-class ReachabilityNotFoundInfo(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-    state: Literal["not_found"]
-    truncated: Literal[False] = False
-    max_depth: int
-    nodes_visited: Literal[0] = 0
-
-
-class ReachabilityCompleteInfo(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-    state: Literal["complete"]
-    truncated: Literal[False] = False
-    max_depth: int
-    nodes_visited: int
-
-
-class ReachabilityTruncatedInfo(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-    state: Literal["truncated"]
-    truncated: Literal[True] = True
-    max_depth: int
-    nodes_visited: int
-
-
-ReachabilityInfo = Annotated[
-    ReachabilityNotFoundInfo | ReachabilityCompleteInfo | ReachabilityTruncatedInfo,
-    Field(discriminator="state"),
-]
-_REACHABILITY_INFO_ADAPTER = TypeAdapter(ReachabilityInfo)
-
-
-def seal_reachability_info(payload: Mapping[str, object]) -> JsonObject:
-    """Validate and normalize traversal reachability metadata."""
-    return _REACHABILITY_INFO_ADAPTER.validate_python(payload).model_dump(exclude_none=True)
 
 
 class _GraphSyncBase(BaseModel):

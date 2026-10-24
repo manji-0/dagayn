@@ -757,23 +757,6 @@ impl PyGraphStore {
         Ok(out.unbind().into_any())
     }
 
-    fn get_local_subgraph(
-        &self,
-        py: Python<'_>,
-        start_qn: &str,
-        max_depth: i64,
-    ) -> PyResult<Py<PyAny>> {
-        let (nodes, adjacency) =
-            self.with_store(|store| store.get_local_subgraph(start_qn, max_depth))?;
-        let nodes_map = node_map_to_py(py, nodes)?;
-        let adjacency_map = adjacency.into_py_dict(py)?;
-        Ok(
-            PyTuple::new(py, [nodes_map.bind(py).clone(), adjacency_map.into_any()])?
-                .unbind()
-                .into_any(),
-        )
-    }
-
     fn get_communities_list(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
         let communities = self.with_store(|store| store.get_communities_list())?;
         // Python returns `sqlite3.Row`s that callers index as `row["id"]` /

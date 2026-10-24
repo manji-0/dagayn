@@ -51,7 +51,7 @@ def _scenarios(
 ) -> dict[str, Callable[[], Any]]:
     from dagayn.tools.architecture_analysis import architecture_analysis_func
     from dagayn.tools.context import get_minimal_context
-    from dagayn.tools.query import query_graph, semantic_search_nodes, traverse_graph_func
+    from dagayn.tools.query import query_graph, semantic_search_nodes
     from dagayn.tools.review_dispatcher import review_func
 
     repo_root = str(repo_path)
@@ -78,12 +78,6 @@ def _scenarios(
         "semantic_search_nodes": lambda: semantic_search_nodes(
             query=query,
             limit=5,
-            repo_root=repo_root,
-        ),
-        "traverse_graph_depth_3": lambda: traverse_graph_func(
-            query=query,
-            mode="bfs",
-            depth=3,
             repo_root=repo_root,
         ),
         "architecture_overview": lambda: architecture_analysis_func(

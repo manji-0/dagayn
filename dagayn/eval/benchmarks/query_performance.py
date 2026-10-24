@@ -1,7 +1,6 @@
-"""Traversal and impact query-performance benchmark.
+"""Impact query-performance benchmark.
 
-Measures wall time for ``traverse_graph`` and ``get_impact_radius`` at
-several depths. Embedding
+Measures wall time for ``get_impact_radius`` at several depths. Embedding
 search is intentionally omitted — use ``embedding_materials``.
 """
 
@@ -12,7 +11,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from dagayn.eval.benchmarks.mcp_latency import _first_query, _time_call
+from dagayn.eval.benchmarks.mcp_latency import _time_call
 
 logger = logging.getLogger(__name__)
 
@@ -30,11 +29,7 @@ def _first_file(store: Any) -> str:
 
 def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[BenchmarkPayload]:
     """Run query-performance scenarios against an already-built graph."""
-    from dagayn.tools.query import traverse_graph_func
-
     repeat = int(config.get("query_repeat", 3))
-    repo_root = str(repo_path)
-    query = _first_query(config)
     first_file = _first_file(store)
     results: list[BenchmarkPayload] = []
 
@@ -64,18 +59,6 @@ def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[Benchmark
                 "p95_ms": round(p95_ms, 3),
                 **extra,
             }
-        )
-
-    for depth in (1, 3, 6):
-        record(
-            f"traverse_graph_depth_{depth}",
-            lambda d=depth: traverse_graph_func(
-                query=query,
-                mode="bfs",
-                depth=d,
-                repo_root=repo_root,
-            ),
-            depth=depth,
         )
 
     impact_fn = getattr(store, "get_impact_radius", None)

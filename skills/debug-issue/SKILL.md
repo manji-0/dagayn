@@ -77,8 +77,8 @@ effect from a reproduction; keep them apart in a claim. Full rules:
 ## Tips
 
 - Prefer relationship queries over raw traversal when the question names a
-  relationship; `traverse_graph_tool` (advanced surface) is for "what else is
-  nearby?" once the likely node is known.
+  relationship; for "what else is nearby?" once the likely node is known,
+  pass `depth` to `query_graph_tool`.
 - Check both directions: callers show how the bad input arrives, callees show
   what the code depends on.
 - Doc links carry `evidence_type`: `authored` contracts beat `extracted`

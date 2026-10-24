@@ -631,7 +631,6 @@ pub use impact_radius::ImpactRadius;
 pub use maintenance::{AnswerabilityCounts, EmbeddingCoverage, ORPHAN_PRUNE_STEPS};
 pub use node_queries::NodeSignatureRow;
 pub use search_query::FtsQueryResult;
-pub use subgraph::LocalSubgraph;
 
 #[cfg(test)]
 use helpers::*;

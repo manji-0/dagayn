@@ -87,7 +87,6 @@ FIXTURE_CASES: dict[str, list[tuple[str, str, dict[str, Any]]]] = {
             {"mode": "context", "changed_files": ["services.py"]},
         ),
         ("impact", "review_tool", {"mode": "impact", "changed_files": ["models.py"]}),
-        ("traverse", "traverse_graph_tool", {"query": "create_user"}),
     ],
     "mixed": [
         ("docs_for", "query_graph_tool", {"pattern": "docs_for", "target": "build_graph"}),

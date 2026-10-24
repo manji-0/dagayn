@@ -34,7 +34,6 @@ TOOL_REGISTRY: dict[str, str] = {
     "review_tool": "dagayn.tools.review_dispatcher:review_func",
     "run_postprocess_tool": "dagayn.tools.build:run_postprocess",
     "semantic_search_nodes_tool": "dagayn.tools.query:semantic_search_nodes",
-    "traverse_graph_tool": "dagayn.tools.query:traverse_graph_func",
 }
 
 TOOL_ALIASES: dict[str, str] = {
@@ -49,7 +48,6 @@ TOOL_ALIASES["flow"] = "flow_tool"
 
 _LOCAL_EMBEDDING_AWARE_TOOLS = {
     "semantic_search_nodes_tool",
-    "traverse_graph_tool",
 }
 
 

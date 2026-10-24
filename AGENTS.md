@@ -66,8 +66,8 @@ dagayn serve
 - apply a rename preview with `apply_refactor_tool` in the same `dagayn serve`
   session that produced it (advanced MCP surface: `dagayn serve --tools all`);
   a separate `dagayn tool` process cannot see that session's `refactor_id`
-- `traverse_graph` and maintenance tools are available through explicit
-  `--tools` allow-lists or `dagayn tool`, not the default MCP surface
+- maintenance tools are available through explicit `--tools` allow-lists
+  or `dagayn tool`, not the default MCP surface
 
 ## How to judge dagayn analysis
 

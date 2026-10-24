@@ -1443,10 +1443,6 @@ def test_maintenance_reads_answer_in_rust_as_python_does(
     calls: list[tuple[str, dict[str, Any]]] = [
         ("find_large_functions_tool", {}),
         ("find_large_functions_tool", {"min_lines": 2, "kind": "Function", "limit": 2}),
-        ("traverse_graph_tool", {"query": "helper"}),
-        ("traverse_graph_tool", {"query": "main", "mode": "dfs", "depth": 2}),
-        ("traverse_graph_tool", {"query": "main", "token_budget": 10}),
-        ("traverse_graph_tool", {"query": "zzzqqq"}),
         ("list_repos_tool", {}),
     ]
     rust, python, stderr = _session_both(git_repo, calls, HOME=str(home))
@@ -1506,7 +1502,6 @@ def test_search_with_stored_vectors_answers_in_rust_as_python_does(git_repo: Pat
             (search, {"query": "helper"}),
             (search, {"query": "main", "detail_level": "minimal"}),
             (search, {"query": "helper", "kind": "Function", "limit": 1}),
-            ("traverse_graph_tool", {"query": "something that assists", "depth": 1}),
         ]
         rust, python, stderr = _session_both(git_repo, calls)
     finally:
@@ -1518,7 +1513,6 @@ def test_search_with_stored_vectors_answers_in_rust_as_python_does(git_repo: Pat
     assert first["embedding_health"]["status"] == "degraded"
     assert first["results"][0]["qualified_name"] == "app.py::helper"
     assert rust[1]["structuredContent"]["search_mode"] == "hybrid"
-    assert rust[4]["structuredContent"]["start_node"] == "app.py::helper"
 
 
 def test_prompts_answer_from_the_recorded_replies_as_python_does(repo: Path) -> None:

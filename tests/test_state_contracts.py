@@ -20,7 +20,6 @@ from dagayn.contracts.state_types import (
     seal_embedding_status,
     seal_guidance_item,
     seal_missingness_item,
-    seal_reachability_info,
     seal_refactor_error,
 )
 
@@ -182,28 +181,6 @@ def test_embedding_status_contract_distinguishes_coverage_states() -> None:
     assert complete["status"] == "complete"
     assert unavailable["status"] == "unavailable"
     assert unavailable["error"] == "database is missing"
-
-
-def test_reachability_contract_enforces_state_shape() -> None:
-    not_found = seal_reachability_info(
-        {"state": "not_found", "truncated": False, "max_depth": 3, "nodes_visited": 0}
-    )
-    truncated = seal_reachability_info(
-        {"state": "truncated", "truncated": True, "max_depth": 3, "nodes_visited": 4}
-    )
-
-    assert not_found == {
-        "state": "not_found",
-        "truncated": False,
-        "max_depth": 3,
-        "nodes_visited": 0,
-    }
-    assert truncated["state"] == "truncated"
-    assert truncated["truncated"] is True
-    with pytest.raises(ValidationError):
-        seal_reachability_info(
-            {"state": "not_found", "truncated": True, "max_depth": 3, "nodes_visited": 0}
-        )
 
 
 def test_refactor_error_envelope_allows_extra_metadata() -> None:

@@ -241,27 +241,6 @@ class TestResolveEmbeddingDefaults:
         assert calls[0]["provider"] == "openai"
         assert calls[0]["model"] == "qwen3"
 
-    def test_traverse_graph_tool_applies_server_defaults(self, monkeypatch):
-        calls: list[dict] = []
-
-        def fake_tool(name):
-            assert name == "query:traverse_graph_func"
-
-            def fake_traverse_graph_func(**kwargs):
-                calls.append(kwargs)
-                return {"status": "ok", "traversal": []}
-
-            return fake_traverse_graph_func
-
-        monkeypatch.setattr(crg_main, "_tool", fake_tool)
-        crg_main._default_embedding_provider = "openai"
-        crg_main._default_embedding_model = "qwen3"
-
-        crg_main.traverse_graph_tool(query="embedding search")
-
-        assert calls[0]["provider"] == "openai"
-        assert calls[0]["model"] == "qwen3"
-
     def test_build_update_tool_applies_server_local_embedding_default(self, monkeypatch):
         calls: list[dict] = []
 

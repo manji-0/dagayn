@@ -2177,52 +2177,6 @@ fn large_functions_rank_by_line_count() {
 }
 
 #[test]
-fn traversal_walks_from_the_best_keyword_match() {
-    // dagayn: tests crates/dagayn-tools/src/traverse.rs::traverse_graph
-    let repo = Repo::new("traverse", true);
-    repo.build();
-    let context = repo.context();
-    let bfs = answer(&context, "traverse_graph_tool", json!({"query": "helper"}));
-    assert_eq!(bfs["status"], "ok");
-    assert_eq!(bfs["start_node"], "app.py::helper");
-    assert_eq!(bfs["traversal"][0]["depth"], 0);
-    let names: Vec<&str> = bfs["traversal"]
-        .as_array()
-        .expect("traversal")
-        .iter()
-        .filter_map(|entry| entry["name"].as_str())
-        .collect();
-    assert!(names.contains(&"main"), "{names:?}");
-    let dfs = answer(
-        &context,
-        "traverse_graph_tool",
-        json!({"query": "helper", "mode": "dfs", "depth": 1}),
-    );
-    assert_eq!(dfs["max_depth"], 1);
-    let tight = answer(
-        &context,
-        "traverse_graph_tool",
-        json!({"query": "helper", "token_budget": 1}),
-    );
-    assert_eq!(tight["truncated"], true);
-    assert_eq!(tight["reachability"]["state"], "truncated");
-    let missing = answer(&context, "traverse_graph_tool", json!({"query": "zzzqqq"}));
-    assert_eq!(missing["status"], "not_found");
-    assert_eq!(missing["reachability"]["state"], "not_found");
-
-    assert!(declines(
-        &context,
-        "traverse_graph_tool",
-        json!({"query": "helper", "mode": "xfs"})
-    ));
-    assert!(declines(
-        &context,
-        "traverse_graph_tool",
-        json!({"query": "helper", "provider": "openai"})
-    ));
-}
-
-#[test]
 fn a_rename_preview_is_applied_or_shown_as_a_diff() {
     // dagayn: tests crates/dagayn-tools/src/refactor.rs::refactor
     // dagayn: tests crates/dagayn-tools/src/apply.rs::apply_refactor
@@ -2411,7 +2365,6 @@ fn fake_embedding_server(vector: [f32; 4]) -> u16 {
 #[test]
 fn search_ranks_stored_vectors_against_the_sidecar_query() {
     // dagayn: tests crates/dagayn-tools/src/search.rs::semantic_search
-    // dagayn: tests crates/dagayn-tools/src/traverse.rs::traverse_graph
     let repo = Repo::new("vectors", true);
     repo.build();
     let port = fake_embedding_server([0.0, 1.0, 0.0, 0.0]);
@@ -2461,24 +2414,11 @@ fn search_ranks_stored_vectors_against_the_sidecar_query() {
     assert!(codes.contains(&"partial_embeddings"), "{codes:?}");
     assert!(!codes.contains(&"missing_embeddings"), "{codes:?}");
 
-    // Traversal starts from the same hybrid top hit.
-    let walk = answer(
-        &context,
-        "traverse_graph_tool",
-        json!({"query": "something that assists", "depth": 1}),
-    );
-    assert_eq!(walk["start_node"], "app.py::helper", "{walk}");
-
     // A provider named in the call is Python's.
     assert!(declines(
         &context,
         "semantic_search_nodes_tool",
         json!({"query": "x", "provider": "openai"})
-    ));
-    assert!(declines(
-        &context,
-        "traverse_graph_tool",
-        json!({"query": "x", "model": "m"})
     ));
 }
 

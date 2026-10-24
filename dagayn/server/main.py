@@ -16,7 +16,7 @@ from importlib import import_module
 from typing import Any, Literal, Optional
 
 from .. import __version__
-from ..contracts.state_types import RefactorMode, TraversalMode
+from ..contracts.state_types import RefactorMode
 from ..prompts import (
     PromptMessage,
     architecture_map_prompt,
@@ -860,46 +860,6 @@ def apply_refactor_tool(
         refactor_id=refactor_id,
         repo_root=_resolve_repo_root(repo_root),
         dry_run=dry_run,
-    )
-
-
-@mcp.tool()
-def traverse_graph_tool(
-    query: str,
-    mode: TraversalMode = "bfs",
-    depth: int = 3,
-    token_budget: int = 2000,
-    repo_root: Optional[str] = None,
-    model: Optional[str] = None,
-    provider: Optional[str] = None,
-) -> ToolPayload:
-    """BFS/DFS traversal from best-matching node with token budget.
-
-    Free-form graph exploration: finds the node best matching your
-    query, then traverses outward via BFS or DFS up to the given
-    depth, collecting connected nodes within the token budget.
-
-    Args:
-        query: Search string to find the starting node.
-        mode: Traversal mode: "bfs" (breadth-first) or "dfs"
-            (depth-first). Default: bfs.
-        depth: Max traversal depth (1-6). Default: 3.
-        token_budget: Approximate token limit for results.
-            Default: 2000.
-        repo_root: Repository root path. Auto-detected if omitted.
-        model: Embedding model for the initial search. Defaults to the
-            server's embedding model when configured by ``dagayn serve``.
-        provider: Embedding provider for the initial search. Defaults to the
-            server's embedding provider when configured by ``dagayn serve``.
-    """
-    return _tool("query:traverse_graph_func")(
-        query=query,
-        mode=mode,
-        depth=depth,
-        token_budget=token_budget,
-        repo_root=_resolve_repo_root(repo_root) or "",
-        model=_resolve_embedding_model(model),
-        provider=_resolve_embedding_provider(provider),
     )
 
 

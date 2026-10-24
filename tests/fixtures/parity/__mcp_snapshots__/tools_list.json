@@ -211,20 +211,6 @@
         "required": [
           "query"
         ]
-      },
-      "traverse_graph_tool": {
-        "params": {
-          "depth": "integer",
-          "mode": "string",
-          "model": "string",
-          "provider": "string",
-          "query": "string",
-          "repo_root": "string",
-          "token_budget": "integer"
-        },
-        "required": [
-          "query"
-        ]
       }
     }
   },

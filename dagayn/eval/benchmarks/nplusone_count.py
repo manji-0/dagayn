@@ -69,7 +69,6 @@ class SQLCounter:
 # loose — a regression that adds an N+1 loop will blow well past them.
 _BASELINES: dict[str, int] = {
     "list_communities": 5,
-    "traverse_graph_depth_3": 50,
     "single_hop_dependents": 10,
 }
 
@@ -79,33 +78,6 @@ def _scenario_list_communities(store: Any, _config: BenchmarkPayload) -> int:
 
     with SQLCounter(store._conn) as c:
         get_communities(store)
-    return c.count
-
-
-def _scenario_traverse_graph(_store: Any, config: BenchmarkPayload) -> int:
-    from dagayn.tools._common import _get_store
-    from dagayn.tools.query import traverse_graph_func
-
-    queries = config.get("search_queries") or []
-    if not queries:
-        return 0
-    query = queries[0]["query"]
-    repo_root = config.get("repo_path")
-    repo_root_str = str(repo_root) if repo_root else None
-
-    # traverse_graph_func opens its own GraphStore via _get_store(repo_root).
-    # Pre-populate that cached store and count statements on its connection
-    # so SQLCounter measures the connection traversal actually uses — not
-    # the runner-owned store passed in via _store, which is a different
-    # sqlite connection and would silently report ~0 stmts.
-    cached_store, _ = _get_store(repo_root_str)
-    with SQLCounter(cached_store._conn) as c:
-        traverse_graph_func(
-            query=query,
-            mode="bfs",
-            depth=3,
-            repo_root=repo_root_str,
-        )
     return c.count
 
 
@@ -123,7 +95,6 @@ def _scenario_single_hop_dependents(store: Any, _config: BenchmarkPayload) -> in
 
 _SCENARIOS: dict[str, Callable[[Any, BenchmarkPayload], int]] = {
     "list_communities": _scenario_list_communities,
-    "traverse_graph_depth_3": _scenario_traverse_graph,
     "single_hop_dependents": _scenario_single_hop_dependents,
 }
 

@@ -182,7 +182,7 @@ class TestGenerateSkills:
         assert "## Decision Model" in explore
         assert "Unknown entity, fuzzy concept" in explore
         assert "Known entity plus a specific relationship" in explore
-        assert "Neighborhood exploration: use `traverse_graph_tool` only after" in explore
+        assert "Neighborhood exploration: once a concrete start node is chosen" in explore
         assert "Prefer relationship queries over raw traversal" in debug
         assert 'query_graph_tool(pattern="source_of")' in debug
 
