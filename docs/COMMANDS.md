@@ -225,8 +225,8 @@ expected.
 
 <!-- derived-from ./GRAPH-EFFICIENCY-PLAN.md -->
 
-`dagayn eval --benchmark query_performance` records p95 for `traverse_graph`
-(depth 1/3/6), `get_impact_radius`, and `get_affected_flows`. Embedding search
+`dagayn eval --benchmark query_performance` records p95 for
+`get_impact_radius` (depth 1/3/6). Embedding search
 is a skipped row; use `embedding_materials` for that axis.
 
 `dagayn eval --benchmark scale_performance` builds a synthetic Python graph
@@ -543,8 +543,8 @@ requested with `--tools`.
 When the server is launched with `dagayn serve --local-embedding`,
 search-oriented MCP tools default to the managed OpenAI-compatible BGE-M3 GGUF
 endpoint. Use `dagayn serve --local-embedding --mode llama-qwen3` for the
-managed OpenAI-compatible Qwen endpoint. Either path makes `semantic_search_nodes`,
-`traverse_graph`, and `cross_repo_search` run hybrid FTS + embedding retrieval
+managed OpenAI-compatible Qwen endpoint. Either path makes `semantic_search_nodes`
+and `cross_repo_search` run hybrid FTS + embedding retrieval
 unless the client explicitly passes another provider or model.
 
 A long-lived `dagayn serve` that hits SQLite `SQLITE_CORRUPT` (`database disk
@@ -637,11 +637,6 @@ It omits `answerability` and `edges`. `minimal` keeps fewer row fields, drops `g
 `description`, and returns every row that fits a 2,000-token budget. `full`
 returns the earlier `standard` shape: one row per edge, the `edges` list, and
 full `answerability`.
-
-`traverse_graph_tool` returns both the legacy top-level `truncated` boolean and a
-typed `reachability` object. `reachability.state` is `complete`, `truncated`, or
-`not_found`, so callers can distinguish a fully explored budgeted neighborhood
-from a partial traversal or a missing start node without inferring from text.
 
 ### MCP tool surface
 

@@ -4,8 +4,9 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
-dagayn is a tool for agents, so the surfaces built for a human to look at
-are gone (see Removed).
+dagayn is a tool for agents, so the surfaces built for a human to look at,
+and the tools whose answer another tool already gives, are gone (see
+Removed).
 
 ### Removed
 
@@ -21,6 +22,13 @@ are gone (see Removed).
   `dagayn.visualization`, the graph store's `entry_points_json`, and
   matplotlib from the `eval` extra. The HTML viewer it once served was
   already gone. Agents read the graph through the MCP tools instead.
+- **Breaking:** `traverse_graph_tool`, the BFS/DFS walk from the best
+  keyword match. `query_graph_tool` (`callers_of`, `importers_of`,
+  `imports_of`) with `depth` gives the transitive chain from a node you
+  name. The `traverse_graph` rows of the `query_performance`,
+  `mcp_latency`, and `nplusone_count` benchmarks, the `dfs_lazy_fetch`
+  scenario of `recent_changes_effects`, and the graph store's
+  `get_local_subgraph`, which only that scenario called, go with it.
 
 ## 10.0.0 — 2026-10-12
 

@@ -44,9 +44,9 @@ the selected embedding mode so exploration chooses the right search strategy.
 - Where code is entered from: `flow_tool(mode="entry_points", target=...)`
   lists the nearest entry points reaching a symbol, each with one call
   `chain` in call order.
-- Neighborhood exploration: use `traverse_graph_tool` only after choosing a
-  concrete start node, only when a specific relationship query would be too
-  narrow, and only when the advanced MCP surface (or `dagayn tool`) exposes it.
+- Neighborhood exploration: once a concrete start node is chosen, pass
+  `depth` to `query_graph_tool` (`callers_of`, `importers_of`, `imports_of`)
+  for a transitive chain.
 
 ### Steps
 
@@ -116,5 +116,4 @@ effect from a reproduction; keep them apart in a claim. Full rules:
 dagayn tool query_graph_tool --arg pattern='"children_of"' --arg target='"src/app.py"'
 dagayn tool query_graph_tool --arg pattern='"importers_of"' --arg target='"src/app.py"' --arg depth=3
 dagayn tool query_graph_tool --arg pattern='"source_of"' --arg target='"src/app.py::handler"'
-dagayn tool traverse_graph_tool --arg query='"auth handler"' --arg depth=2
 ```

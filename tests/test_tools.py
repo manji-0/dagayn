@@ -1011,57 +1011,6 @@ class TestFlowTools:
         result = flow_func(mode="list", repo_root=str(self.root))  # type: ignore[arg-type]
         assert result["status"] == "error"
 
-    def test_traverse_graph_dfs_fetches_lazily(self, monkeypatch):
-        from dagayn.tools import query as query_module
-
-        monkeypatch.setattr(
-            query_module,
-            "_get_store",
-            lambda repo_root: (self.store, Path("/repo")),
-        )
-        monkeypatch.setattr(
-            query_module,
-            "hybrid_search",
-            lambda *args, **kwargs: {
-                "results": [{"qualified_name": f"{self.root / 'app.py'}::handle_request"}]
-            },
-        )
-        self.store.close = lambda: None
-
-        endpoint_calls = []
-        original_get_edges_by_endpoints = self.store.get_edges_by_endpoints
-
-        def counting_get_edges_by_endpoints(qualified_names):
-            endpoint_calls.append(tuple(qualified_names))
-            return original_get_edges_by_endpoints(qualified_names)
-
-        monkeypatch.setattr(
-            self.store,
-            "get_local_subgraph",
-            lambda *args: (_ for _ in ()).throw(
-                AssertionError("DFS should not pre-hydrate the full local subgraph")
-            ),
-        )
-        monkeypatch.setattr(
-            self.store,
-            "get_edges_by_endpoints",
-            counting_get_edges_by_endpoints,
-        )
-
-        result = query_module.traverse_graph_func(query="handle_request", mode="dfs", depth=2)
-
-        assert result["status"] == "ok"
-        assert endpoint_calls
-        assert result["nodes_visited"] >= 1
-        assert result["reachability"] == {
-            "state": "complete",
-            "truncated": False,
-            "max_depth": 2,
-            "nodes_visited": result["nodes_visited"],
-            "unresolved_count": 0,
-            "unresolved_targets": [],
-        }
-
     def test_get_affected_flows_with_changed_file(self):
         result = review_func(
             mode="affected_flows", changed_files=["auth.py"], repo_root=str(self.root)

@@ -64,105 +64,6 @@ def _scenario_centrality(store: Any, config: BenchmarkPayload) -> BenchmarkPaylo
     }
 
 
-def _highest_degree_non_file_qn(store: Any) -> tuple[str | None, int]:
-    non_file_qns = {node.qualified_name for node in store.get_all_nodes(exclude_files=True)}
-    degree: dict[str, int] = {}
-    for edge in store.get_all_edges():
-        if edge.source_qualified in non_file_qns:
-            degree[edge.source_qualified] = degree.get(edge.source_qualified, 0) + 1
-        if edge.target_qualified in non_file_qns:
-            degree[edge.target_qualified] = degree.get(edge.target_qualified, 0) + 1
-    if not degree:
-        return (next(iter(non_file_qns), None), 0)
-    target, count = max(degree.items(), key=lambda item: item[1])
-    return target, count
-
-
-def _bench_entry(node: Any, cur_depth: int) -> BenchmarkPayload:
-    return {
-        "name": node.name,
-        "qualified_name": node.qualified_name,
-        "kind": node.kind,
-        "file": node.file_path,
-        "depth": cur_depth,
-    }
-
-
-def _eager_local_subgraph_dfs(
-    store: Any,
-    start_qn: str,
-    max_depth: int,
-    token_budget: int,
-) -> tuple[BenchmarkPayload, list[BenchmarkPayload], bool]:
-    from dagayn.tools.query import _estimate_traversal_entry_tokens
-
-    nodes_map, adj = store.get_local_subgraph(start_qn, max_depth)
-    visited: dict[str, BenchmarkValue] = {}
-    traversal: list[BenchmarkPayload] = []
-    approx_tokens = 0
-    budget_exceeded = False
-    stack: list[tuple[str, int]] = [(start_qn, 0)]
-    while stack and not budget_exceeded:
-        current_qn, cur_depth = stack.pop()
-        if current_qn in visited or cur_depth > max_depth:
-            continue
-        node = nodes_map.get(current_qn)
-        if not node:
-            visited[current_qn] = cur_depth
-            continue
-        visited[current_qn] = cur_depth
-        entry = _bench_entry(node, cur_depth)
-        approx_tokens += _estimate_traversal_entry_tokens(entry)
-        if approx_tokens > token_budget:
-            budget_exceeded = True
-            break
-        traversal.append(entry)
-        if cur_depth + 1 > max_depth:
-            continue
-        for neighbor in reversed(adj.get(current_qn, [])):
-            if neighbor not in visited:
-                stack.append((neighbor, cur_depth + 1))
-    metadata = {"prefetched_nodes": len(nodes_map)}
-    return metadata, traversal, budget_exceeded
-
-
-def _scenario_dfs(store: Any, config: BenchmarkPayload) -> BenchmarkPayload:
-    depth = int(config.get("effect_dfs_depth", 3))
-    token_budget = int(config.get("effect_dfs_token_budget", 2000))
-    target, degree = _highest_degree_non_file_qn(store)
-    if not target:
-        return {
-            "scenario": "dfs_lazy_fetch",
-            "status": "skipped",
-            "reason": "no non-file nodes",
-        }
-
-    from dagayn.tools.query import _traverse_dfs_lazy
-
-    eager_ms, eager = _measure_ms(
-        lambda: _eager_local_subgraph_dfs(store, target, depth, token_budget)
-    )
-    lazy_ms, lazy = _measure_ms(
-        lambda: _traverse_dfs_lazy(store, target, depth, token_budget, _bench_entry)
-    )
-    eager_meta, eager_traversal, eager_truncated = eager
-    _lazy_visited, lazy_traversal, lazy_truncated, _lazy_unresolved = lazy
-    return {
-        "scenario": "dfs_lazy_fetch",
-        "before_ms": round(eager_ms, 3),
-        "after_ms": round(lazy_ms, 3),
-        "speedup": _speedup(eager_ms, lazy_ms),
-        "before_prefetched_nodes": eager_meta["prefetched_nodes"],
-        "before_returned_nodes": len(eager_traversal),
-        "after_returned_nodes": len(lazy_traversal),
-        "before_truncated": eager_truncated,
-        "after_truncated": lazy_truncated,
-        "start_degree": degree,
-        "depth": depth,
-        "token_budget": token_budget,
-    }
-
-
 def _seed_remove_store(db_path: Path, file_count: int) -> GraphStore:
     store = GraphStore(db_path)
     store.store_file_batch(_make_file_batch(file_count))
@@ -270,9 +171,6 @@ def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[Benchmark
     def _centrality() -> BenchmarkPayload | list[BenchmarkPayload]:
         return _scenario_centrality(store, config)
 
-    def _dfs() -> BenchmarkPayload | list[BenchmarkPayload]:
-        return _scenario_dfs(store, config)
-
     def _batch_remove() -> BenchmarkPayload | list[BenchmarkPayload]:
         return _scenario_batch_remove(config)
 
@@ -284,14 +182,12 @@ def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[Benchmark
 
     # Keep scenario names stable even when a helper raises before returning.
     _centrality.__name__ = "bridge_centrality_persisted_read"
-    _dfs.__name__ = "dfs_lazy_fetch"
     _batch_remove.__name__ = "remove_files_data_batch"
     _store_file_batch.__name__ = "store_file_batch_bulk_replace"
     _mcp_latency.__name__ = "mcp_latency"
 
     scenarios: list[Callable[[], BenchmarkPayload | list[BenchmarkPayload]]] = [
         _centrality,
-        _dfs,
         _batch_remove,
         _store_file_batch,
         _mcp_latency,

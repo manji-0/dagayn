@@ -244,13 +244,6 @@ class TestSubgraphAndImpact:
         assert qns(subgraph["nodes"]) == [ENTRY, MIDDLE, LEAF]
         assert pairs(subgraph["edges"]) == [(ENTRY, MIDDLE), (MIDDLE, LEAF)]
 
-    def test_get_local_subgraph_grows_with_depth(self, store):
-        near, _ = store.get_local_subgraph(ENTRY, 1)
-        far, adjacency = store.get_local_subgraph(ENTRY, 2)
-        assert sorted(near) == ["README.md", ENTRY, MIDDLE, TEST_ENTRY]
-        assert sorted(far) == sorted([*near, LEAF])
-        assert sorted(adjacency[MIDDLE]) == [ENTRY, LEAF]
-
     def test_get_impact_radius(self, store):
         result = store.get_impact_radius(["app.py"])
         assert ENTRY in qns(result["changed_nodes"])
