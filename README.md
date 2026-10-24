@@ -38,7 +38,6 @@ See [NOTICE](NOTICE) for upstream attribution and original author information.
 - native Rust graph store, parsers, FTS, flows, and post-processing (`dagayn._core`)
 - optional compiler-grade call resolution from SCIP indexers (`dagayn build --scip`: rust-analyzer, scip-typescript, scip-go, scip-python, and more), with install hints for the ones a project lacks
 - multi-repo registry and daemon workflows
-- GraphML, Mermaid C4, SVG, Cypher, and Obsidian graph exports
 
 ## Supported languages and file types
 
@@ -249,7 +248,6 @@ dagayn update
 dagayn watch
 dagayn worktree sync
 dagayn detect-changes --base HEAD~1
-dagayn visualize --format graphml
 dagayn serve
 ```
 
@@ -293,15 +291,6 @@ Use `detail_level="minimal"` for the top recommendations and
 or tests confirm it. Documentation bridge results label evidence as `authored`,
 `extracted`, or `heuristic_reachable` so Markdown traceability is not confused
 with a verified contract.
-
-## Reporting and export outputs
-
-`dagayn visualize` exports static graph artifacts.
-
-- `--format` is required and supports `graphml`, `mermaid-c4`, `svg`, `cypher`, and `obsidian`
-- `mermaid-c4` emits Mermaid `C4Component` code with files collapsed into components and cross-file relations
-- `svg` export uses matplotlib, so install the eval extra when you need it: `pip install "dagayn[eval]"`
-- Jupyter / Databricks / marimo notebooks are parsed as graph inputs, not emitted as report formats
 
 ## AI platform integration
 

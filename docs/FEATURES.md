@@ -23,7 +23,6 @@
   simple import cycle between files, directories, or units, SDP / SAP
   metrics, communities, and flows
 - refactor previews and dead-code inspection
-- static graph exports (GraphML, Mermaid C4, SVG, Cypher, Obsidian)
 
 ## Languages and formats the fork emphasizes
 

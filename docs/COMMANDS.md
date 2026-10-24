@@ -188,7 +188,6 @@ fresh graph at commit time.
 
 - `dagayn detect-changes`
 - `dagayn tool`
-- `dagayn visualize`
 - `dagayn eval`
 
 <!-- derived-from ./EVALUATION-SEMANTICS.md -->
@@ -285,14 +284,6 @@ and `package_root`) and the full `_repo` (`db_path`, how the root was found)
 so agents can compare a direct CLI run with a running MCP server. A long-lived MCP process keeps the implementation it loaded
 at startup; after editing or upgrading dagayn, restart `dagayn serve` before
 treating MCP output as the same truth source as `dagayn tool`.
-
-`dagayn visualize` is the static graph export command. It requires `--format`
-and generates:
-
-- GraphML, Mermaid C4, SVG, Neo4j Cypher, or Obsidian exports via `--format`
-
-Jupyter / Databricks / marimo notebooks (Python `.py` and Markdown `.md`) are supported as graph inputs rather than report
-output formats.
 
 ### Architecture metrics
 

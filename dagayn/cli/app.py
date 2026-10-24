@@ -26,7 +26,6 @@ _BUILD_COMMANDS = frozenset(
         "postprocess",
         "watch",
         "status",
-        "visualize",
         "sdp-metrics",
         "detect-sdp",
         "sap-metrics",

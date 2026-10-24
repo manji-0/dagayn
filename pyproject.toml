@@ -56,7 +56,6 @@ google-embeddings = [
     "google-genai>=1.0.0,<3",
 ]
 eval = [
-    "matplotlib>=3.7.0",
     "pyyaml>=6.0",
 ]
 all = [
