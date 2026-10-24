@@ -124,31 +124,15 @@ fn stats_count_the_graph_and_report_the_repository() {
         stats["_repo"]["repo_root"],
         repo.0.to_string_lossy().as_ref()
     );
-    assert_eq!(
-        stats["next_tool_suggestions"].as_array().map(Vec::len),
-        Some(3)
-    );
+    for gone in ["_hints", "next_tool_suggestions"] {
+        assert!(stats.get(gone).is_none(), "{gone}");
+    }
     let text = call(&repo.context(), "list_graph_stats_tool", &json!({}))
         .expect("answered")
         .text;
     assert!(
         text.starts_with(r#"{"status":"ok","summary":"Graph stats for "#),
         "{text}"
-    );
-}
-
-#[test]
-fn suggestions_follow_the_tool_surface() {
-    // dagayn: tests crates/dagayn-tools/src/flow.rs::flow
-    // dagayn: tests crates/dagayn-tools/src/stats.rs::list_graph_stats
-    let repo = Repo::new("surface", false);
-    repo.build();
-    let mut context = repo.context();
-    context.allowed_tools = Some(["flow_tool".to_string()].into_iter().collect());
-    let stats = answer(&context, "list_graph_stats_tool", json!({}));
-    assert_eq!(
-        stats["next_tool_suggestions"],
-        json!(["flow_tool mode=\"list\" -- inspect critical reachable-set flows"])
     );
 }
 
@@ -2086,14 +2070,9 @@ fn ensure_graph_answers_only_when_there_is_nothing_to_prepare() {
     assert_eq!(ready["sync"]["current_branch"], "main");
     assert!(ready["graph_health"].get("counts").is_some());
     assert_eq!(ready["worktree_seed"]["reason"], "not_linked_worktree");
-    assert_eq!(
-        ready["next_tool_suggestions"],
-        json!([
-            "get_minimal_context_tool",
-            "review_tool",
-            "query_graph_tool"
-        ])
-    );
+    for gone in ["_hints", "next_tool_suggestions"] {
+        assert!(ready.get(gone).is_none(), "{gone}");
+    }
 
     // A forced refresh, a missing local embedding index, and an edit the
     // graph lacks all run a phase in Python.

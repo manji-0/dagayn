@@ -173,7 +173,7 @@ def query_graph(
                       edge lines and confidence folded into the row.
                       "minimal": the same rows with fewer fields and no
                       guidance. "full": one row per edge plus ``edges``,
-                      full ``answerability``, and ``_hints``.
+                      and the full ``answerability``.
         depth: Hops to follow for callers_of, importers_of, and imports_of (1 to 6). Rows
                past hop 1 carry ``depth`` and ``via``; ``reachability`` says
                whether the walk was complete or hit the depth limit.
