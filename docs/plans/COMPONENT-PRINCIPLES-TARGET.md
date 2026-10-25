@@ -45,7 +45,7 @@ Status: plan. Nothing here is built; the measurements below decide what is.
 | ADP | a cycle between units | `IMPORTS_FROM` | `import_cycles` | — |
 | SDP | a unit depending on a less stable one | `IMPORTS_FROM`, `DEPENDS_ON`, `INHERITS`, `IMPLEMENTS` | `unstable_dependency` | — |
 | SAP | abstractness of a stable unit | as SDP, plus type roles | evidence on `unstable_dependency` | a correct count for Rust, Go, Swift, Kotlin ([evidence](#sap-counts-no-rust-struct)) |
-| DIP | whether a cross-unit dependency targets an abstraction or a concrete symbol | `CALLS`, `REFERENCES`, `INHERITS`, `IMPLEMENTS` | — | type-position references, to be confirmed ([evidence](#abstractions-are-rare-targets)) |
+| DIP | whether a cross-unit dependency targets an abstraction or a concrete symbol | `CALLS`, `REFERENCES`, `INHERITS`, `IMPLEMENTS` | — | cases: 2 cross-unit uses of an abstraction in four repositories; TypeScript workspace imports unresolved ([evidence](#type-positions-are-recorded-workspace-packages-are-not)) |
 | ISP | the share of an abstraction's methods each client unit uses; implementers that stub a method | `CALLS` to members, `IMPLEMENTS` | — | as DIP |
 | CRP | the share of a unit's public surface each depending unit uses | `CALLS`, `REFERENCES` | — | visibility of Rust functions and TypeScript exports ([evidence](#visibility-is-partly-recorded)) |
 | CCP | files that change in the same commits across units | — | — | git history |
@@ -88,25 +88,54 @@ same way.
 
 ### Abstractions are rare targets
 
-Edges from production code in one unit to production code in another,
-split by whether the target is an abstraction (a type with role `trait`,
-`interface`, `protocol`, `abstract_class`, or `abstract_type`, or flagged
-abstract, or one of its members; abstract types under `tests/` are fixtures
-and not counted):
+Edges from production code in one declared unit to production code in
+another, split by whether the target is an abstraction (a type with role
+`trait`, `interface`, `protocol`, `abstract_class`, or `abstract_type`, or
+flagged abstract, or one of its members; abstract types under `tests/` are
+fixtures and not counted). The first count approximated units by directory;
+the second uses the declared units, after rebuilding all four graphs
+(rust 23, javascript 11):
 
-| Repository | Abstract types | To an abstraction | To a concrete symbol |
+| Repository | Production abstractions | To an abstraction (directory / declared) | To a concrete symbol (directory / declared) |
 |---|---|---|---|
-| dagayn | 2 Rust traits, 5 Python protocols and ABCs | 41 (`CALLS` 36, `INHERITS` 3, `REFERENCES` 2) | 1,614 |
-| cfwdon | 1 Rust trait, 5 TypeScript interfaces | 0 | 2,953 |
-| purecrate-ts | 8 Rust traits | 0 | 4,456 |
-| tstodon | 213 TypeScript interfaces | 0 | 1 |
+| dagayn | 2 Rust traits, 5 Python protocols and ABCs | 41 / 2 | 1,614 / 868 |
+| cfwdon | 1 Rust trait (`pub(crate)`), 6 TypeScript interfaces | 0 / 0 | 2,953 / 2,944 |
+| purecrate-ts | 2 Rust traits, both in the `cli` crate nothing depends on | 0 / 0 | 4,456 / 4,287 |
+| tstodon | 213 TypeScript interfaces, all generated Prisma types in the leaf package | 0 / 0 | 1 / 0 |
 
-Two readings fit and the numbers cannot tell them apart yet: the code does
-not depend on abstractions across units, or the graph does not record a
-dependency written in a type position (`dyn Trait`, `impl Trait`, a generic
-bound, a TypeScript parameter annotation). tstodon's 1 cross-unit edge in
-773 files under `packages/` suggests the approximation or the graph, not the
-code, is what is missing there.
+The directory count split dagayn's one Python package into subdirectories,
+which is where its 36 `CALLS` and 3 `INHERITS` to protocols came from. The
+2 left are `impl dagayn_mcp::Native for RustTools` and
+`impl dagayn_mcp::Backend for PythonBackend` in `dagayn-py`.
+
+### Type positions are recorded, workspace packages are not
+
+<!-- derived-from #abstractions-are-rare-targets -->
+
+Evaluation step 2 asked for 20 cross-unit uses of an abstraction in a type
+position per language. The four repositories hold 2 (both in dagayn) and
+none in TypeScript, so the code itself does not depend on abstractions
+across units. Whether the graph would see such uses was checked on
+cross-unit uses of any named type instead:
+
+- **Rust: 21 of 22** cfwdon uses have a symbol-level edge (parameters,
+  returns, fields, enum payloads, `&[T]`, nested generics). A two-crate
+  repro also gets one for `&dyn Tr`, `Box<dyn Tr>`, `impl Tr` in argument
+  and return position, `T: Tr`, and `where T: Tr`. Two gaps: a `const` or
+  `static` item's type has no edge (the missed one of the 22), and
+  `impl other_crate::Tr for S` in a file with no `use` of that crate leaves
+  `IMPLEMENTS` on the bare name, unresolved.
+- **TypeScript: 0 of 22** tstodon uses have one, but not for a
+  type-position reason. Imports of a workspace package (`@tstodon/domain`)
+  are not resolved: the module resolver consults only tsconfig `paths` and
+  `baseUrl`, not a package's `name` and `exports`, so all 887 cross-package
+  edges (573 `CALLS`, 314 `IMPORTS_FROM`) point at a `@tstodon/*` string
+  with no node, and type references to those packages are dropped. In a
+  repro, the same 7 type-position uses of an interface all get their edge
+  (`IMPLEMENTS`, `INHERITS`, `REFERENCES`) when the package is reached
+  through tsconfig `paths`, and none when it is a plain workspace
+  dependency. Mapped by name, tstodon has at least 348 cross-package calls
+  the graph does not connect.
 
 ### Visibility is partly recorded
 
@@ -195,13 +224,23 @@ and each measure gets a verdict: keep, cut, or fix-then-keep.
 
 <!-- derived-from #evaluation -->
 
-1. Count every top-level type in SAP (a separate change: it moves the SAP
-   evidence of existing `unstable_dependency` findings, so it runs the
-   architecture eval gate).
-2. Step 2 of the evaluation, and the type-position edges if it fails.
-3. The measurement script and the judgments, recorded in this document.
-4. Only then the tool contract, for the measures that passed.
-5. CCP, OCP, and REP: decide on git history as a data source.
+1. Count every top-level type in SAP: done in
+   [#211](https://github.com/manji-0/dagayn/pull/211).
+2. Step 2 of the evaluation: done
+   ([result](#type-positions-are-recorded-workspace-packages-are-not)).
+   DIP (`concrete_dependency`) and the ISP half of `refused_member` have 2
+   observable cases in the four repositories, under the 20 the
+   [evaluation](#evaluation) requires, so they are not built until a
+   repository that depends on abstractions across units is added.
+3. Resolve TypeScript workspace package imports. It is not a principles
+   measure: without it no cross-package edge exists in a TypeScript
+   monorepo, for this plan or for `callers_of`, `units`, and review. Its
+   own change, with tstodon's cross-package edges as its check.
+4. The measurement script and the judgments for what remains observable:
+   corrected SAP, CRP's `surface_used` (Python and Rust types), and the
+   LSP half of `refused_member`; recorded in this document.
+5. Only then the tool contract, for the measures that passed.
+6. CCP, OCP, and REP: decide on git history as a data source.
 
 ## Touch points
 
