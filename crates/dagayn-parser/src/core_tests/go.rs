@@ -435,3 +435,84 @@ fn go_variables_copied_from_a_call_result_keep_its_origin() {
         .expect("Save");
     assert_eq!(save.extra["receiver_from"]["call"], "Open");
 }
+
+#[test]
+fn go_test_files_are_test_code_and_their_test_functions_are_tests() {
+    let source = br#"package store_test
+
+import "testing"
+
+type fixture struct{}
+
+func newFixture() *fixture { return &fixture{} }
+
+func TestSave(t *testing.T) {
+	s := newFixture()
+	Save(s)
+}
+
+func Test(t *testing.T) {}
+
+func Test_open(t *testing.T) { Open() }
+
+func BenchmarkSave(b *testing.B) { Save(nil) }
+
+func FuzzParse(f *testing.F) { Parse("") }
+
+func Example() {}
+
+func ExampleStore_Save() { Save(nil) }
+
+func Testify() {}
+
+func (f *fixture) TestMethod(t *testing.T) {}
+"#;
+    let (nodes, edges) = parse_go("store/store_test.go", source);
+    let kind_of = |name: &str| {
+        let node = nodes
+            .iter()
+            .find(|node| node.name == name)
+            .unwrap_or_else(|| panic!("no {name} in {nodes:#?}"));
+        (node.kind.as_str(), node.is_test)
+    };
+    for name in [
+        "TestSave",
+        "Test",
+        "Test_open",
+        "BenchmarkSave",
+        "FuzzParse",
+        "Example",
+        "ExampleStore_Save",
+    ] {
+        assert_eq!(kind_of(name), ("Test", true), "{name}");
+    }
+    // A helper, a name that only starts with `Test`, and a method are test
+    // code, not tests `go test` runs.
+    for name in ["newFixture", "Testify", "TestMethod"] {
+        assert_eq!(kind_of(name), ("Function", true), "{name}");
+    }
+    assert_eq!(kind_of("fixture"), ("Class", true));
+    assert!(nodes.iter().all(|node| node.is_test), "{nodes:#?}");
+    let tested_by = |target: &str, test: &str| {
+        edges.iter().any(|edge| {
+            edge.kind == "TESTED_BY"
+                && edge.source == target
+                && edge.target == format!("store/store_test.go::{test}")
+        })
+    };
+    assert!(tested_by("Save", "TestSave"), "{edges:#?}");
+    assert!(tested_by("Save", "BenchmarkSave"));
+    assert!(tested_by("Parse", "FuzzParse"));
+    assert!(tested_by("Save", "ExampleStore_Save"));
+    assert!(tested_by("store/store_test.go::newFixture", "TestSave"));
+}
+
+#[test]
+fn go_test_names_outside_test_files_are_functions() {
+    let source = b"package store\n\nimport \"testing\"\n\nfunc TestSave(t *testing.T) { Save() }\n\nfunc Save() {}\n";
+    let (nodes, edges) = parse_go("store/store.go", source);
+    let test = nodes.iter().find(|node| node.name == "TestSave").unwrap();
+    assert_eq!((test.kind.as_str(), test.is_test), ("Function", false));
+    assert!(nodes.iter().all(|node| !node.is_test));
+    assert!(!edges.iter().any(|edge| edge.kind == "TESTED_BY"));
+}

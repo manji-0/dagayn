@@ -1,0 +1,22 @@
+description: Edits mathx/pad.go::Pad, which no test reaches.
+negative: false
+commit_change: true
+base:
+  from: go_module
+change:
+  files:
+    mathx/pad.go: |
+      package mathx
+
+      import "strings"
+
+      // Pad pads a string on the left to width characters.
+      func Pad(text string, width int) string {
+      	if len(text) > width {
+      		return text[:width]
+      	}
+      	return strings.Repeat(" ", width-len(text)) + text
+      }
+expected_findings:
+- kind: untested_change
+  target: mathx/pad.go::Pad

@@ -16,6 +16,15 @@ Removed).
   first-class plan's baseline: 720 of 735 functions called untested, 277 of
   the 292 that ran among them (docs/plans/GO-SUPPORT-MEASUREMENTS.md). No
   floor is set for Go.
+- Go tests are tests in the graph (go extractor 9). Every node of a
+  `_test.go` file has `is_test`, in the package and in its external test
+  package (`package name_test`), and its top-level `TestX`, `BenchmarkX`,
+  `FuzzX`, and `ExampleX` functions are `Test` nodes whose calls give
+  `TESTED_BY` edges (docs/SCHEMA.md). testify v1.12.1 gets 479 `Test` nodes
+  and compress v1.20.1 805, where both had none. Alone it leaves Go test
+  reach where it was (277 of testify's 292 functions that ran are still
+  called untested): a test calls code of another file, and those calls stay
+  unresolved until the package is a namespace (below).
 
 ### Removed
 

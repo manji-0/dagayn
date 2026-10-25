@@ -9,7 +9,7 @@ use super::stdlib::go::{go_default_import_name, is_go_builtin_function, is_go_st
 use super::stdlib::{StdlibEvidence, mark_stdlib_edge};
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{direct_child_text, line_count, line_of, node_text, strip_matching_quotes};
-use super::{qualify, resolve_rust_call_targets};
+use super::{add_tested_by_edges, qualify, resolve_rust_call_targets};
 
 pub(super) fn parse_go_with_parser(
     file_path: &str,
@@ -39,17 +39,59 @@ pub(super) fn parse_go_with_parser(
             locals: RefCell::new(HashSet::new()),
         };
         go_walk_children(root, &context, None, &mut nodes, &mut edges);
+        let test_file = go_is_test_file(&file_path);
+        if test_file {
+            go_mark_test_code(&mut nodes);
+        }
         go_finish_typed_receivers(&nodes, &mut edges);
         go_apply_js_global_exports(root, source, &mut nodes);
         let libraries = go_cgo_libraries(root, source);
         if !libraries.is_empty() {
             nodes[0].extra["cgo_libraries"] = json!(libraries);
         }
-        let edges = resolve_rust_call_targets(&nodes, edges, &file_path);
+        let mut edges = resolve_rust_call_targets(&nodes, edges, &file_path);
+        if test_file {
+            add_tested_by_edges(&nodes, &mut edges);
+        }
         return (nodes, edges);
     }
 
     (nodes, edges)
+}
+
+/// A file `go test` compiles only for testing: `name_test.go`, in the
+/// package itself or in its external test package (`package name_test`).
+fn go_is_test_file(file_path: &str) -> bool {
+    file_path
+        .rsplit('/')
+        .next()
+        .is_some_and(|name| name.ends_with("_test.go"))
+}
+
+/// A function `go test` runs: `TestX`, `BenchmarkX`, `FuzzX`, or `ExampleX`
+/// at the top level of a test file, where the name is the prefix alone or
+/// goes on with anything but a lower-case letter (`Testify` is not a test).
+fn go_is_test_function_name(name: &str) -> bool {
+    ["Test", "Benchmark", "Fuzz", "Example"]
+        .iter()
+        .any(|prefix| {
+            name.strip_prefix(prefix)
+                .is_some_and(|rest| !rest.chars().next().is_some_and(char::is_lowercase))
+        })
+}
+
+/// Everything a test file declares is test code; its top-level test
+/// functions are `Test` nodes.
+fn go_mark_test_code(nodes: &mut [ParsedNode]) {
+    for node in nodes {
+        node.is_test = true;
+        if node.kind == crate::core::types::NodeKind::Function
+            && node.parent_name.is_none()
+            && go_is_test_function_name(&node.name)
+        {
+            node.kind = crate::core::types::NodeKind::Test;
+        }
+    }
 }
 
 /// What the walk of one file carries: the file, what it says about the

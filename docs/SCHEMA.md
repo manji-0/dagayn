@@ -37,6 +37,12 @@ make a test. The gate is read
 from the declaring file when the gated file is parsed, so adding or removing
 a `#[cfg(test)]` on a `mod` declaration reclassifies the gated file at its
 next re-parse (a full build, or an edit of that file).
+In Go, every node of a `_test.go` file has `is_test`, whether the file is
+in the package or in its external test package (`package name_test`), and
+its top-level functions `go test` runs are `Test` nodes: `TestX`,
+`BenchmarkX`, `FuzzX`, and `ExampleX`, where the prefix stands alone or is
+followed by anything but a lower-case letter (`Testify` is a `Function`).
+A `TestX` method of a suite type is test code, not a `Test` node.
 
 `modifiers` holds a node's declaration modifiers as space-separated words in
 source order (TypeScript: [TYPESCRIPT-EXTRACTION.md](./TYPESCRIPT-EXTRACTION.md);

@@ -59,3 +59,24 @@ testify matches the plan exactly (735, 720, 277 = 111 + 166). compress is
 the second repository: 1,150 of the 1,155 functions its listing names match
 a node. Met. No floor is set: Go has no CI coverage run, and these numbers
 only show that almost everything is called untested.
+
+## G1: Go tests in the graph
+
+<!-- derived-from #m2-test-reach-against-go-coverage -->
+
+Go extractor 9: every node of a `_test.go` file is test code, and its
+top-level `TestX`, `BenchmarkX`, `FuzzX`, and `ExampleX` functions are
+`Test` nodes whose calls give `TESTED_BY` edges.
+
+| Repository | `Test` nodes | `is_test` nodes | `TESTED_BY` | Ran, called untested (8 → 9) |
+|---|---|---|---|---|
+| testify | 0 → 479 | 0 → 813 | 0 → 1,343 | 277 → 277 |
+| compress | 0 → 805 | 0 → 1,148 | 0 → 932 | 786 → 784 |
+| scip-go | 0 → 35 | 0 → 65 | 0 → 2 | 110 → 110 |
+
+Alone, G1 moves test reach by two functions, as the plan expected: a Go
+test calls code of another file of its package by its bare name, and
+nothing binds such a call yet, so the `TESTED_BY` edges that survive name
+helpers of the test's own file. The review case `untested_change_go`
+passes; `tests_to_run_go` and the negative `neg_untested_reached_go` need
+the calls bound, and are measured with G2.

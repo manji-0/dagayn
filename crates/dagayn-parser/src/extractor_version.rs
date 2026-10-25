@@ -259,8 +259,11 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // call it came from) and functions their declared `return_type`.
         // 8: a cgo call (`C.f()`, `receiver: "C"`) never binds to a function
         // of the file.
+        // 9: every node of a `_test.go` file is test code (`is_test`), its
+        // top-level `TestX` / `BenchmarkX` / `FuzzX` / `ExampleX` functions
+        // are `Test` nodes, and their calls give `TESTED_BY` edges.
         extractor: "go",
-        version: 8,
+        version: 9,
         languages: &["go"],
     },
     ExtractorVersion {
