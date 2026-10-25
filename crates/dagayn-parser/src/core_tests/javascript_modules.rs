@@ -1244,9 +1244,13 @@ fn resolves_pnpm_workspace_package_imports() {
             ),
             (
                 "packages/a/src/index.ts",
-                "export { greet } from \"./greet\";\nexport type { Greeter } from \"./types\";\nexport * from \"./base\";\n",
+                "export { greet } from \"./greet\";\nexport type { Greeter } from \"./types\";\nexport * from \"./base\";\nexport { Instant } from \"./instant\";\n",
             ),
             ("packages/a/src/base.ts", "export abstract class Base {}\n"),
+            (
+                "packages/a/src/instant.ts",
+                "const make = () => (raw: string) => raw;\nexport const Instant = { parse: make() };\n",
+            ),
             (
                 "packages/a/src/greet.ts",
                 "export function greet(name: string): string { return name; }\n",
@@ -1277,7 +1281,7 @@ import type { Greeter } from "@ws/a";
 import { shout } from "@ws/a/util";
 import { fx } from "@ws/a/feature/x";
 import { gone } from "@ws/ignored";
-import { Base } from "@ws/a";
+import { Base, Instant } from "@ws/a";
 
 export class Job extends Base {}
 
@@ -1287,6 +1291,7 @@ export class Loud implements Greeter {
 
 export function run(g: Greeter): string {
   gone();
+  Instant.parse("now");
   return greet("x");
 }
 "#;
@@ -1337,6 +1342,15 @@ export function run(g: Greeter): string {
             "{kind} {from} -> {to}: {edges:?}"
         );
     }
+
+    // A member of an imported object the graph has no node for stays on
+    // that receiver, never a same-named standard method.
+    let parse = edges
+        .iter()
+        .find(|edge| edge.kind == "CALLS" && edge.target == "parse")
+        .unwrap_or_else(|| panic!("{edges:?}"));
+    assert_eq!(parse.extra["receiver_type"], "Instant", "{parse:?}");
+    assert!(parse.extra.get("receiver_unknown").is_none(), "{parse:?}");
 
     let file = "packages/c/src/main.ts";
     let source = "import { greet } from \"@ws/a\";\nexport function run() { greet(); }\n";
