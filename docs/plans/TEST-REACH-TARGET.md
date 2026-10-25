@@ -12,8 +12,9 @@ functions that call into it as untested, though
 runs them. Should the judgement change, and how?
 
 Status: the declaration and the call-graph fixes are shipped
-([decisions](#decisions-2026-10-08)); dispatch-aware reach is the
-follow-up.
+([decisions](#decisions-2026-10-08)), and Rust trait methods are reached
+through their type ([Rust false untested claims](#rust-false-untested-claims));
+dispatch-aware reach is the follow-up.
 
 ## Evidence
 
@@ -176,14 +177,16 @@ deepest Rust test path is 12):
 - **What no limit still misses**: 138 of the 223 functions that did not run
   are 1–4 hops from a test, a branch the test does not take. The call graph
   cannot see that; the recall ceiling here is branch-level.
-- **Calls through a trait are a small part.** Of the functions with no path
-  (84 ran, 53 did not), methods of a standard trait (`Drop`, `Deserialize`,
-  `visit_map`, `fmt`) are about 16 that ran, called by the standard library
-  or serde, which no dispatch rule reaches; methods of the repository's
-  traits (`Backend`, `Native`) about 5. In Python, the only overridden
-  methods are the 25 of the `EmbeddingProvider` hierarchy, and reaching
-  overrides from the base method's callers measured net zero. A dispatch
-  rule is not worth its cost in either language here.
+- **Calls through a trait.** Of the functions with no path (84 ran, 53 did
+  not), methods of a standard trait (`Drop`, `Deserialize`, `visit_map`,
+  `fmt`) are about 16 that ran, called by the standard library or serde;
+  methods of the repository's traits (`Backend`, `Native`) about 5. In
+  Python, the only overridden methods are the 25 of the
+  `EmbeddingProvider` hierarchy, and reaching overrides from the base
+  method's callers measured net zero. A rule that reaches a trait
+  implementation from where its type is used, not from a call of the
+  trait method, was later measured as worth it in Rust
+  ([Rust false untested claims](#rust-false-untested-claims)).
 
 Applied: `caller_test_depth` lifts the limit for Rust and keeps 4 hops
 elsewhere (Python measured 0.874 / 0.674 / 0.949 with no limit, too close
@@ -191,13 +194,102 @@ to its recall floor of 0.67 to trade). `test_reach.hop_limit` is `null` for
 Rust. CI's Rust job writes the coverage of its `cargo llvm-cov` run per
 function (`cargo llvm-cov report --json`) and gates it with
 `eval/test_reach_rust_thresholds.yaml`: untested precision 0.387, recall
-0.233, tested precision 0.943 on 3,199 functions. `untested_core` in the
+0.233, tested precision 0.943 on 3,199 functions (0.464 / 0.267 / 0.944
+on 2,972 since the trait step below). `untested_core` in the
 architecture overview still walks 4 hops in every language.
 The walk keeps no visit cap (unlike `flow_tool`'s entry points, which stop
 at 10,000): it ends at the nearest test, its `seen` set bounds it, and the
 deepest Rust path here is 12 hops; asking it of all 3,199 Rust functions
 takes 49 s on 8 workers, against 20 s for Python's 1,256 (with the
 harness's graph and process start-up in both).
+
+## Rust false untested claims
+
+<!-- derived-from #rust -->
+
+Measured 2026-10-25 on the branch that removed the SDP/SAP, centrality,
+and risk-score code, so the population is 2,972 functions, not 3,199; the
+numbers are this tree's, not a reproduction of the table above. One run
+is `cargo llvm-cov` as CI runs it (about 50 s with a warm target), `cargo
+llvm-cov report --json`, `dagayn build` (7 s), and the harness (46 s on 8
+workers). The harness is deterministic for one graph and one coverage
+export: two runs give the same counts.
+
+Baseline: 144 called untested, 84 of them ran. Every one of the 84,
+grouped by why the graph has no test path:
+
+| Why no test path | Ran | Example | Closed by |
+|---|---|---|---|
+| A method call whose receiver type dagayn does not infer: a bare-name `LOW` edge (`edit.skipped(..)`) | 47 | `apply.rs:55` `Edit.skipped`, called at `apply.rs:275`; `lib.rs:359` `Ordered.apply_output_budget` and the 4 below it | Frozen inference; `build --scip` settles all 47 |
+| A function called by module path that cross-file module resolution misses | 4 | `python/notebook.rs:30` `parse_notebook` and its 3 callees | Frozen; `build --scip` settles all 4 |
+| A trait method the language, serde, or a library's walker calls | 22 | `types.rs:108` `FilePath.serialize`, `python/mod.rs:253` `PythonWalker.visit_stmt` (ruff's `SourceOrderVisitor`) | The trait step below: 17 |
+| A method on a struct literal, named more than 8 lines below the literal's first line | 3 | `manifest_bridges/mod.rs:299` `Bridge.extra`, called at `cargo.rs:539` | Frozen; the SCIP overlay's 8-line chain window misses it too |
+| A function passed as a value that the extractor does not record (`.map(SignatureChange::to_json)`, a tuple field, `&closure`) | 4 | `base_symbols.rs:308`, called at `base_symbols.rs:409`; `kotlin.rs:645` | Open |
+| A conversion or operator trait (`?` calling `From`, `==` on a foreign type) | 2 | `graph/lib.rs:233` `GraphError.is_corrupt`, only under `Failure::from` | Left on purpose (below) |
+| A call through `dyn Trait` | 1 | `mcp/lib.rs:147` `NoNative.call_tool` | Open |
+| A binary's `main`, run by tests through `CARGO_BIN_EXE_dagayn` | 1 | `cli/main.rs:8` | Open |
+
+Of the 22 trait methods, the step leaves 5: `GraphLock.drop`, whose type
+is used only as another struct's field, and `JsonVisitor`'s three visit
+methods with `JsonObject.insert` under them, a unit struct passed as a
+value (`deserialize_any(JsonVisitor)`) that no edge records.
+
+### Steps
+
+| Step | Untested precision | Recall | Tested precision | Called untested |
+|---|---|---|---|---|
+| Baseline, `dagayn build` | 0.417 | 0.275 | 0.944 | 144 |
+| Trait methods reached through their type | 0.464 | 0.267 | 0.944 | 125 |
+| Baseline, `dagayn build --scip` | 0.576 | 0.225 | 0.941 | 85 |
+| SCIP: a symbol defined twice settled at the definition its caller sees | 0.554 | 0.188 | 0.939 | 74 |
+| SCIP: and the trait step | 0.709 | 0.179 | 0.939 | 55 |
+
+- **The trait step.** `nearest_test` treats a method of `impl Trait for
+  Type` as called wherever `Type` is used, as it treats a Python dunder
+  method: the walk goes on from the type's callers and referrers. The
+  impl header is read from the source (`rust_impl_trait`, shared with
+  dead-code verification). Taking every trait fixed 18 and made 11 never-run
+  functions count as tested (`eq`, `as_ref`, `borrow`, `default`, `from`,
+  serde's `expecting`): untested precision 0.426, recall 0.225. Leaving out
+  the traits whose methods code calls by syntax of its own
+  (`CALLED_BY_SYNTAX_TRAITS`: `PartialEq`, `From`, `AsRef`, `Clone`,
+  `Default`, ...) keeps 17 of the 18 and 2 of the 11 (`expecting`, which
+  serde calls only on an error); the one lost is `GraphError.is_corrupt`,
+  under `From`.
+- **A type held by another.** Treating a struct that holds a type in use
+  as in use itself fixed only `GraphLock.drop`; not kept.
+- **The SCIP collision.** rust-analyzer gives `src/lib.rs::answer` and
+  the integration-test helper `tests/tools.rs::answer` one symbol (both at
+  the root of a target of `dagayn-tools`), and two nested `visit`s of one
+  module one symbol. The overlay kept the first definition it read, so
+  `lib::call`'s call of `answer` went to the test helper. Fixing it made
+  the graph right and the number worse: with `lib::call → lib::answer`
+  back, the 8 functions of `repos.rs` that no test selects count as
+  tested through `answer`'s dispatch (see
+  [dispatch-aware reach](#follow-up-dispatch-aware-reach)). The 0.576 was
+  inflated by the bug.
+
+### Decisions (2026-10-25)
+
+- The trait step is kept; the type-holder step is not.
+- The gate stays on plain `dagayn build`. Gating `build --scip` would
+  need a recall floor near 0.16, under today's 0.20: SCIP's correct edges
+  give more never-run functions a path to a test, most through `answer`'s
+  dispatch. Whether to accept that recall for 0.709 precision, or to
+  build dispatch-aware reach first, is the owner's call. The SCIP numbers
+  were taken with rust-analyzer 1.99.1; CI's `rustup component` for the
+  pinned toolchain would be 1.98.0.
+- The largest cause, 47 calls on an untyped receiver, is not closed in
+  the plain build: dagayn's receiver inference is frozen
+  ([SCIP-CALL-RESOLUTION.md](./SCIP-CALL-RESOLUTION.md#freezing-the-inference-layer)),
+  and `build --scip` closes all of them.
+- Floors raised to untested precision 0.43, recall 0.23, tested precision
+  0.92 (the measured values less the margins the file already used).
+
+`tests/tools.rs::a_rust_test_that_uses_a_type_reaches_the_trait_methods_the_runtime_calls`
+holds the trait step; `scip_overlay.rs`'s
+`a_call_keeps_its_own_target_when_a_test_crate_defines_the_same_symbol`
+holds the collision fix.
 
 ## Python call graph
 
@@ -347,6 +439,12 @@ It needs parser work per language and its own eval (a dispatcher with two
 arms, a test selecting one: the other stays untested). Until then, the
 declaration is the way to state it.
 
+It is what holds Rust recall down once the call graph is right: in
+`dagayn build --scip`, `list_repos` and the 7 functions under it in
+`repos.rs` never run, yet count as tested, because every tool test
+reaches `lib::answer` and `answer` calls every arm
+([Rust false untested claims](#rust-false-untested-claims)).
+
 ## Touch points
 
 - Parser: `crates/dagayn-parser/src/documentation_directives.rs` (the
@@ -356,13 +454,17 @@ declaration is the way to state it.
   as values, `module_file`, aliased imports), `extractor_version.rs`
   (markdown 2, python 15, rust 22, csharp 8, terraform 2).
 - Resolution: `crates/dagayn-graph/src/postprocess/returned.rs` (element
-  types), `bare_names.rs` (typed value references).
+  types), `bare_names.rs` (typed value references), `scip_overlay.rs`
+  (`visible_definition`, for a symbol defined twice).
 - Graph: `crates/dagayn-graph/src/communities.rs`
   (`get_test_targets_for_source`).
 - Tools: `crates/dagayn-tools/src/coverage.rs` (`tests_for`),
   `findings.rs` (`nearest_test`, shared by `untested_change` and
-  `tests_for`'s `test_reach`), `query.rs`.
+  `tests_for`'s `test_reach`; `rust_trait_impl_type`,
+  `CALLED_BY_SYNTAX_TRAITS`), `dead_code_verify.rs` (`rust_impl_trait`),
+  `query.rs`.
 - Eval: `eval/run_test_reach_eval.py`, `eval/test_reach_thresholds.yaml`,
+  `eval/test_reach_rust_thresholds.yaml`,
   `tests/test_test_reach_eval.py`, and the CI step.
 - Tests: `core_tests/rust_lang.rs`, `dagayn-graph` `tests/analysis.rs`,
   and the declarations in `crates/dagayn-tools/tests/tools.rs`.
