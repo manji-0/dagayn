@@ -14,7 +14,8 @@ runs them. Should the judgement change, and how?
 Status: the declaration and the call-graph fixes are shipped
 ([decisions](#decisions-2026-10-08)), and Rust trait methods are reached
 through their type ([Rust false untested claims](#rust-false-untested-claims));
-dispatch-aware reach is the follow-up.
+dispatch-aware reach was built, measured, and not shipped
+([its result](#measured-2026-10-25-not-shipped)).
 
 ## Evidence
 
@@ -276,7 +277,9 @@ value (`deserialize_any(JsonVisitor)`) that no edge records.
   need a recall floor near 0.16, under today's 0.20: SCIP's correct edges
   give more never-run functions a path to a test, most through `answer`'s
   dispatch. Whether to accept that recall for 0.709 precision, or to
-  build dispatch-aware reach first, is the owner's call. The SCIP numbers
+  build dispatch-aware reach first, is the owner's call (dispatch-aware
+  reach was then measured and did not move it:
+  [result](#measured-2026-10-25-not-shipped)). The SCIP numbers
   were taken with rust-analyzer 1.99.1; CI's `rustup component` for the
   pinned toolchain would be 1.98.0.
 - The largest cause, 47 calls on an untyped receiver, is not closed in
@@ -444,6 +447,57 @@ It is what holds Rust recall down once the call graph is right: in
 `repos.rs` never run, yet count as tested, because every tool test
 reaches `lib::answer` and `answer` calls every arm
 ([Rust false untested claims](#rust-false-untested-claims)).
+
+### Measured (2026-10-25): not shipped
+
+<!-- constrained-by #rust-false-untested-claims -->
+
+Built for Rust in [#208](https://github.com/manji-0/dagayn/pull/208)
+(closed unmerged): the parser recorded each call's string arguments (a
+literal, the literals a local holds, the caller's own string parameter
+passed on, or unreadable) and the strings that select a `match` / `if`
+arm, and `nearest_test` carried, per path, the string a caller still had
+to pass. An unreadable argument counted as passing anything. Its eval
+case (two arms behind a forwarding call and a test helper, a test
+selecting one) passed: the other arm stayed untested.
+
+On this repository it changed no answer. Measured as CI runs it, each
+twice with identical counts, `--scip` with rust-analyzer 1.99.1:
+
+| Build | Called untested | Untested precision | Recall | Tested precision |
+|---|---|---|---|---|
+| plain, before | 126 | 0.460 | 0.267 | 0.945 |
+| plain, with it | 126 | 0.460 | 0.267 | 0.945 |
+| `--scip`, before | 56 | 0.696 | 0.180 | 0.940 |
+| `--scip`, with it | 55 | 0.709 | 0.180 | 0.940 |
+
+Asked of the same graph with the rule on and off, every function got the
+same answer in both builds; the `--scip` 56 → 55 came from the new code
+changing the population and coverage, not from the walk.
+
+- **`repos.rs` stays tested.** `list_repos` and the 7 functions under it
+  are reached through
+  `tools.rs::every_reply_names_calls_that_answer_and_fits_its_budget`,
+  which calls each tool named in a reply's JSON `next`. No static reading
+  rules out `"list_repos_tool"`.
+- **The other dispatchers** (`query.rs`'s `match pattern`, each tool's
+  mode) select on a value read from the tool's JSON arguments, which the
+  parser does not follow.
+- **Unread arguments as selecting nothing** was rejected: under `--scip`
+  it moved 45 functions, 33 of which ran (precision 0.510, recall 0.230,
+  tested precision 0.942).
+
+Decisions:
+
+- Not shipped: about 2,500 lines of parser and walk code for no change on
+  a real repository ([quality before breadth](../POSITIONING.md#quality-before-breadth)).
+  Revisit with a repository whose dispatch strings are literals in its
+  tests; the branch `feat/dispatch-aware-test-reach` keeps the code.
+- The gate stays on plain `dagayn build`. Even with `repos.rs` closed,
+  `--scip` recall would reach about 0.217 (47 of 217 functions that did
+  not run), under the 0.23 floor.
+- The `dagayn: tests` declarations stay the way to state a dispatch arm's
+  test.
 
 ## Touch points
 

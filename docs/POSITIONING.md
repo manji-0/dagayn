@@ -95,6 +95,7 @@ These duplicate an answer another tool already gives:
 ### Measured and cut
 
 <!-- derived-from ./plans/OPEN-MEASUREMENTS.md#verdicts -->
+<!-- derived-from ./plans/TEST-REACH-TARGET.md#measured-2026-10-25-not-shipped -->
 
 These were measured on real repositories and did not help the agent:
 
@@ -106,6 +107,9 @@ These were measured on real repositories and did not help the agent:
 - the `undocumented_surface` finding of `refactor_tool(mode="suggest")`: 3 of
   18 actionable; the rest were self-describing structs or types whose
   variants were already documented
+- dispatch-aware test reach for Rust, built but not merged: it changed no
+  test-reach answer on this repository, in the plain build or under
+  `--scip` ([result](./plans/TEST-REACH-TARGET.md#measured-2026-10-25-not-shipped))
 
 ## Open measurements
 
