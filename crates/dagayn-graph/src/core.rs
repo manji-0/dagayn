@@ -36,6 +36,22 @@ impl GraphStore {
             conn,
             bulk_load_indexes_suspended: false,
         };
+        // An older dagayn must not touch a newer graph: the schema batch
+        // would recreate tables a later migration dropped.
+        let has_metadata: bool = store.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'metadata')",
+            [],
+            |row| row.get(0),
+        )?;
+        if has_metadata {
+            let found = store.schema_version()?;
+            if found > LATEST_VERSION {
+                return Err(GraphError::NewerSchema {
+                    found,
+                    supported: LATEST_VERSION,
+                });
+            }
+        }
         store.init_schema()?;
         if store.schema_version()? < 1 {
             store.set_metadata("schema_version", "1")?;

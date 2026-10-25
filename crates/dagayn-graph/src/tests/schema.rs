@@ -214,3 +214,32 @@ fn reads_legacy_edges_with_default_confidence_metadata() {
     );
     let _ = std::fs::remove_file(path);
 }
+
+#[test]
+fn a_graph_newer_than_this_build_is_refused_untouched() {
+    let path = temp_db("newer-schema");
+    {
+        let store = GraphStore::open(&path).expect("open graph store");
+        store
+            .set_metadata("schema_version", &(LATEST_VERSION + 1).to_string())
+            .unwrap();
+        store.conn.execute_batch("DROP TABLE nodes").unwrap();
+    }
+    let err = GraphStore::open(&path).err().expect("newer graph refused");
+    assert!(
+        matches!(err, GraphError::NewerSchema { found, supported }
+            if found == LATEST_VERSION + 1 && supported == LATEST_VERSION),
+        "{err}"
+    );
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    let nodes: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'nodes'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(nodes, 0, "the refused open recreated a dropped table");
+    drop(conn);
+    let _ = std::fs::remove_file(path);
+}

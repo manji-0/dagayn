@@ -127,6 +127,12 @@ Removed).
   alias. Merging by score dropped it, so the reply no longer said which
   repository defines a name (docs/plans/OPEN-MEASUREMENTS.md).
 
+### Fixed
+
+- `dagayn` refuses to open a graph whose schema is newer than it supports,
+  naming both versions, instead of recreating tables a later migration
+  dropped and writing into it.
+
 ## 10.0.0 — 2026-10-12
 
 Breaking: the replies drop the next-step and diagnostic fields that `next`
