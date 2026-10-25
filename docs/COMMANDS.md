@@ -620,8 +620,10 @@ an `action`. Kinds:
   validator counts as called wherever its class is, and a Python module that
   builds the instance at its top level (or defines the `__getattr__`), or
   calls the function at its top level outside any branch, loop, `except`
-  handler, or lambda, as called wherever it is imported. One finding per file; tests,
-  `build.rs`, `examples/`, benches, fixtures, and generated code are excluded.
+  handler, or lambda, as called wherever it is imported. One finding per file; tests
+  (including Rust files compiled only under `#[cfg(test)]`, see
+  [SCHEMA.md](./SCHEMA.md#nodes)), `build.rs`, `examples/`, benches, fixtures, and
+  generated code are excluded.
 - `tests_to_run`: direct tests of the changed code, and changed tests. One
   finding per test file (Rust unit tests: one per crate), with a `command`.
 

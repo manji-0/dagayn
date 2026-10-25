@@ -20,6 +20,20 @@ Core node kinds include:
 
 Nodes store file path, qualified name, language, line range, and an `extra` payload for format-specific metadata.
 
+`is_test` marks test code. A File node has it when its path is a test path
+(`tests/`, `test/`, a `test_` prefix, and each language's own suffixes). In
+Rust, a file compiled only under test is a test file whatever its name: under
+`tests/` or `test/`, or the target of a `#[cfg(test)] mod name;` declaration
+(`#[path]` included, `cfg(all(test, ...))` too) or a module below one, in
+every crate that compiles it. Every node of such a file has `is_test`. The
+functions of a `#[cfg(test)]` module, and of a file under a nested `tests/`
+or `test/` directory (`crates/x/tests/`), are `Test` nodes; elsewhere a
+function is a test by its attribute (`#[test]`, `#[tokio::test]`,
+`#[cfg(test)]`). The gate is read
+from the declaring file when the gated file is parsed, so adding or removing
+a `#[cfg(test)]` on a `mod` declaration reclassifies the gated file at its
+next re-parse (a full build, or an edit of that file).
+
 The Rust parser represents these labels as `NodeKind` and converts to the
 string form only when writing `NodeInput` / SQLite. `Type` and `DocBody` are
 part of that closed set, not ad-hoc strings. In memory, `file_path` is a

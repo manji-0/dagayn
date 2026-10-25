@@ -2891,6 +2891,55 @@ fn workspace_package_imports_reach_the_package_files() {
     }
 }
 
+/// A Rust file compiled only under test (`#[cfg(test)] mod helpers_tests;`)
+/// is test code: a crate that uses another only there has no production
+/// dependency on it, and the map draws no unit edge between them.
+#[test]
+fn a_dependency_only_cfg_test_files_use_is_no_unit_edge() {
+    // dagayn: tests crates/dagayn-tools/src/arch_tool.rs::architecture
+    let repo = Repo::new("cfg-test-files", false);
+    repo.write("Cargo.toml", "[workspace]\nmembers = [\"kernel\", \"app\", \"tool\"]\n");
+    repo.write("kernel/Cargo.toml", "[package]\nname = \"kernel\"\n");
+    repo.write("kernel/src/lib.rs", "pub fn base() -> i64 {\n    1\n}\n");
+    // As dagayn-graph has dagayn-parser: a dev-dependency, which the
+    // manifest does not declare as a unit edge.
+    for (name, section) in [("app", "dev-dependencies"), ("tool", "dependencies")] {
+        repo.write(
+            &format!("{name}/Cargo.toml"),
+            &format!(
+                "[package]\nname = \"{name}\"\n\n[{section}]\nkernel = {{ path = \"../kernel\" }}\n"
+            ),
+        );
+    }
+    repo.write(
+        "app/src/lib.rs",
+        "pub fn run() -> i64 {\n    2\n}\n\n#[cfg(test)]\nmod helpers_tests;\n",
+    );
+    repo.write(
+        "app/src/helpers_tests.rs",
+        "use kernel::base;\n\npub struct Harness;\n\nfn expected() -> i64 {\n    base() + 1\n}\n\n#[test]\nfn runs() {\n    assert_eq!(crate::run(), expected());\n}\n",
+    );
+    repo.write(
+        "tool/src/lib.rs",
+        "use kernel::base;\n\npub fn tool() -> i64 {\n    base()\n}\n",
+    );
+    repo.build();
+
+    let context = Context {
+        runtime: Some(json!({})),
+        ..repo.context()
+    };
+    let overview = answer(&context, "architecture_analysis_tool", json!({}));
+    let edges: Vec<(&str, &str)> = overview["unit_edges"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|edge| Some((edge["from"].as_str()?, edge["to"].as_str()?)))
+        .collect();
+    assert!(edges.contains(&("tool", "kernel")), "{edges:?}");
+    assert!(!edges.contains(&("app", "kernel")), "{}", overview["unit_edges"]);
+}
+
 /// docs/plans/STABILITY-FINDING-TARGET.md: the overview names every unit
 /// that depends on a less stable one; a review names the ones the change
 /// introduced, and not a dependency that predates it.

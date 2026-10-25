@@ -75,6 +75,8 @@ mod ruby;
 mod rust_edges;
 #[cfg(feature = "lang-rust")]
 mod rust_lang;
+#[cfg(feature = "lang-rust")]
+mod rust_test_files;
 #[cfg(feature = "lang-scala")]
 mod scala;
 #[cfg(feature = "lang-swift")]

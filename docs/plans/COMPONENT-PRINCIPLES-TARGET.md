@@ -327,7 +327,8 @@ file into a crate both depend on is the change. The false values:
   canon → syntax have the same cause.
 - **A test module is read as production code.** dagayn-graph →
   dagayn-parser exists only in `terraform_bridges_tests.rs:35`, which the
-  test-path rule (`_test.`) misses.
+  test-path rule (`_test.`) misses. Fixed by reading the module tree
+  ([order of work](#order-of-work), item 7): the edge is gone.
 - **An npm specifier resolves to nothing without a root workspace
   manifest.** Each `packages/boundary-*/src/index.ts:2` imports a dozen
   symbols from `"purecrate"`, and purecrate-ts has no root
@@ -405,6 +406,20 @@ whether or not a principle is ever built on them.
    `principles` object and `refused_member` are not built. The
    [draft contract](#target-contract-draft) stays as a record.
 6. CCP, OCP, and REP: decide on git history as a data source.
+7. Rust files compiled only under test are test code: done. The Rust
+   parser's module tree records which `mod` declarations are gated by
+   `#[cfg(test)]` (`#[path]` and `cfg(all(test, ...))` included) and marks
+   the gated files, and the files below them, test code; file names are not
+   read. Rebuilt with rust 24 from copies of the same trees: 42 files (302
+   nodes) in dagayn, among them `terraform_bridges_tests.rs`,
+   `dagayn-mcp/src/tests.rs`, and the 35 files of `core_tests/`; 37 (54) in
+   cfwdon, the `unit_tests.rs` modules and `test_fixtures.rs`; 3 (18) in
+   purecrate-ts. dagayn-graph → dagayn-parser is gone from the overview's
+   unit edges, so its 0/48 row leaves the CRP table, and three other edges
+   lose weight. SAP rows do not change: `unit_scopes` counts a unit's tests
+   on purpose (a crate's `tests/` belong to it), so dagayn-mcp's three test
+   structs and dagayn-grammars' `build.rs` type still count. Whether SAP
+   and SDP should read production code only is a separate decision.
 
 ## Touch points
 
