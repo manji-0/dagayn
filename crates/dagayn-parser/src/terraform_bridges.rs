@@ -8,10 +8,14 @@
 //! files, checks the targets against the tree, and writes the
 //! `CROSS_ARTIFACT` edges.
 //!
-//! Layer-1 / Layer-2 evidence only (no naming-only heuristics):
+//! Layer-1 / Layer-2 evidence only (no naming-only heuristics). Sinks:
 //! - `provisioner "local-exec"` command paths
 //! - Lambda / function source path attributes (`filename`, `source_dir`, ...)
+//!   and `data "external"` `program` / `query`
 //! - Explicit entrypoint attributes (`handler`, `entry_point`)
+//!
+//! Values that reach a sink only through another value: `module` call
+//! inputs (the module's `var.<input>`) and `locals` entries.
 
 use std::path::{Component, Path};
 use std::sync::LazyLock;
@@ -61,6 +65,8 @@ const FILENAME_RESOURCE_TYPES: &[&str] = &[
 
 /// The node `extra` key holding a block's [`TerraformValue`]s.
 pub(super) const TERRAFORM_VALUES_KEY: &str = "terraform_values";
+/// The node `extra` key holding a module call's local source directory.
+pub(super) const TERRAFORM_MODULE_DIR_KEY: &str = "module_dir";
 
 /// How the consumer of a value reads it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -88,6 +94,10 @@ impl SinkRole {
 pub(super) enum Slot {
     /// An attribute of a resource or data block that reads it as code.
     Sink(SinkRole),
+    /// An input of a `module` call: the module's `var.<attr>`.
+    ModuleInput,
+    /// A `locals` entry: `local.<attr>`.
+    Local,
 }
 
 /// One attribute value and where it goes: the literal paths and symbol it
@@ -121,6 +131,8 @@ impl TerraformValue {
                 value["slot"] = json!("sink");
                 value["role"] = json!(role.as_str());
             }
+            Slot::ModuleInput => value["slot"] = json!("module_input"),
+            Slot::Local => value["slot"] = json!("local"),
         }
         if let Some(symbol) = &self.symbol {
             value["symbol"] = json!(symbol);
@@ -129,21 +141,72 @@ impl TerraformValue {
     }
 }
 
-/// The values a `resource` or `data` block hands to code.
+/// Module meta-arguments: settings of the call, not inputs of the module.
+const MODULE_META_ARGUMENTS: &[&str] = &[
+    "source",
+    "version",
+    "count",
+    "for_each",
+    "providers",
+    "depends_on",
+];
+
+/// The values a block hands on: what a `resource` or `data` block gives to
+/// code, and the inputs of a `module` call.
 pub(super) fn terraform_block_values(
     file_path: &FilePath,
     block: &TerraformBlock,
 ) -> Vec<TerraformValue> {
-    if !matches!(block.kind.as_str(), "resource" | "data") {
-        return Vec::new();
+    match block.kind.as_str() {
+        "resource" | "data" => sink_values(file_path, block),
+        "module" => terraform_attrs(block)
+            .iter()
+            .filter(|attr| !MODULE_META_ARGUMENTS.contains(&attr.name.as_str()))
+            .map(|attr| attr_value(file_path, Slot::ModuleInput, attr))
+            .filter(|value| value.carries_anything())
+            .collect(),
+        _ => Vec::new(),
     }
+}
+
+/// The value of a `locals` entry, when it carries a path or symbol or passes
+/// another value on.
+pub(super) fn terraform_local_value(
+    file_path: &FilePath,
+    attr: &TerraformAttr,
+) -> Option<TerraformValue> {
+    let value = attr_value(file_path, Slot::Local, attr);
+    value.carries_anything().then_some(value)
+}
+
+/// A module call's local `source` (`./x`, `../x`) as a repository path
+/// (`""` for the root); `None` for registry, git and other remote sources,
+/// and for one climbing above the repository root.
+pub(super) fn terraform_module_dir(file_path: &FilePath, source: &str) -> Option<String> {
+    let source = strip_tf_string(source);
+    if !(source.starts_with("./") || source.starts_with("../")) || source.contains("${") {
+        return None;
+    }
+    let base = Path::new(file_path)
+        .parent()
+        .unwrap_or_else(|| Path::new(""));
+    normalize_within_repo(&base.join(source))
+}
+
+impl TerraformValue {
+    fn carries_anything(&self) -> bool {
+        !(self.paths.is_empty() && self.symbol.is_none() && self.refs.is_empty())
+    }
+}
+
+fn sink_values(file_path: &FilePath, block: &TerraformBlock) -> Vec<TerraformValue> {
     let Some(resource_type) = block.labels.first().map(String::as_str) else {
         return Vec::new();
     };
     let mut values = Vec::new();
     let attrs = terraform_attrs(block);
     for attr in attrs.iter() {
-        if let Some(role) = sink_role(resource_type, &attr.name) {
+        if let Some(role) = sink_role(&block.kind, resource_type, &attr.name) {
             values.push(attr_value(file_path, Slot::Sink(role), attr));
         }
     }
@@ -166,9 +229,15 @@ pub(super) fn terraform_block_values(
     values
 }
 
-fn sink_role(resource_type: &str, attr: &str) -> Option<SinkRole> {
+fn sink_role(block_kind: &str, resource_type: &str, attr: &str) -> Option<SinkRole> {
     if ENTRYPOINT_ATTR_NAMES.contains(&attr) {
         return Some(SinkRole::Entrypoint);
+    }
+    // `data "external"` runs `program` on the machine applying the plan and
+    // hands it `query`: a path there is one the program reads (the Lambda
+    // module's `package.py` packages `source_path` this way).
+    if block_kind == "data" && resource_type == "external" && matches!(attr, "program" | "query") {
+        return Some(SinkRole::CodePath);
     }
     if !PATH_ATTR_NAMES.contains(&attr) {
         return None;
@@ -183,11 +252,23 @@ fn sink_role(resource_type: &str, attr: &str) -> Option<SinkRole> {
 fn attr_value(file_path: &FilePath, slot: Slot, attr: &TerraformAttr) -> TerraformValue {
     let literal = strip_tf_string(&attr.value);
     let is_literal = attr.value.trim_start().starts_with(['"', '\'']) && !literal.contains("${");
+    // A module input or local may be a list or object of paths
+    // (`source_path = [{ path = "..." }]`); every string literal in it counts.
     let paths = match slot {
-        Slot::Sink(SinkRole::CodePath) => concrete_tf_path(&attr.value, file_path)
-            .into_iter()
-            .collect(),
-        Slot::Sink(_) => Vec::new(),
+        Slot::Sink(SinkRole::Entrypoint | SinkRole::Command) => Vec::new(),
+        Slot::Sink(SinkRole::CodePath) | Slot::ModuleInput | Slot::Local => {
+            let mut paths: Vec<String> = match &attr.strings {
+                Some(strings) => strings
+                    .iter()
+                    .filter_map(|string| concrete_tf_path(string, file_path))
+                    .collect(),
+                None => concrete_tf_path(&attr.value, file_path)
+                    .into_iter()
+                    .collect(),
+            };
+            paths.dedup();
+            paths
+        }
     };
     TerraformValue {
         slot,

@@ -425,6 +425,65 @@ resource "aws_lambda_function" "this" {
 }
 
 #[test]
+fn module_calls_record_their_inputs_and_local_source() {
+    let source = br#"
+locals {
+  python = (substr(pathexpand("~"), 0, 1) == "/") ? "python3" : "python.exe"
+  src    = "${path.module}/../fixtures/app"
+}
+
+module "lambda" {
+  source  = "../../"
+  version = "1.0"
+
+  handler     = "index.lambda_handler"
+  source_path = [
+    local.src,
+    { path = "${path.module}/../fixtures/lib", pip_requirements = true },
+  ]
+}
+
+module "registry" {
+  source  = "terraform-aws-modules/lambda/aws"
+  handler = "index.lambda_handler"
+}
+"#;
+    let (nodes, _) = parse_terraform("examples/simple/main.tf", source);
+    let lambda = nodes
+        .iter()
+        .find(|node| node.name == "module.lambda")
+        .unwrap();
+    assert_eq!(lambda.extra["module_dir"], "");
+    let inputs = terraform_values(&nodes, "module.lambda");
+    assert!(inputs.iter().all(|value| value["slot"] == "module_input"));
+    assert!(inputs.iter().all(|value| value["attr"] != "version"));
+    assert_eq!(
+        value_for(&inputs, "handler")["symbol"],
+        "index.lambda_handler"
+    );
+    let source_path = value_for(&inputs, "source_path");
+    assert_eq!(
+        source_path["paths"],
+        serde_json::json!(["examples/fixtures/lib"])
+    );
+    assert_eq!(source_path["refs"], serde_json::json!(["local.src"]));
+    assert_eq!(source_path["lines"], serde_json::json!([12, 15]));
+
+    let registry = nodes
+        .iter()
+        .find(|node| node.name == "module.registry")
+        .unwrap();
+    assert!(registry.extra.get("module_dir").is_none());
+
+    // The `"/"` a condition compares against is not a value of the local.
+    assert!(terraform_values(&nodes, "local.python").is_empty());
+    assert_eq!(
+        value_for(&terraform_values(&nodes, "local.src"), "src")["paths"],
+        serde_json::json!(["examples/fixtures/app"])
+    );
+}
+
+#[test]
 fn blocks_survive_a_file_tree_sitter_cannot_recover() {
     // A stray `}}}` (or an unterminated string) turns the whole tree into one
     // ERROR node; the text scanner still finds the blocks.

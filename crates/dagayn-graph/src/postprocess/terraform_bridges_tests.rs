@@ -146,3 +146,212 @@ fn resource_paths_and_a_unique_handler_become_bridges() {
     // Idempotent: a second run replaces the set with the same edges.
     assert_eq!(repo.bridges().len(), 2);
 }
+
+/// A trimmed terraform-aws-modules/lambda: `source_path` reaches the
+/// packaging program through `data "external"`, `handler` reaches the
+/// function through a conditional, `local_existing_package` through a local.
+const LAMBDA_MODULE_MAIN: &str = r#"
+locals {
+  filename = var.local_existing_package != null ? var.local_existing_package : data.external.archive_prepare.result.filename
+}
+
+data "external" "archive_prepare" {
+  program = ["python3", "${path.module}/package.py", "prepare"]
+  query = {
+    runtime     = var.runtime
+    source_path = try(tostring(var.source_path), jsonencode(var.source_path))
+  }
+}
+
+resource "aws_lambda_function" "this" {
+  handler  = var.package_type != "Zip" ? null : var.handler
+  runtime  = var.runtime
+  filename = local.filename
+}
+"#;
+
+const LAMBDA_MODULE_VARIABLES: &str = r#"
+variable "source_path" {}
+variable "handler" {}
+variable "runtime" {}
+variable "package_type" {}
+variable "local_existing_package" {}
+"#;
+
+fn lambda_repo(name: &str, caller: &str) -> Repo {
+    Repo::new(
+        name,
+        &[
+            ("main.tf", LAMBDA_MODULE_MAIN),
+            ("variables.tf", LAMBDA_MODULE_VARIABLES),
+            ("package.py", "def prepare():\n    return 1\n"),
+            (
+                "examples/fixtures/app/index.py",
+                "def lambda_handler(event, context):\n    return 1\n",
+            ),
+            // Another `index.lambda_handler`: only the call's own code can say
+            // which one it runs.
+            (
+                "examples/fixtures/other/index.py",
+                "def lambda_handler(event, context):\n    return 2\n",
+            ),
+            ("examples/simple/main.tf", caller),
+        ],
+    )
+}
+
+#[test]
+fn module_inputs_bridge_through_the_module_to_the_code_they_name() {
+    let mut repo = lambda_repo(
+        "module-inputs",
+        r#"
+module "lambda" {
+  source = "../../"
+
+  handler      = "index.lambda_handler"
+  runtime      = "python3.12"
+  package_type = "Zip"
+  source_path  = [
+    "${path.module}/../fixtures/app",
+    { path = "${path.module}/../fixtures/other/index.py", pip_requirements = false },
+  ]
+}
+"#,
+    );
+    let call = "examples/simple/main.tf::module.lambda";
+    let bridges = repo.bridges();
+    let from_call: Vec<_> = bridges.iter().filter(|b| b.0 == call).cloned().collect();
+    assert_eq!(
+        from_call,
+        vec![
+            // Ambiguous across the two code paths this call names.
+            row(call, "<unresolved:index.lambda_handler>", "handler", "HIGH"),
+            row(call, "examples/fixtures/app", "source_path", "HIGH"),
+            row(
+                call,
+                "examples/fixtures/other/index.py",
+                "source_path",
+                "HIGH"
+            ),
+        ],
+    );
+    let extra = repo.bridge_extra(call, "examples/fixtures/app");
+    assert_eq!(extra["binding"], "module_input");
+    assert_eq!(
+        extra["consumers"],
+        json!(["main.tf::data.external.archive_prepare.query"])
+    );
+    assert_eq!(extra["attr_lines"], json!([8, 11]));
+    // The module's own program is a bridge of the module, not of the call.
+    assert!(bridges.contains(&row(
+        "main.tf::data.external.archive_prepare",
+        "package.py",
+        "program",
+        "HIGH"
+    )));
+}
+
+#[test]
+fn a_module_call_handler_resolves_in_the_code_that_call_names() {
+    let mut repo = lambda_repo(
+        "module-handler",
+        r#"
+module "lambda" {
+  source = "../../"
+
+  handler     = "index.lambda_handler"
+  source_path = "${path.module}/../fixtures/app"
+}
+"#,
+    );
+    let call = "examples/simple/main.tf::module.lambda";
+    let bridges = repo.bridges();
+    assert!(bridges.contains(&row(
+        call,
+        "examples/fixtures/app/index.py::lambda_handler",
+        "handler",
+        "HIGH"
+    )));
+    let modules: Vec<String> = {
+        let mut stmt = repo
+            .store
+            .conn
+            .prepare(
+                "SELECT target_qualified FROM edges WHERE kind = 'IMPORTS_FROM' \
+                 AND source_qualified = ? AND json_extract(extra, '$.extractor') = \
+                 'terraform_modules' ORDER BY target_qualified",
+            )
+            .unwrap();
+        stmt.query_map([call], |row| row.get(0))
+            .unwrap()
+            .collect::<std::result::Result<_, _>>()
+            .unwrap()
+    };
+    assert_eq!(modules, vec!["main.tf", "variables.tf"]);
+}
+
+#[test]
+fn a_handler_whose_code_is_only_in_a_package_stays_unresolved() {
+    let mut repo = lambda_repo(
+        "module-package",
+        r#"
+module "lambda" {
+  source = "../../"
+
+  handler                = "index.lambda_handler"
+  local_existing_package = "${path.module}/../fixtures/existing_package.zip"
+}
+"#,
+    );
+    let call = "examples/simple/main.tf::module.lambda";
+    let from_call: Vec<_> = repo
+        .bridges()
+        .into_iter()
+        .filter(|b| b.0 == call)
+        .map(|b| (b.1, b.2))
+        .collect();
+    assert_eq!(
+        from_call,
+        vec![
+            (
+                "<unresolved:index.lambda_handler>".to_string(),
+                "handler".to_string()
+            ),
+            (
+                "examples/fixtures/existing_package.zip".to_string(),
+                "local_existing_package".to_string()
+            ),
+        ]
+    );
+}
+
+#[test]
+fn values_pass_through_locals_and_nested_module_calls() {
+    let mut repo = Repo::new(
+        "nested",
+        &[
+            ("app/serve.py", "def serve(request):\n    return 1\n"),
+            (
+                "modules/core/main.tf",
+                "locals {\n  entry = var.entry_point\n}\n\nresource \"google_cloudfunctions2_function\" \"fn\" {\n  build_config {\n    entry_point = local.entry\n  }\n}\n",
+            ),
+            (
+                "modules/wrapper/main.tf",
+                "module \"core\" {\n  source      = \"../core\"\n  entry_point = var.entrypoint\n}\n",
+            ),
+            (
+                "examples/main.tf",
+                "module \"wrapper\" {\n  source     = \"../modules/wrapper\"\n  entrypoint = \"serve\"\n  region     = \"serve\"\n}\n\nmodule \"remote\" {\n  source     = \"../../outside\"\n  entrypoint = \"serve\"\n}\n",
+            ),
+        ],
+    );
+    assert_eq!(
+        repo.bridges(),
+        vec![row(
+            "examples/main.tf::module.wrapper",
+            "app/serve.py::serve",
+            "entrypoint",
+            "HIGH"
+        )]
+    );
+}

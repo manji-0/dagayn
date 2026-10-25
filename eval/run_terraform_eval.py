@@ -67,8 +67,8 @@ ROOT = Path(__file__).resolve().parent.parent
 FIXTURE = ROOT / "eval" / "terraform_repos.yaml"
 THRESHOLDS = ROOT / "eval" / "terraform_thresholds.yaml"
 
-EXTRACTED_FAMILIES = ("path_attr", "local_exec", "entrypoint")
-UNCOVERED_FAMILIES = ("module_input", "object_source", "external_program", "file_call")
+EXTRACTED_FAMILIES = ("path_attr", "local_exec", "entrypoint", "module_input", "external_program")
+UNCOVERED_FAMILIES = ("object_source", "file_call")
 FAMILY_OF_EVIDENCE = {
     "filename": "path_attr",
     "source_dir": "path_attr",
@@ -77,6 +77,8 @@ FAMILY_OF_EVIDENCE = {
     "provisioner.local-exec.command": "local_exec",
     "handler": "entrypoint",
     "entry_point": "entrypoint",
+    "program": "external_program",
+    "query": "external_program",
 }
 
 
@@ -91,9 +93,18 @@ class Edge:
     line: int
     evidence_source: str
     symbol: str | None
+    # How the literal reached the code: a module input or a local, else the
+    # block's own attribute.
+    binding: str | None = None
 
     @property
     def family(self) -> str:
+        if self.binding == "module_input":
+            return "module_input"
+        if self.binding:
+            return f"other:{self.binding}"
+        if self.evidence_source.endswith(".entry_point"):
+            return "entrypoint"
         return FAMILY_OF_EVIDENCE.get(self.evidence_source, f"other:{self.evidence_source}")
 
 
@@ -151,11 +162,12 @@ def read_edges(db: Path) -> tuple[list[Edge], list[tuple[str, str]], set[str]]:
     """Terraform CROSS_ARTIFACT edges, module IMPORTS_FROM edges, node names."""
     with sqlite3.connect(f"file:{db}?mode=ro", uri=True) as conn:
         bridges = [
-            Edge(source, target, line or 0, evidence or "", symbol)
-            for source, target, line, evidence, symbol in conn.execute(
+            Edge(source, target, line or 0, evidence or "", symbol, binding)
+            for source, target, line, evidence, symbol, binding in conn.execute(
                 "SELECT source_qualified, target_qualified, line, "
                 "json_extract(extra, '$.evidence_source'), "
-                "json_extract(extra, '$.original_symbol_name') FROM edges "
+                "json_extract(extra, '$.original_symbol_name'), "
+                "json_extract(extra, '$.binding') FROM edges "
                 "WHERE kind = 'CROSS_ARTIFACT' "
                 "AND json_extract(extra, '$.source_language') = 'terraform'"
             )
@@ -254,8 +266,13 @@ def score_repo(
     module_edges = set(modules)
     module_truth = [e for e in truth if e["family"] == "module_source"]
     recorded = sum((e["source"], e["value"]) in module_edges for e in module_truth)
+    # Resolved: an IMPORTS_FROM to a file node of the module's directory
+    # (`target` is the directory, '' for the repository root).
     resolved = sum(
-        any((e["source"], t) in module_edges and t in nodes for t in _targets(e))
+        any(
+            source == e["source"] and file in nodes and file.rpartition("/")[0] in _targets(e)
+            for source, file in module_edges
+        )
         for e in module_truth
     )
     return {
@@ -291,9 +308,17 @@ def summarize(per_repo: dict[str, dict[str, Any]]) -> dict[str, Any]:
             "recall": ratio(expected - fn, expected),
         }
 
-    families = {f: family_metrics(total, f) for f in (*EXTRACTED_FAMILIES, *UNCOVERED_FAMILIES)}
+    # Families the fixture has no entry for (`other:...`) still count against
+    # precision: every emitted edge is scored.
+    others = sorted(
+        {key.split("/")[0] for key in total} - {*EXTRACTED_FAMILIES, *UNCOVERED_FAMILIES}
+    )
+    families = {
+        f: family_metrics(total, f) for f in (*EXTRACTED_FAMILIES, *UNCOVERED_FAMILIES, *others)
+    }
     extracted = {
-        k: sum(families[f][k] for f in EXTRACTED_FAMILIES) for k in ("tp", "fp", "fn", "expected")
+        k: sum(families[f][k] for f in (*EXTRACTED_FAMILIES, *others))
+        for k in ("tp", "fp", "fn", "expected")
     }
     every = {k: sum(families[f][k] for f in families) for k in ("tp", "fp", "fn", "expected")}
     real_reference = sum(total.get(f"{f}/fp_real_reference", 0) for f in EXTRACTED_FAMILIES)
@@ -437,6 +462,12 @@ def format_report(result: dict[str, Any]) -> str:
         "| repo | family | expected | tp | fp | fn | unresolved | precision | recall |",
         "|---|---|---|---|---|---|---|---|---|",
     ]
+    for family, m in summary["families"].items():
+        if m["expected"] or m["tp"] or m["fp"] or m["unresolved"]:
+            lines.append(
+                f"| all | {family} | {m['expected']} | {m['tp']} | {m['fp']} | {m['fn']} | "
+                f"{m['unresolved']} | {m['precision']} | {m['recall']} |"
+            )
     for repo, families in summary["per_repo"].items():
         for family, m in families.items():
             lines.append(

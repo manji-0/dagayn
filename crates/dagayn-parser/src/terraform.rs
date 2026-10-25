@@ -6,7 +6,10 @@ use super::documentation_directives::{
     extract_line_comment_dagayn_directives, nearest_documentation_source,
     push_documentation_directive_edge,
 };
-use super::terraform_bridges::{TERRAFORM_VALUES_KEY, TerraformValue, terraform_block_values};
+use super::terraform_bridges::{
+    TERRAFORM_MODULE_DIR_KEY, TERRAFORM_VALUES_KEY, TerraformValue, terraform_block_values,
+    terraform_local_value, terraform_module_dir,
+};
 use super::terraform_collect::{
     TERRAFORM_CALL_RE, TerraformAttr, TerraformBlock, collect_terraform_blocks,
     collect_terraform_reference_targets, strip_tf_string, terraform_attrs,
@@ -222,6 +225,12 @@ fn parse_terraform_hcl(
                         terraform_kind: "local",
                     },
                 );
+                record_terraform_values(
+                    &mut nodes,
+                    terraform_local_value(&file_path, attr)
+                        .into_iter()
+                        .collect(),
+                );
                 scan_terraform_attr(
                     attr,
                     &terraform_qualified(&file_path, &node_name),
@@ -282,6 +291,12 @@ fn parse_terraform_hcl(
                 .iter()
                 .find(|attr| attr.name == "source")
         {
+            if let (Some(dir), Some(node)) = (
+                terraform_module_dir(&file_path, &source_attr.value),
+                nodes.last_mut(),
+            ) {
+                node.extra[TERRAFORM_MODULE_DIR_KEY] = Value::String(dir);
+            }
             edges.push(ParsedEdge::new(
                 crate::core::types::EdgeKind::ImportsFrom,
                 terraform_qualified(&file_path, &node_name),

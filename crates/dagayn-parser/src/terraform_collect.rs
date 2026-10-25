@@ -551,10 +551,30 @@ fn value_reference(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String>
     matches!(root.as_str(), "var" | "local").then(|| format!("{root}.{name}"))
 }
 
+/// String literals in value position, by the rules of [`collect_value_refs`]
+/// (a template with interpolations is kept whole: it may be a path).
 fn collect_string_literals(node: tree_sitter::Node<'_>, source: &[u8], out: &mut Vec<String>) {
-    if node.kind() == "quoted_template" {
-        out.push(strip_tf_string(&node_text(node, source)));
-        return;
+    match node.kind() {
+        "quoted_template" => {
+            out.push(strip_tf_string(&node_text(node, source)));
+            return;
+        }
+        "conditional" => {
+            for field in ["true_val", "false_val"] {
+                if let Some(branch) = node.child_by_field_name(field) {
+                    collect_string_literals(branch, source, out);
+                }
+            }
+            return;
+        }
+        "operation" | "for_tuple_expr" | "for_object_expr" | "heredoc_template" => return,
+        "object_elem" => {
+            if let Some(value) = node.child_by_field_name("value") {
+                collect_string_literals(value, source, out);
+            }
+            return;
+        }
+        _ => {}
     }
     let mut cursor = node.walk();
     for child in node.named_children(&mut cursor) {
