@@ -1193,3 +1193,242 @@ import def from "./def";
         "{edges:?}"
     );
 }
+
+/// A fresh temporary repository holding `files`.
+fn workspace_fixture(label: &str, files: &[(&str, &str)]) -> std::path::PathBuf {
+    let mut repo_root = std::env::temp_dir();
+    repo_root.push(format!(
+        "dagayn-parser-ts-workspace-{label}-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    let _ = std::fs::remove_dir_all(&repo_root);
+    for (path, body) in files {
+        let path = repo_root.join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, body).unwrap();
+    }
+    repo_root
+}
+
+fn has_edge(edges: &[ParsedEdge], kind: &str, source: &str, target: &str) -> bool {
+    edges
+        .iter()
+        .any(|edge| edge.kind == kind && edge.source == source && edge.target == target)
+}
+
+/// A pnpm workspace member imported by its package name resolves through
+/// the member's `package.json` `exports` to its files: calls, `import type`
+/// annotations, `implements`, and `extends` reach the real symbols through
+/// the member's barrel.
+#[test]
+fn resolves_pnpm_workspace_package_imports() {
+    let repo_root = workspace_fixture(
+        "pnpm",
+        &[
+            (
+                "pnpm-workspace.yaml",
+                "packages:\n  - \"packages/*\"\n  - '!packages/ignored'\n\ncatalog:\n  vite: 1.0.0\n",
+            ),
+            ("package.json", r#"{ "name": "root", "private": true }"#),
+            (
+                "packages/a/package.json",
+                r#"{
+  "name": "@ws/a",
+  "exports": {
+    ".": { "types": "./src/index.ts", "import": "./dist/index.js" },
+    "./util": "./src/util.ts",
+    "./feature/*": { "default": "./src/feature/*.ts" }
+  }
+}"#,
+            ),
+            (
+                "packages/a/src/index.ts",
+                "export { greet } from \"./greet\";\nexport type { Greeter } from \"./types\";\nexport * from \"./base\";\n",
+            ),
+            ("packages/a/src/base.ts", "export abstract class Base {}\n"),
+            (
+                "packages/a/src/greet.ts",
+                "export function greet(name: string): string { return name; }\n",
+            ),
+            (
+                "packages/a/src/types.ts",
+                "export interface Greeter { hi(): void; }\n",
+            ),
+            ("packages/a/src/util.ts", "export function shout() {}\n"),
+            ("packages/a/src/feature/x.ts", "export function fx() {}\n"),
+            (
+                "packages/ignored/package.json",
+                r#"{ "name": "@ws/ignored", "main": "index.ts" }"#,
+            ),
+            ("packages/ignored/index.ts", "export function gone() {}\n"),
+            ("packages/b/package.json", r#"{ "name": "@ws/b" }"#),
+            // tsconfig `paths` keeps precedence over the workspace.
+            ("packages/c/package.json", r#"{ "name": "@ws/c" }"#),
+            (
+                "packages/c/tsconfig.json",
+                r#"{ "compilerOptions": { "paths": { "@ws/a": ["./src/fake-a.ts"] } } }"#,
+            ),
+            ("packages/c/src/fake-a.ts", "export function greet() {}\n"),
+        ],
+    );
+    let source = r#"import { greet } from "@ws/a";
+import type { Greeter } from "@ws/a";
+import { shout } from "@ws/a/util";
+import { fx } from "@ws/a/feature/x";
+import { gone } from "@ws/ignored";
+import { Base } from "@ws/a";
+
+export class Job extends Base {}
+
+export class Loud implements Greeter {
+  hi(): void { shout(); fx(); }
+}
+
+export function run(g: Greeter): string {
+  gone();
+  return greet("x");
+}
+"#;
+    let file = "packages/b/src/main.ts";
+    std::fs::create_dir_all(repo_root.join("packages/b/src")).unwrap();
+    std::fs::write(repo_root.join(file), source).unwrap();
+    let mut parser = RustOwnedParser::new();
+    let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), file, source.as_bytes());
+    for (kind, from, to) in [
+        ("IMPORTS_FROM", file, "packages/a/src/index.ts"),
+        ("IMPORTS_FROM", file, "packages/a/src/util.ts"),
+        ("IMPORTS_FROM", file, "packages/a/src/feature/x.ts"),
+        (
+            "CALLS",
+            "packages/b/src/main.ts::run",
+            "packages/a/src/greet.ts::greet",
+        ),
+        (
+            "CALLS",
+            "packages/b/src/main.ts::Loud.hi",
+            "packages/a/src/util.ts::shout",
+        ),
+        (
+            "CALLS",
+            "packages/b/src/main.ts::Loud.hi",
+            "packages/a/src/feature/x.ts::fx",
+        ),
+        (
+            "REFERENCES",
+            "packages/b/src/main.ts::run",
+            "packages/a/src/types.ts::Greeter",
+        ),
+        (
+            "IMPLEMENTS",
+            "packages/b/src/main.ts::Loud",
+            "packages/a/src/types.ts::Greeter",
+        ),
+        (
+            "INHERITS",
+            "packages/b/src/main.ts::Job",
+            "packages/a/src/base.ts::Base",
+        ),
+        // A member the workspace excludes stays an external package.
+        ("CALLS", "packages/b/src/main.ts::run", "@ws/ignored::gone"),
+    ] {
+        assert!(
+            has_edge(&edges, kind, from, to),
+            "{kind} {from} -> {to}: {edges:?}"
+        );
+    }
+
+    let file = "packages/c/src/main.ts";
+    let source = "import { greet } from \"@ws/a\";\nexport function run() { greet(); }\n";
+    std::fs::write(repo_root.join(file), source).unwrap();
+    let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), file, source.as_bytes());
+    assert!(
+        has_edge(
+            &edges,
+            "CALLS",
+            "packages/c/src/main.ts::run",
+            "packages/c/src/fake-a.ts::greet"
+        ),
+        "{edges:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&repo_root);
+}
+
+/// npm / yarn `workspaces` (an array, or `{ "packages": [...] }`) declare
+/// members too; without `exports` a member resolves through `types`,
+/// `main`, or its `index.*`, and a subpath through its directory.
+#[test]
+fn resolves_npm_and_yarn_workspace_package_imports() {
+    let repo_root = workspace_fixture(
+        "npm",
+        &[
+            (
+                "package.json",
+                r#"{ "name": "root", "workspaces": ["libs/*", "tools/cli"] }"#,
+            ),
+            (
+                "libs/c/package.json",
+                r#"{ "name": "c-lib", "main": "./lib/index.js" }"#,
+            ),
+            ("libs/c/lib/index.ts", "export function cee() {}\n"),
+            ("libs/d/package.json", r#"{ "name": "d-lib" }"#),
+            ("libs/d/index.ts", "export function dee() {}\n"),
+            ("libs/d/src/thing.ts", "export function thing() {}\n"),
+            ("tools/cli/package.json", r#"{ "name": "cli" }"#),
+        ],
+    );
+    let file = "tools/cli/main.ts";
+    let source = r#"import { cee } from "c-lib";
+import { dee } from "d-lib";
+import { thing } from "d-lib/src/thing";
+export function main() { cee(); dee(); thing(); }
+"#;
+    std::fs::write(repo_root.join(file), source).unwrap();
+    let mut parser = RustOwnedParser::new();
+    let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), file, source.as_bytes());
+    for target in [
+        "libs/c/lib/index.ts::cee",
+        "libs/d/index.ts::dee",
+        "libs/d/src/thing.ts::thing",
+    ] {
+        assert!(
+            has_edge(&edges, "CALLS", "tools/cli/main.ts::main", target),
+            "{target}: {edges:?}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&repo_root);
+
+    let repo_root = workspace_fixture(
+        "yarn",
+        &[
+            (
+                "package.json",
+                r#"{ "private": true, "workspaces": { "packages": ["modules/**"], "nohoist": [] } }"#,
+            ),
+            (
+                "modules/group/e/package.json",
+                r#"{ "name": "@y/e", "types": "./types/index.d.ts", "main": "./dist/index.js" }"#,
+            ),
+            (
+                "modules/group/e/types/index.d.ts",
+                "export declare function ee(): void;\n",
+            ),
+            ("app/package.json", r#"{ "name": "app" }"#),
+        ],
+    );
+    let file = "app/main.ts";
+    let source = "import { ee } from \"@y/e\";\nexport function main() { ee(); }\n";
+    std::fs::write(repo_root.join(file), source).unwrap();
+    let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), file, source.as_bytes());
+    assert!(
+        has_edge(
+            &edges,
+            "CALLS",
+            "app/main.ts::main",
+            "modules/group/e/types/index.d.ts::ee"
+        ),
+        "{edges:?}"
+    );
+    let _ = std::fs::remove_dir_all(&repo_root);
+}

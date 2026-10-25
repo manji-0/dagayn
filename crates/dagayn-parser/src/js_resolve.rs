@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use super::js_modules::{JavaScriptCaches, JavaScriptImportMap, JavaScriptTsconfigCache};
+use super::js_workspace::resolve_javascript_workspace_package;
 use super::util::normalize_relative_path;
 
 /// The npm package a bare specifier names: `react`, `@scope/name` for
@@ -139,7 +140,13 @@ fn resolve_javascript_module_uncached(
     caches: JavaScriptCaches<'_>,
 ) -> Option<String> {
     if !module.starts_with('.') {
-        return resolve_javascript_alias(module, file_path, repo_root, caches);
+        // tsconfig `paths` first, as TypeScript does; then a workspace
+        // member named by its package name.
+        return resolve_javascript_alias(module, file_path, repo_root, caches).or_else(|| {
+            repo_root.and_then(|root| {
+                resolve_javascript_workspace_package(module, file_path, root, caches.workspace)
+            })
+        });
     }
     let caller_dir = Path::new(file_path)
         .parent()
@@ -408,7 +415,10 @@ fn javascript_alias_match(pattern: &str, module: &str) -> Option<String> {
 /// [`JAVASCRIPT_MODULE_EXTENSIONS`] appended to the full path (never
 /// replacing a dotted segment such as `.service`), then `index.*` when the
 /// path is a directory. A file therefore wins over a same-stem directory.
-fn probe_javascript_module_candidate(candidate: &Path, repo_root: Option<&Path>) -> Option<String> {
+pub(super) fn probe_javascript_module_candidate(
+    candidate: &Path,
+    repo_root: Option<&Path>,
+) -> Option<String> {
     if javascript_module_candidate_is_file(candidate, repo_root) {
         return javascript_module_candidate_path(candidate.to_path_buf(), repo_root);
     }

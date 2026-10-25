@@ -1,6 +1,7 @@
 use serde_json::json;
 
 use super::js_calls::{javascript_call_name, javascript_namespace_member_target};
+use super::js_members::resolve_javascript_type_reference;
 use super::js_modules::{JavaScriptParseContext, resolve_javascript_call_target};
 use super::js_types::javascript_emit_heritage_type_references;
 use super::types::ParsedEdge;
@@ -122,7 +123,7 @@ fn javascript_expression_base(
             }
             "identifier" => {
                 bases.push(JavaScriptHeritageBase {
-                    target: node_text(current, context.source),
+                    target: imported_base(&node_text(current, context.source), context),
                     role: "extends",
                     heritage_expression,
                 });
@@ -174,7 +175,10 @@ fn javascript_type_base(
     context: &JavaScriptParseContext<'_>,
 ) -> Option<(String, Option<String>)> {
     match node.kind() {
-        "type_identifier" | "identifier" => Some((node_text(node, context.source), None)),
+        "type_identifier" | "identifier" => Some((
+            imported_base(&node_text(node, context.source), context),
+            None,
+        )),
         "generic_type" => javascript_type_base(node.child_by_field_name("name")?, context),
         "nested_type_identifier" => {
             let name = node_text(node.child_by_field_name("name")?, context.source);
@@ -186,4 +190,16 @@ fn javascript_type_base(
         }
         _ => None,
     }
+}
+
+/// An imported base resolves through the import, re-exports included, to
+/// the declaration (`implements Greeter` with `Greeter` from a package
+/// barrel); any other name stays bare for resolution across files.
+fn imported_base(name: &str, context: &JavaScriptParseContext<'_>) -> String {
+    if context.import_map.contains_key(name)
+        && let Some(target) = resolve_javascript_type_reference(context, name, None, true)
+    {
+        return target;
+    }
+    name.to_string()
 }
