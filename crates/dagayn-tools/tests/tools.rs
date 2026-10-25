@@ -2831,6 +2831,38 @@ fn unstable_dependencies_are_found_where_they_are_introduced() {
     assert_eq!(unstable(&overview).len(), 1, "{}", overview["findings"]);
 }
 
+/// docs/SAP-METRICS.md#which-types-count-toward-nt-and-na: a struct counts
+/// toward a unit's types, so a crate of one trait and one struct is half
+/// abstract, not wholly.
+#[test]
+fn abstractness_counts_structs_and_enums_as_types() {
+    // dagayn: tests crates/dagayn-tools/src/architecture.rs::sap_metrics
+    let repo = Repo::new("sap-structs", true);
+    layered_workspace(&repo);
+    repo.write(
+        "kernel/src/lib.rs",
+        "use plugins::plugin;\n\npub fn base() -> i64 {\n    1 + plugin()\n}\n",
+    );
+    repo.write(
+        "plugins/src/lib.rs",
+        "use extras::extra;\nuse thirdparty::vendored;\n\npub trait Plugin {\n    fn run(&self) -> i64;\n}\n\npub struct Builtin;\n\npub enum Kind {\n    Fast,\n    Slow,\n}\n\npub fn plugin() -> i64 {\n    extra() + vendored()\n}\n",
+    );
+    repo.build();
+    let context = Context {
+        runtime: Some(json!({})),
+        ..repo.context()
+    };
+    let overview = answer(&context, "architecture_analysis_tool", json!({}));
+    let finding = overview["findings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|finding| finding["kind"] == "unstable_dependency")
+        .unwrap_or_else(|| panic!("{}", overview["findings"]));
+    let sap = &finding["evidence"]["target"]["sap"];
+    assert_eq!(sap["abstractness"].as_f64(), Some(0.3333), "{sap}");
+}
+
 /// Calls the Rust call graph used to miss, resolved across files: a method
 /// on a closure parameter over the elements of what another file's
 /// function returns, and methods passed as values (docs/plans/TEST-REACH-TARGET.md#remaining-gaps).
