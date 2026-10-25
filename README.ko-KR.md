@@ -249,7 +249,7 @@ dagayn serve --tools query_graph_tool,semantic_search_nodes_tool
 
 `--tools`는 일부 공개 도구를 숨겨야 하는 배포를 위한 쉼표로 구분된 정확한 허용 목록입니다. 지속 서버 설정은 같은 제어에 `CRG_TOOLS`를 쓸 수 있습니다.
 
-도구 응답은 보정된 guidance 계약을 사용합니다. 호환 필드(`status`, `summary`, `_hints`, `next_tool_suggestions`)는 남고, 리뷰·아키텍처·플로·리팩터·검색·쿼리 응답에는 `guidance`, `answerability`, `missingness`도 포함될 수 있습니다. guidance 항목은 `claim`, `evidence`, `confidence`, `missingness`, `action`, `reason_codes`, `counts`를 가져서 에이전트가 그래프 출력을 판결이 아니라 증거 순위 단서로 다루게 합니다. 상위 권장에는 `detail_level="minimal"`, 전체 뒷받침 섹션에는 `detail_level="standard"`를 쓰세요. `query_graph_tool`의 0건·미발견 응답에는 `zero_result_reason`, `next_action`, `result_count`, `results`, `answerability`, `missingness`가 포함됩니다. 부재는 소스나 테스트로 확인할 때까지 그래프 한정으로 다루세요. 문서 브리지 결과는 증거를 `authored`, `extracted`, `heuristic_reachable`로 라벨하여 Markdown 추적 가능성과 검증된 계약을 혼동하지 않게 합니다.
+도구 응답은 보정된 guidance 계약을 사용합니다. 호환 필드(`status`, `summary`)는 남고, 리뷰·아키텍처·플로·리팩터·검색·쿼리 응답에는 `guidance`, `answerability`, `missingness`도 포함될 수 있습니다. guidance 항목은 `claim`, `evidence`, `confidence`, `missingness`, `action`, `reason_codes`, `counts`를 가져서 에이전트가 그래프 출력을 판결이 아니라 증거 순위 단서로 다루게 합니다. 상위 권장에는 `detail_level="minimal"`, 전체 뒷받침 섹션에는 `detail_level="standard"`를 쓰세요. `query_graph_tool`의 0건·미발견 응답에는 `zero_result_reason`, `next_action`, `result_count`, `results`, `answerability`, `missingness`가 포함됩니다. 부재는 소스나 테스트로 확인할 때까지 그래프 한정으로 다루세요. 문서 브리지 결과는 증거를 `authored`, `extracted`, `heuristic_reachable`로 라벨하여 Markdown 추적 가능성과 검증된 계약을 혼동하지 않게 합니다.
 
 ## AI 플랫폼 통합
 

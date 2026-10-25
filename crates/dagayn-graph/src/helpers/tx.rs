@@ -70,8 +70,6 @@ fn delete_node_keyed_rows_tx(
 
 pub(crate) fn remove_file_data_tx(tx: &Transaction<'_>, file_path: &str) -> Result<()> {
     crate::fts_sync::delete_fts_for_file_paths_tx(tx, &[file_path.to_string()])?;
-    tx.execute("DELETE FROM hub_scores WHERE file_path = ?", [file_path])?;
-    tx.execute("DELETE FROM bridge_scores WHERE file_path = ?", [file_path])?;
     delete_node_keyed_rows_tx(tx, "file_path = ?", &[file_path.to_string()])?;
     tx.execute("DELETE FROM edges WHERE file_path = ?", [file_path])?;
     tx.execute("DELETE FROM nodes WHERE file_path = ?", [file_path])?;
@@ -97,10 +95,6 @@ pub(super) fn remove_files_rows_tx(tx: &Transaction<'_>, file_paths: &[String]) 
             .collect::<Vec<_>>()
             .join(",");
         delete_node_keyed_rows_tx(tx, &format!("file_path IN ({placeholders})"), chunk)?;
-        let hub_sql = format!("DELETE FROM hub_scores WHERE file_path IN ({placeholders})");
-        tx.execute(&hub_sql, rusqlite::params_from_iter(chunk))?;
-        let bridge_sql = format!("DELETE FROM bridge_scores WHERE file_path IN ({placeholders})");
-        tx.execute(&bridge_sql, rusqlite::params_from_iter(chunk))?;
         let edges_sql = format!("DELETE FROM edges WHERE file_path IN ({placeholders})");
         tx.execute(&edges_sql, rusqlite::params_from_iter(chunk))?;
         let nodes_sql = format!("DELETE FROM nodes WHERE file_path IN ({placeholders})");

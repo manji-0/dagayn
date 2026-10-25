@@ -12,13 +12,11 @@ use std::path::Path;
 
 use serde_json::{Value, json};
 
-use crate::architecture::{Artifact, Profile, ScopeGraph, Snapshot, View, sap_metrics};
+use crate::architecture::{Artifact, ScopeGraph, Snapshot, View, sap_metrics};
 use crate::changes::Ranges;
 use crate::suggestions::round_to;
 
-/// The instability gap that makes a dependency a finding: the default of
-/// `architecture_analysis_tool(mode="sdp_violations")`, so the mode and the
-/// finding agree.
+/// The instability gap that makes a dependency a finding.
 pub(crate) const MIN_DELTA: f64 = 0.1;
 /// Edges a finding names as the places that make the dependency.
 const MAX_SITES: usize = 3;
@@ -36,12 +34,11 @@ pub(crate) struct UnstableDependency {
     target_sap: Option<Value>,
 }
 
-/// The declared-unit view the SDP metric modes use by default.
+/// The declared-unit view: code, scoped by declared unit.
 fn unit_view(root: &Path, snapshot: &Snapshot) -> View {
     View {
         file_scopes: false,
         artifact: Artifact::Code,
-        profile: Profile::StrictStatic,
         units: Some(snapshot.unit_scopes(root)),
     }
 }
@@ -74,7 +71,7 @@ pub(crate) fn unstable_dependencies(root: &Path, snapshot: &Snapshot) -> Vec<Uns
         .into_iter()
         .map(|(name, ca, ce, instability)| (name, (ca, ce, instability)))
         .collect();
-    let violations = graph.sdp_violations(MIN_DELTA, view.profile);
+    let violations = graph.sdp_violations(MIN_DELTA);
     if violations.is_empty() {
         return Vec::new();
     }

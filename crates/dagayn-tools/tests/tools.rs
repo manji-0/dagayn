@@ -124,31 +124,15 @@ fn stats_count_the_graph_and_report_the_repository() {
         stats["_repo"]["repo_root"],
         repo.0.to_string_lossy().as_ref()
     );
-    assert_eq!(
-        stats["next_tool_suggestions"].as_array().map(Vec::len),
-        Some(3)
-    );
+    for gone in ["_hints", "next_tool_suggestions"] {
+        assert!(stats.get(gone).is_none(), "{gone}");
+    }
     let text = call(&repo.context(), "list_graph_stats_tool", &json!({}))
         .expect("answered")
         .text;
     assert!(
         text.starts_with(r#"{"status":"ok","summary":"Graph stats for "#),
         "{text}"
-    );
-}
-
-#[test]
-fn suggestions_follow_the_tool_surface() {
-    // dagayn: tests crates/dagayn-tools/src/flow.rs::flow
-    // dagayn: tests crates/dagayn-tools/src/stats.rs::list_graph_stats
-    let repo = Repo::new("surface", false);
-    repo.build();
-    let mut context = repo.context();
-    context.allowed_tools = Some(["flow_tool".to_string()].into_iter().collect());
-    let stats = answer(&context, "list_graph_stats_tool", json!({}));
-    assert_eq!(
-        stats["next_tool_suggestions"],
-        json!(["flow_tool mode=\"list\" -- inspect critical reachable-set flows"])
     );
 }
 
@@ -1356,6 +1340,12 @@ fn review_changes_scores_the_diff_against_base() {
         verbose_changes["changed_functions"],
         changes["changed_functions"]
     );
+    let rows = changes["changed_functions"].as_array().expect("rows");
+    assert!(!rows.is_empty());
+    for row in rows {
+        assert!(row.get("risk_score").is_none(), "{row}");
+        assert!(row.get("review_priority_score").is_none(), "{row}");
+    }
     // verbose keeps the diagnosis the agent's envelope leaves out.
     assert_eq!(verbose_changes["called_subtool"], "detect_changes_func");
     assert!(verbose_changes["_runtime"].is_object());
@@ -1637,44 +1627,6 @@ fn architecture_metrics_follow_the_requested_view() {
         ..repo.context()
     };
     let arch = |arguments: Value| answer(&context, "architecture_analysis_tool", arguments);
-    let sdp = arch(json!({"mode": "sdp_metrics", "granularity": "file", "top_n": 1}));
-    assert!(sdp.get("called_subtool").is_none());
-    assert!(sdp.get("answerability").is_none());
-    assert!(sdp.get("_hints").is_none());
-    assert_eq!(sdp["metrics"].as_array().map(Vec::len), Some(1));
-    // verbose carries none of the earlier next-step fields either.
-    let sdp = arch(json!({"mode": "sdp_metrics", "detail_level": "verbose"}));
-    for gone in [
-        "_hints",
-        "next_tool_suggestions",
-        "next_action",
-        "next_drill_downs",
-        "deprecated_fields",
-    ] {
-        assert!(sdp.get(gone).is_none(), "{gone}");
-    }
-    let violations = arch(json!({"mode": "sdp_violations", "min_delta": 0}));
-    assert!(
-        violations["summary"]
-            .as_str()
-            .is_some_and(|s| s.contains("min_delta=0.0"))
-    );
-    let sap = arch(json!({"mode": "sap_metrics", "detail_level": "verbose"}));
-    assert_eq!(sap["inapplicable_visibility"], "included_in_metrics");
-    let tiny = arch(json!({"mode": "sdp_violations", "min_delta": 0.00001}));
-    assert!(
-        tiny["summary"]
-            .as_str()
-            .is_some_and(|s| s.contains("min_delta=1e-05)"))
-    );
-    let sap_v = arch(json!({"mode": "sap_violations", "min_distance": 0.0}));
-    assert!(sap_v["violations"].is_array());
-    let huge = arch(json!({"mode": "sap_violations", "min_distance": 1.5e16}));
-    assert!(
-        huge["summary"]
-            .as_str()
-            .is_some_and(|s| s.contains("min_distance=1.5e+16)"))
-    );
     let overview = arch(json!({}));
     assert!(overview.get("called_subtool").is_none());
     assert!(overview["units"].is_array());
@@ -1695,6 +1647,11 @@ fn architecture_metrics_follow_the_requested_view() {
         "communities",
         "cross_community_coupling",
         "warnings",
+        "_hints",
+        "next_tool_suggestions",
+        "next_action",
+        "next_drill_downs",
+        "deprecated_fields",
     ] {
         assert!(verbose.get(gone).is_none(), "{gone}");
     }
@@ -1714,11 +1671,15 @@ fn architecture_metrics_follow_the_requested_view() {
         "Value error, mode=\"community\" requires community_id or community_name."
     );
     for arguments in [
-        json!({"mode": "sdp_metrics", "dependency_profile": "bogus"}),
         // Removed in favour of the overview's map and findings.
         json!({"mode": "hubs"}),
         json!({"mode": "adp_violations"}),
-        json!({"mode": "sap_metrics", "unit_filter": "pkg"}),
+        json!({"mode": "sdp_metrics"}),
+        json!({"mode": "sdp_violations"}),
+        json!({"mode": "sap_metrics"}),
+        json!({"mode": "sap_violations"}),
+        json!({"dependency_profile": "implementation"}),
+        json!({"mode": "import_cycles", "unit_filter": "pkg"}),
     ] {
         assert!(
             declines(&context, "architecture_analysis_tool", arguments.clone()),
@@ -2109,14 +2070,9 @@ fn ensure_graph_answers_only_when_there_is_nothing_to_prepare() {
     assert_eq!(ready["sync"]["current_branch"], "main");
     assert!(ready["graph_health"].get("counts").is_some());
     assert_eq!(ready["worktree_seed"]["reason"], "not_linked_worktree");
-    assert_eq!(
-        ready["next_tool_suggestions"],
-        json!([
-            "get_minimal_context_tool",
-            "review_tool",
-            "query_graph_tool"
-        ])
-    );
+    for gone in ["_hints", "next_tool_suggestions"] {
+        assert!(ready.get(gone).is_none(), "{gone}");
+    }
 
     // A forced refresh, a missing local embedding index, and an edit the
     // graph lacks all run a phase in Python.
@@ -2140,86 +2096,6 @@ fn ensure_graph_leaves_a_tree_outside_git_to_python() {
     // The graph alone marks the project root.
     std::fs::remove_dir_all(repo.0.join(".git")).expect("unmark");
     assert!(declines(&repo.context(), "ensure_graph_tool", json!({})));
-}
-
-#[test]
-fn large_functions_rank_by_line_count() {
-    // dagayn: tests crates/dagayn-tools/src/large.rs::find_large_functions
-    let repo = Repo::new("large", true);
-    repo.write(
-        "big.py",
-        &format!("def big():\n{}    return 0\n", "    x = 1\n".repeat(60)),
-    );
-    repo.build();
-    let context = repo.context();
-    let found = answer(&context, "find_large_functions_tool", json!({}));
-    assert_eq!(found["total_found"], 2, "{found}");
-    assert_eq!(found["results"][0]["kind"], "File");
-    assert_eq!(found["results"][1]["name"], "big");
-    assert_eq!(found["results"][1]["line_count"], 62);
-    assert_eq!(found["results"][1]["relative_path"], "big.py");
-    let functions = answer(
-        &context,
-        "find_large_functions_tool",
-        json!({"kind": "Function", "file_path_pattern": "big", "min_lines": 10}),
-    );
-    assert!(
-        functions["summary"]
-            .as_str()
-            .expect("summary")
-            .starts_with("Found 1 node(s) with >= 10 lines (kind=Function) matching 'big':")
-    );
-    assert!(declines(
-        &context,
-        "find_large_functions_tool",
-        json!({"min_lines": "50"})
-    ));
-}
-
-#[test]
-fn traversal_walks_from_the_best_keyword_match() {
-    // dagayn: tests crates/dagayn-tools/src/traverse.rs::traverse_graph
-    let repo = Repo::new("traverse", true);
-    repo.build();
-    let context = repo.context();
-    let bfs = answer(&context, "traverse_graph_tool", json!({"query": "helper"}));
-    assert_eq!(bfs["status"], "ok");
-    assert_eq!(bfs["start_node"], "app.py::helper");
-    assert_eq!(bfs["traversal"][0]["depth"], 0);
-    let names: Vec<&str> = bfs["traversal"]
-        .as_array()
-        .expect("traversal")
-        .iter()
-        .filter_map(|entry| entry["name"].as_str())
-        .collect();
-    assert!(names.contains(&"main"), "{names:?}");
-    let dfs = answer(
-        &context,
-        "traverse_graph_tool",
-        json!({"query": "helper", "mode": "dfs", "depth": 1}),
-    );
-    assert_eq!(dfs["max_depth"], 1);
-    let tight = answer(
-        &context,
-        "traverse_graph_tool",
-        json!({"query": "helper", "token_budget": 1}),
-    );
-    assert_eq!(tight["truncated"], true);
-    assert_eq!(tight["reachability"]["state"], "truncated");
-    let missing = answer(&context, "traverse_graph_tool", json!({"query": "zzzqqq"}));
-    assert_eq!(missing["status"], "not_found");
-    assert_eq!(missing["reachability"]["state"], "not_found");
-
-    assert!(declines(
-        &context,
-        "traverse_graph_tool",
-        json!({"query": "helper", "mode": "xfs"})
-    ));
-    assert!(declines(
-        &context,
-        "traverse_graph_tool",
-        json!({"query": "helper", "provider": "openai"})
-    ));
 }
 
 #[test]
@@ -2411,7 +2287,6 @@ fn fake_embedding_server(vector: [f32; 4]) -> u16 {
 #[test]
 fn search_ranks_stored_vectors_against_the_sidecar_query() {
     // dagayn: tests crates/dagayn-tools/src/search.rs::semantic_search
-    // dagayn: tests crates/dagayn-tools/src/traverse.rs::traverse_graph
     let repo = Repo::new("vectors", true);
     repo.build();
     let port = fake_embedding_server([0.0, 1.0, 0.0, 0.0]);
@@ -2461,24 +2336,11 @@ fn search_ranks_stored_vectors_against_the_sidecar_query() {
     assert!(codes.contains(&"partial_embeddings"), "{codes:?}");
     assert!(!codes.contains(&"missing_embeddings"), "{codes:?}");
 
-    // Traversal starts from the same hybrid top hit.
-    let walk = answer(
-        &context,
-        "traverse_graph_tool",
-        json!({"query": "something that assists", "depth": 1}),
-    );
-    assert_eq!(walk["start_node"], "app.py::helper", "{walk}");
-
     // A provider named in the call is Python's.
     assert!(declines(
         &context,
         "semantic_search_nodes_tool",
         json!({"query": "x", "provider": "openai"})
-    ));
-    assert!(declines(
-        &context,
-        "traverse_graph_tool",
-        json!({"query": "x", "model": "m"})
     ));
 }
 

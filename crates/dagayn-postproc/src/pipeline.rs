@@ -43,14 +43,6 @@ pub struct PostprocessResult {
     pub native_bindings_resolved: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub communities_detected: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub hub_scores_persisted: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub bridge_scores_persisted: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub hub_scores_code_persisted: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub bridge_scores_code_persisted: Option<i64>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
 }
@@ -214,25 +206,6 @@ pub fn run_post_processing_json(
         result.communities_detected = Some(community_count);
     }
 
-    if let Some(scores) =
-        record_step(
-            &mut result.warnings,
-            "Centrality score persistence",
-            || match (incremental, &loaded) {
-                (true, _) => store.persist_centrality_scores_filtered(changed_files),
-                (false, Some((nodes, edges))) => {
-                    store.persist_centrality_from_graph(nodes, edges, None)
-                }
-                (false, None) => store.persist_centrality_scores_filtered(None),
-            },
-        )
-    {
-        result.hub_scores_persisted = scores.get("hub_scores_persisted").copied();
-        result.bridge_scores_persisted = scores.get("bridge_scores_persisted").copied();
-        result.hub_scores_code_persisted = scores.get("hub_scores_code_persisted").copied();
-        result.bridge_scores_code_persisted = scores.get("bridge_scores_code_persisted").copied();
-    }
-
     serde_json::to_string(&result).map_err(GraphError::from)
 }
 
@@ -307,7 +280,7 @@ mod tests {
         assert!(payload.get("signatures_computed").is_some());
         assert!(payload.get("flows_detected").is_none());
         assert!(payload.get("communities_detected").is_some());
-        assert!(payload.get("hub_scores_persisted").is_some());
+        assert!(payload.get("hub_scores_persisted").is_none());
     }
 
     #[test]

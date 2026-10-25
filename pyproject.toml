@@ -46,7 +46,6 @@ Upstream = "https://github.com/tirth8205/code-review-graph"
 
 [project.scripts]
 dagayn = "dagayn._cli_launcher:main"
-dagayn-daemon = "dagayn.daemon_cli:main"
 
 [project.optional-dependencies]
 numpy = [
@@ -68,7 +67,6 @@ dev = [
     "pytest-cov>=7.1,<8",
     "pytest-xdist>=3.6,<4",
     "ruff>=0.3.0,<1",
-    "pyinstrument>=4.6,<6",
 ]
 
 [tool.maturin]

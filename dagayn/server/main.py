@@ -16,7 +16,7 @@ from importlib import import_module
 from typing import Any, Literal, Optional
 
 from .. import __version__
-from ..contracts.state_types import RefactorMode, TraversalMode
+from ..contracts.state_types import RefactorMode
 from ..prompts import (
     PromptMessage,
     architecture_map_prompt,
@@ -595,44 +595,11 @@ def get_docs_section_tool(
 
 
 @mcp.tool()
-def find_large_functions_tool(
-    min_lines: int = 50,
-    kind: Optional[str] = None,
-    file_path_pattern: Optional[str] = None,
-    limit: int = 50,
-    repo_root: Optional[str] = None,
-) -> ToolPayload:
-    """Find functions, classes, or files exceeding a line-count threshold.
-
-    Useful for decomposition audits, code quality checks, and enforcing
-    size limits during code review. Results are ordered by line count.
-
-    Args:
-        min_lines: Minimum line count to flag. Default: 50.
-        kind: Optional filter: Function, Class, File, or Test.
-        file_path_pattern: Filter by file path substring (e.g. "components/").
-        limit: Maximum results. Default: 50.
-        repo_root: Repository root path. Auto-detected if omitted.
-    """
-    return _tool("query:find_large_functions")(
-        min_lines=min_lines,
-        kind=kind,
-        file_path_pattern=file_path_pattern,
-        limit=limit,
-        repo_root=_resolve_repo_root(repo_root),
-    )
-
-
-@mcp.tool()
 def architecture_analysis_tool(
     mode: Literal[
         "overview",
         "communities",
         "community",
-        "sdp_metrics",
-        "sdp_violations",
-        "sap_metrics",
-        "sap_violations",
         "import_cycles",
     ] = "overview",
     detail_level: Literal["minimal", "standard", "verbose"] = "minimal",
@@ -642,19 +609,10 @@ def architecture_analysis_tool(
     community_name: Optional[str] = None,
     community_id: Optional[int] = None,
     include_members: bool = False,
-    granularity: Literal["file", "package"] = "package",
     scope_kind: Literal["file", "package", "directory"] = "package",
     unit_filter: Optional[list[str]] = None,
-    min_delta: float = 0.1,
-    min_distance: float = 0.5,
     repo_root: Optional[str] = None,
     artifact_scope: Literal["code", "docs", "all"] = "code",
-    dependency_profile: Literal[
-        "strict_static",
-        "implementation",
-        "infra_dataflow",
-        "artifact_trace",
-    ] = "strict_static",
     import_kind: Optional[Literal["directive", "link", "lazy_export", "path", "statement"]] = None,
 ) -> ToolPayload:
     """Map the repository's units and report structural findings.
@@ -667,25 +625,17 @@ def architecture_analysis_tool(
     ``findings`` list means nothing structural to act on.
     ``detail_level="standard"`` adds each unit's ``surface``.
 
-    Metric modes, per declared unit: sdp_metrics and sdp_violations (a unit
-    depending on a less stable one by more than ``min_delta``); sap_metrics and
-    sap_violations (abstractness vs instability; farther than ``min_distance``
-    from the main sequence). communities / community: graph clusters (need full
-    post-processing). import_cycles: every simple cycle the resolved imports
-    form between ``scope_kind`` scopes, each starting at its smallest scope
+    communities / community: graph clusters (need full post-processing).
+    import_cycles: every simple cycle the resolved imports form between
+    ``scope_kind`` scopes, each starting at its smallest scope
     (``standard`` adds one import per hop); ``results_complete`` says
     whether the list is whole.
 
     Args:
-        granularity: (sdp) "package" (declared units; default) or "file".
-        scope_kind: (sap, import_cycles) "package" (declared units; default),
+        scope_kind: (import_cycles) "package" (declared units; default),
             "directory", or "file".
-        unit_filter: (sap_metrics, import_cycles) Scope-key prefixes to keep.
+        unit_filter: (import_cycles) Scope-key prefixes to keep.
         artifact_scope: "code" (default), "docs" (Markdown), or "all".
-        dependency_profile: (sdp, sap) Edges counted: "strict_static"
-            (imports, inheritance; default), "implementation" (+ calls),
-            "infra_dataflow" (+ infra references), "artifact_trace"
-            (+ cross-artifact bridges).
         import_kind: (import_cycles) Count only these import edges, as
             query_graph's: "statement" leaves out lazy exports and Markdown.
     """
@@ -698,13 +648,9 @@ def architecture_analysis_tool(
         community_name=community_name,
         community_id=community_id,
         include_members=include_members,
-        granularity=granularity,
         scope_kind=scope_kind,
         unit_filter=unit_filter,
         artifact_scope=artifact_scope,
-        min_delta=min_delta,
-        min_distance=min_distance,
-        dependency_profile=dependency_profile,
         import_kind=import_kind,
         repo_root=_resolve_repo_root(repo_root),
     )
@@ -860,46 +806,6 @@ def apply_refactor_tool(
         refactor_id=refactor_id,
         repo_root=_resolve_repo_root(repo_root),
         dry_run=dry_run,
-    )
-
-
-@mcp.tool()
-def traverse_graph_tool(
-    query: str,
-    mode: TraversalMode = "bfs",
-    depth: int = 3,
-    token_budget: int = 2000,
-    repo_root: Optional[str] = None,
-    model: Optional[str] = None,
-    provider: Optional[str] = None,
-) -> ToolPayload:
-    """BFS/DFS traversal from best-matching node with token budget.
-
-    Free-form graph exploration: finds the node best matching your
-    query, then traverses outward via BFS or DFS up to the given
-    depth, collecting connected nodes within the token budget.
-
-    Args:
-        query: Search string to find the starting node.
-        mode: Traversal mode: "bfs" (breadth-first) or "dfs"
-            (depth-first). Default: bfs.
-        depth: Max traversal depth (1-6). Default: 3.
-        token_budget: Approximate token limit for results.
-            Default: 2000.
-        repo_root: Repository root path. Auto-detected if omitted.
-        model: Embedding model for the initial search. Defaults to the
-            server's embedding model when configured by ``dagayn serve``.
-        provider: Embedding provider for the initial search. Defaults to the
-            server's embedding provider when configured by ``dagayn serve``.
-    """
-    return _tool("query:traverse_graph_func")(
-        query=query,
-        mode=mode,
-        depth=depth,
-        token_budget=token_budget,
-        repo_root=_resolve_repo_root(repo_root) or "",
-        model=_resolve_embedding_model(model),
-        provider=_resolve_embedding_provider(provider),
     )
 
 

@@ -38,13 +38,9 @@
           "artifact_scope": "string",
           "community_id": "integer",
           "community_name": "string",
-          "dependency_profile": "string",
           "detail_level": "string",
-          "granularity": "string",
           "import_kind": "string",
           "include_members": "boolean",
-          "min_delta": "number",
-          "min_distance": "number",
           "min_size": "integer",
           "mode": "string",
           "repo_root": "string",
@@ -95,16 +91,6 @@
       "ensure_graph_tool": {
         "params": {
           "force": "boolean",
-          "repo_root": "string"
-        },
-        "required": []
-      },
-      "find_large_functions_tool": {
-        "params": {
-          "file_path_pattern": "string",
-          "kind": "string",
-          "limit": "integer",
-          "min_lines": "integer",
           "repo_root": "string"
         },
         "required": []
@@ -211,20 +197,6 @@
         "required": [
           "query"
         ]
-      },
-      "traverse_graph_tool": {
-        "params": {
-          "depth": "integer",
-          "mode": "string",
-          "model": "string",
-          "provider": "string",
-          "query": "string",
-          "repo_root": "string",
-          "token_budget": "integer"
-        },
-        "required": [
-          "query"
-        ]
       }
     }
   },
@@ -257,13 +229,9 @@
           "artifact_scope": "string",
           "community_id": "integer",
           "community_name": "string",
-          "dependency_profile": "string",
           "detail_level": "string",
-          "granularity": "string",
           "import_kind": "string",
           "include_members": "boolean",
-          "min_delta": "number",
-          "min_distance": "number",
           "min_size": "integer",
           "mode": "string",
           "repo_root": "string",

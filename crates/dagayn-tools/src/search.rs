@@ -826,23 +826,6 @@ pub(crate) fn embedding_arm_for(
     ))
 }
 
-/// `hybrid_search(store, query, limit=1)["results"][0]["qualified_name"]`;
-/// `Some(None)` when nothing matched, `None` for Python.
-pub(crate) fn top_qualified_name(
-    store: &GraphStore,
-    db_path: &std::path::Path,
-    query: &str,
-    request: &crate::embedding_arm::Request,
-) -> Option<Option<String>> {
-    let (emb, _) = embedding_arm_for(store, db_path, query, 3, request)?;
-    let hits = fts_search(store, query, None, 1, &emb)?;
-    Some(hits.results.first().and_then(|hit| {
-        hit.get("qualified_name")
-            .and_then(Value::as_str)
-            .map(str::to_string)
-    }))
-}
-
 /// `get_provider(None)` / `_infer_remote_embedding_provider_from_env`: any
 /// provider configured in the environment.
 fn provider_in_environment() -> bool {

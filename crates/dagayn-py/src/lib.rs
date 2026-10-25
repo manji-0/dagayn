@@ -484,16 +484,6 @@ impl PyGraphStore {
         })
     }
 
-    #[pyo3(signature = (changed_files = None))]
-    fn persist_centrality_scores(
-        &self,
-        changed_files: Option<Vec<String>>,
-    ) -> PyResult<std::collections::HashMap<String, i64>> {
-        self.with_store_mut(|store| {
-            store.persist_centrality_scores_filtered(changed_files.as_deref())
-        })
-    }
-
     fn sync_fts_for_file_paths(&self, file_paths: Vec<String>) -> PyResult<i64> {
         self.with_store_mut(|store| store.sync_fts_for_file_paths(&file_paths))
     }
@@ -602,22 +592,6 @@ impl PyGraphStore {
             |store| dagayn_tools::graph_dead_code_candidates_json(store, kind, file_pattern),
             "dead-code analysis could not read the graph",
         )
-    }
-
-    #[pyo3(signature = (min_lines = 50, max_lines = None, kind = None, file_path_pattern = None, limit = 50))]
-    fn get_nodes_by_size(
-        &self,
-        py: Python<'_>,
-        min_lines: i64,
-        max_lines: Option<i64>,
-        kind: Option<&str>,
-        file_path_pattern: Option<&str>,
-        limit: i64,
-    ) -> PyResult<Vec<Py<PyAny>>> {
-        let nodes = self.with_store(|store| {
-            store.get_nodes_by_size(min_lines, max_lines, kind, file_path_pattern, limit)
-        })?;
-        graph_nodes_to_py_vec(py, nodes)
     }
 
     #[pyo3(signature = (kinds, include_tests = false))]
@@ -755,23 +729,6 @@ impl PyGraphStore {
         out.set_item("nodes", graph_nodes_to_py_vec(py, nodes)?)?;
         out.set_item("edges", graph_edges_to_py_vec(py, edges)?)?;
         Ok(out.unbind().into_any())
-    }
-
-    fn get_local_subgraph(
-        &self,
-        py: Python<'_>,
-        start_qn: &str,
-        max_depth: i64,
-    ) -> PyResult<Py<PyAny>> {
-        let (nodes, adjacency) =
-            self.with_store(|store| store.get_local_subgraph(start_qn, max_depth))?;
-        let nodes_map = node_map_to_py(py, nodes)?;
-        let adjacency_map = adjacency.into_py_dict(py)?;
-        Ok(
-            PyTuple::new(py, [nodes_map.bind(py).clone(), adjacency_map.into_any()])?
-                .unbind()
-                .into_any(),
-        )
     }
 
     fn get_communities_list(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {

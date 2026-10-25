@@ -53,17 +53,6 @@ type DynamicValue = Any
 type ToolPayload = dict[str, DynamicValue]
 
 
-class ToolHintStep(TypedDict):
-    tool: str
-    suggestion: str
-
-
-class ToolHintsRecord(TypedDict):
-    next_steps: list[ToolHintStep]
-    related: list[object]
-    warnings: list[str]
-
-
 _TOOL_RUNTIME_ERRORS: tuple[type[BaseException], ...] = (
     OSError,
     sqlite3.Error,
@@ -449,27 +438,6 @@ def _answerability_sqlite_connection(store: Any) -> tuple[sqlite3.Connection | N
     return sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=30), True
 
 
-def _hints_from_next_tool_suggestions(
-    next_tool_suggestions: list[str] | None,
-) -> ToolHintsRecord | None:
-    """Build a minimal ``_hints`` payload from plain-text tool suggestions."""
-    if not next_tool_suggestions:
-        return None
-
-    from ..tool_surface import filter_suggestions
-
-    next_steps: list[ToolHintStep] = []
-    for suggestion in filter_suggestions(next_tool_suggestions)[:3]:
-        head = suggestion.partition(" -- ")[0]
-        tool = head.split(" ", 1)[0].split("(", 1)[0]
-        next_steps.append({"tool": tool, "suggestion": suggestion})
-    return {
-        "next_steps": next_steps,
-        "related": [],
-        "warnings": [],
-    }
-
-
 def make_guidance_item(
     *,
     claim: str,
@@ -728,7 +696,7 @@ def attach_answerability(
 
 #: What a Tier 1 reply said to call next before ``next``; a reply that still
 #: carries one has it dropped.
-NEXT_STEP_FIELDS = ("next_action", "next_drill_downs", "next_tool_suggestions", "_hints")
+NEXT_STEP_FIELDS = ("next_action", "next_drill_downs")
 
 
 #: Kept to ``verbose`` as diagnosis or restatement, as
@@ -841,28 +809,10 @@ def missingness_from_answerability(
     return items
 
 
-def make_response(
-    status: str,
-    summary: str,
-    *,
-    hints: object | None = None,
-    next_tool_suggestions: list[str] | None = None,
-    **fields: object,
-) -> ToolPayload:
-    """Standard envelope: status / summary / fields / _hints / next_tool_suggestions.
-
-    Ensures status and summary are always present and consistently ordered.
-    """
+def make_response(status: str, summary: str, **fields: object) -> ToolPayload:
+    """Standard envelope: status and summary first, then *fields*."""
     resp: ToolPayload = {"status": status, "summary": summary}
     resp.update(fields)
-    if hints:
-        resp["_hints"] = hints
-    elif next_tool_suggestions:
-        resp["_hints"] = _hints_from_next_tool_suggestions(next_tool_suggestions)
-    if next_tool_suggestions:
-        from ..tool_surface import filter_suggestions
-
-        resp["next_tool_suggestions"] = filter_suggestions(next_tool_suggestions)[:3]
     return resp
 
 

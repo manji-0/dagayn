@@ -4,8 +4,9 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
-dagayn is a tool for agents, so the surfaces built for a human to look at
-are gone (see Removed).
+dagayn is a tool for agents, so the surfaces built for a human to look at,
+and the tools whose answer another tool already gives, are gone (see
+Removed).
 
 ### Removed
 
@@ -21,6 +22,60 @@ are gone (see Removed).
   `dagayn.visualization`, the graph store's `entry_points_json`, and
   matplotlib from the `eval` extra. The HTML viewer it once served was
   already gone. Agents read the graph through the MCP tools instead.
+- **Breaking:** `traverse_graph_tool`, the BFS/DFS walk from the best
+  keyword match. `query_graph_tool` (`callers_of`, `importers_of`,
+  `imports_of`) with `depth` gives the transitive chain from a node you
+  name. The `traverse_graph` rows of the `query_performance`,
+  `mcp_latency`, and `nplusone_count` benchmarks, the `dfs_lazy_fetch`
+  scenario of `recent_changes_effects`, and the graph store's
+  `get_local_subgraph`, which only that scenario called, go with it.
+- **Breaking:** `find_large_functions_tool`, the line-count listing.
+  `refactor_tool(mode="suggest")` reports oversized code as
+  `complex_hotspot` findings with `line_count`. The graph store's
+  `get_nodes_by_size`, which only that tool read, goes with it.
+- **Breaking:** the `sdp_metrics`, `sdp_violations`, `sap_metrics`, and
+  `sap_violations` modes of `architecture_analysis_tool`, with its
+  `granularity`, `min_delta`, `min_distance`, and `dependency_profile`
+  arguments, and the `dagayn sdp-metrics`, `detect-sdp`, `sap-metrics`, and
+  `detect-sap` commands. The `unstable_dependency` finding of
+  `mode="overview"` and `review_tool` names each dependency on a less stable
+  unit with both units' instability and the SAP position of the unit
+  depended on. The Python `dagayn.sap` module and
+  `dagayn.architecture.compute_sdp_metrics` / `find_sdp_violations`, which
+  only tests called, go with them.
+- **Breaking:** `risk_score` and `review_priority_score` on each
+  `changed_functions` row of `review_tool(mode="changes")`. The `findings`
+  (`untested_change`, `unchanged_caller`, and the rest) name what to check;
+  the score ranked nothing. Its computation (`GraphStore`'s
+  `compute_change_risk_score` and `get_community_ids_by_qualified_names`)
+  goes with it, which also drops a transitive-test lookup per changed
+  function from each review.
+- **Breaking:** hub and bridge centrality scores. Post-processing no longer
+  computes betweenness or persists the `hub_scores` / `bridge_scores` (and
+  `_code`) tables, its reply drops the `*_scores_persisted` counters, and
+  graph schema 19 drops the four tables on open. Nothing read them since the
+  `hubs` and `bridges` architecture modes went; the Python
+  `dagayn.analysis` module (`find_bridge_nodes`,
+  `persist_centrality_scores`), the `bridge_centrality_persisted_read`
+  benchmark scenario, and the graph store's `persist_centrality_scores`,
+  `persisted_hub_scores`, `persisted_bridge_scores`,
+  `get_edges_incident_to_community_ids`, and `get_community_ids_by_node_ids`
+  go with them.
+- **Breaking:** the `dagayn-daemon` console script and its own argument
+  parser (`dagayn.daemon_cli`), a second copy of `dagayn daemon`. Use
+  `dagayn daemon start|stop|restart|status|logs|add|remove`; its `logs`
+  takes `--follow` and `--lines` (the copy also accepted `-f` and `-n`). The
+  handlers now live in `dagayn.cli.commands.daemon`.
+- **Breaking:** `dagayn profile`, which ran another subcommand under
+  pyinstrument, and pyinstrument from the `dev` extra. Nothing called it but
+  its own CLI registration; run `pyinstrument -m dagayn ...` directly.
+- **Breaking:** the `_hints` and `next_tool_suggestions` fields that 10.0.0
+  meant to remove, which `list_graph_stats_tool`, `list_repos_tool`,
+  `ensure_graph_tool`, and `cross_repo_search_tool` still returned. Those
+  replies now carry no next-step list; the Tier 1 tools' `next` is
+  unchanged. `make_response` no longer takes `hints` or
+  `next_tool_suggestions`, and `dagayn.tool_surface` loses
+  `suggestion_is_callable` and `filter_suggestions`.
 
 ## 10.0.0 — 2026-10-12
 

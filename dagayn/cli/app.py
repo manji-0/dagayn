@@ -26,10 +26,6 @@ _BUILD_COMMANDS = frozenset(
         "postprocess",
         "watch",
         "status",
-        "sdp-metrics",
-        "detect-sdp",
-        "sap-metrics",
-        "detect-sap",
     }
 )
 _TOOL_COMMANDS = frozenset({"tool"})
@@ -99,7 +95,6 @@ def main() -> None:
     registry = _command_module("registry")
     daemon = _command_module("daemon")
     eval_cmd = _command_module("eval_cmd")
-    profile = _command_module("profile")
     tool = _command_module("tool")
     worktree = _command_module("worktree")
     session = _command_module("session")
@@ -120,7 +115,6 @@ def main() -> None:
     registry.register_commands(sub)
     daemon_parser = daemon.register_command(sub)
     eval_cmd.register_command(sub)
-    profile.register_command(sub)
     tool.register_command(sub)
     worktree_parsers = worktree.register_commands(sub)
     session_parsers = session.register_commands(sub)
@@ -151,10 +145,6 @@ def main() -> None:
             daemon.handle(args, daemon_parser)
         elif args.command == "eval":
             eval_cmd.handle(args)
-        elif args.command == "profile":
-            rc = profile.handle(args)
-            if rc:
-                sys.exit(rc)
         elif args.command in _TOOL_COMMANDS:
             tool.handle(args)
         elif args.command == "worktree":

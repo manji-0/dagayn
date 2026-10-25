@@ -60,7 +60,6 @@ _COMMON_CASES: list[tuple[str, str, dict[str, Any]]] = [
     ("flows", "flow_tool", {"mode": "list"}),
     ("refactor_suggest", "refactor_tool", {"mode": "suggest"}),
     ("dead_code", "refactor_tool", {"mode": "dead_code"}),
-    ("large_functions", "find_large_functions_tool", {"min_lines": 1}),
 ]
 
 #: Run after every other case: they rewrite what the reads above see.
@@ -87,7 +86,6 @@ FIXTURE_CASES: dict[str, list[tuple[str, str, dict[str, Any]]]] = {
             {"mode": "context", "changed_files": ["services.py"]},
         ),
         ("impact", "review_tool", {"mode": "impact", "changed_files": ["models.py"]}),
-        ("traverse", "traverse_graph_tool", {"query": "create_user"}),
     ],
     "mixed": [
         ("docs_for", "query_graph_tool", {"pattern": "docs_for", "target": "build_graph"}),

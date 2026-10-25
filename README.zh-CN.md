@@ -249,7 +249,7 @@ dagayn serve --tools query_graph_tool,semantic_search_nodes_tool
 
 `--tools` 是精确的逗号分隔允许列表，用于需要隐藏部分公开工具的部署。持久服务器配置可用 `CRG_TOOLS` 做同样的控制。
 
-工具响使用校准后的 guidance 约定。兼容字段如 `status`、`summary`、`_hints`、`next_tool_suggestions` 仍然存在；审查、架构、流程、重构、搜索和查询响应还可包含 `guidance`、`answerability` 和 `missingness`。guidance 项带有 `claim`、`evidence`、`confidence`、`missingness`、`action`、`reason_codes` 和 `counts`，智能体应将图谱输出视为按证据排序的线索而非裁决。顶级建议使用 `detail_level="minimal"`，完整支撑章节使用 `detail_level="standard"`。`query_graph_tool` 的零结果和未找到响应包含 `zero_result_reason`、`next_action`、`result_count`、`results`、`answerability` 和 `missingness`；在源码或测试确认之前，将缺席视为受当前图谱限制。文档桥接结果将证据标记为 `authored`、`extracted` 或 `heuristic_reachable`，以免把 Markdown 可追溯性与已验证契约混淆。
+工具响使用校准后的 guidance 约定。兼容字段如 `status`、`summary` 仍然存在；审查、架构、流程、重构、搜索和查询响应还可包含 `guidance`、`answerability` 和 `missingness`。guidance 项带有 `claim`、`evidence`、`confidence`、`missingness`、`action`、`reason_codes` 和 `counts`，智能体应将图谱输出视为按证据排序的线索而非裁决。顶级建议使用 `detail_level="minimal"`，完整支撑章节使用 `detail_level="standard"`。`query_graph_tool` 的零结果和未找到响应包含 `zero_result_reason`、`next_action`、`result_count`、`results`、`answerability` 和 `missingness`；在源码或测试确认之前，将缺席视为受当前图谱限制。文档桥接结果将证据标记为 `authored`、`extracted` 或 `heuristic_reachable`，以免把 Markdown 可追溯性与已验证契约混淆。
 
 ## AI 平台集成
 

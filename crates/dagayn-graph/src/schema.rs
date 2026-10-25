@@ -24,11 +24,11 @@ impl GraphStore {
                     11 => self.migrate_v11()?,
                     12 => self.migrate_v12()?,
                     13 => self.migrate_v13()?,
-                    14 => self.migrate_v14()?,
                     15 => self.migrate_v15()?,
                     16 => self.migrate_v16()?,
                     17 => self.migrate_v17()?,
                     18 => self.migrate_v18()?,
+                    19 => self.migrate_v19()?,
                     _ => {}
                 }
                 self.set_metadata("schema_version", &version.to_string())?;
