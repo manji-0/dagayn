@@ -368,6 +368,12 @@ pub(crate) fn sap_metrics(
                     | "trait"
                     | "abstract_type"
                     | "mixin"
+                    | "struct"
+                    | "enum"
+                    | "record"
+                    | "typed_dict"
+                    | "union"
+                    | "error_set"
             ) {
                 *nt.entry(scope.clone()).or_default() += 1;
                 let flag = |key: &str| extra.get(key).is_some_and(truthy);

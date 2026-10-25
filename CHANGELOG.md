@@ -126,9 +126,12 @@ Removed).
   (`exact_match_count`, `ambiguity`, `source_arm`), keyed by repository
   alias. Merging by score dropped it, so the reply no longer said which
   repository defines a name (docs/plans/OPEN-MEASUREMENTS.md).
-
-### Fixed
-
+- SAP counts structs, enums, records, `TypedDict`s, and unions toward a
+  unit's types (`Nt`), so the `abstractness` and `distance` that
+  `unstable_dependency` gives as evidence describe Rust, Go, Swift, C#, and
+  Kotlin units. A crate of 2 traits and 8 structs (`dagayn-mcp`) read as
+  wholly abstract (1.0); it now reads 0.2. A unit of data types only is no
+  longer SAP-inapplicable (docs/SAP-METRICS.md).
 - `dagayn` refuses to open a graph whose schema is newer than it supports,
   naming both versions, instead of recreating tables a later migration
   dropped and writing into it.

@@ -95,38 +95,41 @@ hold:
   aliases, never count)
 - it is top-level (`parent_name` is empty), so nested classes do not count
 - its `type_role` is one of `class`, `abstract_class`, `interface`,
-  `protocol`, `trait`, `abstract_type`, or `mixin`; a missing `type_role`
-  is treated as `class`
+  `protocol`, `trait`, `abstract_type`, `mixin`, `struct`, `enum`,
+  `record`, `typed_dict`, `union`, or `error_set`; a missing `type_role` is
+  treated as `class`
 
 Such a node adds 1 to `Nt`. It also adds 1 to `Na` when `extra.is_abstract`
 or `extra.is_contract` is true, or its role is `abstract_class`, `interface`,
 `protocol`, `trait`, or `abstract_type`. A `mixin` therefore counts toward
 `Nt` but not `Na` unless it is flagged abstract.
 
-Roles outside that list are excluded from both counts: `enum`, `struct`,
-`record`, `alias`, `type_alias`, `typed_dict`, and any other role.
+Roles outside that list are excluded from both counts: `alias`,
+`type_alias`, and the roles that are not types (`module`, `namespace`,
+`ambient_module`, `object`). Data types count toward `Nt` because a unit
+made of structs and one trait is mostly concrete; leaving them out made
+such a unit read as wholly abstract
+([component principles](./plans/COMPONENT-PRINCIPLES-TARGET.md#sap-counts-no-rust-struct)).
 
 Per language, as the parsers currently emit roles:
 
 | Language | Counts toward `Nt` and `Na` | Counts toward `Nt` only | Excluded |
 |----------|-----------------------------|-------------------------|----------|
-| Python | `Protocol` subclasses, `ABC`/`ABCMeta` subclasses | other classes | `TypedDict` subclasses, type aliases |
-| Java | interfaces, `abstract` classes | other classes | enums, records |
-| C# | interfaces, `abstract` classes | other classes | structs, enums, records, `using` aliases |
-| Kotlin | none | every class declaration, including `interface`, `abstract class`, and `enum class` | `data class` |
-| Scala | traits | other classes | case classes, enums |
-| Rust | traits | none | structs, enums, type aliases |
-| Go | interface types | other named types (for example `type ID int`) | struct types |
-| TypeScript / JavaScript | interfaces | classes | type aliases, enums |
-| Swift | protocols | classes, actors, extensions | structs, enums |
-| Dart | `abstract` classes | other classes, mixins | enums |
+| Python | `Protocol` subclasses, `ABC`/`ABCMeta` subclasses | other classes, `TypedDict` subclasses | type aliases |
+| Java | interfaces, `abstract` classes | other classes, enums, records | none |
+| C# | interfaces, `abstract` classes | other classes, structs, enums, records | `using` aliases |
+| Kotlin | interfaces | other classes, `enum class`, `data class` | `object` declarations |
+| Scala | traits | other classes, case classes, enums | `object` declarations |
+| Rust | traits | structs, enums | type aliases, modules |
+| Go | interface types | struct types, other named types (for example `type ID int`) | none |
+| TypeScript / JavaScript | interfaces, `abstract` classes | classes, enums | type aliases, namespaces, object literals |
+| Swift | protocols | classes, actors, extensions, structs, enums | none |
+| Dart | `abstract` classes | other classes, mixins, enums | none |
 | PHP | interfaces | other classes | none |
-| Julia | `abstract type` declared outside a module | modules | `struct`; any declaration inside a module (nested) |
-| Ruby, Perl, Lua, GDScript, C/C++ | none | classes | none |
+| Julia | `abstract type` declared outside a module | modules, structs | any declaration inside a module (nested) |
+| Ruby, Perl, Lua, GDScript, C/C++ | none | classes | Ruby modules |
 
-Because structs and enums are excluded, a Rust or Go directory that holds
-data types plus a few traits or interfaces can have a small `Nt` and a high
-`A`. A directory with only data types has `Nt = 0` and is SAP-inapplicable
+A directory with no type at all has `Nt = 0` and is SAP-inapplicable
 (see below).
 
 ## Edge semantics
