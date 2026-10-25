@@ -5,6 +5,8 @@
 # precision 0.464, recall 0.267, tested precision 0.944. llvm-cov counts
 # what binaries the tests spawn ran, which the call graph does not cross, so
 # the floors sit a little further under the current values than Python's.
+# Dispatch-aware reach (2026-10-25, 3,034 functions) left the values as they
+# were: 0.460 / 0.267 / 0.945 plain, 0.709 / 0.180 / 0.940 under --scip.
 floors:
   untested_precision: 0.43
   untested_recall: 0.23

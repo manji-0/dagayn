@@ -12,9 +12,10 @@ functions that call into it as untested, though
 runs them. Should the judgement change, and how?
 
 Status: the declaration and the call-graph fixes are shipped
-([decisions](#decisions-2026-10-08)), and Rust trait methods are reached
-through their type ([Rust false untested claims](#rust-false-untested-claims));
-dispatch-aware reach is the follow-up.
+([decisions](#decisions-2026-10-08)), Rust trait methods are reached
+through their type ([Rust false untested claims](#rust-false-untested-claims)),
+and a Rust test reaches only the dispatch arm its string selects
+([dispatch-aware reach](#dispatch-aware-reach)).
 
 ## Evidence
 
@@ -266,7 +267,7 @@ value (`deserialize_any(JsonVisitor)`) that no edge records.
   the graph right and the number worse: with `lib::call → lib::answer`
   back, the 8 functions of `repos.rs` that no test selects count as
   tested through `answer`'s dispatch (see
-  [dispatch-aware reach](#follow-up-dispatch-aware-reach)). The 0.576 was
+  [dispatch-aware reach](#dispatch-aware-reach)). The 0.576 was
   inflated by the bug.
 
 ### Decisions (2026-10-25)
@@ -430,20 +431,94 @@ The import walk follows every IMPORTS_FROM into a module, including an
 import under `if TYPE_CHECKING:` (`import_scope: type_checking`, python
 11), which never runs; excluding those is a separate step.
 
-## Follow-up: dispatch-aware reach
+## Dispatch-aware reach
 
-Record string-literal arguments on `CALLS` edges and the string patterns of
-`match` / `if` arms that call; a test then reaches the arm its literal
-selects, through any number of forwarding calls that pass the parameter on.
-It needs parser work per language and its own eval (a dispatcher with two
-arms, a test selecting one: the other stays untested). Until then, the
-declaration is the way to state it.
+<!-- derived-from #rust-false-untested-claims -->
 
-It is what holds Rust recall down once the call graph is right: in
-`dagayn build --scip`, `list_repos` and the 7 functions under it in
-`repos.rs` never run, yet count as tested, because every tool test
-reaches `lib::answer` and `answer` calls every arm
-([Rust false untested claims](#rust-false-untested-claims)).
+A test reaches only the arm of a string dispatch that its literal selects,
+through any number of calls that pass the string on (Rust, extractor 24).
+
+- **What the parser records.** A `CALLS` edge carries `arguments`, one
+  entry per argument: a string literal's text; `{"strings": [..]}` for a
+  local bound to literals (`let tool = "x"`, or `for (name, ..) in [("a",
+  ..), ..]`, also over a `let`-bound array); `{"parameter": i, "of": n}` for
+  the caller's own `i`-th string parameter (`&str`, `String`, `Cow<str>`,
+  `self` not counted) passed on, also through `&`, `.as_str()`,
+  `.clone()`; `null` for anything else. A call in a `match` arm on a string
+  parameter (`"a" | "b" => ..`) or under `if p == "a" || p == "b"` carries
+  `dispatch`, one `{"parameter", "of", "values"}` per enclosing arm. Calls
+  inside a macro's tokens (`assert!(run("x"))`) record their arguments too;
+  a call in a closure records only its literals. The `_` arm and `else` are
+  not narrowed.
+- **What the walk does.** `nearest_test` carries, per node, what its
+  callers must still pass. A `dispatch` guard adds a requirement on the
+  caller; a call that passes a literal the arm takes meets it, one that
+  passes another literal ends that path, and one that passes the parameter
+  on moves the requirement to its own caller. An argument the parser could
+  not read could pass anything: the requirement is met. A test helper that
+  passes the string on (`tests/tools.rs::answer`) is not the test yet; its
+  callers are. While a requirement is open, a direct test counts through its
+  `CALLS` edge (which says what it passes), not its `TESTED_BY` edge, so such
+  a path's `hops` is one more than the TESTED_BY count would give.
+
+`tests/tools.rs::a_rust_test_reaches_only_the_dispatch_arm_its_string_selects`
+and the review eval's `untested_change_dispatch_arm_rust` case hold it: a
+dispatcher with two arms behind a forwarding call and a test helper, a test
+selecting one; the other stays untested (both failed before the change).
+
+### Result (2026-10-25)
+
+Measured as CI runs it (`cargo llvm-cov`, `report --json`, `dagayn build`,
+the harness), each twice with identical counts; `--scip` with
+rust-analyzer 1.99.1. "Before" is `origin/main` on its own coverage
+(3,013 functions); "after" is this tree (3,034: the new code and tests).
+
+| Build | Called untested | Untested precision | Recall | Tested precision |
+|---|---|---|---|---|
+| plain, before | 126 | 0.460 | 0.267 | 0.945 |
+| plain, after | 126 | 0.460 | 0.267 | 0.945 |
+| `--scip`, before | 56 | 0.696 | 0.180 | 0.940 |
+| `--scip`, after | 55 | 0.709 | 0.180 | 0.940 |
+
+On this repository it moves nothing: asked of the same graph with and
+without the requirements, every one of the 3,034 functions gets the same
+answer in both builds (the `--scip` 56 → 55 comes from the population and
+coverage changing, not from the walk). The harness takes 46–49 s, as before.
+
+- **Why `repos.rs` stays tested.** `list_repos` and the 7 functions under it
+  are now reached only through calls whose tool name the parser cannot
+  read, the nearest
+  `tools.rs::every_reply_names_calls_that_answer_and_fits_its_budget`: it
+  follows each reply's `next` and calls `call(&context, name, args)` with a
+  tool name read from the reply's JSON. No static reading can rule
+  out that `name` is `"list_repos_tool"`, so the requirement is met. The
+  other routes are closed: `unexpected_arguments_go_to_python` loops over a
+  table of three other names, and the closure `text` in
+  `review_context_fits_its_budget_below_verbose` passes `"review_tool"`.
+- **Why the rest stays.** The other string dispatchers of this repository
+  (`query.rs`'s `match pattern`, the mode of each tool) select on a value
+  read from the tool's JSON arguments, which the parser does not follow.
+- **Unread arguments as selecting nothing** was measured and rejected:
+  under `--scip` it calls 100 functions untested, precision 0.510, recall
+  0.230, tested precision 0.942. 45 functions move: 12 that did not run
+  (the 8 of `repos.rs` among them) and 33 that ran, most below `query.rs`'s
+  pattern dispatch, whose pattern comes from the JSON arguments.
+
+### Decisions (2026-10-25, dispatch)
+
+- Dispatch-aware reach is kept: it is right on the eval case, and costs
+  nothing here (same answers, same harness time).
+- The gate stays on plain `dagayn build`. `--scip` recall is 0.180 against
+  the floor of 0.23; closing `repos.rs` would add at most 8 of the 217
+  functions that did not run (about 0.217), still under it.
+- The `dagayn: tests` declarations in `tests/tools.rs` stay: every arm of
+  `lib::answer` is reached through the test above anyway, so whether the
+  walk alone would find each declared arm cannot be told apart here.
+
+Still wrong, by design falling back to "could pass anything": a string
+read from JSON or another call, `matches!(name, ..)` guards, a tuple
+scrutinee (`match (a, b)`), a dispatch on `self.field`, and, in a macro's
+tokens, a closure parameter that shadows a function's.
 
 ## Touch points
 
@@ -451,8 +526,9 @@ reaches `lib::answer` and `answer` calls every arm
   `tests` kind; a directive opens its comment), `rust_lang/mod.rs` (Rust
   comment directives, closure elements, method values, macro fields),
   `member_calls.rs` (`CallOrigin.element`), `python/mod.rs` (functions
-  as values, `module_file`, aliased imports), `extractor_version.rs`
-  (markdown 2, python 15, rust 22, csharp 8, terraform 2).
+  as values, `module_file`, aliased imports), `rust_lang/dispatch.rs`
+  (`arguments` and `dispatch` on Rust calls), `extractor_version.rs`
+  (markdown 2, python 15, rust 24, csharp 8, terraform 2).
 - Resolution: `crates/dagayn-graph/src/postprocess/returned.rs` (element
   types), `bare_names.rs` (typed value references), `scip_overlay.rs`
   (`visible_definition`, for a symbol defined twice).
@@ -461,11 +537,13 @@ reaches `lib::answer` and `answer` calls every arm
 - Tools: `crates/dagayn-tools/src/coverage.rs` (`tests_for`),
   `findings.rs` (`nearest_test`, shared by `untested_change` and
   `tests_for`'s `test_reach`; `rust_trait_impl_type`,
-  `CALLED_BY_SYNTAX_TRAITS`), `dead_code_verify.rs` (`rust_impl_trait`),
+  `CALLED_BY_SYNTAX_TRAITS`; `Selects` and `through_call` for dispatch),
+  `dead_code_verify.rs` (`rust_impl_trait`),
   `query.rs`.
 - Eval: `eval/run_test_reach_eval.py`, `eval/test_reach_thresholds.yaml`,
   `eval/test_reach_rust_thresholds.yaml`,
   `tests/test_test_reach_eval.py`, and the CI step.
 - Tests: `core_tests/rust_lang.rs`, `dagayn-graph` `tests/analysis.rs`,
+  the review eval's `untested_change_dispatch_arm_rust`,
   and the declarations in `crates/dagayn-tools/tests/tools.rs`.
 - Docs: the writing-markdown-document skill's directive table.

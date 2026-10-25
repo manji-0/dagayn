@@ -8,6 +8,19 @@ dagayn is a tool for agents, so the surfaces built for a human to look at,
 and the tools whose answer another tool already gives, are gone (see
 Removed).
 
+### Changed
+
+- `untested_change` and `tests_for`'s `test_reach` follow string dispatch
+  in Rust: a call in a `match` arm on a string parameter (`"review_tool" =>
+  review(..)`) or under `if name == ".."` counts as tested only by tests
+  that pass a string the arm takes, through any number of calls (and test
+  helpers) that pass the parameter on. The Rust extractor (version 24)
+  records a call's string-literal arguments, a local's literal strings
+  (`let`, a `for` over a table), and the string parameters it passes on
+  (`arguments`), and the arms it sits in (`dispatch`). An argument it cannot
+  read counts as passing anything, so on this repository the measured Rust
+  test reach is unchanged (docs/plans/TEST-REACH-TARGET.md#dispatch-aware-reach).
+
 ### Removed
 
 - **Breaking:** the `dagayn-vscode` editor extension, its CI jobs (the
