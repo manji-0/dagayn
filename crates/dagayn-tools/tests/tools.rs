@@ -3093,6 +3093,57 @@ fn a_rust_test_that_uses_a_type_reaches_the_trait_methods_the_runtime_calls() {
 }
 
 #[test]
+fn a_rust_test_reaches_only_the_dispatch_arm_its_string_selects() {
+    // dagayn: tests crates/dagayn-tools/src/review.rs::review
+    // dagayn: tests crates/dagayn-tools/src/findings.rs::nearest_test
+    let repo = Repo::new("dispatch-arms", true);
+    // `call` forwards `name` to `answer`, which matches on it; `pick` tests
+    // it with `==`. The test helper `run` forwards it once more, so the
+    // literal that selects an arm is two and three calls above it.
+    let rust = |value: i64| {
+        format!(
+            "pub fn call(name: &str, x: i64) -> i64 {{\n    answer(name, x)\n}}\n\nfn answer(name: &str, x: i64) -> i64 {{\n    match name {{\n        \"double\" => double(x),\n        \"negate\" | \"minus\" => negate(x),\n        _ => pick(name, x),\n    }}\n}}\n\nfn pick(name: &str, x: i64) -> i64 {{\n    if name == \"square\" {{\n        square(x)\n    }} else if \"cube\" == name {{\n        cube(x)\n    }} else {{\n        fallback(x)\n    }}\n}}\n\nfn double(x: i64) -> i64 {{\n    x * {value}\n}}\n\nfn negate(x: i64) -> i64 {{\n    -x * {value}\n}}\n\nfn square(x: i64) -> i64 {{\n    x * x * {value}\n}}\n\nfn cube(x: i64) -> i64 {{\n    x * x * x * {value}\n}}\n\nfn fallback(x: i64) -> i64 {{\n    x + {value}\n}}\n"
+        )
+    };
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("src/lib.rs", &rust(1));
+    repo.write(
+        "tests/tools_test.rs",
+        "fn run(name: &str, x: i64) -> i64 {\n    demo::call(name, x)\n}\n\n#[test]\nfn doubles() {\n    assert_eq!(run(\"double\", 2), 4);\n}\n\n#[test]\nfn squares() {\n    assert_eq!(demo::call(\"square\", 3), 9);\n}\n\n#[test]\nfn falls_back() {\n    assert_eq!(run(\"other\", 1), 2);\n}\n\n#[test]\nfn table() {\n    for name in [\"other\", \"cubed\"] {\n        assert!(run(name, 1) > 0);\n    }\n}\n",
+    );
+    commit_all(&repo, "tools");
+    repo.build();
+    repo.write("src/lib.rs", &rust(2));
+    commit_all(&repo, "edit");
+    repo.build();
+    let context = Context {
+        runtime: Some(json!({})),
+        ..repo.context()
+    };
+    let changes = answer(&context, "review_tool", json!({}));
+    let mut untested: Vec<&str> = changes["findings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|f| f["kind"] == "untested_change")
+        .flat_map(|f| f["targets"].as_array().into_iter().flatten())
+        .filter_map(Value::as_str)
+        .collect();
+    untested.sort_unstable();
+    // No test passes "negate", "minus", or "cube" (the loop's strings are
+    // "other" and "cubed"). The default arm and the `else` are not
+    // narrowed: "other" reaches `fallback`.
+    assert_eq!(
+        untested,
+        ["src/lib.rs::cube", "src/lib.rs::negate"],
+        "{changes}"
+    );
+}
+
+#[test]
 fn a_rust_test_any_number_of_hops_away_counts_and_a_python_one_does_not() {
     // dagayn: tests crates/dagayn-tools/src/review.rs::review
     // dagayn: tests crates/dagayn-tools/src/findings.rs::caller_test_depth

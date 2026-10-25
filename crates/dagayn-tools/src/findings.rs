@@ -420,7 +420,10 @@ fn reached_by_test(inputs: &Inputs, node: &GraphNode) -> Option<bool> {
 /// module-level instance's implicit methods, a module's
 /// `__getattr__`, and a call at a module's top level (`import_time`) run
 /// once the module is imported, so there the module is called by the files
-/// that import it.
+/// that import it. A call in a string-selected arm (`match name {
+/// "review_tool" => .. }`) counts only for the callers that pass a string
+/// the arm takes, through any number of calls that pass the parameter on
+/// ([`Selects`]).
 pub(crate) fn nearest_test(
     store: &GraphStore,
     root: &Path,
@@ -434,8 +437,9 @@ pub(crate) fn nearest_test(
             .to_string_lossy()
             .into_owned()
     };
-    let mut frontier = vec![qn.to_string()];
-    let mut seen: HashSet<String> = frontier.iter().cloned().collect();
+    // Each node of the walk with what its callers must still pass.
+    let mut frontier: Vec<(String, Vec<Selects>)> = vec![(qn.to_string(), Vec::new())];
+    let mut seen: HashSet<(String, Vec<Selects>)> = frontier.iter().cloned().collect();
     // Modules whose import runs what the walk is after, and the callers
     // that run an implicit method through the class (`_make_store()`
     // returning `Store()`).
@@ -443,8 +447,12 @@ pub(crate) fn nearest_test(
     let mut implicit: HashSet<String> = HashSet::new();
     let mut sources: HashMap<String, Option<Vec<String>>> = HashMap::new();
     for depth in 0..=limit {
-        for current in &frontier {
-            if let Some(test) = direct_tests(store, current)?.into_iter().next() {
+        for (current, selects) in &frontier {
+            // A direct test's TESTED_BY edge does not say what it passes;
+            // its CALLS edge, walked below, does.
+            if selects.is_empty()
+                && let Some(test) = direct_tests(store, current)?.into_iter().next()
+            {
                 return Some(Some((depth, test.qualified_name)));
             }
         }
@@ -455,9 +463,9 @@ pub(crate) fn nearest_test(
         // property, a validator) is called wherever its class is used; a
         // module's `__getattr__` wherever the module is.
         let mut classes: Vec<String> = Vec::new();
-        for current in &frontier {
+        for (current, _) in &frontier {
             if let Some(class) = implicit_caller(store, root, &mut sources, current)?
-                && !frontier.contains(&class)
+                && !frontier.iter().any(|(qn, _)| *qn == class)
                 && !classes.contains(&class)
             {
                 if is_python_module(&class) {
@@ -466,11 +474,15 @@ pub(crate) fn nearest_test(
                 classes.push(class);
             }
         }
-        let mut targets = frontier.clone();
-        targets.extend(classes.iter().cloned());
-        let (_, incoming) = store.get_edges_by_endpoints(&targets).ok()?;
+        let mut targets: Vec<(String, Vec<Selects>)> = frontier.clone();
+        targets.extend(classes.iter().map(|class| (class.clone(), Vec::new())));
+        let names: Vec<String> = targets.iter().map(|(qn, _)| qn.clone()).collect();
+        let (_, incoming) = store.get_edges_by_endpoints(&names).ok()?;
         let mut next = Vec::new();
-        for (target, edges) in &incoming {
+        for (target, selects) in &targets {
+            let Some(edges) = incoming.get(target) else {
+                continue;
+            };
             let of_class = classes.contains(target);
             let module = imported.contains(target);
             let carries = of_class || module || implicit.contains(target);
@@ -478,12 +490,23 @@ pub(crate) fn nearest_test(
                 let calls = edge.kind == "CALLS"
                     || (module && edge.kind == "IMPORTS_FROM")
                     || (edge.kind == "REFERENCES"
-                        && (of_class || edge.extra.get("relationship_role").is_none()));
-                if !calls || !seen.insert(edge.source_qualified.clone()) {
+                        && (of_class || edge.extra.get("relationship_role").is_none()))
+                    || (!selects.is_empty() && is_test_declaration(edge));
+                if !calls {
+                    continue;
+                }
+                let Some(above) = through_call(edge, selects) else {
+                    continue;
+                };
+                if seen.contains(&(edge.source_qualified.clone(), Vec::new()))
+                    || !seen.insert((edge.source_qualified.clone(), above.clone()))
+                {
                     continue;
                 }
                 if let Some(caller) = store.get_node(&edge.source_qualified).ok()? {
-                    if is_test_node(&caller, &relative(&caller.file_path)) {
+                    // A test helper that passes the string on is not yet
+                    // the test: its callers say which arm runs.
+                    if above.is_empty() && is_test_node(&caller, &relative(&caller.file_path)) {
                         return Some(Some((depth + 1, caller.qualified_name)));
                     }
                     // A class built at a module's top level (`SPEC =
@@ -495,7 +518,7 @@ pub(crate) fn nearest_test(
                             implicit.insert(caller.qualified_name.clone());
                         }
                     }
-                    next.push(caller.qualified_name);
+                    next.push((caller.qualified_name, above));
                 }
             }
         }
@@ -505,6 +528,106 @@ pub(crate) fn nearest_test(
         frontier = next;
     }
     Some(None)
+}
+
+/// A `dagayn: tests` declaration: a test states it exercises the target.
+fn is_test_declaration(edge: &GraphEdge) -> bool {
+    edge.kind == "CROSS_ARTIFACT"
+        && edge.extra.get("relationship_role").and_then(Value::as_str) == Some("tests")
+}
+
+/// What the callers of a node must pass for the walk's path to run: at the
+/// `parameter`-th of `of` arguments (`self` not counted), one of `values`.
+/// It comes from a call in a string-selected arm (the parser's `dispatch`)
+/// and moves up through calls that pass the parameter on (`arguments`).
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+struct Selects {
+    parameter: usize,
+    of: usize,
+    values: Vec<String>,
+}
+
+impl Selects {
+    fn from_json(value: &Value, values: Option<&[String]>) -> Option<Self> {
+        let parameter = usize::try_from(value.get("parameter")?.as_u64()?).ok()?;
+        let of = usize::try_from(value.get("of")?.as_u64()?).ok()?;
+        let values = match values {
+            Some(values) => values.to_vec(),
+            None => value
+                .get("values")?
+                .as_array()?
+                .iter()
+                .map(|value| value.as_str().map(str::to_string))
+                .collect::<Option<Vec<_>>>()?,
+        };
+        (parameter < of).then_some(Selects {
+            parameter,
+            of,
+            values,
+        })
+    }
+}
+
+/// What the caller of `edge` must pass, given what the callee's callers
+/// must (`selects`), or `None` when the call passes a string the arm does
+/// not take. An argument the parser could not read (not a literal, not a
+/// parameter passed on), or a call whose argument count is not the
+/// callee's, could pass anything: that requirement is met.
+fn through_call(edge: &GraphEdge, selects: &[Selects]) -> Option<Vec<Selects>> {
+    let arguments = edge.extra.get("arguments").and_then(Value::as_array);
+    let mut above: Vec<Selects> = Vec::new();
+    for select in selects {
+        let Some(argument) = arguments
+            .filter(|arguments| arguments.len() == select.of)
+            .map(|arguments| &arguments[select.parameter])
+        else {
+            continue;
+        };
+        if let Some(text) = argument.as_str() {
+            if !select.values.iter().any(|value| value == text) {
+                return None;
+            }
+        } else if let Some(strings) = argument.get("strings").and_then(Value::as_array) {
+            // A local holding one of several strings (a loop over a table).
+            if !strings
+                .iter()
+                .filter_map(Value::as_str)
+                .any(|text| select.values.iter().any(|value| value == text))
+            {
+                return None;
+            }
+        } else if let Some(passed) = Selects::from_json(argument, Some(&select.values)) {
+            above.push(passed);
+        }
+    }
+    if edge.kind == "CALLS" {
+        let guards = edge.extra.get("dispatch").and_then(Value::as_array);
+        above.extend(
+            guards
+                .into_iter()
+                .flatten()
+                .filter_map(|guard| Selects::from_json(guard, None)),
+        );
+    }
+    // Two requirements on one parameter: the strings both take.
+    above.sort();
+    let mut merged: Vec<Selects> = Vec::new();
+    for select in above {
+        match merged.last_mut() {
+            Some(last) if last.parameter == select.parameter && last.of == select.of => {
+                last.values.retain(|value| select.values.contains(value));
+                if last.values.is_empty() {
+                    return None;
+                }
+            }
+            _ => merged.push(select),
+        }
+    }
+    for select in &mut merged {
+        select.values.sort();
+        select.values.dedup();
+    }
+    Some(merged)
 }
 
 /// Decorators whose methods the runtime calls on an instance's use.

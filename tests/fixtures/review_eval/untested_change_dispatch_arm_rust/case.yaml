@@ -1,0 +1,67 @@
+description: Edits both arms of src/tools.rs::answer, a dispatcher that picks a function by
+  a string. The only test passes "double" through a test helper and a forwarding call, so it
+  runs double and never negate; negate is untested, double is not (each arm in its own file,
+  so a finding on double is a false positive, not part of a grouped one).
+negative: false
+commit_change: true
+allowed_kinds: [tests_to_run]
+base:
+  from: rust_crate
+  files:
+    src/lib.rs: |
+      pub mod double;
+      pub mod fmt;
+      pub mod math;
+      pub mod negate;
+      pub mod tools;
+
+      /// Double a number through the math module.
+      pub fn twice(a: i64) -> i64 {
+          math::add(a, a)
+      }
+    src/tools.rs: |
+      use crate::double::double;
+      use crate::negate::negate;
+
+      /// Run the tool `name` on `x`.
+      pub fn call(name: &str, x: i64) -> i64 {
+          answer(name, x)
+      }
+
+      fn answer(name: &str, x: i64) -> i64 {
+          match name {
+              "double" => double(x),
+              "negate" => negate(x),
+              _ => 0,
+          }
+      }
+    src/double.rs: |
+      pub fn double(x: i64) -> i64 {
+          x * 2
+      }
+    src/negate.rs: |
+      pub fn negate(x: i64) -> i64 {
+          -x
+      }
+    tests/tools_test.rs: |
+      fn run(name: &str, x: i64) -> i64 {
+          demo::tools::call(name, x)
+      }
+
+      #[test]
+      fn doubles() {
+          assert_eq!(run("double", 2), 4);
+      }
+change:
+  files:
+    src/double.rs: |
+      pub fn double(x: i64) -> i64 {
+          x + x
+      }
+    src/negate.rs: |
+      pub fn negate(x: i64) -> i64 {
+          0 - x
+      }
+expected_findings:
+- kind: untested_change
+  target: src/negate.rs::negate
