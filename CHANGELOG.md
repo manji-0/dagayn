@@ -106,6 +106,21 @@ Removed).
 
 ### Fixed
 
+- A name-matched (bare) target never lands on a node of another language
+  family (Rust; JavaScript/TypeScript; Python; C/C++/Objective-C; the JVM
+  languages; each other language alone). This covers the SAP/SDP name
+  fallback, the `callers_of` / `inheritors_of` fallback, dead-code
+  liveness, and bare-name call binding through a namespace two languages
+  share. Rust `impl From for Prim` had counted as a dependency on the
+  TypeScript method `Field.From`, and Rust `impl PartialOrd` as one on a
+  TypeScript node; SAP also matched external imports by name (`use
+  quote::ToTokens` on an examples node `quote`, Python `import json` on a
+  Rust test function `json`), which the SDP finding already did not.
+  purecrate-ts's `examples` goes from Ca 5 to 0 and `purecrate` from Ca 2
+  to 0; `callers_of` for cfwdon's Rust
+  `RemoteStatusFederatedEmojisPreload.get` drops 14 TypeScript callers of
+  `Map.get`. Stored edges are unchanged on dagayn, cfwdon, purecrate-ts,
+  and tstodon, and the 1119 PyO3 calls from Python into dagayn-py remain.
 - TypeScript / JavaScript imports of a workspace package by its name
   (`import { x } from "@scope/pkg"` in a pnpm, npm, or yarn workspace)
   resolve to the package's files through its `package.json` `exports`,

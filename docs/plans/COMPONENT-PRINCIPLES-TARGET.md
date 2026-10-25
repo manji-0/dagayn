@@ -246,22 +246,41 @@ above 0.7.
 
 | Repository | Units / SAP applies | Most extreme (D, zone) | actionable / false / noise |
 |---|---|---|---|
-| dagayn | 17 / 12 | dagayn-grammars 1.0 pain, dagayn-parser 0.909 pain, dagayn-graph 0.833 pain, dagayn-mcp 0.8 pain, dagayn-postproc 0.6 | 0 / 2 / 3 |
+| dagayn | 17 / 12 | dagayn-grammars 1.0 pain, dagayn 0.959 pain, dagayn-graph 0.833 pain, dagayn-parser 0.833 pain, dagayn-mcp 0.8 pain | 0 / 3 / 2 |
 | cfwdon | 10 / 4 | cfwdon-core 1.0 pain, cfwdon-domain 1.0 pain, cfwdon-worker 0.002, cfwdon-models 0.0 | 0 / 0 / 4 |
-| purecrate-ts | 15 / 9 | examples 1.0 pain, purecrate 1.0 pain, purecrate-ir 0.857 pain, purecrate-syntax 0.75 pain, purecrate-emit-ts 0.667 | 0 / 2 / 3 |
+| purecrate-ts | 15 / 6 | purecrate-ir 1.0 pain, purecrate-syntax 0.75 pain, purecrate-emit-ts 0.667, purecrate-check 0.333, purecrate-pack 0.333 | 0 / 0 / 5 |
 | tstodon | 4 / 1 | @tstodon/worker 0.986 uselessness | 0 / 1 / 0 |
+
+These are the values after bare names stopped crossing languages (below).
+Before it, dagayn's extremes were dagayn-grammars 1.0, dagayn-parser
+0.909, dagayn-graph 0.833, dagayn-mcp 0.8, and dagayn-postproc 0.6
+(0 / 2 / 3), and purecrate-ts's examples 1.0, purecrate 1.0,
+purecrate-ir 0.857, purecrate-syntax 0.75, and purecrate-emit-ts 0.667
+(0 / 2 / 3).
 
 0 of 15 actionable. The noise is a concrete crate that everything depends
 on (a parser, an IR, a graph store, domain value types). That is what such
 a crate should look like, and no agent would add an abstraction to it. The
-false values come from five gaps:
+false values come from these gaps:
 
-- **Bare names resolve across languages.** Rust `impl From for Prim`
-  (`crates/ir/src/ty.rs:188`) resolves to the TypeScript method
+- **Bare names resolved across languages (fixed).** Rust `impl From for
+  Prim` (`crates/ir/src/ty.rs:188`) resolved to the TypeScript method
   `Field.From` under `examples/`, and `impl PartialOrd`
-  (`corpus/patterns.rs:177`) resolves to a node of the npm package
-  `purecrate`. These edges give purecrate-ts's `examples` an afferent
-  count of 5 and `purecrate` one of 2.
+  (`corpus/patterns.rs:177`) to a node of the npm package `purecrate`.
+  SAP also matched external imports by name: `use quote::ToTokens`
+  (`crates/canon/src/lib.rs:205`) to an `examples` node `quote`, and
+  dagayn's Python `import json` to a Rust test function `json`. These
+  gave `examples` an afferent count of 5 and `purecrate` one of 2. A
+  name-matched target now has to be in the source's language family, and
+  SAP leaves imports and external targets out as the SDP finding did:
+  both units are now Ca 0 and leave the extremes (17 Rust → TypeScript
+  `IMPLEMENTS` edges and 92 dagayn `IMPORTS_FROM` ones no longer match).
+  Stored edges did not change on any of the four repositories; the cross
+  happened only in the name fallbacks read at query time.
+- **A Python package's use of its Rust extension is no dependency.** The
+  `dagayn` package reads as Ce 0: `from . import _core` resolves to
+  `dagayn/__init__.py`, and its 1119 PyO3 calls into dagayn-py are
+  `CALLS`, which SAP does not count.
 - **Generated code counts.** tstodon's worker reads as abstract because of
   213 generated Prisma interfaces (`generated/prisma/internal/class.ts:73`).
 - **A unit's tests, examples, and build script count.** dagayn-grammars'
@@ -315,7 +334,8 @@ file into a crate both depend on is the change. The false values:
   `package.json`.
 - **A member call resolves to the wrong method.** `current?.resolve(false)`
   (`admin-ui/src/lib/confirm.ts:24`) calls a Promise resolver, which the
-  graph resolves to web-ui's `SessionState.resolve`.
+  graph resolves to web-ui's `SessionState.resolve`. Both are TypeScript,
+  so the language-family rule leaves it; it is still open.
 
 The noise is the expected reading: an app uses half of its domain, and
 an e2e suite uses one schema. `pub(crate)` also reads as `pub`, because
