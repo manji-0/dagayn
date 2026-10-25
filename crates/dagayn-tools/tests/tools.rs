@@ -1459,6 +1459,62 @@ fn flow_tool_finds_the_entry_points_that_reach_a_target() {
 }
 
 #[test]
+fn flow_tool_walks_past_called_handlers_and_ignores_test_callers() {
+    // dagayn: tests crates/dagayn-tools/src/flow.rs::flow
+    // A `handle_*` helper that production code calls is a step, not the
+    // way in; a page only its test calls is still where production starts.
+    let repo = Repo::new("entry-handlers", true);
+    repo.write(
+        "worker.py",
+        "def scheduled():\n    return handle_inbox_follow()\n\n\n\
+         def handle_inbox_follow():\n    return make_id()\n\n\n\
+         def make_id():\n    return 1\n\n\n\
+         def lists_page():\n    return make_id()\n",
+    );
+    repo.write(
+        "test_worker.py",
+        "from worker import lists_page\n\n\ndef test_lists_page():\n    lists_page()\n",
+    );
+    repo.build();
+    let context = Context {
+        runtime: Some(json!({})),
+        ..repo.context()
+    };
+    let found = answer(
+        &context,
+        "flow_tool",
+        json!({"mode": "entry_points", "target": "worker.py::make_id"}),
+    );
+    let entries: Vec<(&str, &str)> = found["entry_points"]
+        .as_array()
+        .expect("entry points")
+        .iter()
+        .map(|e| {
+            (
+                e["entry_point"].as_str().unwrap_or_default(),
+                e["kind"].as_str().unwrap_or_default(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        entries,
+        vec![
+            ("worker.py::lists_page", "uncalled"),
+            ("worker.py::scheduled", "uncalled"),
+        ],
+        "{found}"
+    );
+    assert_eq!(
+        found["entry_points"][1]["chain"],
+        json!([
+            "worker.py::scheduled",
+            "worker.py::handle_inbox_follow",
+            "worker.py::make_id"
+        ])
+    );
+}
+
+#[test]
 fn architecture_metrics_follow_the_requested_view() {
     // dagayn: tests crates/dagayn-tools/src/arch_tool.rs::architecture
     // dagayn: tests crates/dagayn-tools/src/refactor.rs::refactor

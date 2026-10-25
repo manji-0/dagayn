@@ -111,6 +111,17 @@ Removed).
   second, in the dead-code report's order otherwise. On purecrate-ts the 10
   shown came from one survey corpus file (`corpus/patterns.rs`); they now
   come from 7 files, 2 of them from that one.
+- `flow_tool(mode="entry_points")` and `review_tool(mode="affected_flows")`
+  no longer stop at a `handle_*` helper that production code calls, and no
+  longer count test callers as callers. For cfwdon's `generate_entity_id`
+  the default 10 were all inbox `handle_*` helpers; the reply is now the two
+  real ways in, `scheduled` and `fetch`. Route components only their tests
+  call (`ListsPage`) are entry points again. On the 17 hand-judged targets
+  of `eval/run_flow_entry_measure.py`, recall at the default limit went from
+  0.712 to 0.750 (0.727 to 0.786 per target) and precision from 0.776 to
+  0.872; at limit 50, recall 0.846 to 0.942. Helpers inside a Rust
+  `#[cfg(test)] mod tests` that call the target now show as entry points,
+  because the graph does not mark them as test code.
 
 ## 10.0.0 — 2026-10-12
 
