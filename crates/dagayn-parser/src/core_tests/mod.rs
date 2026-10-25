@@ -76,6 +76,8 @@ mod rust_edges;
 #[cfg(feature = "lang-rust")]
 mod rust_lang;
 #[cfg(feature = "lang-rust")]
+mod rust_macros;
+#[cfg(feature = "lang-rust")]
 mod rust_test_files;
 #[cfg(feature = "lang-rust")]
 mod rust_visibility;

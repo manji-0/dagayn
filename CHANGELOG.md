@@ -150,6 +150,29 @@ Removed).
 
 ### Fixed
 
+- Calls written in Rust `macro_rules!` bodies are edges (rust extractor
+  26). tree-sitter keeps a body as tokens, which no pass read, so
+  `crates/dagayn-parser/src/parsers.rs` reached none of the 28
+  `dagayn_grammars` constructors it calls as `dagayn_grammars::$language()`.
+  Each invocation of a macro the file defines now matches the first rule
+  whose pattern accepts its arguments and adds the calls its metavariables
+  complete, from the invocation's caller at its line (`macro_expansion`);
+  the paths the body spells out are called once from the definition
+  (`macro_body`), `$crate` read as `crate`. Only flat rules are matched
+  (literal tokens, delimited groups, `$name:fragment`); a repetition, or a
+  name the file defines twice, expands nothing. A method on a variable of
+  the expansion, `Self`, and a pattern (`Some(x) =>`) are no calls. In any
+  macro's tokens, an attribute (`#[derive(Debug)]`) is no longer a call, a
+  primitive or `default` starts a path (`i64::from` was a bare `from`,
+  `default::f()` a bare `f`), and `<T>::f()` is no call of a bare `f`.
+  Full builds of copies at the same commits: dagayn's CALLS 84,115 ->
+  84,154 (dagayn-parser -> dagayn-grammars 0/28 -> 28/28 in the component
+  measurement), cfwdon's 57,046 -> 57,120 (13 notification collectors
+  invoked through `collect_notification_batch!` inside `try_join!`),
+  purecrate-ts's 67,934 -> 68,020 and 6 more TESTED_BY; 30 added edges
+  checked against source, all right. The eval gates do not move (Rust
+  `untested_change`: 3,023 functions, untested precision 0.438, recall
+  0.27, tested precision 0.947 with both extractors).
 - Rust visibility is recorded as declared (rust extractor 25). Functions,
   methods, and modules now carry it in `modifiers` as types did, and
   restricted visibility is kept as written (`pub(crate)`, `pub(super)`,
