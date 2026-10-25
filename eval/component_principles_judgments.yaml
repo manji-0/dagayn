@@ -52,8 +52,12 @@ judgments:
   # (dagayn-py -> dagayn-parser 0/48, dagayn-build and dagayn-py ->
   # dagayn-postproc 0/11, purecrate-canon -> purecrate-syntax 0/22) now read
   # 7/62, 4/29, 5/29, and 1/52, and only the last is still an extreme.
-  - {repo: dagayn, measure: crp, id: "dagayn-parser -> dagayn-grammars", verdict: "false",
-     reason: "0 of 28 grammar constructors, but crates/dagayn-parser/src/parsers.rs:22 calls every one as `dagayn_grammars::$language()` inside the grammar_parser! macro_rules body, and a call through a macro metavariable is no edge"}
+  # Rerun with rust extractor 26 (calls a macro_rules! metavariable completes
+  # are edges at each invocation): dagayn-parser -> dagayn-grammars, false at
+  # 0/28 because parsers.rs:22 calls every constructor as
+  # `dagayn_grammars::$language()`, now reads 28/28 and left the extremes.
+  - {repo: dagayn, measure: crp, id: "dagayn-cli -> dagayn-graph", verdict: "false",
+     reason: "4 of 155 (GraphStore, GraphStore.open, GraphError, GraphError.is_corrupt; lib.rs:23,184), but update_cmd.rs:117 also calls `store.get_metadata` on the `GraphStore::open(..).ok()` a closure parameter receives, an untyped receiver and no edge; 5 of 155, a CLI opening the store, would ask for nothing"}
   - {repo: dagayn, measure: crp, id: "<root> -> dagayn", verdict: noise,
      reason: "main.py:6 is the entry shim calling dagayn.cli.app.main; 1 of 678 is right and means nothing"}
   - {repo: dagayn, measure: crp, id: "scripts -> dagayn", verdict: noise,

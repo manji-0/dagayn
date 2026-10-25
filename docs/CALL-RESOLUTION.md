@@ -54,6 +54,9 @@ parser; "post-processing" means the passes in
 | `enum_variant` | post-processing | On a Rust call of an enum variant (`Kind::File(..)`) bound to the enum node: the variant. |
 | `ffi_abi` | post-processing | `"pyo3"` on a Python call bound to a Rust `#[pymethods]` method. |
 | `alias`, `module_file`, `path` | extractor | Rust: the alias a `use ... as` gave the callee; the module file of a `module::f()` path. |
+| `in_macro` | extractor | Rust: the call was read from a macro's tokens, not a parsed expression: an invocation's arguments (`assert_eq!(f(x), 1)`), or a `macro_rules!` body. An attribute among the tokens (`#[derive(..)]`) is no call. |
+| `macro_body` | extractor | Rust: a call a `macro_rules!` body spells out (`tree_sitter::Parser::new()`, `$crate::util::f()` read as `crate::util::f`), from where the macro is defined, once whatever the invocations. A path with another metavariable, a method on a variable of the expansion, `Self`, and a pattern (`Some(x) =>`) are not calls. |
+| `macro_expansion` | extractor | Rust: a call the matched rule's body makes through a metavariable the invocation bound to a path (`dagayn_grammars::$language()` with `$language` = `rust_language`), from the invocation's caller at its line. Only macros the file defines once, whose rules up to the matching one have no repetition (`$(..)*`), expand. |
 
 Node metadata the passes read:
 
@@ -346,6 +349,13 @@ edges, not from `TESTED_BY`.
 - Inferred packages (`MEDIUM`) may be wrong when a value of another
   package has a method of the same name (pandas' `df.append()` as
   `builtins`).
+- Rust `macro_rules!`: an invocation expands only in the file that defines
+  the macro, so a `#[macro_export]` or `#[macro_use]` macro invoked from
+  another file adds no `macro_expansion` call. A rule with a repetition is
+  not matched, and functions a macro generates (`fn $name()`) are not
+  nodes; their calls come from the invocation's caller. A `macro_body`
+  path resolves where the macro is defined, which for a macro used in other
+  modules can differ from where Rust resolves it.
 
 ## Measured effect
 

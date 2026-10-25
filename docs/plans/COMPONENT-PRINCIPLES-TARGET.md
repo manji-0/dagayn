@@ -381,6 +381,21 @@ package take their place. canon → purecrate-ts (now 7/66) is no longer an
 extreme, so the one actionable row of the first run is out of the table.
 0 of 19 extremes are actionable.
 
+#### Rerun with macro calls (2026-10-26)
+
+<!-- derived-from #rerun-with-rust-visibility-2026-10-26 -->
+
+Rust extractor 26 reads calls in `macro_rules!` bodies
+([CALL-RESOLUTION](../CALL-RESOLUTION.md#edge-metadata)): each invocation
+of `grammar_parser!` in `parsers.rs` calls the constructor its
+`$language` names. Graphs: full builds of copies of dagayn at
+`origin/main` 44c098c6, cfwdon 9432966, and purecrate-ts 2e2a4c5f, once
+with rust 25 and once with rust 26. dagayn-parser -> dagayn-grammars reads
+28/28 and leaves the extremes; dagayn-cli -> dagayn-graph 4/155 takes its
+place, false by one: `update_cmd.rs:117` calls `store.get_metadata` on a
+closure parameter, an untyped receiver. The cfwdon and purecrate-ts rows do
+not change. 0 of 19 extremes are actionable.
+
 ### `refused_member` (LSP)
 
 The script read every production method of a type that has an `INHERITS`

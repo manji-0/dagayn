@@ -236,8 +236,14 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // take the trait's (docs/SCHEMA.md). Only a test attribute (`#[test]`,
         // `#[tokio::test]`, `#[rstest]`, ...) or a `cfg` that holds only
         // under test makes a function a test: `#[cfg(not(test))]` does not.
+        // 26: calls in `macro_rules!` bodies are edges: the paths a body
+        // spells out once from the definition (`macro_body`), and the paths
+        // a metavariable completes (`dagayn_grammars::$language()`) at each
+        // invocation of a macro the file defines whose flat rule matches
+        // (`macro_expansion`). `$crate` reads as `crate`. An attribute in a
+        // macro's tokens (`#[derive(Debug)]`) is no longer a call.
         extractor: "rust",
-        version: 25,
+        version: 26,
         languages: &["rust"],
     },
     ExtractorVersion {
