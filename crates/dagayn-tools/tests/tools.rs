@@ -1884,6 +1884,58 @@ fn refactor_suggest_does_not_let_one_file_fill_every_unused_slot() {
     assert_eq!(corpus, sorted);
 }
 
+/// A call or base class named only by its bare name never reaches a node
+/// of another language family, even when that node is the only one with
+/// the name: Rust's `tally()` is not TypeScript's, and Python's `Base` is
+/// not a Rust struct.
+#[test]
+fn bare_names_do_not_reach_another_language() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    let repo = Repo::new("bare-family", false);
+    repo.write(
+        "rust/src/run.rs",
+        "pub fn run() -> i64 {\n    tally()\n}\n\npub struct Base;\n",
+    );
+    repo.write(
+        "web/count.ts",
+        "function tally(): number {\n  return 1;\n}\n",
+    );
+    repo.write("py/handler.py", "class Handler(Base):\n    pass\n");
+    repo.build();
+    let context = repo.context();
+    let sources = |pattern: &str, target: &str| -> Vec<String> {
+        let reply = answer(
+            &context,
+            "query_graph_tool",
+            json!({"pattern": pattern, "target": target}),
+        );
+        reply["results"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|row| row["qualified_name"].as_str().map(str::to_string))
+            .collect()
+    };
+    let callers = sources("callers_of", "web/count.ts::tally");
+    assert!(callers.is_empty(), "{callers:?}");
+    let inheritors = sources("inheritors_of", "rust/src/run.rs::Base");
+    assert!(inheritors.is_empty(), "{inheritors:?}");
+    // The graph's own view; the repository text check after it still keeps
+    // `tally` out of the report, since the word appears in `run.rs`.
+    let store = GraphStore::open(db_path_for_build(&repo.0).expect("db")).expect("store");
+    let candidates: Value = serde_json::from_str(
+        &dagayn_tools::graph_dead_code_candidates_json(&store, None, None).expect("candidates"),
+    )
+    .expect("json");
+    let names: Vec<&str> = candidates
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|d| d["qualified_name"].as_str())
+        .collect();
+    assert!(names.contains(&"web/count.ts::tally"), "{names:?}");
+}
+
 #[test]
 fn refactor_finds_dead_code_and_suggests() {
     // dagayn: tests crates/dagayn-tools/src/refactor.rs::refactor

@@ -158,8 +158,12 @@ are projected together for compatibility with older mixed-graph reports.
 `INHERITS`/`IMPLEMENTS` targets are often bare type names (e.g., `EmbeddingProvider`) rather than qualified paths.
 Target resolution runs for every dependency edge, in two stages:
 1. Try `edge.target` as a qualified name (file-path-prefixed)
-2. If not found, try `edge.target` as a bare name — succeeds only when every in-scope node with that name falls in **exactly one** scope
-3. If the name spans several scopes, or is not found, the edge is silently dropped
+2. If not found, try `edge.target` as a bare name — succeeds only when every in-scope node with that name falls in **exactly one** scope and at least one of them is in the source file's language family (Rust, JavaScript/TypeScript, Python, C/C++/Objective-C, the JVM languages, each other language alone). `IMPORTS_FROM` edges and targets marked `external` are never matched by name
+3. If the name spans several scopes, is not found, or names only nodes of another language family, the edge is silently dropped
+
+A Rust `impl From for Prim` therefore adds no dependency on a TypeScript
+method `From`, even when that method is the only repository node called
+`From`, and Python `import json` none on a Rust function `json`.
 
 Stdlib types (`ABC`, `list`, etc.) are dropped in stage 2 because they have no matching repo node.
 

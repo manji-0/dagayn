@@ -329,6 +329,14 @@ fn is_plausible_bare_edge(
     if source_file.is_empty() || target_file.is_empty() {
         return false;
     }
+    // A bare name names a symbol of the caller's own language: a PHP and a
+    // C# file declaring the same namespace do not see each other. Explicit
+    // bridges (PyO3 methods, Terraform, Markdown links) are resolved by
+    // their own passes, not by name.
+    let family = language_family(target_file);
+    if !same_language_family(language_family(source_file), family) {
+        return false;
+    }
     if file_is_visible(source_file, target_file, import_targets, visibility) {
         return true;
     }
@@ -337,7 +345,6 @@ fn is_plausible_bare_edge(
     // language counts: a Python `GraphStore` wrapper does not declare the Rust
     // struct of the same name, so importing it must not make the struct's
     // methods visible.
-    let family = language_family(target_file);
     visibility
         .declaring_files(target_qualified)
         .is_some_and(|declaring| {
@@ -348,10 +355,12 @@ fn is_plausible_bare_edge(
         })
 }
 
-/// Language family by file extension, for pairing a definition with the
-/// files that declare its class (a C++ `.cpp` with its `.h`). `None` when the
-/// extension is unknown, which never rules a declaration out.
-pub(crate) fn language_family(file_path: &str) -> Option<&'static str> {
+/// Language family by file extension: the languages that name each other's
+/// symbols without an explicit bridge (C, C++, and Objective-C through
+/// headers; JavaScript, TypeScript, and Vue/Svelte scripts; the JVM
+/// languages). `None` when the extension is unknown, which never rules a
+/// match out.
+pub fn language_family(file_path: &str) -> Option<&'static str> {
     let ext = file_path.rsplit_once('.')?.1.to_ascii_lowercase();
     Some(match ext.as_str() {
         "py" | "pyi" | "ipynb" => "python",
@@ -379,7 +388,8 @@ pub(crate) fn language_family(file_path: &str) -> Option<&'static str> {
     })
 }
 
-fn same_language_family(a: Option<&str>, b: Option<&str>) -> bool {
+/// Whether two [`language_family`] results can name each other's symbols.
+pub fn same_language_family(a: Option<&str>, b: Option<&str>) -> bool {
     match (a, b) {
         (Some(a), Some(b)) => a == b,
         _ => true,
@@ -738,8 +748,9 @@ impl GraphStore {
     /// plausibly mean it: `callers_of`'s (`CALLS`) and `inheritors_of`'s
     /// (`INHERITS`, `IMPLEMENTS`) fallback when nothing reaches it by its
     /// qualified name (`dagayn.tools.query_graph_support.filter_bare_name_fallback_edges`).
-    /// Edges into external packages never qualify; a name only one function
-    /// or class carries needs no import evidence; otherwise the source file
+    /// Edges into external packages, and edges from another language family,
+    /// never qualify; a name only one function or class carries needs no
+    /// import evidence; otherwise the source file
     /// must see the target's file (or its class declaration) by import or
     /// namespace.
     pub fn bare_name_edges(&self, target: &GraphNode, kind: &str) -> Result<Vec<GraphEdge>> {
@@ -747,9 +758,14 @@ impl GraphStore {
         if edges.is_empty() {
             return Ok(edges);
         }
+        let family = language_family(&target.file_path);
         let edges: Vec<GraphEdge> = edges
             .into_iter()
             .filter(|edge| edge.extra.get("external") != Some(&Value::Bool(true)))
+            .filter(|edge| {
+                let source = node_file_from_qualified(&edge.source_qualified, &edge.file_path);
+                same_language_family(language_family(&source), family)
+            })
             .collect();
         if !target.name.is_empty() {
             let counts =
