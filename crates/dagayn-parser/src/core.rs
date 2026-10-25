@@ -63,6 +63,8 @@ mod js_sfc;
 mod js_tests;
 #[path = "js_types.rs"]
 mod js_types;
+#[path = "js_workspace.rs"]
+mod js_workspace;
 #[path = "julia.rs"]
 mod julia;
 #[path = "kotlin.rs"]
@@ -162,6 +164,7 @@ pub struct RustOwnedParser {
     javascript_export_cache: js_modules::JavaScriptExportCache,
     javascript_module_cache: js_modules::JavaScriptModuleCache,
     javascript_tsconfig_cache: js_modules::JavaScriptTsconfigCache,
+    javascript_workspace_cache: js_workspace::JavaScriptWorkspaceCache,
     rust_module_cache: rust_lang::modules::RustModuleCache,
 }
 
@@ -199,6 +202,7 @@ impl RustOwnedParser {
             javascript_export_cache: Default::default(),
             javascript_module_cache: Default::default(),
             javascript_tsconfig_cache: Default::default(),
+            javascript_workspace_cache: Default::default(),
             rust_module_cache: Default::default(),
         }
     }
@@ -278,6 +282,7 @@ impl RustOwnedParser {
                     export: Some(&self.javascript_export_cache),
                     module: Some(&self.javascript_module_cache),
                     tsconfig: Some(&self.javascript_tsconfig_cache),
+                    workspace: Some(&self.javascript_workspace_cache),
                 },
             ),
             RustOwnedPathKind::TypeScript => js_like::parse_javascript_like_with_parser(
@@ -290,6 +295,7 @@ impl RustOwnedParser {
                     export: Some(&self.javascript_export_cache),
                     module: Some(&self.javascript_module_cache),
                     tsconfig: Some(&self.javascript_tsconfig_cache),
+                    workspace: Some(&self.javascript_workspace_cache),
                 },
             ),
             RustOwnedPathKind::Tsx => js_like::parse_javascript_like_with_parser(
@@ -302,6 +308,7 @@ impl RustOwnedParser {
                     export: Some(&self.javascript_export_cache),
                     module: Some(&self.javascript_module_cache),
                     tsconfig: Some(&self.javascript_tsconfig_cache),
+                    workspace: Some(&self.javascript_workspace_cache),
                 },
             ),
             RustOwnedPathKind::Bash => bash::parse_bash_with_parser(
@@ -417,6 +424,7 @@ impl RustOwnedParser {
                         export: Some(&self.javascript_export_cache),
                         module: Some(&self.javascript_module_cache),
                         tsconfig: Some(&self.javascript_tsconfig_cache),
+                        workspace: Some(&self.javascript_workspace_cache),
                     },
                 )
             }
@@ -435,6 +443,7 @@ impl RustOwnedParser {
                         export: Some(&self.javascript_export_cache),
                         module: Some(&self.javascript_module_cache),
                         tsconfig: Some(&self.javascript_tsconfig_cache),
+                        workspace: Some(&self.javascript_workspace_cache),
                     },
                 )
             }

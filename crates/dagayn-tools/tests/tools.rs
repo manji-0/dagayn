@@ -2748,6 +2748,97 @@ fn layered_workspace(repo: &Repo) {
     );
 }
 
+/// A TypeScript import of a workspace package by name (`@ws/a`) reaches the
+/// package's files: its calls, type annotations, and `implements` are edges
+/// to real nodes, and the architecture map weighs the dependency.
+#[test]
+fn workspace_package_imports_reach_the_package_files() {
+    // dagayn: tests crates/dagayn-tools/src/arch_tool.rs::architecture
+    let repo = Repo::new("ts-workspace", false);
+    repo.write("pnpm-workspace.yaml", "packages:\n  - packages/*\n");
+    repo.write("package.json", r#"{ "name": "root", "private": true }"#);
+    repo.write(
+        "packages/a/package.json",
+        r#"{ "name": "@ws/a", "exports": { ".": "./src/index.ts" } }"#,
+    );
+    repo.write(
+        "packages/a/src/index.ts",
+        "export * from \"./greet\";\nexport type { Greeter } from \"./types\";\n",
+    );
+    repo.write(
+        "packages/a/src/greet.ts",
+        "export function greet(name: string): string {\n  return name;\n}\n",
+    );
+    repo.write(
+        "packages/a/src/types.ts",
+        "export interface Greeter {\n  hi(): string;\n}\n",
+    );
+    repo.write(
+        "packages/b/package.json",
+        r#"{ "name": "@ws/b", "dependencies": { "@ws/a": "workspace:*" } }"#,
+    );
+    repo.write(
+        "packages/b/src/main.ts",
+        "import { greet } from \"@ws/a\";\nimport type { Greeter } from \"@ws/a\";\n\n\
+         export class Loud implements Greeter {\n  hi(): string {\n    return greet(\"hi\");\n  }\n}\n\n\
+         export function run(g: Greeter): string {\n  return g.hi();\n}\n",
+    );
+    repo.build();
+
+    let store = GraphStore::open(db_path_for_build(&repo.0).expect("db")).expect("store");
+    let edges = store.get_all_edges().expect("edges");
+    for (kind, source, target) in [
+        (
+            "IMPORTS_FROM",
+            "packages/b/src/main.ts",
+            "packages/a/src/index.ts",
+        ),
+        (
+            "CALLS",
+            "packages/b/src/main.ts::Loud.hi",
+            "packages/a/src/greet.ts::greet",
+        ),
+        (
+            "REFERENCES",
+            "packages/b/src/main.ts::run",
+            "packages/a/src/types.ts::Greeter",
+        ),
+        (
+            "IMPLEMENTS",
+            "packages/b/src/main.ts::Loud",
+            "packages/a/src/types.ts::Greeter",
+        ),
+    ] {
+        assert!(
+            edges.iter().any(|edge| edge.kind == kind
+                && edge.source_qualified == source
+                && edge.target_qualified == target),
+            "{kind} {source} -> {target}"
+        );
+    }
+    assert!(
+        !edges
+            .iter()
+            .any(|edge| edge.target_qualified.starts_with("@ws/")),
+        "no edge is left on the package name"
+    );
+
+    let context = Context {
+        runtime: Some(json!({})),
+        ..repo.context()
+    };
+    let overview = answer(&context, "architecture_analysis_tool", json!({}));
+    let edge = overview["unit_edges"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|edge| edge["from"] == "@ws/b" && edge["to"] == "@ws/a")
+        .unwrap_or_else(|| panic!("{}", overview["unit_edges"]));
+    for kind in ["calls", "imports", "references", "inherits"] {
+        assert!(edge[kind].as_u64().unwrap_or(0) >= 1, "{kind}: {edge}");
+    }
+}
+
 /// docs/plans/STABILITY-FINDING-TARGET.md: the overview names every unit
 /// that depends on a less stable one; a review names the ones the change
 /// introduced, and not a dependency that predates it.

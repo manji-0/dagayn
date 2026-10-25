@@ -105,8 +105,13 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 11: a member call on a parameter with no type annotation records
         // the members the function uses on it (`receiver_shape`), for
         // resolution to type it by the one class that has them all.
+        // 12: a workspace member imported by its package name (`@scope/pkg`,
+        // pnpm / npm / yarn workspaces) resolves to its files, and an
+        // imported `extends` / `implements` base to its declaration. A call on
+        // an imported `PascalCase` value of the repository whose member has
+        // no node carries `receiver_type` instead of `receiver_unknown`.
         extractor: "javascript",
-        version: 11,
+        version: 12,
         languages: &["javascript", "typescript", "tsx", "vue", "svelte"],
     },
     ExtractorVersion {

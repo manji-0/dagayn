@@ -28,6 +28,7 @@ pub(super) struct JavaScriptCaches<'a> {
     pub(super) export: Option<&'a JavaScriptExportCache>,
     pub(super) module: Option<&'a JavaScriptModuleCache>,
     pub(super) tsconfig: Option<&'a JavaScriptTsconfigCache>,
+    pub(super) workspace: Option<&'a super::js_workspace::JavaScriptWorkspaceCache>,
 }
 
 #[derive(Clone)]

@@ -247,8 +247,11 @@ Nodes that are **not** created:
 - `implements A, Service<T>, ns.Marker` yields one `IMPLEMENTS` per type.
 - Interface `extends A, B<T>` yields `INHERITS` edges
   (`relationship_role: "extends"`), as Java does for interface extension.
-- Identifier bases stay bare; `resolve_bare_inheritance_targets` binds them
-  through same-file declarations and import visibility. Member-expression and
+- An identifier base that names an import resolves through it, re-exports
+  included, to the declaration (`implements Greeter` with `Greeter` from a
+  package barrel gives `IMPLEMENTS -> types.ts::Greeter`). Other identifier
+  bases stay bare; `resolve_bare_inheritance_targets` binds them through
+  same-file declarations and import visibility. Member-expression and
   qualified-type bases rooted at an imported module binding (`ns.Base`,
   `ns.Marker`) resolve to the exporting module's QN.
 - Only the declaration's own heritage is read: a class declared inside a
@@ -290,7 +293,12 @@ on a base (`this.helper()` inherited, `super.m()`) is `MEDIUM`
 shape. Any other receiver (`res.json()`, an untyped `this.users`, a known
 class without that member) keeps the bare member name with
 `receiver_unknown: true`, and same-file resolution leaves such edges alone:
-they never bind to the first same-named method or to the caller itself.
+they never bind to the first same-named method or to the caller itself. An
+imported `PascalCase` value of a repository module whose member has no node
+(`IsoInstant.parse(..)` for `export const IsoInstant = { parse:
+schemaResult(schema) }`) carries `receiver_type: "IsoInstant"` instead, so
+only a method of that receiver can bind it and the call is never taken for
+a standard method of the same name (`Date.parse`).
 
 ### 6.2 Imports
 
@@ -386,11 +394,25 @@ project config, using the same candidate list:
   unresolved (a scoped alias such as `@shared/log` is then treated as a
   package). Project references and `include` / `files` selection are out of
   scope (§9).
+- **Workspace packages.** A specifier tsconfig does not resolve whose
+  package name (`@scope/pkg` of `@scope/pkg/sub`) is a member of the
+  importer's workspace resolves to that member's files. The workspace root
+  is the nearest directory, from the importer up to the repository root,
+  with a `pnpm-workspace.yaml` (`packages`, `!` excludes) or a
+  `package.json` with `workspaces` (an array, or `{ "packages": [...] }`);
+  its members are the matched directories whose `package.json` has a
+  `name`. The member's `exports` gives the candidates (the `.` or `./sub`
+  entry, `./*` patterns; conditions `types`, `import`, `default`,
+  `require`, then any other), then `types` / `typings`, `module`, `main`,
+  then `index.*` (or `sub` under the member directory). The first candidate
+  that exists wins, so a `dist/` entry that was never built gives way to the
+  next one; a built file is not mapped back to its source.
+  `node_modules` is not read.
 
 A specifier that is a package name (`react`,
-`@scope/name`, `lodash/fp`, `node:fs`), resolves to no file, matches no
-`paths` pattern other than `*`, and whose first segment does not exist
-under `baseUrl` is external (§7.6). Anything else that fails to resolve
+`@scope/name`, `lodash/fp`, `node:fs`), resolves to no file (through
+tsconfig or the workspace), matches no `paths` pattern other than `*`, and
+whose first segment does not exist under `baseUrl` is external (§7.6). Anything else that fails to resolve
 (`./gone`, an alias whose file is missing) is an unresolved in-repo module:
 its names stay bare.
 
@@ -911,6 +933,7 @@ QNs omit the `file::` prefix.
 | monorepo configs | the nearest `tsconfig.json` / `tsconfig.app.json` / `jsconfig.json` directory from the importer; solution-style `tsconfig.json` defers to a sibling config with `paths` / `baseUrl` | implemented (#27) |
 | `jsconfig.json` | read like `tsconfig.json` | implemented (#27) |
 | tsconfig `extends` chains | not followed; inherited `paths` / `baseUrl` are not applied | deferred |
+| workspace packages (`import { x } from "@scope/pkg"` in a pnpm / npm / yarn workspace) | the member's `exports` / `types` / `module` / `main` / `index.*`; `IMPORTS_FROM`, `CALLS`, type references, and heritage reach its files | implemented |
 | `export { a as b }`, `export * from` | export index | implemented (existing) |
 | `export { x as default }`, `export default <decl>` | export index `default` | implemented (#9) |
 | `export { default as x } from "./b"` | followed to `b`'s default export | implemented (#9) |

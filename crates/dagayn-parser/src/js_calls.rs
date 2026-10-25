@@ -504,8 +504,10 @@ fn javascript_unknown_receiver_extra(
     method: &str,
     context: &JavaScriptParseContext<'_>,
 ) -> Value {
-    if let Some(type_name) = object.and_then(|object| javascript_foreign_receiver(object, context))
-    {
+    if let Some(type_name) = object.and_then(|object| {
+        javascript_foreign_receiver(object, context)
+            .or_else(|| javascript_imported_value_receiver(object, context))
+    }) {
         return json!({"receiver_type": type_name});
     }
     let mut extra = json!({"receiver_unknown": true});
@@ -518,6 +520,40 @@ fn javascript_unknown_receiver_extra(
         extra["receiver_shape"] = shape;
     }
     extra
+}
+
+/// An imported `PascalCase` value of a repository module
+/// (`IsoInstant.parse(..)` with `export const IsoInstant = { parse:
+/// schemaResult(schema) }`): its declared name, so a member the graph has no
+/// node for stays unresolved on that receiver instead of being taken for a
+/// same-named standard method (`Date.parse`).
+fn javascript_imported_value_receiver(
+    object: tree_sitter::Node<'_>,
+    context: &JavaScriptParseContext<'_>,
+) -> Option<String> {
+    if object.kind() != "identifier" {
+        return None;
+    }
+    let name = node_text(object, context.source);
+    if !name.starts_with(|c: char| c.is_ascii_uppercase())
+        || context.bindings.borrow().is_bound(&name)
+        || javascript_is_local_name(context, &name)
+    {
+        return None;
+    }
+    let binding = context.import_map.get(&name)?;
+    let (JavaScriptExportResolution::Symbol(qualified), _) = resolve_javascript_import_path_in(
+        &context.file_path,
+        &name,
+        binding,
+        &[],
+        context.repo_root,
+        context.caches,
+    )?
+    else {
+        return None;
+    };
+    JavaScriptTypeRef::from_qualified(&qualified).map(|ty| ty.path)
 }
 
 /// A receiver rooted at a parameter the code gives no type
