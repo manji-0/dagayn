@@ -472,6 +472,70 @@ fn resolves_bare_call_via_shared_namespace() {
     let _ = std::fs::remove_file(path);
 }
 
+/// A namespace is shared only within one language family: a PHP file and a
+/// C# file that both declare `Shop` cannot name each other's symbols, while
+/// Kotlin and Java in one package can.
+#[test]
+fn a_shared_namespace_does_not_cross_language_families() {
+    let path = temp_db("bare-call-namespace-family");
+    let mut store = GraphStore::open(&path).expect("open");
+    let files: [(&str, &str, Vec<NodeInput>); 4] = [
+        (
+            "Cart.cs",
+            "Shop",
+            vec![
+                class_node("Base", "Cart.cs"),
+                function_node("Total", "Cart.cs"),
+            ],
+        ),
+        ("run.php", "Shop", vec![function_node("run", "run.php")]),
+        (
+            "Util.java",
+            "app",
+            vec![function_node("helper", "Util.java")],
+        ),
+        (
+            "Main.kt",
+            "app",
+            vec![
+                function_node("main", "Main.kt"),
+                class_node("Impl", "Main.kt"),
+            ],
+        ),
+    ];
+    for (file, namespace, nodes) in files {
+        let mut all = vec![namespaced_file_node(file, namespace)];
+        all.extend(nodes);
+        let edges = match file {
+            "run.php" => vec![
+                edge("CALLS", "run.php::run", "Total", file, 2),
+                edge("INHERITS", "run.php::run", "Base", file, 3),
+            ],
+            "Main.kt" => vec![edge("CALLS", "Main.kt::main", "helper", file, 2)],
+            _ => vec![],
+        };
+        store
+            .store_file_nodes_edges(file, &all, &edges, "", 0)
+            .expect("store");
+    }
+    store.resolve_bare_call_targets().unwrap();
+    store.resolve_bare_inheritance_targets().unwrap();
+    let target = |source: &str, kind: &str| -> String {
+        store
+            .conn
+            .query_row(
+                "SELECT target_qualified FROM edges WHERE source_qualified = ? AND kind = ?",
+                [source, kind],
+                |row| row.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!(target("run.php::run", "CALLS"), "Total");
+    assert_eq!(target("run.php::run", "INHERITS"), "Base");
+    assert_eq!(target("Main.kt::main", "CALLS"), "Util.java::helper");
+    let _ = std::fs::remove_file(path);
+}
+
 #[test]
 fn resolves_bare_call_via_imported_namespace() {
     let path = temp_db("bare-call-imported-namespace");

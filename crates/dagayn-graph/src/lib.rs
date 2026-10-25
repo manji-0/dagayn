@@ -542,6 +542,7 @@ pub use embeddings::{embedding_search, embedding_search_prewarm};
 pub use impact_radius::ImpactRadius;
 pub use maintenance::{AnswerabilityCounts, EmbeddingCoverage, ORPHAN_PRUNE_STEPS};
 pub use node_queries::NodeSignatureRow;
+pub use postprocess::{language_family, same_language_family};
 pub use search_query::FtsQueryResult;
 
 #[cfg(test)]

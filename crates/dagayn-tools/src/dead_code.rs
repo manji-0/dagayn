@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 
 use dagayn_graph::{
     GraphEdge, GraphNode, GraphStore, has_framework_decorator, is_conventional_entry_point,
-    is_reportable_bridge,
+    is_reportable_bridge, language_family, same_language_family,
 };
 use serde_json::{Value, json};
 
@@ -214,6 +214,13 @@ fn survives(
     true
 }
 
+/// Whether an edge from `edge_file` naming `node` only by its bare name can
+/// mean it: never from another language family (a Rust `tally()` does not
+/// call a TypeScript `tally`).
+fn same_family(edge_file: &str, node: &GraphNode) -> bool {
+    same_language_family(language_family(edge_file), language_family(&node.file_path))
+}
+
 /// `_is_plausible_caller`.
 fn plausible_caller(
     edge_file: &str,
@@ -224,6 +231,9 @@ fn plausible_caller(
     let node_file = node.file_path.as_str();
     if edge_file == node_file {
         return true;
+    }
+    if !same_family(edge_file, node) {
+        return false;
     }
     if !node.name.is_empty() && name_counts.get(&node.name).copied().unwrap_or(0) == 1 {
         return true;
@@ -632,7 +642,13 @@ fn graph_candidates(
             );
         }
         if node.kind == "Class" && !incoming.iter().any(|e| e.kind == "INHERITS") {
-            incoming.extend(bare_inherits.get(&node.name).unwrap_or(&empty));
+            incoming.extend(
+                bare_inherits
+                    .get(&node.name)
+                    .unwrap_or(&empty)
+                    .iter()
+                    .filter(|e| same_family(&e.file_path, node)),
+            );
         }
         let count = |kind: &str| incoming.iter().filter(|e| e.kind == kind).count() as i64;
         let mut has_callers = count("CALLS") > 0;
