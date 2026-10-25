@@ -52,8 +52,11 @@ pub(super) fn parse_rust_with_parser(
         } = collect_rust_file_facts(root, source);
         let scope =
             repo.map(|(root, cache)| modules::RustModuleScope::new(root, cache, &file_path));
-        let test_file =
-            nodes[0].is_test || scope.as_ref().is_some_and(modules::RustModuleScope::is_test_only);
+        let cfg_test_file = scope
+            .as_ref()
+            .is_some_and(modules::RustModuleScope::is_test_only);
+        // A test path (`tests/`) or a `#[cfg(test)]` module: test code.
+        let test_file = nodes[0].is_test || cfg_test_file;
         let context = RustParseContext {
             source,
             file_path: file_path.clone(),
@@ -69,7 +72,7 @@ pub(super) fn parse_rust_with_parser(
             bindings: RefCell::new(MemberCallBindings::with_types(type_names)),
             closures: RefCell::new(HashSet::new()),
             component_bindings: rust_uses_component_bindings(source),
-            test_file,
+            cfg_test_file,
         };
         rust_note_qualified_types(qualified_types, &context);
         rust_walk_children(root, &context, None, None, &mut nodes, &mut edges);
@@ -317,7 +320,7 @@ fn rust_walk_children(
                 if let Some(name) = rust_identifier_child(child, context.source) {
                     let qualified = qualify(&context.file_path, &name, owner());
                     let params = direct_child_text(child, context.source, &["parameters"]);
-                    let is_test = context.test_file
+                    let is_test = context.cfg_test_file
                         || is_rust_test_function(&context.file_path, child, context.source);
                     let mut extra = if child.kind() == "function_signature_item" {
                         json!({"is_abstract": true})
@@ -694,9 +697,9 @@ struct RustParseContext<'a> {
     /// (`wit_bindgen::generate!`, `wasmtime::component::bindgen!`,
     /// cargo-component's `bindings` module).
     component_bindings: bool,
-    /// The file is compiled only under test: a test path (`tests/`), or a
-    /// module declared `#[cfg(test)] mod name;` (or one below it).
-    test_file: bool,
+    /// The file is a module declared `#[cfg(test)] mod name;` (or one
+    /// below it): compiled only under test, so its functions are tests.
+    cfg_test_file: bool,
 }
 
 /// What the extraction needs to know about the whole file before it walks

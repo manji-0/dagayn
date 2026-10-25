@@ -25,9 +25,11 @@ Nodes store file path, qualified name, language, line range, and an `extra` payl
 Rust, a file compiled only under test is a test file whatever its name: under
 `tests/` or `test/`, or the target of a `#[cfg(test)] mod name;` declaration
 (`#[path]` included, `cfg(all(test, ...))` too) or a module below one, in
-every crate that compiles it. Every node of such a file has `is_test`, and
-its functions are `Test` nodes. Elsewhere a function is a test by its
-attribute (`#[test]`, `#[tokio::test]`, `#[cfg(test)]`). The gate is read
+every crate that compiles it. Every node of such a file has `is_test`. The
+functions of a `#[cfg(test)]` module, and of a file under a nested `tests/`
+or `test/` directory (`crates/x/tests/`), are `Test` nodes; elsewhere a
+function is a test by its attribute (`#[test]`, `#[tokio::test]`,
+`#[cfg(test)]`). The gate is read
 from the declaring file when the gated file is parsed, so adding or removing
 a `#[cfg(test)]` on a `mod` declaration reclassifies the gated file at its
 next re-parse (a full build, or an edit of that file).

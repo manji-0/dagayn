@@ -106,6 +106,24 @@ Removed).
 
 ### Fixed
 
+- A Rust file compiled only under test is test code, whatever its name:
+  the target of a `#[cfg(test)] mod name;` declaration (with `#[path]`, or
+  `cfg(all(test, ...))`), and every module below one, in each crate that
+  compiles it. Every node of such a file is `is_test` and its functions are
+  `Test` nodes, as in a `tests/` directory; the types and closures of a
+  `tests/` file are `is_test` too (rust extractor 24). These files were
+  production code unless their name matched a test pattern, so
+  `src/tests.rs` or `terraform_bridges_tests.rs` helpers counted toward
+  unit edges and could be reported by `untested_change`. Reclassified: 42
+  files (302 nodes) in dagayn, 37 (54) in cfwdon, 3 (18) in purecrate-ts.
+  The architecture overview drops dagayn-graph → dagayn-parser, which only
+  `terraform_bridges_tests.rs` made, and lighter edges such as dagayn-tools
+  → dagayn-build (55 → 52 calls) and purecrate-emit-ts → purecrate-ir (478
+  → 429 calls). The `untested_change` gates do not move: the Rust gate's
+  functions go from 3,002 to 2,998 (the seven helpers of
+  `terraform_bridges_tests.rs` leave; untested precision 0.445, recall
+  0.266, tested precision 0.945 before and after), and Python's stays at
+  0.839 / 0.656 / 0.948. SAP still counts a unit's tests by design.
 - TypeScript / JavaScript imports of a workspace package by its name
   (`import { x } from "@scope/pkg"` in a pnpm, npm, or yarn workspace)
   resolve to the package's files through its `package.json` `exports`,

@@ -103,5 +103,5 @@ fn every_node_of_a_tests_directory_file_is_test_code() {
     );
     let nodes = nodes_of(&root, "tests/it.rs");
     assert!(nodes.iter().all(|(_, _, is_test)| *is_test), "{nodes:?}");
-    assert!(nodes.contains(&("helper".into(), "Test".into(), true)));
+    assert!(nodes.contains(&("Harness".into(), "Class".into(), true)));
 }
