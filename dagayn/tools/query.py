@@ -11,7 +11,7 @@ from ..contracts.state_types import (
     MissingnessRecord,
     seal_missingness_item,
 )
-from ..search import embedding_health_available, hybrid_search
+from ..search import embedding_health_available, hybrid_search, search_exactness
 from ._common import (
     ToolStoreScope,
     _db_path_for_repo,
@@ -350,12 +350,7 @@ def semantic_search_nodes(
         result_count = len(results)
         confidence = "medium" if results else "low"
         zero_result_reason = None if results else "not_found_in_current_graph"
-        exact_matches = [
-            r
-            for r in results
-            if query in {str(r.get("name", "")), str(r.get("qualified_name", ""))}
-        ]
-        ambiguity = "multiple_exact_matches" if len(exact_matches) > 1 else None
+        exactness = search_exactness(query, results, search_mode)
         guidance = _semantic_search_guidance(
             query=query,
             result_count=result_count,
@@ -397,11 +392,7 @@ def semantic_search_nodes(
             "confidence": confidence,
             "zero_result_reason": zero_result_reason,
             "next": _read_hits(results),
-            "exactness": {
-                "exact_match_count": len(exact_matches),
-                "ambiguity": ambiguity,
-                "source_arm": search_mode,
-            },
+            "exactness": exactness,
             "summary": summary,
             "results": results,
             "guidance": guidance,

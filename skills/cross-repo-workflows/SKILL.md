@@ -37,6 +37,8 @@ retrieval setup.
    Check `repos_searched`, `repos_skipped` (`no_graph`, `stale_registry_entry`,
    `search_failed`), and `missingness`: a skipped repo means absence there is
    not evidence. Scores from different `repo_search_modes` are not comparable.
+   `exactness` gives each repository's `exact_match_count`: the merged order
+   does not say which repository defines a name, the count does.
 5. **Confirm in the owning repo** without switching checkouts: every local tool
    takes `repo_root`, so pass the hit's `repo_path`, e.g.
    `query_graph_tool(pattern="source_of", target=..., repo_root="<repo_path>")`.

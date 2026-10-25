@@ -8,7 +8,7 @@ from pathlib import Path
 from ..contracts.state_types import MissingnessRecord, seal_missingness_item
 from ..graph import GraphStore
 from ..paths import db_path_for
-from ..search import SearchResult, hybrid_search
+from ..search import SearchResult, hybrid_search, search_exactness
 from ..write_lock import graph_read_lock
 from ._common import ToolPayload, handle_tool_runtime_error, make_response
 from ._native import native_tool
@@ -84,6 +84,8 @@ def cross_repo_search_func(
         # emitted, so reduced recall looked like an exhaustive answer.
         skipped_repos: list[dict[str, str]] = []
         repo_modes: dict[str, ToolPayload] = {}
+        # Which repository defines the name: merging by score loses it.
+        exactness: dict[str, ToolPayload] = {}
 
         for repo_entry in repos:
             repo_path = Path(repo_entry["path"])
@@ -108,6 +110,7 @@ def cross_repo_search_func(
                             model=model,
                             provider=provider,
                         )
+                        exactness[alias] = search_exactness(query, hs["results"], hs["mode"])
                         for r in hs["results"]:
                             r["repo"] = alias
                             r["repo_path"] = str(repo_path)
@@ -179,6 +182,7 @@ def cross_repo_search_func(
             repos_searched=searched_repos,
             repos_skipped=skipped_repos,
             repo_search_modes=repo_modes,
+            exactness=exactness,
             missingness=missingness,
         )
     except Exception as exc:

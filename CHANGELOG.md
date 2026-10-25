@@ -122,6 +122,10 @@ Removed).
   0.872; at limit 50, recall 0.846 to 0.942. Helpers inside a Rust
   `#[cfg(test)] mod tests` that call the target now show as entry points,
   because the graph does not mark them as test code.
+- `cross_repo_search_tool` keeps each repository's `exactness`
+  (`exact_match_count`, `ambiguity`, `source_arm`), keyed by repository
+  alias. Merging by score dropped it, so the reply no longer said which
+  repository defines a name (docs/plans/OPEN-MEASUREMENTS.md).
 
 ## 10.0.0 — 2026-10-12
 
