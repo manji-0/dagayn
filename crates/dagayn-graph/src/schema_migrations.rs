@@ -278,6 +278,14 @@ impl GraphStore {
         Ok(())
     }
 
+    /// v20: the community modes are gone, and their summary rows had no
+    /// other reader.
+    pub(crate) fn migrate_v20(&self) -> Result<()> {
+        self.conn
+            .execute_batch("DROP TABLE IF EXISTS community_summaries;")?;
+        Ok(())
+    }
+
     pub(crate) fn ensure_edge_target_name_column(&self) -> Result<()> {
         if !has_column(&self.conn, "edges", "target_name")? {
             self.conn.execute(

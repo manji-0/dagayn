@@ -112,12 +112,7 @@ ReviewMode: TypeAlias = Literal["changes", "affected_flows"]
 
 FlowDetailLevel: TypeAlias = Literal["minimal", "standard"]
 ReviewDetailLevel: TypeAlias = Literal["minimal", "standard", "verbose"]
-ArchitectureAnalysisMode: TypeAlias = Literal[
-    "overview",
-    "communities",
-    "community",
-    "import_cycles",
-]
+ArchitectureAnalysisMode: TypeAlias = Literal["overview", "import_cycles"]
 ArtifactScope: TypeAlias = Literal["code", "docs", "all"]
 GuidanceConfidence: TypeAlias = Literal["high", "medium", "low", "unknown"]
 GuidanceEvidenceType: TypeAlias = Literal["extracted", "authored", "computed", "evaluated"]

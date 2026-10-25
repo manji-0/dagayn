@@ -104,9 +104,10 @@ class TestMigrations:
         assert "nodes_fts" in tables
 
     def test_v6_summary_tables_exist(self):
-        """v6 summary tables should exist after migration."""
+        """Of the v6 summary tables, only risk_index survives: v18 drops the
+        flow snapshots and v20 the community summaries."""
         tables = _get_table_names(store_conn(self.store))
-        assert "community_summaries" in tables
+        assert "community_summaries" not in tables
         assert "flow_snapshots" not in tables
         assert "risk_index" in tables
 

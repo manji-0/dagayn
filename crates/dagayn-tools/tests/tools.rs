@@ -1505,22 +1505,11 @@ fn architecture_metrics_follow_the_requested_view() {
     ] {
         assert!(verbose.get(gone).is_none(), "{gone}");
     }
-    let communities = arch(json!({"mode": "communities", "detail_level": "standard"}));
-    assert!(communities.get("called_subtool").is_none());
-    assert!(communities.get("answerability").is_none());
-    let first = communities["communities"][0]["id"].clone();
-    let community =
-        arch(json!({"mode": "community", "community_id": first, "include_members": true}));
-    assert!(community["community"]["member_details"].is_array());
-    let missing = arch(json!({"mode": "community", "community_name": "zz-none"}));
-    assert_eq!(missing["status"], "not_found");
-    let unselected = arch(json!({"mode": "community"}));
-    assert_eq!(unselected["status"], "error");
-    assert_eq!(
-        unselected["error"],
-        "Value error, mode=\"community\" requires community_id or community_name."
-    );
     for arguments in [
+        // Removed after measurement (docs/plans/OPEN-MEASUREMENTS.md#communities).
+        json!({"mode": "communities"}),
+        json!({"mode": "community", "community_id": 1}),
+        json!({"top_n": 5}),
         // Removed in favour of the overview's map and findings.
         json!({"mode": "hubs"}),
         json!({"mode": "adp_violations"}),

@@ -15,8 +15,8 @@ Removed).
   and the Node and pnpm entries in the Nix devShell.
 - **Breaking:** `generate_wiki_tool`, `get_wiki_page_tool`, and
   `dagayn wiki`, which wrote and read Markdown pages per community under
-  `.dagayn/wiki/`. `architecture_analysis_tool(mode="communities")` and
-  `mode="overview"` answer the same questions without a file round trip.
+  `.dagayn/wiki/`. `architecture_analysis_tool(mode="overview")` answers the
+  same questions without a file round trip.
 - **Breaking:** `dagayn visualize` and its static exports (GraphML,
   Mermaid C4, SVG, Neo4j Cypher, Obsidian vault), with `dagayn.exports`,
   `dagayn.visualization`, the graph store's `entry_points_json`, and
@@ -85,6 +85,17 @@ Removed).
   prompts, and reference that sent agents to the two modes now name those
   calls; the `token_efficiency` benchmark counts the `changes` reply, and
   `eval/run_review_modes_measure.py` goes with the modes it measured.
+- **Breaking:** the `communities` and `community` modes of
+  `architecture_analysis_tool`, with its `top_n`, `sort_by`, `min_size`,
+  `community_name`, `community_id`, and `include_members` arguments. In a hand
+  check of 35 communities on real repositories, 3 were useful; the declared
+  units of `mode="overview"` already state the module boundaries
+  (docs/plans/OPEN-MEASUREMENTS.md). The `community_summaries` table, which
+  only `mode="community"` read, goes too: graph schema 20 drops it. Community
+  detection itself stays, because `refactor_tool(mode="suggest")` weighs a
+  function's callee communities and `get_minimal_context_tool` names the
+  largest three. `eval/run_communities_measure.py` goes with the modes it
+  measured.
 
 ## 10.0.0 — 2026-10-12
 

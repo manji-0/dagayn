@@ -85,40 +85,7 @@ fn computes_summary_tables() {
             0,
         )])
         .unwrap();
-    store
-        .conn
-        .execute(
-            "INSERT INTO communities (name, level, cohesion, size, dominant_language) \
-                 VALUES ('auth-cluster', 0, 1.0, 3, 'python')",
-            [],
-        )
-        .unwrap();
-    let community_id: i64 = store
-        .conn
-        .query_row(
-            "SELECT id FROM communities WHERE name = 'auth-cluster'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    store
-        .conn
-        .execute("UPDATE nodes SET community_id = ?", [community_id])
-        .unwrap();
     store.compute_summaries().unwrap();
-
-    let community_row: (String, i64, String) = store
-        .conn
-        .query_row(
-            "SELECT name, size, key_symbols FROM community_summaries",
-            [],
-            |row| <(_, _, _)>::try_from(row),
-        )
-        .unwrap();
-    assert_eq!(community_row.0, "auth-cluster");
-    assert_eq!(community_row.1, 3);
-    let key_symbols: Vec<String> = serde_json::from_str(&community_row.2).unwrap();
-    assert_eq!(key_symbols[0], "login");
 
     let risk_row: (String, i64, String, i64, f64) = store
         .conn

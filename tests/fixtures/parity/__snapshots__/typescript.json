@@ -636,7 +636,6 @@
 ["index","sqlite_autoindex_metadata_1",null],
 ["index","sqlite_autoindex_nodes_1",null],
 ["table","communities","CREATE TABLE communities (\n                id INTEGER PRIMARY KEY AUTOINCREMENT,\n                name TEXT NOT NULL,\n                level INTEGER NOT NULL DEFAULT 0,\n                parent_id INTEGER,\n                cohesion REAL NOT NULL DEFAULT 0.0,\n                size INTEGER NOT NULL DEFAULT 0,\n                dominant_language TEXT,\n                description TEXT,\n                created_at TEXT NOT NULL DEFAULT (datetime('now'))\n            )"],
-["table","community_summaries","CREATE TABLE community_summaries (\n                community_id INTEGER PRIMARY KEY,\n                name TEXT NOT NULL,\n                purpose TEXT DEFAULT '',\n                key_symbols TEXT DEFAULT '[]',\n                risk TEXT DEFAULT 'unknown',\n                size INTEGER DEFAULT 0,\n                dominant_language TEXT DEFAULT '',\n                FOREIGN KEY (community_id) REFERENCES communities(id)\n            )"],
 ["table","edges","CREATE TABLE edges (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    kind TEXT NOT NULL,\n    source_qualified TEXT NOT NULL,\n    target_qualified TEXT NOT NULL,\n    target_name TEXT NOT NULL DEFAULT '',\n    file_path TEXT NOT NULL,\n    line INTEGER DEFAULT 0,\n    extra TEXT DEFAULT '{}',\n    confidence REAL DEFAULT 1.0,\n    confidence_tier TEXT DEFAULT 'EXTRACTED',\n    updated_at REAL NOT NULL\n)"],
 ["table","metadata","CREATE TABLE metadata (\n    key TEXT PRIMARY KEY,\n    value TEXT NOT NULL\n)"],
 ["table","nodes","CREATE TABLE nodes (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    kind TEXT NOT NULL,\n    name TEXT NOT NULL,\n    qualified_name TEXT NOT NULL UNIQUE,\n    file_path TEXT NOT NULL,\n    line_start INTEGER,\n    line_end INTEGER,\n    language TEXT,\n    parent_name TEXT,\n    params TEXT,\n    return_type TEXT,\n    modifiers TEXT,\n    is_test INTEGER DEFAULT 0,\n    file_hash TEXT,\n    mtime_ns INTEGER DEFAULT 0,\n    extra TEXT DEFAULT '{}',\n    updated_at REAL NOT NULL\n, signature TEXT, community_id INTEGER)"],
@@ -649,5 +648,5 @@
 ["table","risk_index","CREATE TABLE risk_index (\n                node_id INTEGER PRIMARY KEY,\n                qualified_name TEXT NOT NULL,\n                risk_score REAL DEFAULT 0.0,\n                caller_count INTEGER DEFAULT 0,\n                test_coverage TEXT DEFAULT 'unknown',\n                security_relevant INTEGER DEFAULT 0,\n                last_computed TEXT DEFAULT '',\n                FOREIGN KEY (node_id) REFERENCES nodes(id)\n            )"],
 ["table","sqlite_sequence","CREATE TABLE sqlite_sequence(name,seq)"]
 ],
-"schema_version":19
+"schema_version":20
 }

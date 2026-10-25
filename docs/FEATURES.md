@@ -17,11 +17,12 @@
   kind of import edge (`import_kind`: statement, lazy export, Rust path,
   Markdown directive or link)
 - native Japanese FTS (Lindera IPADIC morphemes + CJK bigrams) so inflected queries still AND-match
-- review context generation and change-impact analysis
+- change review with findings (dangling references, unedited callers, tests
+  to run) and the entry points a change reaches
 - the declared units and their dependencies, structural findings (import
   cycles, unstable dependencies, untested core, broken doc links), every
-  simple import cycle between files, directories, or units, communities,
-  and flows
+  simple import cycle between files, directories, or units, and the entry
+  points that reach a symbol
 - refactor previews and dead-code inspection
 
 ## Languages and formats the fork emphasizes

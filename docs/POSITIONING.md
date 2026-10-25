@@ -100,6 +100,9 @@ These were measured on real repositories and did not help the agent:
 
 - `review_tool` `impact` and `context`: 11 actionable facts beyond `changes`
   in 44 commits, all also returned by `callers_of`
+- the `communities` and `community` modes of `architecture_analysis_tool`:
+  3 of 35 hand-checked communities useful, against units that already state
+  the module boundaries in `mode="overview"`
 
 ## Open measurements
 
@@ -111,7 +114,7 @@ Each of these keeps its place only if a measurement shows it helps the agent:
   never measured
 - embeddings: hybrid search against FTS alone on the same queries
 - `flow_tool(mode="entry_points")`, which has no agent experiment
-- `refactor_tool(mode="suggest")` and the communities modes
+- `refactor_tool(mode="suggest")`
 - the multi-repo registry, daemon, and `cross_repo_search_tool`
 
 ## How this would be wrong

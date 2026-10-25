@@ -957,33 +957,16 @@ class TestFlowTools:
         assert "changed_files" in result
 
 
-def list_communities_func(
-    repo_root: str, detail_level: str = "standard", limit: int = 50, **kwargs
-) -> dict:
-    return architecture_analysis_func(
-        mode="communities",
-        repo_root=repo_root,
-        detail_level=detail_level,  # type: ignore[arg-type]
-        top_n=limit,
-        **kwargs,
-    )
-
-
-def get_community_func(repo_root: str, **kwargs) -> dict:
-    return architecture_analysis_func(mode="community", repo_root=repo_root, **kwargs)
-
-
 def get_architecture_overview_func(repo_root: str, detail_level: str = "standard") -> dict:
     return architecture_analysis_func(
         mode="overview",
         repo_root=repo_root,
         detail_level=detail_level,  # type: ignore[arg-type]
-        top_n=20,
     )
 
 
-class TestCommunityTools:
-    """Tests for community-related MCP tool functions."""
+class TestArchitectureOverview:
+    """Tests for architecture_analysis_tool's overview on a seeded graph."""
 
     def setup_method(self):
         """Set up a temp dir with .git and .dagayn, seed clustered graph."""
@@ -997,7 +980,6 @@ class TestCommunityTools:
         db_path = str(self.root / ".dagayn" / "graph.db")
         self.store = GraphStore(db_path)
         self._seed_data()
-        self._build_communities()
 
     def teardown_method(self):
         self.store.close()
@@ -1157,98 +1139,6 @@ class TestCommunityTools:
             )
         )
         self.store.commit()
-
-    def _build_communities(self):
-        """Detect and store communities."""
-        from dagayn.communities import detect_communities, store_communities
-
-        comms = detect_communities(self.store)
-        store_communities(self.store, comms)
-
-    def test_list_communities_returns_ok(self):
-        result = list_communities_func(repo_root=str(self.root))
-        assert result["status"] == "ok"
-        assert "communities" in result
-        assert len(result["communities"]) >= 1
-
-    def test_list_communities_summary(self):
-        result = list_communities_func(repo_root=str(self.root))
-        assert "Found" in result["summary"]
-        assert "communities" in result["summary"]
-
-    def test_list_communities_sort_by_cohesion(self):
-        result = list_communities_func(repo_root=str(self.root), sort_by="cohesion")
-        assert result["status"] == "ok"
-
-    def test_list_communities_min_size(self):
-        result = list_communities_func(repo_root=str(self.root), min_size=100)
-        assert result["status"] == "ok"
-        # No community should be that large in our test data
-        assert len(result["communities"]) == 0
-
-    def test_list_communities_limit_bounds_cli_output(self):
-        result = list_communities_func(repo_root=str(self.root), limit=1)
-
-        assert result["status"] == "ok"
-        assert len(result["communities"]) <= 1
-        assert "total" in result
-        assert "truncated" in result
-
-    def test_list_communities_minimal_lists_name_size_and_cohesion(self):
-        result = list_communities_func(repo_root=str(self.root), detail_level="minimal")
-
-        assert result["status"] == "ok"
-        assert all(
-            set(comm.keys()) == {"name", "size", "cohesion"} for comm in result["communities"]
-        )
-
-    def test_get_community_by_id(self):
-        # First list to get a community ID
-        comms_result = list_communities_func(repo_root=str(self.root))
-        assert len(comms_result["communities"]) >= 1
-        cid = comms_result["communities"][0]["id"]
-
-        result = get_community_func(community_id=cid, repo_root=str(self.root))
-        assert result["status"] == "ok"
-        assert "community" in result
-        assert result["community"]["id"] == cid
-
-    def test_get_community_by_name(self):
-        # Get a community name from list
-        comms_result = list_communities_func(repo_root=str(self.root))
-        assert len(comms_result["communities"]) >= 1
-        name = comms_result["communities"][0]["name"]
-
-        result = get_community_func(community_name=name, repo_root=str(self.root))
-        assert result["status"] == "ok"
-        assert "community" in result
-
-    def test_get_community_not_found(self):
-        result = get_community_func(community_id=99999, repo_root=str(self.root))
-        assert result["status"] == "not_found"
-
-    def test_get_community_name_not_found(self):
-        result = get_community_func(community_name="nonexistent_xyz_zzz", repo_root=str(self.root))
-        assert result["status"] == "not_found"
-
-    def test_get_community_include_members(self):
-        comms_result = list_communities_func(repo_root=str(self.root))
-        assert len(comms_result["communities"]) >= 1
-        cid = comms_result["communities"][0]["id"]
-
-        result = get_community_func(
-            community_id=cid, include_members=True, repo_root=str(self.root)
-        )
-        assert result["status"] == "ok"
-        assert "member_details" in result["community"]
-        assert len(result["community"]["member_details"]) >= 1
-
-    def test_get_community_summary_format(self):
-        comms_result = list_communities_func(repo_root=str(self.root))
-        cid = comms_result["communities"][0]["id"]
-        result = get_community_func(community_id=cid, repo_root=str(self.root))
-        assert "nodes" in result["summary"]
-        assert "cohesion" in result["summary"]
 
     def test_get_architecture_overview_returns_ok(self):
         result = get_architecture_overview_func(repo_root=str(self.root))
@@ -2029,53 +1919,6 @@ class TestComputeSummaries:
         # Test nodes are included in risk_index via the kind filter.
         assert "tests/test_auth.py::test_login" in by_qn
 
-    def test_community_summaries_populated_with_correct_values(self):
-        """community_summaries rows must match per-community key
-        symbols, size, and dominant language."""
-        import json as _json
-
-        from dagayn.tools.build import _compute_summaries
-
-        _compute_summaries(self.store)
-
-        rows = (
-            store_conn(self.store)
-            .execute(
-                "SELECT community_id, name, key_symbols, size, "
-                "dominant_language FROM community_summaries"
-            )
-            .fetchall()
-        )
-        assert len(rows) == 2
-        by_name = {r[1]: r for r in rows}
-
-        auth_row = by_name["auth-cluster"]
-        assert auth_row[0] == self._auth_cid
-        assert auth_row[3] == 3  # size
-        assert auth_row[4] == "python"
-
-        # Top symbols in auth cluster by in+out edge count:
-        #   login: 1 out (CALLS check_token) + 1 out (TESTED_BY test_login)
-        #          + 1 in (CALLS from db.query) = 3
-        #   logout: 1 out (CALLS) + 1 out (TESTED_BY) = 2
-        #   check_token: 2 in (CALLS from login, logout) = 2
-        auth_syms = _json.loads(auth_row[2])
-        assert auth_syms[0] == "login"
-        assert set(auth_syms[:3]) == {"login", "logout", "check_token"}
-
-        db_row = by_name["db-cluster"]
-        assert db_row[0] == self._db_cid
-        assert db_row[3] == 3
-        assert db_row[4] == "python"
-
-        # Top symbols in db cluster:
-        #   connect: 2 in (CALLS from query, close) = 2
-        #   query: 2 out (CALLS to connect, login) = 2
-        #   close: 1 out (CALLS to connect) = 1
-        db_syms = _json.loads(db_row[2])
-        assert set(db_syms[:2]) == {"connect", "query"}
-        assert db_syms[-1] == "close" or "close" in db_syms
-
     def test_compute_summaries_does_not_scale_per_node(self):
         """Regression guard: SELECT-with-single-row-WHERE-filter queries
         (the per-row pattern that caused the Godot hang) must stay
@@ -2105,7 +1948,6 @@ class TestComputeSummaries:
         # of all three per-row patterns we refactored away:
         #   WHERE target_qualified = 'some.qn'   (risk_index caller_count)
         #   WHERE source_qualified = 'some.qn'   (risk_index test coverage)
-        #   WHERE community_id = 5               (community_summaries)
         #   FROM nodes WHERE id = 42             (flow_snapshots node name)
         per_row_re = re.compile(
             r"\bwhere\s+(?:n\.)?"

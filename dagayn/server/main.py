@@ -596,19 +596,8 @@ def get_docs_section_tool(
 
 @mcp.tool()
 def architecture_analysis_tool(
-    mode: Literal[
-        "overview",
-        "communities",
-        "community",
-        "import_cycles",
-    ] = "overview",
+    mode: Literal["overview", "import_cycles"] = "overview",
     detail_level: Literal["minimal", "standard", "verbose"] = "minimal",
-    top_n: int = 10,
-    sort_by: Literal["size", "cohesion", "name"] = "size",
-    min_size: int = 0,
-    community_name: Optional[str] = None,
-    community_id: Optional[int] = None,
-    include_members: bool = False,
     scope_kind: Literal["file", "package", "directory"] = "package",
     unit_filter: Optional[list[str]] = None,
     repo_root: Optional[str] = None,
@@ -625,7 +614,6 @@ def architecture_analysis_tool(
     ``findings`` list means nothing structural to act on.
     ``detail_level="standard"`` adds each unit's ``surface``.
 
-    communities / community: graph clusters (need full post-processing).
     import_cycles: every simple cycle the resolved imports form between
     ``scope_kind`` scopes, each starting at its smallest scope
     (``standard`` adds one import per hop); ``results_complete`` says
@@ -642,12 +630,6 @@ def architecture_analysis_tool(
     payload = _tool("architecture_analysis:architecture_analysis_func")(
         mode=mode,
         detail_level=detail_level,
-        top_n=top_n,
-        sort_by=sort_by,
-        min_size=min_size,
-        community_name=community_name,
-        community_id=community_id,
-        include_members=include_members,
         scope_kind=scope_kind,
         unit_filter=unit_filter,
         artifact_scope=artifact_scope,

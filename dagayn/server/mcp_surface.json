@@ -591,15 +591,13 @@
      "tags": []
     }
    },
-   "description": "Map the repository's units and report structural findings.\n\n``overview`` returns ``units`` (the crates, packages, and modules the\nmanifests declare), ``unit_edges`` (the dependencies between two units;\n``declared`` when a manifest lists one), and\n``findings``: ``import_cycle`` (with the imports to cut),\n``unstable_dependency``, ``untested_core``, ``broken_doc_link``. An empty\n``findings`` list means nothing structural to act on.\n``detail_level=\"standard\"`` adds each unit's ``surface``.\n\ncommunities / community: graph clusters (need full post-processing).\nimport_cycles: every simple cycle the resolved imports form between\n``scope_kind`` scopes, each starting at its smallest scope\n(``standard`` adds one import per hop); ``results_complete`` says\nwhether the list is whole.",
+   "description": "Map the repository's units and report structural findings.\n\n``overview`` returns ``units`` (the crates, packages, and modules the\nmanifests declare), ``unit_edges`` (the dependencies between two units;\n``declared`` when a manifest lists one), and\n``findings``: ``import_cycle`` (with the imports to cut),\n``unstable_dependency``, ``untested_core``, ``broken_doc_link``. An empty\n``findings`` list means nothing structural to act on.\n``detail_level=\"standard\"`` adds each unit's ``surface``.\n\nimport_cycles: every simple cycle the resolved imports form between\n``scope_kind`` scopes, each starting at its smallest scope\n(``standard`` adds one import per hop); ``results_complete`` says\nwhether the list is whole.",
    "inputSchema": {
     "properties": {
      "mode": {
       "default": "overview",
       "enum": [
        "overview",
-       "communities",
-       "community",
        "import_cycles"
       ],
       "type": "string"
@@ -612,49 +610,6 @@
        "verbose"
       ],
       "type": "string"
-     },
-     "top_n": {
-      "default": 10,
-      "type": "integer"
-     },
-     "sort_by": {
-      "default": "size",
-      "enum": [
-       "size",
-       "cohesion",
-       "name"
-      ],
-      "type": "string"
-     },
-     "min_size": {
-      "default": 0,
-      "type": "integer"
-     },
-     "community_name": {
-      "anyOf": [
-       {
-        "type": "string"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "default": null
-     },
-     "community_id": {
-      "anyOf": [
-       {
-        "type": "integer"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "default": null
-     },
-     "include_members": {
-      "default": false,
-      "type": "boolean"
      },
      "scope_kind": {
       "default": "package",

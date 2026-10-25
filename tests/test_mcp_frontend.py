@@ -1226,13 +1226,8 @@ def test_architecture_modes_answer_in_rust_as_python_does(git_repo: Path) -> Non
     arch = "architecture_analysis_tool"
     calls: list[tuple[str, dict[str, Any]]] = [
         (arch, {}),
-        (arch, {"mode": "overview", "detail_level": "verbose", "top_n": 1}),
-        (arch, {"mode": "communities", "detail_level": "standard", "sort_by": "name"}),
-        (arch, {"mode": "communities", "min_size": 2, "top_n": 1}),
-        (arch, {"mode": "community", "community_id": 1, "include_members": True}),
-        (arch, {"mode": "community", "community_name": "NO-SUCH"}),
-        # The request validation error.
-        (arch, {"mode": "community"}),
+        (arch, {"mode": "overview", "detail_level": "verbose"}),
+        (arch, {"mode": "import_cycles", "detail_level": "standard"}),
     ]
     rust, python, stderr = _session_both(git_repo, calls)
     assert stderr.count(ARCHITECTURE_TRACE) == len(calls)

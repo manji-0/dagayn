@@ -5,7 +5,6 @@ impl GraphStore {
     pub fn store_communities_json(&mut self, communities_json: &str) -> Result<i64> {
         let communities: Vec<CommunityInput> = serde_json::from_str(communities_json)?;
         let tx = write_tx(&mut self.conn)?;
-        tx.execute("DELETE FROM community_summaries", [])?;
         tx.execute("DELETE FROM communities", [])?;
         tx.execute("UPDATE nodes SET community_id = NULL", [])?;
         let mut insert = tx.prepare(
@@ -153,35 +152,20 @@ impl GraphStore {
         Ok(())
     }
 
-    /// Delete one community and the summary row that references it.
-    ///
-    /// `community_summaries.community_id` is a foreign key, so deleting the
-    /// community first fails with a constraint error once it has a summary.
+    /// Delete one community.
     pub fn delete_community(&mut self, community_id: i64) -> Result<()> {
-        let tx = write_tx(&mut self.conn)?;
-        tx.execute(
-            "DELETE FROM community_summaries WHERE community_id = ?",
-            [community_id],
-        )?;
-        tx.execute("DELETE FROM communities WHERE id = ?", [community_id])?;
-        tx.commit()?;
+        self.conn
+            .execute("DELETE FROM communities WHERE id = ?", [community_id])?;
         Ok(())
     }
 
-    /// Delete communities no node belongs to, with their summaries.
+    /// Delete communities no node belongs to.
     pub fn delete_orphan_communities(&mut self) -> Result<i64> {
-        const ORPHAN: &str = "NOT EXISTS \
-             (SELECT 1 FROM nodes n WHERE n.community_id = communities.id)";
-        let tx = write_tx(&mut self.conn)?;
-        tx.execute(
-            &format!(
-                "DELETE FROM community_summaries WHERE community_id IN \
-                 (SELECT id FROM communities WHERE {ORPHAN})"
-            ),
+        let deleted = self.conn.execute(
+            "DELETE FROM communities WHERE NOT EXISTS \
+             (SELECT 1 FROM nodes n WHERE n.community_id = communities.id)",
             [],
         )?;
-        let deleted = tx.execute(&format!("DELETE FROM communities WHERE {ORPHAN}"), [])?;
-        tx.commit()?;
         Ok(deleted as i64)
     }
 
@@ -276,9 +260,6 @@ impl GraphStore {
             let placeholders = std::iter::repeat_n("?", chunk.len())
                 .collect::<Vec<_>>()
                 .join(",");
-            let summary_sql =
-                format!("DELETE FROM community_summaries WHERE community_id IN ({placeholders})");
-            tx.execute(&summary_sql, rusqlite::params_from_iter(chunk))?;
             let clear_sql = format!(
                 "UPDATE nodes SET community_id = NULL WHERE community_id IN ({placeholders})"
             );
@@ -339,28 +320,6 @@ impl GraphStore {
                AND json_extract(extra, '$.relationship_role') = 'tests'",
         )?;
         let rows = stmt.query_map([source_qualified], |row| row.get::<_, String>(0))?;
-        rows.collect::<std::result::Result<Vec<_>, _>>()
-            .map_err(Into::into)
-    }
-}
-
-impl GraphStore {
-    /// `list_communities_func`'s minimal rows: name, size, and cohesion of
-    /// each community at least `min_size`, as its own query orders them.
-    pub fn community_summaries(
-        &self,
-        sort_by: &str,
-        min_size: i64,
-    ) -> Result<Vec<(String, i64, f64)>> {
-        let sort = match sort_by {
-            "cohesion" => "cohesion DESC",
-            "name" => "name ASC",
-            _ => "size DESC",
-        };
-        let sql =
-            format!("SELECT name, size, cohesion FROM communities WHERE size >= ? ORDER BY {sort}");
-        let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map([min_size], |row| <(String, i64, f64)>::try_from(row))?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
             .map_err(Into::into)
     }

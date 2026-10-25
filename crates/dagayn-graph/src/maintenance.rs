@@ -8,17 +8,10 @@ use crate::*;
 /// `communities` is absent because its sweep is `refresh_community_stats`, which
 /// lives in `dagayn-postproc`; the orchestration is therefore
 /// `dagayn_postproc::prune_orphaned_graph_structures`.
-pub const ORPHAN_PRUNE_STEPS: &[(&str, &str)] = &[
-    (
-        "community_summaries",
-        "NOT EXISTS (SELECT 1 FROM communities c \
-         WHERE c.id = community_summaries.community_id)",
-    ),
-    (
-        "risk_index",
-        "NOT EXISTS (SELECT 1 FROM nodes n WHERE n.id = risk_index.node_id)",
-    ),
-];
+pub const ORPHAN_PRUNE_STEPS: &[(&str, &str)] = &[(
+    "risk_index",
+    "NOT EXISTS (SELECT 1 FROM nodes n WHERE n.id = risk_index.node_id)",
+)];
 
 impl GraphStore {
     /// Delete rows of one derived table whose nodes no longer exist.

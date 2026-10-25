@@ -205,7 +205,8 @@ fixture, corpus, and generated files, or cap findings per file; drop
 
 ## Communities
 
-Rerun: `eval/run_communities_measure.py`; judgments in
+Rerun: `eval/run_communities_measure.py` at b0250d3f; the modes are removed
+after it, and the script with them. Judgments in
 `eval/communities_judgments.yaml`.
 
 Purity against declared units and their top-level modules, from the graph's
