@@ -1,0 +1,94 @@
+# Hand verdicts on refactor_tool(mode="suggest") standard-reply findings,
+# clones under $S/measure (2026-10-25). actionable: a careful engineer would
+# make the change; false: the claim is wrong; noise: true but not worth acting on.
+judgments:
+  # unused_symbol: every shown finding
+  - {repo: dagayn, kind: unused_symbol, id: crates/dagayn-graph/src/flows.rs::GraphStore.get_node_kind_by_id, verdict: actionable,
+     reason: "flows.rs:50 defines it; grep finds no other mention in the repo"}
+  - {repo: cfwdon, kind: unused_symbol, id: web-ui/src/domain/cache/cached-view.ts::CachedView.isPresent, verdict: actionable,
+     reason: "cached-view.ts:17 is the only occurrence of isPresent under web-ui/src"}
+  - {repo: cfwdon, kind: unused_symbol, id: web-ui/src/domain/navigation/route.ts::AppRoute.toSearchParams, verdict: actionable,
+     reason: "route.ts:267 is the only occurrence repo-wide"}
+  - {repo: cfwdon, kind: unused_symbol, id: web-ui/src/domain/navigation/route.ts::AppRoute.isLocalPublicTimeline, verdict: actionable,
+     reason: "route.ts:352 is the only occurrence repo-wide"}
+  - {repo: cfwdon, kind: unused_symbol, id: workers/ap-x-mirror/src/ap/crypto.ts::nowHttpDate, verdict: actionable,
+     reason: "crypto.ts:82 export with no importer; ap-x-mirror is a worker, not a library"}
+  - {repo: purecrate-ts, kind: unused_symbol, id: corpus/patterns.rs::p01_if_let_variant, verdict: "false",
+     reason: "patterns.rs:1-2 says the file is input to `purecrate-ts survey corpus/patterns.rs`; corpus/results.jsonl records the runs"}
+  - {repo: purecrate-ts, kind: unused_symbol, id: corpus/patterns.rs::p02_let_else, verdict: "false", reason: "patterns.rs:21 survey corpus input (see patterns.rs:1-2)"}
+  - {repo: purecrate-ts, kind: unused_symbol, id: corpus/patterns.rs::p03_format_int, verdict: "false", reason: "patterns.rs:22 survey corpus input"}
+  - {repo: purecrate-ts, kind: unused_symbol, id: corpus/patterns.rs::p05_hashmap, verdict: "false", reason: "patterns.rs:24 survey corpus input"}
+  - {repo: purecrate-ts, kind: unused_symbol, id: corpus/patterns.rs::p08b_array_table, verdict: "false", reason: "patterns.rs:31 survey corpus input"}
+  - {repo: purecrate-ts, kind: unused_symbol, id: corpus/patterns.rs::p08c_array_build, verdict: "false", reason: "patterns.rs:32 survey corpus input"}
+  - {repo: purecrate-ts, kind: unused_symbol, id: corpus/patterns.rs::p08d_array_let, verdict: "false", reason: "patterns.rs:33 survey corpus input"}
+  - {repo: purecrate-ts, kind: unused_symbol, id: corpus/patterns.rs::p08e_array_match, verdict: "false", reason: "patterns.rs:34 survey corpus input"}
+  - {repo: purecrate-ts, kind: unused_symbol, id: corpus/patterns.rs::p08f_array_iter, verdict: "false", reason: "patterns.rs:35 survey corpus input"}
+  - {repo: purecrate-ts, kind: unused_symbol, id: corpus/patterns.rs::p08g_array_field, verdict: "false", reason: "patterns.rs:37 survey corpus input"}
+  - {repo: tstodon, kind: unused_symbol, id: packages/worker/src/d1.ts::chunkArray, verdict: actionable,
+     reason: "d1.ts:48 export; grep -w finds no other mention outside node_modules"}
+  - {repo: tstodon, kind: unused_symbol, id: packages/worker/src/generated/prisma/internal/query_compiler_fast_bg.js::F.compileBatch, verdict: "false",
+     reason: "generated wasm-bindgen class (query_compiler_fast_bg.js:132) loaded by class.ts:45 for the Prisma runtime in node_modules; not editable"}
+  - {repo: tstodon, kind: unused_symbol, id: packages/worker/src/link-card.ts::buildLinkCard, verdict: actionable,
+     reason: "link-card.ts:255 'convenience wrapper' export with no caller"}
+  - {repo: tstodon, kind: unused_symbol, id: packages/worker/src/status-discovery-store.ts::matchesTagFilters, verdict: actionable,
+     reason: "status-discovery-store.ts:24 doc says 'used for remote statuses' but nothing calls it: dead or a stale doc"}
+  - {repo: tstodon, kind: unused_symbol, id: packages/worker/src/status-interaction-store.ts::statusInteractionCounts, verdict: actionable,
+     reason: "status-interaction-store.ts:78 single-id wrapper over statusInteractionCountsByIds; no caller"}
+  # complex_hotspot: three or four per repo, outline read for each
+  - {repo: dagayn, kind: complex_hotspot, id: crates/dagayn-parser/src/rust_lang/mod.rs::rust_walk_children, verdict: actionable,
+     reason: "mod.rs:182-520 one match whose function_item (306-391) and call_expression (429-511) arms are 80+ lines each; extractable"}
+  - {repo: dagayn, kind: complex_hotspot, id: crates/dagayn-tools/src/query.rs::query_graph, verdict: actionable,
+     reason: "query.rs:1535-1958 mixes arg parsing, target resolution (1607-1663) and payload/budget building (1721-1796)"}
+  - {repo: dagayn, kind: complex_hotspot, id: crates/dagayn-parser/src/rust_lang/mod.rs::parse_rust_with_parser, verdict: noise,
+     reason: "mod.rs:30-116 is a linear pipeline of already-extracted passes, 7 branches"}
+  - {repo: cfwdon, kind: complex_hotspot, id: crates/cfwdon-worker/src/router.rs::handle_fetch, verdict: noise,
+     reason: "router.rs:19-84 linear request pipeline; every step already a helper"}
+  - {repo: cfwdon, kind: complex_hotspot, id: crates/cfwdon-worker/src/inbox.rs::shared_inbox_response, verdict: noise,
+     reason: "inbox.rs:218-288 71 lines of sequential delegate calls"}
+  - {repo: cfwdon, kind: complex_hotspot, id: crates/cfwdon-worker/src/lib.rs::scheduled, verdict: noise,
+     reason: "lib.rs:165-255 flat list of independent cron tasks each logged on error; splitting adds nothing"}
+  - {repo: cfwdon, kind: complex_hotspot, id: web-ui/src/ui/pages/SettingsPage.tsx::SettingsPage, verdict: actionable,
+     reason: "SettingsPage.tsx:97-1015 one component with ~40 useState hooks across profile, posting, filters, mutes, blocks sections"}
+  - {repo: purecrate-ts, kind: complex_hotspot, id: crates/emit_ts/src/expr.rs::emit_atom, verdict: noise,
+     reason: "expr.rs:543-622 exhaustive match on Expr with one-line arms"}
+  - {repo: purecrate-ts, kind: complex_hotspot, id: crates/check/src/types/calls.rs::Typer.call, verdict: noise,
+     reason: "calls.rs:209-651 one exhaustive match over ~80 Callee variants, arms mostly 1-10 lines; dispatch idiom"}
+  - {repo: tstodon, kind: complex_hotspot, id: packages/worker/src/local-status-documents.ts::mastodonStatuses, verdict: actionable,
+     reason: "local-status-documents.ts:121-465 distinct phases (reblog passes 139, quotes 173, batch loads 208, mentions 346, render 433) in one function"}
+  - {repo: tstodon, kind: complex_hotspot, id: packages/worker/src/routes/search.ts::search, verdict: actionable,
+     reason: "search.ts:66-140 three independent per-type sections (accounts, statuses, hashtags) inside one route handler"}
+  - {repo: tstodon, kind: complex_hotspot, id: packages/worker/src/conversation-store.ts::listConversationsForAccount, verdict: noise,
+     reason: "conversation-store.ts:129-241 load, group, summarize; one 50-line loop, readable as is"}
+  # undocumented_surface: every shown finding
+  - {repo: dagayn, kind: undocumented_surface, id: crates/dagayn-parser/src/types.rs::ParsedNode, verdict: noise,
+     reason: "types.rs:208-209 internal workspace struct whose name and pub fields say what it is"}
+  - {repo: dagayn, kind: undocumented_surface, id: crates/dagayn-graph/src/lib.rs::GraphStore, verdict: actionable,
+     reason: "lib.rs:461 central store used by 103 symbols in other units; carries non-obvious state (bulk_load_indexes_suspended) with no doc"}
+  - {repo: dagayn, kind: undocumented_surface, id: crates/dagayn-graph/src/lib.rs::GraphNode, verdict: noise,
+     reason: "lib.rs:292 row struct; non-obvious fields already have field docs (lib.rs:308)"}
+  - {repo: dagayn, kind: undocumented_surface, id: crates/dagayn-graph/src/lib.rs::GraphEdge, verdict: noise, reason: "lib.rs:314 plain row struct"}
+  - {repo: dagayn, kind: undocumented_surface, id: crates/dagayn-postproc/src/communities/mod.rs::detect_communities_json, verdict: noise,
+     reason: "mod.rs:61-64 two-line JSON wrapper over detect_communities"}
+  - {repo: dagayn, kind: undocumented_surface, id: crates/dagayn-postproc/src/communities/mod.rs::incremental_detect_communities, verdict: actionable,
+     reason: "mod.rs:66-70 takes pre_affected_count: Option<i64> whose meaning the signature does not say"}
+  - {repo: dagayn, kind: undocumented_surface, id: crates/dagayn-build/src/lock.rs::LockMode, verdict: noise,
+     reason: "lock.rs:18-23 both variants carry docs already"}
+  - {repo: dagayn, kind: undocumented_surface, id: crates/dagayn-py/src/lib.rs::PyGraphStore.commit, verdict: noise,
+     reason: "lib.rs:867 one-line pyo3 binding forwarding store.commit()"}
+  - {repo: dagayn, kind: undocumented_surface, id: crates/dagayn-mcp/src/lib.rs::Config, verdict: noise,
+     reason: "lib.rs:122-128 fields documented; used_by 1"}
+  - {repo: cfwdon, kind: undocumented_surface, id: web-ui/src/domain/session/session.ts::SessionState.resolve, verdict: noise,
+     reason: "session.ts:40 identity transition among undocumented siblings; used_by 1"}
+  - {repo: cfwdon, kind: undocumented_surface, id: crates/cfwdon-domain/src/account/mod.rs::LocalAccount, verdict: noise,
+     reason: "account/mod.rs:72 domain aggregate whose fields name themselves"}
+  - {repo: cfwdon, kind: undocumented_surface, id: crates/cfwdon-core/src/config.rs::AppConfig, verdict: noise,
+     reason: "config.rs:24 config struct of self-describing fields"}
+  - {repo: purecrate-ts, kind: undocumented_surface, id: crates/emit_ts/src/lib.rs::Package, verdict: noise, reason: "lib.rs:48 one-field struct, files: Vec<File>"}
+  - {repo: purecrate-ts, kind: undocumented_surface, id: crates/emit_ts/src/schema.rs::WireSchema, verdict: noise, reason: "schema.rs:13 enum Zod/Valibot/Arktype"}
+  - {repo: purecrate-ts, kind: undocumented_surface, id: crates/check/src/lib.rs::Diagnostic, verdict: noise,
+     reason: "lib.rs:33-38 every field documented; used_by 1"}
+  - {repo: purecrate-ts, kind: undocumented_surface, id: crates/syntax/src/survey.rs::Unit, verdict: noise, reason: "survey.rs:45-47 fields documented"}
+  - {repo: purecrate-ts, kind: undocumented_surface, id: crates/ir/src/expr.rs::Expr, verdict: noise,
+     reason: "expr.rs:1468-1472 the IR expression enum; variants carry docs"}
+  - {repo: purecrate-ts, kind: undocumented_surface, id: crates/pack/src/lib.rs::disk_path, verdict: actionable,
+     reason: "lib.rs:171-177 rule (.json stays at root, else src/<stem>.ts) is not in the name; its neighbor generated() at :166 is documented"}
