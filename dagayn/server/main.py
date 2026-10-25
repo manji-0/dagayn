@@ -659,13 +659,10 @@ def architecture_analysis_tool(
 
 @mcp.tool()
 async def review_tool(
-    mode: Literal["changes", "context", "affected_flows", "impact"] = "changes",
+    mode: Literal["changes", "affected_flows"] = "changes",
     base: Optional[str] = None,
     changed_files: Optional[list[str]] = None,
     include_source: Optional[bool] = None,
-    max_depth: int = 2,
-    max_nodes: int = 50,
-    max_lines_per_file: int = 200,
     repo_root: Optional[str] = None,
     detail_level: Literal["minimal", "standard", "verbose"] = "standard",
 ) -> ToolPayload:
@@ -679,9 +676,9 @@ async def review_tool(
     untested_change, tests_to_run (with a command). An empty list means
     nothing beyond the diff.
 
-    Modes: changes (findings), context (source snippets), impact (blast
-    radius, ``max_depth`` hops), affected_flows (entry points that reach the
-    change).
+    Modes: changes (findings), affected_flows (entry points that reach the
+    change). For a symbol's callers, ``query_graph_tool(callers_of)``; for
+    its source, ``query_graph_tool(source_of)``.
 
     Args:
         base: Git ref to diff against, plus staged, unstaged, and untracked
@@ -689,10 +686,7 @@ async def review_tool(
             (the work in progress), else HEAD~1 (the last commit). For a branch
             pass ``git merge-base main HEAD``.
         changed_files: Explicit file list instead of the git diff.
-        include_source: (context) Include source snippets.
-        max_depth: (impact) Hops to walk. Default: 2.
-        max_nodes: (impact, context) Node cap. Default: 50.
-        max_lines_per_file: (context) Lines per file. Default: 200.
+        include_source: (changes) Attach each changed function's source.
     """
     payload = await asyncio.to_thread(
         _tool("review_dispatcher:review_func"),
@@ -700,9 +694,6 @@ async def review_tool(
         base=base,
         changed_files=changed_files,
         include_source=include_source,
-        max_depth=max_depth,
-        max_nodes=max_nodes,
-        max_lines_per_file=max_lines_per_file,
         repo_root=_resolve_repo_root(repo_root),
         detail_level=detail_level,
     )

@@ -57,7 +57,7 @@ dagayn serve
 
 - `get_minimal_context_tool` for quick orientation
 - `ensure_graph_tool` when `graph_health` is empty (safe bootstrap; no embeddings)
-- `review_tool(mode="changes")` or `review_tool(mode="context")` for review work
+- `review_tool(mode="changes")` for review work
 - `query_graph_tool`, `semantic_search_nodes_tool`, and `flow_tool(mode="entry_points")` for exploration
 - `query_graph_tool(pattern="source_of")` after a search hit to fetch a live span
 - `architecture_analysis_tool(mode="overview")` and its drill-down modes for

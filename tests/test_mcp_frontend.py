@@ -932,7 +932,7 @@ def test_review_answers_in_rust_as_python_does(git_repo: Path, change: str) -> N
             "def main():\n    return helper()\n\n\ndef helper():\n    return 1\n"
         )
         if change == "wide":
-            # Enough callers for apply_output_budget to trim the impact lists.
+            # Enough callers for the entry-point search to need its budget.
             callers = "".join(f"def caller_{i}():\n    return helper()\n\n\n" for i in range(400))
             (git_repo / "many.py").write_text(f"from app import helper\n\n\n{callers}")
         _commit(git_repo, "edit")
@@ -951,26 +951,15 @@ def test_review_answers_in_rust_as_python_does(git_repo: Path, change: str) -> N
         (review, {"mode": "affected_flows", "changed_files": ["app.py"]}),
         (review, {"mode": "affected_flows", "changed_files": ["./app.py", "missing.py"]}),
         (review, {"mode": "affected_flows", "changed_files": []}),
-        (review, {"mode": "affected_flows", "detail_level": "minimal", "max_depth": 1}),
-        (review, {"mode": "impact"}),
-        (review, {"mode": "impact", "detail_level": "minimal"}),
-        (review, {"mode": "impact", "changed_files": ["app.py"], "max_nodes": 500}),
-        (review, {"mode": "impact", "changed_files": ["app.py"], "max_nodes": 2}),
-        (review, {"mode": "impact", "changed_files": ["./app.py", "/elsewhere/x.py", "gone.py"]}),
-        (review, {"mode": "impact", "changed_files": [], "max_depth": 0}),
+        (review, {"mode": "affected_flows", "detail_level": "minimal"}),
         (review, {}),
         (review, {"mode": "changes", "changed_files": ["app.py"]}),
         (
             review,
             {"mode": "changes", "changed_files": ["app.py", "gone.py"], "detail_level": "minimal"},
         ),
-        (review, {"mode": "changes", "base": "HEAD", "max_depth": 1}),
+        (review, {"mode": "changes", "base": "HEAD"}),
         (review, {"mode": "changes", "changed_files": []}),
-        (review, {"mode": "context"}),
-        (review, {"mode": "context", "detail_level": "minimal"}),
-        (review, {"mode": "context", "changed_files": ["app.py", "../x.py", "gone.py"]}),
-        (review, {"mode": "context", "changed_files": ["app.py"], "max_lines_per_file": 2}),
-        (review, {"mode": "context", "changed_files": ["app.py"], "include_source": False}),
         (review, {"mode": "changes", "changed_files": ["app.py"], "include_source": True}),
         (review, {"mode": "changes", "detail_level": "verbose", "include_source": True}),
         # Paths with no scope.
@@ -980,7 +969,6 @@ def test_review_answers_in_rust_as_python_does(git_repo: Path, change: str) -> N
             {"mode": "changes", "base": "HEAD", "changed_files": ["/"], "detail_level": "minimal"},
         ),
         (review, {"mode": "affected_flows", "changed_files": ["test_app.py"]}),
-        (review, {"mode": "impact", "changed_files": ["test_app.py"], "detail_level": "verbose"}),
         (review, {"mode": "changes", "base": "HEAD~1"}),
     ]
     rust, python, stderr = _session_both(git_repo, calls)
@@ -988,19 +976,15 @@ def test_review_answers_in_rust_as_python_does(git_repo: Path, change: str) -> N
     assert rust == python
     if change == "dirty":
         # Tracked edits: the default base is HEAD, the work in progress.
-        default = rust[12]["structuredContent"]
+        default = rust[6]["structuredContent"]
         assert default["status"] == "ok"
         assert default["change_entity_summary"]["base"] == "HEAD"
         # A single-commit repository has no HEAD~1 to name explicitly.
         assert rust[-1]["structuredContent"]["diff_parse_status"] == "base_unresolved"
     # Paths with no scope: minimal detail no longer reads the architecture
     # delta, so the KeyError Python raised is gone.
-    unscoped = rust[25]["structuredContent"]
+    unscoped = rust[13]["structuredContent"]
     assert unscoped["status"] == "ok"
-    if change == "wide":
-        trimmed = rust[8]["structuredContent"]
-        assert trimmed["truncated"] is True
-        assert "_truncation" in trimmed
 
 
 @pytest.mark.parametrize(
@@ -1010,8 +994,8 @@ def test_review_answers_in_rust_as_python_does(git_repo: Path, change: str) -> N
         {"mode": "affected_flows", "changed_files": "app.py"},
         {"mode": "affected_flows", "max_nodes": "5"},
         {"mode": "affected_flows", "x": 1},
-        {"mode": "context", "max_lines_per_file": "5"},
-        {"mode": "impact", "max_depth": 1.5},
+        {"mode": "context"},
+        {"mode": "impact", "max_depth": 1},
     ],
 )
 def test_review_leaves_the_rest_to_python(git_repo: Path, arguments: dict[str, Any]) -> None:
@@ -1115,8 +1099,6 @@ def test_review_of_a_rejected_base_answers_in_rust_as_python_does(
         (git_repo / "app.py").write_text("def main():\n    return 1\n")
     calls: list[tuple[str, dict[str, Any]]] = [
         ("review_tool", {"mode": "affected_flows", "base": "bad ref"}),
-        ("review_tool", {"mode": "impact", "base": "a b"}),
-        ("review_tool", {"mode": "context", "base": "$(x)", "detail_level": "minimal"}),
         ("review_tool", {"mode": "changes", "base": "a b"}),
         ("review_tool", {"mode": "changes", "base": "it's", "changed_files": ["app.py"]}),
         ("review_tool", {"mode": "changes", "base": "HEAD~3", "detail_level": "minimal"}),
@@ -1124,7 +1106,7 @@ def test_review_of_a_rejected_base_answers_in_rust_as_python_does(
     rust, python, stderr = _session_both(git_repo, calls)
     assert stderr.count(REVIEW_TRACE) == len(calls)
     assert rust == python
-    assert rust[4]["structuredContent"]["diff_parse_status"] == "base_unresolved"
+    assert rust[2]["structuredContent"]["diff_parse_status"] == "base_unresolved"
 
 
 #: A ``git`` that answers one listing with bytes that are not UTF-8 and
@@ -1170,8 +1152,7 @@ def test_review_of_git_output_that_is_not_utf8_answers_in_rust_as_python_does(
     }
     calls: list[tuple[str, dict[str, Any]]] = [
         ("review_tool", {}),
-        ("review_tool", {"mode": "impact", "base": "HEAD"}),
-        ("review_tool", {"mode": "context", "detail_level": "minimal"}),
+        ("review_tool", {"mode": "changes", "base": "HEAD", "detail_level": "minimal"}),
         ("review_tool", {"mode": "affected_flows"}),
         ("review_tool", {"base": "HEAD", "changed_files": ["app.py"]}),
     ]
@@ -1193,8 +1174,6 @@ def test_review_outside_any_vcs_answers_in_rust_as_python_does(tmp_path: Path) -
     calls: list[tuple[str, dict[str, Any]]] = [
         ("review_tool", {}),
         ("review_tool", {"changed_files": ["app.py"]}),
-        ("review_tool", {"mode": "impact"}),
-        ("review_tool", {"mode": "context", "changed_files": ["app.py"]}),
         ("review_tool", {"mode": "affected_flows"}),
     ]
     rust, python, stderr = _session_both(root, calls)

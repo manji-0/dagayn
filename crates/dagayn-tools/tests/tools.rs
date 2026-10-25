@@ -1141,7 +1141,10 @@ fn review_leaves_other_modes_and_unknowns_to_python() {
         ..repo.context()
     };
     for arguments in [
-        json!({"mode": "context", "max_lines_per_file": 1.5}),
+        // The removed modes and their arguments.
+        json!({"mode": "context"}),
+        json!({"mode": "impact"}),
+        json!({"mode": "changes", "max_depth": 2}),
         json!({"mode": "affected_flows", "detail_level": "full"}),
         json!({"mode": "affected_flows", "include_source": "yes"}),
         json!({"mode": "affected_flows", "changed_files": [1]}),
@@ -1163,73 +1166,6 @@ fn review_leaves_other_modes_and_unknowns_to_python() {
         "review_tool",
         json!({"mode": "affected_flows", "changed_files": ["app.py"]})
     ));
-}
-
-#[test]
-fn review_impact_reports_the_blast_radius_and_trims_like_python() {
-    // dagayn: tests crates/dagayn-tools/src/review.rs::review
-    let repo = Repo::new("impact", true);
-    let callers: String = (0..400)
-        .map(|i| format!("def caller_{i}():\n    return helper()\n\n\n"))
-        .collect();
-    repo.write("many.py", &format!("from app import helper\n\n\n{callers}"));
-    repo.build();
-    let context = Context {
-        runtime: Some(json!({})),
-        ..repo.context()
-    };
-    let impact = |arguments: Value| answer(&context, "review_tool", arguments);
-
-    let small = impact(json!({"mode": "impact", "changed_files": ["test_app.py", "gone.py"]}));
-    assert!(small.get("called_subtool").is_none());
-    assert_eq!(small["unmatched_changed_files"], json!(["gone.py"]));
-    assert!(
-        small["summary"]
-            .as_str()
-            .is_some_and(|summary| summary.contains("1 of 2 changed file(s) are NOT in the graph"))
-    );
-    let reasons: Vec<&str> = small["missingness"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|item| item["reason_code"].as_str())
-        .collect();
-    assert!(
-        reasons.contains(&"changed_files_not_in_graph"),
-        "{reasons:?}"
-    );
-    assert!(small["next"].is_array());
-    assert!(small.get("_hints").is_none());
-
-    let wide = impact(json!({"mode": "impact", "changed_files": ["app.py"], "max_nodes": 500}));
-    assert_eq!(wide["truncated"], true);
-    let kept = &wide["_truncation"]["edges"];
-    assert!(kept["kept"].as_u64() < kept["total"].as_u64(), "{kept}");
-    let text = call(
-        &context,
-        "review_tool",
-        &json!({"mode": "impact", "changed_files": ["app.py"], "max_nodes": 500}),
-    )
-    .expect("answered")
-    .text;
-    let (payload_end, trim) = (
-        text.find(r#""missingness":"#),
-        text.find(r#""_truncation":{"#),
-    );
-    assert!(
-        payload_end.is_some() && trim > payload_end,
-        "the trim record follows the payload: {text}"
-    );
-
-    let minimal =
-        impact(json!({"mode": "impact", "changed_files": ["app.py"], "detail_level": "minimal"}));
-    assert_eq!(minimal["risk"], "high");
-    assert_eq!(minimal["key_entities"].as_array().map(Vec::len), Some(5));
-    assert!(minimal.get("_truncation").is_none());
-
-    let none = impact(json!({"mode": "impact", "changed_files": []}));
-    assert_eq!(none["summary"], "No changed files detected.");
-    assert_eq!(none["total_impacted"], 0);
 }
 
 #[test]
@@ -1436,92 +1372,6 @@ fn review_changes_scores_the_diff_against_base() {
         .filter_map(|f| f["name"].as_str())
         .collect();
     assert_eq!(names, ["helper"]);
-}
-
-#[test]
-fn review_context_reads_contained_sources_and_caps_long_files() {
-    // dagayn: tests crates/dagayn-tools/src/review.rs::review
-    let repo = Repo::new("context", true);
-    repo.build();
-    let context = Context {
-        runtime: Some(json!({})),
-        ..repo.context()
-    };
-    let review = |arguments: Value| answer(&context, "review_tool", arguments);
-    let full =
-        review(json!({"mode": "context", "changed_files": ["app.py", "../escape.py", "gone.py"]}));
-    assert!(full.get("called_subtool").is_none());
-    let ctx = &full["context"];
-    assert_eq!(
-        ctx["source_snippets"]["app.py"],
-        "1: def main():\n2:     return helper()\n3: \n4: \n5: def helper():\n6:     pass"
-    );
-    assert_eq!(ctx["out_of_repo_files"], json!(["../escape.py"]));
-    assert_eq!(
-        ctx["unmatched_changed_files"],
-        json!(["../escape.py", "gone.py"])
-    );
-    assert!(
-        full["summary"]
-            .as_str()
-            .is_some_and(|s| s.contains("Review guidance:"))
-    );
-
-    // Over the line cap and no node of that (relative) path: the first lines.
-    let capped =
-        review(json!({"mode": "context", "changed_files": ["app.py"], "max_lines_per_file": 2}));
-    assert_eq!(
-        capped["context"]["source_snippets"]["app.py"],
-        "1: def main():\n2:     return helper()\n3: \n4: \n5: def helper():\n6:     pass"
-    );
-    let minimal =
-        review(json!({"mode": "context", "changed_files": ["app.py"], "detail_level": "minimal"}));
-    assert_eq!(minimal["risk"], "low");
-    assert!(minimal["key_entities"].as_array().is_some_and(|k| {
-        k.iter()
-            .all(|e| !e.as_str().unwrap_or("/").starts_with('/'))
-    }));
-    let none = review(json!({"mode": "context", "changed_files": []}));
-    assert_eq!(none["summary"], "No changes detected. Nothing to review.");
-}
-
-#[test]
-fn review_context_fits_its_budget_below_verbose() {
-    // dagayn: tests crates/dagayn-tools/src/review.rs::review
-    let repo = Repo::new("context-budget", true);
-    let callers: String = (0..400)
-        .map(|i| format!("def caller_{i}():\n    return helper()\n\n\n"))
-        .collect();
-    repo.write("many.py", &format!("from app import helper\n\n\n{callers}"));
-    repo.build();
-    let context = Context {
-        runtime: Some(json!({})),
-        ..repo.context()
-    };
-    let arguments = |level: &str| {
-        json!({
-            "mode": "context",
-            "changed_files": ["app.py", "many.py"],
-            "max_lines_per_file": 2000,
-            "detail_level": level,
-        })
-    };
-    let text = |level: &str| {
-        call(&context, "review_tool", &arguments(level))
-            .expect("answered")
-            .text
-    };
-
-    // docs/plans/AGENT-WORKFLOW-TARGET.md#target-contract: 32K at standard.
-    let standard = text("standard");
-    assert!(standard.len() <= 33_000, "{} characters", standard.len());
-    let payload: Value = serde_json::from_str(&standard).expect("json");
-    assert_eq!(payload["truncated"], true);
-    let snippets = &payload["_truncation"]["source_snippets"];
-    assert_eq!(snippets["total"], 2, "{snippets}");
-
-    // verbose keeps the source the budget clips.
-    assert!(text("verbose").len() > standard.len());
 }
 
 #[test]
@@ -2496,16 +2346,6 @@ fn every_reply_names_calls_that_answer_and_fits_its_budget() {
         (
             "review_tool",
             json!({"mode": "changes", "detail_level": "minimal"}),
-        ),
-        ("review_tool", json!({"mode": "impact"})),
-        (
-            "review_tool",
-            json!({"mode": "impact", "detail_level": "minimal"}),
-        ),
-        ("review_tool", json!({"mode": "context"})),
-        (
-            "review_tool",
-            json!({"mode": "context", "detail_level": "minimal"}),
         ),
         ("review_tool", json!({"mode": "affected_flows"})),
         ("architecture_analysis_tool", json!({})),

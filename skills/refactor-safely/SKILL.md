@@ -47,7 +47,7 @@ edit set, and verify impact afterwards.
 7. **Verify**: `review_tool(mode="changes")` and read `findings`: a
    `dangling_reference` or `unchanged_caller` names a site the refactor
    missed, `contract_doc_not_updated` a doc to fix, and `tests_to_run` the
-   tests to run. Drill into `mode="impact"` or `"affected_flows"` only when a
+   tests to run. Drill into `callers_of` or `mode="affected_flows"` only when a
    finding points there.
 
 ## Judging suggestions

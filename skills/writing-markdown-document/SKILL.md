@@ -154,7 +154,8 @@ Targets:
 4. Verify:
    - `query_graph_tool(pattern="importers_of", target="<doc.md>")` for inbound
      edges (file level only: a `doc.md::slug` target is widened to the file).
-   - `review_tool(mode="impact", changed_files=["<doc.md>"])` for outbound reach.
+   - `query_graph_tool(pattern="imports_of", target="<doc.md>")` for outbound
+     edges; each row's `import_kind` says `directive` or `link`.
    - `query_graph_tool(pattern="implementations_of", target="<doc.md>::<section-slug>")`
      for code links; `docs_for` from the code side.
    Keep `zero_result_reason`, `next`, and `missingness` from any empty
@@ -168,8 +169,8 @@ Targets:
 1. Re-read top to bottom; tighten prose, rebalance sections.
 2. Re-check every backticked symbol for exactly one exact symbol match; if
    ambiguous, switch to a `describes` directive or plain text.
-3. `ensure_graph_tool(force=True)`, then `review_tool(mode="impact")` again: no
-   edge present in Stage 2 should have disappeared. (`markdown_artifact_refs_dropped`
+3. `ensure_graph_tool(force=True)`, then `importers_of` and `imports_of` again:
+   no edge present in Stage 2 should have disappeared. (`markdown_artifact_refs_dropped`
    counts both deleted code spans and demoted directives.)
 
 ## Stage 4 — Summary and conclusion
@@ -185,6 +186,7 @@ the document replaces another, say `<!-- supersedes ./old-design.md -->`. Then
 dagayn tool ensure_graph_tool --arg force=true
 dagayn tool query_graph_tool --arg pattern='"file_summary"' --arg target='"docs/design.md"'
 dagayn tool query_graph_tool --arg pattern='"implementations_of"' --arg target='"docs/design.md::contract-section"'
-dagayn tool review_tool --arg mode='"impact"' --arg 'changed_files=["docs/design.md"]' --arg detail_level='"minimal"'
+dagayn tool query_graph_tool --arg pattern='"imports_of"' --arg target='"docs/design.md"'
+dagayn tool review_tool --arg mode='"changes"' --arg 'changed_files=["docs/design.md"]' --arg detail_level='"minimal"'
 dagayn tool semantic_search_nodes_tool --arg query='"BridgeDetector"' --arg detail_level='"minimal"'
 ```

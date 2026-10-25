@@ -414,24 +414,6 @@ def test_review_changes_answers_through_rust(reviewed_repo: Path) -> None:
     assert "contract_doc_not_updated" in result["summary"]
 
 
-def test_review_context_answers_through_rust(reviewed_repo: Path) -> None:
-    """TESTED_BY runs production -> test: the tested change is no gap, and
-    its entities read repo-relative."""
-    result = review_func(
-        mode="context",
-        changed_files=["core/service.py"],
-        detail_level="minimal",
-        repo_root=str(reviewed_repo),
-    )
-
-    assert result["status"] == "ok", result["summary"]
-    assert "called_subtool" not in result
-    assert result["test_gaps"] == 0
-    assert result["key_entities"]
-    assert all(not entity.startswith("/") for entity in result["key_entities"])
-    assert "core/service.py::stable_api" in result["key_entities"]
-
-
 def _queue_rows(root: Path) -> list[tuple[object, ...]]:
     import sqlite3
 

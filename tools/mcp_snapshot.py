@@ -81,11 +81,10 @@ FIXTURE_CASES: dict[str, list[tuple[str, str, dict[str, Any]]]] = {
             {"mode": "rename", "old_name": "create_user", "new_name": "make_user"},
         ),
         (
-            "review_context",
+            "review_changes",
             "review_tool",
-            {"mode": "context", "changed_files": ["services.py"]},
+            {"mode": "changes", "changed_files": ["services.py"]},
         ),
-        ("impact", "review_tool", {"mode": "impact", "changed_files": ["models.py"]}),
     ],
     "mixed": [
         ("docs_for", "query_graph_tool", {"pattern": "docs_for", "target": "build_graph"}),

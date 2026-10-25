@@ -108,7 +108,7 @@ GraphSyncLegacyStatus: TypeAlias = Literal[
 
 RefactorMode: TypeAlias = Literal["rename", "dead_code", "suggest"]
 FlowMode: TypeAlias = Literal["entry_points"]
-ReviewMode: TypeAlias = Literal["changes", "context", "affected_flows", "impact"]
+ReviewMode: TypeAlias = Literal["changes", "affected_flows"]
 
 FlowDetailLevel: TypeAlias = Literal["minimal", "standard"]
 ReviewDetailLevel: TypeAlias = Literal["minimal", "standard", "verbose"]
@@ -585,9 +585,6 @@ class _ReviewRequestBase(BaseModel):
     changed_files: list[str] | None = None
     base: str | None = None
     include_source: bool | None = None
-    max_depth: int = 2
-    max_nodes: int = 50
-    max_lines_per_file: int = 200
     detail_level: ReviewDetailLevel = "standard"
     repo_root: str | None = None
 
@@ -596,20 +593,12 @@ class ReviewChangesRequest(_ReviewRequestBase):
     mode: Literal["changes"] = "changes"
 
 
-class ReviewContextRequest(_ReviewRequestBase):
-    mode: Literal["context"]
-
-
 class ReviewAffectedFlowsRequest(_ReviewRequestBase):
     mode: Literal["affected_flows"]
 
 
-class ReviewImpactRequest(_ReviewRequestBase):
-    mode: Literal["impact"]
-
-
 ReviewRequest = Annotated[
-    ReviewChangesRequest | ReviewContextRequest | ReviewAffectedFlowsRequest | ReviewImpactRequest,
+    ReviewChangesRequest | ReviewAffectedFlowsRequest,
     Field(discriminator="mode"),
 ]
 _REVIEW_REQUEST_ADAPTER = TypeAdapter(ReviewRequest)

@@ -273,7 +273,7 @@ single tool directly, including when a running MCP server was started with a
 narrow `--tools` allow-list:
 
 ```bash
-dagayn tool review_tool --arg mode='"impact"' --arg 'changed_files=["src/app.py"]' --arg max_depth=3
+dagayn tool review_tool --arg mode='"changes"' --arg 'changed_files=["src/app.py"]'
 dagayn tool flow_tool --arg mode='"entry_points"' --arg target='"save_user"'
 dagayn tool architecture_analysis_tool --arg mode='"overview"' --format summary
 ```
@@ -516,7 +516,7 @@ contract section through `implemented_by` / `implements_contract`
 `CROSS_ARTIFACT` edges. Use `bridges_from` to follow high-confidence Terraform
 → application-code bridges (`maps_entrypoint`, `invokes_binary`) emitted from
 `filename` / `source_dir` / `handler` / `entry_point` / `local-exec` patterns.
-Review impact / flow / architecture guidance also surfaces reportable bridges
+Review / flow / architecture guidance also surfaces reportable bridges
 as first-class transitions and keeps low-confidence bridges as missingness
 caveats rather than hard claims.
 
@@ -649,8 +649,13 @@ With no `base`, a checkout whose tracked files have staged or unstaged edits is
 reviewed against `HEAD` (the work in progress); a clean one against `HEAD~1`
 (the last commit). Untracked files count either way. To review a branch, pass
 its merge base with `main`. An explicit `changed_files` list scopes the review
-to those files; the base diff only narrows them to their changed lines. The
-`context`, `impact`, and `affected_flows` modes are unchanged.
+to those files; the base diff only narrows them to their changed lines.
+
+The `impact` and `context` modes were removed: on 44 real commits they added
+11 actionable facts beyond `changes`, all also returned by `callers_of`
+(docs/plans/OPEN-MEASUREMENTS.md#review-impact-and-context). For the callers of
+a changed symbol, call `query_graph_tool(pattern="callers_of", depth=...)`; for
+its source, `source_of`.
 
 `get_minimal_context_tool` routes common English and Japanese task descriptions
 for review, debugging, exploration, feature addition, and refactoring to the
@@ -729,7 +734,7 @@ Migration note for dagayn 3.0: v2 split architecture MCP/CLI tools such as
 `architecture_analysis_tool(mode=...)` instead.
 
 Review and execution-flow drill-downs are also dispatcher-based in v3. Use
-`review_tool(mode="changes"|"context"|"affected_flows"|"impact")` and
+`review_tool(mode="changes"|"affected_flows")` and
 `flow_tool` instead of the v2 split MCP/CLI tools.
 
 `flow_tool(mode="entry_points", target=...)` answers which entry points reach

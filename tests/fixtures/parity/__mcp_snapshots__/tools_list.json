@@ -168,9 +168,6 @@
           "changed_files": "array",
           "detail_level": "string",
           "include_source": "boolean",
-          "max_depth": "integer",
-          "max_lines_per_file": "integer",
-          "max_nodes": "integer",
           "mode": "string",
           "repo_root": "string"
         },
@@ -312,9 +309,6 @@
           "changed_files": "array",
           "detail_level": "string",
           "include_source": "boolean",
-          "max_depth": "integer",
-          "max_lines_per_file": "integer",
-          "max_nodes": "integer",
           "mode": "string",
           "repo_root": "string"
         },

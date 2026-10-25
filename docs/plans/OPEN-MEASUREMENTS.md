@@ -123,7 +123,8 @@ experiment; that gap in POSITIONING stays open.
 ## Review impact and context
 
 Rerun: `DAGAYN_MEASURE_DIR=DIR eval/run_review_modes_measure.py run`, then
-`summarize`; judgments in `eval/review_modes_judgments.yaml`.
+`summarize`, at b0250d3f; both modes are removed after it, and the script with
+them. Judgments in `eval/review_modes_judgments.yaml`.
 
 44 commits, 11 per repository, picked for touching code symbols (release,
 lockfile, and docs-only commits skipped; the reason for each is in the

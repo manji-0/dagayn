@@ -25,9 +25,7 @@ _with_dispatch_metadata = partial(with_dispatch_metadata, summary_label="Review"
 #: The internal tool each mode answered with, as ``called_subtool`` names it.
 _SUBTOOLS: dict[str, str] = {
     "changes": "detect_changes_func",
-    "context": "get_review_context",
     "affected_flows": "get_affected_flows_func",
-    "impact": "get_impact_radius",
 }
 
 
@@ -36,9 +34,6 @@ def review_func(
     changed_files: list[str] | None = None,
     base: str | None = None,
     include_source: bool | None = None,
-    max_depth: int = 2,
-    max_nodes: int = 50,
-    max_lines_per_file: int = 200,
     detail_level: Literal["minimal", "standard", "verbose"] = "standard",
     repo_root: str | None = None,
 ) -> ToolPayload:
@@ -49,9 +44,6 @@ def review_func(
             changed_files=changed_files,
             base=base,
             include_source=include_source,
-            max_depth=max_depth,
-            max_nodes=max_nodes,
-            max_lines_per_file=max_lines_per_file,
             detail_level=detail_level,
             repo_root=repo_root,
         )
@@ -72,9 +64,6 @@ def review_func(
                 base=request.base,
                 changed_files=request.changed_files,
                 include_source=request.include_source,
-                max_depth=request.max_depth,
-                max_nodes=request.max_nodes,
-                max_lines_per_file=request.max_lines_per_file,
                 detail_level=request.detail_level,
                 repo_root=request.repo_root,
             ),

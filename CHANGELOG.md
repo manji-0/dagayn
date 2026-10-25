@@ -76,6 +76,15 @@ Removed).
   unchanged. `make_response` no longer takes `hints` or
   `next_tool_suggestions`, and `dagayn.tool_surface` loses
   `suggestion_is_callable` and `filter_suggestions`.
+- **Breaking:** the `impact` and `context` modes of `review_tool`, with its
+  `max_depth`, `max_nodes`, and `max_lines_per_file` arguments. Measured on
+  44 real commits, they added 11 actionable facts beyond `changes`, all also
+  returned by `query_graph_tool(pattern="callers_of")` at a sixth of the
+  characters (docs/plans/OPEN-MEASUREMENTS.md). Use `callers_of` with `depth`
+  for a changed symbol's callers and `source_of` for its source. The skills,
+  prompts, and reference that sent agents to the two modes now name those
+  calls; the `token_efficiency` benchmark counts the `changes` reply, and
+  `eval/run_review_modes_measure.py` goes with the modes it measured.
 
 ## 10.0.0 — 2026-10-12
 

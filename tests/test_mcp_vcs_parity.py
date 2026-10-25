@@ -47,10 +47,6 @@ REVIEWS: list[tuple[str, dict[str, Any]]] = [
     ("review_tool", {"mode": "changes", "base": "main"}),
     ("review_tool", {"mode": "changes", "changed_files": ["app.py"]}),
     ("review_tool", {"mode": "changes", "base": "HEAD~9"}),
-    ("review_tool", {"mode": "impact"}),
-    ("review_tool", {"mode": "impact", "base": "HEAD", "detail_level": "minimal"}),
-    ("review_tool", {"mode": "context", "base": "HEAD~1"}),
-    ("review_tool", {"mode": "context", "detail_level": "minimal"}),
     ("review_tool", {"mode": "affected_flows", "base": "HEAD"}),
     ("review_tool", {"mode": "affected_flows", "base": "bad ref"}),
 ]
@@ -195,8 +191,6 @@ def test_a_stale_jj_workspace_is_answered_in_rust_as_python_does(jj_workspace: P
         *READS,
         ("review_tool", {}),
         ("review_tool", {"changed_files": ["app.py"]}),
-        ("review_tool", {"mode": "impact", "detail_level": "minimal"}),
-        ("review_tool", {"mode": "context"}),
         ("review_tool", {"mode": "affected_flows", "base": "HEAD"}),
     ]
     rust, python, stderr = _session_both(jj_workspace, calls)
@@ -311,10 +305,6 @@ SVN_REVIEWS: list[tuple[str, dict[str, Any]]] = [
     ("review_tool", {"mode": "changes", "detail_level": "minimal"}),
     ("review_tool", {"mode": "changes", "base": "r40:HEAD"}),
     ("review_tool", {"mode": "changes", "changed_files": ["app.py"]}),
-    ("review_tool", {"mode": "impact"}),
-    ("review_tool", {"mode": "impact", "base": "r40:HEAD", "detail_level": "minimal"}),
-    ("review_tool", {"mode": "context"}),
-    ("review_tool", {"mode": "context", "base": "40", "detail_level": "minimal"}),
     ("review_tool", {"mode": "affected_flows"}),
     ("review_tool", {"mode": "affected_flows", "base": "bad ref"}),
 ]
