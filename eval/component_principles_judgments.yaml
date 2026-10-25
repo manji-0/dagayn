@@ -1,0 +1,79 @@
+# Hand verdicts on eval/measure_component_principles.py (2026-10-25): the five
+# most extreme units (SAP, largest D among production units SAP applies to) and
+# unit edges (CRP, lowest surface_used share with a public surface of at least
+# 10) per repository. Graphs: dagayn at origin/main 8cb10df8, cfwdon 94329669,
+# purecrate-ts 2e2a4c5f, tstodon 4694e9c3, all full builds (schema 20, rust 23,
+# javascript 12).
+# actionable: the value points at a change a careful engineer would make;
+# false: the value is wrong (an edge or a count the graph got wrong);
+# noise: the value is right but points at nothing to change.
+# refused_member has no candidate in any repository, so it has no row.
+judgments:
+  # -- SAP --------------------------------------------------------------------
+  - {repo: dagayn, measure: sap, id: dagayn-grammars, verdict: "false",
+     reason: "Nt 1 is GrammarSpec in build.rs:6, a build script; Ca 1 is dagayn-parser's examples/quality_probe.rs:191, not the library"}
+  - {repo: dagayn, measure: sap, id: dagayn-parser, verdict: noise,
+     reason: "115 concrete types, Ca 10 (incl. tests, eval, tools dirs, e.g. tests/test_parser.py:346); a parser everything calls is stable and concrete by design, no abstraction to add"}
+  - {repo: dagayn, measure: sap, id: dagayn-graph, verdict: noise,
+     reason: "GraphStore crate, Ca 5 crates (dagayn-build build.rs:9, dagayn-tools coverage.rs:8); its only Ce comes from test code (terraform_bridges_tests.rs:35, src/tests/search.rs:386); nothing to change"}
+  - {repo: dagayn, measure: sap, id: dagayn-mcp, verdict: "false",
+     reason: "the crate owns the two traits dagayn-py implements (lib.rs:131 Native, lib.rs:153 Backend; impls at dagayn-py/src/lib.rs:1076,1093); A 0.2 counts 3 test structs from src/tests.rs:13,73,391, so 'zone of pain' misreads the abstraction side of the boundary"}
+  - {repo: dagayn, measure: sap, id: dagayn-postproc, verdict: noise,
+     reason: "21 concrete pipeline/bridge types (manifest_bridges/mod.rs:288 Bridge), Ca 3; D 0.6 asks for no change"}
+  - {repo: cfwdon, measure: sap, id: cfwdon-core, verdict: noise,
+     reason: "8 config/error value types (error.rs:4 AppError, config.rs:24 AppConfig) used only by cfwdon-worker; I 0 rests on Ca 1, no abstraction would help"}
+  - {repo: cfwdon, measure: sap, id: cfwdon-domain, verdict: noise,
+     reason: "81 domain value types (account/mod.rs LocalAccount, delivery.rs DeliveryAttemptOutcome) with Ca 2; stable concrete value objects are the intended shape"}
+  - {repo: cfwdon, measure: sap, id: cfwdon-worker, verdict: noise,
+     reason: "D 0.002: the leaf app on the main sequence; the value points at nothing"}
+  - {repo: cfwdon, measure: sap, id: cfwdon-models, verdict: noise,
+     reason: "D 0.0: imports cfwdon-domain only (access_provision.rs:1), nothing depends on it; on the main sequence"}
+  - {repo: purecrate-ts, measure: sap, id: examples, verdict: "false",
+     reason: "examples/ is sample code, not a unit; its Ca 5 is bare-name resolution across languages: Rust `impl From` at crates/ir/src/ty.rs:188 lands on the TS method examples/jsonpatch/ts/plain/src/field.ts:13 Field.From, `use quote` at crates/canon/src/lib.rs:205 on an examples node"}
+  - {repo: purecrate-ts, measure: sap, id: purecrate, verdict: "false",
+     reason: "the npm package packages/boundary (index.ts:33 Panic); its Ca 2 are Rust `impl PartialOrd` lines (corpus/patterns.rs:177, cli/tests/fixtures/ordering_derive.rs:86) resolved by bare name to TS nodes; no Rust code depends on it"}
+  - {repo: purecrate-ts, measure: sap, id: purecrate-ir, verdict: noise,
+     reason: "the IR every crate imports (check/src/binds.rs:12, emit_ts/src/context.rs:89), 52 data enums/structs (expr.rs:1092); concrete and stable by design; its only Ce is the false From edge (ty.rs:188)"}
+  - {repo: purecrate-ts, measure: sap, id: purecrate-syntax, verdict: noise,
+     reason: "the Rust-source parser (item.rs:30 ParseError, expr.rs:507 Stmt), Ca 3; nothing to abstract"}
+  - {repo: purecrate-ts, measure: sap, id: purecrate-emit-ts, verdict: noise,
+     reason: "the TS emitter's own AST (js.rs:11 Js, doc.rs:11 Doc), Ca 2 (pack/src/lib.rs:1, cli/src/main.rs:16); D 0.667 asks for no change"}
+  - {repo: tstodon, measure: sap, id: "@tstodon/worker", verdict: "false",
+     reason: "A 0.986 is 213 generated Prisma interfaces (generated/prisma/internal/class.ts:73 PrismaClientConstructor, models/*.ts delegates); the worker is the app, and generated code is counted"}
+  # -- CRP surface_used --------------------------------------------------------
+  - {repo: dagayn, measure: crp, id: "dagayn-graph -> dagayn-parser", verdict: "false",
+     reason: "the only production edge is crates/dagayn-graph/src/postprocess/terraform_bridges_tests.rs:35, a test module the *_test. path rule misses; no Cargo dependency"}
+  - {repo: dagayn, measure: crp, id: "dagayn-py -> dagayn-parser", verdict: "false",
+     reason: "0 of 48 because dagayn-py calls 7 parser functions (lib.rs:1204 extractor_versions .. lib.rs:1318 parse_rust_owned_file_compact_json) and Rust functions carry no visibility, so they are outside the surface"}
+  - {repo: dagayn, measure: crp, id: "dagayn-build -> dagayn-postproc", verdict: "false",
+     reason: "0 of 11 types, but postprocess.rs:84,137,165,259,298 call 5 postproc functions; functions are not counted"}
+  - {repo: dagayn, measure: crp, id: "dagayn-py -> dagayn-postproc", verdict: "false",
+     reason: "0 of 11 types; lib.rs:501,527,538,1164,1197 call 5 postproc functions, which are not counted"}
+  - {repo: dagayn, measure: crp, id: "<root> -> dagayn", verdict: noise,
+     reason: "main.py:6 is the entry shim calling dagayn.cli.app.main; 1 of 678 is right and means nothing"}
+  - {repo: cfwdon, measure: crp, id: "cfwdon-admin-ui -> cfwdon-web-ui", verdict: "false",
+     reason: "admin-ui/src/lib/confirm.ts:24 calls `current?.resolve(false)` on a Promise resolver, resolved to web-ui's SessionState.resolve; admin-ui does not use web-ui"}
+  - {repo: cfwdon, measure: crp, id: "cfwdon-models -> cfwdon-domain", verdict: noise,
+     reason: "31 of 81 domain types (account/registration.rs ComposingRegistration ..) through 31 imports; a persistence crate using part of the domain is expected"}
+  - {repo: cfwdon, measure: crp, id: "cfwdon-worker -> cfwdon-domain", verdict: noise,
+     reason: "45 of 81 domain types; the app uses most of its domain, nothing to split"}
+  - {repo: purecrate-ts, measure: crp, id: "purecrate-arktype -> purecrate", verdict: "false",
+     reason: "packages/boundary-arktype/src/index.ts:2 imports Char, Int, JsonFloat .. from \"purecrate\", but the import is unresolved (no root workspace manifest), so the graph sees 0 of 183"}
+  - {repo: purecrate-ts, measure: crp, id: "purecrate-valibot -> purecrate", verdict: "false",
+     reason: "packages/boundary-valibot/src/index.ts:2 imports a dozen purecrate symbols; the specifier is unresolved, the 0 is the gap"}
+  - {repo: purecrate-ts, measure: crp, id: "purecrate-zod -> purecrate", verdict: "false",
+     reason: "packages/boundary-zod/src/index.ts:2 imports Char, Int, JsonFloat, Uuid .. from \"purecrate\"; unresolved, so 0 of 183"}
+  - {repo: purecrate-ts, measure: crp, id: "purecrate-canon -> purecrate-syntax", verdict: "false",
+     reason: "crates/canon/src/lib.rs:66 calls purecrate_syntax::parse_source, a function, so 0 of 22 types"}
+  - {repo: purecrate-ts, measure: crp, id: "purecrate-canon -> purecrate-ts", verdict: actionable,
+     reason: "canon compiles the cli crate's file into itself (crates/canon/src/lib.rs:48 #[path = \"../../cli/src/difftest/derive.rs\"] mod derive) and uses only Fields and 5 helpers; moving derive.rs into a crate both depend on is the change the low share points at"}
+  - {repo: tstodon, measure: crp, id: "tstodon -> @tstodon/domain", verdict: noise,
+     reason: "the root package is the e2e suite; e2e/schemas.ts:16 references the Activity type only (DomainActivity[\"kind\"]), which is what a test helper looks like"}
+  - {repo: tstodon, measure: crp, id: "tstodon -> @tstodon/core", verdict: noise,
+     reason: "e2e uses schemaResult and ValidationError (e2e/lib.ts:55,80); right and nothing to change"}
+  - {repo: tstodon, measure: crp, id: "@tstodon/worker -> @tstodon/domain", verdict: noise,
+     reason: "80 of 168: the worker uses half the domain (access-token.ts AccessToken.authorize ..); expected for the app"}
+  - {repo: tstodon, measure: crp, id: "@tstodon/worker -> @tstodon/core", verdict: noise,
+     reason: "6 of 12 core helpers (assert-never.ts assertNever, schema-result.ts schemaResult); a small shared kernel, nothing to split"}
+  - {repo: tstodon, measure: crp, id: "@tstodon/domain -> @tstodon/core", verdict: noise,
+     reason: "9 of 12: domain uses nearly all of core"}
