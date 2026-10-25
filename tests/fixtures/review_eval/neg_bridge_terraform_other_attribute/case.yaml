@@ -1,0 +1,17 @@
+description: Bumps the runtime of the Lambda in infra/main.tf, whose filename and handler
+  bridge to app/hello.py; the bridged attributes are unchanged, so no bridge_touched.
+negative: true
+commit_change: false
+allowed_kinds: [tests_to_run, untested_change]
+base:
+  from: tf_bridge
+change:
+  files:
+    infra/main.tf: |
+      resource "aws_lambda_function" "auth" {
+        filename = "${path.module}/../app/hello.py"
+        handler  = "hello.main"
+        runtime  = "python3.13"
+        role     = "arn:aws:iam::123456789012:role/lambda"
+      }
+expected_findings: []

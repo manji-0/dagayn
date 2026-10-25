@@ -17,7 +17,7 @@ use dagayn_graph::{
 use serde_json::{Map, Value, json};
 
 use crate::answerability::Answerability;
-use crate::changes::{Analysis, DiffParse, analyze_changes, parse_diff};
+use crate::changes::{Analysis, DiffParse, Ranges, analyze_changes, parse_diff};
 use crate::coverage::splitlines;
 use crate::findings;
 use crate::query::{edge_dict, node_dict};
@@ -310,14 +310,23 @@ impl Review<'_> {
         &self,
         analysis: &mut Analysis,
         changed_files: &[String],
+        ranges: &Ranges,
         base: &str,
     ) -> Option<(Value, Value, Value)> {
         let relative: Vec<String> = changed_files
             .iter()
             .map(|file| normalized_repo_path(file, self.root()))
             .collect();
-        let found =
-            findings::change_findings(self.store(), self.root(), analysis, &relative, base)?;
+        let found = findings::change_findings(
+            self.store(),
+            self.root(),
+            analysis,
+            findings::ChangeSet {
+                files: &relative,
+                ranges,
+                base,
+            },
+        )?;
         for (key, value) in &mut analysis.fields {
             if *key == "changed_functions"
                 && let Value::Array(functions) = value
@@ -379,7 +388,7 @@ impl Review<'_> {
             &ranges,
         )?;
         let (findings, findings_omitted, symbol_delta) =
-            self.findings(&mut analysis, &changed_files, request.base)?;
+            self.findings(&mut analysis, &changed_files, &ranges, request.base)?;
         if request.include_source == Some(true) {
             for (key, value) in &mut analysis.fields {
                 if *key == "changed_functions"
