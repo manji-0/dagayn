@@ -31,6 +31,9 @@ mod tests;
 pub(crate) const TERRAFORM_BRIDGES_EXTRACTOR: &str = "terraform_bridges";
 const TERRAFORM_MODULES_EXTRACTOR: &str = "terraform_modules";
 const TERRAFORM_BRIDGE_CONFIDENCE: f64 = 0.8;
+/// An entrypoint naming no function, or several: a caveat, not a claim
+/// (docs/CROSS-ARTIFACT-EDGES-WIP.md, unresolved targets at `LOW`).
+const TERRAFORM_UNRESOLVED_CONFIDENCE: f64 = 0.2;
 
 /// How the consumer of a value reads it (`role` in the recorded value).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -502,6 +505,8 @@ fn entrypoint_bridge(
         }
         None => {
             counts.1 += 1;
+            extra["confidence"] = json!(TERRAFORM_UNRESOLVED_CONFIDENCE);
+            extra["confidence_tier"] = json!(ConfidenceTier::Low.as_str());
             format!("<unresolved:{symbol}>")
         }
     };

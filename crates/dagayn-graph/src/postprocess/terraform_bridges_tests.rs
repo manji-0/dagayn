@@ -229,7 +229,7 @@ module "lambda" {
         from_call,
         vec![
             // Ambiguous across the two code paths this call names.
-            row(call, "<unresolved:index.lambda_handler>", "handler", "HIGH"),
+            row(call, "<unresolved:index.lambda_handler>", "handler", "LOW"),
             row(
                 call,
                 "examples/fixtures/app/index.py",
@@ -315,25 +315,23 @@ module "lambda" {
     );
     repo.write("examples/fixtures/existing_package.zip", "PK");
     let call = "examples/simple/main.tf::module.lambda";
-    let from_call: Vec<_> = repo
-        .bridges()
-        .into_iter()
-        .filter(|b| b.0 == call)
-        .map(|b| (b.1, b.2))
-        .collect();
+    let from_call: Vec<_> = repo.bridges().into_iter().filter(|b| b.0 == call).collect();
     assert_eq!(
         from_call,
         vec![
-            (
-                "<unresolved:index.lambda_handler>".to_string(),
-                "handler".to_string()
-            ),
-            (
-                "examples/fixtures/existing_package.zip".to_string(),
-                "local_existing_package".to_string()
+            // Not a claim about any function: a caveat.
+            row(call, "<unresolved:index.lambda_handler>", "handler", "LOW"),
+            row(
+                call,
+                "examples/fixtures/existing_package.zip",
+                "local_existing_package",
+                "HIGH"
             ),
         ]
     );
+    let extra = repo.bridge_extra(call, "<unresolved:index.lambda_handler>");
+    assert_eq!(extra["confidence_tier"], "LOW");
+    assert_eq!(extra["confidence"], 0.2);
 }
 
 #[test]

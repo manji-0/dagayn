@@ -809,7 +809,7 @@ class TestTerraformArtifactResolver:
             .fetchone()
         )
         assert row["target_qualified"] == "<unresolved:serve>"
-        assert row["confidence_tier"] == "HIGH"
+        assert row["confidence_tier"] == "LOW"
 
     def test_run_postprocess_resolves_terraform_handlers(self):
         from dagayn.tools.build import _run_postprocess
