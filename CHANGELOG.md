@@ -106,6 +106,28 @@ Removed).
 
 ### Fixed
 
+- TypeScript / JavaScript imports of a workspace package by its name
+  (`import { x } from "@scope/pkg"` in a pnpm, npm, or yarn workspace)
+  resolve to the package's files through its `package.json` `exports`,
+  `types`, `module`, `main`, or `index.*`, after tsconfig `paths`. They
+  were external, so every cross-package call, import, and type use pointed
+  at the package string. On tstodon (pnpm, three packages) the 888 edges
+  that targeted `@tstodon/*` strings (573 calls, 314 imports, 1 reference)
+  are gone: 495 calls, 314 imports, and 296 type references now reach real
+  nodes, and the architecture overview's unit edges carry weights (worker
+  to domain 129 calls, worker to core 118, domain to core 101) instead of
+  only the manifest-declared dependencies. cfwdon, with no workspace
+  manifest, is unchanged.
+- An imported `extends` / `implements` base resolves through the import,
+  re-exports included, to its declaration. The bare-name pass sees only the
+  files a file imports directly, so a base re-exported by a package barrel
+  stayed unresolved.
+- A call on an imported `PascalCase` value whose member the graph has no
+  node for (`IsoInstant.parse(..)` with `parse: schemaResult(schema)` in an
+  object) keeps that receiver (`receiver_type`) instead of being taken for
+  the standard method of the same name: on tstodon 115 such calls (40
+  within a package, and 75 across packages once those resolved) pointed at
+  `globalThis` (`Date.parse` / `JSON.parse`).
 - `refactor_tool(mode="suggest")` no longer lets one file fill every
   `unused_symbol` slot: each file's first finding comes before any file's
   second, in the dead-code report's order otherwise. On purecrate-ts the 10
