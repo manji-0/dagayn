@@ -404,15 +404,15 @@ targets:
   - qn: web-ui/src/ui/pages/ListsPage.tsx::ListsPage
     verdict: boundary
     way_in: ListsPage
-    reason: router.tsx:80-104 registers ListsPage as a route component; only its .test.tsx calls it, which no longer hides it
+    reason: router.tsx:80-104 registers ListsPage as a route component; only its .test.tsx calls it in the graph, because lazy-pages.ts loads it through a dynamic import
   - qn: web-ui/src/ui/pages/ProfilePage.tsx::ProfilePage
     verdict: boundary
     way_in: ProfilePage
-    reason: router.tsx:80-104 registers ProfilePage as a route component; only its .test.tsx calls it, which no longer hides it
+    reason: router.tsx:80-104 registers ProfilePage as a route component; only its .test.tsx calls it in the graph, because lazy-pages.ts loads it through a dynamic import
   - qn: web-ui/src/ui/pages/SettingsPage.tsx::SettingsPage
     verdict: boundary
     way_in: SettingsPage
-    reason: router.tsx:80-104 registers SettingsPage as a route component; only its .test.tsx calls it, which no longer hides it
+    reason: router.tsx:80-104 registers SettingsPage as a route component; only its .test.tsx calls it in the graph, because lazy-pages.ts loads it through a dynamic import
   - qn: web-ui/src/ui/pages/HomePage.tsx::HomePage
     verdict: boundary
     way_in: HomePage
@@ -588,11 +588,11 @@ targets:
   - qn: web-ui/src/ui/pages/ListsPage.tsx::ListsPage
     verdict: boundary
     way_in: ListsPage
-    reason: router.tsx:80-104 registers ListsPage as a route component; only its .test.tsx calls it, which no longer hides it
+    reason: router.tsx:80-104 registers ListsPage as a route component; only its .test.tsx calls it in the graph, because lazy-pages.ts loads it through a dynamic import
   - qn: web-ui/src/ui/pages/ProfilePage.tsx::ProfilePage
     verdict: boundary
     way_in: ProfilePage
-    reason: router.tsx:80-104 registers ProfilePage as a route component; only its .test.tsx calls it, which no longer hides it
+    reason: router.tsx:80-104 registers ProfilePage as a route component; only its .test.tsx calls it in the graph, because lazy-pages.ts loads it through a dynamic import
   - qn: web-ui/src/ui/pages/StatusHistoryPage.tsx::StatusHistoryPage
     verdict: boundary
     way_in: StatusHistoryPage

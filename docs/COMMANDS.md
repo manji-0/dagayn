@@ -740,10 +740,10 @@ Review and execution-flow drill-downs are also dispatcher-based in v3. Use
 `flow_tool(mode="entry_points", target=...)` answers which entry points reach
 a symbol: the nearest `main`, framework handler, FFI export, conventionally
 named entry, uncalled function, or method only a trait or framework calls
-(`dispatched_method`) on each path, with one shortest call chain each. Only
-production callers count: a conventionally named function (`handle_*`) that
-production code calls is a step, and a function only tests call is still an
-entry point. It is computed at query time; test code is never walked. Without `target` it lists
+(`dispatched_method`) on each path, with one shortest call chain each. A
+conventionally named function (`handle_*`) that something calls is a step,
+not an entry point, and a function only tests call has no entry point. It is
+computed at query time; test code is never walked. Without `target` it lists
 the repository's entry points per declared unit, counted by kind.
 
 `refactor_tool(mode="suggest")` answers with `findings`, refactors worth doing,

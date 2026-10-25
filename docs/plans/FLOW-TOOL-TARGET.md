@@ -175,14 +175,34 @@ Entry kinds, from the first rule that holds:
 | `main` | is named `main` or `__main__` |
 | `framework_handler` | has a framework decorator the flow trace knows (`@app.get`, `@click.command`, `@mcp.tool`, …) |
 | `ffi_export` | is exported across a language boundary (`extra.ffi_export`) |
-| `named_entry` | has a conventional entry name (`handle_*`, `on_*`, `lambda_handler`, …) |
+| `named_entry` | has a conventional entry name (`handle_*`, `on_*`, `lambda_handler`, …) and no caller |
 | `dispatched_method` | is a method nothing in the graph calls: a trait, interface, or framework calls it |
 | `uncalled` | is a function nothing in the graph calls |
 | `module_level` | is a file whose top-level code makes the call |
 
-A node with a caller anywhere in the graph, tests included, is
-`uncalled` only if one of the first four rules names it; so a helper that
-only tests call has no entry point, and its test callers are never walked.
+A node with a caller anywhere in the graph, tests included, is an entry
+point only if one of the first three rules names it; so a helper that only
+tests call has no entry point, and its test callers are never walked.
+
+A conventional name alone does not make a called function an entry point
+(changed 2026-10-25; [measurement](./OPEN-MEASUREMENTS.md#flow-entry-points)).
+Until then `named_entry` came before the caller check, and the search stops
+at the first entry point on each path. On cfwdon's `generate_entity_id` the
+default 10 were all inbox `handle_*` helpers that production code calls,
+and the real ways in, `scheduled` and `fetch`, were cut off. On the 17
+hand-judged targets, moving the rule after the caller check raised
+precision at the default limit from 0.776 to 0.976 and recall from 0.712
+to 0.750, with recall at limit 50 unchanged at 0.846.
+
+Test callers still count as callers. Counting only production callers was
+measured with it and rejected: it adds no recall at the default limit,
+drops precision to 0.872, and its 5 extra ways in at limit 50 are all
+route components that cfwdon loads through `module.ListsPage` on a dynamic
+import, which the graph does not resolve. The same rule returned three
+helpers inside a Rust `#[cfg(test)] mod tests` and two targets whose real
+production callers are unresolved, each as its own entry point; reporting
+dead or test-only code as a way in misleads an agent more than a missing
+route does.
 
 `review_tool(mode="affected_flows")` becomes the same search run from each
 changed function: which entry points the change reaches.
@@ -220,8 +240,9 @@ eval also shows the mode needs no stored flows.
   `tests/fixtures/`. Each expects no entry points.
 - **Seeded positives**: a Python `main`, a `@click.command`, a FastAPI
   route, an `@mcp.prompt` function whose target is named like an entry
-  (`render`, which must not be listed itself), a `handle_*` function called by `main` (only the handler is
-  expected), a module-level script, a Rust `main`, a Rust trait method
+  (`render`, which must not be listed itself), a `handle_*` function called by `main` (only `main`
+  is expected, with the handler in its chain), an uncalled `handle_*`
+  function (expected as `named_entry`), a module-level script, a Rust `main`, a Rust trait method
   (expected as `dispatched_method`), an uncalled TypeScript export, and two
   entry points reaching one target.
 - **Reported per run:** precision and recall per entry kind; any kind or

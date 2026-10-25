@@ -41,10 +41,9 @@ struct Entry {
 }
 
 /// Why `node` starts an execution, or `None` when it is only a step.
-/// `has_callers` counts production callers only: a function only its tests
-/// call is still where production calls start. A conventional entry name
-/// (`handle_*`, `render`) with production callers is a step, not an entry:
-/// stopping there hides the boundary that calls it
+/// `has_callers` counts every caller in the graph, tests included. A
+/// conventional entry name (`handle_*`, `render`) that something calls is a
+/// step, not an entry: stopping there hides the boundary that calls it
 /// (docs/plans/OPEN-MEASUREMENTS.md#flow-entry-points).
 fn entry_kind(node: &GraphNode, has_callers: bool) -> Option<&'static str> {
     if node.kind == "File" {
@@ -131,36 +130,12 @@ fn search(store: &GraphStore, targets: &[GraphNode]) -> Option<Search> {
     let mut entries: Vec<Entry> = Vec::new();
     let mut truncated = false;
     let mut depth = 0;
-    // Every caller node read so far, production or not; `asked` also holds
-    // the names the graph has no node for.
-    let mut fetched: HashMap<String, GraphNode> = HashMap::new();
-    let mut asked: HashSet<String> = HashSet::new();
     while !level.is_empty() {
-        let unread: Vec<String> = level
-            .iter()
-            .flat_map(|node| {
-                callers
-                    .get(node.qualified_name.as_str())
-                    .into_iter()
-                    .flatten()
-            })
-            .filter(|caller| asked.insert((**caller).to_string()))
-            .map(|caller| (*caller).to_string())
-            .collect();
-        if !unread.is_empty() {
-            fetched.extend(store.get_nodes_by_qualified_names(&unread).ok()?);
-        }
-        let production = |caller: &str| {
-            fetched
-                .get(caller)
-                .is_some_and(|found| is_production_code(found, &found.file_path))
-        };
-        let mut wanted = false;
+        let mut wanted: Vec<String> = Vec::new();
+        let mut seen: HashSet<&str> = HashSet::new();
         for node in &level {
             let qn = node.qualified_name.as_str();
-            let has_callers = callers
-                .get(qn)
-                .is_some_and(|list| list.iter().any(|caller| production(caller)));
+            let has_callers = callers.get(qn).is_some_and(|list| !list.is_empty());
             // A target is its own entry point only when nothing calls it; a
             // called target named like an entry (`render`, `handle`) is not.
             let kind = entry_kind(node, has_callers).filter(|_| depth > 0 || !has_callers);
@@ -180,15 +155,16 @@ fn search(store: &GraphStore, targets: &[GraphNode]) -> Option<Search> {
                     continue;
                 }
             }
-            wanted |= callers
-                .get(qn)
-                .into_iter()
-                .flatten()
-                .any(|caller| !next.contains_key(*caller));
+            for caller in callers.get(qn).into_iter().flatten() {
+                if !next.contains_key(*caller) && seen.insert(caller) {
+                    wanted.push((*caller).to_string());
+                }
+            }
         }
-        if !wanted {
+        if wanted.is_empty() {
             break;
         }
+        let nodes = store.get_nodes_by_qualified_names(&wanted).ok()?;
         let mut upper: Vec<GraphNode> = Vec::new();
         for node in &level {
             let qn = node.qualified_name.as_str();
@@ -196,7 +172,7 @@ fn search(store: &GraphStore, targets: &[GraphNode]) -> Option<Search> {
                 if next.contains_key(*caller) {
                     continue;
                 }
-                let Some(found) = fetched.get(*caller) else {
+                let Some(found) = nodes.get(*caller) else {
                     continue;
                 };
                 if !is_production_code(found, &found.file_path) {
@@ -413,20 +389,9 @@ type Found = (GraphNode, &'static str);
 /// something.
 pub(crate) fn all_entry_points(store: &GraphStore) -> Option<Vec<Found>> {
     let (calls_out, _) = store.get_flow_edge_data().ok()?;
+    let called: HashSet<&str> = calls_out.values().flatten().map(String::as_str).collect();
     let nodes = store.get_all_nodes_filtered(false).ok()?;
     let known: HashSet<&str> = nodes.iter().map(|n| n.qualified_name.as_str()).collect();
-    // Called from production code: a test caller does not make a step.
-    let production: HashSet<&str> = nodes
-        .iter()
-        .filter(|n| is_production_code(n, &n.file_path))
-        .map(|n| n.qualified_name.as_str())
-        .collect();
-    let called: HashSet<&str> = calls_out
-        .iter()
-        .filter(|(source, _)| production.contains(source.as_str()))
-        .flat_map(|(_, callees)| callees)
-        .map(String::as_str)
-        .collect();
     let mut found: Vec<Found> = Vec::new();
     for node in nodes.iter() {
         // A module's top level counts when it calls the repository's own

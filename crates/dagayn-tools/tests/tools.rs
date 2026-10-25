@@ -1459,10 +1459,10 @@ fn flow_tool_finds_the_entry_points_that_reach_a_target() {
 }
 
 #[test]
-fn flow_tool_walks_past_called_handlers_and_ignores_test_callers() {
+fn flow_tool_walks_past_called_handlers_and_skips_test_only_code() {
     // dagayn: tests crates/dagayn-tools/src/flow.rs::flow
     // A `handle_*` helper that production code calls is a step, not the
-    // way in; a page only its test calls is still where production starts.
+    // way in; a function only its test calls is not a way in either.
     let repo = Repo::new("entry-handlers", true);
     repo.write(
         "worker.py",
@@ -1498,14 +1498,11 @@ fn flow_tool_walks_past_called_handlers_and_ignores_test_callers() {
         .collect();
     assert_eq!(
         entries,
-        vec![
-            ("worker.py::lists_page", "uncalled"),
-            ("worker.py::scheduled", "uncalled"),
-        ],
+        vec![("worker.py::scheduled", "uncalled")],
         "{found}"
     );
     assert_eq!(
-        found["entry_points"][1]["chain"],
+        found["entry_points"][0]["chain"],
         json!([
             "worker.py::scheduled",
             "worker.py::handle_inbox_follow",
