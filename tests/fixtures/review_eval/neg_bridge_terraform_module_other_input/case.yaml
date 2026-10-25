@@ -1,0 +1,18 @@
+description: Bumps the runtime input of a module call whose source_path and handler inputs
+  bridge to examples/app/src; the bridged inputs are unchanged, so no bridge_touched.
+negative: true
+commit_change: false
+allowed_kinds: [tests_to_run, untested_change]
+base:
+  from: tf_module_bridge
+change:
+  files:
+    examples/app/main.tf: |
+      module "lambda" {
+        source = "../../modules/lambda"
+
+        handler     = "index.lambda_handler"
+        runtime     = "python3.13"
+        source_path = "${path.module}/src"
+      }
+expected_findings: []

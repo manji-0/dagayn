@@ -1,0 +1,20 @@
+description: Adds a second entry to the source_path the module call in examples/app passes to
+  a local Lambda module; the call bridges through the module to the code directory
+  examples/app/src, which the change does not touch.
+negative: false
+commit_change: false
+base:
+  from: tf_module_bridge
+change:
+  files:
+    examples/app/main.tf: |
+      module "lambda" {
+        source = "../../modules/lambda"
+
+        handler     = "index.lambda_handler"
+        runtime     = "python3.12"
+        source_path = ["${path.module}/src", "${path.module}/src/util.py"]
+      }
+expected_findings:
+- kind: bridge_touched
+  target: examples/app/src
