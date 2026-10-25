@@ -586,23 +586,34 @@ class TestTerraformArtifactResolver:
         self.store.close()
         Path(self.tmp.name).unlink(missing_ok=True)
 
-    def _handler_edge(self, symbol: str = "hello.main") -> EdgeInfo:
-        return EdgeInfo(
-            kind="CROSS_ARTIFACT",
-            source="infra/main.tf::resource.aws_lambda_function.auth",
-            target=f"<unresolved:{symbol}>",
+    def _function_node(
+        self,
+        symbol: str = "hello.main",
+        attr: str = "handler",
+        name: str = "resource.aws_lambda_function.auth",
+    ) -> NodeInfo:
+        """A Terraform block whose ``attr`` names ``symbol``, as the parser
+        records it for post-processing."""
+        return NodeInfo(
+            kind="Class",
+            name=name,
             file_path="infra/main.tf",
-            line=4,
+            line_start=1,
+            line_end=20,
+            language="terraform",
             extra={
-                "relationship_role": "maps_entrypoint",
-                "bridge_kind": "manifest_link",
-                "evidence_kind": "config",
-                "evidence_source": "handler",
-                "source_language": "terraform",
-                "target_language": "unknown",
-                "confidence": 0.8,
-                "confidence_tier": "HIGH",
-                "original_symbol_name": symbol,
+                "terraform_kind": "resource",
+                "terraform_values": [
+                    {
+                        "slot": "sink",
+                        "role": "entrypoint",
+                        "attr": attr,
+                        "lines": [4, 4],
+                        "paths": [],
+                        "refs": [],
+                        "symbol": symbol,
+                    }
+                ],
             },
         )
 
@@ -617,7 +628,7 @@ class TestTerraformArtifactResolver:
                 language="python",
             )
         )
-        self.store.upsert_edge(self._handler_edge("hello.main"))
+        self.store.upsert_node(self._function_node("hello.main"))
         self.store.commit()
 
         result = PostprocessResult()
@@ -731,7 +742,7 @@ class TestTerraformArtifactResolver:
                 language="python",
             )
         )
-        self.store.upsert_edge(self._handler_edge("hello.main"))
+        self.store.upsert_node(self._function_node("hello.main"))
         self.store.commit()
 
         result = run_post_processing(self.store)
@@ -768,13 +779,8 @@ class TestTerraformArtifactResolver:
             )
         )
         self.store.upsert_node(
-            NodeInfo(
-                kind="Resource",
-                name="resource.google_cloudfunctions2_function.api",
-                file_path="infra/main.tf",
-                line_start=1,
-                line_end=20,
-                language="terraform",
+            self._function_node(
+                "serve", "entry_point", "resource.google_cloudfunctions2_function.api"
             )
         )
         self.store.upsert_node(
@@ -785,26 +791,6 @@ class TestTerraformArtifactResolver:
                 line_start=1,
                 line_end=10,
                 language="python",
-            )
-        )
-        self.store.upsert_edge(
-            EdgeInfo(
-                kind="CROSS_ARTIFACT",
-                source="infra/main.tf::resource.google_cloudfunctions2_function.api",
-                target="<unresolved:serve>",
-                file_path="infra/main.tf",
-                line=10,
-                extra={
-                    "relationship_role": "maps_entrypoint",
-                    "bridge_kind": "manifest_link",
-                    "evidence_kind": "config",
-                    "evidence_source": "entry_point",
-                    "source_language": "terraform",
-                    "target_language": "unknown",
-                    "confidence": 0.8,
-                    "confidence_tier": "HIGH",
-                    "original_symbol_name": "serve",
-                },
             )
         )
         self.store.commit()
@@ -838,16 +824,7 @@ class TestTerraformArtifactResolver:
                 language="terraform",
             )
         )
-        self.store.upsert_node(
-            NodeInfo(
-                kind="Resource",
-                name="resource.aws_lambda_function.auth",
-                file_path="infra/main.tf",
-                line_start=1,
-                line_end=20,
-                language="terraform",
-            )
-        )
+        self.store.upsert_node(self._function_node("hello.main"))
         self.store.upsert_node(
             NodeInfo(
                 kind="Function",
@@ -858,7 +835,6 @@ class TestTerraformArtifactResolver:
                 language="python",
             )
         )
-        self.store.upsert_edge(self._handler_edge("hello.main"))
         self.store.commit()
 
         build_result = BuildResult()

@@ -255,51 +255,6 @@ fn demotes_missing_call_targets() {
     let _ = std::fs::remove_file(path);
 }
 
-#[test]
-fn resolves_unique_terraform_handler() {
-    let path = temp_db("terraform");
-    let mut store = GraphStore::open(&path).expect("open");
-    store
-        .store_file_nodes_edges(
-            "app/hello.py",
-            &[
-                file_node("app/hello.py"),
-                function_node("main", "app/hello.py"),
-            ],
-            &[],
-            "",
-            0,
-        )
-        .expect("store");
-    let extra = json!({
-        "source_language": "terraform",
-        "evidence_source": "handler",
-        "relationship_role": "maps_entrypoint",
-        "original_symbol_name": "hello.main",
-    });
-    store
-        .conn
-        .execute(
-            "INSERT INTO edges (kind, source_qualified, target_qualified, target_name,
-                 file_path, line, extra, confidence, confidence_tier, updated_at)
-             VALUES ('CROSS_ARTIFACT', 'infra/main.tf', '<unresolved:hello.main>',
-                     'hello.main', 'infra/main.tf', 1, ?, 0.8, 'HIGH', 0)",
-            [extra.to_string()],
-        )
-        .unwrap();
-    assert_eq!(store.resolve_terraform_artifact_refs().unwrap(), (1, 0));
-    let target: String = store
-        .conn
-        .query_row(
-            "SELECT target_qualified FROM edges WHERE kind='CROSS_ARTIFACT'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(target, "app/hello.py::main");
-    let _ = std::fs::remove_file(path);
-}
-
 fn terraform_node(kind: &str, name: &str, file_path: &str) -> NodeInput {
     NodeInput {
         kind: kind.to_string(),

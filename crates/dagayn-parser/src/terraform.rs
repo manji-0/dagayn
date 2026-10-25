@@ -6,7 +6,7 @@ use super::documentation_directives::{
     extract_line_comment_dagayn_directives, nearest_documentation_source,
     push_documentation_directive_edge,
 };
-use super::terraform_bridges::extract_terraform_code_bridges;
+use super::terraform_bridges::{TERRAFORM_VALUES_KEY, TerraformValue, terraform_block_values};
 use super::terraform_collect::{
     TERRAFORM_CALL_RE, TerraformAttr, TerraformBlock, collect_terraform_blocks,
     collect_terraform_reference_targets, strip_tf_string, terraform_attrs,
@@ -267,6 +267,7 @@ fn parse_terraform_hcl(
                 terraform_kind,
             },
         );
+        record_terraform_values(&mut nodes, terraform_block_values(&file_path, block));
         scan_terraform_block(
             block,
             &terraform_qualified(&file_path, &node_name),
@@ -304,9 +305,20 @@ fn parse_terraform_hcl(
     }
 
     extract_terraform_documentation_directives(&file_path, &text, &nodes, &mut edges);
-    extract_terraform_code_bridges(&file_path, &blocks, &mut edges);
 
     (nodes, dedupe_edges(edges))
+}
+
+/// Attach `values` to the node just pushed; post-processing turns them into
+/// bridges.
+fn record_terraform_values(nodes: &mut [ParsedNode], values: Vec<TerraformValue>) {
+    if values.is_empty() {
+        return;
+    }
+    if let Some(node) = nodes.last_mut() {
+        node.extra[TERRAFORM_VALUES_KEY] =
+            Value::Array(values.iter().map(TerraformValue::to_json).collect());
+    }
 }
 
 fn extract_terraform_documentation_directives(

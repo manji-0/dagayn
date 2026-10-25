@@ -14,6 +14,7 @@ mod reexports;
 mod returned;
 mod scip_overlay;
 mod terraform;
+mod terraform_bridges;
 mod tested_by;
 
 pub use scip_overlay::ScipOverlayStats;
