@@ -308,6 +308,11 @@ pub enum GraphError {
     InvalidEmbedding(String),
     #[error("scip index error: {0}")]
     Scip(String),
+    #[error(
+        "graph schema {found} is newer than this dagayn supports ({supported}); \
+         upgrade dagayn, or delete the graph and rebuild"
+    )]
+    NewerSchema { found: i64, supported: i64 },
 }
 
 impl GraphError {
