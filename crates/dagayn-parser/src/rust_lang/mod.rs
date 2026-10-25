@@ -23,6 +23,7 @@ use super::{
 };
 
 mod ffi;
+mod macros;
 pub(crate) mod modules;
 
 use ffi::*;
@@ -74,6 +75,7 @@ pub(super) fn parse_rust_with_parser(
             component_bindings: rust_uses_component_bindings(source),
             cfg_test_file,
             trait_visibility: rust_trait_visibility(root, source),
+            macros: macros::rust_local_macros(root, source),
         };
         rust_note_qualified_types(qualified_types, &context);
         rust_walk_children(root, &context, None, None, &mut nodes, &mut edges);
@@ -441,6 +443,13 @@ fn rust_walk_children(
                 continue;
             }
             "use_declaration" => rust_emit_use(child, context, edges),
+            "macro_definition" => {
+                let caller = enclosing_func
+                    .map(|name| qualify(&context.file_path, name, enclosing_class))
+                    .unwrap_or_else(|| context.file_path.to_string());
+                rust_emit_macro_definition_calls(child, context, enclosing_class, &caller, edges);
+                continue;
+            }
             "call_expression" | "macro_invocation" => {
                 closure_element = rust_closure_element(child, context);
                 let bound = rust_bound_member_target(child, context);
@@ -516,8 +525,23 @@ fn rust_walk_children(
                                 context,
                                 enclosing_class,
                                 &caller,
+                                MacroTokens::Arguments,
                                 edges,
                             );
+                            if let Some(name) = child
+                                .child_by_field_name("macro")
+                                .filter(|name| name.kind() == "identifier")
+                            {
+                                rust_emit_macro_expansion_calls(
+                                    &node_text(name, context.source),
+                                    arguments,
+                                    line_of(child),
+                                    context,
+                                    enclosing_class,
+                                    &caller,
+                                    edges,
+                                );
+                            }
                         }
                     }
                 }
@@ -704,6 +728,8 @@ struct RustParseContext<'a> {
     /// Declared visibility of the traits this file declares, by name: the
     /// visibility of their `impl` methods.
     trait_visibility: HashMap<String, Option<String>>,
+    /// The `macro_rules!` the file defines, by name.
+    macros: macros::LocalMacros<'a>,
 }
 
 /// What the extraction needs to know about the whole file before it walks
@@ -1915,18 +1941,75 @@ fn rust_token_call_origin(
     })
 }
 
+/// Which calls of a token tree are edges, and where.
+#[derive(Clone, Copy)]
+enum MacroTokens<'m> {
+    /// A macro invocation's arguments: every call.
+    Arguments,
+    /// A `macro_rules!` body (`macro_name!`), read once where it is
+    /// defined: the paths it spells out, `$crate` read as `crate`. A path
+    /// with any other metavariable depends on the invocation, and a method's
+    /// receiver is a variable of the expansion, so neither is an edge.
+    Definition { macro_name: &'m str },
+    /// The body of the rule an invocation (at `line`) matched: only the
+    /// paths a metavariable it bound completes, the rest being the
+    /// definition's.
+    Expansion {
+        macro_name: &'m str,
+        bindings: &'m HashMap<String, String>,
+        line: i64,
+    },
+}
+
+/// A metavariable's text as a path segment: `$crate` is `crate`, a bound
+/// one is its argument when that is a path (`rust_language`,
+/// `int_cast::to_u8`). `None` for anything else.
+fn rust_metavariable_segment(name: &str, mode: MacroTokens<'_>) -> Option<String> {
+    if name == "$crate" {
+        return Some("crate".to_string());
+    }
+    let MacroTokens::Expansion { bindings, .. } = mode else {
+        return None;
+    };
+    let text = bindings.get(name)?;
+    let path_like = !text.is_empty()
+        && text.split("::").all(|segment| {
+            segment.starts_with(|c: char| c.is_alphabetic() || c == '_')
+                && segment.chars().all(|c| c.is_alphanumeric() || c == '_')
+        });
+    path_like.then(|| text.clone())
+}
+
 fn rust_emit_token_tree_calls(
     tree: tree_sitter::Node<'_>,
     context: &RustParseContext<'_>,
     enclosing_class: Option<&str>,
     caller: &str,
+    mode: MacroTokens<'_>,
     edges: &mut Vec<ParsedEdge>,
 ) {
     let source = context.source;
     let mut cursor = tree.walk();
     let tokens: Vec<tree_sitter::Node<'_>> = tree.children(&mut cursor).collect();
     let text = |index: usize| tokens.get(index).map(|token| node_text(*token, source));
-    let is_segment = |kind: &str| matches!(kind, "identifier" | "self" | "super" | "crate");
+    let in_body = !matches!(mode, MacroTokens::Arguments);
+    // `i64::from`, and `default` / `union` (keywords only in some places):
+    // segments too, or the path reads from its second segment on.
+    let is_segment = |kind: &str| {
+        matches!(
+            kind,
+            "identifier" | "self" | "super" | "crate" | "primitive_type" | "default" | "union"
+        ) || in_body && kind == "metavariable"
+    };
+    // A segment's text, and whether a bound metavariable supplied it;
+    // `None` for a metavariable that names no path.
+    let segment = |token: tree_sitter::Node<'_>| {
+        if token.kind() != "metavariable" {
+            return Some((node_text(token, source), false));
+        }
+        let name = node_text(token, source);
+        rust_metavariable_segment(&name, mode).map(|text| (text, name != "$crate"))
+    };
     let opens_call = |index: usize| {
         tokens.get(index).is_some_and(|token| {
             token.kind() == "token_tree"
@@ -1938,8 +2021,23 @@ fn rust_emit_token_tree_calls(
     let mut index = 0;
     while index < tokens.len() {
         let token = tokens[index];
-        if token.kind() == "token_tree" {
-            rust_emit_token_tree_calls(token, context, enclosing_class, caller, edges);
+        // An attribute (`#[derive(Debug)]`, `#![allow(x)]`,
+        // `#[cfg(feature = $f)]`) is not a call; `vec![f(x)]` holds one.
+        let before = |back: usize| index.checked_sub(back).and_then(text);
+        if token.kind() == "token_tree"
+            && opens_with(token, "[")
+            && (before(1).as_deref() == Some("#")
+                || before(1).as_deref() == Some("!") && before(2).as_deref() == Some("#"))
+        {
+            index += 1;
+            continue;
+        }
+        // `$( ... )*` in a body: its paths are the definition's, but a
+        // metavariable in it repeats, which the expansion does not read.
+        if token.kind() == "token_tree"
+            || token.kind() == "token_repetition" && matches!(mode, MacroTokens::Definition { .. })
+        {
+            rust_emit_token_tree_calls(token, context, enclosing_class, caller, mode, edges);
             index += 1;
             continue;
         }
@@ -1948,7 +2046,18 @@ fn rust_emit_token_tree_calls(
             continue;
         }
         let start = index;
-        let mut segments = vec![node_text(token, source)];
+        let mut unreadable = false;
+        let mut substituted = false;
+        let mut push_segment =
+            |token: tree_sitter::Node<'_>, segments: &mut Vec<String>| match segment(token) {
+                Some((text, bound)) => {
+                    substituted |= bound;
+                    segments.push(text);
+                }
+                None => unreadable = true,
+            };
+        let mut segments = Vec::new();
+        push_segment(token, &mut segments);
         let mut end = index;
         loop {
             if text(end + 1).as_deref() != Some("::") {
@@ -1976,7 +2085,7 @@ fn rust_emit_token_tree_calls(
             }
             match tokens.get(end + 2) {
                 Some(next) if is_segment(next.kind()) => {
-                    segments.push(node_text(*next, source));
+                    push_segment(*next, &mut segments);
                     end += 2;
                 }
                 _ => break,
@@ -1984,13 +2093,61 @@ fn rust_emit_token_tree_calls(
         }
         index = end + 1;
         let previous = start.checked_sub(1).and_then(text);
+        // A declaration, or the rest of a path whose start is not a segment
+        // (`<[String]>::join(..)`, `<$t>::try_from(..)`): not a call of a
+        // name that is known.
         if matches!(
             previous.as_deref(),
-            Some("fn" | "struct" | "enum" | "trait" | "mod" | "impl")
+            Some("fn" | "struct" | "enum" | "trait" | "mod" | "impl" | "::")
         ) {
             continue;
         }
-        let line = token.start_position().row as i64 + 1;
+        let line = match mode {
+            MacroTokens::Expansion { line, .. } => line,
+            _ => token.start_position().row as i64 + 1,
+        };
+        // A macro the file defines, invoked in another one's arguments
+        // (`try_join!(batch!(..), ..)`).
+        if matches!(mode, MacroTokens::Arguments)
+            && segments.len() == 1
+            && text(end + 1).as_deref() == Some("!")
+            && let Some(arguments) = tokens
+                .get(end + 2)
+                .filter(|group| group.kind() == "token_tree")
+        {
+            rust_emit_macro_expansion_calls(
+                &segments[0],
+                *arguments,
+                line,
+                context,
+                enclosing_class,
+                caller,
+                edges,
+            );
+        }
+        // A pattern in a body (`Some(Ok(value)) => ..`, `let Some(x) = ..`)
+        // is no call, nor is anything inside it.
+        if in_body
+            && opens_call(end + 1)
+            && (text(end + 2).as_deref() == Some("=>") || previous.as_deref() == Some("let"))
+        {
+            index = end + 2;
+            continue;
+        }
+        // In a body, `Self` is the type of an `impl` the expansion writes,
+        // and a method's receiver a variable of it: neither is known.
+        let emitted = match mode {
+            MacroTokens::Arguments => true,
+            MacroTokens::Definition { .. } | MacroTokens::Expansion { .. } => {
+                !unreadable
+                    && previous.as_deref() != Some(".")
+                    && segments.first().is_some_and(|first| first != "Self")
+                    && (substituted || matches!(mode, MacroTokens::Definition { .. }))
+            }
+        };
+        if !emitted {
+            continue;
+        }
         let (target, mut extra) = if text(end + 1).as_deref() == Some("!") && opens_call(end + 2) {
             (format!("{}!", segments.join("::")), json!({}))
         } else if !opens_call(end + 1) {
@@ -2068,6 +2225,13 @@ fn rust_emit_token_tree_calls(
             )
         };
         extra["in_macro"] = json!(true);
+        match mode {
+            MacroTokens::Arguments => {}
+            MacroTokens::Definition { macro_name } => extra["macro_body"] = json!(macro_name),
+            MacroTokens::Expansion { macro_name, .. } => {
+                extra["macro_expansion"] = json!(macro_name);
+            }
+        }
         edges.push(ParsedEdge {
             kind: crate::core::types::EdgeKind::Calls,
             source: caller.to_string(),
@@ -2076,6 +2240,80 @@ fn rust_emit_token_tree_calls(
             line,
             extra,
         });
+    }
+}
+
+fn opens_with(group: tree_sitter::Node<'_>, delimiter: &str) -> bool {
+    group.child(0).is_some_and(|open| open.kind() == delimiter)
+}
+
+/// The calls of a `macro_rules!` definition's bodies that do not depend on
+/// an invocation.
+fn rust_emit_macro_definition_calls(
+    definition: tree_sitter::Node<'_>,
+    context: &RustParseContext<'_>,
+    enclosing_class: Option<&str>,
+    caller: &str,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let Some(name) = definition.child_by_field_name("name") else {
+        return;
+    };
+    let macro_name = format!("{}!", node_text(name, context.source));
+    for body in macros::rust_macro_bodies(definition) {
+        rust_emit_token_tree_calls(
+            body,
+            context,
+            enclosing_class,
+            caller,
+            MacroTokens::Definition {
+                macro_name: &macro_name,
+            },
+            edges,
+        );
+    }
+}
+
+/// The calls an invocation of a macro the file defines adds: the paths of
+/// the matched rule's body a metavariable completes, once each.
+fn rust_emit_macro_expansion_calls(
+    name: &str,
+    arguments: tree_sitter::Node<'_>,
+    line: i64,
+    context: &RustParseContext<'_>,
+    enclosing_class: Option<&str>,
+    caller: &str,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let Some(Some(definition)) = context.macros.get(name) else {
+        return;
+    };
+    let Some((body, bindings)) = macros::rust_expand_macro(*definition, arguments, context.source)
+    else {
+        return;
+    };
+    let macro_name = format!("{name}!");
+    let first = edges.len();
+    rust_emit_token_tree_calls(
+        body,
+        context,
+        enclosing_class,
+        caller,
+        MacroTokens::Expansion {
+            macro_name: &macro_name,
+            bindings: &bindings,
+            line,
+        },
+        edges,
+    );
+    let mut seen = HashSet::new();
+    let mut at = first;
+    while at < edges.len() {
+        if seen.insert(edges[at].target.clone()) {
+            at += 1;
+        } else {
+            edges.remove(at);
+        }
     }
 }
 
