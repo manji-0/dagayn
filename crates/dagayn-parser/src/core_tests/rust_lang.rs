@@ -733,6 +733,20 @@ fn table() {
         call(&ctx(), tool, arguments);
     }
 }
+fn rebound(name: &str, mut other: &str, picked: Option<&str>) {
+    let mut tool = "double";
+    tool = "negate";
+    call(&ctx(), tool, 1);
+    match picked {
+        Some(name) => call(&ctx(), name, 2),
+        None => call(&ctx(), name, 3),
+    };
+    if let Some(name) = picked {
+        call(&ctx(), name, 4);
+    }
+    other = "square";
+    call(&ctx(), other, 5);
+}
 "#;
     let (_, edges) = parse_rust("src/x.rs", source);
     let call = |source: &str, target: &str| {
@@ -821,6 +835,27 @@ fn table() {
             Some(&json!([null, {"strings": ["square"]}, null])),
             None,
             Some(&json!([null, {"strings": ["cube", "minus"]}, null])),
+        ]
+    );
+    // A `let mut`, a `mut` parameter, and a name bound again by a pattern
+    // are not read; the parameter `name` itself is.
+    let rebound: Vec<Option<&serde_json::Value>> = edges
+        .iter()
+        .filter(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == "src/x.rs::rebound"
+                && edge.target.ends_with("call")
+        })
+        .map(|edge| edge.extra.get("arguments"))
+        .collect();
+    assert_eq!(
+        rebound,
+        [
+            None,
+            None,
+            Some(&json!([null, {"parameter": 0, "of": 3}, null])),
+            None,
+            None,
         ]
     );
 }

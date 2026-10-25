@@ -129,9 +129,15 @@ fn string_parameters(function: tree_sitter::Node<'_>, source: &[u8]) -> Paramete
                 .child_by_field_name("pattern")
                 .filter(|pattern| pattern.kind() == "identifier")
                 .map(|pattern| node_text(pattern, source));
-            let holds_string = parameter
-                .child_by_field_name("type")
-                .is_some_and(|ty| is_string_type(&node_text(ty, source)));
+            // `mut name: &str` may be assigned another string first.
+            let mut cursor = parameter.walk();
+            let mutable = parameter
+                .children(&mut cursor)
+                .any(|part| part.kind() == "mutable_specifier");
+            let holds_string = !mutable
+                && parameter
+                    .child_by_field_name("type")
+                    .is_some_and(|ty| is_string_type(&node_text(ty, source)));
             names.push(name.filter(|_| holds_string));
         }
     }
@@ -272,11 +278,44 @@ fn local_strings(
                     );
                 }
             }
+            // `match e { Some(name) => .. }`, `if let Some(name) = ..`: a
+            // binding of another value, not followed.
+            "match_arm"
+                if parent.child_by_field_name("value").map(|v| v.id()) == Some(child.id())
+                    && parent
+                        .child_by_field_name("pattern")
+                        .is_some_and(|pattern| bound_position(pattern, name, source).is_some()) =>
+            {
+                return Some(None);
+            }
+            "if_expression" | "while_expression"
+                if parent
+                    .child_by_field_name("condition")
+                    .is_some_and(|condition| {
+                        condition.id() != child.id() && binds_in_let(condition, name, source)
+                    }) =>
+            {
+                return Some(None);
+            }
             _ => {}
         }
         child = parent;
     }
     None
+}
+
+/// Whether a condition's `let` pattern (`if let Some(name) = ..`, a `let`
+/// chain) binds `name`.
+fn binds_in_let(condition: tree_sitter::Node<'_>, name: &str, source: &[u8]) -> bool {
+    if condition.kind() == "let_condition" {
+        return condition
+            .child_by_field_name("pattern")
+            .is_some_and(|pattern| bound_position(pattern, name, source).is_some());
+    }
+    let mut cursor = condition.walk();
+    condition
+        .named_children(&mut cursor)
+        .any(|part| binds_in_let(part, name, source))
 }
 
 /// The value the last `let name = ..` of `block` before `child` binds:
@@ -298,10 +337,15 @@ fn let_in_block<'tree>(
                 .is_some_and(|pattern| bound_position(pattern, name, source).is_some())
         })
         .last()?;
+    // `let mut tool = "a"` may be assigned another string later.
+    let mut cursor = statement.walk();
+    let mutable = statement
+        .children(&mut cursor)
+        .any(|part| part.kind() == "mutable_specifier");
     Some(
         statement
             .child_by_field_name("pattern")
-            .filter(|pattern| pattern.kind() == "identifier")
+            .filter(|pattern| pattern.kind() == "identifier" && !mutable)
             .and_then(|_| statement.child_by_field_name("value")),
     )
 }

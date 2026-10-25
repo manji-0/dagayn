@@ -471,7 +471,7 @@ selecting one; the other stays untested (both failed before the change).
 Measured as CI runs it (`cargo llvm-cov`, `report --json`, `dagayn build`,
 the harness), each twice with identical counts; `--scip` with
 rust-analyzer 1.99.1. "Before" is `origin/main` on its own coverage
-(3,013 functions); "after" is this tree (3,034: the new code and tests).
+(3,013 functions); "after" is this tree (3,037: the new code and tests).
 
 | Build | Called untested | Untested precision | Recall | Tested precision |
 |---|---|---|---|---|
@@ -481,9 +481,9 @@ rust-analyzer 1.99.1. "Before" is `origin/main` on its own coverage
 | `--scip`, after | 55 | 0.709 | 0.180 | 0.940 |
 
 On this repository it moves nothing: asked of the same graph with and
-without the requirements, every one of the 3,034 functions gets the same
+without the requirements, every function gets the same
 answer in both builds (the `--scip` 56 → 55 comes from the population and
-coverage changing, not from the walk). The harness takes 46–49 s, as before.
+coverage changing, not from the walk). The harness takes 45–50 s, as before.
 
 - **Why `repos.rs` stays tested.** `list_repos` and the 7 functions under it
   are now reached only through calls whose tool name the parser cannot
@@ -518,7 +518,9 @@ coverage changing, not from the walk). The harness takes 46–49 s, as before.
 Still wrong, by design falling back to "could pass anything": a string
 read from JSON or another call, `matches!(name, ..)` guards, a tuple
 scrutinee (`match (a, b)`), a dispatch on `self.field`, and, in a macro's
-tokens, a closure parameter that shadows a function's.
+tokens, a closure parameter that shadows a function's. A `let mut`, a `mut`
+parameter, and a name bound again by a `match` arm or `if let` are not
+read at all, so a reassigned string never ends a path.
 
 ## Touch points
 
