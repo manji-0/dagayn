@@ -8,6 +8,15 @@ dagayn is a tool for agents, so the surfaces built for a human to look at,
 and the tools whose answer another tool already gives, are gone (see
 Removed).
 
+### Added
+
+- The test-reach eval (`eval/run_test_reach_eval.py`) reads a
+  `go tool cover -func` listing as Go coverage, and `--repo` points it at
+  another repository's graph. On testify v1.12.1 it reproduces the
+  first-class plan's baseline: 720 of 735 functions called untested, 277 of
+  the 292 that ran among them (docs/plans/GO-SUPPORT-MEASUREMENTS.md). No
+  floor is set for Go.
+
 ### Removed
 
 - **Breaking:** the `dagayn-vscode` editor extension, its CI jobs (the
