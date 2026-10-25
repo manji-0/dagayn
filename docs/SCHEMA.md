@@ -88,7 +88,13 @@ them.
 
 Bare-name resolution binds a `CALLS`, `INHERITS`, or `IMPLEMENTS` target only
 when exactly one candidate is visible to the source file, and grades the edge
-by that visibility:
+by that visibility. A candidate in another language family is never visible:
+the families are Rust; JavaScript, TypeScript, and Vue/Svelte scripts; Python;
+C, C++, and Objective-C (headers are shared); the JVM languages; and every
+other language alone, by file extension. A PHP and a C# file that declare the
+same namespace do not see each other. Cross-language edges come only from the
+passes that bridge languages explicitly (PyO3 and other native bindings,
+Terraform and manifest bridges, Markdown links).
 
 - `HIGH` (`0.9`): a top-level function or class in the same file or in a file
   the source imports directly.

@@ -149,6 +149,56 @@ pub(crate) fn is_documentation_node(node: &GraphNode) -> bool {
         || DOC_SUFFIXES.contains(&suffix(file_name(&node.file_path)).to_lowercase().as_str())
 }
 
+/// The scopes holding a node of each name, with the language family of the
+/// node's file: a bare target is matched by name only when one scope holds
+/// every node of that name and one of them is in the source's language
+/// family (docs/SAP-METRICS.md#type-name-fallback-resolution), so a Rust
+/// `impl From` never lands on a TypeScript method `From`. Nodes of other
+/// languages still make a name ambiguous: TypeScript's built-in `Error` is
+/// not the one TypeScript member called `Error` because Rust ones exist.
+#[derive(Default)]
+pub(crate) struct ScopesByName<'a> {
+    by_name: HashMap<&'a str, Vec<(Option<&'static str>, String)>>,
+}
+
+impl<'a> ScopesByName<'a> {
+    fn insert(&mut self, name: &'a str, file_path: &str, scope: String) {
+        let entry = (dagayn_graph::language_family(file_path), scope);
+        let scopes = self.by_name.entry(name).or_default();
+        if !scopes.contains(&entry) {
+            scopes.push(entry);
+        }
+    }
+
+    /// The one scope that holds every node called `name`, when one of them
+    /// is in the language family of `source_file`.
+    fn get(&self, name: &str, source_file: &str) -> Option<&String> {
+        let entries = self.by_name.get(name)?;
+        let (_, first) = entries.first()?;
+        if entries.iter().any(|(_, scope)| scope != first) {
+            return None;
+        }
+        let family = dagayn_graph::language_family(source_file);
+        entries
+            .iter()
+            .any(|(other, _)| dagayn_graph::same_language_family(family, *other))
+            .then_some(first)
+    }
+
+    /// The scope `edge`'s unresolved target names, matched by name only
+    /// when it can be a symbol of this repository: not a module an import
+    /// names, and not a standard-library or third-party one (`import abc` is
+    /// no dependency on a TypeScript namespace `abc`, `use quote::ToTokens`
+    /// none on an example's `quote`).
+    fn edge_target(&self, edge: &GraphEdge) -> Option<&String> {
+        let by_name = edge.kind != "IMPORTS_FROM"
+            && edge.extra.get("external").and_then(Value::as_bool) != Some(true);
+        by_name
+            .then(|| self.get(&edge.target_qualified, &edge.file_path))
+            .flatten()
+    }
+}
+
 /// The nodes and edges `build_graph_snapshot` reads once.
 pub(crate) struct Snapshot {
     pub all_nodes: Vec<GraphNode>,
@@ -169,23 +219,18 @@ impl Snapshot {
     }
 
     /// `build_node_scope_maps(store, scope_kind, artifact_scope)`.
-    fn scope_maps(&self, view: &View) -> (HashMap<&str, String>, HashMap<&str, String>) {
+    fn scope_maps(&self, view: &View) -> (HashMap<&str, String>, ScopesByName<'_>) {
         let mut qualified: HashMap<&str, String> = HashMap::new();
-        let mut names: HashMap<&str, HashSet<String>> = HashMap::new();
+        let mut names = ScopesByName::default();
         for node in &self.all_nodes {
             if !view.artifact.includes(node) || node.file_path.is_empty() {
                 continue;
             }
             let scope = view.scope_of(&node.file_path);
             qualified.insert(&node.qualified_name, scope.clone());
-            names.entry(&node.name).or_default().insert(scope);
+            names.insert(&node.name, &node.file_path, scope);
         }
-        let unique = names
-            .into_iter()
-            .filter(|(_, scopes)| scopes.len() == 1)
-            .filter_map(|(name, scopes)| scopes.into_iter().next().map(|scope| (name, scope)))
-            .collect();
-        (qualified, unique)
+        (qualified, names)
     }
 
     /// Each dependency edge of the profile, as source and target scopes.
@@ -207,17 +252,9 @@ impl Snapshot {
             let Some(source) = qualified.get(edge.source_qualified.as_str()) else {
                 continue;
             };
-            // An unresolved target is matched by name only when it can be a
-            // symbol of this repository: not a module an import names, and
-            // not a standard-library or third-party one (`import abc` is no
-            // dependency on a TypeScript namespace `abc`).
-            let by_name = edge.kind != "IMPORTS_FROM"
-                && edge.extra.get("external").and_then(Value::as_bool) != Some(true);
-            let target = qualified.get(edge.target_qualified.as_str()).or_else(|| {
-                by_name
-                    .then(|| names.get(edge.target_qualified.as_str()))
-                    .flatten()
-            });
+            let target = qualified
+                .get(edge.target_qualified.as_str())
+                .or_else(|| names.edge_target(edge));
             if let Some(target) = target
                 && target != source
             {
@@ -402,7 +439,7 @@ pub(crate) fn sap_metrics(
         };
         let target = qualified
             .get(edge.target_qualified.as_str())
-            .or_else(|| names.get(edge.target_qualified.as_str()));
+            .or_else(|| names.edge_target(edge));
         let Some(target) = target else { continue };
         if target == source {
             continue;
@@ -524,3 +561,7 @@ fn sap_notes(scope: &str) -> Vec<&'static str> {
     }
     notes
 }
+
+#[cfg(test)]
+#[path = "architecture_tests.rs"]
+mod tests;

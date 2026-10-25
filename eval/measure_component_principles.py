@@ -137,7 +137,8 @@ def load(root: Path) -> Graph:
         edges = [
             dict(row)
             for row in db.execute(
-                "SELECT kind, source_qualified, target_qualified, file_path, line FROM edges"
+                "SELECT kind, source_qualified, target_qualified, file_path, line, "
+                "COALESCE(json_extract(extra, '$.external'), 0) AS external FROM edges"
             )
         ]
     finally:
@@ -295,6 +296,54 @@ def file_to_package(path: str) -> str:
     return parent(path) or "<root>"
 
 
+# crates/dagayn-graph/src/postprocess/bare_names.rs `language_family`
+FAMILY_BY_EXTENSION = {
+    **dict.fromkeys(("py", "pyi", "ipynb"), "python"),
+    "rs": "rust",
+    **dict.fromkeys(("c", "h", "cc", "cpp", "cxx", "hh", "hpp", "hxx", "m", "mm"), "c"),
+    **dict.fromkeys(
+        ("js", "jsx", "mjs", "cjs", "ts", "tsx", "mts", "cts", "vue", "svelte"), "javascript"
+    ),
+    **dict.fromkeys(("java", "kt", "kts", "scala", "sc"), "jvm"),
+    "cs": "csharp",
+    "go": "go",
+    "rb": "ruby",
+    "php": "php",
+    "swift": "swift",
+    "dart": "dart",
+    "lua": "lua",
+    **dict.fromkeys(("pl", "pm"), "perl"),
+    "r": "r",
+    "jl": "julia",
+    **dict.fromkeys(("ex", "exs"), "elixir"),
+    "zig": "zig",
+    "gd": "gdscript",
+    **dict.fromkeys(("sh", "bash", "zsh"), "bash"),
+}
+
+
+def language_family(path: str) -> str | None:
+    if "." not in path:
+        return None
+    return FAMILY_BY_EXTENSION.get(path.rsplit(".", 1)[1].lower())
+
+
+def scope_by_name(
+    names: dict[str, set[tuple[str | None, str]]], name: str, source_file: str
+) -> str | None:
+    """`architecture.rs` `ScopesByName::get`: the one scope holding every
+    node called *name*, when one of them is in the source file's language
+    family."""
+    entries = names.get(name, set())
+    scopes = {scope for _, scope in entries}
+    if len(scopes) != 1:
+        return None
+    family = language_family(source_file)
+    if not any(family is None or other is None or other == family for other, _ in entries):
+        return None
+    return next(iter(scopes))
+
+
 # -- SAP ---------------------------------------------------------------------
 
 
@@ -312,15 +361,14 @@ def sap(graph: Graph) -> list[dict[str, Any]]:
     unit_scope = {file: labels[i] for file, i in index.unit_of_file.items()}
 
     qualified: dict[str, str] = {}
-    names: dict[str, set[str]] = defaultdict(set)
+    names: dict[str, set[tuple[str | None, str]]] = defaultdict(set)
     for node in graph.nodes:
         path = node["file_path"]
         if not path or node["language"] == "markdown" or path.lower().endswith(DOC_SUFFIXES):
             continue
         scope = unit_scope.get(path) or file_to_package(path)
         qualified[node["qualified_name"]] = scope
-        names[node["name"]].add(scope)
-    unique = {name: next(iter(s)) for name, s in names.items() if len(s) == 1}
+        names[node["name"]].add((language_family(path), scope))
 
     nt: Counter[str] = Counter()
     na: Counter[str] = Counter()
@@ -354,7 +402,9 @@ def sap(graph: Graph) -> list[dict[str, Any]]:
         if edge["kind"] not in DEPENDENCY_KINDS:
             continue
         source = qualified.get(edge["source_qualified"])
-        target = qualified.get(edge["target_qualified"]) or unique.get(edge["target_qualified"])
+        target = qualified.get(edge["target_qualified"])
+        if target is None and edge["kind"] != "IMPORTS_FROM" and not edge["external"]:
+            target = scope_by_name(names, edge["target_qualified"], edge["file_path"])
         if source is None or target is None or target == source:
             continue
         outgoing[source][target] += 1

@@ -17,6 +17,7 @@ mod terraform;
 mod terraform_bridges;
 mod tested_by;
 
+pub use bare_names::{language_family, same_language_family};
 pub use scip_overlay::ScipOverlayStats;
 pub(crate) use tested_by::sync_tested_by_with_calls;
 

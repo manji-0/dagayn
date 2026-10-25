@@ -204,7 +204,9 @@ transaction:
    with `receiver_from` wait for step 4; Rust calls with `receiver_unknown`
    are never bound by name, and those of other languages never to a member
    of a class or function enclosing the caller (`this.item.show()` is not
-   the caller class's `show`).
+   the caller class's `show`). A bare name never binds to a node of another
+   language family ([SCHEMA.md](./SCHEMA.md#edges)), and neither do the
+   query-time fallbacks of `callers_of` and `inheritors_of`.
 3. **Enum variants.** A Rust call of a variant (`receiver_type` naming an
    enum whose `variants` holds the name) binds to the enum. `HIGH`.
 4. **Twice, so a call typed in the first round can type the next:**
