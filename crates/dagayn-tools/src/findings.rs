@@ -742,10 +742,21 @@ pub(crate) fn bridges(inputs: &Inputs) -> Option<Vec<Value>> {
                 file
             }
         };
-        if changed.contains(file.as_str()) {
+        // A directory bridge reaches each code file in it (`reference` is
+        // the directory as written): one place to check, edited when any
+        // file in it is.
+        let place = edge.extra["reference"]
+            .as_str()
+            .filter(|reference| *reference != file)
+            .map_or(file, str::to_string);
+        let inside = format!("{place}/");
+        if changed
+            .iter()
+            .any(|path| *path == place || path.starts_with(&inside))
+        {
             continue;
         }
-        let entry = targets.entry(file).or_default();
+        let entry = targets.entry(place).or_default();
         if !entry.0.contains(target) {
             entry.0.push(target.clone());
         }

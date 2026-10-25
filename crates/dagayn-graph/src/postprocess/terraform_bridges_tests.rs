@@ -226,7 +226,12 @@ module "lambda" {
         vec![
             // Ambiguous across the two code paths this call names.
             row(call, "<unresolved:index.lambda_handler>", "handler", "HIGH"),
-            row(call, "examples/fixtures/app", "source_path", "HIGH"),
+            row(
+                call,
+                "examples/fixtures/app/index.py",
+                "source_path",
+                "HIGH"
+            ),
             row(
                 call,
                 "examples/fixtures/other/index.py",
@@ -235,7 +240,8 @@ module "lambda" {
             ),
         ],
     );
-    let extra = repo.bridge_extra(call, "examples/fixtures/app");
+    let extra = repo.bridge_extra(call, "examples/fixtures/app/index.py");
+    assert_eq!(extra["reference"], "examples/fixtures/app");
     assert_eq!(extra["binding"], "module_input");
     assert_eq!(
         extra["consumers"],
@@ -353,5 +359,68 @@ fn values_pass_through_locals_and_nested_module_calls() {
             "entrypoint",
             "HIGH"
         )]
+    );
+}
+
+#[test]
+fn a_directory_bridge_reaches_the_code_files_in_it() {
+    let mut repo = Repo::new(
+        "directory",
+        &[
+            (
+                "examples/server/function/main.go",
+                "package main\n\nfunc helloHTTP() {}\n",
+            ),
+            (
+                "examples/server/function/util/util.go",
+                "package util\n\nfunc Help() {}\n",
+            ),
+            ("examples/server/function/README.md", "# Function\n"),
+            // A sibling whose name extends the directory's is not in it.
+            ("examples/server/function_test/x.go", "package x\n"),
+            (
+                "examples/server/main.tf",
+                "data \"archive_file\" \"source\" {\n  type        = \"zip\"\n  source_dir  = \"${path.module}/function\"\n  output_path = \"function.zip\"\n}\n",
+            ),
+        ],
+    );
+    let archive = "examples/server/main.tf::data.archive_file.source";
+    assert_eq!(
+        repo.bridges(),
+        vec![
+            row(
+                archive,
+                "examples/server/function/main.go",
+                "source_dir",
+                "HIGH"
+            ),
+            row(
+                archive,
+                "examples/server/function/util/util.go",
+                "source_dir",
+                "HIGH"
+            ),
+        ]
+    );
+    assert_eq!(
+        repo.bridge_extra(archive, "examples/server/function/main.go")["reference"],
+        "examples/server/function"
+    );
+    // Impact on the code side reaches the Terraform block bridging to it.
+    let impact = repo
+        .store
+        .get_impact_radius(
+            &["examples/server/function/util/util.go".to_string()],
+            2,
+            100,
+        )
+        .unwrap();
+    assert!(
+        impact
+            .impacted_nodes
+            .iter()
+            .any(|node| node.qualified_name == archive),
+        "{:?}",
+        impact.impacted_nodes
     );
 }

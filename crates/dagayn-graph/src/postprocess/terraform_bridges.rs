@@ -270,26 +270,42 @@ fn target_language_for_path(path: &str) -> &'static str {
     }
 }
 
-fn path_bridges(value: &TerraformValue, reached: &Reached, bridges: &mut Vec<Bridge>) {
+/// One edge per path, and for a directory one per code file in it: the
+/// files are graph nodes, so review and impact reach them like any other
+/// target. `reference` keeps the path as written, the one place to check.
+fn path_bridges(
+    tx: &Transaction<'_>,
+    value: &TerraformValue,
+    reached: &Reached,
+    bridges: &mut Vec<Bridge>,
+) -> Result<()> {
     let roles: BTreeSet<SinkRole> = reached.iter().map(|(role, _)| *role).collect();
     let (role, bridge_kind, evidence) = if roles.contains(&SinkRole::CodePath) {
         ("maps_entrypoint", "manifest_link", "config")
     } else if roles.contains(&SinkRole::Command) {
         ("invokes_binary", "subprocess", "syntax")
     } else {
-        return;
+        return Ok(());
     };
     for path in &value.paths {
-        let mut extra = bridge_extra(value, reached, role, bridge_kind, evidence);
-        extra["target_language"] = json!(target_language_for_path(path));
-        bridges.push(Bridge {
-            source: value.node.clone(),
-            target: path.clone(),
-            file_path: value.file_path.clone(),
-            line: value.lines.0,
-            extra,
-        });
+        let targets = match path_target(tx, path)? {
+            PathTarget::Directory(files) => files,
+            PathTarget::File | PathTarget::Unindexed => vec![path.clone()],
+        };
+        for target in targets {
+            let mut extra = bridge_extra(value, reached, role, bridge_kind, evidence);
+            extra["target_language"] = json!(target_language_for_path(&target));
+            extra["reference"] = json!(path);
+            bridges.push(Bridge {
+                source: value.node.clone(),
+                target,
+                file_path: value.file_path.clone(),
+                line: value.lines.0,
+                extra,
+            });
+        }
     }
+    Ok(())
 }
 
 /// Where a handler of one block can live: the code its own values name.
@@ -302,15 +318,35 @@ enum HandlerScope {
     Elsewhere,
 }
 
-fn has_code_under(tx: &Transaction<'_>, path: &str) -> Result<bool> {
-    let prefix = format!("{path}/%");
-    Ok(tx.query_row(
-        "SELECT EXISTS (SELECT 1 FROM nodes WHERE kind = 'File' \
+/// What a path names in the graph.
+enum PathTarget {
+    /// An indexed code file.
+    File,
+    /// A directory: the indexed code files under it.
+    Directory(Vec<String>),
+    /// Nothing indexed: an archive, a data file, a build output.
+    Unindexed,
+}
+
+/// Indexed code files: not documentation, not Terraform itself.
+fn path_target(tx: &Transaction<'_>, path: &str) -> Result<PathTarget> {
+    let prefix = format!("{path}/");
+    let mut stmt = tx.prepare_cached(
+        "SELECT file_path FROM nodes WHERE kind = 'File' \
          AND language NOT IN ('markdown', 'terraform') \
-         AND (file_path = ? OR file_path LIKE ?))",
-        params![path, prefix],
-        |row| row.get::<_, bool>(0),
-    )?)
+         AND (file_path = ?1 OR substr(file_path, 1, length(?2)) = ?2) \
+         ORDER BY file_path",
+    )?;
+    let files = stmt
+        .query_map(params![path, prefix], |row| row.get::<_, String>(0))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    Ok(if files.iter().any(|file| file == path) {
+        PathTarget::File
+    } else if files.is_empty() {
+        PathTarget::Unindexed
+    } else {
+        PathTarget::Directory(files)
+    })
 }
 
 fn handler_scope(tx: &Transaction<'_>, code_paths: &[&String]) -> Result<HandlerScope> {
@@ -319,7 +355,7 @@ fn handler_scope(tx: &Transaction<'_>, code_paths: &[&String]) -> Result<Handler
     }
     let mut in_tree = Vec::new();
     for path in code_paths {
-        if has_code_under(tx, path)? {
+        if !matches!(path_target(tx, path)?, PathTarget::Unindexed) {
             in_tree.push((*path).clone());
         }
     }
@@ -444,7 +480,7 @@ fn bridges_for(
     let mut bridges = Vec::new();
     let mut counts = (0_i64, 0_i64);
     for (index, value) in values.iter().enumerate() {
-        path_bridges(value, &reached[index], &mut bridges);
+        path_bridges(tx, value, &reached[index], &mut bridges)?;
         if !reaches(index, SinkRole::Entrypoint) || value.symbol.is_none() {
             continue;
         }

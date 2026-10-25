@@ -159,19 +159,27 @@ def graph_db(path: Path) -> Path:
 
 
 def read_edges(db: Path) -> tuple[list[Edge], list[tuple[str, str]], set[str]]:
-    """Terraform CROSS_ARTIFACT edges, module IMPORTS_FROM edges, node names."""
+    """Terraform CROSS_ARTIFACT edges, module IMPORTS_FROM edges, node names.
+
+    A bridge to a directory is stored as one edge per code file in it, each
+    carrying the directory as ``reference``; they are scored once, as the
+    reference the fixture lists.
+    """
     with sqlite3.connect(f"file:{db}?mode=ro", uri=True) as conn:
-        bridges = [
-            Edge(source, target, line or 0, evidence or "", symbol, binding)
-            for source, target, line, evidence, symbol, binding in conn.execute(
-                "SELECT source_qualified, target_qualified, line, "
-                "json_extract(extra, '$.evidence_source'), "
-                "json_extract(extra, '$.original_symbol_name'), "
-                "json_extract(extra, '$.binding') FROM edges "
-                "WHERE kind = 'CROSS_ARTIFACT' "
-                "AND json_extract(extra, '$.source_language') = 'terraform'"
+        bridges = list(
+            dict.fromkeys(
+                Edge(source, reference or target, line or 0, evidence or "", symbol, binding)
+                for source, target, line, evidence, symbol, binding, reference in conn.execute(
+                    "SELECT source_qualified, target_qualified, line, "
+                    "json_extract(extra, '$.evidence_source'), "
+                    "json_extract(extra, '$.original_symbol_name'), "
+                    "json_extract(extra, '$.binding'), "
+                    "json_extract(extra, '$.reference') FROM edges "
+                    "WHERE kind = 'CROSS_ARTIFACT' "
+                    "AND json_extract(extra, '$.source_language') = 'terraform'"
+                )
             )
-        ]
+        )
         modules = list(
             conn.execute(
                 "SELECT source_qualified, target_qualified FROM edges "
