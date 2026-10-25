@@ -15,8 +15,8 @@ Removed).
   and the Node and pnpm entries in the Nix devShell.
 - **Breaking:** `generate_wiki_tool`, `get_wiki_page_tool`, and
   `dagayn wiki`, which wrote and read Markdown pages per community under
-  `.dagayn/wiki/`. `architecture_analysis_tool(mode="communities")` and
-  `mode="overview"` answer the same questions without a file round trip.
+  `.dagayn/wiki/`. `architecture_analysis_tool(mode="overview")` answers the
+  same questions without a file round trip.
 - **Breaking:** `dagayn visualize` and its static exports (GraphML,
   Mermaid C4, SVG, Neo4j Cypher, Obsidian vault), with `dagayn.exports`,
   `dagayn.visualization`, the graph store's `entry_points_json`, and
@@ -76,6 +76,56 @@ Removed).
   unchanged. `make_response` no longer takes `hints` or
   `next_tool_suggestions`, and `dagayn.tool_surface` loses
   `suggestion_is_callable` and `filter_suggestions`.
+- **Breaking:** the `impact` and `context` modes of `review_tool`, with its
+  `max_depth`, `max_nodes`, and `max_lines_per_file` arguments. Measured on
+  44 real commits, they added 11 actionable facts beyond `changes`, all also
+  returned by `query_graph_tool(pattern="callers_of")` at a sixth of the
+  characters (docs/plans/OPEN-MEASUREMENTS.md). Use `callers_of` with `depth`
+  for a changed symbol's callers and `source_of` for its source. The skills,
+  prompts, and reference that sent agents to the two modes now name those
+  calls; the `token_efficiency` benchmark counts the `changes` reply, and
+  `eval/run_review_modes_measure.py` goes with the modes it measured.
+- **Breaking:** the `communities` and `community` modes of
+  `architecture_analysis_tool`, with its `top_n`, `sort_by`, `min_size`,
+  `community_name`, `community_id`, and `include_members` arguments. In a hand
+  check of 35 communities on real repositories, 3 were useful; the declared
+  units of `mode="overview"` already state the module boundaries
+  (docs/plans/OPEN-MEASUREMENTS.md). The `community_summaries` table, which
+  only `mode="community"` read, goes too: graph schema 20 drops it. Community
+  detection itself stays, because `refactor_tool(mode="suggest")` weighs a
+  function's callee communities and `get_minimal_context_tool` names the
+  largest three. `eval/run_communities_measure.py` goes with the modes it
+  measured.
+- **Breaking:** the `undocumented_surface` finding of
+  `refactor_tool(mode="suggest")`. 3 of the 18 it showed on real
+  repositories were actionable; the rest were self-describing structs or
+  types whose variants were already documented
+  (docs/plans/OPEN-MEASUREMENTS.md). `suggest` now reports `unused_symbol`
+  and `complex_hotspot`, and the refactor eval loses its two
+  `undocumented_surface` cases.
+
+### Fixed
+
+- `refactor_tool(mode="suggest")` no longer lets one file fill every
+  `unused_symbol` slot: each file's first finding comes before any file's
+  second, in the dead-code report's order otherwise. On purecrate-ts the 10
+  shown came from one survey corpus file (`corpus/patterns.rs`); they now
+  come from 7 files, 2 of them from that one.
+- `flow_tool(mode="entry_points")` and `review_tool(mode="affected_flows")`
+  no longer stop at a `handle_*` helper that something calls: a
+  conventional entry name counts only when nothing calls the function. For
+  cfwdon's `generate_entity_id` the default 10 were all inbox `handle_*`
+  helpers; the reply is now the two real ways in, `scheduled` and `fetch`.
+  On the 17 hand-judged targets of `eval/run_flow_entry_measure.py`,
+  precision at the default limit went from 0.776 to 0.976 and recall from
+  0.712 to 0.750 (0.727 to 0.786 per target); at limit 50, precision 0.793
+  to 0.978 with recall unchanged at 0.846. The flow eval's
+  `pos_nearest_entry` case now expects `main`, with the handler in its
+  chain, and a new `pos_uncalled_handler` case keeps `named_entry` gated.
+- `cross_repo_search_tool` keeps each repository's `exactness`
+  (`exact_match_count`, `ambiguity`, `source_arm`), keyed by repository
+  alias. Merging by score dropped it, so the reply no longer said which
+  repository defines a name (docs/plans/OPEN-MEASUREMENTS.md).
 
 ## 10.0.0 — 2026-10-12
 

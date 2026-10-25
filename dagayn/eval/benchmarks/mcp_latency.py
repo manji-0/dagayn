@@ -83,7 +83,6 @@ def _scenarios(
         "architecture_overview": lambda: architecture_analysis_func(
             mode="overview",
             detail_level="minimal",
-            top_n=3,
             repo_root=repo_root,
         ),
         "review_changes": lambda: review_func(

@@ -47,10 +47,6 @@ structural facts worth acting on. Answer from those two first.
    `implementations_of` from a Markdown section. These are traceability links,
    not architectural coupling.
 
-`communities` / `community` are
-graph clusters for an explicit clustering question and need full
-post-processing (`dagayn postprocess`).
-
 ## Evidence
 
 Rank results with the Highest / Medium / Low trust tiers in the installed

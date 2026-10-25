@@ -5,6 +5,8 @@ import subprocess
 from pathlib import Path
 from typing import cast
 
+import pytest
+
 from dagayn.contracts.state_types import ReviewMode
 from dagayn.server import main as crg_main
 from dagayn.tools import _dispatch, flow_dispatcher, review_dispatcher
@@ -13,17 +15,14 @@ from dagayn.tools import _dispatch, flow_dispatcher, review_dispatcher
 def test_review_wrapper_exposes_typed_dispatch_args() -> None:
     params = inspect.signature(crg_main.review_tool).parameters
 
-    for name in (
+    assert list(params) == [
         "mode",
-        "changed_files",
         "base",
+        "changed_files",
         "include_source",
-        "max_depth",
-        "max_nodes",
-        "max_lines_per_file",
+        "repo_root",
         "detail_level",
-    ):
-        assert name in params
+    ]
     assert params["mode"].default == "changes"
     assert params["base"].default is None
 
@@ -54,23 +53,18 @@ def test_review_hands_every_mode_to_rust(monkeypatch) -> None:
     monkeypatch.setattr(review_dispatcher, "_get_store", fake_get_store)
     monkeypatch.setattr(review_dispatcher, "native_tool", fake_native)
 
-    for mode in ("changes", "context", "affected_flows", "impact"):
+    for mode in ("changes", "affected_flows"):
         review_dispatcher.review_func(
             mode=cast(ReviewMode, mode),
             changed_files=["a.py"],
             base="main",
-            max_depth=4,
-            max_nodes=12,
-            max_lines_per_file=25,
             detail_level="minimal",
             repo_root="/repo",
         )
-    review_dispatcher.review_func(mode="context", include_source=False, repo_root="/repo")
+    review_dispatcher.review_func(mode="changes", include_source=False, repo_root="/repo")
 
-    assert opened == ["/repo"] * 5
-    for (name, kwargs), mode in zip(
-        calls, ["changes", "context", "affected_flows", "impact"], strict=False
-    ):
+    assert opened == ["/repo"] * 3
+    for (name, kwargs), mode in zip(calls, ["changes", "affected_flows"], strict=False):
         assert name == "review_tool"
         assert kwargs == {
             "mode": mode,
@@ -78,13 +72,18 @@ def test_review_hands_every_mode_to_rust(monkeypatch) -> None:
             "changed_files": ["a.py"],
             # Left unset, so Rust applies each mode's own default.
             "include_source": None,
-            "max_depth": 4,
-            "max_nodes": 12,
-            "max_lines_per_file": 25,
             "detail_level": "minimal",
             "repo_root": "/repo",
         }
-    assert calls[4][1]["include_source"] is False
+    assert calls[2][1]["include_source"] is False
+
+
+@pytest.mark.parametrize("mode", ["context", "impact"])
+def test_review_rejects_the_removed_modes(mode) -> None:
+    result = review_dispatcher.review_func(mode=cast(ReviewMode, mode), repo_root="/repo")
+
+    assert result["status"] == "error"
+    assert "changes" in result["error"]
 
 
 def test_flow_routes_modes(monkeypatch) -> None:
@@ -221,11 +220,11 @@ def test_review_dispatcher_routes_store_errors_into_its_envelope(monkeypatch) ->
 
     monkeypatch.setattr(review_dispatcher, "_get_store", _boom)
 
-    result = review_dispatcher.review_func(mode="impact", repo_root="/repo")
+    result = review_dispatcher.review_func(mode="affected_flows", repo_root="/repo")
 
     assert result["status"] == "error"
-    assert result["mode"] == "impact"
-    assert result["called_subtool"] == "get_impact_radius"
+    assert result["mode"] == "affected_flows"
+    assert result["called_subtool"] == "get_affected_flows_func"
     assert result["error"] == "graph unavailable"
     assert result["missingness"][0]["reason_code"] == "tool_runtime_error"
     assert "answerability" in result

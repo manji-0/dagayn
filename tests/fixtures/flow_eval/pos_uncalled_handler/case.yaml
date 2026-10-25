@@ -1,0 +1,17 @@
+description: A handle_ function nothing calls is registered by a framework the graph cannot see; it is the entry point by its name.
+target: srv/store.py::save
+files:
+  srv/__init__.py: ""
+  srv/events.py: |
+    from srv.store import save
+
+
+    def handle_event(event):
+        return save(event)
+  srv/store.py: |
+    def save(event):
+        return event
+expected_entry_points:
+- entry_point: srv/events.py::handle_event
+  kind: named_entry
+  chain: [srv/events.py::handle_event, srv/store.py::save]

@@ -56,7 +56,6 @@ _COMMON_CASES: list[tuple[str, str, dict[str, Any]]] = [
     ("minimal_context", "get_minimal_context_tool", {"task": "review the change"}),
     ("graph_stats", "list_graph_stats_tool", {}),
     ("architecture_overview", "architecture_analysis_tool", {"mode": "overview"}),
-    ("architecture_communities", "architecture_analysis_tool", {"mode": "communities"}),
     ("flows", "flow_tool", {"mode": "list"}),
     ("refactor_suggest", "refactor_tool", {"mode": "suggest"}),
     ("dead_code", "refactor_tool", {"mode": "dead_code"}),
@@ -81,11 +80,10 @@ FIXTURE_CASES: dict[str, list[tuple[str, str, dict[str, Any]]]] = {
             {"mode": "rename", "old_name": "create_user", "new_name": "make_user"},
         ),
         (
-            "review_context",
+            "review_changes",
             "review_tool",
-            {"mode": "context", "changed_files": ["services.py"]},
+            {"mode": "changes", "changed_files": ["services.py"]},
         ),
-        ("impact", "review_tool", {"mode": "impact", "changed_files": ["models.py"]}),
     ],
     "mixed": [
         ("docs_for", "query_graph_tool", {"pattern": "docs_for", "target": "build_graph"}),

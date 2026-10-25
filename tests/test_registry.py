@@ -324,6 +324,57 @@ class TestCrossRepoSearch:
         assert result["status"] == "ok"
         assert sorted(r["repo"] for r in result["results"]) == ["loud", "loud", "quiet", "quiet"]
 
+    def test_cross_repo_search_keeps_each_repos_exactness(self, tmp_path):
+        """The merged reply still says which repository defines the name:
+        per-repo search reports it as ``exactness``, and merging by score
+        must not lose it."""
+        from dagayn.tools.registry_tools import cross_repo_search_func
+
+        hits = {
+            "defines": [
+                {"name": "D1Database", "qualified_name": "src/d1.rs::D1Database", "score": 0.5},
+                {"name": "open_d1", "qualified_name": "src/d1.rs::open_d1", "score": 0.4},
+            ],
+            "uses": [
+                {"name": "listStatuses", "qualified_name": "src/s.ts::listStatuses", "score": 0.5}
+            ],
+        }
+
+        class FakeStore:
+            def __init__(self, path):
+                self.alias = Path(path).parent.parent.name
+
+            def close(self):
+                pass
+
+        repos = []
+        for name in hits:
+            (tmp_path / name / ".dagayn").mkdir(parents=True)
+            (tmp_path / name / ".dagayn" / "graph.db").write_text("")
+            repos.append({"path": str(tmp_path / name), "alias": name})
+        with (
+            patch("dagayn.registry.Registry") as mock_registry_cls,
+            patch(
+                "dagayn.tools.registry_tools.db_path_for",
+                side_effect=lambda repo: tmp_path / repo.name / ".dagayn" / "graph.db",
+            ),
+            patch("dagayn.tools.registry_tools.GraphStore", FakeStore),
+            patch(
+                "dagayn.tools.registry_tools.hybrid_search",
+                side_effect=lambda store, query, **kw: {
+                    "mode": "fts_only",
+                    "results": [dict(hit) for hit in hits[store.alias]],
+                },
+            ),
+        ):
+            mock_registry_cls.return_value.list_repos.return_value = repos
+            result = cross_repo_search_func(query="D1Database")
+
+        assert result["exactness"] == {
+            "defines": {"exact_match_count": 1, "ambiguity": None, "source_arm": "fts_only"},
+            "uses": {"exact_match_count": 0, "ambiguity": None, "source_arm": "fts_only"},
+        }
+
 
 class TestCaseVariantRegistration:
     """One repository, one entry -- however the path is spelled.

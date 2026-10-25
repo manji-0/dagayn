@@ -34,8 +34,8 @@ retrieval setup.
      reach it, with the call chain from each.
    - A spec → `query_graph_tool(pattern="implementations_of",
      target="<doc.md>::<section-slug>")`, or `docs_for` from nearby code.
-3. **Read only that surface**: `source_of` for one symbol, or
-   `review_tool(mode="context")` for a change set, instead of whole files.
+3. **Read only that surface**: `source_of` for each symbol, instead of whole
+   files.
 4. **Implement the smallest change** in the existing pattern (same module, same
    flow entry, same interface style). Keep nearby `dagayn:` directives and
    update their targets if you rename anything.

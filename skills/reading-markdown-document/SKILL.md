@@ -44,10 +44,11 @@ what a section is built on.
    weigh each hit by `evidence_type` and `missingness`. From a code symbol, the reverse is
    `query_graph_tool(pattern="docs_for", target="<path::symbol>")`.
 5. **Blast radius** only when the task is about changing the doc:
-   `review_tool(mode="impact", changed_files=["<doc.md>"])`.
+   `query_graph_tool(pattern="importers_of", target="<doc.md>", depth=3)` for
+   the documents that would need a second look.
 
 About three calls for an ordinary read, plus one each for implementations and
-impact when they're in scope.
+blast radius when they're in scope.
 
 ## Stage 2 — Pre-read by dependency type
 

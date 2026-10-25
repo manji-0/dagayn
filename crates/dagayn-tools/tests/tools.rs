@@ -1141,7 +1141,10 @@ fn review_leaves_other_modes_and_unknowns_to_python() {
         ..repo.context()
     };
     for arguments in [
-        json!({"mode": "context", "max_lines_per_file": 1.5}),
+        // The removed modes and their arguments.
+        json!({"mode": "context"}),
+        json!({"mode": "impact"}),
+        json!({"mode": "changes", "max_depth": 2}),
         json!({"mode": "affected_flows", "detail_level": "full"}),
         json!({"mode": "affected_flows", "include_source": "yes"}),
         json!({"mode": "affected_flows", "changed_files": [1]}),
@@ -1163,73 +1166,6 @@ fn review_leaves_other_modes_and_unknowns_to_python() {
         "review_tool",
         json!({"mode": "affected_flows", "changed_files": ["app.py"]})
     ));
-}
-
-#[test]
-fn review_impact_reports_the_blast_radius_and_trims_like_python() {
-    // dagayn: tests crates/dagayn-tools/src/review.rs::review
-    let repo = Repo::new("impact", true);
-    let callers: String = (0..400)
-        .map(|i| format!("def caller_{i}():\n    return helper()\n\n\n"))
-        .collect();
-    repo.write("many.py", &format!("from app import helper\n\n\n{callers}"));
-    repo.build();
-    let context = Context {
-        runtime: Some(json!({})),
-        ..repo.context()
-    };
-    let impact = |arguments: Value| answer(&context, "review_tool", arguments);
-
-    let small = impact(json!({"mode": "impact", "changed_files": ["test_app.py", "gone.py"]}));
-    assert!(small.get("called_subtool").is_none());
-    assert_eq!(small["unmatched_changed_files"], json!(["gone.py"]));
-    assert!(
-        small["summary"]
-            .as_str()
-            .is_some_and(|summary| summary.contains("1 of 2 changed file(s) are NOT in the graph"))
-    );
-    let reasons: Vec<&str> = small["missingness"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|item| item["reason_code"].as_str())
-        .collect();
-    assert!(
-        reasons.contains(&"changed_files_not_in_graph"),
-        "{reasons:?}"
-    );
-    assert!(small["next"].is_array());
-    assert!(small.get("_hints").is_none());
-
-    let wide = impact(json!({"mode": "impact", "changed_files": ["app.py"], "max_nodes": 500}));
-    assert_eq!(wide["truncated"], true);
-    let kept = &wide["_truncation"]["edges"];
-    assert!(kept["kept"].as_u64() < kept["total"].as_u64(), "{kept}");
-    let text = call(
-        &context,
-        "review_tool",
-        &json!({"mode": "impact", "changed_files": ["app.py"], "max_nodes": 500}),
-    )
-    .expect("answered")
-    .text;
-    let (payload_end, trim) = (
-        text.find(r#""missingness":"#),
-        text.find(r#""_truncation":{"#),
-    );
-    assert!(
-        payload_end.is_some() && trim > payload_end,
-        "the trim record follows the payload: {text}"
-    );
-
-    let minimal =
-        impact(json!({"mode": "impact", "changed_files": ["app.py"], "detail_level": "minimal"}));
-    assert_eq!(minimal["risk"], "high");
-    assert_eq!(minimal["key_entities"].as_array().map(Vec::len), Some(5));
-    assert!(minimal.get("_truncation").is_none());
-
-    let none = impact(json!({"mode": "impact", "changed_files": []}));
-    assert_eq!(none["summary"], "No changed files detected.");
-    assert_eq!(none["total_impacted"], 0);
 }
 
 #[test]
@@ -1439,92 +1375,6 @@ fn review_changes_scores_the_diff_against_base() {
 }
 
 #[test]
-fn review_context_reads_contained_sources_and_caps_long_files() {
-    // dagayn: tests crates/dagayn-tools/src/review.rs::review
-    let repo = Repo::new("context", true);
-    repo.build();
-    let context = Context {
-        runtime: Some(json!({})),
-        ..repo.context()
-    };
-    let review = |arguments: Value| answer(&context, "review_tool", arguments);
-    let full =
-        review(json!({"mode": "context", "changed_files": ["app.py", "../escape.py", "gone.py"]}));
-    assert!(full.get("called_subtool").is_none());
-    let ctx = &full["context"];
-    assert_eq!(
-        ctx["source_snippets"]["app.py"],
-        "1: def main():\n2:     return helper()\n3: \n4: \n5: def helper():\n6:     pass"
-    );
-    assert_eq!(ctx["out_of_repo_files"], json!(["../escape.py"]));
-    assert_eq!(
-        ctx["unmatched_changed_files"],
-        json!(["../escape.py", "gone.py"])
-    );
-    assert!(
-        full["summary"]
-            .as_str()
-            .is_some_and(|s| s.contains("Review guidance:"))
-    );
-
-    // Over the line cap and no node of that (relative) path: the first lines.
-    let capped =
-        review(json!({"mode": "context", "changed_files": ["app.py"], "max_lines_per_file": 2}));
-    assert_eq!(
-        capped["context"]["source_snippets"]["app.py"],
-        "1: def main():\n2:     return helper()\n3: \n4: \n5: def helper():\n6:     pass"
-    );
-    let minimal =
-        review(json!({"mode": "context", "changed_files": ["app.py"], "detail_level": "minimal"}));
-    assert_eq!(minimal["risk"], "low");
-    assert!(minimal["key_entities"].as_array().is_some_and(|k| {
-        k.iter()
-            .all(|e| !e.as_str().unwrap_or("/").starts_with('/'))
-    }));
-    let none = review(json!({"mode": "context", "changed_files": []}));
-    assert_eq!(none["summary"], "No changes detected. Nothing to review.");
-}
-
-#[test]
-fn review_context_fits_its_budget_below_verbose() {
-    // dagayn: tests crates/dagayn-tools/src/review.rs::review
-    let repo = Repo::new("context-budget", true);
-    let callers: String = (0..400)
-        .map(|i| format!("def caller_{i}():\n    return helper()\n\n\n"))
-        .collect();
-    repo.write("many.py", &format!("from app import helper\n\n\n{callers}"));
-    repo.build();
-    let context = Context {
-        runtime: Some(json!({})),
-        ..repo.context()
-    };
-    let arguments = |level: &str| {
-        json!({
-            "mode": "context",
-            "changed_files": ["app.py", "many.py"],
-            "max_lines_per_file": 2000,
-            "detail_level": level,
-        })
-    };
-    let text = |level: &str| {
-        call(&context, "review_tool", &arguments(level))
-            .expect("answered")
-            .text
-    };
-
-    // docs/plans/AGENT-WORKFLOW-TARGET.md#target-contract: 32K at standard.
-    let standard = text("standard");
-    assert!(standard.len() <= 33_000, "{} characters", standard.len());
-    let payload: Value = serde_json::from_str(&standard).expect("json");
-    assert_eq!(payload["truncated"], true);
-    let snippets = &payload["_truncation"]["source_snippets"];
-    assert_eq!(snippets["total"], 2, "{snippets}");
-
-    // verbose keeps the source the budget clips.
-    assert!(text("verbose").len() > standard.len());
-}
-
-#[test]
 fn flow_tool_answers_entry_points_and_declines_stored_flow_modes() {
     // dagayn: tests crates/dagayn-tools/src/flow.rs::flow
     let repo = Repo::new("flows", true);
@@ -1609,6 +1459,59 @@ fn flow_tool_finds_the_entry_points_that_reach_a_target() {
 }
 
 #[test]
+fn flow_tool_walks_past_called_handlers_and_skips_test_only_code() {
+    // dagayn: tests crates/dagayn-tools/src/flow.rs::flow
+    // A `handle_*` helper that production code calls is a step, not the
+    // way in; a function only its test calls is not a way in either.
+    let repo = Repo::new("entry-handlers", true);
+    repo.write(
+        "worker.py",
+        "def scheduled():\n    return handle_inbox_follow()\n\n\n\
+         def handle_inbox_follow():\n    return make_id()\n\n\n\
+         def make_id():\n    return 1\n\n\n\
+         def lists_page():\n    return make_id()\n",
+    );
+    repo.write(
+        "test_worker.py",
+        "from worker import lists_page\n\n\ndef test_lists_page():\n    lists_page()\n",
+    );
+    repo.build();
+    let context = Context {
+        runtime: Some(json!({})),
+        ..repo.context()
+    };
+    let found = answer(
+        &context,
+        "flow_tool",
+        json!({"mode": "entry_points", "target": "worker.py::make_id"}),
+    );
+    let entries: Vec<(&str, &str)> = found["entry_points"]
+        .as_array()
+        .expect("entry points")
+        .iter()
+        .map(|e| {
+            (
+                e["entry_point"].as_str().unwrap_or_default(),
+                e["kind"].as_str().unwrap_or_default(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        entries,
+        vec![("worker.py::scheduled", "uncalled")],
+        "{found}"
+    );
+    assert_eq!(
+        found["entry_points"][0]["chain"],
+        json!([
+            "worker.py::scheduled",
+            "worker.py::handle_inbox_follow",
+            "worker.py::make_id"
+        ])
+    );
+}
+
+#[test]
 fn architecture_metrics_follow_the_requested_view() {
     // dagayn: tests crates/dagayn-tools/src/arch_tool.rs::architecture
     // dagayn: tests crates/dagayn-tools/src/refactor.rs::refactor
@@ -1655,22 +1558,11 @@ fn architecture_metrics_follow_the_requested_view() {
     ] {
         assert!(verbose.get(gone).is_none(), "{gone}");
     }
-    let communities = arch(json!({"mode": "communities", "detail_level": "standard"}));
-    assert!(communities.get("called_subtool").is_none());
-    assert!(communities.get("answerability").is_none());
-    let first = communities["communities"][0]["id"].clone();
-    let community =
-        arch(json!({"mode": "community", "community_id": first, "include_members": true}));
-    assert!(community["community"]["member_details"].is_array());
-    let missing = arch(json!({"mode": "community", "community_name": "zz-none"}));
-    assert_eq!(missing["status"], "not_found");
-    let unselected = arch(json!({"mode": "community"}));
-    assert_eq!(unselected["status"], "error");
-    assert_eq!(
-        unselected["error"],
-        "Value error, mode=\"community\" requires community_id or community_name."
-    );
     for arguments in [
+        // Removed after measurement (docs/plans/OPEN-MEASUREMENTS.md#communities).
+        json!({"mode": "communities"}),
+        json!({"mode": "community", "community_id": 1}),
+        json!({"top_n": 5}),
         // Removed in favour of the overview's map and findings.
         json!({"mode": "hubs"}),
         json!({"mode": "adp_violations"}),
@@ -1951,6 +1843,45 @@ fn import_cycles_lists_every_cycle_between_directories() {
     ));
     let bad = arch(json!({"mode": "import_cycles", "import_kind": "anchor"}));
     assert_eq!(bad["status"], "error", "{bad}");
+}
+
+#[test]
+fn refactor_suggest_does_not_let_one_file_fill_every_unused_slot() {
+    // dagayn: tests crates/dagayn-tools/src/refactor.rs::refactor
+    // A survey or generated file with many unused symbols sorts first; the
+    // two other unused symbols must still be shown.
+    let repo = Repo::new("refactor-spread", true);
+    let many: String = (0..12)
+        .map(|i| format!("def survey_{i:02}():\n    return {i}\n\n\n"))
+        .collect();
+    repo.write("aaa_corpus.py", &many);
+    repo.write("zz_one.py", "def stale_one():\n    return 1\n");
+    repo.write("zz_two.py", "def stale_two():\n    return 2\n");
+    repo.build();
+    let suggest = answer(&repo.context(), "refactor_tool", json!({}));
+    let unused: Vec<&Value> = suggest["findings"]
+        .as_array()
+        .expect("findings")
+        .iter()
+        .filter(|f| f["kind"] == "unused_symbol")
+        .collect();
+    let names: Vec<&str> = unused
+        .iter()
+        .filter_map(|f| f["qualified_name"].as_str())
+        .collect();
+    assert_eq!(unused.len(), 10, "{names:?}");
+    assert!(names.contains(&"zz_one.py::stale_one"), "{names:?}");
+    assert!(names.contains(&"zz_two.py::stale_two"), "{names:?}");
+    assert_eq!(suggest["findings_omitted"]["unused_symbol"], 4);
+    // The busy file keeps its own order.
+    let corpus: Vec<&str> = names
+        .iter()
+        .copied()
+        .filter(|n| n.starts_with("aaa_corpus.py::"))
+        .collect();
+    let mut sorted = corpus.clone();
+    sorted.sort_unstable();
+    assert_eq!(corpus, sorted);
 }
 
 #[test]
@@ -2496,16 +2427,6 @@ fn every_reply_names_calls_that_answer_and_fits_its_budget() {
         (
             "review_tool",
             json!({"mode": "changes", "detail_level": "minimal"}),
-        ),
-        ("review_tool", json!({"mode": "impact"})),
-        (
-            "review_tool",
-            json!({"mode": "impact", "detail_level": "minimal"}),
-        ),
-        ("review_tool", json!({"mode": "context"})),
-        (
-            "review_tool",
-            json!({"mode": "context", "detail_level": "minimal"}),
         ),
         ("review_tool", json!({"mode": "affected_flows"})),
         ("architecture_analysis_tool", json!({})),

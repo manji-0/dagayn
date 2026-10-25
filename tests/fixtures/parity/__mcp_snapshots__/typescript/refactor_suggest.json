@@ -53,22 +53,6 @@
     },
     {
       "action": "Delete it, or point to the dynamic use the graph missed.",
-      "claim": "Nothing in the repository refers to src/extra/heritage.ts::Other.",
-      "evidence": {
-        "public_api_candidate": true,
-        "verification": {
-          "files_scanned": 37,
-          "files_skipped": 0,
-          "status": "complete"
-        }
-      },
-      "file": "src/extra/heritage.ts",
-      "kind": "unused_symbol",
-      "line": 14,
-      "qualified_name": "src/extra/heritage.ts::Other"
-    },
-    {
-      "action": "Delete it, or point to the dynamic use the graph missed.",
       "claim": "Nothing in the repository refers to src/barrel-user.ts::useBarrel.",
       "evidence": {
         "public_api_candidate": true,
@@ -85,22 +69,6 @@
     },
     {
       "action": "Delete it, or point to the dynamic use the graph missed.",
-      "claim": "Nothing in the repository refers to src/classes.ts::Named.go.",
-      "evidence": {
-        "public_api_candidate": false,
-        "verification": {
-          "files_scanned": 37,
-          "files_skipped": 0,
-          "status": "complete"
-        }
-      },
-      "file": "src/classes.ts",
-      "kind": "unused_symbol",
-      "line": 54,
-      "qualified_name": "src/classes.ts::Named.go"
-    },
-    {
-      "action": "Delete it, or point to the dynamic use the graph missed.",
       "claim": "Nothing in the repository refers to src/components/App.tsx::Memo.",
       "evidence": {
         "public_api_candidate": true,
@@ -114,22 +82,6 @@
       "kind": "unused_symbol",
       "line": 28,
       "qualified_name": "src/components/App.tsx::Memo"
-    },
-    {
-      "action": "Delete it, or point to the dynamic use the graph missed.",
-      "claim": "Nothing in the repository refers to src/components/App.tsx::Fwd.",
-      "evidence": {
-        "public_api_candidate": true,
-        "verification": {
-          "files_scanned": 37,
-          "files_skipped": 0,
-          "status": "complete"
-        }
-      },
-      "file": "src/components/App.tsx",
-      "kind": "unused_symbol",
-      "line": 29,
-      "qualified_name": "src/components/App.tsx::Fwd"
     },
     {
       "action": "Delete it, or point to the dynamic use the graph missed.",
@@ -162,6 +114,54 @@
       "kind": "unused_symbol",
       "line": 1,
       "qualified_name": "src/extra/Testimonial.tsx::TestimonialCard"
+    },
+    {
+      "action": "Delete it, or point to the dynamic use the graph missed.",
+      "claim": "Nothing in the repository refers to src/frameworks/express.ts::lambdaHandler.",
+      "evidence": {
+        "public_api_candidate": true,
+        "verification": {
+          "files_scanned": 37,
+          "files_skipped": 0,
+          "status": "complete"
+        }
+      },
+      "file": "src/frameworks/express.ts",
+      "kind": "unused_symbol",
+      "line": 10,
+      "qualified_name": "src/frameworks/express.ts::lambdaHandler"
+    },
+    {
+      "action": "Delete it, or point to the dynamic use the graph missed.",
+      "claim": "Nothing in the repository refers to src/frameworks/next/app/api/users/route.ts::GET.",
+      "evidence": {
+        "public_api_candidate": true,
+        "verification": {
+          "files_scanned": 37,
+          "files_skipped": 0,
+          "status": "complete"
+        }
+      },
+      "file": "src/frameworks/next/app/api/users/route.ts",
+      "kind": "unused_symbol",
+      "line": 2,
+      "qualified_name": "src/frameworks/next/app/api/users/route.ts::GET"
+    },
+    {
+      "action": "Delete it, or point to the dynamic use the graph missed.",
+      "claim": "Nothing in the repository refers to src/frameworks/next/app/page.tsx::Page.",
+      "evidence": {
+        "public_api_candidate": true,
+        "verification": {
+          "files_scanned": 37,
+          "files_skipped": 0,
+          "status": "complete"
+        }
+      },
+      "file": "src/frameworks/next/app/page.tsx",
+      "kind": "unused_symbol",
+      "line": 1,
+      "qualified_name": "src/frameworks/next/app/page.tsx::Page"
     }
   ],
   "findings_omitted": {

@@ -44,7 +44,7 @@ the selected embedding mode so bug searches balance semantic recall with speed.
    `unchanged_caller` near the suspect is a likely cause, and `tests_to_run`
    names the tests to rerun. With no `base` it reviews uncommitted edits, or
    the last commit on a clean tree; pass `base=` for older changes. Use
-   `mode="impact"` only when the blast radius is still unclear.
+   `callers_of` with `depth` only when the blast radius is still unclear.
 6. **Follow linked docs** when they can explain the behavior: `docs_for` from
    the suspect code point (runbooks and problem statements are often more
    useful than another caller hop), `implementations_of` when the report starts

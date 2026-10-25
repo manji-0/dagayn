@@ -130,7 +130,7 @@ Recommended sequence for reviewing a delta:
 
 1. `get_minimal_context_tool(task=...)` — enqueues background prepare when empty or out of sync (`sync.status`) and returns immediately; call `ensure_graph_tool()` if you must wait for the graph to be ready
 2. `review_tool(mode="changes")` and read `findings` first; an empty list means nothing beyond the diff needs checking
-3. Call `review_tool(mode="context")` / `mode="impact"` / `query_graph_tool` only for concrete source, blast-radius, or coverage questions
+3. Call `query_graph_tool` (`source_of`, `callers_of`, `tests_for`) only for concrete source, blast-radius, or coverage questions
 4. Read only the files that remain ambiguous after graph queries. After a
    concrete `qualified_name`, prefer `query_graph_tool(pattern="source_of")`
    over a whole-file read.
@@ -154,7 +154,7 @@ Recommended sequence for reviewing a PR or branch:
 1. `get_minimal_context_tool(task="PR review")`
 2. Refresh only when empty/stale: `ensure_graph_tool()` or `ensure_graph_tool(force=True)`; use `build_or_update_graph_tool(base="main")` only on the advanced surface when an explicit base ref is required
 3. `review_tool(mode="changes", base=<merge base of the branch and main>)` and read `findings` first (plain `base="main"` also counts commits that landed on `main` after the branch point, as reversed changes)
-4. Prefer `review_tool(mode="context")` snippets, or `query_graph_tool(pattern="source_of")` for one `qualified_name`, over full-file reads; use `mode="impact"` and relationship `query_graph_tool` only to follow up a finding
+4. Prefer `query_graph_tool(pattern="source_of")` for one `qualified_name` over full-file reads; use relationship `query_graph_tool` patterns such as `callers_of` only to follow up a finding
 
 If the PR touches infrastructure, assume Terraform nodes and references are part of the review surface.
 </section>

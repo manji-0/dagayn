@@ -69,9 +69,7 @@ def review_changes_prompt(base: str | None = None) -> list[PromptMessage]:
                 f'detail_level="minimal")` '
                 f"only if you need the entry points that reach the change.\n"
                 f"5. Summarize: what changed, each confirmed finding with its action, "
-                f"and the tests to run.\n\n"
-                f'Do NOT call review_tool(mode="context") unless you need '
-                f"source code snippets for a specific function."
+                f"and the tests to run."
             ),
         }
     ]
@@ -122,9 +120,7 @@ def debug_issue_prompt(description: str = "") -> list[PromptMessage]:
                 'detail_level="minimal")`.\n'
                 "4. To see how execution reaches the suspect: call "
                 '`flow_tool(mode="entry_points", target=<name>, detail_level="minimal")` '
-                "and read each entry point's call chain.\n"
-                '5. Only call `review_tool(mode="context")` or `review_tool(mode="impact")` '
-                "if you need to trace the blast radius of a specific change."
+                "and read each entry point's call chain."
             ),
         }
     ]

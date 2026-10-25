@@ -10,19 +10,13 @@ use crate::{Args, Context, Ordered, Payload, open_graph, resolve_repo, seal_disp
 const DECLARED: &[&str] = &[
     "mode",
     "detail_level",
-    "top_n",
-    "sort_by",
-    "min_size",
-    "community_name",
-    "community_id",
-    "include_members",
     "scope_kind",
     "unit_filter",
     "repo_root",
     "artifact_scope",
     "import_kind",
 ];
-const MODES: &[&str] = &["overview", "communities", "community", "import_cycles"];
+const MODES: &[&str] = &["overview", "import_cycles"];
 /// `import_kind` values `import_cycles` accepts, as `query_graph_tool`'s.
 const IMPORT_KINDS: &[&str] = &["directive", "link", "lazy_export", "path", "statement"];
 
@@ -30,13 +24,7 @@ const IMPORT_KINDS: &[&str] = &["directive", "link", "lazy_export", "path", "sta
 /// signature.
 struct Request<'a> {
     mode: &'a str,
-    sort_by: &'a str,
-    min_size: i64,
-    community_name: Option<&'a str>,
-    community_id: Option<i64>,
-    include_members: bool,
     detail_level: &'a str,
-    top_n: i64,
     scope_kind: &'a str,
     unit_filter: Option<Vec<String>>,
     artifact_scope: &'a str,
@@ -66,29 +54,13 @@ impl<'a> Request<'a> {
             ),
             Some(_) => return None,
         };
-        let community_id = match arguments.get("community_id") {
-            None | Some(Value::Null) => None,
-            Some(value) if value.is_i64() => value.as_i64(),
-            Some(_) => return None,
-        };
-        let include_members = match arguments.get("include_members") {
-            None => false,
-            Some(Value::Bool(flag)) => *flag,
-            Some(_) => return None,
-        };
         Some(Self {
-            sort_by: literal("sort_by", "size", &["size", "cohesion", "name"])?,
-            min_size: args.integer("min_size", 0)?,
-            community_name: args.optional_string("community_name")?,
-            community_id,
-            include_members,
             mode: literal("mode", "overview", MODES)?,
             detail_level: literal(
                 "detail_level",
                 "minimal",
                 &["minimal", "standard", "verbose"],
             )?,
-            top_n: args.integer("top_n", 10)?,
             scope_kind: literal("scope_kind", "package", &["file", "package", "directory"])?,
             unit_filter,
             artifact_scope: literal("artifact_scope", "code", &["code", "docs", "all"])?,
@@ -103,18 +75,6 @@ pub(crate) fn architecture(context: &Context, arguments: &Map<String, Value>) ->
     let mut request = Request::parse(&args, arguments)?;
     let root = resolve_repo(context, args.optional_string("repo_root")?)?;
     request.root = root.path.clone();
-    if request.mode == "community"
-        && request.community_id.is_none()
-        && request.community_name.is_none_or(str::is_empty)
-    {
-        // fastmcp accepts a community request with neither selector.
-        return crate::dispatcher_error(
-            context,
-            &root,
-            request.mode,
-            "Value error, mode=\"community\" requires community_id or community_name.",
-        );
-    }
     if let Some(kind) = request.import_kind
         && !IMPORT_KINDS.contains(&kind)
     {
@@ -143,27 +103,6 @@ pub(crate) fn architecture(context: &Context, arguments: &Map<String, Value>) ->
                 &answerability,
             )?,
             false,
-        ),
-        "communities" => (
-            "list_communities_func",
-            crate::community::list_communities(
-                &graph.store,
-                request.sort_by,
-                request.min_size,
-                request.detail_level,
-                request.top_n,
-            )?,
-            true,
-        ),
-        "community" => (
-            "get_community_func",
-            crate::community::get_community(
-                &graph.store,
-                request.community_name,
-                request.community_id,
-                request.include_members,
-            )?,
-            true,
         ),
         _ => (
             "find_import_cycles_func",
@@ -274,16 +213,7 @@ fn with_unit_map(
     }
     out = out.put("artifact_scope", artifact_scope);
     // The map reads no community or flow: their gaps are not its caveats.
-    let missingness: Vec<Value> = answerability
-        .missingness_with_derived()
-        .into_iter()
-        .filter(|item| {
-            !item["reason_code"]
-                .as_str()
-                .is_some_and(crate::answerability::is_derived_structure_code)
-        })
-        .collect();
-    out = out.put("missingness", json!(missingness));
+    out = out.put("missingness", json!(answerability.missingness()));
     if detail_level == "verbose" {
         out = out.put("answerability", answerability.full());
     }

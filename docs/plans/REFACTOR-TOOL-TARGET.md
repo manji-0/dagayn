@@ -122,6 +122,10 @@ Proposed set; the eval decides which ship.
 | `complex_hotspot` | a production function passes today's split thresholds and at least 5 commits in the last 90 days changed lines inside it (`git log -L`) | split metrics plus the commit count | split it; the split pays off where the code keeps changing |
 | `undocumented_surface` | a symbol in a unit's `surface` (the symbols other units use most) has no doc comment | the `surface` entry and its inbound edges from other units | document it |
 
+`undocumented_surface` shipped and was removed after 3 of 18 findings on real
+repositories were actionable
+([open measurements](./OPEN-MEASUREMENTS.md#refactor-suggestions)).
+
 Fates of today's types:
 
 - `remove` becomes `unused_symbol`. Fixtures leave `suggest` the same way

@@ -24,17 +24,15 @@ type Result<T> = std::result::Result<T, GraphError>;
 pub fn prune_orphaned_graph_structures(store: &mut GraphStore) -> Result<HashMap<String, i64>> {
     let mut deleted: HashMap<String, i64> = HashMap::new();
 
+    let stats: Value = serde_json::from_str(&refresh_community_stats_json(store)?)?;
+    let updated = stats.get("updated").and_then(Value::as_i64).unwrap_or(0);
+    let removed = stats.get("deleted").and_then(Value::as_i64).unwrap_or(0);
+    if updated != 0 || removed != 0 {
+        deleted.insert("communities".to_string(), updated + removed);
+    }
     // Ordered so a parent table is only pruned after the children that could
-    // keep it alive; `communities` goes before community_summaries.
+    // keep it alive.
     for (table, predicate) in ORPHAN_PRUNE_STEPS {
-        if *table == "community_summaries" {
-            let stats: Value = serde_json::from_str(&refresh_community_stats_json(store)?)?;
-            let updated = stats.get("updated").and_then(Value::as_i64).unwrap_or(0);
-            let removed = stats.get("deleted").and_then(Value::as_i64).unwrap_or(0);
-            if updated != 0 || removed != 0 {
-                deleted.insert("communities".to_string(), updated + removed);
-            }
-        }
         let rows = store.prune_orphan_table(table, predicate)?;
         if rows > 0 {
             deleted.insert((*table).to_string(), rows);

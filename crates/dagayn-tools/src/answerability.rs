@@ -195,12 +195,6 @@ impl Answerability {
         self.missingness_where(|code| !is_derived_structure_code(code))
     }
 
-    /// `missingness_from_answerability` for an answer read from communities:
-    /// every code.
-    pub(crate) fn missingness_with_derived(&self) -> Vec<Value> {
-        self.missingness_where(|_| true)
-    }
-
     fn missingness_where(&self, keep: impl Fn(&str) -> bool) -> Vec<Value> {
         self.reason_codes
             .iter()

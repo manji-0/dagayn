@@ -14,6 +14,10 @@ targets:
     evidence: 'lib.rs:144 #[event(scheduled)]'
   note: queue and StreamHub do not reach it (graph reach from lib.rs::queue is empty; delivery only signs and posts)
   entry_points:
+  - qn: crates/cfwdon-worker/src/lib.rs::fetch
+    verdict: boundary
+    way_in: fetch
+    reason: 'lib.rs:122 #[event(fetch)] calls router::handle_fetch at :127; reached now that the inbox handle_* helpers are steps'
   - qn: crates/cfwdon-worker/src/inbox/follow_handlers.rs::handle_inbox_follow
     verdict: helper
     way_in: fetch
@@ -96,7 +100,10 @@ targets:
     node: crates/cfwdon-worker/src/stream_hub/durable_object.rs::StreamHub.fetch
     evidence: DurableObject::fetch (durable_object.rs:38) -> handle_publish (:41) -> state.matches (:182) -> messages.rs:98 subscription.matches; forward_publish :241
   note: 'graph has only test callers: method calls through a field or receiver (durable_object.rs:241, messages.rs:98) are unresolved'
-  entry_points: []
+  entry_points:
+  - qn: crates/cfwdon-worker/src/stream_hub/messages.rs::StreamSubscription.matches
+    verdict: helper
+    reason: 'the target itself: its production callers (durable_object.rs:241, messages.rs:98) are unresolved receiver calls, so only tests call it in the graph'
   callers_roots: []
 - id: R4
   repo: cfwdon
@@ -127,6 +134,15 @@ targets:
     node: crates/canon/src/lib.rs::fixture
     evidence: 'canon/src/lib.rs:54 #[proc_macro] fixture calls parse_source at :66; the CLI uses parse_source_spanned'
   entry_points:
+  - qn: crates/syntax/src/lib.rs::tests.error_at
+    verdict: wrong
+    reason: 'helper inside #[cfg(test)] mod tests (syntax/src/lib.rs); the graph does not mark it as test code, and only tests call it'
+  - qn: crates/syntax/src/lib.rs::tests.rejections_carry_a_reason_and_what_it_is_about.reason
+    verdict: wrong
+    reason: 'helper inside #[cfg(test)] mod tests (syntax/src/lib.rs); the graph does not mark it as test code, and only tests call it'
+  - qn: crates/syntax/src/lib.rs::tests.rejects
+    verdict: wrong
+    reason: 'helper inside #[cfg(test)] mod tests (syntax/src/lib.rs); the graph does not mark it as test code, and only tests call it'
   - qn: crates/canon/src/lib.rs::fixture
     verdict: boundary
     way_in: proc_macro_fixture
@@ -146,6 +162,9 @@ targets:
     node: crates/cli/src/main.rs::main
     evidence: cli main.rs:23 -> execute -> analyze -> check::accept; show is pub(crate) (types.rs:839)
   entry_points:
+  - qn: crates/check/src/lib.rs::check
+    verdict: boundary
+    reason: check/src/lib.rs:170 pub fn check, the check crate's exported API; only integration tests call it
   - qn: crates/cli/src/main.rs::main
     verdict: boundary
     way_in: cli_main
@@ -318,7 +337,10 @@ targets:
     node: packages/worker/src/outbox-delivery-workflow.ts::OutboxDeliveryWorkflow.run
     evidence: delivery.ts:178-210 attemptInboxDelivery calls it; OutboxDeliveryWorkflow.run is its only caller (exported Workflow, index.ts:7)
   note: the call edges point at '@tstodon/domain::DeliveryAttemptOutcome.forHttpStatus', a package specifier never resolved to the node (876 such CALLS edges in tstodon)
-  entry_points: []
+  entry_points:
+  - qn: packages/domain/src/delivery-attempt-outcome.ts::DeliveryAttemptOutcome.forHttpStatus
+    verdict: helper
+    reason: 'the target itself: its production calls point at the unresolved package specifier, so only tests call it in the graph'
   callers_roots: []
 - id: T5
   repo: cfwdon
@@ -377,8 +399,20 @@ targets:
   - id: TagTimelinePage
     node: web-ui/src/ui/pages/TagTimelinePage.tsx::TagTimelinePage
     evidence: router.tsx:80-104 registers TagTimelinePage as a route component
-  note: ListsPage, ProfilePage, SettingsPage call pageHasMore but are called by their .test.tsx; entry_kind counts test callers, so they are never entry points
+  note: ListsPage, ProfilePage, SettingsPage call pageHasMore and are called by their .test.tsx; before entry_kind ignored test callers they were never entry points
   entry_points:
+  - qn: web-ui/src/ui/pages/ListsPage.tsx::ListsPage
+    verdict: boundary
+    way_in: ListsPage
+    reason: router.tsx:80-104 registers ListsPage as a route component; only its .test.tsx calls it in the graph, because lazy-pages.ts loads it through a dynamic import
+  - qn: web-ui/src/ui/pages/ProfilePage.tsx::ProfilePage
+    verdict: boundary
+    way_in: ProfilePage
+    reason: router.tsx:80-104 registers ProfilePage as a route component; only its .test.tsx calls it in the graph, because lazy-pages.ts loads it through a dynamic import
+  - qn: web-ui/src/ui/pages/SettingsPage.tsx::SettingsPage
+    verdict: boundary
+    way_in: SettingsPage
+    reason: router.tsx:80-104 registers SettingsPage as a route component; only its .test.tsx calls it in the graph, because lazy-pages.ts loads it through a dynamic import
   - qn: web-ui/src/ui/pages/HomePage.tsx::HomePage
     verdict: boundary
     way_in: HomePage
@@ -549,8 +583,16 @@ targets:
   - id: ProfilePage
     node: web-ui/src/ui/pages/ProfilePage.tsx::ProfilePage
     evidence: router.tsx:80-104 registers ProfilePage as a route component
-  note: ListsPage and ProfilePage render StatusCard but are test-called, so entry_points drops them
+  note: ListsPage and ProfilePage render StatusCard and are test-called; before entry_kind ignored test callers, entry_points dropped them
   entry_points:
+  - qn: web-ui/src/ui/pages/ListsPage.tsx::ListsPage
+    verdict: boundary
+    way_in: ListsPage
+    reason: router.tsx:80-104 registers ListsPage as a route component; only its .test.tsx calls it in the graph, because lazy-pages.ts loads it through a dynamic import
+  - qn: web-ui/src/ui/pages/ProfilePage.tsx::ProfilePage
+    verdict: boundary
+    way_in: ProfilePage
+    reason: router.tsx:80-104 registers ProfilePage as a route component; only its .test.tsx calls it in the graph, because lazy-pages.ts loads it through a dynamic import
   - qn: web-ui/src/ui/pages/StatusHistoryPage.tsx::StatusHistoryPage
     verdict: boundary
     way_in: StatusHistoryPage

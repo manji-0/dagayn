@@ -47,7 +47,6 @@
 ["index","sqlite_autoindex_metadata_1",null],
 ["index","sqlite_autoindex_nodes_1",null],
 ["table","communities","CREATE TABLE communities (\n                id INTEGER PRIMARY KEY AUTOINCREMENT,\n                name TEXT NOT NULL,\n                level INTEGER NOT NULL DEFAULT 0,\n                parent_id INTEGER,\n                cohesion REAL NOT NULL DEFAULT 0.0,\n                size INTEGER NOT NULL DEFAULT 0,\n                dominant_language TEXT,\n                description TEXT,\n                created_at TEXT NOT NULL DEFAULT (datetime('now'))\n            )"],
-["table","community_summaries","CREATE TABLE community_summaries (\n                community_id INTEGER PRIMARY KEY,\n                name TEXT NOT NULL,\n                purpose TEXT DEFAULT '',\n                key_symbols TEXT DEFAULT '[]',\n                risk TEXT DEFAULT 'unknown',\n                size INTEGER DEFAULT 0,\n                dominant_language TEXT DEFAULT '',\n                FOREIGN KEY (community_id) REFERENCES communities(id)\n            )"],
 ["table","edges","CREATE TABLE edges (\n    id INTEGER PRIMARY KEY AUTOINCREMENT,\n    kind TEXT NOT NULL,\n    source_qualified TEXT NOT NULL,\n    target_qualified TEXT NOT NULL,\n    target_name TEXT NOT NULL DEFAULT '',\n    file_path TEXT NOT NULL,\n    line INTEGER DEFAULT 0,\n    extra TEXT DEFAULT '{}',\n    confidence REAL DEFAULT 1.0,\n    confidence_tier TEXT DEFAULT 'EXTRACTED',\n    updated_at REAL NOT NULL\n)"],
 ["table","embeddings","CREATE TABLE embeddings (\n    qualified_name TEXT NOT NULL,\n    vector BLOB NOT NULL,\n    text_hash TEXT NOT NULL,\n    provider TEXT NOT NULL DEFAULT 'unknown',\n    PRIMARY KEY (qualified_name, provider)\n)"],
 ["table","embeddings_generation","CREATE TABLE embeddings_generation (\n    id INTEGER PRIMARY KEY CHECK (id = 1),\n    epoch TEXT NOT NULL,\n    generation INTEGER NOT NULL\n)"],
@@ -65,5 +64,5 @@
 ["trigger","embeddings_generation_insert","CREATE TRIGGER embeddings_generation_insert AFTER INSERT ON embeddings\nBEGIN\n    UPDATE embeddings_generation SET generation = generation + 1 WHERE id = 1;\nEND"],
 ["trigger","embeddings_generation_update","CREATE TRIGGER embeddings_generation_update AFTER UPDATE ON embeddings\nBEGIN\n    UPDATE embeddings_generation SET generation = generation + 1 WHERE id = 1;\nEND"]
 ],
-"schema_version":19
+"schema_version":20
 }

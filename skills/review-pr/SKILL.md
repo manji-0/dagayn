@@ -48,14 +48,13 @@ retrieval setup.
    `command`). Each kind keeps 10; `findings_omitted` counts the rest. An empty
    list means nothing beyond the diff needs checking. The default
    `detail_level="standard"` adds `changed_functions`; `"minimal"` drops it.
-5. **Read only the parts the findings name**: `review_tool(mode="context",
-   base="<merge-base>")` for change-set snippets; for one `qualified_name`,
+5. **Read only the parts the findings name**: for one `qualified_name`,
    `query_graph_tool(pattern="source_of")`. Open a whole file only when that
    span is truncated, stale, or you need its neighbors.
 6. **Confirm each finding, then drill down where it raises a question**:
-   - Blast radius: `review_tool(mode="impact", base=...)`; the entry points
-     that reach the change: `review_tool(mode="affected_flows", base=...)`,
-     or `flow_tool(mode="entry_points", target=...)` for one symbol.
+   - The entry points that reach the change:
+     `review_tool(mode="affected_flows", base=...)`, or
+     `flow_tool(mode="entry_points", target=...)` for one symbol.
    - Callers of a changed public function:
      `query_graph_tool(pattern="callers_of", target=..., depth=3)` (up to 6) —
      check `reachability` before calling it the full set. Call targets marked
@@ -121,7 +120,6 @@ dagayn instructions (full rules: `get_docs_section_tool(section_name="trust")`).
 ```bash
 BASE=$(git merge-base main HEAD)
 dagayn tool review_tool --arg mode='"changes"' --arg base="\"$BASE\"" --arg detail_level='"minimal"'
-dagayn tool review_tool --arg mode='"context"' --arg base="\"$BASE\"" --arg detail_level='"minimal"'
 dagayn tool query_graph_tool --arg pattern='"source_of"' --arg target='"src/app.py::handler"'
 dagayn tool query_graph_tool --arg pattern='"callers_of"' --arg target='"src/app.py::handler"' --arg depth=3
 dagayn tool query_graph_tool --arg pattern='"docs_for"' --arg target='"src/app.py::handler"'

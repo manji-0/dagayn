@@ -31,10 +31,13 @@ def test_flow_request_accepts_only_entry_points() -> None:
 
 
 def test_review_request_accepts_all_modes() -> None:
-    for mode in ("changes", "context", "affected_flows", "impact"):
+    for mode in ("changes", "affected_flows"):
         request = parse_review_request(mode=mode, repo_root="/repo")
         assert request.mode == mode
         assert request.repo_root == "/repo"
+    for mode in ("context", "impact"):
+        with pytest.raises(ValidationError):
+            parse_review_request(mode=mode)
 
 
 def test_refactor_rename_request_requires_names() -> None:

@@ -36,17 +36,11 @@
       "architecture_analysis_tool": {
         "params": {
           "artifact_scope": "string",
-          "community_id": "integer",
-          "community_name": "string",
           "detail_level": "string",
           "import_kind": "string",
-          "include_members": "boolean",
-          "min_size": "integer",
           "mode": "string",
           "repo_root": "string",
           "scope_kind": "string",
-          "sort_by": "string",
-          "top_n": "integer",
           "unit_filter": "array"
         },
         "required": []
@@ -168,9 +162,6 @@
           "changed_files": "array",
           "detail_level": "string",
           "include_source": "boolean",
-          "max_depth": "integer",
-          "max_lines_per_file": "integer",
-          "max_nodes": "integer",
           "mode": "string",
           "repo_root": "string"
         },
@@ -227,17 +218,11 @@
       "architecture_analysis_tool": {
         "params": {
           "artifact_scope": "string",
-          "community_id": "integer",
-          "community_name": "string",
           "detail_level": "string",
           "import_kind": "string",
-          "include_members": "boolean",
-          "min_size": "integer",
           "mode": "string",
           "repo_root": "string",
           "scope_kind": "string",
-          "sort_by": "string",
-          "top_n": "integer",
           "unit_filter": "array"
         },
         "required": []
@@ -312,9 +297,6 @@
           "changed_files": "array",
           "detail_level": "string",
           "include_source": "boolean",
-          "max_depth": "integer",
-          "max_lines_per_file": "integer",
-          "max_nodes": "integer",
           "mode": "string",
           "repo_root": "string"
         },

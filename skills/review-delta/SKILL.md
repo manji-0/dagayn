@@ -33,14 +33,13 @@ has the compact workflow if you want it in context.
    its `evidence` or `sites`, and an `action`. An empty list means nothing beyond the diff needs
    checking; say so and stop.
 4. **Fetch source only for what can change the verdict**:
-   `review_tool(mode="context")` for the change set, `query_graph_tool(
-   pattern="source_of")` for one symbol.
+   `query_graph_tool(pattern="source_of")` for one symbol.
 5. **Check each finding**: open the `sites` of a `dangling_reference` or
    `unchanged_caller` with `source_of`; read the doc behind a
    `contract_doc_not_updated`; check the other side of a `bridge_touched`;
    ask whether an `unstable_dependency` can point the other way.
-   `review_tool(mode="impact")` (`max_depth`, default 2, is the hop count)
-   only when a behavior change has no finding but may still reach callers.
+   `query_graph_tool(pattern="callers_of", depth=2)` only when a behavior
+   change has no finding but may still reach callers.
 6. **Check coverage**: run the `command` of each `tests_to_run` finding;
    confirm an `untested_change` with `query_graph_tool(pattern="tests_for")`
    before flagging it.
@@ -51,7 +50,7 @@ has the compact workflow if you want it in context.
 - **Risk**: low / medium / high, your judgment from the confirmed findings
   (their kinds and counts).
 - **Issues**: bugs (confirmed with `source_of`), missing tests, style.
-- **Blast radius**: impacted files and functions.
+- **Blast radius**: the callers a behavior change reaches.
 - **Docs**: linked docs to update, or explicit deferrals.
 
 ## Evidence
@@ -69,7 +68,6 @@ and `missingness`, and narrow truncated results first.
 
 ```bash
 dagayn tool review_tool --arg mode='"changes"' --arg detail_level='"minimal"'
-dagayn tool review_tool --arg mode='"context"' --arg detail_level='"minimal"'
-dagayn tool review_tool --arg mode='"impact"' --arg detail_level='"minimal"'
+dagayn tool query_graph_tool --arg pattern='"callers_of"' --arg target='"src/app.py::handler"' --arg depth=2
 dagayn tool query_graph_tool --arg pattern='"tests_for"' --arg target='"src/app.py::handler"'
 ```

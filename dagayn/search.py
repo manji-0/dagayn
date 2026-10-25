@@ -834,6 +834,19 @@ def _empty_embedding_health() -> SearchPayload:
 # ---------------------------------------------------------------------------
 
 
+def search_exactness(query: str, results: list[SearchResult], search_mode: str) -> SearchPayload:
+    """How many hits name ``query`` exactly, as ``semantic_search_nodes_tool``
+    reports it: more than one is an ambiguity to resolve before acting."""
+    exact = sum(
+        1 for r in results if query in {str(r.get("name", "")), str(r.get("qualified_name", ""))}
+    )
+    return {
+        "exact_match_count": exact,
+        "ambiguity": "multiple_exact_matches" if exact > 1 else None,
+        "source_arm": search_mode,
+    }
+
+
 def hybrid_search(
     store: GraphStore,
     query: str,

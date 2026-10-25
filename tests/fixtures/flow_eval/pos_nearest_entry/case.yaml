@@ -1,4 +1,4 @@
-description: main dispatches to a handle_ function; the nearest entry point is the handler, not main.
+description: main dispatches to a handle_ function; a handle_ name that production code calls is a step, so the entry point is main.
 target: srv/work.py::process
 files:
   srv/__init__.py: ""
@@ -18,5 +18,6 @@ files:
     def process(payload):
         return payload
 expected_entry_points:
-- entry_point: srv/handlers.py::handle_request
-  kind: named_entry
+- entry_point: srv/main.py::main
+  kind: main
+  chain: [srv/main.py::main, srv/handlers.py::handle_request, srv/work.py::process]

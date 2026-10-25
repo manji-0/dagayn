@@ -120,10 +120,43 @@ production callers as an entry, and ignore test callers in `has_callers`.
 This is answer correctness against hand ground truth, not an agent
 experiment; that gap in POSITIONING stays open.
 
+Fixes measured (2026-10-25), each alone and together, one run per variant
+on the same `graph.db` (the search runs at query time, so a rerun returns
+the same answer). B moves the `named_entry` rule after the caller check; A
+counts only production callers in `has_callers`:
+
+| Variant | precision, default 10 | recall, default 10 | precision, limit 50 | recall, limit 50 |
+| --- | --- | --- | --- | --- |
+| neither | 0.776 | 0.712 | 0.793 (5 unjudged) | 0.846 |
+| A only | 0.709 | 0.712 | 0.754 (5 unjudged) | 0.942 |
+| B only (shipped) | 0.976 | 0.750 | 0.978 | 0.846 |
+| A and B | 0.872 | 0.750 | 0.895 | 0.942 |
+
+B ships: it carries every default-limit gain and R1 (`generate_entity_id`)
+leaves the zero-recall list. A is reverted: it adds no recall at the
+default limit, and its 5 extra ways in at limit 50 are 3 route components
+(`ListsPage`, `ProfilePage`, `SettingsPage`) on 2 targets of one repository.
+cfwdon loads them through `const module = await import(...)` and
+`module.ListsPage` in `web-ui/src/ui/pages/lazy-pages.ts`, which the graph
+does not resolve, so only their tests call them. Its cost is 3 `wrong`
+entries (helpers in a Rust `#[cfg(test)] mod tests`) and 2 targets
+(`StreamSubscription.matches`, `DeliveryAttemptOutcome.forHttpStatus`)
+returned as their own entry point because their production callers are
+unresolved. The flow eval's three negative cases fail under A for the same
+reason.
+
+Open: a signal that separates the lazily loaded routes from dead code.
+On this sample, "a production `REFERENCES` edge targets a same-named node in
+a file that `IMPORTS_FROM` the function's file" holds for all 3 route
+components and for none of the 4 `wrong` or `helper` entries A added. It is
+one pattern in one file, so it waits for a second repository, or for the
+parser to resolve a member of a dynamic import.
+
 ## Review impact and context
 
 Rerun: `DAGAYN_MEASURE_DIR=DIR eval/run_review_modes_measure.py run`, then
-`summarize`; judgments in `eval/review_modes_judgments.yaml`.
+`summarize`, at b0250d3f; both modes are removed after it, and the script with
+them. Judgments in `eval/review_modes_judgments.yaml`.
 
 44 commits, 11 per repository, picked for touching code symbols (release,
 lockfile, and docs-only commits skipped; the reason for each is in the
@@ -204,7 +237,8 @@ fixture, corpus, and generated files, or cap findings per file; drop
 
 ## Communities
 
-Rerun: `eval/run_communities_measure.py`; judgments in
+Rerun: `eval/run_communities_measure.py` at b0250d3f; the modes are removed
+after it, and the script with them. Judgments in
 `eval/communities_judgments.yaml`.
 
 Purity against declared units and their top-level modules, from the graph's

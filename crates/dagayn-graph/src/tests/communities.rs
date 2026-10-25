@@ -197,7 +197,6 @@ fn deleting_emptied_communities_drops_their_summaries() {
     )
     .unwrap();
     store.store_communities_json(&payload).unwrap();
-    store.compute_community_summaries().unwrap();
     let count = |store: &GraphStore, table: &str| -> i64 {
         store
             .conn
@@ -206,7 +205,7 @@ fn deleting_emptied_communities_drops_their_summaries() {
             })
             .unwrap()
     };
-    assert_eq!(count(&store, "community_summaries"), 2);
+    assert_eq!(count(&store, "communities"), 2);
     let id_b: i64 = store
         .conn
         .query_row(
@@ -216,8 +215,7 @@ fn deleting_emptied_communities_drops_their_summaries() {
         )
         .unwrap();
 
-    // A re-parse that drops every member leaves the community (and its
-    // summary) behind; both deletion paths must take the summary with it.
+    // A re-parse that drops every member leaves the community behind.
     store
         .conn
         .execute(
@@ -229,6 +227,5 @@ fn deleting_emptied_communities_drops_their_summaries() {
     store.delete_community(id_b).unwrap();
 
     assert_eq!(count(&store, "communities"), 0);
-    assert_eq!(count(&store, "community_summaries"), 0);
     let _ = std::fs::remove_file(path);
 }

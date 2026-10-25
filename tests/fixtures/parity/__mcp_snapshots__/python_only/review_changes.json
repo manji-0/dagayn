@@ -1,0 +1,24 @@
+{
+  "_repo": {
+    "repo_root": "<REPO>"
+  },
+  "base": "HEAD~1",
+  "diff_parse_status": "base_unresolved",
+  "error": "Could not resolve the diff base 'HEAD~1' in <REPO>. Pass a reachable ref (the default HEAD~1 does not exist in a single-commit repository, and a rebase or gc can make a recorded sha unreachable).",
+  "missingness": [
+    {
+      "claim_effect": "claims should be treated as graph-limited until this is resolved",
+      "reason_code": "missing_test_edges",
+      "severity": "medium"
+    },
+    {
+      "claim_effect": "no diff could be computed, so nothing here describes what actually changed",
+      "reason_code": "diff_base_unreachable",
+      "severity": "high"
+    }
+  ],
+  "mode": "changes",
+  "next": [],
+  "status": "error",
+  "summary": "Could not resolve the diff base 'HEAD~1' in <REPO>. Pass a reachable ref (the default HEAD~1 does not exist in a single-commit repository, and a rebase or gc can make a recorded sha unreachable)."
+}

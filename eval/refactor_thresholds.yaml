@@ -9,4 +9,3 @@ defaults:
 kinds:
   unused_symbol: {}
   complex_hotspot: {}
-  undocumented_surface: {}

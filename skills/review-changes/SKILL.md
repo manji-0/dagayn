@@ -44,12 +44,12 @@ it, which tests cover it, and which docs are linked to it. Read the
    - `untested_change`: confirm with `query_graph_tool(pattern="tests_for")`,
      then suggest a test.
    - `tests_to_run`: run its `command`, or list it in the review.
-4. **Fetch source only where needed**: `review_tool(mode="context")` for
-   change-set snippets, `query_graph_tool(pattern="source_of")` for one symbol.
-5. **Drill down only on a concrete question**: `review_tool(mode="impact")` for
-   blast radius (`max_depth` sets the hops), `mode="affected_flows"` for the entry points that reach the change,
-   `query_graph_tool(pattern="tests_for")` for uncertain coverage, and
-   `callers_of` with `depth` up to 6 for transitive callers.
+4. **Fetch source only where needed**: `query_graph_tool(pattern="source_of")`
+   for one symbol a finding names.
+5. **Drill down only on a concrete question**: `query_graph_tool(pattern="callers_of")`
+   with `depth` up to 6 for the callers of a changed symbol,
+   `review_tool(mode="affected_flows")` for the entry points that reach the
+   change, and `query_graph_tool(pattern="tests_for")` for uncertain coverage.
 6. **Follow documentation links**: `docs_for` on changed code symbols,
    `implementations_of` on changed Markdown sections (`<doc.md>::<section-slug>`).
 7. **Docs update after code change**: when a `contract_doc_not_updated`
@@ -127,8 +127,7 @@ is ready.
 
 ```bash
 dagayn tool review_tool --arg mode='"changes"' --arg base='"main"' --arg detail_level='"minimal"'
-dagayn tool review_tool --arg mode='"context"' --arg detail_level='"minimal"'
-dagayn tool review_tool --arg mode='"impact"' --arg 'changed_files=["src/app.py"]' --arg detail_level='"minimal"'
+dagayn tool query_graph_tool --arg pattern='"callers_of"' --arg target='"src/app.py::handler"' --arg depth=3
 dagayn tool query_graph_tool --arg pattern='"source_of"' --arg target='"src/app.py::handler"'
 dagayn tool query_graph_tool --arg pattern='"docs_for"' --arg target='"src/app.py::handler"'
 ```

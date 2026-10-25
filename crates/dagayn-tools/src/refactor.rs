@@ -2,6 +2,8 @@
 //! mode. A `rename` preview goes to the shared pending store
 //! ([`crate::pending`]) that `apply_refactor_tool` applies from.
 
+use std::collections::HashMap;
+
 use serde_json::{Map, Value, json};
 
 use crate::analysis::py_prefix;
@@ -169,14 +171,17 @@ fn rename_error(context: &Context, args: &crate::Args, message: &str) -> Option<
 const FINDINGS_PER_KIND: usize = 10;
 
 /// `unused_symbol` findings: the verified dead-code report without test
-/// fixtures (docs/plans/REFACTOR-TOOL-TARGET.md#finding-kinds).
+/// fixtures (docs/plans/REFACTOR-TOOL-TARGET.md#finding-kinds), each file's
+/// first before any file's second, so one survey or generated file cannot
+/// fill every slot (docs/plans/OPEN-MEASUREMENTS.md#refactor-suggestions).
 fn unused_symbol_findings(store: &dagayn_graph::GraphStore) -> Option<(Vec<Value>, usize)> {
     let report = crate::dead_code::dead_code_report(store, None, None)?;
     if report.verification.status == "unavailable" {
         return Some((Vec::new(), 0));
     }
     let verification = report.verification.value();
-    let found: Vec<Value> = report
+    let mut per_file: HashMap<String, usize> = HashMap::new();
+    let mut found: Vec<(usize, Value)> = report
         .dead
         .iter()
         .filter(|item| {
@@ -185,7 +190,11 @@ fn unused_symbol_findings(store: &dagayn_graph::GraphStore) -> Option<(Vec<Value
                 .is_some_and(|qn| is_fixture_path(qn.split("::").next().unwrap_or(qn)))
         })
         .map(|item| {
-            json!({
+            let seen = per_file
+                .entry(item["file"].as_str().unwrap_or_default().to_string())
+                .or_default();
+            *seen += 1;
+            let finding = json!({
                 "kind": "unused_symbol",
                 "qualified_name": item["qualified_name"],
                 "file": item["file"],
@@ -199,11 +208,21 @@ fn unused_symbol_findings(store: &dagayn_graph::GraphStore) -> Option<(Vec<Value
                     "verification": verification,
                 },
                 "action": "Delete it, or point to the dynamic use the graph missed.",
-            })
+            });
+            (*seen, finding)
         })
         .collect();
+    // Stable: within a rank, the report's order stands.
+    found.sort_by_key(|(rank, _)| *rank);
     let omitted = found.len().saturating_sub(FINDINGS_PER_KIND);
-    Some((found.into_iter().take(FINDINGS_PER_KIND).collect(), omitted))
+    Some((
+        found
+            .into_iter()
+            .take(FINDINGS_PER_KIND)
+            .map(|(_, finding)| finding)
+            .collect(),
+        omitted,
+    ))
 }
 
 fn suggest(
@@ -218,7 +237,6 @@ fn suggest(
         .filter(|s| s["type"] == "split")
         .collect();
     let hotspots = crate::refactor_findings::complex_hotspots(store, root, &splits);
-    let undocumented = crate::refactor_findings::undocumented_surface(store, root)?;
     let (unused, unused_omitted) = unused_symbol_findings(store)?;
 
     let mut findings: Vec<Value> = unused;
@@ -227,16 +245,15 @@ fn suggest(
     if unused_omitted > 0 {
         omitted.insert("unused_symbol".into(), json!(unused_omitted));
     }
-    for (kind, found) in [
-        ("complex_hotspot", hotspots.clone().unwrap_or_default()),
-        ("undocumented_surface", undocumented),
-    ] {
-        counts.push((kind, found.len()));
-        if found.len() > FINDINGS_PER_KIND {
-            omitted.insert(kind.into(), json!(found.len() - FINDINGS_PER_KIND));
-        }
-        findings.extend(found.into_iter().take(FINDINGS_PER_KIND));
+    let found = hotspots.clone().unwrap_or_default();
+    counts.push(("complex_hotspot", found.len()));
+    if found.len() > FINDINGS_PER_KIND {
+        omitted.insert(
+            "complex_hotspot".into(),
+            json!(found.len() - FINDINGS_PER_KIND),
+        );
     }
+    findings.extend(found.into_iter().take(FINDINGS_PER_KIND));
     if detail_level == "minimal" {
         for finding in &mut findings {
             if let Some(object) = finding.as_object_mut() {

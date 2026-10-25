@@ -16,6 +16,9 @@ fn creates_current_schema() {
     for table in CENTRALITY_TABLES {
         assert!(!table_exists(&store.conn, table).unwrap(), "{table}");
     }
+    // v20 dropped the community summaries; the communities stay.
+    assert!(!table_exists(&store.conn, "community_summaries").unwrap());
+    assert!(table_exists(&store.conn, "communities").unwrap());
     let _ = std::fs::remove_file(path);
 }
 
@@ -48,10 +51,31 @@ fn migrate_v19_drops_the_centrality_tables_of_an_existing_db() {
 
     let store = GraphStore::open(&path).expect("open graph store");
 
-    assert_eq!(store.schema_version().unwrap(), 19);
+    assert_eq!(store.schema_version().unwrap(), LATEST_VERSION);
     for table in CENTRALITY_TABLES {
         assert!(!table_exists(&store.conn, table).unwrap(), "{table}");
     }
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn migrate_v20_drops_the_community_summaries_of_an_existing_db() {
+    let path = temp_db("migrate-v20");
+    {
+        let conn = rusqlite::Connection::open(&path).expect("open sqlite db");
+        conn.execute_batch(SCHEMA_SQL).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE community_summaries (community_id INTEGER PRIMARY KEY, name TEXT); \
+             INSERT INTO community_summaries VALUES (1, 'auth-cluster'); \
+             INSERT OR REPLACE INTO metadata (key, value) VALUES ('schema_version', '19');",
+        )
+        .unwrap();
+    }
+
+    let store = GraphStore::open(&path).expect("open graph store");
+
+    assert_eq!(store.schema_version().unwrap(), 20);
+    assert!(!table_exists(&store.conn, "community_summaries").unwrap());
     let _ = std::fs::remove_file(path);
 }
 

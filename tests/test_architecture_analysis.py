@@ -19,8 +19,7 @@ DAGAYN = Path(sys.executable).with_name("dagayn")
 
 SUBTOOLS: dict[str, str] = {
     "overview": "get_architecture_overview_func",
-    "communities": "list_communities_func",
-    "community": "get_community_func",
+    "import_cycles": "find_import_cycles_func",
 }
 
 
@@ -48,20 +47,17 @@ def repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
 def test_architecture_analysis_wrapper_exposes_typed_dispatch_args() -> None:
     params = inspect.signature(crg_main.architecture_analysis_tool).parameters
 
-    for name in (
+    assert list(params) == [
         "mode",
         "detail_level",
-        "top_n",
-        "sort_by",
-        "community_name",
-        "community_id",
         "scope_kind",
+        "unit_filter",
+        "repo_root",
         "artifact_scope",
-    ):
-        assert name in params
+        "import_kind",
+    ]
     assert params["mode"].default == "overview"
     assert params["detail_level"].default == "minimal"
-    assert params["top_n"].default == 10
     assert params["artifact_scope"].default == "code"
 
 
@@ -70,7 +66,6 @@ def test_architecture_analysis_routes_every_mode(repo: Path) -> None:
         result = architecture_analysis.architecture_analysis_func(
             mode=cast(ArchitectureAnalysisMode, mode),
             repo_root=str(repo),
-            community_name="zz-none" if mode == "community" else None,
             artifact_scope="all",
             # verbose keeps the subtool's name, which the agent's envelope drops.
             detail_level="verbose",
@@ -78,14 +73,4 @@ def test_architecture_analysis_routes_every_mode(repo: Path) -> None:
 
         assert result["mode"] == mode
         assert result["called_subtool"] == subtool
-        expected = "not_found" if mode == "community" else "ok"
-        assert result["status"] == expected, (mode, result.get("summary"))
-
-
-def test_architecture_analysis_community_requires_selector(repo: Path) -> None:
-    result = architecture_analysis.architecture_analysis_func(mode="community", repo_root=str(repo))
-
-    assert result["status"] == "error"
-    assert result["mode"] == "community"
-    assert "called_subtool" not in result
-    assert "community_id or community_name" in result["summary"]
+        assert result["status"] == "ok", (mode, result.get("summary"))

@@ -162,33 +162,6 @@ pub(crate) fn markdown_heading_level(line: &str) -> Option<usize> {
     }
 }
 
-pub(crate) fn common_prefix(values: &[String]) -> String {
-    let Some((first, rest)) = values.split_first() else {
-        return String::new();
-    };
-    let mut prefix = first.clone();
-    for value in rest {
-        while !value.starts_with(&prefix) {
-            if prefix.pop().is_none() {
-                return String::new();
-            }
-        }
-    }
-    prefix
-}
-
-pub(crate) fn community_purpose(paths: &[String]) -> String {
-    let prefix = common_prefix(paths);
-    if !prefix.contains('/') {
-        return String::new();
-    }
-    prefix
-        .rsplit_once('/')
-        .map(|(before_last, _)| before_last.rsplit('/').next().unwrap_or(""))
-        .unwrap_or("")
-        .to_string()
-}
-
 pub(crate) fn sanitize_name(value: &str) -> String {
     value
         .chars()

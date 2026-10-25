@@ -596,19 +596,8 @@ def get_docs_section_tool(
 
 @mcp.tool()
 def architecture_analysis_tool(
-    mode: Literal[
-        "overview",
-        "communities",
-        "community",
-        "import_cycles",
-    ] = "overview",
+    mode: Literal["overview", "import_cycles"] = "overview",
     detail_level: Literal["minimal", "standard", "verbose"] = "minimal",
-    top_n: int = 10,
-    sort_by: Literal["size", "cohesion", "name"] = "size",
-    min_size: int = 0,
-    community_name: Optional[str] = None,
-    community_id: Optional[int] = None,
-    include_members: bool = False,
     scope_kind: Literal["file", "package", "directory"] = "package",
     unit_filter: Optional[list[str]] = None,
     repo_root: Optional[str] = None,
@@ -625,7 +614,6 @@ def architecture_analysis_tool(
     ``findings`` list means nothing structural to act on.
     ``detail_level="standard"`` adds each unit's ``surface``.
 
-    communities / community: graph clusters (need full post-processing).
     import_cycles: every simple cycle the resolved imports form between
     ``scope_kind`` scopes, each starting at its smallest scope
     (``standard`` adds one import per hop); ``results_complete`` says
@@ -642,12 +630,6 @@ def architecture_analysis_tool(
     payload = _tool("architecture_analysis:architecture_analysis_func")(
         mode=mode,
         detail_level=detail_level,
-        top_n=top_n,
-        sort_by=sort_by,
-        min_size=min_size,
-        community_name=community_name,
-        community_id=community_id,
-        include_members=include_members,
         scope_kind=scope_kind,
         unit_filter=unit_filter,
         artifact_scope=artifact_scope,
@@ -659,13 +641,10 @@ def architecture_analysis_tool(
 
 @mcp.tool()
 async def review_tool(
-    mode: Literal["changes", "context", "affected_flows", "impact"] = "changes",
+    mode: Literal["changes", "affected_flows"] = "changes",
     base: Optional[str] = None,
     changed_files: Optional[list[str]] = None,
     include_source: Optional[bool] = None,
-    max_depth: int = 2,
-    max_nodes: int = 50,
-    max_lines_per_file: int = 200,
     repo_root: Optional[str] = None,
     detail_level: Literal["minimal", "standard", "verbose"] = "standard",
 ) -> ToolPayload:
@@ -679,9 +658,9 @@ async def review_tool(
     untested_change, tests_to_run (with a command). An empty list means
     nothing beyond the diff.
 
-    Modes: changes (findings), context (source snippets), impact (blast
-    radius, ``max_depth`` hops), affected_flows (entry points that reach the
-    change).
+    Modes: changes (findings), affected_flows (entry points that reach the
+    change). For a symbol's callers, ``query_graph_tool(callers_of)``; for
+    its source, ``query_graph_tool(source_of)``.
 
     Args:
         base: Git ref to diff against, plus staged, unstaged, and untracked
@@ -689,10 +668,7 @@ async def review_tool(
             (the work in progress), else HEAD~1 (the last commit). For a branch
             pass ``git merge-base main HEAD``.
         changed_files: Explicit file list instead of the git diff.
-        include_source: (context) Include source snippets.
-        max_depth: (impact) Hops to walk. Default: 2.
-        max_nodes: (impact, context) Node cap. Default: 50.
-        max_lines_per_file: (context) Lines per file. Default: 200.
+        include_source: (changes) Attach each changed function's source.
     """
     payload = await asyncio.to_thread(
         _tool("review_dispatcher:review_func"),
@@ -700,9 +676,6 @@ async def review_tool(
         base=base,
         changed_files=changed_files,
         include_source=include_source,
-        max_depth=max_depth,
-        max_nodes=max_nodes,
-        max_lines_per_file=max_lines_per_file,
         repo_root=_resolve_repo_root(repo_root),
         detail_level=detail_level,
     )

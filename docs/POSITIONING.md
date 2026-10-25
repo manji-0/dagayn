@@ -92,6 +92,21 @@ These duplicate an answer another tool already gives:
   benchmark; the Rust centrality pass it reads goes once no reader is
   confirmed
 
+### Measured and cut
+
+<!-- derived-from ./plans/OPEN-MEASUREMENTS.md#verdicts -->
+
+These were measured on real repositories and did not help the agent:
+
+- `review_tool` `impact` and `context`: 11 actionable facts beyond `changes`
+  in 44 commits, all also returned by `callers_of`
+- the `communities` and `community` modes of `architecture_analysis_tool`:
+  3 of 35 hand-checked communities useful, against units that already state
+  the module boundaries in `mode="overview"`
+- the `undocumented_surface` finding of `refactor_tool(mode="suggest")`: 3 of
+  18 actionable; the rest were self-describing structs or types whose
+  variants were already documented
+
 ## Open measurements
 
 Each of these keeps its place only if a measurement shows it helps the agent:
@@ -102,8 +117,7 @@ Each of these keeps its place only if a measurement shows it helps the agent:
   never measured
 - embeddings: hybrid search against FTS alone on the same queries
 - `flow_tool(mode="entry_points")`, which has no agent experiment
-- `review_tool` `impact` and `context`; `context` keeps 4 of 954 nodes
-- `refactor_tool(mode="suggest")` and the communities modes
+- `refactor_tool(mode="suggest")`
 - the multi-repo registry, daemon, and `cross_repo_search_tool`
 
 ## How this would be wrong

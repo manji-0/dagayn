@@ -41,7 +41,10 @@ struct Entry {
 }
 
 /// Why `node` starts an execution, or `None` when it is only a step.
-/// `has_callers` counts every caller in the graph, tests included.
+/// `has_callers` counts every caller in the graph, tests included. A
+/// conventional entry name (`handle_*`, `render`) that something calls is a
+/// step, not an entry: stopping there hides the boundary that calls it
+/// (docs/plans/OPEN-MEASUREMENTS.md#flow-entry-points).
 fn entry_kind(node: &GraphNode, has_callers: bool) -> Option<&'static str> {
     if node.kind == "File" {
         let runs = !NO_TOP_LEVEL_CODE.contains(&node.language.as_str());
@@ -56,11 +59,11 @@ fn entry_kind(node: &GraphNode, has_callers: bool) -> Option<&'static str> {
     if node.extra.get("ffi_export").is_some_and(|v| !v.is_null()) {
         return Some("ffi_export");
     }
-    if is_conventional_entry_point(node) {
-        return Some("named_entry");
-    }
     if has_callers {
         return None;
+    }
+    if is_conventional_entry_point(node) {
+        return Some("named_entry");
     }
     // A method nothing calls statically is reached through a trait,
     // interface, or framework the graph cannot see; it is still where the

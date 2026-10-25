@@ -273,7 +273,7 @@ single tool directly, including when a running MCP server was started with a
 narrow `--tools` allow-list:
 
 ```bash
-dagayn tool review_tool --arg mode='"impact"' --arg 'changed_files=["src/app.py"]' --arg max_depth=3
+dagayn tool review_tool --arg mode='"changes"' --arg 'changed_files=["src/app.py"]'
 dagayn tool flow_tool --arg mode='"entry_points"' --arg target='"save_user"'
 dagayn tool architecture_analysis_tool --arg mode='"overview"' --format summary
 ```
@@ -516,7 +516,7 @@ contract section through `implemented_by` / `implements_contract`
 `CROSS_ARTIFACT` edges. Use `bridges_from` to follow high-confidence Terraform
 → application-code bridges (`maps_entrypoint`, `invokes_binary`) emitted from
 `filename` / `source_dir` / `handler` / `entry_point` / `local-exec` patterns.
-Review impact / flow / architecture guidance also surfaces reportable bridges
+Review / flow / architecture guidance also surfaces reportable bridges
 as first-class transitions and keeps low-confidence bridges as missingness
 caveats rather than hard claims.
 
@@ -649,8 +649,13 @@ With no `base`, a checkout whose tracked files have staged or unstaged edits is
 reviewed against `HEAD` (the work in progress); a clean one against `HEAD~1`
 (the last commit). Untracked files count either way. To review a branch, pass
 its merge base with `main`. An explicit `changed_files` list scopes the review
-to those files; the base diff only narrows them to their changed lines. The
-`context`, `impact`, and `affected_flows` modes are unchanged.
+to those files; the base diff only narrows them to their changed lines.
+
+The `impact` and `context` modes were removed: on 44 real commits they added
+11 actionable facts beyond `changes`, all also returned by `callers_of`
+(docs/plans/OPEN-MEASUREMENTS.md#review-impact-and-context). For the callers of
+a changed symbol, call `query_graph_tool(pattern="callers_of", depth=...)`; for
+its source, `source_of`.
 
 `get_minimal_context_tool` routes common English and Japanese task descriptions
 for review, debugging, exploration, feature addition, and refactoring to the
@@ -729,13 +734,15 @@ Migration note for dagayn 3.0: v2 split architecture MCP/CLI tools such as
 `architecture_analysis_tool(mode=...)` instead.
 
 Review and execution-flow drill-downs are also dispatcher-based in v3. Use
-`review_tool(mode="changes"|"context"|"affected_flows"|"impact")` and
+`review_tool(mode="changes"|"affected_flows")` and
 `flow_tool` instead of the v2 split MCP/CLI tools.
 
 `flow_tool(mode="entry_points", target=...)` answers which entry points reach
 a symbol: the nearest `main`, framework handler, FFI export, conventionally
 named entry, uncalled function, or method only a trait or framework calls
-(`dispatched_method`) on each path, with one shortest call chain each. It is
+(`dispatched_method`) on each path, with one shortest call chain each. A
+conventionally named function (`handle_*`) that something calls is a step,
+not an entry point, and a function only tests call has no entry point. It is
 computed at query time; test code is never walked. Without `target` it lists
 the repository's entry points per declared unit, counted by kind.
 
@@ -743,9 +750,7 @@ the repository's entry points per declared unit, counted by kind.
 10 per kind with the rest in `findings_omitted`: `unused_symbol` (the verified
 dead-code report without test fixtures), `complex_hotspot` (a function past the
 split thresholds whose lines changed in 5 or more commits in the last 90 days,
-from `git log -L`), and `undocumented_surface` (one of the three symbols other
-units use most from a unit, without a docstring or doc comment). An empty list
-means nothing worth doing. Findings are leads (structure, not correctness): confirm them
+from `git log -L`). An empty list means nothing worth doing. Findings are leads (structure, not correctness): confirm them
 with `source_of` or a reproduction on a current graph (see the `trust` section
 of `get_docs_section_tool`). Verify public APIs,
 test artifacts, dynamic dispatch, and generated entry points before changing

@@ -9,7 +9,7 @@ use serde_json::value::RawValue;
 use serde_json::{Value, json};
 use thiserror::Error;
 
-const LATEST_VERSION: i64 = 19;
+const LATEST_VERSION: i64 = 20;
 const MAX_INSERT_PARAMS: usize = 30_000;
 const NODE_INSERT_PARAM_COUNT: usize = 16;
 const EDGE_INSERT_PARAM_COUNT: usize = 10;
@@ -529,7 +529,6 @@ mod search_markdown;
 mod search_query;
 mod subgraph;
 mod summaries;
-mod summary_communities;
 mod summary_risk;
 mod upserts;
 mod write;

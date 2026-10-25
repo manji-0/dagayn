@@ -17,10 +17,9 @@ edit set, and verify impact afterwards.
    `commit_drift`, follow `next` (the server has usually queued a
    refresh already); call `ensure_graph_tool()` only when you must wait for it.
 2. **Find candidates**: `refactor_tool(mode="suggest")` answers with
-   `findings`: `unused_symbol` (verified dead code, test fixtures left out),
-   `complex_hotspot` (a long function changed in 5+ commits in 90 days), and
-   `undocumented_surface` (a symbol other units use most, with no doc). An
-   empty list means nothing worth doing. Use `mode="dead_code"` to see what
+   `findings`: `unused_symbol` (verified dead code, test fixtures left out)
+   and `complex_hotspot` (a long function changed in 5+ commits in 90 days).
+   An empty list means nothing worth doing. Use `mode="dead_code"` to see what
    the dead-code check left out and why.
 3. **Map the blast radius** before touching public code:
    - `query_graph_tool(pattern="callers_of", target=..., depth=6)` (also
@@ -47,7 +46,7 @@ edit set, and verify impact afterwards.
 7. **Verify**: `review_tool(mode="changes")` and read `findings`: a
    `dangling_reference` or `unchanged_caller` names a site the refactor
    missed, `contract_doc_not_updated` a doc to fix, and `tests_to_run` the
-   tests to run. Drill into `mode="impact"` or `"affected_flows"` only when a
+   tests to run. Drill into `callers_of` or `mode="affected_flows"` only when a
    finding points there.
 
 ## Judging suggestions
