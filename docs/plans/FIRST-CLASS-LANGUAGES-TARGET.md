@@ -409,14 +409,22 @@ method-call gap.
 - Dispatch-aware reach, which stays
   [not shipped](./TEST-REACH-TARGET.md#measured-2026-10-25-not-shipped).
 
-## Decisions for the owner
+## Decisions (2026-10-26)
 
-- **Go now, or after Rust precision.** Run M2 (measurement only) now, and
-  hold G1 to G7 until Rust untested precision is raised. Or accept Go as the
-  next language now: it is the largest measured gap, and G1 to G3 are
-  extractor changes, not inference rules.
-- **Python's bar.** Is M3 failing enough to stop Python investment beyond
-  maintenance?
-- **Cloning.** May scip-go and compress be cloned, and Go 1.25 and
-  `scip-go` installed?
-- **Third-party Python.** Which repository to use for M3 and P1.
+<!-- derived-from #work-list -->
+
+- **Go starts now.** G1 to G3 go ahead without waiting for Rust untested
+  precision: Go is the largest measured gap, and they are extractor
+  changes, not inference rules. M2 lands with G1, because G1's bar is
+  read from it.
+- **Python's bar.** If M3 fails, Python is maintained, not invested in.
+- **Go is the one language whose SCIP needs its own toolchain.** Rust's
+  indexer comes from rustup, and TypeScript's and Python's run through
+  `npx`, which `dagayn build --scip` already falls back to. `scip-go`
+  needs a Go toolchain of the version it was built for (1.25). So Go's
+  first-class bar does not depend on SCIP: G1 to G5 must pass on the
+  extractor alone, and G6 uses `scip-go` as an answer key for measurement,
+  not as a build requirement.
+- **Cloning and tooling.** scip-go and compress may be cloned, and Go 1.25
+  and `scip-go` installed, for measurement.
+- **Third-party Python.** Chosen when M3 starts.
