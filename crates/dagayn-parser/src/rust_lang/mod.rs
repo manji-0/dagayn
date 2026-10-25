@@ -22,6 +22,7 @@ use super::{
     rust_node_with_leading_attributes,
 };
 
+mod dispatch;
 mod ffi;
 pub(crate) mod modules;
 
@@ -445,41 +446,45 @@ fn rust_walk_children(
                     let caller = enclosing_func
                         .map(|name| qualify(&context.file_path, name, enclosing_class))
                         .unwrap_or_else(|| context.file_path.to_string());
+                    let mut extra = if receiver_unknown {
+                        let receiver = child
+                            .child_by_field_name("function")
+                            .and_then(|function| function.child_by_field_name("value"));
+                        // The call the receiver is the result of, whose
+                        // declared return type resolution reads.
+                        let mut extra = match receiver.and_then(|receiver| {
+                            rust_receiver_origin(receiver, &call_name, context)
+                        }) {
+                            Some(origin) => json!({
+                                "receiver_unknown": true,
+                                "receiver_from": origin.to_json(),
+                            }),
+                            None => json!({"receiver_unknown": true}),
+                        };
+                        // A field of a value whose type is known, the
+                        // struct declared in another file.
+                        if let Some(field) =
+                            receiver.and_then(|receiver| rust_receiver_field(receiver, context))
+                        {
+                            extra["receiver_field"] = field;
+                        }
+                        extra
+                    } else if bound_receiver {
+                        // Read (and dropped) by `rust_mark_std_calls`.
+                        json!({"bound_receiver": true})
+                    } else {
+                        json!({})
+                    };
+                    if child.kind() == "call_expression" {
+                        dispatch::rust_dispatch_facts(child, context.source, &mut extra);
+                    }
                     edges.push(ParsedEdge {
                         kind: crate::core::types::EdgeKind::Calls,
                         source: caller.clone(),
                         target: call_name.clone(),
                         file_path: context.file_path.clone(),
                         line: child.start_position().row as i64 + 1,
-                        extra: if receiver_unknown {
-                            let receiver = child
-                                .child_by_field_name("function")
-                                .and_then(|function| function.child_by_field_name("value"));
-                            // The call the receiver is the result of, whose
-                            // declared return type resolution reads.
-                            let mut extra = match receiver.and_then(|receiver| {
-                                rust_receiver_origin(receiver, &call_name, context)
-                            }) {
-                                Some(origin) => json!({
-                                    "receiver_unknown": true,
-                                    "receiver_from": origin.to_json(),
-                                }),
-                                None => json!({"receiver_unknown": true}),
-                            };
-                            // A field of a value whose type is known, the
-                            // struct declared in another file.
-                            if let Some(field) =
-                                receiver.and_then(|receiver| rust_receiver_field(receiver, context))
-                            {
-                                extra["receiver_field"] = field;
-                            }
-                            extra
-                        } else if bound_receiver {
-                            // Read (and dropped) by `rust_mark_std_calls`.
-                            json!({"bound_receiver": true})
-                        } else {
-                            json!({})
-                        },
+                        extra,
                     });
                     if let Some(edge) = rust_bridge_edge(
                         child,
@@ -1991,6 +1996,9 @@ fn rust_emit_token_tree_calls(
                 json!({}),
             )
         };
+        if opens_call(end + 1) {
+            dispatch::rust_token_dispatch_facts(tokens[end + 1], source, &mut extra);
+        }
         extra["in_macro"] = json!(true);
         edges.push(ParsedEdge {
             kind: crate::core::types::EdgeKind::Calls,

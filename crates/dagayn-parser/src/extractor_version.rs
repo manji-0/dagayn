@@ -220,8 +220,11 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 23: struct nodes carry `field_types`; `x.field.m()` on a struct of
         // another file records `receiver_field`; a path in code with no `use`
         // (`crate::a::B::f()`) is an IMPORTS_FROM tagged `path_use`.
+        // 24: a call records its string-literal arguments and the string
+        // parameters it passes on (`arguments`), and the `match` arm or `if
+        // p == ".."` branch on a string parameter it sits in (`dispatch`).
         extractor: "rust",
-        version: 23,
+        version: 24,
         languages: &["rust"],
     },
     ExtractorVersion {

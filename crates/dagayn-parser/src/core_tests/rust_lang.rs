@@ -684,3 +684,143 @@ fn mentions(text: &str) -> bool {
         .is_some()
     );
 }
+
+#[test]
+fn rust_calls_record_string_arguments_and_the_arm_they_sit_in() {
+    let source = br#"
+pub fn call(ctx: &Ctx, name: &str, x: i64) -> i64 {
+    answer(ctx, name, x)
+}
+fn answer(ctx: &Ctx, name: &str, x: i64) -> i64 {
+    match name {
+        "double" => double(x),
+        "negate" | "minus" => negate(x),
+        _ => {
+            if name == "square" || "sq" == name {
+                square(x)
+            } else {
+                other(x)
+            }
+        }
+    }
+}
+fn tool(&self, name: String) -> i64 {
+    self.run(name.as_str(), "fixed\n");
+    let f = |name: &str| answer(ctx(), name, 1);
+    let g = |x: i64| answer(ctx(), "double", x);
+    f("double")
+}
+#[test]
+fn doubles() {
+    call(&ctx(), "double", 2);
+}
+fn helper(name: &str) {
+    assert_eq!(call(&ctx(), "negate", 1), -1);
+    assert!(answer(&ctx(), &name, 2,) > 0);
+    assert!(answer(&ctx(), name.as_str(), 2) > 0);
+}
+#[test]
+fn table() {
+    for (name, x) in [("double", 1), ("negate", 2)] {
+        assert!(call(&ctx(), name, x) != 0);
+    }
+    let tool = "square";
+    call(&ctx(), tool, 3);
+    let tool = format!("{}", 1);
+    call(&ctx(), &tool, 4);
+    let cases = [("cube", json!({})), ("minus", json!({}))];
+    for (tool, arguments) in &cases {
+        call(&ctx(), tool, arguments);
+    }
+}
+"#;
+    let (_, edges) = parse_rust("src/x.rs", source);
+    let call = |source: &str, target: &str| {
+        edges
+            .iter()
+            .find(|edge| {
+                edge.kind == "CALLS" && edge.source == source && edge.target.ends_with(target)
+            })
+            .unwrap_or_else(|| panic!("{source} -> {target}"))
+    };
+    use serde_json::json;
+    // `name` is the second of three parameters; `ctx` is not a string.
+    assert_eq!(
+        call("src/x.rs::call", "answer").extra["arguments"],
+        json!([null, {"parameter": 1, "of": 3}, null])
+    );
+    assert_eq!(
+        call("src/x.rs::doubles", "call").extra["arguments"],
+        json!([null, "double", null])
+    );
+    let guard = |values: serde_json::Value| json!([{"parameter": 1, "of": 3, "values": values}]);
+    assert_eq!(
+        call("src/x.rs::answer", "double").extra["dispatch"],
+        guard(json!(["double"]))
+    );
+    assert_eq!(
+        call("src/x.rs::answer", "negate").extra["dispatch"],
+        guard(json!(["negate", "minus"]))
+    );
+    assert_eq!(
+        call("src/x.rs::answer", "square").extra["dispatch"],
+        guard(json!(["square", "sq"]))
+    );
+    // The `_` arm and the `else` are not narrowed.
+    assert!(
+        call("src/x.rs::answer", "other")
+            .extra
+            .get("dispatch")
+            .is_none()
+    );
+    // `self` is not counted; a literal with an escape is not compared.
+    assert_eq!(
+        call("src/x.rs::tool", "run").extra["arguments"],
+        json!([{"parameter": 0, "of": 1}, null])
+    );
+    // A closure's parameters are not the function's; its literals count.
+    assert!(
+        call("src/x.rs::tool.f", "answer")
+            .extra
+            .get("arguments")
+            .is_none()
+    );
+    assert_eq!(
+        call("src/x.rs::tool.g", "answer").extra["arguments"],
+        json!([null, "double", null])
+    );
+    // In a macro's tokens too.
+    let in_macro: Vec<&serde_json::Value> = edges
+        .iter()
+        .filter(|edge| edge.kind == "CALLS" && edge.source == "src/x.rs::helper")
+        .filter_map(|edge| edge.extra.get("arguments"))
+        .collect();
+    assert_eq!(
+        in_macro,
+        [
+            &json!([null, "negate", null]),
+            &json!([null, {"parameter": 0, "of": 1}, null]),
+            &json!([null, {"parameter": 0, "of": 1}, null]),
+        ]
+    );
+    // A local's strings: a loop over a table, a `let` of a literal; a
+    // `let` of anything else is not read.
+    let table: Vec<Option<&serde_json::Value>> = edges
+        .iter()
+        .filter(|edge| {
+            edge.kind == "CALLS"
+                && edge.source == "src/x.rs::table"
+                && edge.target.ends_with("call")
+        })
+        .map(|edge| edge.extra.get("arguments"))
+        .collect();
+    assert_eq!(
+        table,
+        [
+            Some(&json!([null, {"strings": ["double", "negate"]}, null])),
+            Some(&json!([null, {"strings": ["square"]}, null])),
+            None,
+            Some(&json!([null, {"strings": ["cube", "minus"]}, null])),
+        ]
+    );
+}
