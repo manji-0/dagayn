@@ -104,6 +104,14 @@ Removed).
   and `complex_hotspot`, and the refactor eval loses its two
   `undocumented_surface` cases.
 
+### Fixed
+
+- `refactor_tool(mode="suggest")` no longer lets one file fill every
+  `unused_symbol` slot: each file's first finding comes before any file's
+  second, in the dead-code report's order otherwise. On purecrate-ts the 10
+  shown came from one survey corpus file (`corpus/patterns.rs`); they now
+  come from 7 files, 2 of them from that one.
+
 ## 10.0.0 — 2026-10-12
 
 Breaking: the replies drop the next-step and diagnostic fields that `next`

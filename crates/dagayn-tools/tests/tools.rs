@@ -1793,6 +1793,45 @@ fn import_cycles_lists_every_cycle_between_directories() {
 }
 
 #[test]
+fn refactor_suggest_does_not_let_one_file_fill_every_unused_slot() {
+    // dagayn: tests crates/dagayn-tools/src/refactor.rs::refactor
+    // A survey or generated file with many unused symbols sorts first; the
+    // two other unused symbols must still be shown.
+    let repo = Repo::new("refactor-spread", true);
+    let many: String = (0..12)
+        .map(|i| format!("def survey_{i:02}():\n    return {i}\n\n\n"))
+        .collect();
+    repo.write("aaa_corpus.py", &many);
+    repo.write("zz_one.py", "def stale_one():\n    return 1\n");
+    repo.write("zz_two.py", "def stale_two():\n    return 2\n");
+    repo.build();
+    let suggest = answer(&repo.context(), "refactor_tool", json!({}));
+    let unused: Vec<&Value> = suggest["findings"]
+        .as_array()
+        .expect("findings")
+        .iter()
+        .filter(|f| f["kind"] == "unused_symbol")
+        .collect();
+    let names: Vec<&str> = unused
+        .iter()
+        .filter_map(|f| f["qualified_name"].as_str())
+        .collect();
+    assert_eq!(unused.len(), 10, "{names:?}");
+    assert!(names.contains(&"zz_one.py::stale_one"), "{names:?}");
+    assert!(names.contains(&"zz_two.py::stale_two"), "{names:?}");
+    assert_eq!(suggest["findings_omitted"]["unused_symbol"], 4);
+    // The busy file keeps its own order.
+    let corpus: Vec<&str> = names
+        .iter()
+        .copied()
+        .filter(|n| n.starts_with("aaa_corpus.py::"))
+        .collect();
+    let mut sorted = corpus.clone();
+    sorted.sort_unstable();
+    assert_eq!(corpus, sorted);
+}
+
+#[test]
 fn refactor_finds_dead_code_and_suggests() {
     // dagayn: tests crates/dagayn-tools/src/refactor.rs::refactor
     let repo = Repo::new("refactor", true);
