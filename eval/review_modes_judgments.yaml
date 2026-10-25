@@ -1,0 +1,125 @@
+# Hand judgments for run_review_modes_measure.py. One row per candidate fact
+# (a node impact or context names beyond changes that has a direct graph edge
+# into a symbol the diff touched). id = <repo>@<sha8>:<qualified_name>.
+# actionable: a reviewer would act on it (a caller to edit or to check because
+# the change makes its argument decisive, a test to run, a doc to update).
+# noise: the caller passes the same inputs and its behavior is untouched, or
+# the change preserves behavior. Every candidate in all 44 commits is judged.
+judgments:
+  # cfwdon 5e96c75c: upsert_remote_status now notifies only when env is Some
+  # (remote/store.rs:226-245), so each caller's env argument decides behavior.
+  # The next commit 3b5ad59d fixed one of these callers.
+  - id: cfwdon@5e96c75c:crates/cfwdon-worker/src/inbox/status_interactions.rs::upsert_embedded_announce_target
+    verdict: actionable
+    reason: passes env (status_interactions.rs:223) so a boost's bare target streams as a create; 3b5ad59d changes it to None
+  - id: cfwdon@5e96c75c:crates/cfwdon-worker/src/accounts/statuses/remote.rs::hydrate_remote_actor_statuses_from_outbox
+    verdict: actionable
+    reason: the backfill path the fix targets; must pass None to stop streaming, and does (accounts/statuses/remote.rs:518)
+  - id: cfwdon@5e96c75c:crates/cfwdon-worker/src/inbox/relay_handlers.rs::handle_relay_create
+    verdict: actionable
+    reason: passes env (relay_handlers.rs:96); a relayed create now streams, a choice to confirm
+  - id: cfwdon@5e96c75c:crates/cfwdon-worker/src/inbox/relay_handlers.rs::handle_relay_update
+    verdict: actionable
+    reason: passes env (relay_handlers.rs:122); same live-vs-backfill decision
+  - id: cfwdon@5e96c75c:crates/cfwdon-worker/src/inbox/status_handlers.rs::handle_inbox_create
+    verdict: actionable
+    reason: live delivery must pass env to keep notifications (status_handlers.rs:57)
+  - id: cfwdon@5e96c75c:crates/cfwdon-worker/src/inbox/status_handlers.rs::handle_inbox_create_for_accounts
+    verdict: actionable
+    reason: live delivery must pass env (status_handlers.rs:104)
+  - id: cfwdon@5e96c75c:crates/cfwdon-worker/src/inbox/status_handlers.rs::handle_inbox_update
+    verdict: actionable
+    reason: live update must pass env (status_handlers.rs:146)
+  - id: cfwdon@5e96c75c:crates/cfwdon-worker/src/inbox/status_handlers.rs::handle_inbox_update_for_accounts
+    verdict: actionable
+    reason: live update must pass env (status_handlers.rs:180)
+  - id: cfwdon@5e96c75c:crates/cfwdon-worker/src/remote/polls.rs::refresh_remote_poll_after_vote_if_acknowledged
+    verdict: actionable
+    reason: passes None (polls.rs:569), so poll refreshes stop notifying; confirm intended
+  - id: cfwdon@5e96c75c:crates/cfwdon-worker/src/remote/polls.rs::refresh_remote_poll_if_needed
+    verdict: actionable
+    reason: passes None (polls.rs:419); same decision
+  - id: cfwdon@5e96c75c:crates/cfwdon-worker/src/remote/resolve.rs::resolve_remote_status_by_url
+    verdict: actionable
+    reason: passes None (resolve.rs:361), so link resolution stops notifying; confirm intended
+  # cfwdon 0228a455: a new optional query flag; callers pass the query through.
+  - id: cfwdon@0228a455:crates/cfwdon-worker/src/accounts/statuses/local_response.rs::load_local_account_status_page
+    verdict: noise
+    reason: passes the same query to account_status_list_options (local_response.rs:29); signature unchanged
+  - id: cfwdon@0228a455:crates/cfwdon-worker/src/accounts/statuses/local_response.rs::local_account_statuses_response
+    verdict: noise
+    reason: only references AccountStatusesQuery, whose new field defaults to None (local_response.rs:209)
+  - id: cfwdon@0228a455:crates/cfwdon-worker/src/accounts/statuses/local_response.rs::respond_local_account_statuses_html
+    verdict: noise
+    reason: calls local_status_matches_account_filters with the same arguments (local_response.rs:112)
+  - id: cfwdon@0228a455:crates/cfwdon-worker/src/accounts/statuses/local_response.rs::respond_local_account_statuses_json
+    verdict: noise
+    reason: calls local_status_matches_account_filters with the same arguments (local_response.rs:184)
+  - id: cfwdon@3b5ad59d:crates/cfwdon-worker/src/inbox.rs::dispatch_inbox_activity
+    verdict: noise
+    reason: calls handle_inbox_announce, whose signature did not change (inbox.rs:129); the env move is inside the diff
+  - id: cfwdon@8b2023ad:crates/cfwdon-worker/src/lib.rs::fetch
+    verdict: noise
+    reason: calls router::handle_fetch(req, env) unchanged (lib.rs:127); HEAD handling is inside handle_fetch
+  - id: cfwdon@90ba47c5:crates/cfwdon-worker/src/accounts/statuses/remote.rs::hydrate_remote_actor_statuses_from_outbox
+    verdict: noise
+    reason: passes None to upsert_remote_status (remote.rs:518), so the new immediate-run path never applies
+  - id: cfwdon@90ba47c5:crates/cfwdon-worker/src/admin_api/jobs.rs::admin_reclaim_background_jobs_response
+    verdict: noise
+    reason: calls process_due_background_jobs with unchanged arguments (admin_api/jobs.rs:159)
+  - id: tstodon@d40bfb1c:packages/worker/src/conversation-store.ts::listConversationsForAccount
+    verdict: noise
+    reason: the consumer the commit message names; calls listRemoteDirectStatusesForAccount with unchanged arguments (conversation-store.ts:103)
+  - id: purecrate-ts@0328efac:crates/check/src/lib.rs::accept_all
+    verdict: noise
+    reason: pipeline driver (lib.rs:129); the new struct-const branch is internal to consts.rs
+  - id: purecrate-ts@a198ea82:crates/check/src/types/access.rs::Typer.vec_access
+    verdict: noise
+    reason: behavior-preserving extraction of Typer.expr arms into inline(never) helpers (types.rs:405); callers unaffected
+  - id: purecrate-ts@a198ea82:crates/check/src/types/calls.rs::Typer.call
+    verdict: noise
+    reason: same extraction; calls Typer.expr unchanged (types/calls.rs:186)
+  - id: purecrate-ts@a198ea82:crates/check/src/types/calls.rs::Typer.closure
+    verdict: noise
+    reason: same extraction; calls Typer.expr unchanged (types/calls.rs:110)
+  - id: dagayn@192b8094:crates/dagayn-tools/src/flow.rs::flow
+    verdict: noise
+    reason: dispatches to entry_points unchanged (flow.rs:38); the hop limit removal is internal and its doc is in the diff
+  - id: tstodon@2264280b:packages/worker/src/routes/meta.ts
+    verdict: noise
+    reason: file-level caller of listConversationsForAccount (routes/meta.ts:392), whose signature is unchanged; the budget threading is inside the diff
+# Spot reads of the mechanically classed noise (not candidates), validated
+# against the nodes that commit's impact reply names.
+spot_checks:
+  - id: dagayn@11f815bf:crates/dagayn-graph/src/postprocess/scip_overlay.rs::settle
+    class: sibling
+    verdict: noise
+    reason: unchanged JSON helper in the diff's own file (scip_overlay.rs:298); the duplicate-definition fix does not touch it
+  - id: dagayn@11f815bf:crates/dagayn-graph/src/postprocess/scip_overlay.rs::tests.called_names_and_their_columns
+    class: sibling
+    verdict: noise
+    reason: unrelated test in the changed file (scip_overlay.rs:834); changes' tests_to_run already gives the command
+  - id: dagayn@e09c5ec8:crates/dagayn-build/src/build.rs::BuildOptions
+    class: indirect
+    verdict: noise
+    reason: build flags struct (build.rs:22) two hops from a trait-method reach fix in review code
+  - id: purecrate-ts@a198ea82:crates/check/src/consts.rs::Folder.whole
+    class: indirect
+    verdict: noise
+    reason: const folder (consts.rs:86) reached through a shared callee; the typer refactor never reaches consts
+  - id: purecrate-ts@a198ea82:crates/check/src/consts.rs::fold
+    class: indirect
+    verdict: noise
+    reason: same file, same two-hop path (consts.rs:19); one of 11 consts.rs nodes impact lists for a types.rs refactor
+  - id: tstodon@2264280b:packages/worker/src/activitypub.ts::parseLocalStatusId
+    class: callee
+    verdict: noise
+    reason: pure id parser the changed walk calls (activitypub.ts:50); the change adds a step budget, not a new use
+  - id: tstodon@2264280b:packages/worker/src/d1.ts::runD1
+    class: indirect
+    verdict: noise
+    reason: generic D1 try wrapper (d1.ts:43) every store calls
+  - id: tstodon@2264280b:packages/worker/src/clock.ts::nowIso
+    class: indirect
+    verdict: noise
+    reason: clock helper (clock.ts:3), unrelated to conversation roots

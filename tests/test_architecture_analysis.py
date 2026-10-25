@@ -11,7 +11,6 @@ from typing import cast
 
 import pytest
 
-from dagayn.contracts.dependency_profiles import DependencyProfile
 from dagayn.contracts.state_types import ArchitectureAnalysisMode
 from dagayn.server import main as crg_main
 from dagayn.tools import architecture_analysis
@@ -22,10 +21,6 @@ SUBTOOLS: dict[str, str] = {
     "overview": "get_architecture_overview_func",
     "communities": "list_communities_func",
     "community": "get_community_func",
-    "sdp_metrics": "compute_sdp_metrics_func",
-    "sdp_violations": "detect_sdp_violations_func",
-    "sap_metrics": "compute_sap_metrics_func",
-    "sap_violations": "detect_sap_violations_func",
 }
 
 
@@ -60,12 +55,8 @@ def test_architecture_analysis_wrapper_exposes_typed_dispatch_args() -> None:
         "sort_by",
         "community_name",
         "community_id",
-        "granularity",
         "scope_kind",
         "artifact_scope",
-        "dependency_profile",
-        "min_delta",
-        "min_distance",
     ):
         assert name in params
     assert params["mode"].default == "overview"
@@ -91,41 +82,6 @@ def test_architecture_analysis_routes_every_mode(repo: Path) -> None:
         assert result["status"] == expected, (mode, result.get("summary"))
 
 
-def test_architecture_analysis_sap_violations_preserves_exclusion_explanation(
-    repo: Path,
-) -> None:
-    result = architecture_analysis.architecture_analysis_func(
-        mode="sap_violations", repo_root=str(repo)
-    )
-
-    assert result["status"] == "ok"
-    assert "called_subtool" not in result
-    assert result["excluded_scope_categories"] == ["test-scope", "fixture-scope"]
-    assert "suppresses test and fixture scopes" in result["summary"]
-
-
-def test_architecture_analysis_thresholds_print_like_python(repo: Path) -> None:
-    sdp = architecture_analysis.architecture_analysis_func(
-        mode="sdp_violations", repo_root=str(repo), min_delta=1e-05
-    )
-    sap = architecture_analysis.architecture_analysis_func(
-        mode="sap_violations", repo_root=str(repo), min_distance=1.5e16
-    )
-
-    assert f"min_delta={1e-05!r})" in sdp["summary"]
-    assert f"min_distance={1.5e16!r})" in sap["summary"]
-
-
-def test_architecture_analysis_rejects_unknown_dependency_profile(repo: Path) -> None:
-    # fastmcp rejects the literal before the call; a direct call has no answer.
-    with pytest.raises(RuntimeError):
-        architecture_analysis.architecture_analysis_func(
-            mode="sdp_metrics",
-            repo_root=str(repo),
-            dependency_profile=cast(DependencyProfile, "typo"),
-        )
-
-
 def test_architecture_analysis_community_requires_selector(repo: Path) -> None:
     result = architecture_analysis.architecture_analysis_func(mode="community", repo_root=str(repo))
 
@@ -133,111 +89,3 @@ def test_architecture_analysis_community_requires_selector(repo: Path) -> None:
     assert result["mode"] == "community"
     assert "called_subtool" not in result
     assert "community_id or community_name" in result["summary"]
-
-
-@pytest.fixture(scope="module")
-def layered_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """Three package cycles, and a stable ``core`` that depends on two less
-    stable leaves."""
-    root = tmp_path_factory.mktemp("layered") / "repo"
-    (root / ".git").mkdir(parents=True)
-
-    def module(package: str, name: str, body: str) -> None:
-        (root / package).mkdir(exist_ok=True)
-        (root / package / "__init__.py").write_text("")
-        (root / package / f"{name}.py").write_text(body)
-
-    for left, right in (("a", "b"), ("c", "d"), ("e", "f")):
-        for source, target in ((left, right), (right, left)):
-            module(
-                source,
-                "mod",
-                f"from {target}.mod import {target}_fn\n\n\n"
-                f"def {source}_fn():\n    return {target}_fn\n",
-            )
-    module("x", "util", "def raw():\n    return 1\n")
-    for leaf in ("leaf", "leaf2"):
-        module(
-            leaf,
-            "util",
-            "from x.util import raw\n\n\nclass Tool:\n    pass\n\n\n"
-            "def tool():\n    return raw()\n",
-        )
-    module(
-        "core",
-        "base",
-        "from leaf.util import tool\nfrom leaf2.util import tool as tool2\n\n\n"
-        "class Base:\n    pass\n\n\ndef base():\n    return tool(), tool2()\n",
-    )
-    for index in range(3):
-        module(
-            f"user{index}", "m", "from core.base import base\n\n\ndef go():\n    return base()\n"
-        )
-    subprocess.run([DAGAYN, "build", "--repo", root], check=True, capture_output=True)
-    return root
-
-
-def test_sdp_violations_truncate_to_top_n(layered_repo: Path) -> None:
-    result = architecture_analysis.architecture_analysis_func(
-        mode="sdp_violations",
-        repo_root=str(layered_repo),
-        top_n=1,
-        min_delta=0.0,
-        detail_level="verbose",
-    )
-
-    assert result["status"] == "ok"
-    assert result["total"] >= 2
-    assert result["truncated"] is True
-    assert len(result["violations"]) == 1
-    assert "_hints" not in result
-
-
-def test_sap_metrics_separate_inapplicable_scopes_by_default(layered_repo: Path) -> None:
-    result = architecture_analysis.architecture_analysis_func(
-        mode="sap_metrics", repo_root=str(layered_repo), top_n=50
-    )
-
-    assert result["inapplicable_visibility"] == "separate_bucket"
-    assert result["applicable_count"] >= 2
-    assert result["inapplicable_count"] >= 1
-    assert all(row["sap_applicable"] for row in result["metrics"])
-    assert not any(row["sap_applicable"] for row in result["inapplicable_metrics"])
-    assert sum(result["inapplicable_by_reason"].values()) == result["inapplicable_count"]
-    assert result["truncated"] is False
-
-
-def test_sap_metrics_report_truncation(layered_repo: Path) -> None:
-    result = architecture_analysis.architecture_analysis_func(
-        mode="sap_metrics", repo_root=str(layered_repo), top_n=1
-    )
-
-    assert result["truncated"] is True
-    assert len(result["metrics"]) == 1
-    assert "Results truncated." in result["summary"]
-
-
-def test_sap_metrics_verbose_includes_inapplicable_scopes(layered_repo: Path) -> None:
-    result = architecture_analysis.architecture_analysis_func(
-        mode="sap_metrics", repo_root=str(layered_repo), top_n=50, detail_level="verbose"
-    )
-
-    assert result["inapplicable_visibility"] == "included_in_metrics"
-    assert any(not row["sap_applicable"] for row in result["metrics"])
-
-
-def test_sap_violations_use_a_compact_envelope(layered_repo: Path) -> None:
-    result = architecture_analysis.architecture_analysis_func(
-        mode="sap_violations", repo_root=str(layered_repo), min_distance=0.0, top_n=1
-    )
-
-    assert result["status"] == "ok"
-    assert result["artifact_scope"] == "code"
-    assert result["total"] >= 2
-    assert result["truncated"] is True
-    assert "Showing top 1 by distance." in result["summary"]
-    assert result["exclusion_reason"] == (
-        "test and fixture scopes are retained in sap_metrics notes but omitted from sap_violations"
-    )
-    [violation] = result["violations"]
-    assert set(violation) == {"scope_key", "display_name", "distance", "zone"}

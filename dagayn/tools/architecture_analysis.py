@@ -18,19 +18,10 @@ def architecture_analysis_func(
     community_name: str | None = None,
     community_id: int | None = None,
     include_members: bool = False,
-    granularity: Literal["file", "package"] = "package",
     scope_kind: Literal["file", "package", "directory"] = "package",
     unit_filter: list[str] | None = None,
-    min_delta: float = 0.1,
-    min_distance: float = 0.5,
     repo_root: str | None = None,
     artifact_scope: Literal["code", "docs", "all"] = "code",
-    dependency_profile: Literal[
-        "strict_static",
-        "implementation",
-        "infra_dataflow",
-        "artifact_trace",
-    ] = "strict_static",
     import_kind: Literal["directive", "link", "lazy_export", "path", "statement"] | None = None,
 ) -> ToolPayload:
     """Run architecture analysis by dispatching to the requested internal mode."""
@@ -48,14 +39,10 @@ def architecture_analysis_func(
             community_name=community_name,
             community_id=community_id,
             include_members=include_members,
-            granularity=granularity,
             scope_kind=scope_kind,
             unit_filter=unit_filter,
-            min_delta=min_delta,
-            min_distance=min_distance,
             repo_root=repo_root,
             artifact_scope=artifact_scope,
-            dependency_profile=dependency_profile,
             import_kind=import_kind,
         )
     finally:

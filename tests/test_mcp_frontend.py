@@ -1232,7 +1232,7 @@ def test_flow_tool_answers_in_rust_as_python_does(git_repo: Path, stale: bool) -
 ARCHITECTURE_TRACE = "answered architecture_analysis_tool in Rust"
 
 
-def test_architecture_metrics_answer_in_rust_as_python_does(git_repo: Path) -> None:
+def test_architecture_modes_answer_in_rust_as_python_does(git_repo: Path) -> None:
     (git_repo / "pkg").mkdir()
     (git_repo / "pkg" / "core.py").write_text(
         "from app import main\n\n\nclass Base:\n    pass\n\n\ndef run():\n    return main()\n"
@@ -1246,12 +1246,6 @@ def test_architecture_metrics_answer_in_rust_as_python_does(git_repo: Path) -> N
     )
     arch = "architecture_analysis_tool"
     calls: list[tuple[str, dict[str, Any]]] = [
-        (arch, {"mode": "sdp_metrics", "granularity": "file"}),
-        (arch, {"mode": "sdp_violations", "min_delta": 0}),
-        (arch, {"mode": "sdp_violations", "dependency_profile": "implementation"}),
-        (arch, {"mode": "sap_metrics", "detail_level": "verbose"}),
-        (arch, {"mode": "sap_metrics", "scope_kind": "file", "unit_filter": ["pkg"]}),
-        (arch, {"mode": "sap_violations", "min_distance": 0.1, "artifact_scope": "all"}),
         (arch, {}),
         (arch, {"mode": "overview", "detail_level": "verbose", "top_n": 1}),
         (arch, {"mode": "communities", "detail_level": "standard", "sort_by": "name"}),
@@ -1264,7 +1258,7 @@ def test_architecture_metrics_answer_in_rust_as_python_does(git_repo: Path) -> N
     rust, python, stderr = _session_both(git_repo, calls)
     assert stderr.count(ARCHITECTURE_TRACE) == len(calls)
     assert rust == python
-    assert rust[0]["structuredContent"]["metrics"]
+    assert rust[0]["structuredContent"]["units"]
 
 
 REFACTOR_TRACE = "answered refactor_tool in Rust"
@@ -1436,29 +1430,17 @@ def test_maintenance_reads_answer_in_rust_as_python_does(
     subprocess.run(
         [DAGAYN, "build", "--repo", git_repo], env=_env(), check=True, capture_output=True
     )
-    wiki = git_repo / ".dagayn" / "wiki"
-    wiki.mkdir()
-    (wiki / "app-main.md").write_text("# App\r\nmain\n")
     home = tmp_path / "home"
     (home / ".dagayn").mkdir(parents=True)
     if registry is not None:
         (home / ".dagayn" / "registry.json").write_text(registry)
     calls: list[tuple[str, dict[str, Any]]] = [
-        ("find_large_functions_tool", {}),
-        ("find_large_functions_tool", {"min_lines": 2, "kind": "Function", "limit": 2}),
-        ("traverse_graph_tool", {"query": "helper"}),
-        ("traverse_graph_tool", {"query": "main", "mode": "dfs", "depth": 2}),
-        ("traverse_graph_tool", {"query": "main", "token_budget": 10}),
-        ("traverse_graph_tool", {"query": "zzzqqq"}),
-        ("get_wiki_page_tool", {"community_name": "App Main"}),
-        ("get_wiki_page_tool", {"community_name": "missing"}),
         ("list_repos_tool", {}),
     ]
     rust, python, stderr = _session_both(git_repo, calls, HOME=str(home))
     assert stderr.count(" in Rust") == len(calls)
     assert BOOT_TRACE not in stderr
     assert [r["structuredContent"] for r in rust] == [p["structuredContent"] for p in python]
-    assert rust[6]["structuredContent"]["content"] == "# App\nmain\n"
 
 
 def _fake_embedding_server(vector: list[float]) -> tuple[Any, int]:
@@ -1512,7 +1494,6 @@ def test_search_with_stored_vectors_answers_in_rust_as_python_does(git_repo: Pat
             (search, {"query": "helper"}),
             (search, {"query": "main", "detail_level": "minimal"}),
             (search, {"query": "helper", "kind": "Function", "limit": 1}),
-            ("traverse_graph_tool", {"query": "something that assists", "depth": 1}),
         ]
         rust, python, stderr = _session_both(git_repo, calls)
     finally:
@@ -1524,7 +1505,6 @@ def test_search_with_stored_vectors_answers_in_rust_as_python_does(git_repo: Pat
     assert first["embedding_health"]["status"] == "degraded"
     assert first["results"][0]["qualified_name"] == "app.py::helper"
     assert rust[1]["structuredContent"]["search_mode"] == "hybrid"
-    assert rust[4]["structuredContent"]["start_node"] == "app.py::helper"
 
 
 def test_prompts_answer_from_the_recorded_replies_as_python_does(repo: Path) -> None:

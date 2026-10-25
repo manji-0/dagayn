@@ -37,7 +37,6 @@
 - 임팩트 반경·리뷰 컨텍스트·커뮤니티·플로·리팩터 그래프 쿼리
 - 네이티브 Rust 그래프 스토어, 파서, FTS, 플로, 후처리(`dagayn._core`)
 - 멀티 저장소 레지스트리와 데몬 워크플로
-- GraphML / Mermaid C4 / SVG / Cypher / Obsidian 그래프 내보내기
 
 ## 지원 언어·파일 종류
 
@@ -234,7 +233,6 @@ dagayn update
 dagayn watch
 dagayn worktree sync
 dagayn detect-changes --base HEAD~1
-dagayn visualize --format graphml
 dagayn serve
 ```
 
@@ -251,16 +249,7 @@ dagayn serve --tools query_graph_tool,semantic_search_nodes_tool
 
 `--tools`는 일부 공개 도구를 숨겨야 하는 배포를 위한 쉼표로 구분된 정확한 허용 목록입니다. 지속 서버 설정은 같은 제어에 `CRG_TOOLS`를 쓸 수 있습니다.
 
-도구 응답은 보정된 guidance 계약을 사용합니다. 호환 필드(`status`, `summary`, `_hints`, `next_tool_suggestions`)는 남고, 리뷰·아키텍처·플로·리팩터·검색·쿼리 응답에는 `guidance`, `answerability`, `missingness`도 포함될 수 있습니다. guidance 항목은 `claim`, `evidence`, `confidence`, `missingness`, `action`, `reason_codes`, `counts`를 가져서 에이전트가 그래프 출력을 판결이 아니라 증거 순위 단서로 다루게 합니다. 상위 권장에는 `detail_level="minimal"`, 전체 뒷받침 섹션에는 `detail_level="standard"`를 쓰세요. `query_graph_tool`의 0건·미발견 응답에는 `zero_result_reason`, `next_action`, `result_count`, `results`, `answerability`, `missingness`가 포함됩니다. 부재는 소스나 테스트로 확인할 때까지 그래프 한정으로 다루세요. 문서 브리지 결과는 증거를 `authored`, `extracted`, `heuristic_reachable`로 라벨하여 Markdown 추적 가능성과 검증된 계약을 혼동하지 않게 합니다.
-
-## 리포트와 내보내기
-
-`dagayn visualize`는 정적 그래프 산출물을 내보냅니다.
-
-- `--format`은 필수이며 `graphml`, `mermaid-c4`, `svg`, `cypher`, `obsidian`을 지원합니다
-- `mermaid-c4`는 파일을 컴포넌트, 크로스파일 의존성을 관계로 집약한 Mermaid `C4Component` 코드를 출력합니다
-- `svg`는 matplotlib를 사용하므로 필요하면 eval extra를 설치하세요: `pip install "dagayn[eval]"`
-- Jupyter / Databricks / marimo 노트북은 리포트 출력 형식이 아니라 그래프 입력입니다
+도구 응답은 보정된 guidance 계약을 사용합니다. 호환 필드(`status`, `summary`)는 남고, 리뷰·아키텍처·플로·리팩터·검색·쿼리 응답에는 `guidance`, `answerability`, `missingness`도 포함될 수 있습니다. guidance 항목은 `claim`, `evidence`, `confidence`, `missingness`, `action`, `reason_codes`, `counts`를 가져서 에이전트가 그래프 출력을 판결이 아니라 증거 순위 단서로 다루게 합니다. 상위 권장에는 `detail_level="minimal"`, 전체 뒷받침 섹션에는 `detail_level="standard"`를 쓰세요. `query_graph_tool`의 0건·미발견 응답에는 `zero_result_reason`, `next_action`, `result_count`, `results`, `answerability`, `missingness`가 포함됩니다. 부재는 소스나 테스트로 확인할 때까지 그래프 한정으로 다루세요. 문서 브리지 결과는 증거를 `authored`, `extracted`, `heuristic_reachable`로 라벨하여 Markdown 추적 가능성과 검증된 계약을 혼동하지 않게 합니다.
 
 ## AI 플랫폼 통합
 

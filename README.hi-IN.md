@@ -37,7 +37,6 @@ Upstream attribution और original author information के लिए [NOTICE
 - impact radius, review context, communities, flows, और refactors के graph queries
 - native Rust graph store, parsers, FTS, flows, और post-processing (`dagayn._core`)
 - multi-repo registry और daemon workflows
-- GraphML, Mermaid C4, SVG, Cypher, और Obsidian graph exports
 
 ## Supported languages और file types
 
@@ -234,7 +233,6 @@ dagayn update
 dagayn watch
 dagayn worktree sync
 dagayn detect-changes --base HEAD~1
-dagayn visualize --format graphml
 dagayn serve
 ```
 
@@ -251,16 +249,7 @@ dagayn serve --tools query_graph_tool,semantic_search_nodes_tool
 
 `--tools` deployments के लिए exact comma-separated allow-list है जिन्हें कुछ public tools छिपाने हैं। Persistent server configs उसी control के लिए `CRG_TOOLS` इस्तेमाल कर सकते हैं।
 
-Tool responses calibrated guidance contract इस्तेमाल करते हैं। Compatibility fields जैसे `status`, `summary`, `_hints`, और `next_tool_suggestions` रहते हैं; review, architecture, flow, refactor, search, और query responses में `guidance`, `answerability`, और `missingness` भी हो सकते हैं। Guidance items में `claim`, `evidence`, `confidence`, `missingness`, `action`, `reason_codes`, और `counts` होते हैं ताकि agents graph output को verdict नहीं, evidence-ranked leads मानें। Top recommendations के लिए `detail_level="minimal"` और full supporting sections के लिए `detail_level="standard"` इस्तेमाल करें। `query_graph_tool` zero-result और not-found responses में `zero_result_reason`, `next_action`, `result_count`, `results`, `answerability`, और `missingness` शामिल हैं; absence को source या tests confirm करने तक graph-limited मानें। Documentation bridge results evidence को `authored`, `extracted`, या `heuristic_reachable` लेबल करते हैं ताकि Markdown traceability verified contract से confuse न हो।
-
-## Reporting और export outputs
-
-`dagayn visualize` static graph artifacts export करता है।
-
-- `--format` required है और `graphml`, `mermaid-c4`, `svg`, `cypher`, `obsidian` supported हैं
-- `mermaid-c4` Mermaid `C4Component` code emit करता है, जहाँ files components और cross-file dependencies relations बनती हैं
-- `svg` export matplotlib use करता है; ज़रूरत हो तो eval extra install करें: `pip install "dagayn[eval]"`
-- Jupyter / Databricks / marimo notebooks report outputs नहीं, graph inputs हैं
+Tool responses calibrated guidance contract इस्तेमाल करते हैं। Compatibility fields जैसे `status` और `summary` रहते हैं; review, architecture, flow, refactor, search, और query responses में `guidance`, `answerability`, और `missingness` भी हो सकते हैं। Guidance items में `claim`, `evidence`, `confidence`, `missingness`, `action`, `reason_codes`, और `counts` होते हैं ताकि agents graph output को verdict नहीं, evidence-ranked leads मानें। Top recommendations के लिए `detail_level="minimal"` और full supporting sections के लिए `detail_level="standard"` इस्तेमाल करें। `query_graph_tool` zero-result और not-found responses में `zero_result_reason`, `next_action`, `result_count`, `results`, `answerability`, और `missingness` शामिल हैं; absence को source या tests confirm करने तक graph-limited मानें। Documentation bridge results evidence को `authored`, `extracted`, या `heuristic_reachable` लेबल करते हैं ताकि Markdown traceability verified contract से confuse न हो।
 
 ## AI platform integration
 

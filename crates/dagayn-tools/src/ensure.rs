@@ -13,17 +13,12 @@ use dagayn_build::{SyncAssessment, Vcs, detect_vcs, is_linked_worktree};
 use serde_json::{Map, Value, json};
 
 use crate::answerability::Answerability;
-use crate::{Args, Context, Ordered, Payload, open_graph, resolve_repo, suggestions};
+use crate::{Args, Context, Ordered, Payload, open_graph, resolve_repo};
 
 /// The budget the MCP wrapper passes.
 const BUDGET_SECONDS: i64 = 300;
 const SEEDED_NEEDS_VERIFY_KEY: &str = "seeded_needs_content_verify";
 const HOOK_UPDATE_ENV: &str = "DAGAYN_HOOK_UPDATE";
-const NEXT_TOOL_SUGGESTIONS: [&str; 3] = [
-    "get_minimal_context_tool",
-    "review_tool",
-    "query_graph_tool",
-];
 
 /// `seal_graph_sync_state(...)` for a synced or ahead assessment, in the
 /// contract model's field order.
@@ -112,7 +107,6 @@ pub(crate) fn ensure_graph(context: &Context, arguments: &Map<String, Value>) ->
         sync.state, stats.total_nodes, stats.files_count
     );
     let root_text = graph.root.to_string_lossy().into_owned();
-    let (hints, kept) = suggestions(context, &NEXT_TOOL_SUGGESTIONS);
     let elapsed = (started.elapsed().as_secs_f64() * 1000.0).round() / 1000.0;
     Some(
         Ordered::default()
@@ -138,8 +132,6 @@ pub(crate) fn ensure_graph(context: &Context, arguments: &Map<String, Value>) ->
             .put("local_embedding", local_embedding)
             .put("embedding_policy", "auto")
             .put("repo_root", root_text)
-            .put("_hints", hints)
-            .put("next_tool_suggestions", kept)
             .put(
                 "worktree_seed",
                 json!({"seeded": false, "skipped": true, "reason": "not_linked_worktree"}),

@@ -20,10 +20,9 @@
 - review context generation and change-impact analysis
 - the declared units and their dependencies, structural findings (import
   cycles, unstable dependencies, untested core, broken doc links), every
-  simple import cycle between files, directories, or units, SDP / SAP
-  metrics, communities, and flows
+  simple import cycle between files, directories, or units, communities,
+  and flows
 - refactor previews and dead-code inspection
-- wiki generation and static graph exports (GraphML, Mermaid C4, SVG, Cypher, Obsidian)
 
 ## Languages and formats the fork emphasizes
 

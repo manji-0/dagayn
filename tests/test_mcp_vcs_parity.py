@@ -39,7 +39,6 @@ READS: list[tuple[str, dict[str, Any]]] = [
     ("query_graph_tool", {"pattern": "callers_of", "target": "app.py::helper"}),
     ("query_graph_tool", {"pattern": "callees_of", "target": "main", "detail_level": "minimal"}),
     ("semantic_search_nodes_tool", {"query": "helper"}),
-    ("traverse_graph_tool", {"query": "main", "depth": 2}),
 ]
 
 REVIEWS: list[tuple[str, dict[str, Any]]] = [
@@ -136,9 +135,9 @@ def test_a_jj_workspace_is_answered_in_rust_as_python_does(jj_workspace: Path, c
         sync = rust[0]["structuredContent"]["sync"]
         assert sync == {"state": expected[0], "status": expected[1], "vcs": "jj"}
     reads = rust[len(context) : len(context) + len(READS)]
-    # traverse_graph_tool carries no missingness; the freshness codes reach
-    # the others' missingness, the graph-wide summary only verbose replies.
-    for result in reads[:3]:
+    # The freshness codes reach every read's missingness, the graph-wide
+    # summary only verbose replies.
+    for result in reads:
         codes = [item["reason_code"] for item in result["structuredContent"]["missingness"]]
         assert ("graph_describes_another_commit" in codes) is (change == "committed"), codes
         assert ("uncommitted_changes_may_be_unindexed" in codes) is (

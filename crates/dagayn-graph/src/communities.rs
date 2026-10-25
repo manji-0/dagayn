@@ -263,21 +263,6 @@ impl GraphStore {
         Ok(Some(id_vec))
     }
 
-    pub(crate) fn community_region_qualified_names(
-        &self,
-        changed_files: &[String],
-    ) -> Result<Option<HashSet<String>>> {
-        let Some(id_vec) = self.community_region_ids(changed_files)? else {
-            return Ok(None);
-        };
-        let members = self.get_community_member_qns_by_ids(&id_vec)?;
-        let mut qns = HashSet::new();
-        for names in members.values() {
-            qns.extend(names.iter().cloned());
-        }
-        Ok(Some(qns))
-    }
-
     pub fn replace_communities(
         &mut self,
         replace_ids: &[i64],

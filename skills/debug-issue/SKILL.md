@@ -7,7 +7,7 @@ description: Debug a bug, failing test, error, stack trace, crash, or unexpected
 
 The graph turns a symptom into a short list of code points and the paths
 between them. Use it to decide where to look, then prove the cause in source:
-centrality or a call edge alone never establishes a root cause.
+graph proximity or a call edge alone never establishes a root cause.
 
 <!-- dagayn skill embedding context -->
 ## Installed Search Mode
@@ -77,8 +77,8 @@ effect from a reproduction; keep them apart in a claim. Full rules:
 ## Tips
 
 - Prefer relationship queries over raw traversal when the question names a
-  relationship; `traverse_graph_tool` (advanced surface) is for "what else is
-  nearby?" once the likely node is known.
+  relationship; for "what else is nearby?" once the likely node is known,
+  pass `depth` to `query_graph_tool`.
 - Check both directions: callers show how the bad input arrives, callees show
   what the code depends on.
 - Doc links carry `evidence_type`: `authored` contracts beat `extracted`

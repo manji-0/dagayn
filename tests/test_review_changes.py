@@ -3,7 +3,7 @@
 The analysis runs in Rust (``crates/dagayn-tools/src/changes.rs``); these
 tests drive it through :func:`review_func` on real git repositories with a
 built graph: diff-range attribution, renames, unmapped files, test gaps,
-affected flows, and review-priority scoring.
+and affected flows.
 """
 
 from __future__ import annotations
@@ -12,8 +12,6 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Any
-
-import pytest
 
 from dagayn.tools.review_dispatcher import review_func
 
@@ -71,10 +69,6 @@ def _review(root: Path, **kwargs: Any) -> dict[str, Any]:
 
 def _names(result: dict[str, Any]) -> set[str]:
     return {f["name"] for f in result["changed_functions"]}
-
-
-def _scores(result: dict[str, Any]) -> dict[str, float]:
-    return {f["name"]: f["risk_score"] for f in result["changed_functions"]}
 
 
 # ---------------------------------------------------------------------------
@@ -190,51 +184,3 @@ def test_functions_without_tests_are_untested_changes(tmp_path: Path) -> None:
     assert _names(result) == {"untested_a", "untested_b", "tested_c"}
     untested = next(f for f in result["findings"] if f["kind"] == "untested_change")
     assert sorted(untested["targets"]) == ["app.py::untested_a", "app.py::untested_b"]
-
-
-# ---------------------------------------------------------------------------
-# Review-priority scores
-# ---------------------------------------------------------------------------
-
-ROUTES = "from services import service\n\n\ndef handler():\n    return service()\n"
-SERVICES = (
-    "def service():\n    return 1\n\n\n"
-    "def process_data():\n    return 2\n\n\n"
-    "def verify_auth_token():\n    return 3\n\n\n"
-    "def design_doc():\n    return 4\n\n\n"
-    "def verify_signature():\n    return 5\n"
-)
-
-
-@pytest.fixture
-def services_change(tmp_path: Path) -> dict[str, Any]:
-    root = _repo(tmp_path, {"routes.py": ROUTES, "services.py": SERVICES})
-    _write(root, {"services.py": SERVICES.replace("return", "return 10 +")})
-    return _review(root)
-
-
-def test_review_priority_scores_weigh_callers_and_security_names(
-    services_change: dict[str, Any],
-) -> None:
-    scores = _scores(services_change)
-    assert all(0.0 <= score <= 1.0 for score in scores.values())
-    # Security keywords match at identifier-token starts only: ``sign`` in
-    # ``design`` adds nothing, ``signature`` adds the 0.20 security weight.
-    assert scores["verify_auth_token"] > scores["process_data"]
-    assert scores["verify_signature"] == pytest.approx(scores["design_doc"] + 0.20)
-    # A caller (``handler``) raises the score.
-    assert scores["service"] > scores["process_data"]
-
-
-def test_review_priority_scores_weigh_callers(tmp_path: Path) -> None:
-    files = {"lib.py": "def popular():\n    return 1\n\n\ndef lonely():\n    return 2\n"}
-    for i in range(10):
-        files[f"c{i}.py"] = (
-            f"from lib import popular\n\n\ndef caller_{i}():\n    return popular()\n"
-        )
-    root = _repo(tmp_path, files)
-    _write(root, {"lib.py": files["lib.py"].replace("return", "return 10 +")})
-
-    scores = _scores(_review(root))
-
-    assert scores["popular"] > scores["lonely"]

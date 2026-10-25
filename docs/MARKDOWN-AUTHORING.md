@@ -21,7 +21,7 @@ Use `dagayn:` directives when the document intentionally creates a reviewable
 obligation between prose and another artifact:
 
 ```markdown
-<!-- dagayn: implemented-by dagayn/tools/query.py::traverse_graph_func -->
+<!-- dagayn: implemented-by dagayn/tools/query.py::query_graph -->
 ```
 
 In Python, Terraform, or C#, point the other way from the implementation:
@@ -42,7 +42,7 @@ outside the repository) are not judged.
 Use ordinary backticks for display text, command names, file names, and short
 examples that should not create a durable obligation. When a report mentions a
 symbol only as evidence, prefer a sentence such as "Informed by
-`dagayn/tools/query.py::traverse_graph_func`" instead of adding a dependency
+`dagayn/tools/query.py::query_graph`" instead of adding a dependency
 comment or `dagayn:` directive.
 
 For analysis reports, separate these cases deliberately:

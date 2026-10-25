@@ -30,33 +30,6 @@ class TestMakeResponse:
         assert r["count"] == 3
         assert r["items"] == ["a", "b"]
 
-    def test_hints(self) -> None:
-        r = make_response("ok", "done", hints=["use X", "try Y"])
-        assert r["_hints"] == ["use X", "try Y"]
-
-    def test_next_tool_suggestions_truncated_at_3(self) -> None:
-        r = make_response("ok", "done", next_tool_suggestions=["a", "b", "c", "d"])
-        assert r["next_tool_suggestions"] == ["a", "b", "c"]
-
-    def test_next_tool_suggestions_backfill_hints(self) -> None:
-        r = make_response(
-            "ok",
-            "done",
-            next_tool_suggestions=["query_graph_tool callers_of -- inspect inbound callers"],
-        )
-        assert r["_hints"]["next_steps"] == [
-            {
-                "tool": "query_graph_tool",
-                "suggestion": "query_graph_tool callers_of -- inspect inbound callers",
-            }
-        ]
-        assert r["_hints"]["related"] == []
-        assert r["_hints"]["warnings"] == []
-
-    def test_empty_hints_not_included(self) -> None:
-        r = make_response("ok", "done", hints=[])
-        assert "_hints" not in r
-
     def test_status_before_summary_before_fields(self) -> None:
         r = make_response("ok", "msg", foo="bar")
         keys = list(r.keys())

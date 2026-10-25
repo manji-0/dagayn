@@ -9,9 +9,13 @@
 # Aliased imports and conditional values (python 15): 0.819, 0.697, 0.952.
 # Module-level calls that build the instance: 0.846, 0.691, 0.951.
 # Top-level calls that run on import (python 16): 0.864, 0.691, 0.952.
+# After the positioning removals (2026-10-25): 0.839, 0.656, 0.948 on 1,124
+# functions (from 1,215). The 19 wrong untested claims are the same as before;
+# the removed code held 23 right ones (never-run functions it flagged), so
+# precision and recall fell with no judgement getting worse.
 # The floors sit just under the
 # current values; raise them as the call graph improves.
 floors:
-  untested_precision: 0.84
-  untested_recall: 0.67
+  untested_precision: 0.82
+  untested_recall: 0.64
   tested_precision: 0.93

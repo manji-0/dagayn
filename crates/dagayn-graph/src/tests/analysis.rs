@@ -16,9 +16,6 @@ fn helpers_make_qualified_hash_and_time_have_stable_contracts() {
         make_qualified_parts("Function", "run", "src/lib.rs", None),
         "src/lib.rs::run"
     );
-    assert_eq!(stable_fnv1a64(b""), 0xcbf2_9ce4_8422_2325);
-    assert_eq!(stable_fnv1a64(b"dagayn"), stable_fnv1a64(b"dagayn"));
-    assert_ne!(stable_fnv1a64(b"dagayn"), stable_fnv1a64(b"Dagayn"));
 
     assert_eq!(extra_json(&Value::Null).unwrap(), "{}");
     assert_eq!(extra_json(&json!({})).unwrap(), "{}");
@@ -206,7 +203,6 @@ fn analysis_rows_read_communities_tests_and_dependents() {
             [leaf_community_id],
         )
         .unwrap();
-    store.persist_centrality_scores().unwrap();
 
     let members_by_community = store
         .get_community_member_qns_by_ids(&[community_id, leaf_community_id])

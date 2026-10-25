@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -9,7 +9,7 @@ use serde_json::value::RawValue;
 use serde_json::{Value, json};
 use thiserror::Error;
 
-const LATEST_VERSION: i64 = 18;
+const LATEST_VERSION: i64 = 19;
 const MAX_INSERT_PARAMS: usize = 30_000;
 const NODE_INSERT_PARAM_COUNT: usize = 16;
 const EDGE_INSERT_PARAM_COUNT: usize = 10;
@@ -48,33 +48,6 @@ const WRITE_INDEXES: &[(&str, &str)] = &[
         "idx_edges_target_name_kind",
         "CREATE INDEX IF NOT EXISTS idx_edges_target_name_kind ON edges(target_name, kind)",
     ),
-];
-const SECURITY_KEYWORDS: &[&str] = &[
-    "auth",
-    "login",
-    "password",
-    "token",
-    "session",
-    "crypt",
-    "secret",
-    "credential",
-    "permission",
-    "sql",
-    "query",
-    "execute",
-    "connect",
-    "socket",
-    "request",
-    "http",
-    "sanitize",
-    "validate",
-    "encrypt",
-    "decrypt",
-    "hash",
-    "sign",
-    "verify",
-    "admin",
-    "privilege",
 ];
 
 /// Identifier tokens that start with a security keyword but name ordinary,
@@ -191,11 +164,6 @@ pub(crate) fn identifier_matches_keywords(texts: &[&str], keywords: &[&str]) -> 
     })
 }
 
-/// Security-keyword check for change risk.
-pub(crate) fn is_security_sensitive_identifier(name: &str, qualified_name: &str) -> bool {
-    identifier_matches_keywords(&[name, qualified_name], SECURITY_KEYWORDS)
-}
-
 const SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS nodes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -236,28 +204,6 @@ CREATE TABLE IF NOT EXISTS metadata (
     value TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS hub_scores (
-    qualified_name TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    file_path TEXT NOT NULL,
-    in_degree INTEGER NOT NULL,
-    out_degree INTEGER NOT NULL,
-    total_degree INTEGER NOT NULL,
-    community_id INTEGER,
-    computed_at REAL NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS bridge_scores (
-    qualified_name TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    file_path TEXT NOT NULL,
-    betweenness REAL NOT NULL,
-    community_id INTEGER,
-    computed_at REAL NOT NULL
-);
-
 CREATE INDEX IF NOT EXISTS idx_nodes_file ON nodes(file_path);
 CREATE INDEX IF NOT EXISTS idx_nodes_kind ON nodes(kind);
 CREATE INDEX IF NOT EXISTS idx_nodes_parent_name ON nodes(parent_name, name);
@@ -265,35 +211,6 @@ CREATE INDEX IF NOT EXISTS idx_edges_kind ON edges(kind);
 CREATE INDEX IF NOT EXISTS idx_edges_target_kind ON edges(target_qualified, kind);
 CREATE INDEX IF NOT EXISTS idx_edges_source_kind ON edges(source_qualified, kind);
 CREATE INDEX IF NOT EXISTS idx_edges_file ON edges(file_path);
-CREATE INDEX IF NOT EXISTS idx_hub_scores_total_degree ON hub_scores(total_degree DESC);
-CREATE INDEX IF NOT EXISTS idx_bridge_scores_betweenness ON bridge_scores(betweenness DESC);
-"#;
-
-const CENTRALITY_SCORE_SCHEMA_SQL: &str = r#"
-CREATE TABLE IF NOT EXISTS hub_scores (
-    qualified_name TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    file_path TEXT NOT NULL,
-    in_degree INTEGER NOT NULL,
-    out_degree INTEGER NOT NULL,
-    total_degree INTEGER NOT NULL,
-    community_id INTEGER,
-    computed_at REAL NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS bridge_scores (
-    qualified_name TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    file_path TEXT NOT NULL,
-    betweenness REAL NOT NULL,
-    community_id INTEGER,
-    computed_at REAL NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_hub_scores_total_degree ON hub_scores(total_degree DESC);
-CREATE INDEX IF NOT EXISTS idx_bridge_scores_betweenness ON bridge_scores(betweenness DESC);
 "#;
 
 #[derive(Debug, Error)]
@@ -444,14 +361,6 @@ impl ConfidenceTier {
 
 pub type EdgeEndpointMap = HashMap<String, Vec<GraphEdge>>;
 
-/// `compute_change_risk_score`'s prefetched inputs for one changed node.
-pub struct ChangeRiskInputs<'a> {
-    pub node: &'a GraphNode,
-    pub inbound_edges: &'a [GraphEdge],
-    pub node_community_id: Option<i64>,
-    pub caller_community_ids: &'a HashMap<String, Option<i64>>,
-    pub transitive_test_count: i64,
-}
 #[derive(Clone, Debug)]
 pub struct GraphStats {
     pub total_nodes: i64,
@@ -584,7 +493,6 @@ type RawCompactFileBatchItem = (
     i64,
 );
 
-mod analysis;
 mod analysis_stats;
 mod bridges;
 pub use bridges::{
@@ -631,7 +539,6 @@ pub use impact_radius::ImpactRadius;
 pub use maintenance::{AnswerabilityCounts, EmbeddingCoverage, ORPHAN_PRUNE_STEPS};
 pub use node_queries::NodeSignatureRow;
 pub use search_query::FtsQueryResult;
-pub use subgraph::LocalSubgraph;
 
 #[cfg(test)]
 use helpers::*;

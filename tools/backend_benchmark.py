@@ -30,7 +30,6 @@ DEFAULT_IGNORES = {
     ".hatch-vendor-grammars",
     "dagayn/_vendor_grammars",
     "node_modules",
-    "dagayn-vscode/node_modules",
 }
 
 

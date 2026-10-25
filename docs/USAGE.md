@@ -246,20 +246,12 @@ agent use while preserving drill-down access through `mode` arguments.
 In dagayn 3.0, v2 split architecture MCP/CLI tools were removed. Use
 `architecture_analysis_tool(mode=...)`, for example
 `architecture_analysis_tool(mode="overview")` or
-`architecture_analysis_tool(mode="sdp_violations")`.
-ADP/SDP/SAP modes use `artifact_scope="code"` by default; pass
+`architecture_analysis_tool(mode="import_cycles")`.
+`import_cycles` uses `artifact_scope="code"` by default; pass
 `artifact_scope="docs"` when reviewing Markdown dependency structure.
-SAP metrics also mark each row with `sap_applicable` and
-`applicability_reason`; default `sap_metrics` output separates
-`no-eligible-types` and `isolated` scopes from the main metric list, while
-`detail_level="verbose"` includes those raw rows.
-Use `dependency_profile="implementation"`, `"infra_dataflow"`, or
-`"artifact_trace"` only when the analysis needs CALLS, Terraform REFERENCES, or
-high-confidence CROSS_ARTIFACT traceability; the default `strict_static` profile
-keeps design-principle metrics on static dependency edges.
 Architecture and flow outputs are calibrated leads: the architecture overview's
-`findings` are claims to confirm at the location each names, and its SDP/SAP
-modes report formulas and thresholds per declared unit; `flow_tool(mode="entry_points")`
+`findings` are claims to confirm at the location each names, and each
+`unstable_dependency` reports both units' instability and the gap; `flow_tool(mode="entry_points")`
 returns the nearest entry points reaching a symbol with one call chain each,
 computed at query time; its stored-flow modes (`list`, `get`) report a CALLS
 reachable set (not an ordered execution path), disclose truncation via
@@ -272,9 +264,10 @@ CLI results as the same implementation.
 
 ### Migrating response consumers
 
-`next` lists the calls to make, with their arguments; the earlier next-step
-fields (`_hints`, `next_action`, `next_tool_suggestions`, `next_drill_downs`)
-are gone from the Tier 1 tools, and `guidance` is `verbose`-only. Read `next`
+`next` lists the calls to make, with their arguments. The earlier next-step
+fields `_hints` and `next_tool_suggestions` are gone from every reply, and
+`next_action` and `next_drill_downs` from the Tier 1 tools; `guidance` is
+`verbose`-only. Read `next`
 and `missingness` first, then the raw sections only when a drill-down needs
 more detail.
 
@@ -352,26 +345,6 @@ if result["reachability"]["depth_limit_reached"]:
 
 Rows are one per related node, with the edge lines in `lines`. Pass
 `detail_level="full"` for one row per edge and the raw `edges` list.
-
-## Export the graph
-
-<!-- constrained-by ./ARCHITECTURE.md#post-processing -->
-
-```bash
-dagayn visualize --format graphml
-dagayn visualize --format mermaid-c4
-dagayn visualize --format svg
-dagayn visualize --format cypher
-dagayn visualize --format obsidian
-```
-
-Notes:
-
-- `--format` is required
-- built-in export formats are `graphml`, `mermaid-c4`, `svg`, `cypher`, and `obsidian`
-- `mermaid-c4` emits Mermaid `C4Component` code using files as components
-- Jupyter / Databricks / marimo notebooks (Python `.py` and Markdown `.md`) are graph inputs, not report outputs
-- `svg` export requires matplotlib, available via `dagayn[eval]`
 
 ## Multi-repo workflows
 

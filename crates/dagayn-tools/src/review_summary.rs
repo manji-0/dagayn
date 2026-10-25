@@ -182,7 +182,6 @@ fn truthy_type(value: &Value) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::architecture::View;
 
     #[test]
     fn scopes_follow_pathlib() {
@@ -204,7 +203,7 @@ mod tests {
         let graph = ScopeGraph::new(&deps);
         assert!(
             graph
-                .sdp_violations(0.1, View::review().profile)
+                .sdp_violations(0.1)
                 .iter()
                 .all(|v| v["delta"].as_f64() > Some(0.1))
         );

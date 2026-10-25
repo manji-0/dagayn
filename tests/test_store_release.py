@@ -11,7 +11,6 @@ from pathlib import Path
 import pytest
 
 from dagayn.tools.architecture_analysis import architecture_analysis_func
-from dagayn.tools.docs import get_wiki_page_func
 from dagayn.write_lock import graph_lock_is_held
 
 DAGAYN = Path(sys.executable).with_name("dagayn")
@@ -30,19 +29,7 @@ def repo(tmp_path: Path) -> Path:
 
 @pytest.mark.parametrize(
     "tool",
-    [
-        *(
-            partial(architecture_analysis_func, mode=mode)
-            for mode in (
-                "overview",
-                "sdp_metrics",
-                "sdp_violations",
-                "sap_metrics",
-                "sap_violations",
-            )
-        ),
-        lambda repo_root: get_wiki_page_func("pkg", repo_root=repo_root),
-    ],
+    [partial(architecture_analysis_func, mode=mode) for mode in ("overview", "import_cycles")],
 )
 def test_the_graph_is_released_after_the_call(repo: Path, tool) -> None:
     db_path = repo / ".dagayn" / "graph.db"

@@ -196,25 +196,6 @@ def _apply_manifest_bridges(
         result.manifest_bridges_nodes = nodes_upserted
 
 
-def _persist_centrality_scores(
-    store: GraphStore,
-    result: PostprocessResult,
-    warnings: list[str],
-    changed_files: list[str] | None = None,
-) -> None:
-    """Persist query-time hub / bridge scores after graph post-processing."""
-    with _warn_on_failure(
-        "Centrality score persistence", (OSError, ImportError, RuntimeError), warnings
-    ):
-        from .analysis import persist_centrality_scores
-
-        counts = persist_centrality_scores(store, changed_files=changed_files)
-        result.hub_scores_persisted = counts.get("hub_scores_persisted", 0)
-        result.bridge_scores_persisted = counts.get("bridge_scores_persisted", 0)
-        result.hub_scores_code_persisted = counts.get("hub_scores_code_persisted", 0)
-        result.bridge_scores_code_persisted = counts.get("bridge_scores_code_persisted", 0)
-
-
 __all__ = [
     "run_post_processing",
 ]

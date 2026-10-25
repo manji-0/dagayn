@@ -188,8 +188,6 @@ fresh graph at commit time.
 
 - `dagayn detect-changes`
 - `dagayn tool`
-- `dagayn visualize`
-- `dagayn wiki`
 - `dagayn eval`
 
 <!-- derived-from ./EVALUATION-SEMANTICS.md -->
@@ -227,8 +225,8 @@ expected.
 
 <!-- derived-from ./GRAPH-EFFICIENCY-PLAN.md -->
 
-`dagayn eval --benchmark query_performance` records p95 for `traverse_graph`
-(depth 1/3/6), `get_impact_radius`, and `get_affected_flows`. Embedding search
+`dagayn eval --benchmark query_performance` records p95 for
+`get_impact_radius` (depth 1/3/6). Embedding search
 is a skipped row; use `embedding_materials` for that axis.
 
 `dagayn eval --benchmark scale_performance` builds a synthetic Python graph
@@ -286,104 +284,6 @@ and `package_root`) and the full `_repo` (`db_path`, how the root was found)
 so agents can compare a direct CLI run with a running MCP server. A long-lived MCP process keeps the implementation it loaded
 at startup; after editing or upgrading dagayn, restart `dagayn serve` before
 treating MCP output as the same truth source as `dagayn tool`.
-
-`dagayn visualize` is the static graph export command. It requires `--format`
-and generates:
-
-- GraphML, Mermaid C4, SVG, Neo4j Cypher, or Obsidian exports via `--format`
-
-Jupyter / Databricks / marimo notebooks (Python `.py` and Markdown `.md`) are supported as graph inputs rather than report
-output formats.
-
-`dagayn wiki` writes Markdown pages under `.dagayn/wiki/` from detected graph
-communities. Each community page includes members, reachable-set execution
-flows (BFS visit order from an entry point, not a runtime call sequence),
-cross-community dependencies, and code-scoped package-level ADP/SDP/SAP
-architecture metrics filtered to the scopes represented by that community.
-
-### Architecture metrics
-
-<!-- derived-from ./USAGE.md -->
-
-These CLI commands answer with the matching `architecture_analysis_tool`
-mode (`sdp_metrics`, `sdp_violations`, `sap_metrics`, `sap_violations`), so the CLI and MCP clients see the same scopes and
-numbers. `--format json` prints the MCP answer without the fields meant for
-an agent (`_runtime`, `_repo`). A
-`package` is a declared unit (Cargo crate, npm package, Go module, Python
-import package, Terraform module, or a top-level directory no manifest
-covers), not a directory; `sap-metrics` and `detect-sap` keep directory
-scopes under `--scope-kind directory`. They default to
-`artifact_scope="code"` so Markdown dependencies are not mixed into code
-design metrics; pass `--artifact-scope docs` or `--artifact-scope all` for
-documentation or legacy mixed-graph analysis.
-
-- `dagayn sdp-metrics` — Compute per-scope instability (Stable Dependencies
-  Principle) scores. Returns `instability`, `Ca`, and `Ce` per scope, sorted,
-  limited by `--top-n`.
-  - `--granularity {package,file}` (default `package`)
-  - `--artifact-scope {code,docs,all}` (default `code`)
-  - `--top-n N` (default 30)
-  - `--format {json,text}` (default `json`)
-- `dagayn detect-sdp` — Detect stability-direction violations: dependencies
-  from a more-stable scope to a less-stable scope whose instability gap meets
-  `--min-delta`.
-  - `--granularity {package,file}` (default `package`)
-  - `--artifact-scope {code,docs,all}` (default `code`)
-  - `--min-delta FLOAT` (default 0.1)
-  - `--top-n N` (default: every violation)
-  - `--format {json,text}` (default `json`)
-<!-- derived-from ./SAP-METRICS.md -->
-
-- `dagayn sap-metrics` — Compute per-scope abstractness, instability, and
-  distance from the main sequence (Stable Abstractions Principle). Returns
-  `A`, `I`, and `D` per scope, limited by `--top-n`; scopes the metric does
-  not apply to (no eligible types, or isolated) are listed apart in
-  `inapplicable_metrics`.
-  - `--scope-kind {package,file,directory}` (default `package`)
-  - `--unit-filter PREFIXES` — comma-separated scope_key prefixes to restrict
-    output
-  - `--artifact-scope {code,docs,all}` (default `code`)
-  - `--top-n N` (default 30)
-  - `--format {json,text}` (default `json`)
-- `dagayn detect-sap` — Detect scopes whose distance from the main sequence
-  meets `--min-distance`, with the zone (`pain` or `uselessness`) each is in.
-  - `--scope-kind {package,file,directory}` (default `package`)
-  - `--artifact-scope {code,docs,all}` (default `code`)
-  - `--min-distance FLOAT` (default 0.5)
-  - `--top-n N` (default: every violation)
-  - `--format {json,text}` (default `json`)
-
-All five commands accept `--repo` to override the repository root
-(auto-detected by default). `detect-sap` suppresses test-scope and
-fixture-scope entries from the violation list, as
-`architecture_analysis_tool(mode="sap_violations")` does.
-
-### Profiling
-
-- `dagayn profile`
-
-`dagayn profile` wraps any other dagayn subcommand in a
-[pyinstrument](https://pyinstrument.readthedocs.io/) CPU profile and writes an
-HTML report. The profiler is an optional dev dependency; install it with
-`uv sync --extra dev` or `pip install pyinstrument`.
-
-```bash
-dagayn profile build
-dagayn profile update --local-embedding
-dagayn profile tool review_tool --arg mode='"changes"'
-```
-
-Flags:
-
-- `--output-dir DIR` — directory for the HTML report (default
-  `.dagayn/profiles`)
-- `--interval SECONDS` — sampling interval (default `0.001`)
-- `--open` — open the HTML report in a browser when finished
-
-The subcommand and its arguments are passed after the `profile` command name.
-The wrapped subcommand re-enters the dagayn CLI under the profiler, so the
-profile reflects the full nested command execution. If `pyinstrument` is not
-installed, the command prints a clear install hint and exits non-zero.
 
 ### Integration and serving
 
@@ -553,14 +453,14 @@ The compact default MCP surface exposes tools for:
 - refactor previews and suggestions
 
 Advanced and maintenance tools for graph build/post-processing, embeddings,
-wiki generation, refactor application, and cross-repo search remain available
-when explicitly requested with `--tools`.
+refactor application, and cross-repo search remain available when explicitly
+requested with `--tools`.
 
 When the server is launched with `dagayn serve --local-embedding`,
 search-oriented MCP tools default to the managed OpenAI-compatible BGE-M3 GGUF
 endpoint. Use `dagayn serve --local-embedding --mode llama-qwen3` for the
-managed OpenAI-compatible Qwen endpoint. Either path makes `semantic_search_nodes`,
-`traverse_graph`, and `cross_repo_search` run hybrid FTS + embedding retrieval
+managed OpenAI-compatible Qwen endpoint. Either path makes `semantic_search_nodes`
+and `cross_repo_search` run hybrid FTS + embedding retrieval
 unless the client explicitly passes another provider or model.
 
 A long-lived `dagayn serve` that hits SQLite `SQLITE_CORRUPT` (`database disk
@@ -654,11 +554,6 @@ It omits `answerability` and `edges`. `minimal` keeps fewer row fields, drops `g
 returns the earlier `standard` shape: one row per edge, the `edges` list, and
 full `answerability`.
 
-`traverse_graph_tool` returns both the legacy top-level `truncated` boolean and a
-typed `reachability` object. `reachability.state` is `complete`, `truncated`, or
-`not_found`, so callers can distinguish a fully explored budgeted neighborhood
-from a partial traversal or a missing start node without inferring from text.
-
 ### MCP tool surface
 
 <!-- Plan context: ./plans/ANALYSIS-TOOL-STRATEGY.md#mcp-tool-surface-plan; not a graph dependency because stable command docs are canonical. -->
@@ -672,7 +567,7 @@ dagayn serve
 dagayn serve --tools query_graph_tool,semantic_search_nodes_tool
 dagayn serve --tools all
 dagayn tool architecture_analysis_tool --arg mode='"overview"'
-dagayn tool architecture_analysis_tool --arg mode='"sdp_violations"' --arg artifact_scope='"docs"'
+dagayn tool architecture_analysis_tool --arg mode='"import_cycles"' --arg artifact_scope='"docs"'
 dagayn serve --local-embedding
 dagayn serve --local-embedding --mode llama-qwen3
 dagayn serve --remote-embedding openai
@@ -796,18 +691,10 @@ absence.
 with `mode="overview"` and `detail_level="minimal"`: the declared units, the
 dependencies between them, and `findings`.
 
-ADP/SDP/SAP modes default to `artifact_scope="code"` so Markdown dependencies
-and code dependencies are not mixed in design-principle metrics. Pass
-`artifact_scope="docs"` to inspect documentation dependency cycles or stability,
-or `artifact_scope="all"` for the legacy mixed projection.
-They also accept `dependency_profile`: `strict_static` preserves the historical
-`IMPORTS_FROM` / `DEPENDS_ON` / `INHERITS` / `IMPLEMENTS` edge set,
-`implementation` adds `CALLS`, `infra_dataflow` adds Terraform-style
-`REFERENCES`, and `artifact_trace` adds high-confidence `CROSS_ARTIFACT` edges.
-Unknown profile names are rejected instead of falling back silently.
-`sap_metrics` separates SAP-inapplicable scopes (`no-eligible-types` and
-`isolated`) into `inapplicable_metrics` by default; use
-`detail_level="verbose"` for raw metric inspection.
+`import_cycles` defaults to `artifact_scope="code"` so Markdown dependencies
+and code dependencies are not mixed. Pass `artifact_scope="docs"` to inspect
+documentation dependency cycles, or `artifact_scope="all"` for the mixed
+projection.
 
 `mode="import_cycles"` lists every simple cycle the resolved import edges form
 between scopes: `scope_kind="file"`, `"directory"` (the file's directory), or
@@ -826,11 +713,14 @@ cycles to fit the reply; narrow with `unit_filter` then. Unlike the overview's
 `import_cycle` finding, which counts only imports that run at load time in
 production code, this mode counts every import edge the filter keeps.
 
-The minimal search-ranking scaffold lives in `eval/search_queries.yaml`,
-`eval/search_judgments.yaml`, and `eval/run_search_eval.py`. It reports MRR@10,
-NDCG@10, Recall@20, exact-symbol success@5, prose-intent success@10,
-doc-vs-code confusion rate, and test crowding rate. Follow-up work should add
-larger judgment sets before changing ranking weights.
+The search-ranking eval lives in `eval/search_queries.yaml`,
+`eval/search_judgments.yaml`, and `eval/run_search_eval.py`. Each query names
+the repository it searches (`--repo NAME=PATH`), and the eval runs the hybrid
+search with and without its embedding arm on the same queries. It reports
+MRR@10, nDCG@10, P@5, Recall@20, success@5, and median latency per arm, overall
+and per query intent and repository, and refuses to run when a judged target is
+missing from its graph. Results are in
+[OPEN-MEASUREMENTS.md](./plans/OPEN-MEASUREMENTS.md#search-embeddings).
 
 Migration note for dagayn 3.0: v2 split architecture MCP/CLI tools such as
 `get_architecture_overview_tool`, `list_communities_tool`,

@@ -89,7 +89,11 @@ The overlay runs on a full `build`, **before** post-processing:
 3. Settle the edge from SCIP's answer:
    - a definition in the repository → the innermost node holding it whose
      name is the symbol's, `HIGH`, `resolved_by: "scip"`; an edge at a node
-     holding the definition (a class for its constructor) is confirmed;
+     holding the definition (a class for its constructor) is confirmed. A
+     symbol rust-analyzer gives two definitions (a crate-root function of
+     `src/lib.rs` and one of `tests/*.rs`, two nested functions of one
+     name) is the one sharing the most scope with the caller; a tie is
+     ambiguous;
    - an external symbol → its package (`std`/`core`/`alloc` fold to `std`;
      `@types/x` to `x`; `typescript` to `globalThis`), `external_symbol` from
      the SCIP descriptors, `HIGH`, `resolved_by: "scip"`; an edge already

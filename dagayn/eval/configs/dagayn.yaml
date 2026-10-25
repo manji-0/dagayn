@@ -179,15 +179,6 @@ doc_fuzzy_search_queries:
       - target: "docs/COMMANDS.md::analysis-and-review"
         grade: 2
 
-  - query: "produce architecture handoff artifacts such as diagrams or exchange formats"
-    expected: "docs/USAGE.md::export-the-graph"
-    label: "graph_export_formats"
-    relevant:
-      - target: "README.md::reporting-and-export-outputs"
-        grade: 2
-      - target: "docs/COMMANDS.md::analysis-and-review"
-        grade: 1
-
   - query: "cached vectors should be recomputed after changing the embedding vendor or model identity"
     expected: "README.md::running-embedding"
     label: "embedding_cache_invalidation"

@@ -201,11 +201,6 @@ impl GraphStore {
         Ok(())
     }
 
-    pub(crate) fn migrate_v14(&self) -> Result<()> {
-        self.conn.execute_batch(CENTRALITY_SCORE_SCHEMA_SQL)?;
-        Ok(())
-    }
-
     pub(crate) fn migrate_v15(&self) -> Result<()> {
         let needs_rebuild = {
             let tx = self.conn.unchecked_transaction()?;
@@ -267,6 +262,18 @@ impl GraphStore {
             "DROP TABLE IF EXISTS flow_snapshots; \
              DROP TABLE IF EXISTS flow_memberships; \
              DROP TABLE IF EXISTS flows;",
+        )?;
+        Ok(())
+    }
+
+    /// v19: hub and bridge centrality scores are gone (no tool reads them),
+    /// so their tables go too, with the `_code` variants Python created.
+    pub(crate) fn migrate_v19(&self) -> Result<()> {
+        self.conn.execute_batch(
+            "DROP TABLE IF EXISTS hub_scores; \
+             DROP TABLE IF EXISTS bridge_scores; \
+             DROP TABLE IF EXISTS hub_scores_code; \
+             DROP TABLE IF EXISTS bridge_scores_code;",
         )?;
         Ok(())
     }

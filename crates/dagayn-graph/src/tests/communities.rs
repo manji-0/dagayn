@@ -53,17 +53,6 @@ fn stores_and_reads_communities() {
         all_member_qns.get(&community_id),
         Some(&vec!["auth.py::login".to_string()])
     );
-    let community_ids = store
-        .get_community_ids_by_qualified_names(&[
-            "auth.py::login".to_string(),
-            "missing.py::none".to_string(),
-        ])
-        .unwrap();
-    assert_eq!(
-        community_ids.get("auth.py::login").copied().flatten(),
-        Some(community_id)
-    );
-    assert!(!community_ids.contains_key("missing.py::none"));
     assert_eq!(
         store
             .count_affected_communities(&["auth.py".to_string()])
@@ -158,11 +147,6 @@ fn community_edge_queries_are_region_local() {
             .iter()
             .any(|edge| edge.target_qualified == "b.py::b_callee")
     );
-
-    let incident = store.get_edges_incident_to_community_ids(&[id_a]).unwrap();
-    assert!(incident.iter().any(|edge| {
-        edge.source_qualified == "a.py::a_caller" && edge.target_qualified == "b.py::b_callee"
-    }));
     let _ = std::fs::remove_file(path);
 }
 

@@ -173,24 +173,6 @@ class TestEdgeQueries:
 
 
 class TestNodeQueries:
-    def test_get_nodes_by_size(self, store):
-        assert qns(store.get_nodes_by_size(min_lines=1, kind="Function")) == [
-            MIDDLE,
-            ENTRY,
-            LEAF,
-            "app.py::Derived.handle",
-            "app.py::Base.handle",
-        ]
-        assert qns(store.get_nodes_by_size(min_lines=1, file_path_pattern="tests")) == [
-            "tests/test_app.py",
-            TEST_ENTRY,
-        ]
-        assert qns(store.get_nodes_by_size(min_lines=1, limit=2)) == ["app.py", MIDDLE]
-        assert all(
-            n.line_end - n.line_start + 1 <= 6
-            for n in store.get_nodes_by_size(min_lines=1, max_lines=6)
-        )
-
     def test_count_nodes_by_name(self, store):
         assert store.count_nodes_by_name(["Function", "Class"], False) == {
             "Base": 1,
@@ -243,13 +225,6 @@ class TestSubgraphAndImpact:
         subgraph = store.get_subgraph([ENTRY, MIDDLE, LEAF])
         assert qns(subgraph["nodes"]) == [ENTRY, MIDDLE, LEAF]
         assert pairs(subgraph["edges"]) == [(ENTRY, MIDDLE), (MIDDLE, LEAF)]
-
-    def test_get_local_subgraph_grows_with_depth(self, store):
-        near, _ = store.get_local_subgraph(ENTRY, 1)
-        far, adjacency = store.get_local_subgraph(ENTRY, 2)
-        assert sorted(near) == ["README.md", ENTRY, MIDDLE, TEST_ENTRY]
-        assert sorted(far) == sorted([*near, LEAF])
-        assert sorted(adjacency[MIDDLE]) == [ENTRY, LEAF]
 
     def test_get_impact_radius(self, store):
         result = store.get_impact_radius(["app.py"])

@@ -94,7 +94,6 @@ Optional post-processing layers add:
 - communities
 - search indexes (FTS5 virtual table `nodes_fts`, always available after `build`)
 - embedding store (the `embeddings` table inside `.dagayn/graph.db`, populated by `embed_graph_tool` or `--local-embedding`)
-- persisted centrality tables (`hub_scores`, `bridge_scores`) used by architecture analysis after post-processing
 
 ## Hybrid search
 
