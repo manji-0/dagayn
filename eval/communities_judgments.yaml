@@ -1,0 +1,73 @@
+# Hand verdicts on communities (clones under $S/measure, 2026-10-25), read from
+# member files and names (rsc/comm_peek.py). useful: a cohesive concern the
+# unit and directory list does not already give; restates_unit: one unit,
+# directory, or file, so nothing beyond the units; incoherent: unrelated
+# modules under one name, which would mislead an agent.
+judgments:
+  - {repo: cfwdon, id: 35, name: src-status-sub4, verdict: incoherent,
+     reason: "1021 nodes over 168 files: collections_alpha.rs, local_polls/votes.rs, relationship/follow_queries.rs, oauth_store.rs, background_jobs.rs; nothing about status"}
+  - {repo: cfwdon, id: 25, name: src-status-sub1, verdict: incoherent,
+     reason: "1008 nodes over 207 files: statuses/response_preloads.rs, activitypub/social_activities.rs, notifications/stream_publish.rs, timelines.rs, search/status_v2.rs"}
+  - {repo: cfwdon, id: 28, name: src-response, verdict: incoherent,
+     reason: "518 nodes over 109 files: route handlers of filters, lists, follow_requests, oauth_apps, domain_blocks plus runtime_config.rs"}
+  - {repo: cfwdon, id: 55, name: src-status-sub7, verdict: useful,
+     reason: "inbound federation across modules: inbox.rs, inbox/target_resolution.rs, activitypub/parse.rs, http/signatures.rs, federation/fetch.rs (plus response/accounts.rs noise); name misleads"}
+  - {repo: cfwdon, id: 29, name: src-status-sub3, verdict: restates_unit,
+     reason: "timelines and hashtags: timelines.rs, timelines/request_parsing.rs, tags.rs, streaming batches, home_timeline/store.rs; second pass: timelines.rs, timelines/, tags.rs already sit side by side in the listing"}
+  - {repo: cfwdon, id: 286, name: api-label, verdict: restates_unit,
+     reason: "web-ui/src/infrastructure/api/*.ts client functions plus domain/filters/filter.ts; the api directory already says this"}
+  - {repo: cfwdon, id: 287, name: status-append, verdict: restates_unit,
+     reason: "status vertical slice across layers: infrastructure/api/status.ts, domain/status/*.ts, ui/composer/draft-media.ts; name meaningless; second pass: status.ts files in infrastructure/api and domain/status/ already name the slice"}
+  - {repo: cfwdon, id: 285, name: pages-empty, verdict: incoherent,
+     reason: "52 files: api/relationship.ts, conversation-set.ts, search.ts, several pages and hooks; no shared concern"}
+  - {repo: cfwdon, id: 45, name: src-status-sub6, verdict: useful,
+     reason: "quote state across crates: cfwdon-domain quote.rs, remote/record.rs, status/stored.rs with worker statuses/store_remote.rs, status_insert.rs"}
+  - {repo: cfwdon, id: 33, name: account-provision, verdict: useful,
+     reason: "account provisioning across crates: cfwdon-models access_provision.rs (+refinement) with cfwdon-domain account/username.rs, registration.rs, email.rs"}
+  - {repo: cfwdon, id: 44, name: src-status, verdict: restates_unit,
+     reason: "status draft publish across crates: cfwdon-models status_draft_publish.rs, status_draft_transition_events.rs with cfwdon-domain status/draft.rs; second pass: status_draft_publish.rs (models) and status/draft.rs (domain) share the name"}
+  - {repo: cfwdon, id: 237, name: operations, verdict: restates_unit,
+     reason: "57 of 81 nodes are docs/operations/cloudflare-deploy.md sections; one document"}
+  - {repo: cfwdon, id: 231, name: operations, verdict: restates_unit,
+     reason: "63 of 75 nodes are docs/operations/auth0-configuration.md; one document, same name as 237"}
+  - {repo: tstodon, id: 6, name: sql-parameters, verdict: incoherent,
+     reason: "2002 nodes over 478 files: two D1 docs plus remote-actor-store.ts, http.ts, link-card.ts, auth.ts, quote-store.ts; most hand-written worker code in one blob"}
+  - {repo: tstodon, id: 125, name: models-remote, verdict: restates_unit,
+     reason: "1888 nodes, all packages/worker/src/generated/prisma (models/remote_actors.ts, remote_statuses.ts); generated code"}
+  - {repo: tstodon, id: 102, name: models-remote, verdict: restates_unit,
+     reason: "1466 nodes, all generated/prisma (internal/class.ts, client.ts); same name as 125"}
+  - {repo: tstodon, id: 163, name: models-account, verdict: restates_unit,
+     reason: "983 nodes, all generated/prisma/models (accounts.ts, statuses.ts); community_name=models-account silently returns this one of four"}
+  - {repo: tstodon, id: 65, name: src-remote, verdict: incoherent,
+     reason: "12 unrelated test files (remote-notifications, registration-blocks, admin-domain-blocks .test.ts) joined by local helpers named auth/json/read"}
+  - {repo: tstodon, id: 269, name: src-local, verdict: restates_unit,
+     reason: "http-signature.ts and its test plus index.test.ts; one file's concern"}
+  - {repo: tstodon, id: 15, name: architecture-deliverattempoutcome, verdict: restates_unit,
+     reason: "38 of 45 nodes are sections of docs/architecture/tstodon-architecture.md and docs/planning/local-core.md"}
+  - {repo: tstodon, id: 47, name: src-range, verdict: restates_unit, reason: "packages/domain/src/ip-block.ts and ip-block.test.ts"}
+  - {repo: tstodon, id: 271, name: src-fetch, verdict: restates_unit,
+     reason: "streaming fan-out: stream-hub.ts with stream-fanout.ts and index.ts entry; two files, small; second pass: stream-hub.ts and stream-fanout.ts are named alike"}
+  - {repo: tstodon, id: 45, name: src-as, verdict: restates_unit, reason: "packages/domain/src/follow-request.ts and its tests"}
+  - {repo: tstodon, id: 30, name: cloudflare-access, verdict: restates_unit, reason: "infra/cloudflare/access.tf, variables.tf, outputs.tf; the directory"}
+  - {repo: tstodon, id: 23, name: src-accestoken, verdict: restates_unit,
+     reason: "packages/domain/src/oauth-scope.ts with access-token.ts: token and scope concern across two files; second pass: oauth-scope.ts and access-token.ts sit together in packages/domain/src"}
+  - {repo: dagayn, id: 73, name: src-javascript, verdict: restates_unit,
+     reason: "1667 of dagayn-parser's 2117 nodes (python/mod.rs, rust_lang/mod.rs, c_like.rs); the crate, named after one language"}
+  - {repo: dagayn, id: 40, name: tests-store, verdict: incoherent,
+     reason: "1465 nodes over 6 units: dagayn-py/src/lib.rs, tests/test_incremental.py, tests/test_search.py"}
+  - {repo: dagayn, id: 2, name: docs-tool, verdict: incoherent,
+     reason: "1149 doc nodes: CHANGELOG.md, docs/plans/ANALYSIS-TOOL-STRATEGY.md, docs/COMMANDS.md"}
+  - {repo: dagayn, id: 160, name: src-cycles, verdict: restates_unit,
+     reason: "docs/SAP-METRICS.md and ARCHITECTURE-TOOL-TARGET.md with crates/dagayn-tools/src/architecture.rs: doc and its code; second pass: docs_for on architecture.rs already links these docs"}
+  - {repo: dagayn, id: 38, name: src-file, verdict: incoherent,
+     reason: "567 nodes over 86 files in 6 units: postprocess/bare_names.rs, dead_code.rs, schema_migrations.rs, build update.rs"}
+  - {repo: dagayn, id: 157, name: tests-method, verdict: incoherent,
+     reason: "tests/test_parser.py, test_multilang.py, test_notebook.py and a refactor doc, joined by setup_method"}
+  - {repo: dagayn, id: 7, name: tests-embed, verdict: restates_unit,
+     reason: "embeddings_store.py, embeddings_providers.py, test_embeddings.py: the file names say embeddings"}
+  - {repo: dagayn, id: 117, name: core-tests-calls, verdict: restates_unit,
+     reason: "crates/dagayn-parser/src/core_tests/*.rs; the directory"}
+  - {repo: dagayn, id: 75, name: src-graph, verdict: incoherent,
+     reason: "dagayn-tools lib.rs, context.rs, query.rs, apply.rs with dagayn-build data_dir.rs and docs/COMMANDS.md"}
+  - {repo: dagayn, id: 17, name: src-tests, verdict: incoherent,
+     reason: "review.rs, answerability.rs, next.rs with docs/plans/REFACTOR-TOOL-TARGET.md and FLOW-TOOL-TARGET.md"}

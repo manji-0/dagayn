@@ -1,0 +1,43 @@
+# Hand verdicts for eval/run_cross_repo_measure.py.
+# kind: top1 judges the first hit per repo for a query (identical in
+#   cross_repo_search_tool and semantic_search_nodes_tool, since the per-repo
+#   top-10 sets and orders matched on every query).
+#   verdict: relevant | partial | irrelevant
+# kind: merge judges how the merged cross-repo list orders the two repos.
+#   verdict: sensible | misleading
+judgments:
+  - {query: follow-request, kind: top1, repo: cfwdon, verdict: partial, id: "crates/cfwdon-models/src/local_follow_request.rs::check_local_follow_request_model", reason: "local_follow_request.rs:122 is a model-checker harness for the follow-request state machine, not the request handling itself"}
+  - {query: follow-request, kind: top1, repo: tstodon, verdict: irrelevant, id: "packages/worker/src/push-delivery.ts::TITLES.follow_request", reason: "push-delivery.ts:34 is a push-notification title template; the domain type is packages/domain/src/follow-request.ts at rank 2"}
+  - {query: inbox-handler, kind: top1, repo: cfwdon, verdict: relevant, id: "crates/cfwdon-worker/src/inbox/follow_handlers.rs::handle_inbox_reject", reason: "follow_handlers.rs:103 is an inbox Reject activity handler"}
+  - {query: inbox-handler, kind: top1, repo: tstodon, verdict: partial, id: "packages/worker/src/inbox-handlers/context.ts::ActivityOf", reason: "context.ts:25 is a helper type in the inbox-handlers dir; handlers (handleLocalUndo) follow at rank 2"}
+  - {query: webfinger, kind: top1, repo: cfwdon, verdict: relevant, id: "crates/cfwdon-worker/src/discovery/webfinger.rs::filter_webfinger_links", reason: "webfinger.rs:182 filters the WebFinger response links (rel=) in the discovery endpoint"}
+  - {query: webfinger, kind: top1, repo: tstodon, verdict: partial, id: "e2e/schemas.ts::WebFinger", reason: "e2e/schemas.ts:63 is the e2e test's response schema, not the server's WebFinger code"}
+  - {query: http-sig-verify, kind: top1, repo: cfwdon, verdict: relevant, id: "crates/cfwdon-worker/src/http/crypto.rs::import_public_verification_key", reason: "crypto.rs:73 imports the actor public key used by verify_http_signature_bytes (crypto.rs:10, rank 2)"}
+  - {query: http-sig-verify, kind: top1, repo: tstodon, verdict: irrelevant, id: "packages/worker/src/profile-field-verification.test.ts::it:treats only a whole http(s) value as a link@L5", reason: "profile-field-verification.test.ts:5 tests profile link verification; verifyInboxRequest in http-signature.ts is absent from the top 10"}
+  - {query: outbox-retry, kind: top1, repo: cfwdon, verdict: relevant, id: "crates/cfwdon-worker/src/admin_api/deliveries.rs::retry_outbox_delivery", reason: "deliveries.rs:206 retries an outbox delivery row"}
+  - {query: outbox-retry, kind: top1, repo: tstodon, verdict: relevant, id: "packages/domain/src/outbox-delivery.ts::OutboxDelivery.retryDelay", reason: "outbox-delivery.ts:76 is the delivery retry backoff schedule"}
+  - {query: hashtag-extract, kind: top1, repo: cfwdon, verdict: relevant, id: "crates/cfwdon-worker/src/content_helpers.rs::extract_hashtags_from_html", reason: "content_helpers.rs:192 extracts hashtags from status HTML"}
+  - {query: hashtag-extract, kind: top1, repo: tstodon, verdict: relevant, id: "packages/worker/src/status-discovery-store.ts::extractHashtags", reason: "status-discovery-store.ts:114 extracts #tags with a regex"}
+  - {query: nodeinfo, kind: top1, repo: cfwdon, verdict: relevant, id: "crates/cfwdon-worker/src/instance/nodeinfo_documents.rs::build_nodeinfo_links_document", reason: "nodeinfo_documents.rs:6 builds the /.well-known/nodeinfo links document"}
+  - {query: nodeinfo, kind: top1, repo: tstodon, verdict: irrelevant, id: "e2e/federation-smoke.ts::main", reason: "federation-smoke.ts:16 only polls /.well-known/nodeinfo in an e2e smoke test; tstodon has no node named *nodeinfo*"}
+  - {query: actor-document, kind: top1, repo: cfwdon, verdict: relevant, id: "crates/cfwdon-worker/src/federation/fetch.rs::fetch_remote_actor_profile_with_document", reason: "fetch.rs:101 fetches a remote actor and keeps its document"}
+  - {query: actor-document, kind: top1, repo: tstodon, verdict: relevant, id: "packages/worker/src/remote-actor-fetch.ts::remoteActorFromDocument", reason: "remote-actor-fetch.ts:27 parses a remote actor document"}
+  - {query: parseSignatureHeader, kind: top1, repo: cfwdon, verdict: relevant, id: "workers/ap-x-mirror/src/ap/http-signature.ts::parseSignatureHeader", reason: "http-signature.ts:23 is the definition"}
+  - {query: parseSignatureHeader, kind: top1, repo: tstodon, verdict: relevant, id: "packages/worker/src/http-signature.ts::parseSignatureHeader", reason: "http-signature.ts:123 is the definition"}
+  - {query: buildSigningString, kind: top1, repo: cfwdon, verdict: relevant, id: "workers/ap-x-mirror/src/ap/http-signature.ts::buildSigningString", reason: "http-signature.ts:48 is the definition"}
+  - {query: buildSigningString, kind: top1, repo: tstodon, verdict: relevant, id: "packages/worker/src/http-signature.ts::buildSigningString", reason: "http-signature.ts:29 is the definition"}
+  - {query: authorizeFollowRequest, kind: top1, repo: cfwdon, verdict: relevant, id: "web-ui/src/infrastructure/api/relationship.ts::authorizeFollowRequest", reason: "relationship.ts:65 is the web-ui API client definition"}
+  - {query: authorizeFollowRequest, kind: top1, repo: tstodon, verdict: relevant, id: "packages/worker/src/generated/prisma/sql/authorizeFollowRequest.ts::authorizeFollowRequest", reason: "generated/prisma/sql/authorizeFollowRequest.ts:18 is the generated typed-SQL namespace of that name"}
+  - {query: sha256DigestHeader, kind: top1, repo: cfwdon, verdict: relevant, id: "workers/ap-x-mirror/src/ap/crypto.ts::sha256DigestHeader", reason: "crypto.ts:48 is the definition"}
+  - {query: sha256DigestHeader, kind: top1, repo: tstodon, verdict: relevant, id: "e2e/lib.ts::sha256DigestHeader", reason: "e2e/lib.ts:213 is the definition (e2e helper)"}
+  - {query: verify_http_signature_bytes, kind: top1, repo: cfwdon, verdict: relevant, id: "crates/cfwdon-worker/src/http/crypto.rs::verify_http_signature_bytes", reason: "crypto.rs:10 is the definition; tstodon correctly returns no hits"}
+  - {query: build_nodeinfo_21_document, kind: top1, repo: cfwdon, verdict: relevant, id: "crates/cfwdon-worker/src/instance/nodeinfo_documents.rs::build_nodeinfo_21_document", reason: "nodeinfo_documents.rs:40 is the definition; tstodon returns no hits"}
+  - {query: D1Database, kind: top1, repo: cfwdon, verdict: relevant, id: "crates/cfwdon-worker/src/tracked_d1.rs::D1Database", reason: "tracked_d1.rs:67 is the struct definition"}
+  - {query: D1Database, kind: top1, repo: tstodon, verdict: partial, id: "packages/worker/src/typed-sql.ts::runTyped", reason: "typed-sql.ts:32 only takes Cloudflare's D1Database as a parameter type; tstodon defines no D1Database"}
+  - {query: fetchWebfingerActorUri, kind: top1, repo: tstodon, verdict: relevant, id: "packages/worker/src/federated-fetch.ts::fetchWebfingerActorUri", reason: "federated-fetch.ts:124 is the definition; cfwdon returns no hits"}
+  - {query: D1Database, kind: merge, repo: merged, verdict: misleading, reason: "cfwdon's definition (tracked_d1.rs:67) and tstodon's parameter mention (typed-sql.ts:32) both score 0.1153; scores are within-repo RRF sums of 1/(10+rank+1) (dagayn/search.py:511-551), so the merge alternates repos and half the top 10 are tstodon param mentions; per-repo exactness says cfwdon=1 tstodon=0, the merged reply drops it"}
+  - {query: http-sig-verify, kind: merge, repo: merged, verdict: misleading, reason: "3 of tstodon's top 4 are profile-field-verification hits (profile-field-verification.test.ts:5) interleaved as peers of cfwdon's crypto.rs:10; the merge cannot tell a repo with a weak match from one with a real one"}
+  - {query: parseSignatureHeader, kind: merge, repo: merged, verdict: sensible, reason: "both definitions (ap-x-mirror http-signature.ts:23, worker http-signature.ts:123) land in the top 4 with their repo labels"}
+  - {query: inbox-handler, kind: merge, repo: merged, verdict: sensible, reason: "strict alternation of cfwdon inbox/*_handlers.rs and tstodon inbox-handlers/*.ts handlers, labelled per hit"}
+  - {query: webfinger, kind: merge, repo: merged, verdict: sensible, reason: "tstodon's e2e schema leads but cfwdon's webfinger.rs:182 is second; both repos' WebFinger code is in the top 10"}
+  - {query: verify_http_signature_bytes, kind: merge, repo: merged, verdict: sensible, reason: "only cfwdon hits; repo_search_modes marks tstodon mode=empty, so absence there is visible"}

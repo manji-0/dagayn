@@ -1,10 +1,17 @@
+# grade 3: the node the query asks for; 2: a node that does the same job or
+# is the direct owner of it; 1: useful context (caller, doc section) an agent
+# would also accept. Targets are qualified names in the query's repo graph.
 judgments:
   exact-rrf-merge:
     relevant:
+      - target: crates/dagayn-tools/src/search.rs::rrf_merge
+        grade: 2
       - target: dagayn/search.py::rrf_merge
         grade: 3
   prose-rrf:
     relevant:
+      - target: crates/dagayn-tools/src/search.rs::rrf_merge
+        grade: 2
       - target: dagayn/search.py::rrf_merge
         grade: 3
       - target: docs/ARCHITECTURE.md::hybrid-search
@@ -15,3 +22,247 @@ judgments:
         grade: 2
       - target: docs/COMMANDS.md
         grade: 1
+  exact-hybrid-search:
+    relevant:
+      - target: docs/ARCHITECTURE.md::hybrid-search
+        grade: 1
+      - target: dagayn/search.py::hybrid_search
+        grade: 3
+  exact-seed-worktree:
+    relevant:
+      - target: dagayn/tools/session_prepare.py::_seed_worktree_if_needed
+        grade: 1
+      - target: dagayn/worktree.py::seed_worktree_graph
+        grade: 3
+  kw-registry-register:
+    relevant:
+      - target: dagayn/cli/commands/registry.py::register_commands
+        grade: 1
+      - target: dagayn/registry.py::Registry.register
+        grade: 3
+      - target: dagayn/registry.py::Registry
+        grade: 2
+  kw-import-cycles:
+    relevant:
+      - target: crates/dagayn-tools/src/cycles.rs::import_cycles
+        grade: 3
+      - target: crates/dagayn-tools/src/arch_findings.rs::import_cycles
+        grade: 3
+  prose-japanese-tokens:
+    relevant:
+      - target: crates/dagayn-graph/src/japanese_fts.rs::segment_japanese_fts_index.push
+        grade: 1
+      - target: crates/dagayn-graph/src/japanese_fts.rs::covering_query_tokens
+        grade: 1
+      - target: crates/dagayn-graph/src/japanese_fts.rs
+        grade: 1
+      - target: crates/dagayn-graph/src/japanese_fts.rs::segment_japanese_fts_index
+        grade: 3
+      - target: crates/dagayn-graph/src/japanese_fts.rs::morph_tokens
+        grade: 2
+      - target: crates/dagayn-graph/src/japanese_fts.rs::segment_japanese_fts_query
+        grade: 2
+  prose-dead-code:
+    relevant:
+      - target: dagayn/refactor/dead_code.py::find_dead_code
+        grade: 3
+      - target: crates/dagayn-tools/src/dead_code.rs::find_dead_code
+        grade: 3
+      - target: crates/dagayn-tools/src/dead_code.rs::dead_code_report
+        grade: 2
+      - target: crates/dagayn-tools/src/refactor.rs::dead_code
+        grade: 2
+  prose-embedding-sidecar:
+    relevant:
+      - target: dagayn/local_embeddings.py::local_embedding_server
+        grade: 3
+      - target: dagayn/local_embeddings.py::LocalEmbeddingServer
+        grade: 3
+      - target: dagayn/local_embeddings.py::_probe_embedding_server
+        grade: 1
+  prose-daemon:
+    relevant:
+      - target: dagayn/daemon.py::WatchDaemon
+        grade: 3
+      - target: dagayn/daemon.py::WatchDaemon.run_forever
+        grade: 2
+  ja-japanese-tokens:
+    relevant:
+      - target: crates/dagayn-graph/src/japanese_fts.rs::segment_japanese_fts_index.push
+        grade: 1
+      - target: crates/dagayn-graph/src/japanese_fts.rs::covering_query_tokens
+        grade: 1
+      - target: crates/dagayn-graph/src/japanese_fts.rs
+        grade: 1
+      - target: crates/dagayn-graph/src/japanese_fts.rs::segment_japanese_fts_index
+        grade: 3
+      - target: crates/dagayn-graph/src/japanese_fts.rs::morph_tokens
+        grade: 2
+      - target: crates/dagayn-graph/src/japanese_fts.rs::segment_japanese_fts_query
+        grade: 2
+  ja-embedding-sidecar:
+    relevant:
+      - target: dagayn/local_embeddings.py::local_embedding_server
+        grade: 3
+      - target: dagayn/local_embeddings.py::LocalEmbeddingServer
+        grade: 3
+  ja-import-cycles:
+    relevant:
+      - target: crates/dagayn-tools/src/cycles.rs::import_cycles
+        grade: 3
+      - target: crates/dagayn-tools/src/arch_findings.rs::import_cycles
+        grade: 3
+  ja-dead-code:
+    relevant:
+      - target: dagayn/refactor/dead_code.py::find_dead_code
+        grade: 3
+      - target: crates/dagayn-tools/src/dead_code.rs::find_dead_code
+        grade: 3
+      - target: crates/dagayn-tools/src/dead_code.rs::dead_code_report
+        grade: 2
+      - target: crates/dagayn-tools/src/refactor.rs::dead_code
+        grade: 2
+  ja-worktree-seed:
+    relevant:
+      - target: dagayn/cli/commands/serve.py::_inherit_worktree_graph
+        grade: 2
+      - target: dagayn/worktree.py::seed_worktree_graph
+        grade: 3
+      - target: dagayn/tools/session_prepare.py::_seed_worktree_if_needed
+        grade: 2
+  ts-exact-verify-inbox:
+    relevant:
+      - target: packages/worker/src/http-signature.ts::verifyInboxRequest
+        grade: 3
+  ts-exact-signing-string:
+    relevant:
+      - target: packages/worker/src/http-signature.ts::buildSigningString
+        grade: 3
+  ts-exact-sanitize:
+    relevant:
+      - target: packages/worker/src/remote-html.ts::sanitizeRemoteHtml
+        grade: 3
+  ts-exact-group-notifications:
+    relevant:
+      - target: packages/worker/src/notification-groups.ts::groupNotifications
+        grade: 3
+  ts-exact-follow-request-authorize:
+    relevant:
+      - target: packages/domain/src/follow-request.ts::FollowRequest.authorize
+        grade: 3
+  ts-kw-push-subscription:
+    relevant:
+      - target: packages/worker/src/generated/prisma/sql/upsertPushSubscription.ts::upsertPushSubscription
+        grade: 2
+      - target: packages/worker/src/push-subscription-store.ts::upsertPushSubscription
+        grade: 3
+  ts-kw-trending-statuses:
+    relevant:
+      - target: packages/worker/src/status-discovery-store.ts::listTrendingTags
+        grade: 1
+      - target: packages/worker/src/status-discovery-store.ts::listTrendingStatuses
+        grade: 3
+  ts-kw-poll-vote:
+    relevant:
+      - target: packages/worker/src/poll-store.ts::votePoll
+        grade: 3
+      - target: packages/worker/src/poll-store.ts::countPollVotes
+        grade: 2
+  ts-prose-verify-signature:
+    relevant:
+      - target: packages/worker/src/routes/activitypub/inbox.ts::handleInbox
+        grade: 1
+      - target: packages/worker/src/http-signature.ts::verifyInboxRequest
+        grade: 3
+  ts-prose-sanitize:
+    relevant:
+      - target: packages/worker/src/remote-html.ts::allowedHref
+        grade: 1
+      - target: packages/worker/src/remote-html.ts::cleanElement
+        grade: 2
+      - target: packages/worker/src/html.ts::escapeHtml
+        grade: 1
+      - target: packages/worker/src/remote-html.ts::sanitizeRemoteHtml
+        grade: 3
+  ts-prose-web-push:
+    relevant:
+      - target: packages/worker/src/push-delivery.ts::processPushJob
+        grade: 3
+  ts-prose-direct-visibility:
+    relevant:
+      - target: packages/worker/src/visibility-guard.ts::canViewStatus
+        grade: 2
+      - target: packages/worker/src/visibility-guard.ts::canViewDirectStatus
+        grade: 3
+  ts-prose-ipv4:
+    relevant:
+      - target: packages/domain/src/ip-block.ts::parseRange
+        grade: 1
+      - target: packages/domain/src/ip-block.ts::parseAddress
+        grade: 2
+      - target: packages/domain/src/ip-block.ts::parseIpv4
+        grade: 3
+  ts-prose-text-to-html:
+    relevant:
+      - target: packages/worker/src/html.ts::mentionUsernames
+        grade: 1
+      - target: packages/worker/src/html.ts::textToHtml
+        grade: 3
+  ts-prose-purge-codes:
+    relevant:
+      - target: packages/worker/src/generated/prisma/sql/deleteExpiredOAuthAuthorizationCodes.ts::deleteExpiredOAuthAuthorizationCodes
+        grade: 2
+      - target: packages/worker/src/generated/prisma/sql/deleteExpiredOAuthAuthorizationCodes.ts
+        grade: 1
+      - target: packages/worker/src/oauth-grant-store.ts::purgeExpiredAuthorizationCodes
+        grade: 3
+  ts-ja-verify-signature:
+    relevant:
+      - target: packages/worker/src/routes/activitypub/inbox.ts::handleInbox
+        grade: 1
+      - target: packages/worker/src/http-signature.ts::verifyInboxRequest
+        grade: 3
+  ts-ja-sanitize:
+    relevant:
+      - target: packages/worker/src/remote-html.ts::allowedHref
+        grade: 1
+      - target: packages/worker/src/remote-html.ts::cleanElement
+        grade: 2
+      - target: packages/worker/src/html.ts::escapeHtml
+        grade: 1
+      - target: packages/worker/src/remote-html.ts::sanitizeRemoteHtml
+        grade: 3
+  ts-ja-poll-count:
+    relevant:
+      - target: packages/worker/src/poll-store.ts::countPollVotes
+        grade: 3
+  ts-ja-follow-authorize:
+    relevant:
+      - target: packages/domain/src/outbound-follow.ts::OutboundFollow.accept
+        grade: 1
+      - target: packages/domain/src/follow-request.ts::FollowRequest.authorize
+        grade: 3
+      - target: packages/worker/src/follow-store.ts::authorizeFollowRequest
+        grade: 3
+      - target: packages/worker/src/remote-actor-store.ts::authorizeRemoteFollowRequest
+        grade: 2
+      - target: packages/domain/src/remote-inbound-follow-request.ts::RemoteInboundFollowRequest.authorize
+        grade: 2
+  ts-ja-group-notifications:
+    relevant:
+      - target: packages/worker/src/notification-groups.ts::groupNotifications
+        grade: 3
+  ts-ja-purge-codes:
+    relevant:
+      - target: packages/worker/src/generated/prisma/sql/deleteExpiredOAuthAuthorizationCodes.ts::deleteExpiredOAuthAuthorizationCodes
+        grade: 2
+      - target: packages/worker/src/generated/prisma/sql/deleteExpiredOAuthAuthorizationCodes.ts
+        grade: 1
+      - target: packages/worker/src/oauth-grant-store.ts::purgeExpiredAuthorizationCodes
+        grade: 3
+  ts-ja-domain-block:
+    relevant:
+      - target: packages/worker/src/admin-domain-block-store.ts::suspendedDomains
+        grade: 1
+      - target: packages/worker/src/domain-block-store.ts::isDomainBlocked
+        grade: 3
