@@ -232,10 +232,19 @@ and each measure gets a verdict: keep, cut, or fix-then-keep.
    observable cases in the four repositories, under the 20 the
    [evaluation](#evaluation) requires, so they are not built until a
    repository that depends on abstractions across units is added.
-3. Resolve TypeScript workspace package imports. It is not a principles
-   measure: without it no cross-package edge exists in a TypeScript
-   monorepo, for this plan or for `callers_of`, `units`, and review. Its
-   own change, with tstodon's cross-package edges as its check.
+3. Resolve TypeScript workspace package imports: done in
+   [#212](https://github.com/manji-0/dagayn/pull/212). A specifier that
+   tsconfig leaves unresolved now goes through the workspace members'
+   `package.json` (`exports`, `types`, `module`, `main`, `index.*`). On
+   tstodon, 0 of the 888 edges that pointed at a `@tstodon/*` string
+   remain. 495 `CALLS`, 314 `IMPORTS_FROM`, and 296 `REFERENCES` now reach
+   another package's nodes, and the unit edges carry weights (worker to
+   domain 129 calls and 285 references, worker to core 118 calls, domain
+   to core 101 calls). 76 calls stay unresolved: they call an
+   object-literal property that is not a function (`parse:
+   schemaResult(schema)`), and the graph has no node for one. tstodon has
+   no cross-package `implements` or `extends`, so the TypeScript side of
+   step 2 still has no case to judge.
 4. The measurement script and the judgments for what remains observable:
    corrected SAP, CRP's `surface_used` (Python and Rust types), and the
    LSP half of `refused_member`; recorded in this document.
