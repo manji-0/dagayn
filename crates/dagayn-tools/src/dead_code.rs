@@ -282,9 +282,10 @@ pub(crate) fn external_api_candidate(language: &str, line_number: i64, lines: &[
         lines[ls as usize - 1].trim()
     };
     if !line.is_empty() {
+        // `pub(crate)`, `pub(super)`, and `pub(in path)` are not here: no
+        // other crate can use such an item, so an unused one is dead.
         const MARKERS: &[&str] = &[
             "pub ",
-            "pub(",
             "public ",
             "export ",
             "export default ",

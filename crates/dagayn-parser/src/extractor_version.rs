@@ -229,8 +229,15 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // `#[cfg(test)] mod` declaration, or below one) is test code like a
         // `tests/` file: its functions are tests and every node `is_test`.
         // Every node of a test-path file (`tests/`) is `is_test` too.
+        // 25: functions, methods, and modules record their declared
+        // visibility in `modifiers` as types do, and restricted visibility is
+        // kept (`pub(crate)`, `pub(super)`, `pub(self)`, `pub(in path)`)
+        // instead of reading as `pub`; trait items and trait impl methods
+        // take the trait's (docs/SCHEMA.md). Only a test attribute (`#[test]`,
+        // `#[tokio::test]`, `#[rstest]`, ...) or a `cfg` that holds only
+        // under test makes a function a test: `#[cfg(not(test))]` does not.
         extractor: "rust",
-        version: 24,
+        version: 25,
         languages: &["rust"],
     },
     ExtractorVersion {

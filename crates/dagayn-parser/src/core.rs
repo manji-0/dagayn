@@ -1123,7 +1123,7 @@ fn rust_node_with_leading_attributes(
 fn has_rust_test_attribute(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
     for candidate in rust_node_with_leading_attributes(node) {
         if matches!(candidate.kind(), "attribute_item" | "inner_attribute_item")
-            && node_text(candidate, source).contains("test")
+            && rust_attribute_marks_test(&node_text(candidate, source))
         {
             return true;
         }
@@ -1131,12 +1131,42 @@ fn has_rust_test_attribute(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
         if candidate
             .children(&mut cursor)
             .filter(|child| matches!(child.kind(), "attribute_item" | "inner_attribute_item"))
-            .any(|child| node_text(child, source).contains("test"))
+            .any(|child| rust_attribute_marks_test(&node_text(child, source)))
         {
             return true;
         }
     }
     false
+}
+
+/// Whether an attribute makes the item it sits on test code: a test-harness
+/// attribute whose path ends in `test` (`#[test]`, `#[tokio::test]`) or names
+/// a test macro (`#[rstest]`, `#[test_case(1)]`, `#[wasm_bindgen_test]`,
+/// `#[quickcheck]`), or a `cfg` that holds only under test (`#[cfg(test)]`,
+/// `#[cfg(all(test, ...))]`). Mentioning `test` anywhere else
+/// (`#[cfg(not(test))]`, `#[cfg_attr(test, ...)]`, a doc string) does not.
+fn rust_attribute_marks_test(text: &str) -> bool {
+    let compact: String = text.chars().filter(|ch| !ch.is_whitespace()).collect();
+    let Some(inner) = compact
+        .strip_prefix("#!")
+        .or_else(|| compact.strip_prefix('#'))
+        .and_then(|rest| rest.strip_prefix('['))
+        .and_then(|rest| rest.strip_suffix(']'))
+    else {
+        return false;
+    };
+    let path = inner.split(['(', '=']).next().unwrap_or_default();
+    if path == "cfg" {
+        return inner
+            .strip_prefix("cfg(")
+            .and_then(|rest| rest.strip_suffix(')'))
+            .is_some_and(rust_lang::modules::cfg_implies_test);
+    }
+    let last = path.rsplit("::").next().unwrap_or(path);
+    last == "test"
+        || last.starts_with("test_")
+        || last.ends_with("_test")
+        || matches!(last, "rstest" | "quickcheck" | "proptest")
 }
 
 fn parsed_compact_json(nodes: Vec<ParsedNode>, edges: Vec<ParsedEdge>) -> String {

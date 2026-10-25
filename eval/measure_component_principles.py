@@ -14,10 +14,12 @@ build) and computes, per declared unit:
   overview's ``unit_edges``, production code only), the public symbols of B
   that A reaches through ``CALLS``, ``REFERENCES``, ``INHERITS``, or
   ``IMPLEMENTS``, over all public symbols of B. Public is Python names
-  without a leading underscore at module or class top level, Rust types
-  with ``pub`` in ``modifiers`` (Rust functions carry no visibility and are
-  left out), and TypeScript/JavaScript nodes flagged ``exported`` plus the
-  non-private members of exported classes.
+  without a leading underscore at module or class top level, Rust
+  functions, methods, and types whose ``modifiers`` is ``pub`` (declared
+  visibility, rust extractor 25; ``pub(crate)`` and the other restricted
+  forms are not public, and modules are not symbols), and
+  TypeScript/JavaScript nodes flagged ``exported`` plus the non-private
+  members of exported classes.
 - **refused_member** (the LSP half): methods of a type that inherits or
   implements something, outside tests, whose body only refuses the call
   (``unimplemented!()``, ``todo!()``, a ``panic!`` saying "not
@@ -480,9 +482,11 @@ def public_rule(node: dict[str, Any], graph: Graph) -> str | None:
             return "python-member"
         return None
     if language == "rust":
-        if node["kind"] == "Function":
+        if node["extra"].get("type_role") == "module":
             return None
-        return "rust-pub-type" if "pub" in (node["modifiers"] or "").split() else None
+        if "pub" not in (node["modifiers"] or "").split():
+            return None
+        return "rust-pub-function" if node["kind"] == "Function" else "rust-pub-type"
     if language in TS_LANGUAGES:
         if node["extra"].get("exported"):
             return "ts-exported"
@@ -512,7 +516,6 @@ def crp(graph: Graph) -> list[dict[str, Any]]:
 
     public: dict[int, set[str]] = defaultdict(set)
     rules: dict[int, Counter[str]] = defaultdict(Counter)
-    rust_functions: Counter[int] = Counter()
     for qn, node in production.items():
         unit = index.unit_of_file.get(node["file_path"])
         if unit is None:
@@ -521,8 +524,6 @@ def crp(graph: Graph) -> list[dict[str, Any]]:
         if rule:
             public[unit].add(qn)
             rules[unit][rule] += 1
-        if node["language"] == "rust" and node["kind"] == "Function":
-            rust_functions[unit] += 1
 
     weights: dict[tuple[int, int], Counter[str]] = defaultdict(Counter)
     used: dict[tuple[int, int], set[str]] = defaultdict(set)
@@ -561,7 +562,6 @@ def crp(graph: Graph) -> list[dict[str, Any]]:
                 "share": round(len(hit) / total, 3) if total else None,
                 "reached_not_public": len(reached[(source, target)] - hit),
                 "surface_by_rule": dict(rules[target]),
-                "rust_functions_excluded": rust_functions[target],
                 "used_symbols": sorted(hit)[:12],
             }
         )
