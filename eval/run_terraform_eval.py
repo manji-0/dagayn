@@ -346,6 +346,7 @@ def summarize(per_repo: dict[str, dict[str, Any]]) -> dict[str, Any]:
         "extracted_false_positives": extracted["fp"],
         "all_families_recall": ratio(every["expected"] - every["fn"], every["expected"]),
         "module_source": dict(modules),
+        "module_sources_resolved": modules["resolved"],
         "per_repo": {
             name: {
                 f: family_metrics(result["counts"], f)

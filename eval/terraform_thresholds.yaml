@@ -4,22 +4,25 @@
 # drops below its floor or rises above its ceiling. It clones four public
 # repositories, so it is not part of CI.
 #
-# Baseline of 2026-10-25 (after the one-segment ${path.module} fix):
-# extracted families (path_attr, local_exec, entrypoint) precision 0.25 =
-# 3 / 12, reference precision 1.0, recall 0.375 = 3 / 8; recall over every
-# family 0.031 = 3 / 97. The 9 false positives are aws-otel-lambda layer
-# `filename`s naming build outputs that are not in the tree; the 3 true
-# positives are the three terraform-google-cloud-functions archive_file
-# blocks. Each number rests on one repository.
+# Measured 2026-10-25 after module-input bridges, directory targets, the
+# in-tree code check and LOW unresolved handlers. Precision counts every
+# emitted edge: 77 / 78 = 0.987 (the one false positive: a
+# docker_build_root directory holding an entrypoint.sh). Recall over the
+# extracted families (path_attr, local_exec, entrypoint, module_input,
+# external_program) 77 / 92 = 0.837; over every literal reference
+# 77 / 97 = 0.794. Local module sources resolved: 93 / 108 (the 15 others sit
+# in an unchecked-out submodule). The baseline before this work was
+# precision 3 / 12 = 0.25 and recall 3 / 97 = 0.031.
 #
-# Floors sit just under the baseline. The true-positive floor and the
-# false-positive ceiling keep a run that emits nothing, or more noise, from
-# passing on a ratio alone.
+# Floors sit a few edges under the measurement. The true-positive and
+# module-source floors and the false-positive ceiling keep a run that emits
+# nothing, or more noise, from passing on a ratio alone.
 floors:
-  extracted_precision: 0.2
+  extracted_precision: 0.95
   extracted_reference_precision: 0.95
-  extracted_recall: 0.3
-  extracted_true_positives: 3
-  all_families_recall: 0.025
+  extracted_recall: 0.8
+  extracted_true_positives: 74
+  all_families_recall: 0.76
+  module_sources_resolved: 90
 ceilings:
-  extracted_false_positives: 9
+  extracted_false_positives: 3
