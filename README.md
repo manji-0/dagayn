@@ -84,7 +84,11 @@ See `docs/FEATURES.md` and `docs/LLM-OPTIMIZED-REFERENCE.md` for the current cov
 
 ### Cross-module analysis
 
-When a `module` block references a local path in `source`, `dagayn` records an `IMPORTS_FROM` edge from the calling module to the target directory. This lets impact-radius queries cross module boundaries.
+When a `module` block references a local path in `source`, `dagayn` records `IMPORTS_FROM` edges from the calling module to each Terraform file of the target directory. This lets impact-radius queries cross module boundaries. Registry and git sources stay recorded as the raw `source` string.
+
+### Bridges to application code
+
+Terraform that deploys code gets `CROSS_ARTIFACT` edges to it: `filename` / `source_dir` and similar attributes, `local-exec` script paths, `data "external"` programs, and `handler` / `entry_point`. A literal passed to a local module (`source_path = "${path.module}/src"`, `handler = "index.lambda_handler"`) is followed through the module's variables to the attribute that reads it, so the module call bridges to the code. A directory bridges to each code file in it, a handler resolves inside the code its own block names, and a path naming nothing in the tree (a build output) gets no edge. On four public repositories (`eval/run_terraform_eval.py`) this links 77 of 97 literal references with one false positive; see [Terraform measured on real repositories](docs/CROSS-ARTIFACT-EDGES-WIP.md#terraform-measured-on-real-repositories).
 
 ### `.tfvars` files
 

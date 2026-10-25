@@ -389,7 +389,12 @@ fn changes_of(
             else {
                 return Changes::of("unknown", files.len());
             };
-            let Some(found) = findings::change_findings(store, root, &analysis, files, base) else {
+            let change = findings::ChangeSet {
+                files,
+                ranges: &ranges,
+                base,
+            };
+            let Some(found) = findings::change_findings(store, root, &analysis, change) else {
                 return Changes::of("unknown", files.len());
             };
             let rows = |key: &str| analysis.get(key).as_array().cloned().unwrap_or_default();
