@@ -188,8 +188,6 @@ fresh graph at commit time.
 
 - `dagayn detect-changes`
 - `dagayn tool`
-- `dagayn visualize`
-- `dagayn wiki`
 - `dagayn eval`
 
 <!-- derived-from ./EVALUATION-SEMANTICS.md -->
@@ -286,20 +284,6 @@ and `package_root`) and the full `_repo` (`db_path`, how the root was found)
 so agents can compare a direct CLI run with a running MCP server. A long-lived MCP process keeps the implementation it loaded
 at startup; after editing or upgrading dagayn, restart `dagayn serve` before
 treating MCP output as the same truth source as `dagayn tool`.
-
-`dagayn visualize` is the static graph export command. It requires `--format`
-and generates:
-
-- GraphML, Mermaid C4, SVG, Neo4j Cypher, or Obsidian exports via `--format`
-
-Jupyter / Databricks / marimo notebooks (Python `.py` and Markdown `.md`) are supported as graph inputs rather than report
-output formats.
-
-`dagayn wiki` writes Markdown pages under `.dagayn/wiki/` from detected graph
-communities. Each community page includes members, reachable-set execution
-flows (BFS visit order from an entry point, not a runtime call sequence),
-cross-community dependencies, and code-scoped package-level ADP/SDP/SAP
-architecture metrics filtered to the scopes represented by that community.
 
 ### Architecture metrics
 
@@ -553,8 +537,8 @@ The compact default MCP surface exposes tools for:
 - refactor previews and suggestions
 
 Advanced and maintenance tools for graph build/post-processing, embeddings,
-wiki generation, refactor application, and cross-repo search remain available
-when explicitly requested with `--tools`.
+refactor application, and cross-repo search remain available when explicitly
+requested with `--tools`.
 
 When the server is launched with `dagayn serve --local-embedding`,
 search-oriented MCP tools default to the managed OpenAI-compatible BGE-M3 GGUF

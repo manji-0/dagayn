@@ -260,7 +260,6 @@ fn answer(context: &Context, name: &str, arguments: &Map<String, Value>) -> Opti
         "ensure_graph_tool" => ensure::ensure_graph(context, arguments),
         "find_large_functions_tool" => large::find_large_functions(context, arguments),
         "traverse_graph_tool" => traverse::traverse_graph(context, arguments),
-        "get_wiki_page_tool" => docs::get_wiki_page(context, arguments),
         "list_repos_tool" => repos::list_repos(context, arguments),
         "apply_refactor_tool" => apply::apply_refactor(context, arguments),
         "run_postprocess_tool" => postprocess::run_postprocess(context, arguments),
@@ -744,29 +743,6 @@ pub fn find_dead_code_json(
 /// `refactor_tool` reply applies; `None` when the graph cannot be read.
 pub fn suggest_refactorings_json(store: &GraphStore) -> Option<String> {
     suggestions::suggest_refactorings(store).map(|all| Value::Array(all).to_string())
-}
-
-/// Every entry point of the repository's production code, as JSON rows of
-/// `qualified_name`, `kind`, `file_path`, and `line_start`, in listing order
-/// (docs/plans/FLOW-TOOL-TARGET.md#modes); `None` when the graph cannot be
-/// read.
-pub fn entry_points_json(store: &GraphStore) -> Option<String> {
-    entry_points::all_entry_points(store).map(|found| {
-        Value::Array(
-            found
-                .iter()
-                .map(|(node, kind)| {
-                    serde_json::json!({
-                        "qualified_name": node.qualified_name,
-                        "kind": kind,
-                        "file_path": node.file_path,
-                        "line_start": node.line_start,
-                    })
-                })
-                .collect(),
-        )
-        .to_string()
-    })
 }
 
 /// The graph's dead-code candidates before the repository check, as JSON:

@@ -59,8 +59,6 @@ def _print_banner() -> None:
     {g}update{r}      Incremental update {d}(changed files only){r}
     {g}watch{r}       Auto-update on file changes
     {g}status{r}      Show graph statistics
-    {g}visualize{r}   Export graph artifacts
-    {g}wiki{r}        Generate markdown wiki from communities
     {g}detect-changes{r} Analyze change impact {d}(risk-scored review){r}
     {g}sdp-metrics{r}   Compute instability scores {d}(SDP metrics){r}
     {g}detect-sdp{r}    Detect stability-direction violations {d}(SDP){r}

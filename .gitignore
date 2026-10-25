@@ -40,12 +40,6 @@ node_modules/
 target/
 dagayn/_vendor_grammars/
 
-# VS Code extension build artifacts
-dagayn-vscode/dist/
-dagayn-vscode/out/
-*.vsix
-pnpm-debug.log*
-
 # Claude Code (the SessionStart hook that loads the Nix devShell is shared)
 .claude/*
 !.claude/settings.json

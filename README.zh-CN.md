@@ -37,7 +37,6 @@
 - 影响半径、审查上下文、社区、流程和重构的图谱查询
 - 原生 Rust 图谱存储、解析器、FTS、流程与后处理（`dagayn._core`）
 - 多仓库注册表和守护进程工作流
-- GraphML / Mermaid C4 / SVG / Cypher / Obsidian 图谱导出
 
 ## 支持的语言和文件类型
 
@@ -234,7 +233,6 @@ dagayn update
 dagayn watch
 dagayn worktree sync
 dagayn detect-changes --base HEAD~1
-dagayn visualize --format graphml
 dagayn serve
 ```
 
@@ -252,15 +250,6 @@ dagayn serve --tools query_graph_tool,semantic_search_nodes_tool
 `--tools` 是精确的逗号分隔允许列表，用于需要隐藏部分公开工具的部署。持久服务器配置可用 `CRG_TOOLS` 做同样的控制。
 
 工具响使用校准后的 guidance 约定。兼容字段如 `status`、`summary`、`_hints`、`next_tool_suggestions` 仍然存在；审查、架构、流程、重构、搜索和查询响应还可包含 `guidance`、`answerability` 和 `missingness`。guidance 项带有 `claim`、`evidence`、`confidence`、`missingness`、`action`、`reason_codes` 和 `counts`，智能体应将图谱输出视为按证据排序的线索而非裁决。顶级建议使用 `detail_level="minimal"`，完整支撑章节使用 `detail_level="standard"`。`query_graph_tool` 的零结果和未找到响应包含 `zero_result_reason`、`next_action`、`result_count`、`results`、`answerability` 和 `missingness`；在源码或测试确认之前，将缺席视为受当前图谱限制。文档桥接结果将证据标记为 `authored`、`extracted` 或 `heuristic_reachable`，以免把 Markdown 可追溯性与已验证契约混淆。
-
-## 导出输出
-
-`dagayn visualize` 用于导出静态图谱产物。
-
-- `--format` 是必需的，支持 `graphml`、`mermaid-c4`、`svg`、`cypher`、`obsidian`
-- `mermaid-c4` 输出 Mermaid `C4Component` 代码，将文件折叠为组件、跨文件关系作为关系
-- `svg` 使用 matplotlib，需要时安装 eval extra：`pip install "dagayn[eval]"`
-- Jupyter / Databricks / marimo 笔记本是图谱输入，不是报告输出格式
 
 ## AI 平台集成
 

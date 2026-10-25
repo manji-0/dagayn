@@ -96,8 +96,8 @@ def _project_dependency_graph(
 #: Elementary cycles are enumerated, and their count is combinatorial in a
 #: densely mutually-importing package graph: 12 fully mutually-importing
 #: packages yield 36,018,884 cycles (~106 s and many GB). This is a read path
-#: (``architecture_analysis_tool``) and also runs inside ``generate_wiki``, so
-#: one such subsystem hung both. Enumeration stops here and says it stopped.
+#: (``architecture_analysis_tool``), so one such subsystem hung it. Enumeration
+#: stops here and says it stopped.
 _MAX_ADP_CYCLES = 5000
 #: A walk budget for graphs whose cycles are few but whose paths are many.
 _MAX_ADP_STEPS = 2_000_000

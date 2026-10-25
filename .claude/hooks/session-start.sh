@@ -1,7 +1,7 @@
 #!/bin/bash
 # Loads the flake's devShell into Claude Code cloud sessions: exports its
 # environment through $CLAUDE_ENV_FILE so every Bash call sees the same tools
-# as `nix develop`, then installs the Python and dagayn-vscode dependencies.
+# as `nix develop`, then installs the Python dependencies.
 set -euo pipefail
 
 if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
@@ -26,7 +26,7 @@ keep = re.compile(
     r"(CC|CXX|AR|AS|LD|NM|OBJCOPY|OBJDUMP|RANLIB|READELF|SIZE|STRINGS|STRIP)"
     r"|NIX_(CC|BINTOOLS|CFLAGS_COMPILE|LDFLAGS|HARDENING_ENABLE|ENFORCE_NO_NATIVE)\w*"
     r"|NIX_\w+_WRAPPER_TARGET_\w+"
-    r"|PKG_CONFIG(_PATH)?|UV_\w+|PYO3_\w+|COREPACK_\w+"
+    r"|PKG_CONFIG(_PATH)?|UV_\w+|PYO3_\w+"
 )
 for key, var in json.load(sys.stdin)["variables"].items():
     if var["type"] != "exported":
@@ -49,5 +49,3 @@ if ! uv sync --extra dev; then
   echo "session-start: building dagayn failed; installing its dependencies only" >&2
   uv sync --extra dev --no-install-project
 fi
-# corepack resolves pnpm from the cwd, so run it inside the package.
-(cd dagayn-vscode && pnpm install --frozen-lockfile)

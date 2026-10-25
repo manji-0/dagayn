@@ -91,25 +91,22 @@ Subagent delegation rules are maintained in the global `~/.pi/agent/AGENTS.md`. 
 ## Claude Code cloud sessions
 
 `.claude/hooks/session-start.sh` loads the flake's devShell (`flake.nix`) into
-each cloud session through `$CLAUDE_ENV_FILE`, so `uv`, `cargo`, `pnpm`, `prek`,
-and `jj` resolve to the flake's versions without `nix develop`. It then runs
-`uv sync --extra dev` and installs `dagayn-vscode`'s dependencies. Building
-`dagayn._core` downloads grammar archives from `codeload.github.com` and the
-lindera dictionary from `lindera.dev`; when the environment's network policy
-blocks those, the hook installs the Python dependencies alone, so ruff, pyrefly,
-and the VS Code checks run but pytest and the Rust crates that vendor grammars
-do not.
+each cloud session through `$CLAUDE_ENV_FILE`, so `uv`, `cargo`, `prek`, and `jj`
+resolve to the flake's versions without `nix develop`. It then runs
+`uv sync --extra dev`. Building `dagayn._core` downloads grammar archives from
+`codeload.github.com` and the lindera dictionary from `lindera.dev`; when the
+environment's network policy blocks those, the hook installs the Python
+dependencies alone, so ruff and pyrefly run but pytest and the Rust crates that
+vendor grammars do not.
 
 ## Cursor Cloud specific instructions
 
-This repo ships two products: the primary `dagayn` CLI/MCP server (Python package
-with a PyO3 Rust core, `dagayn._core`) and the secondary `dagayn-vscode` editor
-extension (Node/pnpm). The Rust toolchain (1.98), Node 22, and pnpm are preinstalled;
-`uv` is installed to `~/.local/bin` (already on the default login-shell `PATH`).
+This repo ships the `dagayn` CLI/MCP server (Python package with a PyO3 Rust core,
+`dagayn._core`). The Rust toolchain (1.98) is preinstalled; `uv` is installed to
+`~/.local/bin` (already on the default login-shell `PATH`).
 
 Standard lint/test/build/run commands are already documented — see `CONTRIBUTING.md`
-(verification commands + VS Code extension), `README.md`, and `docs/USAGE.md`. The
-notes below only capture the non-obvious, environment-specific gotchas.
+(verification commands), `README.md`, and `docs/USAGE.md`. The notes below only capture the non-obvious, environment-specific gotchas.
 
 - Setup is `uv sync --extra dev` (the update script runs this). It builds the PyO3
   extension and, as a side effect of `crates/dagayn-grammars/build.rs`, vendors the
@@ -132,9 +129,6 @@ notes below only capture the non-obvious, environment-specific gotchas.
   `libpython`. Export `PYO3_PYTHON="$(uv run python -c 'import sys; print(sys.executable)')"`
   first (uv's CPython 3.14 ships `libpython3.14.so`). Not needed for the Python-side
   `uv sync`/pytest flow, which uses maturin.
-- `dagayn-vscode` `pnpm test` runs plain mocha via ts-node (`.mocharc.json`), not the
-  Electron/`@vscode/test-electron` runner, so it needs no display. Install its deps with
-  `pnpm -C dagayn-vscode install --frozen-lockfile` (not part of the update script).
 
 <!-- dagayn MCP tools -->
 ## MCP Tools: dagayn
