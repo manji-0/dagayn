@@ -562,12 +562,19 @@ fn enclosing_rust_header(lines: &[String], line: i64) -> Option<(usize, &str)> {
             let trimmed = text.trim_start();
             !trimmed.is_empty() && text.len() - trimmed.len() < indent
         })?;
-    let header = text
-        .trim_start()
-        .trim_start_matches("pub(crate) ")
-        .trim_start_matches("pub ")
-        .trim_start_matches("unsafe ");
+    let header = strip_rust_visibility(text.trim_start()).trim_start_matches("unsafe ");
     (header.starts_with("trait ") || header.starts_with("impl")).then_some((at, header))
+}
+
+/// `line` without a leading `pub`, `pub(crate)`, `pub(super)`, `pub(self)`,
+/// or `pub(in path)`.
+fn strip_rust_visibility(line: &str) -> &str {
+    if let Some(rest) = line.strip_prefix("pub(")
+        && let Some(close) = rest.find(')')
+    {
+        return rest[close + 1..].trim_start();
+    }
+    line.strip_prefix("pub ").unwrap_or(line)
 }
 
 /// `Some("trait_impl_method")` for a method in `impl Trait for Type`, and
@@ -897,6 +904,12 @@ mod tests {
         assert_eq!(rust_trait_context(&src, 2), Some("trait_impl_method"));
         assert_eq!(rust_trait_context(&src, 5), None);
         assert_eq!(rust_trait_context(&src, 8), Some("trait_method"));
+        let restricted = lines(
+            "pub(super) trait Up {\n    fn up(&self);\n}\npub(in crate::a) trait Scoped {\n    fn scoped(&self);\n}\npub(crate) unsafe trait Raw {\n    fn raw(&self);\n}",
+        );
+        assert_eq!(rust_trait_context(&restricted, 2), Some("trait_method"));
+        assert_eq!(rust_trait_context(&restricted, 5), Some("trait_method"));
+        assert_eq!(rust_trait_context(&restricted, 8), Some("trait_method"));
         let py = lines("#[pymethods]\nimpl Store {\n    fn close(&self) {}\n}");
         assert_eq!(rust_trait_context(&py, 3), Some("ffi_export"));
         assert_eq!(rust_impl_trait(&src, 2), Some("Display"));

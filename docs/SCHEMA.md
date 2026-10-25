@@ -29,10 +29,29 @@ every crate that compiles it. Every node of such a file has `is_test`. The
 functions of a `#[cfg(test)]` module, and of a file under a nested `tests/`
 or `test/` directory (`crates/x/tests/`), are `Test` nodes; elsewhere a
 function is a test by its attribute (`#[test]`, `#[tokio::test]`,
-`#[cfg(test)]`). The gate is read
+`#[cfg(test)]`, `#[rstest]`, `#[test_case(...)]`): the attribute's path ends
+in `test` or names a test macro, or a `cfg` holds only under test. An
+attribute that only mentions `test` (`#[cfg(not(test))]`, `#[cfg(any(test,
+feature = "x"))]`, a `#[pyo3(signature = (include_tests = false))]`) does not
+make a test. The gate is read
 from the declaring file when the gated file is parsed, so adding or removing
 a `#[cfg(test)]` on a `mod` declaration reclassifies the gated file at its
 next re-parse (a full build, or an edit of that file).
+
+`modifiers` holds a node's declaration modifiers as space-separated words in
+source order (TypeScript: [TYPESCRIPT-EXTRACTION.md](./TYPESCRIPT-EXTRACTION.md);
+Zig: `pub`, `extern`, `export`, `inline`, `noinline`, `threadlocal`). For Rust it holds the declared visibility of
+functions, methods, structs, enums, traits, type aliases, and modules, as
+written with whitespace normalized: `pub`, `pub(crate)`, `pub(super)`,
+`pub(self)`, or `pub(in path)`; a private item has none. Only `pub` is
+visible outside its crate, so a reader that looks for public items matches
+the word `pub` exactly; `pub(crate)` is not `pub`. A trait's items and the
+methods of an `impl Trait for Type` cannot declare a visibility: they take
+the trait's when the trait is declared in the same file, and have none when
+it is declared elsewhere (`impl fmt::Display for T`, a trait of another
+file). This is declared visibility, not reachability: a `pub fn` in a private
+module, or one the crate never re-exports, is still `pub`. Rust `const` and
+`static` items are no nodes, so they have no visibility in the graph.
 
 The Rust parser represents these labels as `NodeKind` and converts to the
 string form only when writing `NodeInput` / SQLite. `Type` and `DocBody` are

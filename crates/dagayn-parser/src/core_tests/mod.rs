@@ -77,6 +77,8 @@ mod rust_edges;
 mod rust_lang;
 #[cfg(feature = "lang-rust")]
 mod rust_test_files;
+#[cfg(feature = "lang-rust")]
+mod rust_visibility;
 #[cfg(feature = "lang-scala")]
 mod scala;
 #[cfg(feature = "lang-swift")]

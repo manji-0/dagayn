@@ -1039,6 +1039,33 @@ class TestFindDeadCode:
         assert exported["evidence"]["source_available"] is True
         assert any("downstream users" in caveat for caveat in exported["caveats"])
 
+    def test_find_dead_code_keeps_crate_visible_rust_items_deletion_grade(self, tmp_path):
+        """`pub(crate)` and `pub(super)` items cannot be used outside the crate."""
+        api_file = tmp_path / "src" / "lib.rs"
+        api_file.parent.mkdir(parents=True)
+        api_file.write_text(
+            "pub(crate) fn crate_only() {}\npub(super) fn parent_only() {}\n",
+            encoding="utf-8",
+        )
+        for line, name in ((1, "crate_only"), (2, "parent_only")):
+            self.store.upsert_node(
+                NodeInfo(
+                    kind="Function",
+                    name=name,
+                    file_path=str(api_file),
+                    line_start=line,
+                    line_end=line,
+                    language="rust",
+                )
+            )
+        self.store.commit()
+
+        dead = {d["name"]: d for d in graph_dead_code_candidates(self.store)}
+        for name in ("crate_only", "parent_only"):
+            assert dead[name]["public_api_candidate"] is False
+            assert "public_api_candidate" not in dead[name]["reason_codes"]
+            assert dead[name]["confidence"] == "medium"
+
     def test_find_dead_code_downgrades_ambiguous_symbol_names(self, tmp_path):
         """Repeated names reduce confidence because bare-name edges are lossy."""
         first = tmp_path / "src" / "one.py"

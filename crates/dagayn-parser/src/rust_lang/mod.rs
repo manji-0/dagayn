@@ -73,6 +73,7 @@ pub(super) fn parse_rust_with_parser(
             closures: RefCell::new(HashSet::new()),
             component_bindings: rust_uses_component_bindings(source),
             cfg_test_file,
+            trait_visibility: rust_trait_visibility(root, source),
         };
         rust_note_qualified_types(qualified_types, &context);
         rust_walk_children(root, &context, None, None, &mut nodes, &mut edges);
@@ -206,7 +207,7 @@ fn rust_walk_children(
                         parent_name: owner().map(str::to_string),
                         params: None,
                         return_type: None,
-                        modifiers: None,
+                        modifiers: rust_declared_visibility(child, context.source),
                         is_test: false,
                         extra: json!({"type_role": "module"}),
                     });
@@ -239,7 +240,7 @@ fn rust_walk_children(
                         parent_name: owner().map(str::to_string),
                         params: None,
                         return_type: None,
-                        modifiers: rust_type_modifiers(child, context.source),
+                        modifiers: rust_declared_visibility(child, context.source),
                         is_test: false,
                         extra: rust_type_extra(child, context.source),
                     });
@@ -363,7 +364,7 @@ fn rust_walk_children(
                         return_type: child
                             .child_by_field_name("return_type")
                             .map(|return_type| node_text(return_type, context.source)),
-                        modifiers: None,
+                        modifiers: rust_function_modifiers(child, context),
                         is_test,
                         extra,
                     });
@@ -700,6 +701,9 @@ struct RustParseContext<'a> {
     /// The file is a module declared `#[cfg(test)] mod name;` (or one
     /// below it): compiled only under test, so its functions are tests.
     cfg_test_file: bool,
+    /// Declared visibility of the traits this file declares, by name: the
+    /// visibility of their `impl` methods.
+    trait_visibility: HashMap<String, Option<String>>,
 }
 
 /// What the extraction needs to know about the whole file before it walks
@@ -1124,31 +1128,86 @@ fn rust_derives_value_semantics(node: tree_sitter::Node<'_>, source: &[u8]) -> b
     })
 }
 
-fn rust_type_modifiers(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
-    let mut modifiers = Vec::new();
-    if rust_has_pub_visibility(node, source) {
-        modifiers.push("pub");
+/// The visibility an item declares, as written: `pub`, `pub(crate)`,
+/// `pub(super)`, `pub(self)`, or `pub(in path)`, with whitespace normalized
+/// (`pub( crate )` is `pub(crate)`). `None` for an item without one
+/// (private).
+fn rust_declared_visibility(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    let modifier = node
+        .children(&mut cursor)
+        .find(|child| child.kind() == "visibility_modifier")?;
+    let compact: String = node_text(modifier, source)
+        .chars()
+        .filter(|ch| !ch.is_whitespace())
+        .collect();
+    Some(match compact.strip_prefix("pub(in") {
+        Some(path) => format!("pub(in {path}"),
+        None => compact,
+    })
+}
+
+/// `modifiers` for a function: its declared visibility. A trait's items and
+/// the methods of an `impl Trait for Type` cannot declare one; they take the
+/// trait's, when the trait is declared in this file, and record none when
+/// it is declared elsewhere (`impl Display for T`).
+fn rust_function_modifiers(
+    node: tree_sitter::Node<'_>,
+    context: &RustParseContext<'_>,
+) -> Option<String> {
+    if let Some(visibility) = rust_declared_visibility(node, context.source) {
+        return Some(visibility);
     }
-    if modifiers.is_empty() {
-        None
-    } else {
-        Some(modifiers.join(" "))
+    let item = node
+        .parent()
+        .filter(|parent| parent.kind() == "declaration_list")?
+        .parent()?;
+    match item.kind() {
+        "trait_item" => rust_declared_visibility(item, context.source),
+        "impl_item" => {
+            let trait_name = rust_impl_trait_name(item, context.source)?;
+            context.trait_visibility.get(&trait_name).cloned().flatten()
+        }
+        _ => None,
     }
 }
 
-fn rust_has_pub_visibility(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
-    for candidate in rust_node_with_leading_attributes(node) {
-        let mut cursor = candidate.walk();
-        for child in candidate.children(&mut cursor) {
-            if child.kind() == "visibility_modifier" {
-                let text = node_text(child, source);
-                if text.starts_with("pub") {
-                    return true;
+/// The declared visibility of each trait this file declares, by name; a
+/// name declared twice (in two modules) with different visibilities maps
+/// to `None`.
+fn rust_trait_visibility(
+    root: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> HashMap<String, Option<String>> {
+    let mut traits: HashMap<String, Option<String>> = HashMap::new();
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        let mut cursor = node.walk();
+        for child in node.named_children(&mut cursor) {
+            match child.kind() {
+                "trait_item" => {
+                    if let Some(name) = rust_type_name(child, source) {
+                        let visibility = rust_declared_visibility(child, source);
+                        traits
+                            .entry(name)
+                            .and_modify(|seen| {
+                                if *seen != visibility {
+                                    *seen = None;
+                                }
+                            })
+                            .or_insert(visibility);
+                    }
                 }
+                "mod_item" => {
+                    if let Some(body) = child.child_by_field_name("body") {
+                        stack.push(body);
+                    }
+                }
+                _ => {}
             }
         }
     }
-    false
+    traits
 }
 
 fn rust_derive_traits(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<Vec<String>> {

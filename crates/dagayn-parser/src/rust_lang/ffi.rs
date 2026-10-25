@@ -496,7 +496,7 @@ pub(super) fn rust_function_ffi_export(
     });
     if wasm_impl.is_some() {
         // wasm-bindgen exports the `pub` methods of a `#[wasm_bindgen] impl`.
-        if !rust_has_pub_visibility(node, source) {
+        if rust_declared_visibility(node, source).as_deref() != Some("pub") {
             return None;
         }
         let js_name = if wasm_attr.is_some_and(|attr| attr.contains("constructor")) {

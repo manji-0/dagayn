@@ -145,7 +145,9 @@ no visibility at all. Python's public surface follows from names (a leading
 underscore). TypeScript `export` is not in `modifiers`, but it is recorded
 as `extra.exported` (`js_like.rs`, 7,452 tstodon nodes). CRP's denominator,
 a unit's public surface, is therefore available for Python, TypeScript, and
-Rust types, not Rust functions.
+Rust types, not Rust functions. (Since rust extractor 25, Rust functions and
+methods carry their declared visibility and `pub(crate)` no longer reads as
+`pub`: [order of work](#order-of-work), item 8.)
 
 ## Target contract (draft)
 
@@ -344,6 +346,41 @@ an e2e suite uses one schema. `pub(crate)` also reads as `pub`, because
 dagayn's 158 production `pub` types, 356 of cfwdon's 447, and 31 of
 purecrate-ts's 139 in the surface, though no other crate can use them.
 
+#### Rerun with Rust visibility (2026-10-26)
+
+<!-- derived-from #crp-surface_used -->
+
+Rust extractor 25 records each function's, method's, and type's declared
+visibility, and keeps restricted visibility apart
+([SCHEMA](../SCHEMA.md#nodes)). The surface is now every Rust function,
+method, and type whose `modifiers` is `pub` (modules left out); Python and
+TypeScript as before. Graphs: full builds of copies of dagayn at
+`origin/main` 5ee8a8c6 and of the other three at the commits above (rust 25,
+javascript 12, schema 20).
+
+| Repository | Unit edges / surface ≥ 10 | Lowest share (used / public) | actionable / false / noise |
+|---|---|---|---|
+| dagayn | 25 / 21 | parser → grammars 0/28, `<root>` → dagayn 1/678, scripts → dagayn 1/678, eval → dagayn 3/678, tools → dagayn 7/678 | 0 / 1 / 4 |
+| cfwdon | 4 / 4 | admin-ui → web-ui 1/565, models → domain 101/305, worker → domain 158/305, worker → core 11/13 | 0 / 1 / 3 |
+| purecrate-ts | 16 / 16 | arktype, valibot, zod → purecrate 0/183 each, canon → syntax 1/52, canon → ir 6/174 | 0 / 3 / 2 |
+| tstodon | 5 / 5 | unchanged (no Rust) | 0 / 0 / 5 |
+
+The four rows that were false because Rust functions had no visibility now
+read right: dagayn-py → dagayn-parser 7/62 (the seven functions it calls),
+dagayn-build → dagayn-postproc 4/29, dagayn-py → dagayn-postproc 5/29, and
+canon → syntax 1/52, which is `parse_source` (`crates/canon/src/lib.rs:66`)
+and nothing else. Only the last is still among the extremes, now as noise.
+The lowest Rust shares in dagayn below the extremes read right too
+(dagayn-cli → dagayn-graph 4/155 is `GraphStore`, `GraphError`, and two
+methods). The one new false value is a call the graph does not see:
+`crates/dagayn-parser/src/parsers.rs:22` calls each of dagayn-grammars'
+28 constructors as `dagayn_grammars::$language()` in a `macro_rules!` body.
+Rust functions also push dagayn's Rust edges out of the extremes, where
+four Python script directories using a few entry points of the `dagayn`
+package take their place. canon → purecrate-ts (now 7/66) is no longer an
+extreme, so the one actionable row of the first run is out of the table.
+0 of 19 extremes are actionable.
+
 ### `refused_member` (LSP)
 
 The script read every production method of a type that has an `INHERITS`
@@ -361,7 +398,7 @@ doc comments, which are not indexed, and in Rust test strings.
 | Measure | Verdict | Rule that decided it |
 |---|---|---|
 | SAP per unit as evidence (`instability`, `abstractness`, distance) | cut | an evidence value ships when at least half of its extreme units are actionable: 0 of 15 |
-| CRP `surface_used` | cut | the same rule: 1 of 18, all from one repository |
+| CRP `surface_used` | cut | the same rule: 1 of 18, all from one repository; after Rust visibility (item 8), 0 of 19 |
 | `refused_member` (LSP half) | not observable here, not built | fewer than 20 observable cases: 0 in four repositories |
 
 SAP keeps its shipped role, the abstractness and distance on an
@@ -420,6 +457,17 @@ whether or not a principle is ever built on them.
    on purpose (a crate's `tests/` belong to it), so dagayn-mcp's three test
    structs and dagayn-grammars' `build.rs` type still count. Whether SAP
    and SDP should read production code only is a separate decision.
+8. Rust visibility: done (rust extractor 25). Functions, methods, and
+   modules carry their declared visibility in `modifiers`, restricted
+   visibility stays apart from `pub`, and trait items and trait impl
+   methods take the trait's when it is declared in the same file. A
+   function is a test only by a test attribute or a `cfg` that holds only
+   under test (`#[cfg(not(test))]` had made one a `Test`). CRP was rerun
+   with Rust functions in the surface
+   ([rerun](#rerun-with-rust-visibility-2026-10-26)): the false zeros are
+   gone, and 0 of 19 extremes are actionable, so CRP stays cut. Declared
+   visibility is not reachability: a `pub fn` in a private module still
+   counts.
 
 ## Touch points
 

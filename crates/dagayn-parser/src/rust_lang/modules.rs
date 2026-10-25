@@ -203,7 +203,7 @@ fn exists(repo_root: &Path, rel: &str) -> bool {
 /// Whether a `cfg` predicate holds only when `test` does: `test`, or an
 /// `all(...)` with such a term, or an `any(...)` of only such terms.
 /// `not(test)` and `any(test, feature = "x")` hold outside tests too.
-fn cfg_implies_test(predicate: &str) -> bool {
+pub(crate) fn cfg_implies_test(predicate: &str) -> bool {
     let predicate = predicate.trim();
     if predicate == "test" {
         return true;

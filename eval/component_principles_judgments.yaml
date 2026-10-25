@@ -45,32 +45,41 @@ judgments:
   - {repo: tstodon, measure: sap, id: "@tstodon/worker", verdict: "false",
      reason: "A 0.986 is 213 generated Prisma interfaces (generated/prisma/internal/class.ts:73 PrismaClientConstructor, models/*.ts delegates); the worker is the app, and generated code is counted"}
   # -- CRP surface_used --------------------------------------------------------
-  - {repo: dagayn, measure: crp, id: "dagayn-graph -> dagayn-parser", verdict: "false",
-     reason: "the only production edge is crates/dagayn-graph/src/postprocess/terraform_bridges_tests.rs:35, a test module the *_test. path rule misses; no Cargo dependency"}
-  - {repo: dagayn, measure: crp, id: "dagayn-py -> dagayn-parser", verdict: "false",
-     reason: "0 of 48 because dagayn-py calls 7 parser functions (lib.rs:1204 extractor_versions .. lib.rs:1318 parse_rust_owned_file_compact_json) and Rust functions carry no visibility, so they are outside the surface"}
-  - {repo: dagayn, measure: crp, id: "dagayn-build -> dagayn-postproc", verdict: "false",
-     reason: "0 of 11 types, but postprocess.rs:84,137,165,259,298 call 5 postproc functions; functions are not counted"}
-  - {repo: dagayn, measure: crp, id: "dagayn-py -> dagayn-postproc", verdict: "false",
-     reason: "0 of 11 types; lib.rs:501,527,538,1164,1197 call 5 postproc functions, which are not counted"}
+  # Rerun with rust extractor 25 (functions and methods carry their declared
+  # visibility; pub(crate) and the other restricted forms are not public):
+  # dagayn at origin/main 5ee8a8c6, the other three at the commits above.
+  # The rows that were false because Rust functions had no visibility
+  # (dagayn-py -> dagayn-parser 0/48, dagayn-build and dagayn-py ->
+  # dagayn-postproc 0/11, purecrate-canon -> purecrate-syntax 0/22) now read
+  # 7/62, 4/29, 5/29, and 1/52, and only the last is still an extreme.
+  - {repo: dagayn, measure: crp, id: "dagayn-parser -> dagayn-grammars", verdict: "false",
+     reason: "0 of 28 grammar constructors, but crates/dagayn-parser/src/parsers.rs:22 calls every one as `dagayn_grammars::$language()` inside the grammar_parser! macro_rules body, and a call through a macro metavariable is no edge"}
   - {repo: dagayn, measure: crp, id: "<root> -> dagayn", verdict: noise,
      reason: "main.py:6 is the entry shim calling dagayn.cli.app.main; 1 of 678 is right and means nothing"}
+  - {repo: dagayn, measure: crp, id: "scripts -> dagayn", verdict: noise,
+     reason: "scripts/build_terraform_binding.py:5,9 builds one binding with CodeParser; a one-off script using one class is right and asks for nothing"}
+  - {repo: dagayn, measure: crp, id: "eval -> dagayn", verdict: noise,
+     reason: "eval/run_search_eval.py:35,88 uses get_db_path and hybrid_search (and native_tool elsewhere); measurement scripts calling three entry points of the package they measure is expected"}
+  - {repo: dagayn, measure: crp, id: "tools -> dagayn", verdict: noise,
+     reason: "maintenance scripts (tools/regenerate_patched_grammars.py:37 vendor_grammars, tools/embedding_material_model_benchmark.py:15,18 OpenAIEmbeddingProvider, get_db_path) use 7 of 678; right, nothing to change"}
   - {repo: cfwdon, measure: crp, id: "cfwdon-admin-ui -> cfwdon-web-ui", verdict: "false",
      reason: "admin-ui/src/lib/confirm.ts:24 calls `current?.resolve(false)` on a Promise resolver, resolved to web-ui's SessionState.resolve; admin-ui does not use web-ui"}
   - {repo: cfwdon, measure: crp, id: "cfwdon-models -> cfwdon-domain", verdict: noise,
-     reason: "31 of 81 domain types (account/registration.rs ComposingRegistration ..) through 31 imports; a persistence crate using part of the domain is expected"}
+     reason: "101 of 305 (81 pub types, 224 pub functions and methods): AccessEmail.parse, LocalAccount.from_record, LocalAccountRecord.test_fixture (status_draft_publish.rs:95); a model-checking crate using a third of the domain is expected"}
   - {repo: cfwdon, measure: crp, id: "cfwdon-worker -> cfwdon-domain", verdict: noise,
-     reason: "45 of 81 domain types; the app uses most of its domain, nothing to split"}
+     reason: "158 of 305: the app uses half of its domain (LocalAccount accessors, AccountHandle.is_local_to), nothing to split"}
+  - {repo: cfwdon, measure: crp, id: "cfwdon-worker -> cfwdon-core", verdict: noise,
+     reason: "11 of 13: AppConfig.new, BuildMetadata.new, AuthenticatedUser.auth0, parse_custom_emojis_json; the worker uses nearly all of its config crate"}
   - {repo: purecrate-ts, measure: crp, id: "purecrate-arktype -> purecrate", verdict: "false",
      reason: "packages/boundary-arktype/src/index.ts:2 imports Char, Int, JsonFloat .. from \"purecrate\", but the import is unresolved (no root workspace manifest), so the graph sees 0 of 183"}
   - {repo: purecrate-ts, measure: crp, id: "purecrate-valibot -> purecrate", verdict: "false",
      reason: "packages/boundary-valibot/src/index.ts:2 imports a dozen purecrate symbols; the specifier is unresolved, the 0 is the gap"}
   - {repo: purecrate-ts, measure: crp, id: "purecrate-zod -> purecrate", verdict: "false",
      reason: "packages/boundary-zod/src/index.ts:2 imports Char, Int, JsonFloat, Uuid .. from \"purecrate\"; unresolved, so 0 of 183"}
-  - {repo: purecrate-ts, measure: crp, id: "purecrate-canon -> purecrate-syntax", verdict: "false",
-     reason: "crates/canon/src/lib.rs:66 calls purecrate_syntax::parse_source, a function, so 0 of 22 types"}
-  - {repo: purecrate-ts, measure: crp, id: "purecrate-canon -> purecrate-ts", verdict: actionable,
-     reason: "canon compiles the cli crate's file into itself (crates/canon/src/lib.rs:48 #[path = \"../../cli/src/difftest/derive.rs\"] mod derive) and uses only Fields and 5 helpers; moving derive.rs into a crate both depend on is the change the low share points at"}
+  - {repo: purecrate-ts, measure: crp, id: "purecrate-canon -> purecrate-syntax", verdict: noise,
+     reason: "1 of 52: crates/canon/src/lib.rs:66 calls purecrate_syntax::parse_source and nothing else of the crate (no other purecrate_syntax path in canon/src); calling a parser's entry point is right and asks for no change"}
+  - {repo: purecrate-ts, measure: crp, id: "purecrate-canon -> purecrate-ir", verdict: noise,
+     reason: "6 of 174: Item, Struct, VariantFields (lib.rs:46), Enum (lib.rs:167), Name and Name.as_str (lib.rs:139); a generator reading the IR's item types is the expected client (the NEWTYPE_FIELD const it also imports is no node)"}
   - {repo: tstodon, measure: crp, id: "tstodon -> @tstodon/domain", verdict: noise,
      reason: "the root package is the e2e suite; e2e/schemas.ts:16 references the Activity type only (DomainActivity[\"kind\"]), which is what a test helper looks like"}
   - {repo: tstodon, measure: crp, id: "tstodon -> @tstodon/core", verdict: noise,

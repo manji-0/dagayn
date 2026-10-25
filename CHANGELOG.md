@@ -106,6 +106,34 @@ Removed).
 
 ### Fixed
 
+- Rust visibility is recorded as declared (rust extractor 25). Functions,
+  methods, and modules now carry it in `modifiers` as types did, and
+  restricted visibility is kept as written (`pub(crate)`, `pub(super)`,
+  `pub(self)`, `pub(in path)`) instead of reading as `pub`; a private item
+  has none. A trait's items and the methods of an `impl Trait for Type` take
+  the trait's visibility when the trait is declared in the same file
+  (docs/SCHEMA.md). Production Rust nodes on the four measured repositories:
+  dagayn's functions are 320 `pub`, 426 `pub(crate)`, 280 `pub(super)`, and
+  2,246 private (all had none), and of its 162 `pub` types 92 were
+  restricted (70 stay `pub`); cfwdon keeps 91 of 447 `pub` types and has 238
+  `pub` functions of 4,037; purecrate-ts keeps 305 of 336 and has 650 of
+  2,438. Dead-code analysis no longer treats a `pub(crate)` or `pub(super)`
+  item as a possible public API (it had lowered such a candidate to low
+  confidence), and it recognizes the items of a `pub(super)` or `pub(in
+  path)` trait as trait methods. A `#[wasm_bindgen] impl` exports only its
+  `pub` methods, not its `pub(crate)` ones. Dead-code reports on the four
+  repositories do not change, and the eval gates hold (Rust
+  `untested_change`: 3,005 functions, untested precision 0.438, recall
+  0.271, tested precision 0.947; main 3,003 / 0.438 / 0.27 / 0.946).
+- Only a test attribute makes a Rust function a test: an attribute whose
+  path ends in `test` (`#[test]`, `#[tokio::test]`) or names a test macro
+  (`#[rstest]`, `#[test_case(..)]`, `#[wasm_bindgen_test]`), or a `cfg`
+  that holds only under test (`#[cfg(test)]`, `#[cfg(all(test, ..))]`). Any
+  attribute whose text contained `test` used to count, so `#[cfg(not(test))]`
+  and `#[cfg(any(test, feature = ".."))]` functions were `Test` nodes, and so
+  were dagayn-py's `count_nodes_by_name` and `detect_entry_points_json`
+  through `#[pyo3(signature = (.., include_tests = false))]`. Those two are
+  the only nodes that change kind on the four repositories.
 - A Rust file compiled only under test is test code, whatever its name:
   the target of a `#[cfg(test)] mod name;` declaration (with `#[path]`, or
   `cfg(all(test, ...))`), and every module below one, in each crate that
