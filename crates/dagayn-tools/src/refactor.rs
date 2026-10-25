@@ -218,7 +218,6 @@ fn suggest(
         .filter(|s| s["type"] == "split")
         .collect();
     let hotspots = crate::refactor_findings::complex_hotspots(store, root, &splits);
-    let undocumented = crate::refactor_findings::undocumented_surface(store, root)?;
     let (unused, unused_omitted) = unused_symbol_findings(store)?;
 
     let mut findings: Vec<Value> = unused;
@@ -227,16 +226,15 @@ fn suggest(
     if unused_omitted > 0 {
         omitted.insert("unused_symbol".into(), json!(unused_omitted));
     }
-    for (kind, found) in [
-        ("complex_hotspot", hotspots.clone().unwrap_or_default()),
-        ("undocumented_surface", undocumented),
-    ] {
-        counts.push((kind, found.len()));
-        if found.len() > FINDINGS_PER_KIND {
-            omitted.insert(kind.into(), json!(found.len() - FINDINGS_PER_KIND));
-        }
-        findings.extend(found.into_iter().take(FINDINGS_PER_KIND));
+    let found = hotspots.clone().unwrap_or_default();
+    counts.push(("complex_hotspot", found.len()));
+    if found.len() > FINDINGS_PER_KIND {
+        omitted.insert(
+            "complex_hotspot".into(),
+            json!(found.len() - FINDINGS_PER_KIND),
+        );
     }
+    findings.extend(found.into_iter().take(FINDINGS_PER_KIND));
     if detail_level == "minimal" {
         for finding in &mut findings {
             if let Some(object) = finding.as_object_mut() {

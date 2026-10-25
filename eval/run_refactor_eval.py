@@ -52,7 +52,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 CASES_DIR = REPO_ROOT / "tests" / "fixtures" / "refactor_eval"
 THRESHOLDS_PATH = Path(__file__).resolve().parent / "refactor_thresholds.yaml"
 
-FINDING_KINDS = ("unused_symbol", "complex_hotspot", "undocumented_surface")
+FINDING_KINDS = ("unused_symbol", "complex_hotspot")
 TARGET_KEYS = ("qualified_name", "file", "target", "source")
 CASE_KEYS = {"description", "negative", "files", "commits", "expected_findings"}
 

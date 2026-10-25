@@ -87,12 +87,11 @@ def test_scoring_matches_grouped_targets_and_counts_errors():
         case,
         [
             {"kind": "unused_symbol", "qualified_name": "pkg/a.py::old"},
-            {"kind": "undocumented_surface", "qualified_name": "pkg/util.py::helper"},
+            {"kind": "unused_symbol", "qualified_name": "pkg/util.py::helper"},
         ],
     )
     assert scored["per_kind"] == {
-        "unused_symbol": {"tp": 1, "fp": 0, "fn": 0},
-        "undocumented_surface": {"tp": 0, "fp": 1, "fn": 0},
+        "unused_symbol": {"tp": 1, "fp": 1, "fn": 0},
         "complex_hotspot": {"tp": 0, "fp": 0, "fn": 1},
     }
     assert scored["missed"] == [{"kind": "complex_hotspot", "target": "pkg/b.py::run"}]

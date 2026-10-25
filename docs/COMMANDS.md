@@ -748,9 +748,7 @@ the repository's entry points per declared unit, counted by kind.
 10 per kind with the rest in `findings_omitted`: `unused_symbol` (the verified
 dead-code report without test fixtures), `complex_hotspot` (a function past the
 split thresholds whose lines changed in 5 or more commits in the last 90 days,
-from `git log -L`), and `undocumented_surface` (one of the three symbols other
-units use most from a unit, without a docstring or doc comment). An empty list
-means nothing worth doing. Findings are leads (structure, not correctness): confirm them
+from `git log -L`). An empty list means nothing worth doing. Findings are leads (structure, not correctness): confirm them
 with `source_of` or a reproduction on a current graph (see the `trust` section
 of `get_docs_section_tool`). Verify public APIs,
 test artifacts, dynamic dispatch, and generated entry points before changing

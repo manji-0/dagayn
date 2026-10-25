@@ -96,6 +96,13 @@ Removed).
   function's callee communities and `get_minimal_context_tool` names the
   largest three. `eval/run_communities_measure.py` goes with the modes it
   measured.
+- **Breaking:** the `undocumented_surface` finding of
+  `refactor_tool(mode="suggest")`. 3 of the 18 it showed on real
+  repositories were actionable; the rest were self-describing structs or
+  types whose variants were already documented
+  (docs/plans/OPEN-MEASUREMENTS.md). `suggest` now reports `unused_symbol`
+  and `complex_hotspot`, and the refactor eval loses its two
+  `undocumented_surface` cases.
 
 ## 10.0.0 — 2026-10-12
 

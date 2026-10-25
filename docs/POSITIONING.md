@@ -103,6 +103,9 @@ These were measured on real repositories and did not help the agent:
 - the `communities` and `community` modes of `architecture_analysis_tool`:
   3 of 35 hand-checked communities useful, against units that already state
   the module boundaries in `mode="overview"`
+- the `undocumented_surface` finding of `refactor_tool(mode="suggest")`: 3 of
+  18 actionable; the rest were self-describing structs or types whose
+  variants were already documented
 
 ## Open measurements
 
