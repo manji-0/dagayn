@@ -125,9 +125,9 @@ Removed).
 - A call on an imported `PascalCase` value whose member the graph has no
   node for (`IsoInstant.parse(..)` with `parse: schemaResult(schema)` in an
   object) keeps that receiver (`receiver_type`) instead of being taken for
-  the standard method of the same name: on tstodon 115 such calls (40
-  within a package, and 75 across packages once those resolved) pointed at
-  `globalThis` (`Date.parse` / `JSON.parse`).
+  the standard method of the same name: on tstodon, 75 cross-package calls
+  would have landed on `globalThis` (`Date.parse` / `JSON.parse`) once
+  their package resolved. The same applies to such calls within a package.
 - `refactor_tool(mode="suggest")` no longer lets one file fill every
   `unused_symbol` slot: each file's first finding comes before any file's
   second, in the dead-code report's order otherwise. On purecrate-ts the 10
