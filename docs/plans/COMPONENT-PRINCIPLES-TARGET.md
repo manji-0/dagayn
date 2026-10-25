@@ -13,7 +13,8 @@ reuse is a unit of release (REP). Which of these can dagayn observe from the
 graph, without asking the repository to declare layers, and in what form
 should it report them?
 
-Status: plan. Nothing here is built; the measurements below decide what is.
+Status: measured, nothing built. No measure passed its decision rule
+([measurements](#measurements-2026-10-25)), so no tool contract follows.
 
 ## Stance
 
@@ -47,7 +48,7 @@ Status: plan. Nothing here is built; the measurements below decide what is.
 | SAP | abstractness of a stable unit | as SDP, plus type roles | evidence on `unstable_dependency` | a correct count for Rust, Go, Swift, Kotlin ([evidence](#sap-counts-no-rust-struct)) |
 | DIP | whether a cross-unit dependency targets an abstraction or a concrete symbol | `CALLS`, `REFERENCES`, `INHERITS`, `IMPLEMENTS` | — | cases: 2 cross-unit uses of an abstraction in four repositories; TypeScript workspace imports unresolved ([evidence](#type-positions-are-recorded-workspace-packages-are-not)) |
 | ISP | the share of an abstraction's methods each client unit uses; implementers that stub a method | `CALLS` to members, `IMPLEMENTS` | — | as DIP |
-| CRP | the share of a unit's public surface each depending unit uses | `CALLS`, `REFERENCES` | — | visibility of Rust functions and TypeScript exports ([evidence](#visibility-is-partly-recorded)) |
+| CRP | the share of a unit's public surface each depending unit uses | `CALLS`, `REFERENCES` | — | visibility of Rust functions ([evidence](#visibility-is-partly-recorded)) |
 | CCP | files that change in the same commits across units | — | — | git history |
 | OCP | the same dispatch edited each time behaviour is added | — | — | git history |
 | REP | whether a unit has its own version and is consumed whole | manifests, cross-repo use | — | manifest versions in the graph |
@@ -141,9 +142,10 @@ cross-unit uses of any named type instead:
 
 Rust types carry `pub` in `modifiers` (142 in dagayn); Rust functions carry
 no visibility at all. Python's public surface follows from names (a leading
-underscore). TypeScript `export` is not in `modifiers`. CRP's denominator,
-a unit's public surface, is therefore available for Python and for Rust
-types only.
+underscore). TypeScript `export` is not in `modifiers`, but it is recorded
+as `extra.exported` (`js_like.rs`, 7,452 tstodon nodes). CRP's denominator,
+a unit's public surface, is therefore available for Python, TypeScript, and
+Rust types, not Rust functions.
 
 ## Target contract (draft)
 
@@ -220,9 +222,139 @@ and each measure gets a verdict: keep, cut, or fix-then-keep.
    - A measure whose hits all come from one repository waits for a second
      one.
 
+## Measurements (2026-10-25)
+
+<!-- derived-from #evaluation -->
+
+Rerun: `eval/measure_component_principles.py --repo NAME=PATH ...`;
+judgments in `eval/component_principles_judgments.yaml`. The script reads
+each `graph.db` read-only. Units are discovered from the manifests the way
+`units.rs` does: `unit_scopes`, tests included, for SAP, and the overview's
+`unit_map`, production code only, for CRP. Graphs are full builds of
+dagayn at `origin/main` 8cb10df8, cfwdon, purecrate-ts, and tstodon
+(schema 20, rust 23, javascript 12). Each extreme was judged from source:
+actionable (it points at a change a careful engineer would make), false
+(an edge or count the graph got wrong), or noise (right, but nothing to
+change).
+
+### SAP per unit
+
+`A` counts every top-level type (#211). The extremes are the five
+production units with the largest `D` that SAP applies to (cfwdon has 4,
+tstodon 1). Zones: pain is `A` and `I` both below 0.3, uselessness both
+above 0.7.
+
+| Repository | Units / SAP applies | Most extreme (D, zone) | actionable / false / noise |
+|---|---|---|---|
+| dagayn | 17 / 12 | dagayn-grammars 1.0 pain, dagayn-parser 0.909 pain, dagayn-graph 0.833 pain, dagayn-mcp 0.8 pain, dagayn-postproc 0.6 | 0 / 2 / 3 |
+| cfwdon | 10 / 4 | cfwdon-core 1.0 pain, cfwdon-domain 1.0 pain, cfwdon-worker 0.002, cfwdon-models 0.0 | 0 / 0 / 4 |
+| purecrate-ts | 15 / 9 | examples 1.0 pain, purecrate 1.0 pain, purecrate-ir 0.857 pain, purecrate-syntax 0.75 pain, purecrate-emit-ts 0.667 | 0 / 2 / 3 |
+| tstodon | 4 / 1 | @tstodon/worker 0.986 uselessness | 0 / 1 / 0 |
+
+0 of 15 actionable. The noise is a concrete crate that everything depends
+on (a parser, an IR, a graph store, domain value types). That is what such
+a crate should look like, and no agent would add an abstraction to it. The
+false values come from five gaps:
+
+- **Bare names resolve across languages.** Rust `impl From for Prim`
+  (`crates/ir/src/ty.rs:188`) resolves to the TypeScript method
+  `Field.From` under `examples/`, and `impl PartialOrd`
+  (`corpus/patterns.rs:177`) resolves to a node of the npm package
+  `purecrate`. These edges give purecrate-ts's `examples` an afferent
+  count of 5 and `purecrate` one of 2.
+- **Generated code counts.** tstodon's worker reads as abstract because of
+  213 generated Prisma interfaces (`generated/prisma/internal/class.ts:73`).
+- **A unit's tests, examples, and build script count.** dagayn-grammars'
+  one type is `GrammarSpec` in `build.rs:6`, and its one dependent is
+  dagayn-parser's `examples/`. dagayn-mcp's `A` of 0.2 includes three test
+  structs from `src/tests.rs`, and the crate holds the two traits
+  dagayn-py implements (`lib.rs:131`, `lib.rs:153`).
+- **TypeScript domain code has no type to count.** `@tstodon/domain`
+  exports 66 type aliases and 27 object-literal namespaces, and
+  `@tstodon/core` only aliases and functions, so SAP does not apply to
+  either.
+- **Nodes without a `type_role` do not reach a unit here.** They are
+  counted as `class`. In dagayn, all 21 such nodes (Terraform, Elixir, and
+  R) are in `tests/fixtures`. tstodon's 18 Terraform nodes are in
+  `infra/cloudflare`, which `unit_scopes` leaves out because Terraform is
+  not in `CODE_LANGUAGES`. A repository with production Elixir would have
+  them counted toward `Nt`.
+
+### CRP `surface_used`
+
+Public surface: Python names without a leading underscore at module or
+class top level; Rust types with `pub` in `modifiers` (Rust functions
+carry no visibility and are left out); TypeScript nodes with
+`extra.exported`, plus the non-private members of exported classes. The
+used symbols are those of B that A reaches through `CALLS`, `REFERENCES`,
+`INHERITS`, or `IMPLEMENTS`. The extremes are the five unit edges with
+the lowest share among those where B's surface has at least 10 symbols.
+
+| Repository | Unit edges / surface ≥ 10 | Lowest share (used / public) | actionable / false / noise |
+|---|---|---|---|
+| dagayn | 26 / 20 | graph → parser 0/48, py → parser 0/48, build → postproc 0/11, py → postproc 0/11, `<root>` → dagayn 1/678 | 0 / 4 / 1 |
+| cfwdon | 4 / 3 | admin-ui → web-ui 1/565, models → domain 31/81, worker → domain 45/81 | 0 / 1 / 2 |
+| purecrate-ts | 16 / 14 | arktype, valibot, zod → purecrate 0/183 each, canon → syntax 0/22, canon → purecrate-ts 1/20 | 1 / 4 / 0 |
+| tstodon | 5 / 5 | tstodon → domain 1/168, tstodon → core 2/12, worker → domain 80/168, worker → core 6/12, domain → core 9/12 | 0 / 0 / 5 |
+
+1 of 18 actionable: purecrate-canon compiles the cli crate's
+`difftest/derive.rs` into itself (`crates/canon/src/lib.rs:48`,
+`#[path = ...]`) and uses `Fields` and five helpers from it. Moving that
+file into a crate both depend on is the change. The false values:
+
+- **Rust function calls are not counted.** 0 of 48 for dagayn-py →
+  dagayn-parser, which calls seven parser functions (`lib.rs:1204` to
+  `lib.rs:1318`). The other zeros among dagayn's Rust edges and
+  canon → syntax have the same cause.
+- **A test module is read as production code.** dagayn-graph →
+  dagayn-parser exists only in `terraform_bridges_tests.rs:35`, which the
+  test-path rule (`_test.`) misses.
+- **An npm specifier resolves to nothing without a root workspace
+  manifest.** Each `packages/boundary-*/src/index.ts:2` imports a dozen
+  symbols from `"purecrate"`, and purecrate-ts has no root
+  `package.json`.
+- **A member call resolves to the wrong method.** `current?.resolve(false)`
+  (`admin-ui/src/lib/confirm.ts:24`) calls a Promise resolver, which the
+  graph resolves to web-ui's `SessionState.resolve`.
+
+The noise is the expected reading: an app uses half of its domain, and
+an e2e suite uses one schema. `pub(crate)` also reads as `pub`, because
+`rust_has_pub_visibility` checks `starts_with("pub")`. That puts 91 of
+dagayn's 158 production `pub` types, 356 of cfwdon's 447, and 31 of
+purecrate-ts's 139 in the surface, though no other crate can use them.
+
+### `refused_member` (LSP)
+
+The script read every production method of a type that has an `INHERITS`
+or `IMPLEMENTS` edge and is not itself a trait, interface, protocol, or
+abstract class: 162 in dagayn, 169 in cfwdon, 51 in purecrate-ts, and 8 in
+tstodon. It checked whether the body is only `unimplemented!()`, `todo!()`,
+a `panic!` saying "not implemented" or "unsupported",
+`raise NotImplementedError`, or `throw new Error("not implemented")`.
+None is. No function anywhere in the four graphs has such a body, tests
+included. A search of the source finds these forms only in vendored serde
+doc comments, which are not indexed, and in Rust test strings.
+
+### Verdicts
+
+| Measure | Verdict | Rule that decided it |
+|---|---|---|
+| SAP per unit as evidence (`instability`, `abstractness`, distance) | cut | an evidence value ships when at least half of its extreme units are actionable: 0 of 15 |
+| CRP `surface_used` | cut | the same rule: 1 of 18, all from one repository |
+| `refused_member` (LSP half) | not observable here, not built | fewer than 20 observable cases: 0 in four repositories |
+
+SAP keeps its shipped role, the abstractness and distance on an
+`unstable_dependency` finding
+([stability](./STABILITY-FINDING-TARGET.md#target-contract)). This
+measurement does not test that role, only whether every unit's position
+is worth listing. The gaps above are bugs in their own right
+(cross-language bare-name resolution, `*_tests.rs` files, `pub(crate)`),
+whether or not a principle is ever built on them.
+
 ## Order of work
 
 <!-- derived-from #evaluation -->
+<!-- derived-from #measurements-2026-10-25 -->
 
 1. Count every top-level type in SAP: done in
    [#211](https://github.com/manji-0/dagayn/pull/211).
@@ -246,9 +378,12 @@ and each measure gets a verdict: keep, cut, or fix-then-keep.
    no cross-package `implements` or `extends`, so the TypeScript side of
    step 2 still has no case to judge.
 4. The measurement script and the judgments for what remains observable:
-   corrected SAP, CRP's `surface_used` (Python and Rust types), and the
-   LSP half of `refused_member`; recorded in this document.
-5. Only then the tool contract, for the measures that passed.
+   corrected SAP, CRP's `surface_used` (Python, TypeScript, and Rust
+   types), and the LSP half of `refused_member`: done
+   ([measurements](#measurements-2026-10-25)).
+5. The tool contract, for the measures that passed: none did, so the
+   `principles` object and `refused_member` are not built. The
+   [draft contract](#target-contract-draft) stays as a record.
 6. CCP, OCP, and REP: decide on git history as a data source.
 
 ## Touch points

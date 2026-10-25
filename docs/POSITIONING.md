@@ -124,7 +124,12 @@ Each of these keeps its place only if a measurement shows it helps the agent:
 - `refactor_tool(mode="suggest")`
 - the multi-repo registry, daemon, and `cross_repo_search_tool`
 - component principles beyond SDP (DIP, ISP, CRP), observed without
-  declared layers ([plan](./plans/COMPONENT-PRINCIPLES-TARGET.md))
+  declared layers: measured on four repositories and none built
+  ([result](./plans/COMPONENT-PRINCIPLES-TARGET.md#measurements-2026-10-25)).
+  Per-unit SAP and CRP `surface_used` are cut (0 of 15 and 1 of 18 extremes
+  actionable). DIP and ISP are not observable here (2 cross-unit uses of an
+  abstraction), and neither is `refused_member` (0 overrides that refuse
+  the call)
 
 ## How this would be wrong
 
