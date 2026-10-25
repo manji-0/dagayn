@@ -172,7 +172,7 @@ impl<'a> ScopesByName<'a> {
 
     /// The one scope that holds every node called `name`, when one of them
     /// is in the language family of `source_file`.
-    pub(crate) fn get(&self, name: &str, source_file: &str) -> Option<&String> {
+    fn get(&self, name: &str, source_file: &str) -> Option<&String> {
         let entries = self.by_name.get(name)?;
         let (_, first) = entries.first()?;
         if entries.iter().any(|(_, scope)| scope != first) {
@@ -183,6 +183,19 @@ impl<'a> ScopesByName<'a> {
             .iter()
             .any(|(other, _)| dagayn_graph::same_language_family(family, *other))
             .then_some(first)
+    }
+
+    /// The scope `edge`'s unresolved target names, matched by name only
+    /// when it can be a symbol of this repository: not a module an import
+    /// names, and not a standard-library or third-party one (`import abc` is
+    /// no dependency on a TypeScript namespace `abc`, `use quote::ToTokens`
+    /// none on an example's `quote`).
+    fn edge_target(&self, edge: &GraphEdge) -> Option<&String> {
+        let by_name = edge.kind != "IMPORTS_FROM"
+            && edge.extra.get("external").and_then(Value::as_bool) != Some(true);
+        by_name
+            .then(|| self.get(&edge.target_qualified, &edge.file_path))
+            .flatten()
     }
 }
 
@@ -239,17 +252,9 @@ impl Snapshot {
             let Some(source) = qualified.get(edge.source_qualified.as_str()) else {
                 continue;
             };
-            // An unresolved target is matched by name only when it can be a
-            // symbol of this repository: not a module an import names, and
-            // not a standard-library or third-party one (`import abc` is no
-            // dependency on a TypeScript namespace `abc`).
-            let by_name = edge.kind != "IMPORTS_FROM"
-                && edge.extra.get("external").and_then(Value::as_bool) != Some(true);
-            let target = qualified.get(edge.target_qualified.as_str()).or_else(|| {
-                by_name
-                    .then(|| names.get(&edge.target_qualified, &edge.file_path))
-                    .flatten()
-            });
+            let target = qualified
+                .get(edge.target_qualified.as_str())
+                .or_else(|| names.edge_target(edge));
             if let Some(target) = target
                 && target != source
             {
@@ -434,7 +439,7 @@ pub(crate) fn sap_metrics(
         };
         let target = qualified
             .get(edge.target_qualified.as_str())
-            .or_else(|| names.get(&edge.target_qualified, &edge.file_path));
+            .or_else(|| names.edge_target(edge));
         let Some(target) = target else { continue };
         if target == source {
             continue;

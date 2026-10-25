@@ -3,7 +3,11 @@
 # unit edges (CRP, lowest surface_used share with a public surface of at least
 # 10) per repository. Graphs: dagayn at origin/main 8cb10df8, cfwdon 94329669,
 # purecrate-ts 2e2a4c5f, tstodon 4694e9c3, all full builds (schema 20, rust 23,
-# javascript 12).
+# javascript 12). SAP rows were rerun after bare names stopped matching across
+# language families and external imports (fix/bare-names-stay-in-language; dagayn
+# rebuilt at b1e7a19e, which differs from 8cb10df8 only in eval/, the others
+# at the same commits): purecrate-ts's examples and purecrate, and dagayn-postproc, left the
+# extremes; dagayn, purecrate-check, and purecrate-pack entered.
 # actionable: the value points at a change a careful engineer would make;
 # false: the value is wrong (an edge or a count the graph got wrong);
 # noise: the value is right but points at nothing to change.
@@ -13,13 +17,13 @@ judgments:
   - {repo: dagayn, measure: sap, id: dagayn-grammars, verdict: "false",
      reason: "Nt 1 is GrammarSpec in build.rs:6, a build script; Ca 1 is dagayn-parser's examples/quality_probe.rs:191, not the library"}
   - {repo: dagayn, measure: sap, id: dagayn-parser, verdict: noise,
-     reason: "115 concrete types, Ca 10 (incl. tests, eval, tools dirs, e.g. tests/test_parser.py:346); a parser everything calls is stable and concrete by design, no abstraction to add"}
+     reason: "115 concrete types, Ca 5 crates (dagayn-build build.rs:166, dagayn-tools changes.rs:545); a parser everything calls is stable and concrete by design, no abstraction to add"}
+  - {repo: dagayn, measure: sap, id: dagayn, verdict: "false",
+     reason: "the Python package reads as Ce 0 because its use of the Rust extension is no strict_static edge: `from . import _core` (extractor_versions.py) resolves to dagayn/__init__.py, and the 1119 PyO3 calls into dagayn-py are CALLS; before the fix its Ce 3 was `import json`/`fnmatch`/`abc` matched by name to Rust and TS nodes"}
   - {repo: dagayn, measure: sap, id: dagayn-graph, verdict: noise,
      reason: "GraphStore crate, Ca 5 crates (dagayn-build build.rs:9, dagayn-tools coverage.rs:8); its only Ce comes from test code (terraform_bridges_tests.rs:35, src/tests/search.rs:386); nothing to change"}
   - {repo: dagayn, measure: sap, id: dagayn-mcp, verdict: "false",
      reason: "the crate owns the two traits dagayn-py implements (lib.rs:131 Native, lib.rs:153 Backend; impls at dagayn-py/src/lib.rs:1076,1093); A 0.2 counts 3 test structs from src/tests.rs:13,73,391, so 'zone of pain' misreads the abstraction side of the boundary"}
-  - {repo: dagayn, measure: sap, id: dagayn-postproc, verdict: noise,
-     reason: "21 concrete pipeline/bridge types (manifest_bridges/mod.rs:288 Bridge), Ca 3; D 0.6 asks for no change"}
   - {repo: cfwdon, measure: sap, id: cfwdon-core, verdict: noise,
      reason: "8 config/error value types (error.rs:4 AppError, config.rs:24 AppConfig) used only by cfwdon-worker; I 0 rests on Ca 1, no abstraction would help"}
   - {repo: cfwdon, measure: sap, id: cfwdon-domain, verdict: noise,
@@ -28,16 +32,16 @@ judgments:
      reason: "D 0.002: the leaf app on the main sequence; the value points at nothing"}
   - {repo: cfwdon, measure: sap, id: cfwdon-models, verdict: noise,
      reason: "D 0.0: imports cfwdon-domain only (access_provision.rs:1), nothing depends on it; on the main sequence"}
-  - {repo: purecrate-ts, measure: sap, id: examples, verdict: "false",
-     reason: "examples/ is sample code, not a unit; its Ca 5 is bare-name resolution across languages: Rust `impl From` at crates/ir/src/ty.rs:188 lands on the TS method examples/jsonpatch/ts/plain/src/field.ts:13 Field.From, `use quote` at crates/canon/src/lib.rs:205 on an examples node"}
-  - {repo: purecrate-ts, measure: sap, id: purecrate, verdict: "false",
-     reason: "the npm package packages/boundary (index.ts:33 Panic); its Ca 2 are Rust `impl PartialOrd` lines (corpus/patterns.rs:177, cli/tests/fixtures/ordering_derive.rs:86) resolved by bare name to TS nodes; no Rust code depends on it"}
   - {repo: purecrate-ts, measure: sap, id: purecrate-ir, verdict: noise,
-     reason: "the IR every crate imports (check/src/binds.rs:12, emit_ts/src/context.rs:89), 52 data enums/structs (expr.rs:1092); concrete and stable by design; its only Ce is the false From edge (ty.rs:188)"}
+     reason: "the IR every crate imports (check/src/binds.rs:12, emit_ts/src/context.rs:89), 52 data enums/structs (expr.rs:1092); concrete and stable by design; Ce 0 now that `impl From` (ty.rs:188) no longer lands on a TS method"}
   - {repo: purecrate-ts, measure: sap, id: purecrate-syntax, verdict: noise,
      reason: "the Rust-source parser (item.rs:30 ParseError, expr.rs:507 Stmt), Ca 3; nothing to abstract"}
   - {repo: purecrate-ts, measure: sap, id: purecrate-emit-ts, verdict: noise,
      reason: "the TS emitter's own AST (js.rs:11 Js, doc.rs:11 Doc), Ca 2 (pack/src/lib.rs:1, cli/src/main.rs:16); D 0.667 asks for no change"}
+  - {repo: purecrate-ts, measure: sap, id: purecrate-check, verdict: noise,
+     reason: "the subset checker (lib.rs Diagnostic, defs.rs:24 Defs), 19 concrete types, used by the cli (main.rs:15) and using purecrate-ir (binds.rs:12); D 0.333 asks for no change"}
+  - {repo: purecrate-ts, measure: sap, id: purecrate-pack, verdict: noise,
+     reason: "packaging options (lib.rs:25 Access, lib.rs:54 PackOptions), used by the cli (args.rs:256) and using emit-ts and ir (lib.rs:1-2); D 0.333 asks for no change"}
   - {repo: tstodon, measure: sap, id: "@tstodon/worker", verdict: "false",
      reason: "A 0.986 is 213 generated Prisma interfaces (generated/prisma/internal/class.ts:73 PrismaClientConstructor, models/*.ts delegates); the worker is the app, and generated code is counted"}
   # -- CRP surface_used --------------------------------------------------------

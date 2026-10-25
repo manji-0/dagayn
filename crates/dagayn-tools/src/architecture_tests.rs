@@ -95,3 +95,35 @@ fn a_bare_target_matches_only_names_of_its_own_language_family() {
         .unwrap_or_else(|| panic!("{sap:?}"));
     assert_eq!(web["ca"], 0, "{web}");
 }
+
+/// `sap_metrics` matches by name only what `dependency_edges` does: a
+/// third-party import (`use quote::ToTokens`) is no dependency on the
+/// repository's own `quote`.
+#[test]
+fn sap_does_not_match_an_external_import_by_name() {
+    let repo = Repo::new("sap-external");
+    repo.write(
+        "rust/Cargo.toml",
+        "[package]\nname = \"emit\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nquote = \"1\"\n",
+    );
+    repo.write(
+        "rust/src/lib.rs",
+        "use quote::ToTokens;\n\npub struct Prim;\n\npub fn emit(p: &dyn ToTokens) -> usize {\n    let _ = p;\n    1\n}\n",
+    );
+    repo.write(
+        "examples/gen/src/lib.rs",
+        "pub struct Gen;\n\npub fn quote() -> i64 {\n    1\n}\n",
+    );
+    let snapshot = repo.snapshot();
+    let view = View::review();
+    let pair = ("rust/src".to_string(), "examples/gen/src".to_string());
+    assert!(!snapshot.dependencies(&view).contains(&pair));
+    let sap = sap_metrics(&snapshot, &view, "package", None);
+    let examples = sap
+        .iter()
+        .find(|metric| metric["scope_key"] == "examples/gen/src");
+    assert!(
+        examples.is_none_or(|metric| metric["ca"] == 0),
+        "{examples:?}"
+    );
+}
