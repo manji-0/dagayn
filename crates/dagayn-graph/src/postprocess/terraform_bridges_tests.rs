@@ -158,8 +158,10 @@ locals {
 data "external" "archive_prepare" {
   program = ["python3", "${path.module}/package.py", "prepare"]
   query = {
-    runtime     = var.runtime
-    source_path = try(tostring(var.source_path), jsonencode(var.source_path))
+    runtime       = var.runtime
+    source_path   = try(tostring(var.source_path), jsonencode(var.source_path))
+    docker        = var.docker_file != null ? jsonencode({ docker_file = var.docker_file }) : null
+    artifacts_dir = var.artifacts_dir
   }
 }
 
@@ -176,6 +178,8 @@ variable "handler" {}
 variable "runtime" {}
 variable "package_type" {}
 variable "local_existing_package" {}
+variable "docker_file" {}
+variable "artifacts_dir" {}
 "#;
 
 fn lambda_repo(name: &str, caller: &str) -> Repo {
@@ -309,6 +313,7 @@ module "lambda" {
 }
 "#,
     );
+    repo.write("examples/fixtures/existing_package.zip", "PK");
     let call = "examples/simple/main.tf::module.lambda";
     let from_call: Vec<_> = repo
         .bridges()
@@ -422,5 +427,57 @@ fn a_directory_bridge_reaches_the_code_files_in_it() {
             .any(|node| node.qualified_name == archive),
         "{:?}",
         impact.impacted_nodes
+    );
+}
+
+#[test]
+fn only_paths_naming_code_in_the_tree_become_bridges() {
+    let mut repo = lambda_repo(
+        "targets",
+        r#"
+module "lambda" {
+  source = "../../"
+
+  source_path   = "${path.module}/../fixtures/app"
+  docker_file   = "${path.module}/../fixtures/app/docker/Dockerfile"
+  artifacts_dir = "${path.root}/builds"
+}
+
+resource "aws_lambda_layer_version" "collector" {
+  filename = "${path.module}/../../opentelemetry-lambda/collector/build/layer.zip"
+}
+
+resource "aws_lambda_function" "packaged" {
+  filename = "${path.module}/package.zip"
+}
+"#,
+    );
+    repo.write(
+        "examples/fixtures/app/docker/Dockerfile",
+        "FROM python:3.12\n",
+    );
+    repo.write("examples/simple/package.zip", "PK");
+    // The query hands docker_file and artifacts_dir to the packaging program
+    // too, but neither names code in the tree: a Dockerfile, a build output.
+    // Neither does a layer zip a build writes.
+    assert_eq!(
+        repo.bridges()
+            .into_iter()
+            .filter(|bridge| bridge.0.starts_with("examples/"))
+            .collect::<Vec<_>>(),
+        vec![
+            row(
+                "examples/simple/main.tf::module.lambda",
+                "examples/fixtures/app/index.py",
+                "source_path",
+                "HIGH"
+            ),
+            row(
+                "examples/simple/main.tf::resource.aws_lambda_function.packaged",
+                "examples/simple/package.zip",
+                "filename",
+                "HIGH"
+            ),
+        ]
     );
 }

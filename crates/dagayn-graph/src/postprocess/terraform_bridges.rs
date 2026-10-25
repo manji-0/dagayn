@@ -270,11 +270,54 @@ fn target_language_for_path(path: &str) -> &'static str {
     }
 }
 
-/// One edge per path, and for a directory one per code file in it: the
-/// files are graph nodes, so review and impact reach them like any other
-/// target. `reference` keeps the path as written, the one place to check.
+/// Code packages Terraform uploads as they are; they are not parsed, so
+/// they are files in the tree rather than graph nodes.
+const ARCHIVE_EXTENSIONS: &[&str] = &[".zip", ".jar", ".whl", ".tar.gz", ".tgz"];
+
+/// The checked-out repository, to tell a committed archive from a build
+/// output that only exists after a build.
+struct Tree {
+    root: Option<PathBuf>,
+}
+
+impl Tree {
+    fn load(tx: &Transaction<'_>) -> Result<Self> {
+        let root = tx
+            .query_row(
+                "SELECT value FROM metadata WHERE key = 'repo_root'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        Ok(Self {
+            root: root.map(PathBuf::from),
+        })
+    }
+
+    fn has_archive(&self, path: &str) -> bool {
+        let relative = Path::new(path);
+        let lower = path.to_ascii_lowercase();
+        ARCHIVE_EXTENSIONS.iter().any(|ext| lower.ends_with(ext))
+            && relative.is_relative()
+            && self
+                .root
+                .as_ref()
+                .is_some_and(|root| root.join(relative).is_file())
+    }
+}
+
+/// One edge per path that names code in the tree, and for a directory one
+/// per code file in it: the files are graph nodes, so review and impact
+/// reach them like any other target. `reference` keeps the path as written,
+/// the one place to check.
+///
+/// A path naming nothing in the tree (a build output, a file of a submodule
+/// that is not checked out) or no code (a Dockerfile, `requirements.txt`, a
+/// directory of them) gets no edge: there is nothing on the other side to
+/// check or to reach, and the value stays recorded on the block node.
 fn path_bridges(
     tx: &Transaction<'_>,
+    tree: &Tree,
     value: &TerraformValue,
     reached: &Reached,
     bridges: &mut Vec<Bridge>,
@@ -290,7 +333,9 @@ fn path_bridges(
     for path in &value.paths {
         let targets = match path_target(tx, path)? {
             PathTarget::Directory(files) => files,
-            PathTarget::File | PathTarget::Unindexed => vec![path.clone()],
+            PathTarget::File => vec![path.clone()],
+            PathTarget::Unindexed if tree.has_archive(path) => vec![path.clone()],
+            PathTarget::Unindexed => continue,
         };
         for target in targets {
             let mut extra = bridge_extra(value, reached, role, bridge_kind, evidence);
@@ -477,10 +522,11 @@ fn bridges_for(
     let reached: Vec<Reached> = values.iter().map(|value| flows.reached(value)).collect();
     let reaches = |index: usize, role: SinkRole| reached[index].iter().any(|(r, _)| *r == role);
 
+    let tree = Tree::load(tx)?;
     let mut bridges = Vec::new();
     let mut counts = (0_i64, 0_i64);
     for (index, value) in values.iter().enumerate() {
-        path_bridges(tx, value, &reached[index], &mut bridges)?;
+        path_bridges(tx, &tree, value, &reached[index], &mut bridges)?;
         if !reaches(index, SinkRole::Entrypoint) || value.symbol.is_none() {
             continue;
         }
