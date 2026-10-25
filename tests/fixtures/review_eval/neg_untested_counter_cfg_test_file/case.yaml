@@ -1,0 +1,34 @@
+description: Adds src/fmt_tests.rs, which lib.rs declares `#[cfg(test)] mod fmt_tests;`, with a helper no test
+  calls yet. The file is compiled only under test, so it is test code whatever its name, and no untested_change;
+  running its tests is tolerated.
+negative: true
+commit_change: true
+allowed_kinds:
+- tests_to_run
+base:
+  from: rust_crate
+change:
+  files:
+    src/lib.rs: |
+      pub mod fmt;
+      pub mod math;
+
+      #[cfg(test)]
+      mod fmt_tests;
+
+      /// Double a number through the math module.
+      pub fn twice(a: i64) -> i64 {
+          math::add(a, a)
+      }
+    src/fmt_tests.rs: |
+      use crate::fmt::pad;
+
+      /// Pads every word, for tests that compare columns.
+      pub fn padded_words(words: &[&str], width: usize) -> Vec<String> {
+          words.iter().map(|word| pad(word, width)).collect()
+      }
+
+      #[test]
+      fn pads_to_width() {
+          assert_eq!(pad("a", 3), "  a");
+      }

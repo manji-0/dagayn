@@ -21,6 +21,9 @@ use regex::Regex;
 pub(crate) struct CrateModules {
     by_path: HashMap<Vec<String>, String>,
     by_file: HashMap<String, Vec<String>>,
+    /// Files compiled only under test: the target of a `#[cfg(test)] mod`
+    /// declaration, and every file below one.
+    test_only: HashSet<String>,
 }
 
 #[derive(Debug, Default)]
@@ -40,6 +43,8 @@ pub(crate) struct RustModuleScope<'a> {
     crate_modules: Rc<CrateModules>,
     /// Module path of the file within its crate.
     module: Vec<String>,
+    /// The file is compiled only under test in every crate that holds it.
+    test_only: bool,
     /// Library crate of the same package, reachable by name from a binary,
     /// example, test, or bench target.
     own_library: Option<(String, String)>,
@@ -64,6 +69,9 @@ static MOD_DECL: LazyLock<Regex> = LazyLock::new(|| {
 });
 static PATH_ATTR: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"#\s*\[\s*path\s*=\s*"([^"]+)"\s*\]"#).expect("path attribute regex")
+});
+static CFG_ATTR: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"#\s*\[\s*cfg\s*\(([^\]]*)\)\s*\]").expect("cfg attribute regex")
 });
 static PACKAGE_NAME: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?ms)^\[package\][^\[]*?^\s*name\s*=\s*"([^"]+)""#).expect("package name regex")
@@ -192,15 +200,63 @@ fn exists(repo_root: &Path, rel: &str) -> bool {
     repo_root.join(rel).is_file()
 }
 
+/// Whether a `cfg` predicate holds only when `test` does: `test`, or an
+/// `all(...)` with such a term, or an `any(...)` of only such terms.
+/// `not(test)` and `any(test, feature = "x")` hold outside tests too.
+fn cfg_implies_test(predicate: &str) -> bool {
+    let predicate = predicate.trim();
+    if predicate == "test" {
+        return true;
+    }
+    let Some((head, rest)) = predicate.split_once('(') else {
+        return false;
+    };
+    let Some(inner) = rest.trim_end().strip_suffix(')') else {
+        return false;
+    };
+    let mut terms = Vec::new();
+    let (mut depth, mut start) = (0_i32, 0);
+    for (index, ch) in inner.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            ',' if depth == 0 => {
+                terms.push(&inner[start..index]);
+                start = index + 1;
+            }
+            _ => {}
+        }
+    }
+    terms.push(&inner[start..]);
+    let terms: Vec<&str> = terms.into_iter().filter(|t| !t.trim().is_empty()).collect();
+    match head.trim() {
+        "all" => terms.iter().any(|term| cfg_implies_test(term)),
+        "any" => !terms.is_empty() && terms.iter().all(|term| cfg_implies_test(term)),
+        _ => false,
+    }
+}
+
+/// Whether the attributes before a `mod` declaration compile it only under
+/// test (`#[cfg(test)]`, `#[cfg(all(test, ...))]`).
+fn gated_by_cfg_test(attrs: &str) -> bool {
+    CFG_ATTR
+        .captures_iter(attrs)
+        .any(|captures| cfg_implies_test(&captures[1]))
+}
+
 fn build_crate_modules(repo_root: &Path, root: &str) -> CrateModules {
     let mut modules = CrateModules::default();
-    let mut pending: Vec<(Vec<String>, String)> = vec![(Vec::new(), root.to_string())];
-    while let Some((path, file)) = pending.pop() {
+    let mut pending: Vec<(Vec<String>, String, bool)> =
+        vec![(Vec::new(), root.to_string(), false)];
+    while let Some((path, file, test_only)) = pending.pop() {
         if modules.by_file.contains_key(&file) {
             continue;
         }
         modules.by_path.insert(path.clone(), file.clone());
         modules.by_file.insert(file.clone(), path.clone());
+        if test_only {
+            modules.test_only.insert(file.clone());
+        }
         let Ok(text) = std::fs::read_to_string(repo_root.join(&file)) else {
             continue;
         };
@@ -247,7 +303,7 @@ fn build_crate_modules(repo_root: &Path, root: &str) -> CrateModules {
                 .find(|candidate| exists(repo_root, candidate)),
             };
             if let Some(child) = child.filter(|child| exists(repo_root, child)) {
-                pending.push((child_path, child));
+                pending.push((child_path, child, test_only || gated_by_cfg_test(attrs)));
             }
         }
     }
@@ -443,13 +499,21 @@ impl<'a> RustModuleScope<'a> {
     pub(crate) fn new(repo_root: &'a Path, cache: &'a RustModuleCache, file: &str) -> Self {
         let (roots, own_library_root) = crate_roots(repo_root, file);
         let mut chosen = None;
+        // A file the library compiles only for its tests may be a module of
+        // the binary too (`mod x;` in `main.rs`); it is test code only when
+        // no crate compiles it otherwise.
+        let mut test_only = None;
         for root in &roots {
             let modules = cache.crate_modules(repo_root, root);
             if let Some(module) = modules.by_file.get(file).cloned() {
-                chosen = Some((modules, module));
-                break;
+                let in_tests = modules.test_only.contains(file);
+                test_only = Some(test_only.unwrap_or(true) && in_tests);
+                if chosen.is_none() {
+                    chosen = Some((modules, module));
+                }
             }
         }
+        let test_only = test_only.unwrap_or(false);
         let (crate_modules, module) = chosen.unwrap_or_else(|| {
             // Not reachable through `mod` declarations: a crate of its own.
             (cache.crate_modules(repo_root, file), Vec::new())
@@ -469,9 +533,17 @@ impl<'a> RustModuleScope<'a> {
             cache,
             crate_modules,
             module,
+            test_only,
             own_library,
             dependencies,
         }
+    }
+
+    /// Whether the file is compiled only under test: it is (or lies below)
+    /// the target of a `#[cfg(test)] mod` declaration in every crate that
+    /// holds it.
+    pub(crate) fn is_test_only(&self) -> bool {
+        self.test_only
     }
 
     /// Whether `name` is a crate the package depends on from outside the

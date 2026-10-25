@@ -225,8 +225,12 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 23: struct nodes carry `field_types`; `x.field.m()` on a struct of
         // another file records `receiver_field`; a path in code with no `use`
         // (`crate::a::B::f()`) is an IMPORTS_FROM tagged `path_use`.
+        // 24: a file compiled only under test (the target of a
+        // `#[cfg(test)] mod` declaration, or below one) is test code like a
+        // `tests/` file: its functions are tests and every node `is_test`;
+        // a test file's types and closures are `is_test` too.
         extractor: "rust",
-        version: 23,
+        version: 24,
         languages: &["rust"],
     },
     ExtractorVersion {
