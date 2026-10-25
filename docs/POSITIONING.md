@@ -123,6 +123,8 @@ Each of these keeps its place only if a measurement shows it helps the agent:
 - `flow_tool(mode="entry_points")`, which has no agent experiment
 - `refactor_tool(mode="suggest")`
 - the multi-repo registry, daemon, and `cross_repo_search_tool`
+- component principles beyond SDP (DIP, ISP, CRP), observed without
+  declared layers ([plan](./plans/COMPONENT-PRINCIPLES-TARGET.md))
 
 ## How this would be wrong
 
