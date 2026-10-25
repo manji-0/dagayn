@@ -106,7 +106,6 @@ pub(crate) fn after_full_rebuild(
         PostprocessLevel::Minimal => {
             let mut outcome = PostprocessOutcome::default();
             minimal_steps(repo_root, store, recurse_submodules, None, &mut outcome);
-            centrality(store, None, &mut outcome);
             prune_orphans(store, &mut outcome);
             record_level(store, level)?;
             Ok(Some(outcome))
@@ -129,7 +128,6 @@ pub(crate) fn after_update(
         PostprocessLevel::None => return Ok(None),
         PostprocessLevel::Minimal => {
             minimal_steps(repo_root, store, recurse_submodules, changed, &mut outcome);
-            centrality(store, changed, &mut outcome);
             prune_orphans(store, &mut outcome);
         }
         PostprocessLevel::Full => {
@@ -146,7 +144,6 @@ pub(crate) fn after_update(
                 outcome.set("communities_detected", count);
             }
             outcome.step("Summary computation", || store.compute_summaries());
-            centrality(store, changed, &mut outcome);
             prune_orphans(store, &mut outcome);
         }
     }
@@ -156,7 +153,7 @@ pub(crate) fn after_update(
 
 /// The full level after a full rebuild, as Python drives it for the native
 /// store: the minimal steps, every community from scratch, summaries,
-/// then centrality and the orphan sweep.
+/// then the orphan sweep.
 fn full_after_rebuild(
     repo_root: &Path,
     store: &mut GraphStore,
@@ -171,7 +168,6 @@ fn full_after_rebuild(
         outcome.set("communities_detected", count);
     }
     outcome.step("Summary computation", || store.compute_summaries());
-    centrality(store, None, &mut outcome);
     prune_orphans(store, &mut outcome);
     record_level(store, PostprocessLevel::Full)?;
     Ok(outcome)
@@ -255,27 +251,6 @@ fn minimal_steps(
         store.resolve_native_bindings()
     }) {
         outcome.set("native_bindings_resolved", count);
-    }
-}
-
-/// Re-parsed files invalidate the hub / bridge score tables wholesale, so every
-/// level but `none` recomputes them.
-fn centrality(
-    store: &mut GraphStore,
-    changed: Option<&[String]>,
-    outcome: &mut PostprocessOutcome,
-) {
-    if let Some(scores) = outcome.step("Centrality score persistence", || {
-        store.persist_centrality_scores_filtered(changed)
-    }) {
-        for key in [
-            "hub_scores_persisted",
-            "bridge_scores_persisted",
-            "hub_scores_code_persisted",
-            "bridge_scores_code_persisted",
-        ] {
-            outcome.set(key, scores.get(key).copied().unwrap_or(0));
-        }
     }
 }
 

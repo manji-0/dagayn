@@ -94,15 +94,6 @@ class GraphStoreProtocol(Protocol):
 
     def get_stats(self) -> GraphStats: ...
 
-    def get_nodes_by_size(
-        self,
-        min_lines: int = 50,
-        max_lines: int | None = None,
-        kind: str | None = None,
-        file_path_pattern: str | None = None,
-        limit: int = 50,
-    ) -> list[GraphNode]: ...
-
 
 @runtime_checkable
 class GraphQueryProtocol(Protocol):

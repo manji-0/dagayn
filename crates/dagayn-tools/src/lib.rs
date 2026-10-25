@@ -27,7 +27,6 @@ mod ensure;
 mod entry_points;
 mod findings;
 mod flow;
-mod large;
 mod next;
 pub mod pending;
 mod postprocess;
@@ -44,7 +43,6 @@ mod source;
 mod stability;
 mod stats;
 mod suggestions;
-mod traverse;
 mod units;
 
 use std::collections::HashSet;
@@ -167,7 +165,7 @@ const TIER1_ANALYSIS_TOOLS: [&str; 6] = [
 /// The output budgets of docs/plans/AGENT-WORKFLOW-TARGET.md#decisions-2026-10-07
 /// (8K characters at `minimal`, 32K at `standard`) in `apply_output_budget`
 /// tokens of four characters, less 250 for what a reply adds after trimming
-/// (`next`, `missingness`, `_hints`, `_repo`).
+/// (`next`, `missingness`, `_repo`).
 pub(crate) const MINIMAL_BUDGET: usize = 1750;
 pub(crate) const STANDARD_BUDGET: usize = 7750;
 
@@ -214,12 +212,7 @@ fn trim_envelope(entries: &mut Vec<(String, Value)>) {
 
 /// What Tier 1 replies said to call next with before `next`; a subtool that
 /// still builds one has it dropped.
-const NEXT_STEP_FIELDS: [&str; 4] = [
-    "next_action",
-    "next_drill_downs",
-    "next_tool_suggestions",
-    "_hints",
-];
+const NEXT_STEP_FIELDS: [&str; 2] = ["next_action", "next_drill_downs"];
 
 /// The reply contract of docs/plans/AGENT-WORKFLOW-TARGET.md#target-contract
 /// on one reply's entries: `next` always (`[]` where nothing follows), the
@@ -258,9 +251,6 @@ fn answer(context: &Context, name: &str, arguments: &Map<String, Value>) -> Opti
         "architecture_analysis_tool" => arch_tool::architecture(context, arguments),
         "refactor_tool" => refactor::refactor(context, arguments),
         "ensure_graph_tool" => ensure::ensure_graph(context, arguments),
-        "find_large_functions_tool" => large::find_large_functions(context, arguments),
-        "traverse_graph_tool" => traverse::traverse_graph(context, arguments),
-        "get_wiki_page_tool" => docs::get_wiki_page(context, arguments),
         "list_repos_tool" => repos::list_repos(context, arguments),
         "apply_refactor_tool" => apply::apply_refactor(context, arguments),
         "run_postprocess_tool" => postprocess::run_postprocess(context, arguments),
@@ -746,29 +736,6 @@ pub fn suggest_refactorings_json(store: &GraphStore) -> Option<String> {
     suggestions::suggest_refactorings(store).map(|all| Value::Array(all).to_string())
 }
 
-/// Every entry point of the repository's production code, as JSON rows of
-/// `qualified_name`, `kind`, `file_path`, and `line_start`, in listing order
-/// (docs/plans/FLOW-TOOL-TARGET.md#modes); `None` when the graph cannot be
-/// read.
-pub fn entry_points_json(store: &GraphStore) -> Option<String> {
-    entry_points::all_entry_points(store).map(|found| {
-        Value::Array(
-            found
-                .iter()
-                .map(|(node, kind)| {
-                    serde_json::json!({
-                        "qualified_name": node.qualified_name,
-                        "kind": kind,
-                        "file_path": node.file_path,
-                        "line_start": node.line_start,
-                    })
-                })
-                .collect(),
-        )
-        .to_string()
-    })
-}
-
 /// The graph's dead-code candidates before the repository check, as JSON:
 /// for testing the graph heuristics only.
 pub fn graph_dead_code_candidates_json(
@@ -784,44 +751,6 @@ pub fn graph_dead_code_candidates_json(
 /// while the Python server (and its SQLite connections) is not running.
 pub fn writes_graph(name: &str) -> bool {
     matches!(name, "run_postprocess_tool")
-}
-
-/// `dagayn.tool_surface.suggestion_is_callable`.
-fn suggestion_is_callable(context: &Context, suggestion: &str) -> bool {
-    let Some(allowed) = &context.allowed_tools else {
-        return true;
-    };
-    let mut stripped = suggestion.trim();
-    if let Some(rest) = stripped.strip_prefix("Run:") {
-        stripped = rest.trim();
-    }
-    let tool = suggestion_tool(stripped);
-    tool == "dagayn" || !tool.ends_with("_tool") || allowed.contains(tool)
-}
-
-fn suggestion_tool(suggestion: &str) -> &str {
-    let head = suggestion.split(" -- ").next().unwrap_or(suggestion);
-    let head = head.split(' ').next().unwrap_or(head);
-    head.split('(').next().unwrap_or(head)
-}
-
-/// `_hints` and `next_tool_suggestions` as `make_response` builds them from
-/// plain suggestions, filtered to the session's tools.
-pub(crate) fn suggestions(context: &Context, all: &[&str]) -> (Value, Value) {
-    let kept: Vec<&str> = all
-        .iter()
-        .copied()
-        .filter(|suggestion| suggestion_is_callable(context, suggestion))
-        .take(3)
-        .collect();
-    let next_steps: Vec<Value> = kept
-        .iter()
-        .map(|suggestion| json!({"tool": suggestion_tool(suggestion), "suggestion": suggestion}))
-        .collect();
-    (
-        json!({"next_steps": next_steps, "related": [], "warnings": []}),
-        json!(kept),
-    )
 }
 
 #[cfg(test)]

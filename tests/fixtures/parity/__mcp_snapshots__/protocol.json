@@ -840,73 +840,7 @@
                 "tags": []
               }
             },
-            "description": "Find functions, classes, or files exceeding a line-count threshold.\n\nUseful for decomposition audits, code quality checks, and enforcing\nsize limits during code review. Results are ordered by line count.",
-            "inputSchema": {
-              "additionalProperties": false,
-              "properties": {
-                "file_path_pattern": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Filter by file path substring (e.g. \"components/\")."
-                },
-                "kind": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Optional filter: Function, Class, File, or Test."
-                },
-                "limit": {
-                  "default": 50,
-                  "description": "Maximum results. Default: 50.",
-                  "type": "integer"
-                },
-                "min_lines": {
-                  "default": 50,
-                  "description": "Minimum line count to flag. Default: 50.",
-                  "type": "integer"
-                },
-                "repo_root": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Repository root path. Auto-detected if omitted."
-                }
-              },
-              "type": "object"
-            },
-            "name": "find_large_functions_tool",
-            "outputSchema": {
-              "additionalProperties": {},
-              "type": "object"
-            },
-            "title": "Find Large Functions Tool"
-          },
-          {
-            "_meta": {
-              "fastmcp": {
-                "tags": []
-              }
-            },
-            "description": "Map the repository's units and report structural findings.\n\n``overview`` returns ``units`` (the crates, packages, and modules the\nmanifests declare), ``unit_edges`` (the dependencies between two units;\n``declared`` when a manifest lists one), and\n``findings``: ``import_cycle`` (with the imports to cut),\n``unstable_dependency``, ``untested_core``, ``broken_doc_link``. An empty\n``findings`` list means nothing structural to act on.\n``detail_level=\"standard\"`` adds each unit's ``surface``.\n\nMetric modes, per declared unit: sdp_metrics and sdp_violations (a unit\ndepending on a less stable one by more than ``min_delta``); sap_metrics and\nsap_violations (abstractness vs instability; farther than ``min_distance``\nfrom the main sequence). communities / community: graph clusters (need full\npost-processing). import_cycles: every simple cycle the resolved imports\nform between ``scope_kind`` scopes, each starting at its smallest scope\n(``standard`` adds one import per hop); ``results_complete`` says\nwhether the list is whole.",
+            "description": "Map the repository's units and report structural findings.\n\n``overview`` returns ``units`` (the crates, packages, and modules the\nmanifests declare), ``unit_edges`` (the dependencies between two units;\n``declared`` when a manifest lists one), and\n``findings``: ``import_cycle`` (with the imports to cut),\n``unstable_dependency``, ``untested_core``, ``broken_doc_link``. An empty\n``findings`` list means nothing structural to act on.\n``detail_level=\"standard\"`` adds each unit's ``surface``.\n\ncommunities / community: graph clusters (need full post-processing).\nimport_cycles: every simple cycle the resolved imports form between\n``scope_kind`` scopes, each starting at its smallest scope\n(``standard`` adds one import per hop); ``results_complete`` says\nwhether the list is whole.",
             "inputSchema": {
               "additionalProperties": false,
               "properties": {
@@ -942,32 +876,12 @@
                   ],
                   "default": null
                 },
-                "dependency_profile": {
-                  "default": "strict_static",
-                  "description": "(sdp, sap) Edges counted: \"strict_static\"\n(imports, inheritance; default), \"implementation\" (+ calls),\n\"infra_dataflow\" (+ infra references), \"artifact_trace\"\n(+ cross-artifact bridges).",
-                  "enum": [
-                    "strict_static",
-                    "implementation",
-                    "infra_dataflow",
-                    "artifact_trace"
-                  ],
-                  "type": "string"
-                },
                 "detail_level": {
                   "default": "minimal",
                   "enum": [
                     "minimal",
                     "standard",
                     "verbose"
-                  ],
-                  "type": "string"
-                },
-                "granularity": {
-                  "default": "package",
-                  "description": "(sdp) \"package\" (declared units; default) or \"file\".",
-                  "enum": [
-                    "file",
-                    "package"
                   ],
                   "type": "string"
                 },
@@ -994,14 +908,6 @@
                   "default": false,
                   "type": "boolean"
                 },
-                "min_delta": {
-                  "default": 0.1,
-                  "type": "number"
-                },
-                "min_distance": {
-                  "default": 0.5,
-                  "type": "number"
-                },
                 "min_size": {
                   "default": 0,
                   "type": "integer"
@@ -1012,10 +918,6 @@
                     "overview",
                     "communities",
                     "community",
-                    "sdp_metrics",
-                    "sdp_violations",
-                    "sap_metrics",
-                    "sap_violations",
                     "import_cycles"
                   ],
                   "type": "string"
@@ -1033,7 +935,7 @@
                 },
                 "scope_kind": {
                   "default": "package",
-                  "description": "(sap, import_cycles) \"package\" (declared units; default),\n\"directory\", or \"file\".",
+                  "description": "(import_cycles) \"package\" (declared units; default),\n\"directory\", or \"file\".",
                   "enum": [
                     "file",
                     "package",
@@ -1067,7 +969,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "(sap_metrics, import_cycles) Scope-key prefixes to keep."
+                  "description": "(import_cycles) Scope-key prefixes to keep."
                 }
               },
               "type": "object"
@@ -1393,164 +1295,6 @@
               "type": "object"
             },
             "title": "Apply Refactor Tool"
-          },
-          {
-            "_meta": {
-              "fastmcp": {
-                "tags": []
-              }
-            },
-            "description": "Generate a markdown wiki from the code community structure.\n\nCreates a wiki page for each detected community and an index page.\nPages are written to .dagayn/wiki/ inside the repository.\nOnly regenerates pages whose content has changed unless force=True.",
-            "inputSchema": {
-              "additionalProperties": false,
-              "properties": {
-                "force": {
-                  "default": false,
-                  "description": "If True, regenerate all pages even if content unchanged. Default: False.",
-                  "type": "boolean"
-                },
-                "repo_root": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Repository root path. Auto-detected if omitted."
-                }
-              },
-              "type": "object"
-            },
-            "name": "generate_wiki_tool",
-            "outputSchema": {
-              "additionalProperties": {},
-              "type": "object"
-            },
-            "title": "Generate Wiki Tool"
-          },
-          {
-            "_meta": {
-              "fastmcp": {
-                "tags": []
-              }
-            },
-            "description": "Retrieve a specific wiki page by community name.\n\nReturns the markdown content of the wiki page for the given community.\nThe wiki must have been generated first via generate_wiki_tool.",
-            "inputSchema": {
-              "additionalProperties": false,
-              "properties": {
-                "community_name": {
-                  "description": "Community name to look up.",
-                  "type": "string"
-                },
-                "repo_root": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Repository root path. Auto-detected if omitted."
-                }
-              },
-              "required": [
-                "community_name"
-              ],
-              "type": "object"
-            },
-            "name": "get_wiki_page_tool",
-            "outputSchema": {
-              "additionalProperties": {},
-              "type": "object"
-            },
-            "title": "Get Wiki Page Tool"
-          },
-          {
-            "_meta": {
-              "fastmcp": {
-                "tags": []
-              }
-            },
-            "description": "BFS/DFS traversal from best-matching node with token budget.\n\nFree-form graph exploration: finds the node best matching your\nquery, then traverses outward via BFS or DFS up to the given\ndepth, collecting connected nodes within the token budget.",
-            "inputSchema": {
-              "additionalProperties": false,
-              "properties": {
-                "depth": {
-                  "default": 3,
-                  "description": "Max traversal depth (1-6). Default: 3.",
-                  "type": "integer"
-                },
-                "mode": {
-                  "default": "bfs",
-                  "description": "Traversal mode: \"bfs\" (breadth-first) or \"dfs\"\n(depth-first). Default: bfs.",
-                  "enum": [
-                    "bfs",
-                    "dfs"
-                  ],
-                  "type": "string"
-                },
-                "model": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Embedding model for the initial search. Defaults to the\nserver's embedding model when configured by ``dagayn serve``."
-                },
-                "provider": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Embedding provider for the initial search. Defaults to the\nserver's embedding provider when configured by ``dagayn serve``."
-                },
-                "query": {
-                  "description": "Search string to find the starting node.",
-                  "type": "string"
-                },
-                "repo_root": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Repository root path. Auto-detected if omitted."
-                },
-                "token_budget": {
-                  "default": 2000,
-                  "description": "Approximate token limit for results.\nDefault: 2000.",
-                  "type": "integer"
-                }
-              },
-              "required": [
-                "query"
-              ],
-              "type": "object"
-            },
-            "name": "traverse_graph_tool",
-            "outputSchema": {
-              "additionalProperties": {},
-              "type": "object"
-            },
-            "title": "Traverse Graph Tool"
           },
           {
             "_meta": {
@@ -2253,7 +1997,7 @@
                 "tags": []
               }
             },
-            "description": "Map the repository's units and report structural findings.\n\n``overview`` returns ``units`` (the crates, packages, and modules the\nmanifests declare), ``unit_edges`` (the dependencies between two units;\n``declared`` when a manifest lists one), and\n``findings``: ``import_cycle`` (with the imports to cut),\n``unstable_dependency``, ``untested_core``, ``broken_doc_link``. An empty\n``findings`` list means nothing structural to act on.\n``detail_level=\"standard\"`` adds each unit's ``surface``.\n\nMetric modes, per declared unit: sdp_metrics and sdp_violations (a unit\ndepending on a less stable one by more than ``min_delta``); sap_metrics and\nsap_violations (abstractness vs instability; farther than ``min_distance``\nfrom the main sequence). communities / community: graph clusters (need full\npost-processing). import_cycles: every simple cycle the resolved imports\nform between ``scope_kind`` scopes, each starting at its smallest scope\n(``standard`` adds one import per hop); ``results_complete`` says\nwhether the list is whole.",
+            "description": "Map the repository's units and report structural findings.\n\n``overview`` returns ``units`` (the crates, packages, and modules the\nmanifests declare), ``unit_edges`` (the dependencies between two units;\n``declared`` when a manifest lists one), and\n``findings``: ``import_cycle`` (with the imports to cut),\n``unstable_dependency``, ``untested_core``, ``broken_doc_link``. An empty\n``findings`` list means nothing structural to act on.\n``detail_level=\"standard\"`` adds each unit's ``surface``.\n\ncommunities / community: graph clusters (need full post-processing).\nimport_cycles: every simple cycle the resolved imports form between\n``scope_kind`` scopes, each starting at its smallest scope\n(``standard`` adds one import per hop); ``results_complete`` says\nwhether the list is whole.",
             "inputSchema": {
               "additionalProperties": false,
               "properties": {
@@ -2289,32 +2033,12 @@
                   ],
                   "default": null
                 },
-                "dependency_profile": {
-                  "default": "strict_static",
-                  "description": "(sdp, sap) Edges counted: \"strict_static\"\n(imports, inheritance; default), \"implementation\" (+ calls),\n\"infra_dataflow\" (+ infra references), \"artifact_trace\"\n(+ cross-artifact bridges).",
-                  "enum": [
-                    "strict_static",
-                    "implementation",
-                    "infra_dataflow",
-                    "artifact_trace"
-                  ],
-                  "type": "string"
-                },
                 "detail_level": {
                   "default": "minimal",
                   "enum": [
                     "minimal",
                     "standard",
                     "verbose"
-                  ],
-                  "type": "string"
-                },
-                "granularity": {
-                  "default": "package",
-                  "description": "(sdp) \"package\" (declared units; default) or \"file\".",
-                  "enum": [
-                    "file",
-                    "package"
                   ],
                   "type": "string"
                 },
@@ -2341,14 +2065,6 @@
                   "default": false,
                   "type": "boolean"
                 },
-                "min_delta": {
-                  "default": 0.1,
-                  "type": "number"
-                },
-                "min_distance": {
-                  "default": 0.5,
-                  "type": "number"
-                },
                 "min_size": {
                   "default": 0,
                   "type": "integer"
@@ -2359,10 +2075,6 @@
                     "overview",
                     "communities",
                     "community",
-                    "sdp_metrics",
-                    "sdp_violations",
-                    "sap_metrics",
-                    "sap_violations",
                     "import_cycles"
                   ],
                   "type": "string"
@@ -2380,7 +2092,7 @@
                 },
                 "scope_kind": {
                   "default": "package",
-                  "description": "(sap, import_cycles) \"package\" (declared units; default),\n\"directory\", or \"file\".",
+                  "description": "(import_cycles) \"package\" (declared units; default),\n\"directory\", or \"file\".",
                   "enum": [
                     "file",
                     "package",
@@ -2414,7 +2126,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "(sap_metrics, import_cycles) Scope-key prefixes to keep."
+                  "description": "(import_cycles) Scope-key prefixes to keep."
                 }
               },
               "type": "object"

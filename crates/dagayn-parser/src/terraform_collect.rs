@@ -32,6 +32,9 @@ pub(super) struct TerraformBlock {
     pub(super) calls: Option<Vec<String>>,
     pub(super) references: Option<Vec<String>>,
     pub(super) provider_sources: Option<Vec<String>>,
+    /// Attributes of nested blocks (`build_config { entry_point = ... }`),
+    /// named by the block path (`build_config.entry_point`). Tree-sitter only.
+    pub(super) nested_attrs: Option<Vec<TerraformAttr>>,
 }
 
 #[derive(Clone, Debug)]
@@ -43,6 +46,13 @@ pub(super) struct TerraformAttr {
     pub(super) line_end: i64,
     pub(super) calls: Option<Vec<String>>,
     pub(super) references: Option<Vec<String>>,
+    /// `var.` / `local.` references whose value the attribute takes as its
+    /// own, not ones it only tests or folds into a larger string. Tree-sitter
+    /// only.
+    pub(super) value_refs: Option<Vec<String>>,
+    /// Quoted string literals anywhere in the value, quotes removed.
+    /// Tree-sitter only.
+    pub(super) strings: Option<Vec<String>>,
 }
 
 pub(super) fn collect_terraform_blocks(
@@ -102,6 +112,11 @@ fn terraform_block_from_node(node: tree_sitter::Node<'_>, source: &[u8]) -> Opti
         calls: body_calls,
         references: body_references,
         provider_sources,
+        nested_attrs: body_node.map(|body| {
+            let mut nested = Vec::new();
+            collect_nested_attrs_from_tree(body, source, "", &mut nested);
+            nested
+        }),
     })
 }
 
@@ -194,6 +209,7 @@ fn collect_terraform_blocks_from_text(text: &str) -> Vec<TerraformBlock> {
             calls: None,
             references: None,
             provider_sources: None,
+            nested_attrs: None,
         });
         offset = close + 1;
     }
@@ -352,6 +368,8 @@ fn collect_terraform_attrs(body: &str, body_start_line: i64) -> Vec<TerraformAtt
                 - 1,
             calls: None,
             references: None,
+            value_refs: None,
+            strings: None,
         });
     }
     attrs
@@ -394,17 +412,174 @@ fn collect_terraform_attrs_from_tree(
         let Some(value_node) = child.child_by_field_name("value") else {
             continue;
         };
-        attrs.push(TerraformAttr {
-            name: node_text(name_node, source),
-            value: node_text(value_node, source).trim().to_string(),
-            text: node_text(child, source),
-            line_start: child.start_position().row as i64 + 1,
-            line_end: child.end_position().row as i64 + 1,
-            calls: Some(collect_terraform_calls_from_tree(child, source)),
-            references: Some(collect_terraform_references_from_tree(child, source)),
-        });
+        attrs.push(terraform_attr_from_tree(
+            node_text(name_node, source),
+            child,
+            value_node,
+            source,
+        ));
     }
     attrs
+}
+
+fn terraform_attr_from_tree(
+    name: String,
+    attr: tree_sitter::Node<'_>,
+    value: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> TerraformAttr {
+    let mut value_refs = Vec::new();
+    collect_value_refs(value, source, &mut value_refs);
+    let mut strings = Vec::new();
+    collect_string_literals(value, source, &mut strings);
+    // The attribute node ends after its newline, at column 0 of the next row.
+    let end = attr.end_position();
+    let end_row = if end.column == 0 && end.row > attr.start_position().row {
+        end.row - 1
+    } else {
+        end.row
+    };
+    TerraformAttr {
+        name,
+        value: node_text(value, source).trim().to_string(),
+        text: node_text(attr, source),
+        line_start: attr.start_position().row as i64 + 1,
+        line_end: end_row as i64 + 1,
+        calls: Some(collect_terraform_calls_from_tree(attr, source)),
+        references: Some(collect_terraform_references_from_tree(attr, source)),
+        value_refs: Some(dedupe_strings(value_refs)),
+        strings: Some(strings),
+    }
+}
+
+/// Attributes inside the nested blocks of `body`, depth first, each named
+/// `<block type>.<attribute>` from the outermost nested block down.
+fn collect_nested_attrs_from_tree(
+    body: tree_sitter::Node<'_>,
+    source: &[u8],
+    prefix: &str,
+    out: &mut Vec<TerraformAttr>,
+) {
+    let mut cursor = body.walk();
+    for child in body.named_children(&mut cursor) {
+        match child.kind() {
+            "attribute" if !prefix.is_empty() => {
+                if let (Some(name), Some(value)) = (
+                    child.child_by_field_name("name"),
+                    child.child_by_field_name("value"),
+                ) {
+                    let name = format!("{prefix}{}", node_text(name, source));
+                    out.push(terraform_attr_from_tree(name, child, value, source));
+                }
+            }
+            "block" => {
+                let Some(block_type) = child.child_by_field_name("type") else {
+                    continue;
+                };
+                let Some(block_body) = terraform_block_body_node(child) else {
+                    continue;
+                };
+                let prefix = format!("{prefix}{}.", node_text(block_type, source));
+                collect_nested_attrs_from_tree(block_body, source, &prefix, out);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// `var.x` / `local.x` references in value position: the branches of a
+/// conditional but not its condition, function arguments, collection
+/// elements, object values, and a template that is one interpolation.
+/// Operators, `for` expressions and templates mixing text with an
+/// interpolation compute a new value, so nothing under them counts.
+fn collect_value_refs(node: tree_sitter::Node<'_>, source: &[u8], out: &mut Vec<String>) {
+    match node.kind() {
+        "conditional" => {
+            for field in ["true_val", "false_val"] {
+                if let Some(branch) = node.child_by_field_name(field) {
+                    collect_value_refs(branch, source, out);
+                }
+            }
+            return;
+        }
+        "operation" | "for_tuple_expr" | "for_object_expr" | "heredoc_template" => return,
+        "object_elem" => {
+            if let Some(value) = node.child_by_field_name("value") {
+                collect_value_refs(value, source, out);
+            }
+            return;
+        }
+        "quoted_template" if !is_single_interpolation(node, source) => return,
+        "expression" => {
+            if let Some(reference) = value_reference(node, source) {
+                out.push(reference);
+                return;
+            }
+        }
+        _ => {}
+    }
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_value_refs(child, source, out);
+    }
+}
+
+/// `"${x}"`: one interpolation and nothing else between the quotes.
+fn is_single_interpolation(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+    let text = node_text(node, source);
+    let text = text.trim();
+    node.named_child_count() == 1
+        && node
+            .named_child(0)
+            .is_some_and(|child| child.kind() == "template_interpolation")
+        && text.starts_with("\"${")
+        && text.ends_with("}\"")
+}
+
+/// `var.x` or `local.x` heading the traversal `node` (also `var.x[0].y`).
+fn value_reference(node: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
+    let head = node.named_child(0)?;
+    let attr = node.named_child(1)?;
+    if attr.kind() != "get_attr" || head.kind() != "expression" || head.named_child_count() != 1 {
+        return None;
+    }
+    let root = head
+        .named_child(0)
+        .filter(|root| root.kind() == "variable_expr")?;
+    let root = node_text(root, source);
+    let name = node_text(attr.child_by_field_name("name")?, source);
+    matches!(root.as_str(), "var" | "local").then(|| format!("{root}.{name}"))
+}
+
+/// String literals in value position, by the rules of [`collect_value_refs`]
+/// (a template with interpolations is kept whole: it may be a path).
+fn collect_string_literals(node: tree_sitter::Node<'_>, source: &[u8], out: &mut Vec<String>) {
+    match node.kind() {
+        "quoted_template" => {
+            out.push(strip_tf_string(&node_text(node, source)));
+            return;
+        }
+        "conditional" => {
+            for field in ["true_val", "false_val"] {
+                if let Some(branch) = node.child_by_field_name(field) {
+                    collect_string_literals(branch, source, out);
+                }
+            }
+            return;
+        }
+        "operation" | "for_tuple_expr" | "for_object_expr" | "heredoc_template" => return,
+        "object_elem" => {
+            if let Some(value) = node.child_by_field_name("value") {
+                collect_string_literals(value, source, out);
+            }
+            return;
+        }
+        _ => {}
+    }
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_string_literals(child, source, out);
+    }
 }
 
 fn collect_terraform_provider_sources(node: tree_sitter::Node<'_>, source: &[u8]) -> Vec<String> {

@@ -6,27 +6,41 @@ fn creates_current_schema() {
     let store = GraphStore::open(&path).expect("open graph store");
     assert_eq!(store.schema_version().unwrap(), LATEST_VERSION);
     assert!(table_exists(&store.conn, "nodes_fts").unwrap());
-    assert!(table_exists(&store.conn, "hub_scores").unwrap());
-    assert!(table_exists(&store.conn, "bridge_scores").unwrap());
     assert!(has_column(&store.conn, "edges", "confidence_tier").unwrap());
     assert!(has_column(&store.conn, "edges", "target_name").unwrap());
     // v18 dropped the stored flows.
     for table in ["flows", "flow_memberships", "flow_snapshots"] {
         assert!(!table_exists(&store.conn, table).unwrap(), "{table}");
     }
+    // v19 dropped the centrality scores.
+    for table in CENTRALITY_TABLES {
+        assert!(!table_exists(&store.conn, table).unwrap(), "{table}");
+    }
     let _ = std::fs::remove_file(path);
 }
 
+const CENTRALITY_TABLES: [&str; 4] = [
+    "hub_scores",
+    "bridge_scores",
+    "hub_scores_code",
+    "bridge_scores_code",
+];
+
 #[test]
-fn migrate_v14_creates_centrality_tables_for_existing_db() {
-    let path = temp_db("migrate-v14");
+fn migrate_v19_drops_the_centrality_tables_of_an_existing_db() {
+    let path = temp_db("migrate-v19");
     {
         let conn = rusqlite::Connection::open(&path).expect("open sqlite db");
         conn.execute_batch(SCHEMA_SQL).unwrap();
-        conn.execute("DROP TABLE hub_scores", []).unwrap();
-        conn.execute("DROP TABLE bridge_scores", []).unwrap();
+        for table in CENTRALITY_TABLES {
+            conn.execute_batch(&format!(
+                "CREATE TABLE {table} (qualified_name TEXT PRIMARY KEY); \
+                 INSERT INTO {table} VALUES ('app.py::main');"
+            ))
+            .unwrap();
+        }
         conn.execute(
-            "INSERT OR REPLACE INTO metadata (key, value) VALUES ('schema_version', '13')",
+            "INSERT OR REPLACE INTO metadata (key, value) VALUES ('schema_version', '18')",
             [],
         )
         .unwrap();
@@ -34,9 +48,10 @@ fn migrate_v14_creates_centrality_tables_for_existing_db() {
 
     let store = GraphStore::open(&path).expect("open graph store");
 
-    assert_eq!(store.schema_version().unwrap(), LATEST_VERSION);
-    assert!(table_exists(&store.conn, "hub_scores").unwrap());
-    assert!(table_exists(&store.conn, "bridge_scores").unwrap());
+    assert_eq!(store.schema_version().unwrap(), 19);
+    for table in CENTRALITY_TABLES {
+        assert!(!table_exists(&store.conn, table).unwrap(), "{table}");
+    }
     let _ = std::fs::remove_file(path);
 }
 

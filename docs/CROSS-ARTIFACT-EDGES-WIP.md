@@ -15,7 +15,7 @@
 > 1. Cross-language process/FFI bridges (multi-language, syntax-local)
 > 2. Markdown → code symbol references (doc-to-code, two-phase: parse + postprocess resolve)
 > 3. Explicit documentation bridge directives in Markdown, Python comments, and Terraform comments
-> 4. Terraform → application code bridges (high-confidence path and entrypoint attributes)
+> 4. Terraform → application code bridges (path and entrypoint attributes, and local module inputs followed to them)
 > 5. Manifest-backed native-extension and generated-client bridges (maturin/PyO3, OpenAPI Generator)
 >
 > **Phase 4 analysis integration is implemented** for impact radius, flows, review
@@ -83,19 +83,26 @@
 >
 > <!-- derived-from #extraction-strategy -->
 >
-> High-confidence Layer-1/2 extractors in `crates/dagayn-parser/src/terraform_bridges.rs` (wired from `terraform.rs`):
+> Layer-1/2 evidence only. The parser (`crates/dagayn-parser/src/terraform_bridges.rs`, wired from `terraform.rs`) records on each block node the values it hands on (`extra.terraform_values`: slot, attribute, line span, literal paths and symbol, and the `var.` / `local.` values it takes), and a module call its local source directory (`extra.module_dir`). Post-processing (`resolve_terraform_artifact_refs`, `crates/dagayn-graph/src/postprocess/terraform_bridges.rs`) joins them across files and writes the edges (`extractor = "terraform_bridges"`), replacing its previous set on every run.
+>
+> Sinks, the attributes that read a value as code:
 >
 > | Pattern | Evidence | Role / bridge_kind |
 > |---------|----------|--------------------|
 > | `provisioner "local-exec"` `command` with a concrete script/path token | `evidence_kind=syntax`, `evidence_source=provisioner.local-exec.command` | `invokes_binary` / `subprocess` |
 > | `filename` on Lambda/function-style resources (local path only; rejects `s3://` / `http(s)://` / `gs://`) | `evidence_kind=config`, `evidence_source=filename` | `maps_entrypoint` / `manifest_link` |
 > | `source_dir` / `source_file` / `source_directory` (e.g. `archive_file`, GCP Cloud Functions) | `evidence_kind=config` | `maps_entrypoint` / `manifest_link` |
-> | Explicit `handler` / `entry_point` attributes | `evidence_kind=config`; unresolved until postprocess | `maps_entrypoint` / `manifest_link` |
+> | `data "external"` `program` / `query` (a local program and the input it reads) | `evidence_kind=config` | `maps_entrypoint` / `manifest_link` |
+> | `handler` / `entry_point`, also in nested blocks (`build_config.entry_point`) | `evidence_kind=config`, resolved in post-processing | `maps_entrypoint` / `manifest_link` |
 >
-> - Paths normalize `${path.module}` / `${path.root}` relative to the `.tf` file; remaining interpolations are rejected (not high-confidence).
-> - `_resolve_terraform_artifact_refs` resolves `handler = "module.attr"` to a unique Function/Test whose file stem matches `module`.
+> - A literal reaches code through its slot: a sink directly; a `module` call input through the module's `var.<input>` (the call's `source` resolved to the module directory); a `locals` entry through `local.<name>`; and onward through every value taking it, nested module calls included, until a sink. Only value positions count: the branches of a conditional but not its condition, function arguments, collection elements and object values; operators, `for` expressions and templates mixing text with an interpolation compute a new value. The bridge's source is the block holding the literal (`module.lambda` for its `source_path`), with `binding: module_input` and the `consumers` it reaches.
+> - Paths normalize `${path.module}` / `${path.root}` relative to the `.tf` file; remaining interpolations, and paths climbing above the repository root, are rejected.
+> - A path becomes an edge only when it names code in the tree: an indexed code file, a directory with indexed code files (one edge per file, each carrying the directory as `reference`), or a committed archive (`.zip`, `.jar`, `.whl`, `.tar.gz`). A build output, a path into a submodule that is not checked out, or a Dockerfile gets no edge; the value stays on the node.
+> - A `handler` resolves to the one function (in a scope, also class) its name matches, looked up in the code the same block names when that code is in the tree, nowhere when it is only in an archive or a build output, and across the repository when the block names no code. Unresolved, it stays `<unresolved:...>` at `LOW` (`0.2`).
+> - A local module `source` also yields `IMPORTS_FROM` edges to the module's Terraform files (`extractor = "terraform_modules"`).
+> - `bridge_touched` fires only when a changed line falls inside the bridge's `attr_lines` (the attribute, or the module input feeding it); a directory reference is one finding.
 > - `query_graph` pattern `bridges_from` follows high-confidence infra→code `CROSS_ARTIFACT` edges (docs_for-style).
-> - Fixtures: `tests/fixtures/terraform_cross_artifact/`; tests in `tests/test_terraform.py`, `tests/test_postprocessing.py`, and Rust `extracts_terraform_code_bridges`.
+> - Fixtures: `tests/fixtures/terraform_cross_artifact/`, `tests/fixtures/review_eval/*terraform*`; tests in `tests/test_terraform.py`, `tests/test_postprocessing.py`, Rust `core_tests/terraform.rs` and `postprocess/terraform_bridges_tests.rs`.
 > - Real repositories: `eval/run_terraform_eval.py`, results in [Terraform measured on real repositories](#terraform-measured-on-real-repositories).
 > - **Out of scope for this family:** full cloud-provider attribute matrices; Layer-3 naming-only heuristics.
 
@@ -812,59 +819,99 @@ uv run python eval/run_terraform_eval.py --work-dir /tmp/tf-repos --review 10
 [`eval/terraform_thresholds.yaml`](../eval/terraform_thresholds.yaml) holds
 the floors. The harness also takes `--control drop-truth` and
 `--control fake-truth`; each moves the score by exactly one edge, which
-checks the scoring itself.
+checks the scoring itself (rechecked after the changes below: drop-truth
+77 tp / 1 fp -> 76 / 2, fake-truth adds one fn).
 
-**Precision.** The extractor emitted 12 resolved bridges. 3 name code in the
-tree (the three GCP `archive_file` `source_dir`s), so strict precision is
-0.25. The other 9 are aws-otel-lambda `aws_lambda_layer_version` `filename`s
-naming zips a build writes (`build/custom-config-layer.zip`, paths into the
-`opentelemetry-lambda` submodule). Each of the 9 reads its attribute
-correctly, so reference precision is 1.0. No edge pointed at the wrong code.
-The one handler (payment, `app.lambda_handler`) matches six `app.py` files
-and correctly stays `<unresolved:...>`.
+The harness scores every emitted Terraform edge in precision (an edge no
+fixture entry expects is an fp), counts the edges of one directory
+reference once, and counts a local module source as resolved when an
+`IMPORTS_FROM` edge reaches a Terraform file of its directory.
 
-**Recall.** For the families the extractor covers (`filename`, `source_dir`,
-`source_file`, `source_directory`, `local-exec` paths, `handler`,
-`entry_point` in resource and data blocks) recall is 3 / 8 = 0.375, all 5
-misses being heredoc `local-exec` commands. Over every literal reference it
-is 3 / 97 = 0.031. 83 of the 97 are inputs to a `module` block (`handler`,
-`entry_point`, `source_path`, `local_existing_package`), the way the
-terraform-aws-modules ecosystem wires every Lambda. Local module `source`s
-are recorded as raw `IMPORTS_FROM` strings in 108 of 108 cases and resolved
-to the module directory in 0.
+**Before and after.** The first measurement found 3 usable bridges in 97
+references. Each change below was measured on its own:
 
-**Review.** `review_tool(mode="changes")` on the last 10 commits touching
-`.tf` in each repository (39 commits; payment has 9) produced 0
-`bridge_touched` findings. One commit (aws-otel-lambda `4a1db2e9`) edited a
-block that carries a bridge, changing `compatible_runtimes` next to a layer
-`filename` that names a build output; silence was right. Zero is structural.
-The 3 true bridges target directories, and `bridge_touched` skips a target
-that is neither a node nor a file
-([`findings.rs`](../crates/dagayn-tools/src/findings.rs), the `is_file` check
-in `bridges`). A control on a copy of the GCP repository confirmed it: an edit
-inside `data.archive_file.cf_bigquery_source` gave no finding, and the same
-edit after pointing `source_dir` at `main.go` gave one. That firing
-was itself wrong, because the edit changed only `output_path`.
+| Step | Commit | Precision (every edge) | Recall (every reference) | `bridge_touched` on 39 commits |
+|---|---|---|---|---|
+| baseline | `352639dd` | 3 / 12 = 0.25 | 3 / 97 = 0.031 | 0 |
+| values recorded, edges written in post-processing | `d027b05d` | identical report | identical report | not run |
+| module inputs through the module | `fdec4280` | 83 / 132 = 0.629 | 83 / 97 = 0.856 | not run |
+| directory targets reach their files | `20dd3664` | 0.629 | 0.856 | 3 on 2 commits, 0 correct |
+| fire only on the bridged attribute | `b37c6e2c` | 0.629 | 0.856 | 0 |
+| only code in the tree | `95662ad3` | 77 / 78 = 0.987 | 77 / 97 = 0.794 | 0 |
+| unresolved handler at `LOW` | `2c6c5971` | 0.987 | 0.794 | 0 |
 
-Root causes, with the one fix made:
+By family, baseline -> now (tp / fp, recall):
+
+| Family | Expected | Baseline | Now |
+|---|---|---|---|
+| path_attr | 3 | 3 / 9, 1.0 | 3 / 0, 1.0 |
+| local_exec | 5 | 0 / 0, 0.0 | 0 / 0, 0.0 |
+| entrypoint (resource) | 0 | 1 unresolved | 1 unresolved |
+| module_input | 83 | 0 / 0, 0.0 | 73 / 1, 0.880 |
+| external_program | 1 | 0 / 0, 0.0 | 1 / 0, 1.0 |
+| object_source | 3 | 0 / 0, 0.0 | 0 / 0, 0.0 |
+| file_call | 2 | 0 / 0, 0.0 | 0 / 0, 0.0 |
+| module_source (resolved) | 108 | 0 | 93 |
+
+By repository, now: terraform-aws-lambda 74 tp / 1 fp, recall 74 / 83
+(module_input 73 / 80, plus the `package.py` program); 12 handlers stay
+unresolved at `LOW`, each naming code that is only in a zip, an S3 object,
+a compiled `bootstrap`, or another call's build output.
+terraform-google-cloud-functions 3 / 0, recall 3 / 14. payment 0 / 0, its
+one handler unresolved (six `app.py` files, `${var.lambda_name}` paths).
+aws-otel-lambda 0 / 0 (was 0 / 9): every reference there names a build
+output or the unchecked-out submodule, and its 15 module sources stay raw.
+
+**Precision.** 77 of 78 edges name code the fixture expects. The one false
+positive is a `docker_build_root` directory that the Lambda module's
+packaging program reads and that holds an `entrypoint.sh`; the fixture
+counts it as build configuration. No edge names the wrong function: the
+16 handlers that resolve do so inside the code their own module call
+names (`index.lambda_handler` alone matches five files in
+terraform-aws-lambda).
+
+**Recall.** The 20 misses: 5 heredoc `local-exec` commands; 6 references
+the in-tree code check drops because they name no code the graph holds
+(two `pyproject.toml`, three `dir1/dir2` holding one `.txt`, `dirtree` of
+extensionless files); 3 GCP `entry_point`s passed to the repository's own
+modules through registry sources (`GoogleCloudPlatform/cloud-functions/google//modules/...`),
+which are not followed; 5 `aws_s3_object` / bucket-object `source`s and
+`file()` calls, not covered; and 1 duplicate (one call naming the same
+`index.py` twice, scored as two references and bridged once).
+
+**Review.** `review_tool(mode="changes")` on the same 39 commits gives 0
+`bridge_touched`. Before the attribute check, directory targets made it fire
+3 times on 2 commits (`9b6ba43a`, `b911b7f4`), each an edit elsewhere in a
+module call. A line scan of the 39 diffs
+finds 9 commits changing a line that sets a bridged attribute; each sets an
+expression (`try(each.value.handler, ...)`, `local.filename`), an input of a
+registry module, or a path outside the tree, none of which is a bridge, so
+silence is right on all 39. The firing side is covered by review-eval
+cases (`bridge_terraform_lambda`, `bridge_terraform_module_source_path`) and
+their negatives (`neg_bridge_terraform_other_attribute`,
+`neg_bridge_terraform_module_other_input`).
+
+Root causes found by the first measurement, and their status:
 
 | Outcome | Count | Root cause | Status |
 |---|---|---|---|
-| fp | 9 | No existence check: [`terraform_bridges.rs`](../crates/dagayn-parser/src/terraform_bridges.rs) `concrete_tf_path` accepts any concrete path, including build outputs. The parser sees one file, so the check belongs in postprocess, with a delete-or-demote decision | open; inert today, since `bridge_touched` and impact radius skip a target with no node |
-| fn | 83 | `extract_terraform_code_bridges` reads `resource` and `data` blocks only; `source_path` and `local_existing_package` are not path attributes | open; a scope decision |
-| fn | 5 | `COMMAND_ATTR_RE` matches quoted `command` strings only, not heredocs. Reading heredocs as they are would add two FPs: `cd ${path.module}/helpers && ./create_db_user.sh` resolves beside `main.tf` | open; needs `cd` handling or the existence check |
-| fn | 6 | `source` of `aws_s3_object` / `google_storage_bucket_object` (3), `data "external"` `program` (1), `file()` / `filesha256()` (2) are not covered | open |
-| fn | 1 | `source_dir = "${path.module}/function"`: one segment after the prefix read as a bare word | fixed in `2fb44314` |
-| inert tp | 3 | Directory targets are not graph nodes, so neither `bridge_touched` nor impact radius can use them; `bridges_from` returns them | open |
-| imprecise | control | `bridge_touched` fires on any edit in the block, not only edits to the bridged attribute | open |
-| tier | 1 | An unresolved `handler` is stored at `HIGH`, unlike the spec's `LOW` for unresolved targets; `is_reportable_bridge` excludes it, so no wrong claim results | open |
-| resolver | 3 | GCP Go `entry_point` names a registration (`functions.CloudEvent("HelloCloudFunction", helloPubSub)`), not a function, so the name lookup would miss even inside scope | open |
+| fp | 9 | No existence check on concrete paths | fixed in `95662ad3`: a path needs indexed code, a directory of it, or a committed archive; dropped, not demoted, since the target is not in the graph |
+| fn | 83 | Module inputs not read | fixed in `fdec4280`: 73 bridged through the module's variables; registry modules are not followed |
+| fn | 5 | `COMMAND_ATTR_RE` reads quoted `command` strings only, not heredocs; `cd ${path.module}/helpers && ./x.sh` needs `cd` handling | open |
+| fn | 6 | `aws_s3_object` / bucket-object `source` (3), `file()` / `filesha256()` (2), `data "external"` `program` (1) | `program` fixed in `fdec4280`; the other 5 open |
+| fn | 1 | One segment after `${path.module}` read as a bare word | fixed in `2fb44314` |
+| inert tp | 3 | Directory targets are not graph nodes | fixed in `20dd3664`: one edge per code file, `reference` the directory |
+| imprecise | control | `bridge_touched` fires on any edit in the block | fixed in `b37c6e2c`: needs a changed line in `attr_lines` |
+| tier | 1 | Unresolved `handler` stored at `HIGH` | fixed in `2c6c5971`: `LOW`, `0.2` |
+| resolver | 3 | GCP Go `entry_point` names a registration (`functions.CloudEvent("HelloCloudFunction", helloPubSub)`), not a function | open; also unreached, behind registry sources |
 
-Verdict on criterion 4 for Terraform: the edges emitted do not mislead review.
-No edge named the wrong code, and the 9 that name nothing are filtered out
-before any finding or impact claim. They are also nearly absent: on these
-repositories the family yields 3 usable links out of 97 references, none of
-them a file or symbol, and `bridge_touched` cannot fire.
+Verdict on criterion 4 for Terraform: on these repositories the family now
+links 77 of 97 literal references to the code they name, with 1 false
+positive, and `bridge_touched` stays silent on 39 real commits where
+nothing bridged changed. The evidence is thin on the firing side: no real
+commit in the window edits a bridged attribute, so positive firings are
+shown only on the review-eval fixtures, and 74 of the 77 edges come from
+one repository and one module interface (terraform-aws-modules/lambda).
 
 ## Open questions
 

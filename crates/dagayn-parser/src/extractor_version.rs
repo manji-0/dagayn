@@ -437,8 +437,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // import id or an edge between raw addresses.
         // 2: a `dagayn: tests` directive creates an edge
         // (docs/plans/TEST-REACH-TARGET.md).
+        // 3: code bridges are recorded as `terraform_values` on the block
+        // nodes and written by post-processing, not emitted as edges.
         extractor: "terraform",
-        version: 2,
+        version: 3,
         languages: &["terraform"],
     },
     ExtractorVersion {

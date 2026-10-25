@@ -38,7 +38,6 @@ See [NOTICE](NOTICE) for upstream attribution and original author information.
 - native Rust graph store, parsers, FTS, flows, and post-processing (`dagayn._core`)
 - optional compiler-grade call resolution from SCIP indexers (`dagayn build --scip`: rust-analyzer, scip-typescript, scip-go, scip-python, and more), with install hints for the ones a project lacks
 - multi-repo registry and daemon workflows
-- GraphML, Mermaid C4, SVG, Cypher, and Obsidian graph exports
 
 ## Supported languages and file types
 
@@ -85,7 +84,11 @@ See `docs/FEATURES.md` and `docs/LLM-OPTIMIZED-REFERENCE.md` for the current cov
 
 ### Cross-module analysis
 
-When a `module` block references a local path in `source`, `dagayn` records an `IMPORTS_FROM` edge from the calling module to the target directory. This lets impact-radius queries cross module boundaries.
+When a `module` block references a local path in `source`, `dagayn` records `IMPORTS_FROM` edges from the calling module to each Terraform file of the target directory. This lets impact-radius queries cross module boundaries. Registry and git sources stay recorded as the raw `source` string.
+
+### Bridges to application code
+
+Terraform that deploys code gets `CROSS_ARTIFACT` edges to it: `filename` / `source_dir` and similar attributes, `local-exec` script paths, `data "external"` programs, and `handler` / `entry_point`. A literal passed to a local module (`source_path = "${path.module}/src"`, `handler = "index.lambda_handler"`) is followed through the module's variables to the attribute that reads it, so the module call bridges to the code. A directory bridges to each code file in it, a handler resolves inside the code its own block names, and a path naming nothing in the tree (a build output) gets no edge. On four public repositories (`eval/run_terraform_eval.py`) this links 77 of 97 literal references with one false positive; see [Terraform measured on real repositories](docs/CROSS-ARTIFACT-EDGES-WIP.md#terraform-measured-on-real-repositories).
 
 ### `.tfvars` files
 
@@ -249,7 +252,6 @@ dagayn update
 dagayn watch
 dagayn worktree sync
 dagayn detect-changes --base HEAD~1
-dagayn visualize --format graphml
 dagayn serve
 ```
 
@@ -293,15 +295,6 @@ Use `detail_level="minimal"` for the top recommendations and
 or tests confirm it. Documentation bridge results label evidence as `authored`,
 `extracted`, or `heuristic_reachable` so Markdown traceability is not confused
 with a verified contract.
-
-## Reporting and export outputs
-
-`dagayn visualize` exports static graph artifacts.
-
-- `--format` is required and supports `graphml`, `mermaid-c4`, `svg`, `cypher`, and `obsidian`
-- `mermaid-c4` emits Mermaid `C4Component` code with files collapsed into components and cross-file relations
-- `svg` export uses matplotlib, so install the eval extra when you need it: `pip install "dagayn[eval]"`
-- Jupyter / Databricks / marimo notebooks are parsed as graph inputs, not emitted as report formats
 
 ## AI platform integration
 

@@ -239,7 +239,6 @@ def session_prepare(
         action: str,
         reason: str,
         sync: ToolPayload | None,
-        next_tool_suggestions: list[str],
         **extra: object,
     ) -> ToolPayload:
         """Respond before any graph work: empty counts plus the request echo."""
@@ -261,7 +260,6 @@ def session_prepare(
             embedding_policy=embedding_policy,
             repo_root=str(root),
             **extra,
-            next_tool_suggestions=next_tool_suggestions,
         )
 
     if detect_vcs(root) == "none":
@@ -275,11 +273,6 @@ def session_prepare(
             action=action,
             reason="not_vcs_repo",
             sync={"state": None, "vcs": "none", "repo_root": str(root)},
-            next_tool_suggestions=[
-                "get_minimal_context_tool",
-                "review_tool",
-                "query_graph_tool",
-            ],
         )
 
     if from_hook or running_from_hook():
@@ -296,10 +289,6 @@ def session_prepare(
                 action="skipped",
                 reason="hook_lock_busy",
                 sync=None,
-                next_tool_suggestions=[
-                    "get_minimal_context_tool",
-                    "ensure_graph_tool",
-                ],
                 skipped=True,
             )
 
@@ -525,11 +514,6 @@ def session_prepare(
         local_embedding=local_embedding,
         embedding_policy=embedding_policy,
         repo_root=str(root),
-        next_tool_suggestions=[
-            "get_minimal_context_tool",
-            "review_tool",
-            "query_graph_tool",
-        ],
     )
     if seed_info is not None:
         response["worktree_seed"] = seed_info

@@ -1,3 +1,5 @@
+# repo names a key of run_search_eval.py --repo NAME=PATH (default: dagayn).
+# intent: exact-symbol | keyword | prose-intent | japanese
 queries:
   - id: exact-rrf-merge
     query: rrf_merge
@@ -8,3 +10,130 @@ queries:
   - id: docs-markdown-evidence
     query: markdown code spans should not become documentation obligations
     intent: prose-intent
+  - id: exact-hybrid-search
+    query: hybrid_search
+    intent: exact-symbol
+  - id: exact-seed-worktree
+    query: seed_worktree_graph
+    intent: exact-symbol
+  - id: kw-registry-register
+    query: registry register repository
+    intent: keyword
+  - id: kw-import-cycles
+    query: import cycles
+    intent: keyword
+  - id: prose-japanese-tokens
+    query: split Japanese text into tokens for the full text index
+    intent: prose-intent
+  - id: prose-dead-code
+    query: find functions and classes that nothing refers to
+    intent: prose-intent
+  - id: prose-embedding-sidecar
+    query: start the llama.cpp embedding server and wait until it is ready
+    intent: prose-intent
+  - id: prose-daemon
+    query: background process that keeps several repositories' graphs up to date
+    intent: prose-intent
+  - id: ja-japanese-tokens
+    query: 日本語のテキストを全文検索用に分割する
+    intent: japanese
+  - id: ja-embedding-sidecar
+    query: 埋め込みサーバーを起動する
+    intent: japanese
+  - id: ja-import-cycles
+    query: インポートの循環を検出する
+    intent: japanese
+  - id: ja-dead-code
+    query: どこからも使われていない関数を見つける
+    intent: japanese
+  - id: ja-worktree-seed
+    query: ワークツリーにメインのグラフをコピーする
+    intent: japanese
+  - id: ts-exact-verify-inbox
+    repo: tstodon
+    query: verifyInboxRequest
+    intent: exact-symbol
+  - id: ts-exact-signing-string
+    repo: tstodon
+    query: buildSigningString
+    intent: exact-symbol
+  - id: ts-exact-sanitize
+    repo: tstodon
+    query: sanitizeRemoteHtml
+    intent: exact-symbol
+  - id: ts-exact-group-notifications
+    repo: tstodon
+    query: groupNotifications
+    intent: exact-symbol
+  - id: ts-exact-follow-request-authorize
+    repo: tstodon
+    query: FollowRequest.authorize
+    intent: exact-symbol
+  - id: ts-kw-push-subscription
+    repo: tstodon
+    query: push subscription upsert
+    intent: keyword
+  - id: ts-kw-trending-statuses
+    repo: tstodon
+    query: trending statuses
+    intent: keyword
+  - id: ts-kw-poll-vote
+    repo: tstodon
+    query: poll vote
+    intent: keyword
+  - id: ts-prose-verify-signature
+    repo: tstodon
+    query: verify the HTTP signature of an incoming ActivityPub inbox request
+    intent: prose-intent
+  - id: ts-prose-sanitize
+    repo: tstodon
+    query: strip dangerous markup from content fetched from other servers
+    intent: prose-intent
+  - id: ts-prose-web-push
+    repo: tstodon
+    query: deliver a notification to a subscribed browser
+    intent: prose-intent
+  - id: ts-prose-direct-visibility
+    repo: tstodon
+    query: can this viewer see a direct message
+    intent: prose-intent
+  - id: ts-prose-ipv4
+    repo: tstodon
+    query: parse an IPv4 address for IP blocking rules
+    intent: prose-intent
+  - id: ts-prose-text-to-html
+    repo: tstodon
+    query: turn a plain text post into HTML with links and mentions
+    intent: prose-intent
+  - id: ts-prose-purge-codes
+    repo: tstodon
+    query: delete expired OAuth authorization codes
+    intent: prose-intent
+  - id: ts-ja-verify-signature
+    repo: tstodon
+    query: 受信したリクエストのHTTP署名を検証する
+    intent: japanese
+  - id: ts-ja-sanitize
+    repo: tstodon
+    query: リモートのHTMLを無害化する
+    intent: japanese
+  - id: ts-ja-poll-count
+    repo: tstodon
+    query: 投票の票数を数える
+    intent: japanese
+  - id: ts-ja-follow-authorize
+    repo: tstodon
+    query: フォローリクエストを承認する
+    intent: japanese
+  - id: ts-ja-group-notifications
+    repo: tstodon
+    query: 通知をまとめてグループにする
+    intent: japanese
+  - id: ts-ja-purge-codes
+    repo: tstodon
+    query: 期限切れの認可コードを削除する
+    intent: japanese
+  - id: ts-ja-domain-block
+    repo: tstodon
+    query: ドメインがブロックされているか確認する
+    intent: japanese

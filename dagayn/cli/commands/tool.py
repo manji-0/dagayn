@@ -23,12 +23,9 @@ TOOL_REGISTRY: dict[str, str] = {
     "cross_repo_search_tool": "dagayn.tools.registry_tools:cross_repo_search_func",
     "embed_graph_tool": "dagayn.tools.docs:embed_graph",
     "ensure_graph_tool": "dagayn.tools.ensure:ensure_graph",
-    "find_large_functions_tool": "dagayn.tools.query:find_large_functions",
     "flow_tool": "dagayn.tools.flow_dispatcher:flow_func",
-    "generate_wiki_tool": "dagayn.tools.docs:generate_wiki_func",
     "get_docs_section_tool": "dagayn.tools.docs:get_docs_section",
     "get_minimal_context_tool": "dagayn.tools.context:get_minimal_context",
-    "get_wiki_page_tool": "dagayn.tools.docs:get_wiki_page_func",
     "list_graph_stats_tool": "dagayn.tools.query:list_graph_stats",
     "list_repos_tool": "dagayn.tools.registry_tools:list_repos_func",
     "query_graph_tool": "dagayn.tools.query:query_graph",
@@ -36,7 +33,6 @@ TOOL_REGISTRY: dict[str, str] = {
     "review_tool": "dagayn.tools.review_dispatcher:review_func",
     "run_postprocess_tool": "dagayn.tools.build:run_postprocess",
     "semantic_search_nodes_tool": "dagayn.tools.query:semantic_search_nodes",
-    "traverse_graph_tool": "dagayn.tools.query:traverse_graph_func",
 }
 
 TOOL_ALIASES: dict[str, str] = {
@@ -51,7 +47,6 @@ TOOL_ALIASES["flow"] = "flow_tool"
 
 _LOCAL_EMBEDDING_AWARE_TOOLS = {
     "semantic_search_nodes_tool",
-    "traverse_graph_tool",
 }
 
 

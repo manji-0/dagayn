@@ -38,13 +38,9 @@
           "artifact_scope": "string",
           "community_id": "integer",
           "community_name": "string",
-          "dependency_profile": "string",
           "detail_level": "string",
-          "granularity": "string",
           "import_kind": "string",
           "include_members": "boolean",
-          "min_delta": "number",
-          "min_distance": "number",
           "min_size": "integer",
           "mode": "string",
           "repo_root": "string",
@@ -99,16 +95,6 @@
         },
         "required": []
       },
-      "find_large_functions_tool": {
-        "params": {
-          "file_path_pattern": "string",
-          "kind": "string",
-          "limit": "integer",
-          "min_lines": "integer",
-          "repo_root": "string"
-        },
-        "required": []
-      },
       "flow_tool": {
         "params": {
           "detail_level": "string",
@@ -116,13 +102,6 @@
           "mode": "string",
           "repo_root": "string",
           "target": "string"
-        },
-        "required": []
-      },
-      "generate_wiki_tool": {
-        "params": {
-          "force": "boolean",
-          "repo_root": "string"
         },
         "required": []
       },
@@ -144,15 +123,6 @@
           "task": "string"
         },
         "required": []
-      },
-      "get_wiki_page_tool": {
-        "params": {
-          "community_name": "string",
-          "repo_root": "string"
-        },
-        "required": [
-          "community_name"
-        ]
       },
       "list_graph_stats_tool": {
         "params": {
@@ -227,20 +197,6 @@
         "required": [
           "query"
         ]
-      },
-      "traverse_graph_tool": {
-        "params": {
-          "depth": "integer",
-          "mode": "string",
-          "model": "string",
-          "provider": "string",
-          "query": "string",
-          "repo_root": "string",
-          "token_budget": "integer"
-        },
-        "required": [
-          "query"
-        ]
       }
     }
   },
@@ -273,13 +229,9 @@
           "artifact_scope": "string",
           "community_id": "integer",
           "community_name": "string",
-          "dependency_profile": "string",
           "detail_level": "string",
-          "granularity": "string",
           "import_kind": "string",
           "include_members": "boolean",
-          "min_delta": "number",
-          "min_distance": "number",
           "min_size": "integer",
           "mode": "string",
           "repo_root": "string",

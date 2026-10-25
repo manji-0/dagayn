@@ -2,13 +2,7 @@
 
 use serde_json::{Map, Value, json};
 
-use crate::{Args, Context, Ordered, Payload, open_graph, resolve_repo, suggestions};
-
-const NEXT_TOOL_SUGGESTIONS: [&str; 3] = [
-    "architecture_analysis_tool mode=\"communities\" -- inspect structure",
-    "flow_tool mode=\"list\" -- inspect critical reachable-set flows",
-    "semantic_search_nodes_tool -- search for specific entities",
-];
+use crate::{Args, Context, Ordered, Payload, open_graph, resolve_repo};
 
 pub(crate) fn list_graph_stats(
     context: &Context,
@@ -36,7 +30,6 @@ pub(crate) fn list_graph_stats(
         stats.files_count,
         stats.languages.len()
     );
-    let (hints, kept) = suggestions(context, &NEXT_TOOL_SUGGESTIONS);
     Some(
         Ordered::default()
             .put("status", "ok")
@@ -49,8 +42,6 @@ pub(crate) fn list_graph_stats(
             .put("files_count", stats.files_count)
             .put("last_updated", json!(stats.last_updated))
             .put("embeddings_count", embeddings)
-            .put("_hints", hints)
-            .put("next_tool_suggestions", kept)
             .put("_repo", graph.repo_context())
             .into_payload(),
     )

@@ -2,40 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from dagayn.tools.query import traverse_graph_func
 from dagayn.tools.registry_tools import list_repos_func
 
 
-class _Closable:
-    def close(self) -> None:
-        pass
-
-
-def test_traverse_graph_not_found_has_standard_envelope(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "dagayn.tools.query._get_store",
-        lambda repo_root: (_Closable(), Path("/repo")),
-    )
-    monkeypatch.setattr(
-        "dagayn.tools.query.hybrid_search",
-        lambda store, query, **kwargs: {"mode": "empty", "results": []},
-    )
-
-    result = traverse_graph_func(query="missing-symbol", repo_root="/repo")
-
-    assert result["status"] == "not_found"
-    assert result["summary"] == "No node matching 'missing-symbol'."
-    assert result["traversal"] == []
-    assert result["reachability"] == {
-        "state": "not_found",
-        "truncated": False,
-        "max_depth": 3,
-        "nodes_visited": 0,
-    }
-    assert result["_hints"]["next_steps"][0]["tool"] == "semantic_search_nodes_tool"
-
-
-def test_list_repos_has_hints(monkeypatch, tmp_path: Path) -> None:
+def test_list_repos_lists_the_registry(monkeypatch, tmp_path: Path) -> None:
     (tmp_path / ".dagayn").mkdir()
     (tmp_path / ".dagayn" / "registry.json").write_text(
         '{"repos": [{"alias": "dagayn", "path": "/repo"}]}'
@@ -46,7 +16,8 @@ def test_list_repos_has_hints(monkeypatch, tmp_path: Path) -> None:
 
     assert result["status"] == "ok"
     assert result["repos"] == [{"alias": "dagayn", "path": "/repo"}]
-    assert result["_hints"]["next_steps"][0]["tool"] == "cross_repo_search_tool"
+    assert "_hints" not in result
+    assert "next_tool_suggestions" not in result
 
 
 def test_flow_tool_runtime_error_has_missingness(monkeypatch) -> None:

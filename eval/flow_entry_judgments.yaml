@@ -1,0 +1,721 @@
+# Hand judgments for eval/run_flow_entry_measure.py; generated from a compact source, edit freely.
+targets:
+- id: R1
+  repo: cfwdon
+  lang: rust
+  depth: mid (254 callers)
+  target: crates/cfwdon-worker/src/id_utils.rs::generate_entity_id
+  ways_in:
+  - id: fetch
+    node: crates/cfwdon-worker/src/lib.rs::fetch
+    evidence: 'lib.rs:122 #[event(fetch)] calls router::handle_fetch at :127'
+  - id: scheduled
+    node: crates/cfwdon-worker/src/lib.rs::scheduled
+    evidence: 'lib.rs:144 #[event(scheduled)]'
+  note: queue and StreamHub do not reach it (graph reach from lib.rs::queue is empty; delivery only signs and posts)
+  entry_points:
+  - qn: crates/cfwdon-worker/src/inbox/follow_handlers.rs::handle_inbox_follow
+    verdict: helper
+    way_in: fetch
+    reason: Follow arm of dispatch_inbox_activity (inbox.rs:140), reached inside fetch's POST inbox route; named like an entry, is not one
+  - qn: crates/cfwdon-worker/src/inbox/poll_interactions.rs::handle_inbox_poll_vote
+    verdict: helper
+    way_in: fetch
+    reason: called by handle_inbox_create (inbox/status_handlers.rs:40); internal step
+  - qn: crates/cfwdon-worker/src/inbox/relay_handlers.rs::handle_relay_create
+    verdict: helper
+    way_in: fetch
+    reason: called by handle_relay_delivered_activity (inbox/relay_handlers.rs:52)
+  - qn: crates/cfwdon-worker/src/inbox/relay_handlers.rs::handle_relay_update
+    verdict: helper
+    way_in: fetch
+    reason: called by handle_relay_delivered_activity (inbox/relay_handlers.rs:55)
+  - qn: crates/cfwdon-worker/src/inbox/status_handlers.rs::handle_inbox_create
+    verdict: helper
+    way_in: fetch
+    reason: Create arm of dispatch_inbox_activity (inbox.rs:163)
+  - qn: crates/cfwdon-worker/src/inbox/status_handlers.rs::handle_inbox_create_for_accounts
+    verdict: helper
+    way_in: fetch
+    reason: called by process_verified_inbox_activity (inbox.rs:400)
+  - qn: crates/cfwdon-worker/src/inbox/status_handlers.rs::handle_inbox_update
+    verdict: helper
+    way_in: fetch
+    reason: Update arm of dispatch_inbox_activity (inbox.rs:191)
+  - qn: crates/cfwdon-worker/src/inbox/status_handlers.rs::handle_inbox_update_for_accounts
+    verdict: helper
+    way_in: fetch
+    reason: called by process_verified_inbox_activity (inbox.rs:402)
+  - qn: crates/cfwdon-worker/src/inbox/status_interactions.rs::handle_inbox_announce
+    verdict: helper
+    way_in: fetch
+    reason: Announce arm of dispatch_inbox_activity (inbox.rs:170)
+  - qn: crates/cfwdon-worker/src/inbox/poll_interactions.rs::handle_inbox_poll_vote_undo
+    verdict: helper
+    way_in: fetch
+    reason: called by the Undo handler (inbox/interactions.rs:86)
+  - qn: crates/cfwdon-worker/src/background_jobs.rs::handle_remote_context_fetch
+    verdict: helper
+    way_in: scheduled
+    reason: job-type arm of handle_job (background_jobs.rs:354), run by process_due_background_jobs (lib.rs:215)
+  - qn: crates/cfwdon-worker/src/lib.rs::scheduled
+    verdict: boundary
+    way_in: scheduled
+    reason: lib.rs:189 process_expired_polls_for_config -> polls.rs:108 enqueue_status_update_activity -> outbound.rs:267 -> updates.rs:54 generate_entity_id
+  - qn: crates/cfwdon-worker/src/router.rs::handle_fetch
+    verdict: nearest_handler
+    way_in: fetch
+    reason: lib.rs:127 fetch -> router::handle_fetch; chain via routing/accounts.rs:34 create_account_placeholder_response
+  callers_roots: []
+- id: R2
+  repo: cfwdon
+  lang: rust
+  depth: leaf
+  target: crates/cfwdon-worker/src/lib.rs::scheduled_runs_trend_refresh
+  ways_in:
+  - id: scheduled
+    node: crates/cfwdon-worker/src/lib.rs::scheduled
+    evidence: 'lib.rs:144 #[event(scheduled)]'
+  entry_points:
+  - qn: crates/cfwdon-worker/src/lib.rs::scheduled
+    verdict: boundary
+    way_in: scheduled
+    reason: 'lib.rs:151 calls it; the #[test] at :280 is not counted'
+  callers_roots:
+  - qn: crates/cfwdon-worker/src/lib.rs::scheduled
+    verdict: boundary
+    way_in: scheduled
+    reason: lib.rs:151
+- id: R3
+  repo: cfwdon
+  lang: rust
+  depth: leaf (method)
+  target: crates/cfwdon-worker/src/stream_hub/messages.rs::StreamSubscription.matches
+  ways_in:
+  - id: do_fetch
+    node: crates/cfwdon-worker/src/stream_hub/durable_object.rs::StreamHub.fetch
+    evidence: DurableObject::fetch (durable_object.rs:38) -> handle_publish (:41) -> state.matches (:182) -> messages.rs:98 subscription.matches; forward_publish :241
+  note: 'graph has only test callers: method calls through a field or receiver (durable_object.rs:241, messages.rs:98) are unresolved'
+  entry_points: []
+  callers_roots: []
+- id: R4
+  repo: cfwdon
+  lang: rust
+  depth: leaf
+  target: crates/cfwdon-worker/src/delivery.rs::outbox_batch_made_progress
+  ways_in:
+  - id: queue
+    node: crates/cfwdon-worker/src/lib.rs::queue
+    evidence: 'lib.rs:285 #[event(queue)] calls consume_outbox_process_queue_batch at :296'
+  entry_points:
+  - qn: crates/cfwdon-worker/src/lib.rs::queue
+    verdict: boundary
+    way_in: queue
+    reason: lib.rs:296 -> delivery.rs:184 process_outbox_queue_batch -> :248 outbox_batch_made_progress
+  callers_roots:
+  - qn: crates/cfwdon-worker/src/lib.rs::queue
+    verdict: boundary
+    way_in: queue
+    reason: lib.rs:296
+- id: R5
+  repo: purecrate-ts
+  lang: rust
+  depth: mid (pub API, test-heavy)
+  target: crates/syntax/src/lib.rs::parse_source
+  ways_in:
+  - id: proc_macro_fixture
+    node: crates/canon/src/lib.rs::fixture
+    evidence: 'canon/src/lib.rs:54 #[proc_macro] fixture calls parse_source at :66; the CLI uses parse_source_spanned'
+  entry_points:
+  - qn: crates/canon/src/lib.rs::fixture
+    verdict: boundary
+    way_in: proc_macro_fixture
+    reason: '#[proc_macro] canon/src/lib.rs:54-66 (kind says uncalled, not framework_handler)'
+  callers_roots:
+  - qn: crates/canon/src/lib.rs::fixture
+    verdict: boundary
+    way_in: proc_macro_fixture
+    reason: canon/src/lib.rs:66
+- id: R6
+  repo: purecrate-ts
+  lang: rust
+  depth: leaf, high fan-in (214 callers)
+  target: crates/check/src/types.rs::show
+  ways_in:
+  - id: cli_main
+    node: crates/cli/src/main.rs::main
+    evidence: cli main.rs:23 -> execute -> analyze -> check::accept; show is pub(crate) (types.rs:839)
+  entry_points:
+  - qn: crates/cli/src/main.rs::main
+    verdict: boundary
+    way_in: cli_main
+    reason: main.rs:23 main -> execute (:42) -> analyze -> lib.rs:79 accept -> order.rs -> types.rs:839 show
+  callers_roots: []
+- id: R7
+  repo: dagayn
+  lang: rust
+  depth: leaf
+  target: crates/dagayn-tools/src/entry_points.rs::entry_kind
+  ways_in:
+  - id: ffi_call_tool
+    node: crates/dagayn-py/src/lib.rs::call_tool
+    evidence: 'dagayn-py lib.rs #[pyfunction] call_tool, called from dagayn/tools/_native.py'
+  - id: mcp_call_tool
+    node: crates/dagayn-py/src/lib.rs::serve_mcp.RustTools.call_tool
+    evidence: rmcp ServerHandler::call_tool impl inside serve_mcp, called by the MCP library
+  entry_points:
+  - qn: crates/dagayn-py/src/lib.rs::call_tool
+    verdict: boundary
+    way_in: ffi_call_tool
+    reason: '#[pyfunction]; chain call -> answer -> flow -> entry_point_map -> all_entry_points -> entry_kind'
+  - qn: crates/dagayn-py/src/lib.rs::serve_mcp.RustTools.call_tool
+    verdict: boundary
+    way_in: mcp_call_tool
+    reason: rmcp ServerHandler impl; same chain
+  callers_roots:
+  - qn: crates/dagayn-py/src/lib.rs::call_tool
+    verdict: boundary
+    way_in: ffi_call_tool
+    reason: '#[pyfunction]'
+  - qn: crates/dagayn-py/src/lib.rs::serve_mcp.RustTools.call_tool
+    verdict: boundary
+    way_in: mcp_call_tool
+    reason: rmcp ServerHandler impl
+- id: R8
+  repo: dagayn
+  lang: rust
+  depth: leaf
+  target: crates/dagayn-graph/src/flow_trace.rs::is_test_file
+  ways_in:
+  - id: ffi_detect
+    node: crates/dagayn-py/src/lib.rs::PyGraphStore.detect_entry_points_json
+    evidence: 'dagayn-py lib.rs:517 #[pymethods] detect_entry_points_json calls store.detect_entry_points_json in a with_store closure (:518)'
+  note: the FFI-to-store call at dagayn-py lib.rs:518 is stored as a bare-name edge, so neither tool reaches the FFI method
+  entry_points:
+  - qn: crates/dagayn-graph/src/flow_trace.rs::GraphStore.detect_entry_points_json
+    verdict: helper
+    way_in: ffi_detect
+    reason: called by the FFI method (dagayn-py lib.rs:518); listed as dispatched_method only because that call is unresolved
+  callers_roots:
+  - qn: crates/dagayn-graph/src/flow_trace.rs::GraphStore.detect_entry_points_json
+    verdict: helper
+    way_in: ffi_detect
+    reason: dagayn-py lib.rs:518 calls it
+- id: R9
+  repo: dagayn
+  lang: rust
+  depth: leaf
+  target: crates/dagayn-tools/src/next.rs::read_entry_points
+  ways_in:
+  - id: ffi_call_tool
+    node: crates/dagayn-py/src/lib.rs::call_tool
+    evidence: 'dagayn-py lib.rs #[pyfunction] call_tool, called from dagayn/tools/_native.py'
+  - id: mcp_call_tool
+    node: crates/dagayn-py/src/lib.rs::serve_mcp.RustTools.call_tool
+    evidence: rmcp ServerHandler::call_tool impl inside serve_mcp, called by the MCP library
+  entry_points:
+  - qn: crates/dagayn-py/src/lib.rs::call_tool
+    verdict: boundary
+    way_in: ffi_call_tool
+    reason: '#[pyfunction]; chain -> flow -> entry_points -> read_entry_points'
+  - qn: crates/dagayn-py/src/lib.rs::serve_mcp.RustTools.call_tool
+    verdict: boundary
+    way_in: mcp_call_tool
+    reason: rmcp ServerHandler impl; same chain
+  callers_roots:
+  - qn: crates/dagayn-py/src/lib.rs::call_tool
+    verdict: boundary
+    way_in: ffi_call_tool
+    reason: '#[pyfunction]'
+  - qn: crates/dagayn-py/src/lib.rs::serve_mcp.RustTools.call_tool
+    verdict: boundary
+    way_in: mcp_call_tool
+    reason: rmcp ServerHandler impl
+- id: T1
+  repo: tstodon
+  lang: ts
+  depth: mid
+  target: packages/worker/src/account-flag-store.ts::isAccountSensitized
+  ways_in:
+  - id: fetch
+    node: packages/worker/src/index.ts::default.fetch
+    evidence: index.ts:10 default export fetch -> Hono app.fetch; routes mounted in app.ts
+  entry_points:
+  - qn: packages/worker/src/routes/admin/accounts.ts
+    verdict: nearest_handler
+    way_in: fetch
+    reason: route handlers in routes/admin/accounts.ts:203,256 call it; method+path not named
+  - qn: packages/worker/src/routes/admin/reports.ts
+    verdict: nearest_handler
+    way_in: fetch
+    reason: reports.ts:49 adminReportDocument -> adminAccountFor (accounts.ts) -> isAccountSensitized
+  callers_roots:
+  - qn: packages/worker/src/routes/admin/accounts.ts
+    verdict: nearest_handler
+    way_in: fetch
+    reason: accounts.ts:203,256
+  - qn: packages/worker/src/routes/admin/reports.ts
+    verdict: nearest_handler
+    way_in: fetch
+    reason: reports.ts:49
+- id: T2
+  repo: tstodon
+  lang: ts
+  depth: mid
+  target: packages/worker/src/inbox-handlers/notify-author.ts::notifyStatusAuthor
+  ways_in:
+  - id: fetch
+    node: packages/worker/src/index.ts::default.fetch
+    evidence: index.ts:10 default export fetch -> Hono app.fetch; routes mounted in app.ts
+  entry_points:
+  - qn: packages/worker/src/routes/activitypub/inbox.ts
+    verdict: nearest_handler
+    way_in: fetch
+    reason: inbox.ts:195-196 POST routes -> handleInbox (:83) -> dispatchRemote (:182) -> create.ts:26 / like.ts:16
+  callers_roots:
+  - qn: packages/worker/src/routes/activitypub/inbox.ts
+    verdict: nearest_handler
+    way_in: fetch
+    reason: inbox.ts:195-196
+- id: T3
+  repo: tstodon
+  lang: ts
+  depth: leaf
+  target: packages/worker/src/scheduled-status-store.ts::rowFromRow
+  ways_in:
+  - id: fetch
+    node: packages/worker/src/index.ts::default.fetch
+    evidence: index.ts:10 default export fetch -> Hono app.fetch; routes mounted in app.ts
+  - id: queue
+    node: packages/worker/src/queue-handler.ts::handleQueue
+    evidence: 'index.ts:11 queue: handleQueue (a reference, not a call)'
+  note: handleScheduled only sends a PublishScheduledStatuses message (scheduled-handler.ts:17); the queue runs it
+  entry_points:
+  - qn: packages/worker/src/routes/scheduled-statuses.ts
+    verdict: nearest_handler
+    way_in: fetch
+    reason: route handlers call findScheduledStatus/listScheduledStatuses (scheduled-status-store.ts:102,123)
+  - qn: packages/worker/src/queue-handler.ts::handleQueue
+    verdict: boundary
+    way_in: queue
+    reason: -> outbox-job.ts:161 publishDueScheduledStatuses -> scheduled-status-publish.ts:117 listDueScheduledStatuses
+  callers_roots:
+  - qn: packages/worker/src/routes/scheduled-statuses.ts
+    verdict: nearest_handler
+    way_in: fetch
+    reason: route file
+  - qn: packages/worker/src/queue-handler.ts::handleQueue
+    verdict: boundary
+    way_in: queue
+    reason: outbox-job.ts:161
+- id: T4
+  repo: tstodon
+  lang: ts
+  depth: leaf (cross-package)
+  target: packages/domain/src/delivery-attempt-outcome.ts::DeliveryAttemptOutcome.forHttpStatus
+  ways_in:
+  - id: workflow
+    node: packages/worker/src/outbox-delivery-workflow.ts::OutboxDeliveryWorkflow.run
+    evidence: delivery.ts:178-210 attemptInboxDelivery calls it; OutboxDeliveryWorkflow.run is its only caller (exported Workflow, index.ts:7)
+  note: the call edges point at '@tstodon/domain::DeliveryAttemptOutcome.forHttpStatus', a package specifier never resolved to the node (876 such CALLS edges in tstodon)
+  entry_points: []
+  callers_roots: []
+- id: T5
+  repo: cfwdon
+  lang: ts
+  depth: leaf, SPA
+  target: web-ui/src/ui/lib/pagination.ts::pageHasMore
+  ways_in:
+  - id: HomePage
+    node: web-ui/src/ui/pages/HomePage.tsx::HomePage
+    evidence: router.tsx:80-104 registers HomePage as a route component
+  - id: MessagesPage
+    node: web-ui/src/ui/pages/MessagesPage.tsx::MessagesPage
+    evidence: router.tsx:80-104 registers MessagesPage as a route component
+  - id: NotificationsPage
+    node: web-ui/src/ui/pages/NotificationsPage.tsx::NotificationsPage
+    evidence: router.tsx:80-104 registers NotificationsPage as a route component
+  - id: ScheduledStatusesPage
+    node: web-ui/src/ui/pages/ScheduledStatusesPage.tsx::ScheduledStatusesPage
+    evidence: router.tsx:80-104 registers ScheduledStatusesPage as a route component
+  - id: SearchPage
+    node: web-ui/src/ui/pages/SearchPage.tsx::SearchPage
+    evidence: router.tsx:80-104 registers SearchPage as a route component
+  - id: ListsPage
+    node: web-ui/src/ui/pages/ListsPage.tsx::ListsPage
+    evidence: router.tsx:80-104 registers ListsPage as a route component
+  - id: ProfilePage
+    node: web-ui/src/ui/pages/ProfilePage.tsx::ProfilePage
+    evidence: router.tsx:80-104 registers ProfilePage as a route component
+  - id: SettingsPage
+    node: web-ui/src/ui/pages/SettingsPage.tsx::SettingsPage
+    evidence: router.tsx:80-104 registers SettingsPage as a route component
+  - id: AccountFollowersPage
+    node: web-ui/src/ui/pages/AccountCollectionPage.tsx::AccountFollowersPage
+    evidence: router.tsx:80-104 registers AccountFollowersPage as a route component
+  - id: AccountFollowingPage
+    node: web-ui/src/ui/pages/AccountCollectionPage.tsx::AccountFollowingPage
+    evidence: router.tsx:80-104 registers AccountFollowingPage as a route component
+  - id: StatusFavouritedByPage
+    node: web-ui/src/ui/pages/StatusAccountsPage.tsx::StatusFavouritedByPage
+    evidence: router.tsx:80-104 registers StatusFavouritedByPage as a route component
+  - id: StatusRebloggedByPage
+    node: web-ui/src/ui/pages/StatusAccountsPage.tsx::StatusRebloggedByPage
+    evidence: router.tsx:80-104 registers StatusRebloggedByPage as a route component
+  - id: BookmarksPage
+    node: web-ui/src/ui/pages/BookmarksPage.tsx::BookmarksPage
+    evidence: router.tsx:80-104 registers BookmarksPage as a route component
+  - id: FavouritesPage
+    node: web-ui/src/ui/pages/FavouritesPage.tsx::FavouritesPage
+    evidence: router.tsx:80-104 registers FavouritesPage as a route component
+  - id: PublicTimelinePage
+    node: web-ui/src/ui/pages/PublicTimelinePage.tsx::PublicTimelinePage
+    evidence: router.tsx:80-104 registers PublicTimelinePage as a route component
+  - id: StatusQuotesPage
+    node: web-ui/src/ui/pages/StatusQuotesPage.tsx::StatusQuotesPage
+    evidence: router.tsx:80-104 registers StatusQuotesPage as a route component
+  - id: TagTimelinePage
+    node: web-ui/src/ui/pages/TagTimelinePage.tsx::TagTimelinePage
+    evidence: router.tsx:80-104 registers TagTimelinePage as a route component
+  note: ListsPage, ProfilePage, SettingsPage call pageHasMore but are called by their .test.tsx; entry_kind counts test callers, so they are never entry points
+  entry_points:
+  - qn: web-ui/src/ui/pages/HomePage.tsx::HomePage
+    verdict: boundary
+    way_in: HomePage
+    reason: route component (router.tsx); renders pageHasMore directly or through a shared collection page
+  - qn: web-ui/src/ui/pages/MessagesPage.tsx::MessagesPage
+    verdict: boundary
+    way_in: MessagesPage
+    reason: route component (router.tsx); renders pageHasMore directly or through a shared collection page
+  - qn: web-ui/src/ui/pages/NotificationsPage.tsx::NotificationsPage
+    verdict: boundary
+    way_in: NotificationsPage
+    reason: route component (router.tsx); renders pageHasMore directly or through a shared collection page
+  - qn: web-ui/src/ui/pages/ScheduledStatusesPage.tsx::ScheduledStatusesPage
+    verdict: boundary
+    way_in: ScheduledStatusesPage
+    reason: route component (router.tsx); renders pageHasMore directly or through a shared collection page
+  - qn: web-ui/src/ui/pages/SearchPage.tsx::SearchPage
+    verdict: boundary
+    way_in: SearchPage
+    reason: route component (router.tsx); renders pageHasMore directly or through a shared collection page
+  - qn: web-ui/src/ui/pages/AccountCollectionPage.tsx::AccountFollowersPage
+    verdict: boundary
+    way_in: AccountFollowersPage
+    reason: route component (router.tsx); renders pageHasMore directly or through a shared collection page
+  - qn: web-ui/src/ui/pages/AccountCollectionPage.tsx::AccountFollowingPage
+    verdict: boundary
+    way_in: AccountFollowingPage
+    reason: route component (router.tsx); renders pageHasMore directly or through a shared collection page
+  - qn: web-ui/src/ui/pages/StatusAccountsPage.tsx::StatusFavouritedByPage
+    verdict: boundary
+    way_in: StatusFavouritedByPage
+    reason: route component (router.tsx); renders pageHasMore directly or through a shared collection page
+  - qn: web-ui/src/ui/pages/StatusAccountsPage.tsx::StatusRebloggedByPage
+    verdict: boundary
+    way_in: StatusRebloggedByPage
+    reason: route component (router.tsx); renders pageHasMore directly or through a shared collection page
+  - qn: web-ui/src/ui/pages/BookmarksPage.tsx::BookmarksPage
+    verdict: boundary
+    way_in: BookmarksPage
+    reason: route component (router.tsx); renders pageHasMore directly or through a shared collection page
+  - qn: web-ui/src/ui/pages/FavouritesPage.tsx::FavouritesPage
+    verdict: boundary
+    way_in: FavouritesPage
+    reason: route component (router.tsx); renders pageHasMore directly or through a shared collection page
+  - qn: web-ui/src/ui/pages/PublicTimelinePage.tsx::PublicTimelinePage
+    verdict: boundary
+    way_in: PublicTimelinePage
+    reason: route component (router.tsx); renders pageHasMore directly or through a shared collection page
+  - qn: web-ui/src/ui/pages/StatusQuotesPage.tsx::StatusQuotesPage
+    verdict: boundary
+    way_in: StatusQuotesPage
+    reason: route component (router.tsx); renders pageHasMore directly or through a shared collection page
+  - qn: web-ui/src/ui/pages/TagTimelinePage.tsx::TagTimelinePage
+    verdict: boundary
+    way_in: TagTimelinePage
+    reason: route component (router.tsx); renders pageHasMore directly or through a shared collection page
+  callers_roots:
+  - qn: web-ui/src/ui/pages/HomePage.tsx::HomePage
+    verdict: boundary
+    way_in: HomePage
+    reason: route component (router.tsx); root among production callers
+  - qn: web-ui/src/ui/pages/MessagesPage.tsx::MessagesPage
+    verdict: boundary
+    way_in: MessagesPage
+    reason: route component (router.tsx); root among production callers
+  - qn: web-ui/src/ui/pages/NotificationsPage.tsx::NotificationsPage
+    verdict: boundary
+    way_in: NotificationsPage
+    reason: route component (router.tsx); root among production callers
+  - qn: web-ui/src/ui/pages/ScheduledStatusesPage.tsx::ScheduledStatusesPage
+    verdict: boundary
+    way_in: ScheduledStatusesPage
+    reason: route component (router.tsx); root among production callers
+  - qn: web-ui/src/ui/pages/SearchPage.tsx::SearchPage
+    verdict: boundary
+    way_in: SearchPage
+    reason: route component (router.tsx); root among production callers
+  - qn: web-ui/src/ui/pages/ListsPage.tsx::ListsPage
+    verdict: boundary
+    way_in: ListsPage
+    reason: route component (router.tsx); root among production callers
+  - qn: web-ui/src/ui/pages/ProfilePage.tsx::ProfilePage
+    verdict: boundary
+    way_in: ProfilePage
+    reason: route component (router.tsx); root among production callers
+  - qn: web-ui/src/ui/pages/SettingsPage.tsx::SettingsPage
+    verdict: boundary
+    way_in: SettingsPage
+    reason: route component (router.tsx); root among production callers
+  - qn: web-ui/src/ui/pages/AccountCollectionPage.tsx::AccountFollowersPage
+    verdict: boundary
+    way_in: AccountFollowersPage
+    reason: route component (router.tsx); root among production callers
+  - qn: web-ui/src/ui/pages/AccountCollectionPage.tsx::AccountFollowingPage
+    verdict: boundary
+    way_in: AccountFollowingPage
+    reason: route component (router.tsx); root among production callers
+  - qn: web-ui/src/ui/pages/StatusAccountsPage.tsx::StatusFavouritedByPage
+    verdict: boundary
+    way_in: StatusFavouritedByPage
+    reason: route component (router.tsx); root among production callers
+  - qn: web-ui/src/ui/pages/StatusAccountsPage.tsx::StatusRebloggedByPage
+    verdict: boundary
+    way_in: StatusRebloggedByPage
+    reason: route component (router.tsx); root among production callers
+  - qn: web-ui/src/ui/pages/BookmarksPage.tsx::BookmarksPage
+    verdict: boundary
+    way_in: BookmarksPage
+    reason: route component (router.tsx); root among production callers
+  - qn: web-ui/src/ui/pages/FavouritesPage.tsx::FavouritesPage
+    verdict: boundary
+    way_in: FavouritesPage
+    reason: route component (router.tsx); root among production callers
+  - qn: web-ui/src/ui/pages/PublicTimelinePage.tsx::PublicTimelinePage
+    verdict: boundary
+    way_in: PublicTimelinePage
+    reason: route component (router.tsx); root among production callers
+  - qn: web-ui/src/ui/pages/StatusQuotesPage.tsx::StatusQuotesPage
+    verdict: boundary
+    way_in: StatusQuotesPage
+    reason: route component (router.tsx); root among production callers
+  - qn: web-ui/src/ui/pages/TagTimelinePage.tsx::TagTimelinePage
+    verdict: boundary
+    way_in: TagTimelinePage
+    reason: route component (router.tsx); root among production callers
+- id: T6
+  repo: cfwdon
+  lang: ts
+  depth: leaf, SPA
+  target: web-ui/src/ui/lib/linkify-mentions.ts::linkifyMentionsInHtml
+  ways_in:
+  - id: StatusHistoryPage
+    node: web-ui/src/ui/pages/StatusHistoryPage.tsx::StatusHistoryPage
+    evidence: router.tsx:80-104 registers StatusHistoryPage as a route component
+  - id: ConversationPage
+    node: web-ui/src/ui/pages/ConversationPage.tsx::ConversationPage
+    evidence: router.tsx:80-104 registers ConversationPage as a route component
+  - id: HomePage
+    node: web-ui/src/ui/pages/HomePage.tsx::HomePage
+    evidence: router.tsx:80-104 registers HomePage as a route component
+  - id: NotificationsPage
+    node: web-ui/src/ui/pages/NotificationsPage.tsx::NotificationsPage
+    evidence: router.tsx:80-104 registers NotificationsPage as a route component
+  - id: SearchPage
+    node: web-ui/src/ui/pages/SearchPage.tsx::SearchPage
+    evidence: router.tsx:80-104 registers SearchPage as a route component
+  - id: ThreadPage
+    node: web-ui/src/ui/pages/ThreadPage.tsx::ThreadPage
+    evidence: router.tsx:80-104 registers ThreadPage as a route component
+  - id: BookmarksPage
+    node: web-ui/src/ui/pages/BookmarksPage.tsx::BookmarksPage
+    evidence: router.tsx:80-104 registers BookmarksPage as a route component
+  - id: FavouritesPage
+    node: web-ui/src/ui/pages/FavouritesPage.tsx::FavouritesPage
+    evidence: router.tsx:80-104 registers FavouritesPage as a route component
+  - id: PublicTimelinePage
+    node: web-ui/src/ui/pages/PublicTimelinePage.tsx::PublicTimelinePage
+    evidence: router.tsx:80-104 registers PublicTimelinePage as a route component
+  - id: StatusQuotesPage
+    node: web-ui/src/ui/pages/StatusQuotesPage.tsx::StatusQuotesPage
+    evidence: router.tsx:80-104 registers StatusQuotesPage as a route component
+  - id: TagTimelinePage
+    node: web-ui/src/ui/pages/TagTimelinePage.tsx::TagTimelinePage
+    evidence: router.tsx:80-104 registers TagTimelinePage as a route component
+  - id: ListsPage
+    node: web-ui/src/ui/pages/ListsPage.tsx::ListsPage
+    evidence: router.tsx:80-104 registers ListsPage as a route component
+  - id: ProfilePage
+    node: web-ui/src/ui/pages/ProfilePage.tsx::ProfilePage
+    evidence: router.tsx:80-104 registers ProfilePage as a route component
+  note: ListsPage and ProfilePage render StatusCard but are test-called, so entry_points drops them
+  entry_points:
+  - qn: web-ui/src/ui/pages/StatusHistoryPage.tsx::StatusHistoryPage
+    verdict: boundary
+    way_in: StatusHistoryPage
+    reason: route component (router.tsx); renders StatusContent through StatusCard/ChatMessage/NotificationCard
+  - qn: web-ui/src/ui/pages/ConversationPage.tsx::ConversationPage
+    verdict: boundary
+    way_in: ConversationPage
+    reason: route component (router.tsx); renders StatusContent through StatusCard/ChatMessage/NotificationCard
+  - qn: web-ui/src/ui/pages/HomePage.tsx::HomePage
+    verdict: boundary
+    way_in: HomePage
+    reason: route component (router.tsx); renders StatusContent through StatusCard/ChatMessage/NotificationCard
+  - qn: web-ui/src/ui/pages/NotificationsPage.tsx::NotificationsPage
+    verdict: boundary
+    way_in: NotificationsPage
+    reason: route component (router.tsx); renders StatusContent through StatusCard/ChatMessage/NotificationCard
+  - qn: web-ui/src/ui/pages/SearchPage.tsx::SearchPage
+    verdict: boundary
+    way_in: SearchPage
+    reason: route component (router.tsx); renders StatusContent through StatusCard/ChatMessage/NotificationCard
+  - qn: web-ui/src/ui/pages/ThreadPage.tsx::ThreadPage
+    verdict: boundary
+    way_in: ThreadPage
+    reason: route component (router.tsx); renders StatusContent through StatusCard/ChatMessage/NotificationCard
+  - qn: web-ui/src/ui/pages/BookmarksPage.tsx::BookmarksPage
+    verdict: boundary
+    way_in: BookmarksPage
+    reason: route component (router.tsx); renders StatusContent through StatusCard/ChatMessage/NotificationCard
+  - qn: web-ui/src/ui/pages/FavouritesPage.tsx::FavouritesPage
+    verdict: boundary
+    way_in: FavouritesPage
+    reason: route component (router.tsx); renders StatusContent through StatusCard/ChatMessage/NotificationCard
+  - qn: web-ui/src/ui/pages/PublicTimelinePage.tsx::PublicTimelinePage
+    verdict: boundary
+    way_in: PublicTimelinePage
+    reason: route component (router.tsx); renders StatusContent through StatusCard/ChatMessage/NotificationCard
+  - qn: web-ui/src/ui/pages/StatusQuotesPage.tsx::StatusQuotesPage
+    verdict: boundary
+    way_in: StatusQuotesPage
+    reason: route component (router.tsx); renders StatusContent through StatusCard/ChatMessage/NotificationCard
+  - qn: web-ui/src/ui/pages/TagTimelinePage.tsx::TagTimelinePage
+    verdict: boundary
+    way_in: TagTimelinePage
+    reason: route component (router.tsx); renders StatusContent through StatusCard/ChatMessage/NotificationCard
+  callers_roots:
+  - qn: web-ui/src/ui/pages/StatusHistoryPage.tsx::StatusHistoryPage
+    verdict: boundary
+    way_in: StatusHistoryPage
+    reason: route component (router.tsx); root among production callers
+  - qn: web-ui/src/ui/pages/ConversationPage.tsx::ConversationPage
+    verdict: boundary
+    way_in: ConversationPage
+    reason: route component (router.tsx); root among production callers
+  - qn: web-ui/src/ui/pages/HomePage.tsx::HomePage
+    verdict: boundary
+    way_in: HomePage
+    reason: route component (router.tsx); root among production callers
+  - qn: web-ui/src/ui/pages/NotificationsPage.tsx::NotificationsPage
+    verdict: boundary
+    way_in: NotificationsPage
+    reason: route component (router.tsx); root among production callers
+  - qn: web-ui/src/ui/pages/SearchPage.tsx::SearchPage
+    verdict: boundary
+    way_in: SearchPage
+    reason: route component (router.tsx); root among production callers
+  - qn: web-ui/src/ui/pages/ThreadPage.tsx::ThreadPage
+    verdict: boundary
+    way_in: ThreadPage
+    reason: route component (router.tsx); root among production callers
+  - qn: web-ui/src/ui/pages/BookmarksPage.tsx::BookmarksPage
+    verdict: boundary
+    way_in: BookmarksPage
+    reason: route component (router.tsx); root among production callers
+  - qn: web-ui/src/ui/pages/FavouritesPage.tsx::FavouritesPage
+    verdict: boundary
+    way_in: FavouritesPage
+    reason: route component (router.tsx); root among production callers
+  - qn: web-ui/src/ui/pages/PublicTimelinePage.tsx::PublicTimelinePage
+    verdict: boundary
+    way_in: PublicTimelinePage
+    reason: route component (router.tsx); root among production callers
+  - qn: web-ui/src/ui/pages/StatusQuotesPage.tsx::StatusQuotesPage
+    verdict: boundary
+    way_in: StatusQuotesPage
+    reason: route component (router.tsx); root among production callers
+  - qn: web-ui/src/ui/pages/TagTimelinePage.tsx::TagTimelinePage
+    verdict: boundary
+    way_in: TagTimelinePage
+    reason: route component (router.tsx); root among production callers
+  - qn: web-ui/src/ui/pages/ListsPage.tsx::ListsPage
+    verdict: boundary
+    way_in: ListsPage
+    reason: route component (router.tsx); root among production callers
+  - qn: web-ui/src/ui/pages/ProfilePage.tsx::ProfilePage
+    verdict: boundary
+    way_in: ProfilePage
+    reason: route component (router.tsx); root among production callers
+- id: T7
+  repo: purecrate-ts
+  lang: ts
+  depth: leaf, library
+  target: packages/boundary/src/index.ts::utf8Len
+  ways_in:
+  - id: len
+    node: packages/boundary/src/index.ts::Str.len
+    evidence: exported const Str (index.ts:566) member len; utf8Len (:1658) is not exported
+  - id: slice
+    node: packages/boundary/src/index.ts::Str.slice
+    evidence: exported const Str (index.ts:566) member slice; utf8Len (:1658) is not exported
+  - id: find
+    node: packages/boundary/src/index.ts::Str.find
+    evidence: exported const Str (index.ts:566) member find; utf8Len (:1658) is not exported
+  entry_points:
+  - qn: packages/boundary/src/index.ts::Str.find
+    verdict: boundary
+    way_in: find
+    reason: exported Str.find calls utf8Len (index.ts:606/615/750)
+  - qn: packages/boundary/src/index.ts::Str.len
+    verdict: boundary
+    way_in: len
+    reason: exported Str.len calls utf8Len (index.ts:606/615/750)
+  - qn: packages/boundary/src/index.ts::Str.slice
+    verdict: boundary
+    way_in: slice
+    reason: exported Str.slice calls utf8Len (index.ts:606/615/750)
+  callers_roots:
+  - qn: packages/boundary/src/index.ts::Str.len
+    verdict: boundary
+    way_in: len
+    reason: exported member
+  - qn: packages/boundary/src/index.ts::Str.slice
+    verdict: boundary
+    way_in: slice
+    reason: exported member
+  - qn: packages/boundary/src/index.ts::Str.find
+    verdict: boundary
+    way_in: find
+    reason: exported member
+- id: T8
+  repo: purecrate-ts
+  lang: ts
+  depth: leaf, library
+  target: packages/boundary-zod/src/index.ts::own
+  ways_in:
+  - id: internallyTagged
+    node: packages/boundary-zod/src/index.ts::internallyTagged
+    evidence: exported internallyTagged (index.ts:226/253); own (:219) runs in its transform
+  - id: adjacentlyTagged
+    node: packages/boundary-zod/src/index.ts::adjacentlyTagged
+    evidence: exported adjacentlyTagged (index.ts:226/253); own (:219) runs in its transform
+  entry_points:
+  - qn: packages/boundary-zod/src/index.ts::adjacentlyTagged
+    verdict: boundary
+    way_in: adjacentlyTagged
+    reason: exported; own called at index.ts:238/268
+  - qn: packages/boundary-zod/src/index.ts::internallyTagged
+    verdict: boundary
+    way_in: internallyTagged
+    reason: exported; own called at index.ts:238/268
+  callers_roots:
+  - qn: packages/boundary-zod/src/index.ts::internallyTagged
+    verdict: boundary
+    way_in: internallyTagged
+    reason: exported
+  - qn: packages/boundary-zod/src/index.ts::adjacentlyTagged
+    verdict: boundary
+    way_in: adjacentlyTagged
+    reason: exported

@@ -20,10 +20,9 @@
 - review context generation and change-impact analysis
 - the declared units and their dependencies, structural findings (import
   cycles, unstable dependencies, untested core, broken doc links), every
-  simple import cycle between files, directories, or units, SDP / SAP
-  metrics, communities, and flows
+  simple import cycle between files, directories, or units, communities,
+  and flows
 - refactor previews and dead-code inspection
-- wiki generation and static graph exports (GraphML, Mermaid C4, SVG, Cypher, Obsidian)
 
 ## Languages and formats the fork emphasizes
 
@@ -40,7 +39,11 @@
 - native Rust graph store (`dagayn._core`); the Python graph engine was removed
 - commit-pinned Terraform grammar support fetched from the fork at build/test/runtime
 - Terraform → application-code `CROSS_ARTIFACT` bridges (local-exec, Lambda/function
-  source paths, `handler` / `entry_point`) with confidence/evidence metadata
+  source paths, `data "external"` programs, `handler` / `entry_point`, and local
+  `module` inputs followed through the module's variables) with
+  confidence/evidence metadata; directory targets reach each code file in
+  them, and `bridge_touched` fires only on an edit to the bridged attribute
+  (77 of 97 references, 1 false positive, on four real repositories)
 - Markdown heading, body, reference, directive, and `dagayn:` documentation-link extraction
 - namespace-aware call resolution (shared packages/namespaces, class-declaring files, include/URI imports)
 - receiver typing without type annotations: Rust method calls on a struct

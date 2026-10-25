@@ -310,8 +310,24 @@ resource "aws_instance" "web" {
     assert_eq!(targets.len(), 3, "unexpected targets: {targets:?}");
 }
 
+/// The `terraform_values` recorded on the node `name`.
+fn terraform_values(nodes: &[ParsedNode], name: &str) -> Vec<serde_json::Value> {
+    nodes
+        .iter()
+        .find(|node| node.name == name)
+        .and_then(|node| node.extra["terraform_values"].as_array().cloned())
+        .unwrap_or_default()
+}
+
+fn value_for<'a>(values: &'a [serde_json::Value], attr: &str) -> &'a serde_json::Value {
+    values
+        .iter()
+        .find(|value| value["attr"] == attr)
+        .unwrap_or_else(|| panic!("no value for {attr} in {values:?}"))
+}
+
 #[test]
-fn extracts_terraform_code_bridges() {
+fn records_terraform_code_values() {
     let source = br#"
 resource "null_resource" "bootstrap" {
   provisioner "local-exec" {
@@ -339,39 +355,132 @@ data "archive_file" "function" {
   output_path = "function.zip"
 }
 "#;
-    let (_nodes, edges) = parse_terraform("infra/main.tf", source);
-    let bridges: Vec<_> = edges
-        .iter()
-        .filter(|edge| edge.kind == "CROSS_ARTIFACT")
-        .collect();
-    assert!(bridges.iter().any(|edge| {
-        edge.extra["evidence_source"] == "provisioner.local-exec.command"
-            && edge.target == "scripts/bootstrap.py"
-            && edge.extra["relationship_role"] == "invokes_binary"
-            && edge.extra["confidence_tier"] == "HIGH"
-    }));
-    assert!(bridges.iter().any(|edge| {
-        edge.extra["evidence_source"] == "filename"
-            && edge.target == "app/hello.py"
-            && edge.extra["relationship_role"] == "maps_entrypoint"
-    }));
-    assert!(bridges.iter().any(|edge| {
-        edge.extra["evidence_source"] == "handler"
-            && edge.target == "<unresolved:hello.main>"
-            && edge.extra["original_symbol_name"] == "hello.main"
-    }));
-    assert!(bridges.iter().any(|edge| {
-        edge.extra["evidence_source"] == "source_directory" && edge.target == "app"
-    }));
-    assert!(bridges.iter().any(|edge| {
-        edge.extra["evidence_source"] == "entry_point" && edge.target == "<unresolved:serve>"
-    }));
+    let (nodes, edges) = parse_terraform("infra/main.tf", source);
+    assert!(edges.iter().all(|edge| edge.kind != "CROSS_ARTIFACT"));
+
+    let local_exec = terraform_values(&nodes, "resource.null_resource.bootstrap");
+    let command = value_for(&local_exec, "provisioner.local-exec.command");
+    assert_eq!(command["role"], "command");
+    assert_eq!(
+        command["paths"],
+        serde_json::json!(["scripts/bootstrap.py"])
+    );
+    assert_eq!(command["lines"], serde_json::json!([3, 5]));
+
+    let lambda = terraform_values(&nodes, "resource.aws_lambda_function.auth");
+    let filename = value_for(&lambda, "filename");
+    assert_eq!(filename["role"], "code_path");
+    assert_eq!(filename["paths"], serde_json::json!(["app/hello.py"]));
+    assert_eq!(filename["lines"], serde_json::json!([9, 9]));
+    let handler = value_for(&lambda, "handler");
+    assert_eq!(handler["role"], "entrypoint");
+    assert_eq!(handler["symbol"], "hello.main");
+    assert!(lambda.iter().all(|value| value["attr"] != "runtime"));
+
+    let function = terraform_values(&nodes, "resource.google_cloudfunctions_function.api");
+    assert_eq!(value_for(&function, "entry_point")["symbol"], "serve");
+    assert_eq!(
+        value_for(&function, "source_directory")["paths"],
+        serde_json::json!(["app"])
+    );
     // A one-segment directory under `${path.module}` is still a path.
-    assert!(bridges.iter().any(|edge| {
-        edge.source == "infra/main.tf::data.archive_file.function"
-            && edge.extra["evidence_source"] == "source_dir"
-            && edge.target == "infra/function"
-    }));
+    let archive = terraform_values(&nodes, "data.archive_file.function");
+    assert_eq!(
+        value_for(&archive, "source_dir")["paths"],
+        serde_json::json!(["infra/function"])
+    );
+}
+
+#[test]
+fn entrypoints_in_nested_blocks_take_value_references() {
+    let source = br#"
+resource "google_cloudfunctions2_function" "fn" {
+  build_config {
+    entry_point = var.entrypoint
+  }
+}
+
+resource "aws_lambda_function" "this" {
+  handler  = var.package_type != "Zip" ? null : var.handler
+  filename = "${path.module}/${var.name}.zip"
+  source_code_hash = local.hash
+}
+"#;
+    let (nodes, _) = parse_terraform("main.tf", source);
+    let function = terraform_values(&nodes, "resource.google_cloudfunctions2_function.fn");
+    let entry = value_for(&function, "build_config.entry_point");
+    assert_eq!(entry["refs"], serde_json::json!(["var.entrypoint"]));
+    assert!(entry.get("symbol").is_none());
+
+    let lambda = terraform_values(&nodes, "resource.aws_lambda_function.this");
+    // The condition tests `var.package_type`; only the branch is the value.
+    assert_eq!(
+        value_for(&lambda, "handler")["refs"],
+        serde_json::json!(["var.handler"])
+    );
+    // A template mixing text with `var.name` builds a new string.
+    let filename = value_for(&lambda, "filename");
+    assert_eq!(filename["refs"], serde_json::json!([]));
+    assert_eq!(filename["paths"], serde_json::json!([]));
+}
+
+#[test]
+fn module_calls_record_their_inputs_and_local_source() {
+    let source = br#"
+locals {
+  python = (substr(pathexpand("~"), 0, 1) == "/") ? "python3" : "python.exe"
+  src    = "${path.module}/../fixtures/app"
+}
+
+module "lambda" {
+  source  = "../../"
+  version = "1.0"
+
+  handler     = "index.lambda_handler"
+  source_path = [
+    local.src,
+    { path = "${path.module}/../fixtures/lib", pip_requirements = true },
+  ]
+}
+
+module "registry" {
+  source  = "terraform-aws-modules/lambda/aws"
+  handler = "index.lambda_handler"
+}
+"#;
+    let (nodes, _) = parse_terraform("examples/simple/main.tf", source);
+    let lambda = nodes
+        .iter()
+        .find(|node| node.name == "module.lambda")
+        .unwrap();
+    assert_eq!(lambda.extra["module_dir"], "");
+    let inputs = terraform_values(&nodes, "module.lambda");
+    assert!(inputs.iter().all(|value| value["slot"] == "module_input"));
+    assert!(inputs.iter().all(|value| value["attr"] != "version"));
+    assert_eq!(
+        value_for(&inputs, "handler")["symbol"],
+        "index.lambda_handler"
+    );
+    let source_path = value_for(&inputs, "source_path");
+    assert_eq!(
+        source_path["paths"],
+        serde_json::json!(["examples/fixtures/lib"])
+    );
+    assert_eq!(source_path["refs"], serde_json::json!(["local.src"]));
+    assert_eq!(source_path["lines"], serde_json::json!([12, 15]));
+
+    let registry = nodes
+        .iter()
+        .find(|node| node.name == "module.registry")
+        .unwrap();
+    assert!(registry.extra.get("module_dir").is_none());
+
+    // The `"/"` a condition compares against is not a value of the local.
+    assert!(terraform_values(&nodes, "local.python").is_empty());
+    assert_eq!(
+        value_for(&terraform_values(&nodes, "local.src"), "src")["paths"],
+        serde_json::json!(["examples/fixtures/app"])
+    );
 }
 
 #[test]

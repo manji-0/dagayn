@@ -1,8 +1,7 @@
 //! The change analysis behind `detect_changes_func` (`review_tool
 //! mode="changes"`) and `get_minimal_context`, ported from the retired
 //! `dagayn/changes.py`: diff ranges against `base`, renames, node
-//! attribution, the base revision's entities, and review-priority scores,
-//! in the field order that module's `ChangeAnalysisResult` gave them.
+//! attribution, and the base revision's entities, in the field order that module's `ChangeAnalysisResult` gave them.
 //!
 //! A git checkout diffs `base` against the working tree; a jj workspace
 //! diffs it (rebased onto `@-` when `HEAD`-relative) against the snapshot
@@ -14,7 +13,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
 use dagayn_build::{is_safe_git_ref, jj, svn};
-use dagayn_graph::{ChangeRiskInputs, GraphEdge, GraphNode, GraphStore};
+use dagayn_graph::{GraphEdge, GraphNode, GraphStore};
 use serde_json::{Map, Value, json};
 
 use crate::coverage::splitlines;
@@ -712,12 +711,10 @@ pub(crate) fn analyze_changes_with(
         .iter()
         .filter(|node| matches!(node.kind.as_str(), "Function" | "Test" | "Class"))
         .collect();
-    let ids: Vec<i64> = funcs.iter().map(|node| node.id).collect();
     let qns: Vec<String> = funcs
         .iter()
         .map(|node| node.qualified_name.clone())
         .collect();
-    let communities = store.get_community_ids_by_node_ids(&ids).ok()?;
     let (outbound, inbound) = store.get_edges_by_endpoints(&qns).ok()?;
     let mut relevant: Vec<&GraphEdge> = Vec::new();
     let mut signatures = HashSet::new();
@@ -736,48 +733,16 @@ pub(crate) fn analyze_changes_with(
     let (base_qns, base_edges) = base_entity_sets(root, base, &funcs_owned);
     let status_of = |known: bool| if known { "existing" } else { "added" };
 
-    let callers: Vec<String> = inbound
-        .values()
-        .flatten()
-        .filter(|edge| edge.kind == "CALLS")
-        .map(|edge| edge.source_qualified.clone())
-        .collect::<HashSet<_>>()
-        .into_iter()
-        .collect();
-    let caller_communities = if callers.is_empty() {
-        HashMap::new()
-    } else {
-        store.get_community_ids_by_qualified_names(&callers).ok()?
-    };
-
-    let mut node_risks: Vec<Value> = Vec::new();
+    let mut changed_functions: Vec<Value> = Vec::new();
     for node in &funcs {
-        let transitive = store
-            .get_transitive_tests(&node.qualified_name, 1)
-            .ok()?
-            .len() as i64;
-        let risk = store
-            .compute_change_risk_score(ChangeRiskInputs {
-                node,
-                inbound_edges: inbound
-                    .get(&node.qualified_name)
-                    .map(Vec::as_slice)
-                    .unwrap_or(&[]),
-                node_community_id: communities.get(&node.id).copied().flatten(),
-                caller_community_ids: &caller_communities,
-                transitive_test_count: transitive,
-            })
-            .ok()?;
         let mut record = node_dict(node);
         if let Some(object) = record.as_object_mut() {
-            object.insert("risk_score".into(), json!(risk));
-            object.insert("review_priority_score".into(), json!(risk));
             object.insert(
                 "change_status".into(),
                 json!(status_of(base_qns.contains(&node.qualified_name))),
             );
         }
-        node_risks.push(record);
+        changed_functions.push(record);
     }
     let changed_edges: Vec<Value> = relevant
         .iter()
@@ -799,7 +764,7 @@ pub(crate) fn analyze_changes_with(
         };
         json!({"existing": count("existing"), "added": count("added"), "unknown": count("unknown")})
     };
-    let node_counts = tally(&node_risks);
+    let node_counts = tally(&changed_functions);
     let edge_counts = tally(&changed_edges);
 
     let stale_rel: Vec<String> = stale.iter().map(|path| repo_relative(path, root)).collect();
@@ -808,7 +773,7 @@ pub(crate) fn analyze_changes_with(
     entity_summary.insert("edges".into(), edge_counts);
     entity_summary.insert("base".into(), json!(base));
     let fields = vec![
-        ("changed_functions", Value::Array(node_risks)),
+        ("changed_functions", Value::Array(changed_functions)),
         ("change_entity_summary", Value::Object(entity_summary)),
         ("diff_parse_status", json!("ok")),
         ("unmapped_changed_files", json!(unmapped)),

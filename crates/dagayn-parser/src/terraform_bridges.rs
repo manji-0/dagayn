@@ -1,21 +1,32 @@
-//! High-confidence Terraform → application-code CROSS_ARTIFACT bridges.
+//! Where a Terraform block hands a value to something that reads it as code.
 //!
-//! Layer-1 / Layer-2 patterns only (no naming-only Layer-3 heuristics):
+//! The parser sees one file, but a Terraform bridge to code usually spans
+//! several: a module call passes `source_path = "${path.module}/src"`, and a
+//! resource in the module's directory reads `var.source_path`. So the parser
+//! records facts ([`TerraformValue`]) on the block nodes, and the
+//! `resolve_terraform_artifact_refs` post-processing step joins them across
+//! files, checks the targets against the tree, and writes the
+//! `CROSS_ARTIFACT` edges.
+//!
+//! Layer-1 / Layer-2 evidence only (no naming-only heuristics). Sinks:
 //! - `provisioner "local-exec"` command paths
-//! - Lambda / function source path attributes (`filename`, `source_dir`, …)
+//! - Lambda / function source path attributes (`filename`, `source_dir`, ...)
+//!   and `data "external"` `program` / `query`
 //! - Explicit entrypoint attributes (`handler`, `entry_point`)
+//!
+//! Values that reach a sink only through another value: `module` call
+//! inputs (the module's `var.<input>`) and `locals` entries.
 
-use std::path::Path;
+use std::path::{Component, Path};
 use std::sync::LazyLock;
 
 use regex::Regex;
-use serde_json::json;
+use serde_json::{Value, json};
 
 use super::terraform_collect::{
-    TerraformBlock, find_matching_brace, strip_tf_string, terraform_attrs,
+    TerraformAttr, TerraformBlock, find_matching_brace, strip_tf_string, terraform_attrs,
 };
-use super::types::{EdgeKind, FilePath, ParsedEdge};
-use super::util::normalize_relative_path;
+use super::types::FilePath;
 
 static PROVISIONER_LOCAL_EXEC_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"provisioner\s+"local-exec""#).unwrap());
@@ -40,6 +51,7 @@ static PATH_TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 const PATH_ATTR_NAMES: &[&str] = &["filename", "source_dir", "source_file", "source_directory"];
+const ENTRYPOINT_ATTR_NAMES: &[&str] = &["handler", "entry_point"];
 
 const FILENAME_RESOURCE_TYPES: &[&str] = &[
     "aws_lambda_function",
@@ -51,77 +63,260 @@ const FILENAME_RESOURCE_TYPES: &[&str] = &[
     "azurerm_function_app",
 ];
 
-pub(super) fn extract_terraform_code_bridges(
-    file_path: &FilePath,
-    blocks: &[TerraformBlock],
-    edges: &mut Vec<ParsedEdge>,
-) {
-    for block in blocks {
-        if !matches!(block.kind.as_str(), "resource" | "data") {
-            continue;
-        }
-        let Some(resource_type) = block.labels.first().map(String::as_str) else {
-            continue;
-        };
-        let Some(resource_name) = block.labels.get(1).map(String::as_str) else {
-            continue;
-        };
-        let node_name = format!("{}.{}.{}", block.kind, resource_type, resource_name);
-        let source = format!("{file_path}::{node_name}");
+/// The node `extra` key holding a block's [`TerraformValue`]s.
+pub(super) const TERRAFORM_VALUES_KEY: &str = "terraform_values";
+/// The node `extra` key holding a module call's local source directory.
+pub(super) const TERRAFORM_MODULE_DIR_KEY: &str = "module_dir";
 
-        extract_path_attr_bridges(file_path, &source, resource_type, block, edges);
-        extract_local_exec_bridges(file_path, &source, block, edges);
-        extract_entrypoint_bridges(file_path, &source, block, edges);
+/// How the consumer of a value reads it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SinkRole {
+    /// A path to code or a code package (`filename`, `source_dir`).
+    CodePath,
+    /// The name of the function the platform calls (`handler`).
+    Entrypoint,
+    /// A shell command run on the machine applying the plan.
+    Command,
+}
+
+impl SinkRole {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::CodePath => "code_path",
+            Self::Entrypoint => "entrypoint",
+            Self::Command => "command",
+        }
     }
 }
 
-fn extract_path_attr_bridges(
-    file_path: &FilePath,
-    source: &str,
-    resource_type: &str,
-    block: &TerraformBlock,
-    edges: &mut Vec<ParsedEdge>,
-) {
-    for attr in terraform_attrs(block).iter() {
-        if !PATH_ATTR_NAMES.contains(&attr.name.as_str()) {
-            continue;
+/// What the value is handed to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Slot {
+    /// An attribute of a resource or data block that reads it as code.
+    Sink(SinkRole),
+    /// An input of a `module` call: the module's `var.<attr>`.
+    ModuleInput,
+    /// A `locals` entry: `local.<attr>`.
+    Local,
+}
+
+/// One attribute value and where it goes: the literal paths and symbol it
+/// carries, and the `var.` / `local.` values it passes on.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct TerraformValue {
+    pub(super) slot: Slot,
+    /// The attribute name (`filename`, `build_config.entry_point`), or
+    /// `provisioner.local-exec.command`.
+    pub(super) attr: String,
+    pub(super) line_start: i64,
+    pub(super) line_end: i64,
+    /// Concrete repository-relative paths the value names.
+    pub(super) paths: Vec<String>,
+    /// The value itself when it is one string literal without interpolation.
+    pub(super) symbol: Option<String>,
+    /// `var.` / `local.` references whose value it takes.
+    pub(super) refs: Vec<String>,
+}
+
+impl TerraformValue {
+    pub(super) fn to_json(&self) -> Value {
+        let mut value = json!({
+            "attr": self.attr,
+            "lines": [self.line_start, self.line_end],
+            "paths": self.paths,
+            "refs": self.refs,
+        });
+        match self.slot {
+            Slot::Sink(role) => {
+                value["slot"] = json!("sink");
+                value["role"] = json!(role.as_str());
+            }
+            Slot::ModuleInput => value["slot"] = json!("module_input"),
+            Slot::Local => value["slot"] = json!("local"),
         }
-        if attr.name == "filename"
-            && !FILENAME_RESOURCE_TYPES.contains(&resource_type)
-            && !resource_type.contains("lambda")
-            && !resource_type.contains("function")
-            && !resource_type.contains("cloudfunction")
-        {
-            continue;
+        if let Some(symbol) = &self.symbol {
+            value["symbol"] = json!(symbol);
         }
-        let Some(path) = concrete_tf_path(&attr.value, file_path) else {
-            continue;
-        };
-        push_bridge_edge(
-            edges,
-            source,
-            &path,
-            file_path,
-            attr.line_start,
-            BridgeSpec {
-                relationship_role: "maps_entrypoint",
-                bridge_kind: "manifest_link",
-                evidence_kind: "config",
-                evidence_source: attr.name.as_str(),
-                target_language: target_language_for_path(&path),
-                original_symbol_name: None,
-            },
-        );
+        value
     }
 }
 
-fn extract_local_exec_bridges(
+/// Module meta-arguments: settings of the call, not inputs of the module.
+const MODULE_META_ARGUMENTS: &[&str] = &[
+    "source",
+    "version",
+    "count",
+    "for_each",
+    "providers",
+    "depends_on",
+];
+
+/// The values a block hands on: what a `resource` or `data` block gives to
+/// code, and the inputs of a `module` call.
+pub(super) fn terraform_block_values(
     file_path: &FilePath,
-    source: &str,
     block: &TerraformBlock,
-    edges: &mut Vec<ParsedEdge>,
-) {
+) -> Vec<TerraformValue> {
+    match block.kind.as_str() {
+        "resource" | "data" => sink_values(file_path, block),
+        "module" => terraform_attrs(block)
+            .iter()
+            .filter(|attr| !MODULE_META_ARGUMENTS.contains(&attr.name.as_str()))
+            .map(|attr| attr_value(file_path, Slot::ModuleInput, attr))
+            .filter(|value| value.carries_anything())
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// The value of a `locals` entry, when it carries a path or symbol or passes
+/// another value on.
+pub(super) fn terraform_local_value(
+    file_path: &FilePath,
+    attr: &TerraformAttr,
+) -> Option<TerraformValue> {
+    let value = attr_value(file_path, Slot::Local, attr);
+    value.carries_anything().then_some(value)
+}
+
+/// A module call's local `source` (`./x`, `../x`) as a repository path
+/// (`""` for the root); `None` for registry, git and other remote sources,
+/// and for one climbing above the repository root.
+pub(super) fn terraform_module_dir(file_path: &FilePath, source: &str) -> Option<String> {
+    let source = strip_tf_string(source);
+    if !(source.starts_with("./") || source.starts_with("../")) || source.contains("${") {
+        return None;
+    }
+    let base = Path::new(file_path)
+        .parent()
+        .unwrap_or_else(|| Path::new(""));
+    normalize_within_repo(&base.join(source))
+}
+
+impl TerraformValue {
+    fn carries_anything(&self) -> bool {
+        !(self.paths.is_empty() && self.symbol.is_none() && self.refs.is_empty())
+    }
+}
+
+fn sink_values(file_path: &FilePath, block: &TerraformBlock) -> Vec<TerraformValue> {
+    let Some(resource_type) = block.labels.first().map(String::as_str) else {
+        return Vec::new();
+    };
+    let mut values = Vec::new();
+    let attrs = terraform_attrs(block);
+    for attr in attrs.iter() {
+        if let Some(role) = sink_role(&block.kind, resource_type, &attr.name) {
+            values.push(attr_value(file_path, Slot::Sink(role), attr));
+        }
+    }
+    match &block.nested_attrs {
+        Some(nested) => {
+            for attr in nested {
+                let leaf = attr.name.rsplit('.').next().unwrap_or(&attr.name);
+                if ENTRYPOINT_ATTR_NAMES.contains(&leaf) {
+                    values.push(attr_value(
+                        file_path,
+                        Slot::Sink(SinkRole::Entrypoint),
+                        attr,
+                    ));
+                }
+            }
+        }
+        None => values.extend(nested_entrypoints_from_text(block, &attrs)),
+    }
+    values.extend(local_exec_values(file_path, block));
+    values
+}
+
+fn sink_role(block_kind: &str, resource_type: &str, attr: &str) -> Option<SinkRole> {
+    if ENTRYPOINT_ATTR_NAMES.contains(&attr) {
+        return Some(SinkRole::Entrypoint);
+    }
+    // `data "external"` runs `program` on the machine applying the plan and
+    // hands it `query`: a path there is one the program reads (the Lambda
+    // module's `package.py` packages `source_path` this way).
+    if block_kind == "data" && resource_type == "external" && matches!(attr, "program" | "query") {
+        return Some(SinkRole::CodePath);
+    }
+    if !PATH_ATTR_NAMES.contains(&attr) {
+        return None;
+    }
+    let filename_owner = FILENAME_RESOURCE_TYPES.contains(&resource_type)
+        || resource_type.contains("lambda")
+        || resource_type.contains("function")
+        || resource_type.contains("cloudfunction");
+    (attr != "filename" || filename_owner).then_some(SinkRole::CodePath)
+}
+
+fn attr_value(file_path: &FilePath, slot: Slot, attr: &TerraformAttr) -> TerraformValue {
+    let literal = strip_tf_string(&attr.value);
+    let is_literal = attr.value.trim_start().starts_with(['"', '\'']) && !literal.contains("${");
+    // A module input or local may be a list or object of paths
+    // (`source_path = [{ path = "..." }]`); every string literal in it counts.
+    let paths = match slot {
+        Slot::Sink(SinkRole::Entrypoint | SinkRole::Command) => Vec::new(),
+        Slot::Sink(SinkRole::CodePath) | Slot::ModuleInput | Slot::Local => {
+            let mut paths: Vec<String> = match &attr.strings {
+                Some(strings) => strings
+                    .iter()
+                    .filter_map(|string| concrete_tf_path(string, file_path))
+                    .collect(),
+                None => concrete_tf_path(&attr.value, file_path)
+                    .into_iter()
+                    .collect(),
+            };
+            paths.dedup();
+            paths
+        }
+    };
+    TerraformValue {
+        slot,
+        attr: attr.name.clone(),
+        line_start: attr.line_start,
+        line_end: attr.line_end,
+        paths,
+        symbol: (is_literal && !literal.trim().is_empty()).then_some(literal),
+        refs: attr.value_refs.clone().unwrap_or_default(),
+    }
+}
+
+/// Without a syntax tree there are no nested attributes; find entrypoints
+/// that sit in nested blocks by their text.
+fn nested_entrypoints_from_text(
+    block: &TerraformBlock,
+    top_level: &[TerraformAttr],
+) -> Vec<TerraformValue> {
+    let mut values = Vec::new();
+    for captures in ENTRYPOINT_ATTR_RE.captures_iter(&block.body) {
+        let line = block.body_start_line
+            + newlines(&block.body[..captures.get(0).map_or(0, |m| m.start())]);
+        if top_level.iter().any(|attr| attr.line_start == line) {
+            continue;
+        }
+        let raw = strip_tf_string(captures.get(2).map_or("", |m| m.as_str()));
+        if raw.is_empty() || raw.contains("${") {
+            continue;
+        }
+        values.push(TerraformValue {
+            slot: Slot::Sink(SinkRole::Entrypoint),
+            attr: captures
+                .get(1)
+                .map_or("handler", |m| m.as_str())
+                .to_string(),
+            line_start: line,
+            line_end: line,
+            paths: Vec::new(),
+            symbol: Some(raw),
+            refs: Vec::new(),
+        });
+    }
+    values
+}
+
+fn local_exec_values(file_path: &FilePath, block: &TerraformBlock) -> Vec<TerraformValue> {
     let body = &block.body;
+    let mut values = Vec::new();
     for provisioner in PROVISIONER_LOCAL_EXEC_RE.find_iter(body) {
         let after = &body[provisioner.end()..];
         let Some(open_rel) = after.find('{') else {
@@ -132,111 +327,32 @@ fn extract_local_exec_bridges(
             continue;
         };
         let provisioner_body = &body[open_abs + 1..close_abs];
-        let line = block.body_start_line
-            + body[..open_abs]
-                .bytes()
-                .filter(|byte| *byte == b'\n')
-                .count() as i64;
         let Some(command_cap) = COMMAND_ATTR_RE.captures(provisioner_body) else {
             continue;
         };
         let command = strip_tf_string(&command_cap[1]);
-        for token in PATH_TOKEN_RE.find_iter(&command) {
-            let Some(path) = concrete_tf_path(token.as_str(), file_path) else {
-                continue;
-            };
-            push_bridge_edge(
-                edges,
-                source,
-                &path,
-                file_path,
-                line,
-                BridgeSpec {
-                    relationship_role: "invokes_binary",
-                    bridge_kind: "subprocess",
-                    evidence_kind: "syntax",
-                    evidence_source: "provisioner.local-exec.command",
-                    target_language: target_language_for_path(&path),
-                    original_symbol_name: None,
-                },
-            );
-        }
-    }
-}
-
-fn extract_entrypoint_bridges(
-    file_path: &FilePath,
-    source: &str,
-    block: &TerraformBlock,
-    edges: &mut Vec<ParsedEdge>,
-) {
-    for captures in ENTRYPOINT_ATTR_RE.captures_iter(&block.body) {
-        let attr_name = captures.get(1).map(|m| m.as_str()).unwrap_or("handler");
-        let raw = strip_tf_string(captures.get(2).map(|m| m.as_str()).unwrap_or(""));
-        if raw.is_empty() || raw.contains("${") {
+        let paths: Vec<String> = PATH_TOKEN_RE
+            .find_iter(&command)
+            .filter_map(|token| concrete_tf_path(token.as_str(), file_path))
+            .collect();
+        if paths.is_empty() {
             continue;
         }
-        let line = block.body_start_line
-            + block.body[..captures.get(0).map(|m| m.start()).unwrap_or(0)]
-                .bytes()
-                .filter(|byte| *byte == b'\n')
-                .count() as i64;
-        push_bridge_edge(
-            edges,
-            source,
-            &format!("<unresolved:{raw}>"),
-            file_path,
-            line,
-            BridgeSpec {
-                relationship_role: "maps_entrypoint",
-                bridge_kind: "manifest_link",
-                evidence_kind: "config",
-                evidence_source: attr_name,
-                target_language: "unknown",
-                original_symbol_name: Some(raw),
-            },
-        );
+        values.push(TerraformValue {
+            slot: Slot::Sink(SinkRole::Command),
+            attr: "provisioner.local-exec.command".to_string(),
+            line_start: block.body_start_line + newlines(&body[..open_abs]),
+            line_end: block.body_start_line + newlines(&body[..close_abs]),
+            paths,
+            symbol: None,
+            refs: Vec::new(),
+        });
     }
+    values
 }
 
-struct BridgeSpec<'a> {
-    relationship_role: &'a str,
-    bridge_kind: &'a str,
-    evidence_kind: &'a str,
-    evidence_source: &'a str,
-    target_language: &'a str,
-    original_symbol_name: Option<String>,
-}
-
-fn push_bridge_edge(
-    edges: &mut Vec<ParsedEdge>,
-    source: &str,
-    target: &str,
-    file_path: &FilePath,
-    line: i64,
-    spec: BridgeSpec<'_>,
-) {
-    let mut extra = json!({
-        "relationship_role": spec.relationship_role,
-        "bridge_kind": spec.bridge_kind,
-        "evidence_kind": spec.evidence_kind,
-        "evidence_source": spec.evidence_source,
-        "source_language": "terraform",
-        "target_language": spec.target_language,
-        "confidence": 0.8,
-        "confidence_tier": "HIGH",
-    });
-    if let Some(symbol) = spec.original_symbol_name {
-        extra["original_symbol_name"] = json!(symbol);
-    }
-    edges.push(ParsedEdge {
-        kind: EdgeKind::CrossArtifact,
-        source: source.to_string(),
-        target: target.to_string(),
-        file_path: file_path.clone(),
-        line,
-        extra,
-    });
+fn newlines(text: &str) -> i64 {
+    text.bytes().filter(|byte| *byte == b'\n').count() as i64
 }
 
 fn concrete_tf_path(raw: &str, file_path: &FilePath) -> Option<String> {
@@ -297,8 +413,26 @@ fn concrete_tf_path(raw: &str, file_path: &FilePath) -> Option<String> {
     } else {
         base.join(&normalized)
     };
-    let path = normalize_relative_path(&joined);
+    let path = normalize_within_repo(&joined)?;
     (!path.is_empty()).then_some(path)
+}
+
+/// `a/b/../c` as `a/c`; `None` when `..` climbs above the repository root.
+fn normalize_within_repo(path: &Path) -> Option<String> {
+    let mut parts = Vec::<String>::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                parts.pop()?;
+            }
+            Component::Normal(part) => parts.push(part.to_string_lossy().to_string()),
+            Component::RootDir | Component::Prefix(_) => {
+                parts.push(component.as_os_str().to_string_lossy().to_string());
+            }
+        }
+    }
+    Some(parts.join("/"))
 }
 
 fn looks_like_code_path(path: &str) -> bool {
@@ -308,23 +442,4 @@ fn looks_like_code_path(path: &str) -> bool {
     ]
     .iter()
     .any(|ext| path.ends_with(ext))
-}
-
-fn target_language_for_path(path: &str) -> &'static str {
-    let lower = path.to_ascii_lowercase();
-    if lower.ends_with(".py") {
-        "python"
-    } else if lower.ends_with(".js") || lower.ends_with(".mjs") || lower.ends_with(".cjs") {
-        "javascript"
-    } else if lower.ends_with(".ts") || lower.ends_with(".tsx") {
-        "typescript"
-    } else if lower.ends_with(".go") {
-        "go"
-    } else if lower.ends_with(".rs") {
-        "rust"
-    } else if lower.ends_with(".sh") || lower.ends_with(".bash") {
-        "bash"
-    } else {
-        "unknown"
-    }
 }

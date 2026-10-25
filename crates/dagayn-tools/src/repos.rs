@@ -9,14 +9,9 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value, json};
 
-use crate::{Args, Context, Ordered, Payload, suggestions};
+use crate::{Args, Context, Ordered, Payload};
 
-const NEXT_TOOL_SUGGESTIONS: [&str; 2] = [
-    "cross_repo_search_tool -- search across registered repositories",
-    "dagayn register <path> -- add another repository to the registry",
-];
-
-pub(crate) fn list_repos(context: &Context, arguments: &Map<String, Value>) -> Option<Payload> {
+pub(crate) fn list_repos(_context: &Context, arguments: &Map<String, Value>) -> Option<Payload> {
     Args::new(arguments, &[])?;
     let directory = home()?.join(".dagayn");
     if let Err((error, path)) = mkdir(&directory, true, true) {
@@ -26,7 +21,6 @@ pub(crate) fn list_repos(context: &Context, arguments: &Map<String, Value>) -> O
         Ok(repos) => repos,
         Err(message) => return Some(runtime_error(message)),
     };
-    let (hints, kept) = suggestions(context, &NEXT_TOOL_SUGGESTIONS);
     Some(
         Ordered::default()
             .put("status", "ok")
@@ -35,8 +29,6 @@ pub(crate) fn list_repos(context: &Context, arguments: &Map<String, Value>) -> O
                 format!("{} registered repository(ies).", repos.len()),
             )
             .put("repos", Value::Array(repos))
-            .put("_hints", hints)
-            .put("next_tool_suggestions", kept)
             .into_payload(),
     )
 }

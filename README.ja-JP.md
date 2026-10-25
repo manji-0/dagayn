@@ -37,7 +37,6 @@
 - インパクト半径・レビューコンテキスト・コミュニティ・フロー・リファクタのグラフクエリ
 - ネイティブ Rust グラフストア、パーサ、FTS、フロー、後処理（`dagayn._core`）
 - マルチリポジトリレジストリとデーモンワークフロー
-- GraphML / Mermaid C4 / SVG / Cypher / Obsidian グラフエクスポート
 
 ## 対応言語・ファイル種別
 
@@ -234,7 +233,6 @@ dagayn update
 dagayn watch
 dagayn worktree sync
 dagayn detect-changes --base HEAD~1
-dagayn visualize --format graphml
 dagayn serve
 ```
 
@@ -251,16 +249,7 @@ dagayn serve --tools query_graph_tool,semantic_search_nodes_tool
 
 `--tools` は公開ツールの一部を隠したいデプロイ向けの、カンマ区切りの正確な許可リストです。永続サーバー設定では同じ制御に `CRG_TOOLS` を使えます。
 
-ツール応答は校正済みの guidance 契約を使います。互換フィールド（`status`、`summary`、`_hints`、`next_tool_suggestions`）は残り、レビュー・アーキテクチャ・フロー・リファクタ・検索・クエリ応答には `guidance`、`answerability`、`missingness` も含まれます。guidance 項目は `claim`、`evidence`、`confidence`、`missingness`、`action`、`reason_codes`、`counts` を持ち、エージェントはグラフ出力を判決ではなく証拠順位付きの手がかりとして扱えます。上位の推奨には `detail_level="minimal"`、裏付けセクション全体には `detail_level="standard"` を使います。`query_graph_tool` のゼロ件・未検出応答には `zero_result_reason`、`next_action`、`result_count`、`results`、`answerability`、`missingness` が含まれます。不在はソースやテストで確認するまでグラフ限定として扱ってください。ドキュメントブリッジ結果は証拠を `authored`、`extracted`、`heuristic_reachable` とラベル付けし、Markdown 追跡可能性を検証済み契約と混同しないようにします。
-
-## レポートとエクスポート
-
-`dagayn visualize` は静的なグラフ成果物を出力します。
-
-- `--format` は必須で、`graphml`, `mermaid-c4`, `svg`, `cypher`, `obsidian` をサポート
-- `mermaid-c4` は Mermaid の `C4Component` コードを出力し、ファイルをコンポーネント、クロスファイル依存を関係として集約します
-- `svg` は matplotlib を使うため、必要なら eval extra を入れます: `pip install "dagayn[eval]"`
-- Jupyter / Databricks / marimo ノートブックはレポート出力形式ではなく、グラフ入力として扱います
+ツール応答は校正済みの guidance 契約を使います。互換フィールド（`status`、`summary`）は残り、レビュー・アーキテクチャ・フロー・リファクタ・検索・クエリ応答には `guidance`、`answerability`、`missingness` も含まれます。guidance 項目は `claim`、`evidence`、`confidence`、`missingness`、`action`、`reason_codes`、`counts` を持ち、エージェントはグラフ出力を判決ではなく証拠順位付きの手がかりとして扱えます。上位の推奨には `detail_level="minimal"`、裏付けセクション全体には `detail_level="standard"` を使います。`query_graph_tool` のゼロ件・未検出応答には `zero_result_reason`、`next_action`、`result_count`、`results`、`answerability`、`missingness` が含まれます。不在はソースやテストで確認するまでグラフ限定として扱ってください。ドキュメントブリッジ結果は証拠を `authored`、`extracted`、`heuristic_reachable` とラベル付けし、Markdown 追跡可能性を検証済み契約と混同しないようにします。
 
 ## AI プラットフォーム連携
 

@@ -26,11 +26,6 @@ _BUILD_COMMANDS = frozenset(
         "postprocess",
         "watch",
         "status",
-        "visualize",
-        "sdp-metrics",
-        "detect-sdp",
-        "sap-metrics",
-        "detect-sap",
     }
 )
 _TOOL_COMMANDS = frozenset({"tool"})
@@ -97,11 +92,9 @@ def main() -> None:
     build = _command_module("build")
     serve = _command_module("serve")
     detect_changes = _command_module("detect_changes")
-    wiki = _command_module("wiki")
     registry = _command_module("registry")
     daemon = _command_module("daemon")
     eval_cmd = _command_module("eval_cmd")
-    profile = _command_module("profile")
     tool = _command_module("tool")
     worktree = _command_module("worktree")
     session = _command_module("session")
@@ -119,11 +112,9 @@ def main() -> None:
     build.register_commands(sub)
     serve_parser = serve.register_command(sub)
     detect_changes.register_command(sub)
-    wiki.register_command(sub)
     registry.register_commands(sub)
     daemon_parser = daemon.register_command(sub)
     eval_cmd.register_command(sub)
-    profile.register_command(sub)
     tool.register_command(sub)
     worktree_parsers = worktree.register_commands(sub)
     session_parsers = session.register_commands(sub)
@@ -148,18 +139,12 @@ def main() -> None:
             serve.handle(args, serve_parser)
         elif args.command == "detect-changes":
             detect_changes.handle(args)
-        elif args.command == "wiki":
-            wiki.handle(args)
         elif args.command in ("register", "unregister", "repos"):
             registry.handle(args)
         elif args.command == "daemon":
             daemon.handle(args, daemon_parser)
         elif args.command == "eval":
             eval_cmd.handle(args)
-        elif args.command == "profile":
-            rc = profile.handle(args)
-            if rc:
-                sys.exit(rc)
         elif args.command in _TOOL_COMMANDS:
             tool.handle(args)
         elif args.command == "worktree":

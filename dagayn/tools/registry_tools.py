@@ -75,10 +75,6 @@ def cross_repo_search_func(
                 "ok",
                 "No repositories registered.",
                 results=[],
-                next_tool_suggestions=[
-                    "Run: dagayn register <path> -- add a repository to the registry",
-                    "list_repos_tool -- check currently registered repos",
-                ],
             )
 
         all_results: list[SearchResult] = []
@@ -184,10 +180,6 @@ def cross_repo_search_func(
             repos_skipped=skipped_repos,
             repo_search_modes=repo_modes,
             missingness=missingness,
-            next_tool_suggestions=[
-                "list_repos_tool -- inspect the registered repositories",
-                "semantic_search_nodes_tool -- search within the current repository only",
-            ],
         )
     except Exception as exc:
         return handle_tool_runtime_error(exc, logger=logger, context="cross_repo_search")

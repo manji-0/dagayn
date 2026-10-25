@@ -8,14 +8,14 @@
 //! `dangling_reference` and `unchanged_caller` read the base side of the
 //! change ([`crate::base_symbols`]); the other finders read the current graph.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 
 use dagayn_graph::{GraphEdge, GraphNode, GraphStore, is_reportable_bridge};
 use serde_json::{Map, Value, json};
 
 use crate::base_symbols::{self, Reference, SymbolDelta};
-use crate::changes::Analysis;
+use crate::changes::{Analysis, Ranges};
 use crate::query::cross_artifact_role;
 
 /// Symbols a grouped finding lists by name; the rest are counted.
@@ -80,6 +80,18 @@ pub(crate) struct Inputs<'a> {
     pub changed_nodes: &'a [GraphNode],
     /// The ref the change is diffed against.
     pub base: &'a str,
+    /// Repo-relative file -> changed line spans on the new side.
+    pub changed_ranges: &'a Ranges,
+}
+
+/// What a change set is: its files, their changed lines, and its base.
+pub(crate) struct ChangeSet<'a> {
+    /// Repo-relative changed files.
+    pub files: &'a [String],
+    /// Repo-relative file -> changed line spans on the new side; a file
+    /// without an entry counts as changed throughout.
+    pub ranges: &'a Ranges,
+    pub base: &'a str,
 }
 
 impl Inputs<'_> {
@@ -118,9 +130,13 @@ pub(crate) fn change_findings(
     store: &GraphStore,
     root: &Path,
     analysis: &Analysis,
-    changed_files: &[String],
-    base: &str,
+    change: ChangeSet<'_>,
 ) -> Option<ChangeFindings> {
+    let ChangeSet {
+        files: changed_files,
+        ranges,
+        base,
+    } = change;
     let delta = base_symbols::symbol_delta(root, base, changed_files);
     let references = base_symbols::references_to(store, &delta.reference_targets(), changed_files);
     let mut nodes = Vec::new();
@@ -143,6 +159,7 @@ pub(crate) fn change_findings(
         changed_files,
         changed_nodes: &nodes,
         base,
+        changed_ranges: ranges,
     };
     let kinds = [
         dangling_references(&delta, &references),
@@ -398,7 +415,9 @@ fn reached_by_test(inputs: &Inputs, node: &GraphNode) -> Option<bool> {
 /// (TESTED_BY, or a `dagayn: tests` declaration); hop `n` a test among the
 /// callers `n` calls up, or a direct test of one `n - 1` up. A function
 /// passed as a value is called by what it is passed to; a type reference is
-/// not a call. A module-level instance's implicit methods, a module's
+/// not a call. A Rust method of `impl Trait for Type` is called wherever
+/// its type is (`Drop`, `Deserialize`, a visitor the library walks). A
+/// module-level instance's implicit methods, a module's
 /// `__getattr__`, and a call at a module's top level (`import_time`) run
 /// once the module is imported, so there the module is called by the files
 /// that import it.
@@ -422,6 +441,7 @@ pub(crate) fn nearest_test(
     // returning `Store()`).
     let mut imported: HashSet<String> = HashSet::new();
     let mut implicit: HashSet<String> = HashSet::new();
+    let mut sources: HashMap<String, Option<Vec<String>>> = HashMap::new();
     for depth in 0..=limit {
         for current in &frontier {
             if let Some(test) = direct_tests(store, current)?.into_iter().next() {
@@ -436,7 +456,7 @@ pub(crate) fn nearest_test(
         // module's `__getattr__` wherever the module is.
         let mut classes: Vec<String> = Vec::new();
         for current in &frontier {
-            if let Some(class) = implicit_caller(store, current)?
+            if let Some(class) = implicit_caller(store, root, &mut sources, current)?
                 && !frontier.contains(&class)
                 && !classes.contains(&class)
             {
@@ -516,12 +536,22 @@ fn is_python_module(qn: &str) -> bool {
 
 /// What calls `qn` without naming it: the class whose use runs a dunder
 /// method (`__init__` on construction, `__enter__` in a `with`) or a
-/// property or validator (`@property`, `@field_validator`), or the module
-/// whose attribute lookup runs its `__getattr__` / `__dir__` (PEP 562).
-fn implicit_caller(store: &GraphStore, qn: &str) -> Option<Option<String>> {
+/// property or validator (`@property`, `@field_validator`), the Rust type
+/// whose trait implementation `qn` is in, or the module whose attribute
+/// lookup runs its `__getattr__` / `__dir__` (PEP 562). `sources` caches
+/// the lines of the Rust files read.
+fn implicit_caller(
+    store: &GraphStore,
+    root: &Path,
+    sources: &mut HashMap<String, Option<Vec<String>>>,
+    qn: &str,
+) -> Option<Option<String>> {
     let Some(node) = store.get_node(qn).ok()? else {
         return Some(None);
     };
+    if node.language == "rust" {
+        return Some(rust_trait_impl_type(store, root, sources, &node));
+    }
     let Some(parent) = node.parent_name.as_deref() else {
         let module = qn.split_once("::").map(|(file, _)| file);
         return Some(
@@ -555,6 +585,58 @@ fn implicit_caller(store: &GraphStore, qn: &str) -> Option<Option<String>> {
         .ok()?
         .is_some_and(|node| node.kind == "Class");
     Some(is_class.then_some(class))
+}
+
+/// Traits whose methods code calls by syntax of its own (`==`, `.into()`,
+/// `.as_ref()`, `.clone()`, `T::default()`): not called wherever the type
+/// is used.
+const CALLED_BY_SYNTAX_TRAITS: &[&str] = &[
+    "AsMut",
+    "AsRef",
+    "Borrow",
+    "BorrowMut",
+    "Clone",
+    "Default",
+    "Eq",
+    "From",
+    "FromStr",
+    "Hash",
+    "Into",
+    "Ord",
+    "PartialEq",
+    "PartialOrd",
+    "TryFrom",
+    "TryInto",
+];
+
+/// The type of a Rust method in an `impl Trait for Type` block, unless
+/// [`CALLED_BY_SYNTAX_TRAITS`] has the trait: the enclosing node of `node`,
+/// when it is a class.
+fn rust_trait_impl_type(
+    store: &GraphStore,
+    root: &Path,
+    sources: &mut HashMap<String, Option<Vec<String>>>,
+    node: &GraphNode,
+) -> Option<String> {
+    node.parent_name.as_ref()?;
+    let (class, _) = node.qualified_name.rsplit_once('.')?;
+    let lines = sources
+        .entry(node.file_path.clone())
+        .or_insert_with(|| {
+            let text = std::fs::read_to_string(root.join(&node.file_path)).ok()?;
+            Some(text.lines().map(str::to_string).collect())
+        })
+        .as_deref()?;
+    let called_by_syntax = crate::dead_code_verify::rust_impl_trait(lines, node.line_start)
+        .is_none_or(|name| CALLED_BY_SYNTAX_TRAITS.contains(&name));
+    if called_by_syntax {
+        return None;
+    }
+    store
+        .get_node(class)
+        .ok()?
+        .filter(|node| node.kind == "Class")
+        .map(|node| node.qualified_name)
 }
 
 /// `contract_doc_not_updated`: authored contract docs linked to changed
@@ -655,7 +737,7 @@ pub(crate) fn bridges(inputs: &Inputs) -> Option<Vec<Value>> {
             continue;
         }
         let role = cross_artifact_role(edge).unwrap_or("");
-        if manifest_table_unchanged(inputs, edge) {
+        if manifest_table_unchanged(inputs, edge) || bridged_attribute_unchanged(inputs, edge) {
             continue;
         }
         if IMPLIED_BRIDGE_ROLES.contains(&role)
@@ -677,10 +759,21 @@ pub(crate) fn bridges(inputs: &Inputs) -> Option<Vec<Value>> {
                 file
             }
         };
-        if changed.contains(file.as_str()) {
+        // A directory bridge reaches each code file in it (`reference` is
+        // the directory as written): one place to check, edited when any
+        // file in it is.
+        let place = edge.extra["reference"]
+            .as_str()
+            .filter(|reference| *reference != file)
+            .map_or(file, str::to_string);
+        let inside = format!("{place}/");
+        if changed
+            .iter()
+            .any(|path| *path == place || path.starts_with(&inside))
+        {
             continue;
         }
-        let entry = targets.entry(file).or_default();
+        let entry = targets.entry(place).or_default();
         if !entry.0.contains(target) {
             entry.0.push(target.clone());
         }
@@ -716,6 +809,24 @@ pub(crate) fn bridges(inputs: &Inputs) -> Option<Vec<Value>> {
             })
             .collect(),
     )
+}
+
+/// Whether a bridge that records the attribute carrying it (`attr_lines`:
+/// a Terraform `handler`, or the module input feeding one) lies outside
+/// every changed line of its file: the edit was elsewhere in the block. A
+/// file without line ranges counts as changed throughout.
+fn bridged_attribute_unchanged(inputs: &Inputs, edge: &GraphEdge) -> bool {
+    let (Some(start), Some(end)) = (
+        edge.extra["attr_lines"][0].as_i64(),
+        edge.extra["attr_lines"][1].as_i64(),
+    ) else {
+        return false;
+    };
+    let file = inputs.relative(&edge.file_path);
+    inputs
+        .changed_ranges
+        .get(&file)
+        .is_some_and(|spans| spans.iter().all(|&(from, to)| to < start || from > end))
 }
 
 /// Whether a TOML manifest bridge's table (`[tool.maturin]` for

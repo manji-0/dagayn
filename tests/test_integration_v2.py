@@ -2,7 +2,7 @@
 
 Exercises: communities, FTS search,
 find_dead_code, review_changes_prompt,
-generate_wiki, and the Registry API.
+and the Registry API.
 """
 
 import tempfile
@@ -19,7 +19,6 @@ from dagayn.prompts import review_changes_prompt
 from dagayn.refactor import find_dead_code
 from dagayn.registry import Registry
 from dagayn.search import hybrid_search, rebuild_fts_index
-from dagayn.wiki import generate_wiki
 from tests.dead_code_candidates import graph_dead_code_candidates
 
 
@@ -375,26 +374,7 @@ class TestV2Integration:
         assert prompt_messages[0]["role"] == "user"
         assert 'review_tool(mode="changes"' in prompt_messages[0]["content"]
 
-        # ---- Step 9: generate_wiki ----
-        with tempfile.TemporaryDirectory() as wiki_dir:
-            wiki_result = generate_wiki(self.store, wiki_dir, force=True)
-            assert "pages_generated" in wiki_result
-            assert "pages_updated" in wiki_result
-            assert "pages_unchanged" in wiki_result
-            total = (
-                wiki_result["pages_generated"]
-                + wiki_result["pages_updated"]
-                + wiki_result["pages_unchanged"]
-            )
-            # At least one community page should have been generated
-            assert total >= 0  # might be 0 if no communities stored
-            if stored_comms:
-                assert total > 0, "Wiki should generate pages for communities"
-                # Verify index file exists
-                index_path = Path(wiki_dir) / "index.md"
-                assert index_path.exists(), "Wiki should generate index.md"
-
-        # ---- Step 10: Registry (basic API test) ----
+        # ---- Step 9: Registry (basic API test) ----
         with tempfile.TemporaryDirectory() as reg_dir:
             reg_path = Path(reg_dir) / "registry.json"
             registry = Registry(path=reg_path)

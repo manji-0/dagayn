@@ -76,7 +76,10 @@ struct Reference {
 struct ScipIndex {
     documents: HashMap<String, Encoding>,
     references: HashMap<(String, i64), Vec<Reference>>,
-    definitions: HashMap<String, (String, i64)>,
+    /// Symbol -> where it is defined. rust-analyzer gives items of one
+    /// package's targets (`src/lib.rs::answer` and `tests/tools.rs::answer`)
+    /// and same-named nested functions of one module the same symbol.
+    definitions: HashMap<String, Vec<(String, i64)>>,
 }
 
 const ROLE_DEFINITION: i32 = 1;
@@ -104,9 +107,13 @@ fn read_index(path: &Path, prefix: &str) -> Result<ScipIndex> {
             }
             let line = i64::from(range[0]) + 1;
             if occurrence.symbol_roles & ROLE_DEFINITION != 0 {
-                read.definitions
+                let definitions = read
+                    .definitions
                     .entry(occurrence.symbol.clone())
-                    .or_insert_with(|| (file.clone(), line));
+                    .or_default();
+                if !definitions.contains(&(file.clone(), line)) {
+                    definitions.push((file.clone(), line));
+                }
             }
             if occurrence.symbol_roles & (ROLE_DEFINITION | ROLE_IMPORT) != 0 {
                 continue;
@@ -258,6 +265,36 @@ fn defined_names(symbol: &str) -> Vec<String> {
     }
 }
 
+/// A qualified name as its path, file, and symbol segments
+/// (`a/b.rs::f.g` is `a`, `b.rs`, `::`, `f`, `g`).
+fn scope_segments(qualified: &str) -> Vec<&str> {
+    let (file, symbol) = qualified.split_once("::").unwrap_or((qualified, ""));
+    let mut segments: Vec<&str> = file.split('/').collect();
+    segments.push("::");
+    segments.extend(symbol.split('.').filter(|segment| !segment.is_empty()));
+    segments
+}
+
+/// Of the nodes defining one symbol, the one the caller `source` sees: the
+/// one sharing the most leading scope segments with it (its own target's
+/// `answer`, the `visit` nested in its own function). `None` on a tie.
+fn visible_definition<'a>(source: &str, candidates: &'a [String]) -> Option<&'a String> {
+    let source = scope_segments(source);
+    let shared = |candidate: &String| {
+        scope_segments(candidate)
+            .iter()
+            .zip(&source)
+            .take_while(|(a, b)| a == b)
+            .count()
+    };
+    let best = candidates.iter().map(shared).max()?;
+    let mut nearest = candidates
+        .iter()
+        .filter(|candidate| shared(candidate) == best);
+    let first = nearest.next()?;
+    nearest.next().is_none().then_some(first)
+}
+
 fn settle(extra: &mut Value) {
     if !extra.is_object() {
         *extra = json!({});
@@ -308,7 +345,7 @@ fn write_edge(
 impl GraphStore {
     /// Settles `CALLS` edges by the SCIP index at `index_path` (see the
     /// module docs). `prefix` turns its document paths into the graph's
-    /// (`dagayn-vscode/` for an index made in that directory); `repo_root`
+    /// (`frontend/` for an index made in that directory); `repo_root`
     /// holds the files the graph parsed. An `authoritative` index moves any
     /// edge it disagrees with; otherwise it only settles edges resolution
     /// left unresolved and confirms the ones it agrees with.
@@ -375,18 +412,26 @@ impl GraphStore {
         };
         let edges = {
             let mut stmt = tx.prepare(
-                "SELECT id, target_qualified, file_path, line, confidence_tier, extra \
-                 FROM edges WHERE kind = 'CALLS' ORDER BY file_path, line",
+                "SELECT id, source_qualified, target_qualified, file_path, line, \
+                 confidence_tier, extra FROM edges WHERE kind = 'CALLS' ORDER BY file_path, line",
             )?;
             let rows = stmt.query_map([], |row| {
-                <(i64, String, String, i64, Option<String>, Option<String>)>::try_from(row)
+                <(
+                    i64,
+                    String,
+                    String,
+                    String,
+                    i64,
+                    Option<String>,
+                    Option<String>,
+                )>::try_from(row)
             })?;
             rows.collect::<std::result::Result<Vec<_>, _>>()?
         };
         // File -> its lines, or `None` when it changed since the graph
         // parsed it.
         let mut sources: HashMap<String, Option<Vec<String>>> = HashMap::new();
-        for (id, target, file, line, tier, extra) in edges {
+        for (id, source, target, file, line, tier, extra) in edges {
             let Some(&encoding) = index.documents.get(&file) else {
                 continue;
             };
@@ -468,11 +513,32 @@ impl GraphStore {
                 }
                 continue;
             }
-            if let Some((definition_file, definition_line)) = index.definitions.get(symbol) {
+            if let Some(definitions) = index.definitions.get(symbol) {
+                let names = defined_names(symbol);
+                let defined: Vec<((&String, i64), Option<String>)> = definitions
+                    .iter()
+                    .map(|(file, line)| ((file, *line), node_at(file, *line, &names)))
+                    .collect();
+                let definition = match defined.as_slice() {
+                    [only] => Some(only),
+                    _ => {
+                        let nodes: Vec<String> = defined
+                            .iter()
+                            .filter_map(|(_, node)| node.clone())
+                            .collect();
+                        visible_definition(&source, &nodes)
+                            .and_then(|node| defined.iter().find(|(_, n)| n.as_ref() == Some(node)))
+                    }
+                };
+                let Some(((definition_file, definition_line), node)) = definition else {
+                    stats.ambiguous += 1;
+                    continue;
+                };
+                let (definition_file, definition_line) = (*definition_file, *definition_line);
                 let holds_definition = at_node.is_some_and(|(node_file, start, end)| {
                     node_file == definition_file
-                        && *start <= *definition_line
-                        && *definition_line <= *end
+                        && *start <= definition_line
+                        && definition_line <= *end
                 });
                 if holds_definition {
                     settle(&mut extra);
@@ -484,8 +550,7 @@ impl GraphStore {
                     stats.left += 1;
                     continue;
                 }
-                let Some(node) = node_at(definition_file, *definition_line, &defined_names(symbol))
-                else {
+                let Some(node) = node else {
                     stats.left += 1;
                     continue;
                 };
@@ -495,7 +560,7 @@ impl GraphStore {
                         map.remove(key);
                     }
                 }
-                write_edge(&tx, id, &node, &extra, Some(ConfidenceTier::High))?;
+                write_edge(&tx, id, node, &extra, Some(ConfidenceTier::High))?;
                 stats.rewritten_to_node += 1;
                 continue;
             }
@@ -636,6 +701,133 @@ mod tests {
             defined_names("rust-analyzer cargo demo 0.1.0 b/Bindings#snapshot()."),
             vec!["snapshot".to_string()]
         );
+    }
+
+    #[test]
+    fn a_symbol_defined_twice_is_the_definition_its_caller_sees() {
+        let answers = [
+            "crates/t/tests/tools.rs::answer".to_string(),
+            "crates/t/src/lib.rs::answer".to_string(),
+        ];
+        assert_eq!(
+            visible_definition("crates/t/src/lib.rs::call", &answers),
+            Some(&answers[1])
+        );
+        assert_eq!(
+            visible_definition("crates/t/src/review.rs::Review.changes", &answers),
+            Some(&answers[1])
+        );
+        assert_eq!(
+            visible_definition("crates/t/tests/tools.rs::declines", &answers),
+            Some(&answers[0])
+        );
+        let visits = [
+            "src/m.rs::bindings.visit".to_string(),
+            "src/m.rs::deref_targets.visit".to_string(),
+        ];
+        assert_eq!(
+            visible_definition("src/m.rs::deref_targets", &visits),
+            Some(&visits[1])
+        );
+        assert_eq!(
+            visible_definition("src/m.rs::deref_targets.visit", &visits),
+            Some(&visits[1])
+        );
+        assert_eq!(visible_definition("src/m.rs::other", &visits), None);
+    }
+
+    #[test]
+    fn a_call_keeps_its_own_target_when_a_test_crate_defines_the_same_symbol() {
+        use ::scip::types::{Document, Occurrence};
+
+        let root = std::env::temp_dir().join(format!("dagayn-scip-twice-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let lib = "fn call() {\n    answer();\n}\nfn answer() {}\n";
+        let tools = "fn answer() {}\n";
+        let mut store = GraphStore::open(root.join("graph.db")).expect("open graph store");
+        for (file, text) in [("src/lib.rs", lib), ("tests/tools.rs", tools)] {
+            std::fs::create_dir_all(root.join(file).parent().unwrap()).unwrap();
+            std::fs::write(root.join(file), text).unwrap();
+            let hash = Sha256::digest(text.as_bytes())
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>();
+            let node = |kind: &str, name: &str, start: i64, end: i64| NodeInput {
+                kind: kind.to_string(),
+                name: name.to_string(),
+                file_path: file.to_string(),
+                line_start: start,
+                line_end: end,
+                language: "rust".to_string(),
+                parent_name: None,
+                params: None,
+                return_type: None,
+                modifiers: None,
+                is_test: false,
+                extra: json!({}),
+            };
+            let (nodes, edges) = if file == "src/lib.rs" {
+                let call = EdgeInput {
+                    kind: "CALLS".to_string(),
+                    source: "src/lib.rs::call".to_string(),
+                    target: "src/lib.rs::answer".to_string(),
+                    file_path: file.to_string(),
+                    line: 2,
+                    extra: json!({}),
+                };
+                (
+                    vec![
+                        node("File", file, 1, 4),
+                        node("Function", "call", 1, 3),
+                        node("Function", "answer", 4, 4),
+                    ],
+                    vec![call],
+                )
+            } else {
+                (
+                    vec![node("File", file, 1, 1), node("Function", "answer", 1, 1)],
+                    Vec::new(),
+                )
+            };
+            store
+                .store_file_nodes_edges(file, &nodes, &edges, &hash, 0)
+                .expect("store file");
+        }
+        // rust-analyzer names both crate-root `answer`s of one package alike.
+        let symbol = "rust-analyzer cargo demo 0.1.0 answer().";
+        let occurrence = |line: i32, start: i32, roles: i32| Occurrence {
+            range: vec![line, start, start + 6],
+            symbol: symbol.to_string(),
+            symbol_roles: roles,
+            ..Occurrence::default()
+        };
+        let document = |path: &str, occurrences: Vec<Occurrence>| Document {
+            relative_path: path.to_string(),
+            occurrences,
+            position_encoding: ::scip::types::PositionEncoding::UTF8CodeUnitOffsetFromLineStart
+                .into(),
+            ..Document::default()
+        };
+        let index = Index {
+            documents: vec![
+                document("tests/tools.rs", vec![occurrence(0, 3, ROLE_DEFINITION)]),
+                document(
+                    "src/lib.rs",
+                    vec![occurrence(1, 4, 0), occurrence(3, 3, ROLE_DEFINITION)],
+                ),
+            ],
+            ..Index::default()
+        };
+        let index_path = root.join("index.scip");
+        std::fs::write(&index_path, index.write_to_bytes().unwrap()).unwrap();
+
+        store
+            .apply_scip_overlay(&index_path, "", &root, true)
+            .expect("apply overlay");
+        let edges = store.get_edges_by_source("src/lib.rs::call").unwrap();
+        assert_eq!(edges.len(), 1);
+        assert_eq!(edges[0].target_qualified, "src/lib.rs::answer");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

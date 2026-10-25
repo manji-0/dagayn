@@ -1,0 +1,42 @@
+# A local Lambda module in the style of terraform-aws-modules/lambda: the
+# call in examples/app passes source_path, which the module hands to its
+# packaging program through data "external" query, so the call bridges to
+# each code file under examples/app/src.
+files:
+  modules/lambda/main.tf: |
+    data "external" "archive_prepare" {
+      program = ["python3", "${path.module}/package.py"]
+      query = {
+        runtime     = var.runtime
+        source_path = jsonencode(var.source_path)
+      }
+    }
+
+    resource "aws_lambda_function" "this" {
+      handler = var.handler
+      runtime = var.runtime
+    }
+  modules/lambda/variables.tf: |
+    variable "source_path" {}
+    variable "handler" {}
+    variable "runtime" {}
+  modules/lambda/package.py: |
+    def prepare(query):
+        return query
+  examples/app/main.tf: |
+    module "lambda" {
+      source = "../../modules/lambda"
+
+      handler     = "index.lambda_handler"
+      runtime     = "python3.12"
+      source_path = "${path.module}/src"
+    }
+  examples/app/src/index.py: |
+    from util import double
+
+
+    def lambda_handler(event=None, context=None):
+        return double(1)
+  examples/app/src/util.py: |
+    def double(value):
+        return value * 2
